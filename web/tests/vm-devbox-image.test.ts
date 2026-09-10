@@ -428,23 +428,34 @@ describe("devbox image template", () => {
     expect(devboxSourceDigest("base", rewriteDevboxAgentPins(dockerfile, { "@openai/codex": `${codex.version}9` }))).not.toBe(devboxSourceDigest("base", dockerfile));
     expect(devboxSourceDigest("base", dockerfile.replace(/^ENV CMUX_IMAGE_EPOCH=.*$/m, "ENV CMUX_IMAGE_EPOCH=1999-01-01-r1"))).not.toBe(devboxSourceDigest("base", dockerfile));
     // Schema 2 also sees a Dockerfile instruction change (a package added to a
-    // RUN, no ARG moved) and a bake-script code change; comment lines in
-    // either move nothing. Schema 1, the formula the first promoted ladders
-    // were recorded with, still ignores both.
+    // RUN, no ARG moved) and any non-blank line change in the bake script; a
+    // Dockerfile comment moves nothing. Schema 1, the formula the first
+    // promoted ladders were recorded with, ignores both.
     const withStep = dockerfile.replace(/^    bubblewrap \\$/m, "    bubblewrap \\\n    cowsay \\");
     expect(withStep).not.toBe(dockerfile);
     expect(devboxSourceDigest("base", withStep)).not.toBe(devboxSourceDigest("base", dockerfile));
     expect(devboxSourceDigest("base", withStep, 1)).toBe(devboxSourceDigest("base", dockerfile, 1));
+    expect(devboxSourceDigest("base", `${dockerfile}\n# a comment changes no machine\n`)).toBe(devboxSourceDigest("base", dockerfile));
     const bake = readScript("build-devbox-freestyle.ts");
     const withCode = () => `${bake}\nconsole.log("one more step");\n`;
-    const withComment = () => `${bake}\n// a comment changes no machine\n/**\n * neither does a doc block\n */\n`;
+    // A `*`-prefixed code line (a continued multiplication, a generator
+    // method) is code, not a doc block: a change limited to it must move the
+    // digest, so no line heuristic drops it.
+    const withStar = () => bake.replace(/\nconst STEP_TIMEOUT_MS = 300_000;\n/, "\nconst STEP_TIMEOUT_MS = 300\n  * 1_000;\n");
+    const withStarChanged = () => bake.replace(/\nconst STEP_TIMEOUT_MS = 300_000;\n/, "\nconst STEP_TIMEOUT_MS = 300\n  * 2_000;\n");
+    expect(withStar()).not.toBe(bake);
     expect(devboxSourceDigest("base", dockerfile, 2, withCode)).not.toBe(devboxSourceDigest("base", dockerfile, 2, () => bake));
-    expect(devboxSourceDigest("base", dockerfile, 2, withComment)).toBe(devboxSourceDigest("base", dockerfile, 2, () => bake));
+    expect(devboxSourceDigest("base", dockerfile, 2, withStarChanged)).not.toBe(devboxSourceDigest("base", dockerfile, 2, withStar));
+    // A comment edit to the bake script moves it too (stated trade-off: no lexer).
+    expect(devboxSourceDigest("base", dockerfile, 2, () => `${bake}\n// one more comment\n`)).not.toBe(devboxSourceDigest("base", dockerfile, 2, () => bake));
     expect(devboxSourceDigest("base", dockerfile, 1, withCode)).toBe(devboxSourceDigest("base", dockerfile, 1, () => bake));
     expect(() => devboxSourceDigest("base", dockerfile, 3)).toThrow(/unknown devbox source schema/);
-    // The normalizers themselves: comment and blank lines gone, code kept verbatim (trailing space trimmed).
-    expect(normalizedDockerfileInstructions("# c\n\nFROM ubuntu:24.04  \nRUN echo hi # keep\n  # indented comment\n")).toBe("FROM ubuntu:24.04\nRUN echo hi # keep");
-    expect(normalizedBakeScript("// c\n/**\n * doc\n */\nconst a = 1; // trailing stays\n\n  const url = \"https://x\";\n")).toBe("const a = 1; // trailing stays\n  const url = \"https://x\";");
+    // The normalizers themselves: Dockerfile comments gone by the grammar
+    // (a parser directive before the first instruction is kept, a `#` line
+    // inside a continued RUN is a comment), bake-script lines kept verbatim
+    // but for blank lines and trailing whitespace.
+    expect(normalizedDockerfileInstructions("# syntax=docker/dockerfile:1\n# c\n\nFROM ubuntu:24.04  \nRUN apt-get install \\\n  # inside a continuation\n  cowsay\nRUN echo hi # keep\n# escape=`\n")).toBe("# syntax=docker/dockerfile:1\nFROM ubuntu:24.04\nRUN apt-get install \\\n  cowsay\nRUN echo hi # keep");
+    expect(normalizedBakeScript("// c\n/**\n * doc\n */\nconst a = 1  \n\n  * 2;\n")).toBe("// c\n/**\n * doc\n */\nconst a = 1\n  * 2;");
     // Both bake entry points record the digest for the layers they baked.
     expect(readScript("build-devbox-freestyle.ts")).toContain('bakeMetadata(preflight, fileURLToPath(import.meta.url), withDesktop ? "desktop" : "base")');
     expect(readScript("promote-devbox-image.ts")).toContain("devboxSourceDriftProblems({ ...next, images: added })");

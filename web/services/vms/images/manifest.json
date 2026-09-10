@@ -5039,7 +5039,8 @@
       "epoch": "2026-09-09-r1",
       "devboxSource": {
         "layers": "base",
-        "digest": "15bed166e4f3c70794161bc175bfc96730df7d6ee6c047039e9b05e6e289356a"
+        "digest": "26bb25a193684ef9042bd358c42854142d29ef721a75ec3f32f7a747b1a8cda2",
+        "schema": 2
       },
       "builtAt": "2026-09-10T03:08:36.028Z",
       "builderScriptVersion": "716897e9b3988f8eebe4176da927799363f662ba5f745c17b5611d366f8e7ee2",
@@ -5075,7 +5076,8 @@
       "epoch": "2026-09-09-r1",
       "devboxSource": {
         "layers": "base",
-        "digest": "15bed166e4f3c70794161bc175bfc96730df7d6ee6c047039e9b05e6e289356a"
+        "digest": "26bb25a193684ef9042bd358c42854142d29ef721a75ec3f32f7a747b1a8cda2",
+        "schema": 2
       },
       "builtAt": "2026-09-10T03:08:36.028Z",
       "builderScriptVersion": "716897e9b3988f8eebe4176da927799363f662ba5f745c17b5611d366f8e7ee2",
@@ -5110,7 +5112,8 @@
       "epoch": "2026-09-09-r1",
       "devboxSource": {
         "layers": "base",
-        "digest": "15bed166e4f3c70794161bc175bfc96730df7d6ee6c047039e9b05e6e289356a"
+        "digest": "26bb25a193684ef9042bd358c42854142d29ef721a75ec3f32f7a747b1a8cda2",
+        "schema": 2
       },
       "builtAt": "2026-09-10T03:08:36.028Z",
       "builderScriptVersion": "716897e9b3988f8eebe4176da927799363f662ba5f745c17b5611d366f8e7ee2",
@@ -5145,7 +5148,8 @@
       "epoch": "2026-09-09-r1",
       "devboxSource": {
         "layers": "base",
-        "digest": "15bed166e4f3c70794161bc175bfc96730df7d6ee6c047039e9b05e6e289356a"
+        "digest": "26bb25a193684ef9042bd358c42854142d29ef721a75ec3f32f7a747b1a8cda2",
+        "schema": 2
       },
       "builtAt": "2026-09-10T03:08:36.028Z",
       "builderScriptVersion": "716897e9b3988f8eebe4176da927799363f662ba5f745c17b5611d366f8e7ee2",
@@ -5179,7 +5183,8 @@
       "epoch": "2026-09-09-r1",
       "devboxSource": {
         "layers": "base",
-        "digest": "15bed166e4f3c70794161bc175bfc96730df7d6ee6c047039e9b05e6e289356a"
+        "digest": "26bb25a193684ef9042bd358c42854142d29ef721a75ec3f32f7a747b1a8cda2",
+        "schema": 2
       },
       "builtAt": "2026-09-10T03:08:36.028Z",
       "builderScriptVersion": "716897e9b3988f8eebe4176da927799363f662ba5f745c17b5611d366f8e7ee2",
@@ -5214,7 +5219,8 @@
       "epoch": "2026-09-09-r1",
       "devboxSource": {
         "layers": "base",
-        "digest": "15bed166e4f3c70794161bc175bfc96730df7d6ee6c047039e9b05e6e289356a"
+        "digest": "26bb25a193684ef9042bd358c42854142d29ef721a75ec3f32f7a747b1a8cda2",
+        "schema": 2
       },
       "builtAt": "2026-09-10T03:08:36.028Z",
       "builderScriptVersion": "716897e9b3988f8eebe4176da927799363f662ba5f745c17b5611d366f8e7ee2",
@@ -5249,7 +5255,8 @@
       "epoch": "2026-09-09-r1",
       "devboxSource": {
         "layers": "desktop",
-        "digest": "97f5ac5c26c48de5aa1202be66aed3952c7a87951f8108949b7562fc529dcb42"
+        "digest": "499d3f102e2b24663788c43050049defbe280c87d6dcb9fd9544fb55afe71b5a",
+        "schema": 2
       },
       "builtAt": "2026-09-10T03:09:29.041Z",
       "builderScriptVersion": "716897e9b3988f8eebe4176da927799363f662ba5f745c17b5611d366f8e7ee2",
@@ -5284,7 +5291,8 @@
       "epoch": "2026-09-09-r1",
       "devboxSource": {
         "layers": "desktop",
-        "digest": "97f5ac5c26c48de5aa1202be66aed3952c7a87951f8108949b7562fc529dcb42"
+        "digest": "499d3f102e2b24663788c43050049defbe280c87d6dcb9fd9544fb55afe71b5a",
+        "schema": 2
       },
       "builtAt": "2026-09-10T03:09:29.041Z",
       "builderScriptVersion": "716897e9b3988f8eebe4176da927799363f662ba5f745c17b5611d366f8e7ee2",
@@ -5319,7 +5327,8 @@
       "epoch": "2026-09-09-r1",
       "devboxSource": {
         "layers": "desktop",
-        "digest": "97f5ac5c26c48de5aa1202be66aed3952c7a87951f8108949b7562fc529dcb42"
+        "digest": "499d3f102e2b24663788c43050049defbe280c87d6dcb9fd9544fb55afe71b5a",
+        "schema": 2
       },
       "builtAt": "2026-09-10T03:09:29.041Z",
       "builderScriptVersion": "716897e9b3988f8eebe4176da927799363f662ba5f745c17b5611d366f8e7ee2",
@@ -5354,7 +5363,8 @@
       "epoch": "2026-09-09-r1",
       "devboxSource": {
         "layers": "desktop",
-        "digest": "97f5ac5c26c48de5aa1202be66aed3952c7a87951f8108949b7562fc529dcb42"
+        "digest": "499d3f102e2b24663788c43050049defbe280c87d6dcb9fd9544fb55afe71b5a",
+        "schema": 2
       },
       "builtAt": "2026-09-10T03:09:29.041Z",
       "builderScriptVersion": "716897e9b3988f8eebe4176da927799363f662ba5f745c17b5611d366f8e7ee2",
@@ -5388,7 +5398,8 @@
       "epoch": "2026-09-09-r1",
       "devboxSource": {
         "layers": "desktop",
-        "digest": "97f5ac5c26c48de5aa1202be66aed3952c7a87951f8108949b7562fc529dcb42"
+        "digest": "499d3f102e2b24663788c43050049defbe280c87d6dcb9fd9544fb55afe71b5a",
+        "schema": 2
       },
       "builtAt": "2026-09-10T03:09:29.041Z",
       "builderScriptVersion": "716897e9b3988f8eebe4176da927799363f662ba5f745c17b5611d366f8e7ee2",
@@ -5423,7 +5434,8 @@
       "epoch": "2026-09-09-r1",
       "devboxSource": {
         "layers": "desktop",
-        "digest": "97f5ac5c26c48de5aa1202be66aed3952c7a87951f8108949b7562fc529dcb42"
+        "digest": "499d3f102e2b24663788c43050049defbe280c87d6dcb9fd9544fb55afe71b5a",
+        "schema": 2
       },
       "builtAt": "2026-09-10T03:09:29.041Z",
       "builderScriptVersion": "716897e9b3988f8eebe4176da927799363f662ba5f745c17b5611d366f8e7ee2",

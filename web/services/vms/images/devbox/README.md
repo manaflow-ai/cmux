@@ -66,7 +66,10 @@ writes):
   because a comment cannot change a machine) was baked from exactly this
   checkout's sources. An entry is checked with the schema it was recorded
   with (absent: 1), so a formula change never forces a rebake; new bakes
-  record `DEVBOX_SOURCE_SCHEMA`.
+  record `DEVBOX_SOURCE_SCHEMA`, and `bun run devbox:promote -- freestyle
+  --upgrade-source-schema` moves older defaults up without a bake where
+  their recorded digest and `builderScriptVersion` prove the checkout is
+  what they were baked from (anything else is kept and reported).
 
 Rollback is therefore a revert of the promotion commit as a whole, never the
 manifest flags alone.

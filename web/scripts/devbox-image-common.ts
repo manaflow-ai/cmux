@@ -336,46 +336,60 @@ export function devboxImageEpoch(dockerfile = readDevboxDockerfile()): string {
 /**
  * The source-digest formula version a manifest entry was recorded with.
  * Schema 1 covered the verbatim files, the ARG pins and the epoch; schema 2
- * adds the Dockerfile's instructions and the Freestyle bake script (both with
- * comment and blank lines dropped), so a step change such as a new apt
- * package can no longer leave the digest unchanged. Entries keep the schema
- * they were recorded with and are checked with that formula, so a formula
- * change never forces a rebake of an already promoted ladder; new bakes
- * record the current schema.
+ * adds the Dockerfile's instructions (comments dropped by the Dockerfile
+ * grammar) and every non-blank line of the Freestyle bake script, so a step
+ * change such as a new apt package can no longer leave the digest unchanged.
+ * Entries keep the schema they were recorded with and are checked with that
+ * formula, so a formula change never forces a rebake of an already promoted
+ * ladder; new bakes record the current schema, and
+ * `upgradeDevboxSourceRecords` moves an entry up only when its provenance is
+ * proven from what it already recorded.
  */
 export const DEVBOX_SOURCE_SCHEMA = 2;
 export const bakeScriptPath = path.join(webRoot, "scripts/build-devbox-freestyle.ts");
 
 /**
- * A Dockerfile reduced to its instructions: comment lines and blank lines
- * dropped, trailing whitespace trimmed. The container recipe and the Freestyle
- * replay are kept in step by hand, so an instruction edit is an image change
- * even when no ARG moved; a comment is not.
+ * A Dockerfile reduced to its instructions, by the Dockerfile grammar: a line
+ * whose first non-blank character is `#` is a comment (also inside a
+ * continued instruction) unless it is a parser directive (`# key=value`
+ * before the first instruction), which changes how the file is read and is
+ * kept. Blank lines dropped, trailing whitespace trimmed. The container
+ * recipe and the Freestyle replay are kept in step by hand, so an
+ * instruction edit is an image change even when no ARG moved; a comment is
+ * not.
  */
 export function normalizedDockerfileInstructions(dockerfile: string): string {
-  return dockerfile
-    .split("\n")
-    .map((line) => line.trimEnd())
-    .filter((line) => line.trim() !== "" && !line.trim().startsWith("#"))
-    .join("\n");
+  const kept: string[] = [];
+  let beforeFirstInstruction = true;
+  for (const raw of dockerfile.split("\n")) {
+    const line = raw.trimEnd();
+    const trimmed = line.trim();
+    if (trimmed === "") continue;
+    if (trimmed.startsWith("#")) {
+      if (beforeFirstInstruction && /^#\s*[A-Za-z][A-Za-z0-9]*\s*=/.test(trimmed)) kept.push(line);
+      continue;
+    }
+    beforeFirstInstruction = false;
+    kept.push(line);
+  }
+  return kept.join("\n");
 }
 
 /**
- * A TypeScript source reduced to its code lines: whole-line comments (lines
- * beginning with two slashes, a slash-star opener, or a star inside a doc
- * block) and blank lines dropped, trailing whitespace trimmed. Trailing
- * comments after code stay, as do comment markers inside strings: no
- * tokenizer, so the result is byte-stable across runtimes. The prose in the
- * bake script cannot change a machine; every step it runs can.
+ * The bake script reduced to its non-blank lines, trailing whitespace
+ * trimmed. Nothing else is dropped on purpose: telling a comment from code
+ * in TypeScript needs a full lexer (block comments, strings, template
+ * literals, regex literals), and any line heuristic can hide a code change
+ * (a `*`-prefixed continuation, a generator method). So a comment edit to
+ * build-devbox-freestyle.ts also moves the digest and asks for a
+ * re-promotion; that is the price of a digest that cannot miss a step
+ * change, and edits to the bake script are promoted anyway.
  */
 export function normalizedBakeScript(source: string): string {
   return source
     .split("\n")
     .map((line) => line.trimEnd())
-    .filter((line) => {
-      const trimmed = line.trim();
-      return trimmed !== "" && !trimmed.startsWith("//") && !trimmed.startsWith("/*") && !trimmed.startsWith("*");
-    })
+    .filter((line) => line.trim() !== "")
     .join("\n");
 }
 
@@ -386,8 +400,10 @@ export function normalizedBakeScript(source: string): string {
  * their DEVBOX_DESKTOP_INSTALLS path), the pins the Dockerfile ARGs carry
  * (agents, cua-driver, the Ghostty .deb, the desktop apt list), the epoch
  * and, from schema 2, the Dockerfile's instructions and the bake script's
- * code (normalizedDockerfileInstructions, normalizedBakeScript). Prose is
- * deliberately not part of it: a comment cannot change a machine.
+ * non-blank lines (normalizedDockerfileInstructions, normalizedBakeScript).
+ * Dockerfile prose is deliberately not part of it: a comment cannot change a
+ * machine; bake-script prose is, for want of a lexer that could tell it from
+ * code.
  * `devboxSourceDigest` is its sha256, recorded on every manifest entry at
  * bake time so `devboxSourceDriftProblems` can tell when main describes a
  * machine the promoted default no longer is.
@@ -1059,6 +1075,53 @@ export function devboxImageLadderProblems(
   return problems;
 }
 
+
+/**
+ * Moves default entries recorded at an older source schema to the current
+ * one without a rebake, only where the provenance is already proven by what
+ * the entry recorded: its digest at its own schema must equal this checkout's
+ * (the verbatim files, pins and epoch are the bake's), and its
+ * `builderScriptVersion` must equal this checkout's bake script (the one
+ * input the newer schema adds that the older one did not cover; the
+ * Dockerfile instructions are covered by the same ARG-derived pins plus the
+ * fact that the Freestyle replay reads nothing else from it). Anything else
+ * is left alone and reported: a rebake is the only other way up. Pure.
+ */
+export function upgradeDevboxSourceRecords(
+  manifest: DevboxImageManifest,
+  options: { provider?: DevboxProvider; dockerfile?: string; bakeScript?: () => string } = {},
+): { manifest: DevboxImageManifest; upgraded: string[]; skipped: Array<{ version: string; reason: string }> } {
+  const provider = options.provider ?? "freestyle";
+  const dockerfile = options.dockerfile ?? readDevboxDockerfile();
+  const bakeScript = options.bakeScript ?? (() => readFileSync(bakeScriptPath, "utf8"));
+  const bakeScriptSha256 = createHash("sha256").update(bakeScript()).digest("hex");
+  const upgraded: string[] = [];
+  const skipped: Array<{ version: string; reason: string }> = [];
+  const images = manifest.images.map((entry) => {
+    const source = entry.devboxSource;
+    if (entry.provider !== provider || !entry.defaultForKind || !source) return entry;
+    const schema = source.schema ?? 1;
+    if (schema >= DEVBOX_SOURCE_SCHEMA) return entry;
+    if (source.layers !== "desktop" && source.layers !== "base") {
+      skipped.push({ version: entry.version, reason: `devboxSource.layers ${String(source.layers)} is not desktop|base` });
+      return entry;
+    }
+    if (source.digest !== devboxSourceDigest(source.layers, dockerfile, schema, bakeScript)) {
+      skipped.push({ version: entry.version, reason: `schema ${schema} digest does not match this checkout` });
+      return entry;
+    }
+    if (entry.builderScriptVersion !== bakeScriptSha256) {
+      skipped.push({ version: entry.version, reason: "builderScriptVersion does not match this checkout's bake script" });
+      return entry;
+    }
+    upgraded.push(entry.version);
+    return {
+      ...entry,
+      devboxSource: { layers: source.layers, digest: devboxSourceDigest(source.layers, dockerfile, DEVBOX_SOURCE_SCHEMA, bakeScript), schema: DEVBOX_SOURCE_SCHEMA },
+    };
+  });
+  return { manifest: { schemaVersion: manifest.schemaVersion, images }, upgraded, skipped };
+}
 
 /** The epoch an entry was baked at: the field, or the `cmux devbox epoch <x>` prefix every bake writes into `notes`. */
 export function manifestEntryEpoch(entry: Pick<DevboxManifestEntry, "epoch" | "notes">): string | undefined {

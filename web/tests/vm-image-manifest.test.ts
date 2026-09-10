@@ -4,6 +4,9 @@ import {
   DEVBOX_SOURCE_SCHEMA,
   appendImageManifestEntries,
   bakeMetadata,
+  bakeScriptPath,
+  sha256File,
+  upgradeDevboxSourceRecords,
   devboxImageEpoch,
   devboxImageLadderProblems,
   devboxSourceDigest,
@@ -247,6 +250,53 @@ describe("promoteImageManifestEntry", () => {
       promoteImageManifestEntry(base, passedEntry({ imageId: "sh-old" }), { kinds: ["desktop"] }),
     ).toThrow(/already listed as freestyle-old-desktop \(desktop\)/);
     expect(() => promoteImageManifestEntry(base, passedEntry(), { kinds: [] })).toThrow(/no kinds/);
+  });
+});
+
+describe("upgradeDevboxSourceRecords (promote --upgrade-source-schema)", () => {
+  const dockerfile = readDevboxDockerfile();
+  const epoch = devboxImageEpoch(dockerfile);
+  const bakeScriptSha = sha256File(bakeScriptPath);
+  const recorded = (layers: "desktop" | "base", overrides: Partial<DevboxManifestEntry> = {}): DevboxManifestEntry =>
+    passedEntry({
+      version: `freestyle-${layers}-v1`,
+      imageId: `sh-${layers}-v1`,
+      kind: layers,
+      defaultForKind: true,
+      epoch,
+      builderScriptVersion: bakeScriptSha,
+      devboxSource: { layers, digest: devboxSourceDigest(layers, dockerfile, 1) },
+      ...overrides,
+    });
+  const manifestOf = (...images: DevboxManifestEntry[]): DevboxImageManifest => ({ schemaVersion: 1, images });
+
+  test("moves a schema-1 default up only when its digest and builderScriptVersion prove the checkout", () => {
+    const result = upgradeDevboxSourceRecords(manifestOf(recorded("desktop"), recorded("base")));
+    expect(result.upgraded).toEqual(["freestyle-desktop-v1", "freestyle-base-v1"]);
+    expect(result.skipped).toEqual([]);
+    for (const entry of result.manifest.images) {
+      expect(entry.devboxSource).toEqual({ layers: entry.kind, digest: devboxSourceDigest(entry.kind!, dockerfile, DEVBOX_SOURCE_SCHEMA), schema: DEVBOX_SOURCE_SCHEMA });
+    }
+    expect(devboxSourceDriftProblems(result.manifest)).toEqual([]);
+    // Idempotent: nothing left to upgrade.
+    expect(upgradeDevboxSourceRecords(result.manifest).upgraded).toEqual([]);
+  });
+
+  test("leaves an entry alone when its provenance is not proven, and never touches non-defaults", () => {
+    const stale = recorded("base", { version: "stale", builderScriptVersion: "0".repeat(64) });
+    const drifted = recorded("base", { version: "drifted", devboxSource: { layers: "base", digest: "1".repeat(64) } });
+    const demoted = recorded("base", { version: "demoted", defaultForKind: false });
+    const legacy = passedEntry({ version: "legacy", kind: "base", defaultForKind: true, epoch });
+    const result = upgradeDevboxSourceRecords(manifestOf(stale, drifted, demoted, legacy));
+    expect(result.upgraded).toEqual([]);
+    expect(result.skipped.map((row) => [row.version, row.reason])).toEqual([
+      ["stale", "builderScriptVersion does not match this checkout's bake script"],
+      ["drifted", "schema 1 digest does not match this checkout"],
+    ]);
+    expect(result.manifest.images.every((e) => (e.devboxSource?.schema ?? 1) === 1)).toBe(true);
+    // A different bake script than the one the entry recorded is not proven either.
+    const other = upgradeDevboxSourceRecords(manifestOf(recorded("base")), { bakeScript: () => "export {};\n" });
+    expect(other.upgraded).toEqual([]);
   });
 });
 

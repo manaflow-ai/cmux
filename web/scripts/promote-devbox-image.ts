@@ -40,6 +40,10 @@
  *   --skip-verify   record validationStatus "unknown" instead of verifying.
  *               The entry is appended but NOT flagged as any default.
  *   --dry-run   print the manifest diff without writing it.
+ *   --upgrade-source-schema  move default entries recorded at an older source
+ *               digest schema to the current one, only where their recorded
+ *               digest and builderScriptVersion prove the checkout is what
+ *               they were baked from (upgradeDevboxSourceRecords); no bake.
  *   --replay <json>  re-apply the rows an earlier promotion appended (the
  *               `entries` of its --out summary, or those rows copied from
  *               that PR's manifest diff) onto the current manifest: no bake,
@@ -81,6 +85,7 @@ import {
   type DevboxImageManifest,
   type DevboxManifestEntry,
   type DevboxProvider,
+  upgradeDevboxSourceRecords,
 } from "./devbox-image-common";
 
 const provider = process.argv[2] as DevboxProvider | undefined;
@@ -149,7 +154,29 @@ function commitManifest(label: string, manifest: DevboxImageManifest, next: Devb
   return added;
 }
 
-// 0. Replay (see the header): only the manifest edit, from rows that already
+// 0a. Source-schema upgrade (see the header): a manifest edit that adds no
+// row; every change is proven from what the entries already recorded.
+if (hasFlag("--upgrade-source-schema")) {
+  const manifest = readImageManifest();
+  const result = upgradeDevboxSourceRecords(manifest, { provider });
+  for (const row of result.skipped) console.log(`kept: ${row.version} (${row.reason})`);
+  if (result.upgraded.length === 0) {
+    console.log("no default entry to upgrade");
+    process.exit(0);
+  }
+  const problems = [...imageManifestProblems(result.manifest), ...devboxSourceDriftProblems(result.manifest)];
+  if (problems.length > 0) throw new Error(`refusing to write an inconsistent manifest:\n  ${problems.join("\n  ")}`);
+  console.log(`upgraded to source schema ${result.upgraded.length} entries:\n  ${result.upgraded.join("\n  ")}`);
+  if (dryRun) {
+    console.log(`--dry-run: not writing ${imageManifestPath}`);
+  } else {
+    writeImageManifest(result.manifest);
+    console.log(`wrote ${imageManifestPath}`);
+  }
+  process.exit(0);
+}
+
+// 0b. Replay (see the header): only the manifest edit, from rows that already
 // carry their verify outcome and derived ids.
 const replayPath = argValue("--replay");
 if (replayPath) {
