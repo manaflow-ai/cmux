@@ -21056,7 +21056,7 @@ struct CMUXCLI {
             guard !parsed.noFocus else {
                 throw CLIError(message: String(localized: "cli.rightSidebar.error.noFocusOnlySet", defaultValue: "right-sidebar: --no-focus is only valid with set"))
             }
-            return ["set", action]
+            return ["set", normalizedRightSidebarCLIArgument(action)]
 
         default:
             let rawAction = parsed.positional[0].trimmingCharacters(in: .whitespacesAndNewlines)

@@ -214,6 +214,9 @@ final class DeviceDirectory {
     func apply(_ frame: DevicePresenceFrame) {
         switch frame {
         case .snapshot(let devices):
+            // The first frame on a new socket starts a fresh ownership page
+            // set. Never carry an interrupted snapshot across connections.
+            pendingSyncSnapshot = []
             presenceInstances = [:]
             for device in devices {
                 for instance in device.instances {
