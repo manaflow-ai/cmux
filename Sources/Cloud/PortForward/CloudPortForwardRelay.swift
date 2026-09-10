@@ -29,7 +29,12 @@ struct CloudPortForwardRelay: Sendable {
 
     /// Returns when the connection has ended. A failure before the relay begins
     /// closes `client`, so a browser sees a connection error rather than a hang.
-    func carry(_ client: NWConnection, to target: CloudPortForwardTarget, queue: DispatchQueue) async {
+    func carry(
+        _ client: NWConnection,
+        to target: CloudPortForwardTarget,
+        queue: DispatchQueue,
+        onConnected: @Sendable (String) async -> Void = { _ in }
+    ) async {
         let claim: CloudHubSocketClaim
         do {
             claim = try await dialer.claimHubSocket()
@@ -40,8 +45,10 @@ struct CloudPortForwardRelay: Sendable {
         }
         let upstream: NWConnection
         do {
-            upstream = try await CloudHubConnector(timeout: handshakeTimeout, clock: clock)
-                .connect(endpoint: claim.endpoint, target: target, queue: queue).connection
+            let connected = try await CloudHubConnector(timeout: handshakeTimeout, clock: clock)
+                .connect(endpoint: claim.endpoint, target: target, queue: queue)
+            upstream = connected.connection
+            await onConnected(connected.host)
         } catch {
             logger.error("SOCKS5 CONNECT to \(target.host, privacy: .private):\(target.port, privacy: .public) failed: \(CloudMachineLink.errorText(error), privacy: .public)")
             client.cancel()
