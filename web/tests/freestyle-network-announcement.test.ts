@@ -61,6 +61,10 @@ describe("Freestyle private network readiness", () => {
         events.push(command.startsWith("python3 -c ") ? "guest-network" : "guest-daemon");
         return { statusCode: 0, stdout: "", stderr: "" };
       },
+      fs: {
+        writeTextFile: async () => {},
+        remove: async () => {},
+      },
       delete: async () => { events.push("delete"); },
     };
     const client = { vms: {
@@ -75,7 +79,9 @@ describe("Freestyle private network readiness", () => {
     const allocation = operation === "create"
       ? provider.create({ image: "sh-fixture", network: { id: "vpc-fixture" } })
       : provider.restore("sh-fixture", { network: { id: "vpc-fixture" } });
-    const preparation = operation === "restore" ? ["allocated", "guest-daemon"] : ["allocated"];
+    const preparation = operation === "restore"
+      ? ["allocated", "guest-daemon", "guest-daemon"]
+      : ["allocated", "guest-daemon"];
     if (hasAddresses) {
       await allocation;
       events.push("published");

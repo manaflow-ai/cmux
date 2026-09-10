@@ -29,8 +29,7 @@ describe("mobile-mac-compat route", () => {
     entries: [
       {
         minIOSVersion: "1.0.4",
-        stableMinVersion: "0.64.23",
-        nightly: { minBaseVersion: "0.64.22", minBuild: "3345650013202" },
+        buildKinds: { prod: { stableMinVersion: "0.64.23", nightly: { minBaseVersion: "0.64.22", minBuild: "3345650013202" } } },
       },
     ],
   };
@@ -90,15 +89,31 @@ describe("mobile-mac-compat route", () => {
     expect(validateList(mobileMacCompatList)).toEqual(mobileMacCompatList);
   });
 
+  test("keeps minimums scoped to each build kind", () => {
+    const entry = mobileMacCompatList.entries[0];
+    expect(entry.buildKinds?.prod.stableMinVersion).toBe("0.64.23");
+    expect(entry.buildKinds?.internal.stableMinVersion).toBe("0.64.22");
+    expect(entry.buildKinds?.beta.stableMinVersion).toBe("0.64.22");
+  });
+
+  test("rejects conflicting legacy and build-kind minimums", () => {
+    const entry = mobileMacCompatList.entries[0];
+    expect(() => validateList({ ...mobileMacCompatList, entries: [{ ...entry, stableMinVersion: "0.64.22" }] })).toThrow("must match");
+  });
+
+  test("rejects unknown build kinds", () => {
+    const entry = mobileMacCompatList.entries[0];
+    expect(() => validateList({ ...mobileMacCompatList, entries: [{ ...entry, buildKinds: { ...entry.buildKinds, typo: { stableMinVersion: "0.64.0" } } }] })).toThrow("not a supported build kind");
+  });
+
   test("accepts a tier without a nightly requirement and multiple ascending tiers", () => {
     const list: MobileMacCompatList = {
       ...base,
       entries: [
-        { minIOSVersion: "1.0.4", stableMinVersion: "0.64.23" },
+        { minIOSVersion: "1.0.4", buildKinds: { prod: { stableMinVersion: "0.64.23" } } },
         {
           minIOSVersion: "1.1",
-          stableMinVersion: "0.65.0",
-          nightly: { minBaseVersion: "0.65.0", minBuild: "3345650013300" },
+          buildKinds: { prod: { stableMinVersion: "0.65.0", nightly: { minBaseVersion: "0.65.0", minBuild: "3345650013300" } } },
         },
       ],
     };
@@ -240,7 +255,7 @@ describe("mobile-mac-compat route", () => {
       ...base,
       entries: [
         { minIOSVersion: "1.1", stableMinVersion: "0.65.0" },
-        { minIOSVersion: "1.0.4", stableMinVersion: "0.64.23" },
+        { minIOSVersion: "1.0.4", buildKinds: { prod: { stableMinVersion: "0.64.23" } } },
       ],
     };
     expect(() => validateList(list)).toThrow(
@@ -252,7 +267,7 @@ describe("mobile-mac-compat route", () => {
     const list: MobileMacCompatList = {
       ...base,
       entries: [
-        { minIOSVersion: "1.0.4", stableMinVersion: "0.64.23" },
+        { minIOSVersion: "1.0.4", buildKinds: { prod: { stableMinVersion: "0.64.23" } } },
         { minIOSVersion: "1.0.4", stableMinVersion: "0.64.24" },
       ],
     };

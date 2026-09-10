@@ -722,3 +722,625 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 }
+
+// MARK: - vm push --secret / --watch, vm agent --wait, vm self
+
+/// The second wave of transfer verbs, against the same mock control socket: a secret
+/// file rides `vm.file_put` (never `vm.exec`), `--watch` pushes again when the tree
+/// changes, `vm agent --wait --output` polls the terminal to its exit and pages its
+/// output, and `vm self` renders the reflection the app fetched.
+extension CLINotifyProcessIntegrationRegressionTests {
+    /// Every decoded v2 request the mock saw, in order.
+    private final class VMTransferRequestLog: @unchecked Sendable {
+        private let lock = NSLock()
+        private var requests: [[String: Any]] = []
+
+        func append(_ request: [String: Any]) {
+            lock.lock()
+            requests.append(request)
+            lock.unlock()
+        }
+
+        func snapshot() -> [[String: Any]] {
+            lock.lock()
+            defer { lock.unlock() }
+            return requests
+        }
+
+        var methods: [String] { snapshot().compactMap { $0["method"] as? String } }
+
+        func params(ofFirst method: String) -> [String: Any]? {
+            snapshot().first { ($0["method"] as? String) == method }?["params"] as? [String: Any]
+        }
+
+        func params(of method: String) -> [[String: Any]] {
+            snapshot().filter { ($0["method"] as? String) == method }.compactMap { $0["params"] as? [String: Any] }
+        }
+    }
+
+    /// A mock that routes every v2 method through `respond`; nil → "unexpected method".
+    /// `respond` may inspect the running log (call counts drive multi-step answers).
+    private func startVMTransferMethodMock(
+        listenerFD: Int32,
+        state: MockSocketServerState,
+        log: VMTransferRequestLog,
+        respond: @escaping @Sendable (_ method: String, _ params: [String: Any], _ log: VMTransferRequestLog) -> [String: Any]?
+    ) -> XCTestExpectation {
+        startMockServer(listenerFD: listenerFD, state: state) { line in
+            if line.hasPrefix("auth ") { return "OK" }
+            guard let request = self.jsonObject(line),
+                  let id = request["id"] as? String,
+                  let method = request["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            log.append(request)
+            let params = (request["params"] as? [String: Any]) ?? [:]
+            guard let result = respond(method, params, log) else {
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "Unexpected method \(method)"])
+            }
+            return self.v2Response(id: id, ok: true, result: result)
+        }
+    }
+
+    private func vmTransferEnvironment(socketPath: String, home: URL? = nil) -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        if let home { environment["HOME"] = home.path }
+        return environment
+    }
+
+    /// The bytes of the push in flight: reset by the staging truncate, fed by every
+    /// chunk, digested for the finalize step — so the mock verifies each sync exactly
+    /// as a machine would.
+    private final class VMPushAccumulator: @unchecked Sendable {
+        private let lock = NSLock()
+        private var bytes = Data()
+        private var finalized = 0
+
+        func reset() {
+            lock.lock()
+            bytes = Data()
+            lock.unlock()
+        }
+
+        func append(_ data: Data) {
+            lock.lock()
+            bytes.append(data)
+            lock.unlock()
+        }
+
+        /// The sha256sum-style report for the current push, counting it as finalized.
+        func finalizeReport(name: String) -> String {
+            lock.lock()
+            defer { lock.unlock() }
+            finalized += 1
+            return "\(CLINotifyProcessIntegrationRegressionTests.sha256Hex(bytes))  \(name)\n"
+        }
+
+        var finalizedCount: Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return finalized
+        }
+    }
+
+    private func vmTransferTempDir(_ name: String) throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vm-\(name)-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    func testVMPushSecretDeliversOverTheLinkNeverExec() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-push-secret")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let log = VMTransferRequestLog()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let tempDir = try vmTransferTempDir("secret")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let secret = Data("//registry.npmjs.org/:_authToken=npm_secret_value\n".utf8)
+        let localFile = tempDir.appendingPathComponent("npmrc")
+        try secret.write(to: localFile)
+
+        let serverHandled = startVMTransferMethodMock(listenerFD: listenerFD, state: state, log: log) { method, params, _ in
+            guard method == "vm.file_put", let machine = params["id"] as? String,
+                  let path = params["path"] as? String, let encoded = params["data_base64"] as? String,
+                  let bytes = Data(base64Encoded: encoded) else { return nil }
+            return ["machine": machine, "path": path, "mode": (params["mode"] as? String) ?? "600", "bytes": bytes.count, "transport": "link"]
+        }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "push", "--secret", "brave-otter", localFile.path, ".npmrc", "--mode", "600"],
+            environment: vmTransferEnvironment(socketPath: socketPath),
+            timeout: 30
+        )
+
+        wait(for: [serverHandled], timeout: 30)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        // One request, the link-backed method, the file's exact bytes — and no exec anywhere.
+        XCTAssertEqual(log.methods, ["vm.file_put"], log.methods.description)
+        let params = log.params(ofFirst: "vm.file_put")
+        XCTAssertEqual(params?["id"] as? String, "brave-otter")
+        XCTAssertEqual(params?["path"] as? String, ".npmrc")
+        XCTAssertEqual(params?["mode"] as? String, "600")
+        XCTAssertEqual((params?["data_base64"] as? String).flatMap { Data(base64Encoded: $0) }, secret)
+        XCTAssertFalse(state.snapshot().contains { $0.contains(#""method":"vm.exec""#) }, "a secret must never ride vm.exec")
+        XCTAssertTrue(result.stdout.contains("OK .npmrc (\(secret.count) bytes, mode 600) delivered over the link"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("npm_secret_value"), "the value must not be echoed: \(result.stdout)")
+    }
+
+    func testVMPushSecretRefusesDirectoriesAndWatchBeforeTouchingTheMachine() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-push-secret-dir")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let tempDir = try vmTransferTempDir("secret-dir")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try Data("x".utf8).write(to: tempDir.appendingPathComponent("a.txt"))
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+            self.v2Response(
+                id: self.jsonObject(line)?["id"] as? String ?? "unknown",
+                ok: false,
+                error: ["code": "unexpected", "message": "Local validation must not reach the socket"]
+            )
+        }
+        let environment = vmTransferEnvironment(socketPath: socketPath)
+
+        let directory = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "push", "--secret", "brave-otter", tempDir.path, "work/secrets"],
+            environment: environment,
+            timeout: 30
+        )
+        XCTAssertNotEqual(directory.status, 0, directory.stdout)
+        XCTAssertTrue(directory.stderr.contains("is a directory"), directory.stderr)
+
+        let combined = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "push", "--secret", "--watch", "brave-otter", tempDir.appendingPathComponent("a.txt").path],
+            environment: environment,
+            timeout: 30
+        )
+        XCTAssertNotEqual(combined.status, 0, combined.stdout)
+        XCTAssertTrue(combined.stderr.contains("does not combine with --watch"), combined.stderr)
+
+        let badMode = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "push", "--secret", "brave-otter", tempDir.appendingPathComponent("a.txt").path, "--mode", "rw"],
+            environment: environment,
+            timeout: 30
+        )
+        XCTAssertNotEqual(badMode.status, 0, badMode.stdout)
+        XCTAssertTrue(badMode.stderr.contains("--mode must be three or four octal digits"), badMode.stderr)
+
+        XCTAssertTrue(state.snapshot().isEmpty, "local validation must not reach the socket: \(state.snapshot())")
+    }
+
+    func testVMPushWatchPushesAgainWhenAFileChanges() throws {
+        try assertVMPushWatchPushesAgainWhenAFileChanges(jsonOutput: false)
+    }
+
+    func testVMPushJSONWatchReportsInitialAndSubsequentSyncs() throws {
+        try assertVMPushWatchPushesAgainWhenAFileChanges(jsonOutput: true)
+    }
+
+    private func assertVMPushWatchPushesAgainWhenAFileChanges(jsonOutput: Bool) throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-push-watch")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let pushes = VMPushAccumulator()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let tempDir = try vmTransferTempDir("watch")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try Data("one\n".utf8).write(to: tempDir.appendingPathComponent("one.txt"))
+        // Excluded trees must neither be pushed nor wake the watcher.
+        try FileManager.default.createDirectory(at: tempDir.appendingPathComponent("node_modules"), withIntermediateDirectories: true)
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if line.hasPrefix("auth ") { return "OK" }
+            guard let request = self.jsonObject(line),
+                  let id = request["id"] as? String,
+                  let method = request["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "vm.exec",
+                  let params = request["params"] as? [String: Any],
+                  let command = params["command"] as? String else {
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "Unexpected method \(method)"])
+            }
+            if command.hasPrefix(": > ") {
+                pushes.reset()
+                return self.vmExecOKResponse(id: id, stdout: "")
+            }
+            if command.contains("| base64 -d >>") {
+                guard let start = command.range(of: "printf %s '"),
+                      let end = command.range(of: "' | base64 -d >>"),
+                      let decoded = Data(base64Encoded: String(command[start.upperBound..<end.lowerBound])) else {
+                    return self.v2Response(id: id, ok: false, error: ["code": "bad_chunk", "message": "Unparseable chunk command"])
+                }
+                pushes.append(decoded)
+                return self.vmExecOKResponse(id: id, stdout: "")
+            }
+            if command.contains("sha256sum") {
+                // The watcher re-pushes the whole tree: every finalize is one sync, and
+                // the digest must be the tarball's or the CLI refuses the transfer.
+                return self.vmExecOKResponse(id: id, stdout: pushes.finalizeReport(name: "push.tgz"))
+            }
+            if command.hasPrefix("mkdir -p ") && command.contains("tar -xzf") {
+                return self.vmExecOKResponse(id: id, stdout: "")
+            }
+            return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "Unexpected command \(command)"])
+        }
+
+        // Mutate the tree once the first push has extracted and the watcher has taken
+        // its baseline: a new file, then the excluded folder (which must not count).
+        DispatchQueue.global().async {
+            let deadline = Date().addingTimeInterval(15)
+            while Date() < deadline, !state.snapshot().contains(where: { $0.contains("tar -xzf") }) {
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+            Thread.sleep(forTimeInterval: 0.8)
+            try? Data("ignored\n".utf8).write(to: tempDir.appendingPathComponent("node_modules/dep.js"))
+            try? Data("two\n".utf8).write(to: tempDir.appendingPathComponent("two.txt"))
+        }
+
+        var environment = vmTransferEnvironment(socketPath: socketPath)
+        environment["CMUX_VM_PUSH_WATCH_ROUNDS"] = "1"
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: (jsonOutput ? ["--json"] : []) + ["vm", "push", "brave-otter", tempDir.path, "work/app", "--watch", "--interval", "0.2"],
+            environment: environment,
+            timeout: 30
+        )
+
+        wait(for: [serverHandled], timeout: 30)
+        XCTAssertFalse(result.timedOut, "watch did not end after one sync: \(result.stderr)")
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        if jsonOutput {
+            let events = try result.stdout.split(separator: "\n").map { line in
+                try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+            }
+            XCTAssertEqual(events.count, 2, result.stdout)
+            XCTAssertEqual(events.compactMap { $0["event"] as? String }, ["synced", "synced"])
+            XCTAssertEqual(events.compactMap { $0["sync"] as? Int }, [0, 1])
+            XCTAssertEqual(events.compactMap { $0["files"] as? Int }, [1, 2])
+            XCTAssertFalse(result.stderr.contains("Pushed"), result.stderr)
+        } else {
+            XCTAssertTrue(result.stdout.contains("Pushed"), "the initial push reports like a one-shot push: \(result.stdout)")
+            XCTAssertTrue(result.stdout.contains("synced 2 files at "), "the re-push names the tracked files: \(result.stdout)")
+        }
+        XCTAssertEqual(pushes.finalizedCount, 2, "one initial push plus one re-push")
+        XCTAssertEqual(
+            state.snapshot().filter { $0.contains("tar -xzf") }.count, 2,
+            "each sync extracts on the machine"
+        )
+    }
+
+    func testVMAgentWaitPollsExitAndPagesOutput() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-agent-wait")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let log = VMTransferRequestLog()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let home = try vmTransferTempDir("agent-home")
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let serverHandled = startVMTransferMethodMock(listenerFD: listenerFD, state: state, log: log) { method, params, log in
+            switch method {
+            case "surface.new_terminal":
+                return ["terminal_id": "term_a1", "remote_workspace_id": "ws_1", "surface_id": ""]
+            case "vm.terminal_wait_exit":
+                // Still running once, then a clean exit with code 3.
+                if log.params(of: "vm.terminal_wait_exit").count == 1 {
+                    return ["state": "pending", "lifecycle": "running", "machine": "vivid-newt", "terminal_id": "term_a1"]
+                }
+                return ["state": "exited", "outcome": ["kind": "exit", "code": 3], "machine": "vivid-newt", "terminal_id": "term_a1"]
+            case "vm.terminal_output":
+                let after = (params["after"] as? Int) ?? 0
+                if after == 0 {
+                    return ["text": "hello ", "start_offset": "0", "next_offset": "6", "complete": false]
+                }
+                return ["text": "world\n", "start_offset": after, "next_offset": after + 6, "complete": true]
+            default:
+                return nil
+            }
+        }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "agent", "--agent", "claude", "--machine", "vivid-newt", "--no-open", "--wait", "--output", "--", "fix the failing test"],
+            environment: vmTransferEnvironment(socketPath: socketPath, home: home),
+            timeout: 30
+        )
+
+        wait(for: [serverHandled], timeout: 30)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        // The agent's exit code passes through; stdout is exactly its output.
+        XCTAssertEqual(result.status, 3, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertEqual(result.stdout, "hello world\n")
+        XCTAssertTrue(result.stderr.contains("exited code=3"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("Started claude on vivid-newt"), "launch report moves to stderr with --output: \(result.stderr)")
+        XCTAssertEqual(
+            log.methods,
+            ["surface.new_terminal", "vm.terminal_wait_exit", "vm.terminal_wait_exit", "vm.terminal_output", "vm.terminal_output"],
+            log.methods.description
+        )
+        let newTerminal = log.params(ofFirst: "surface.new_terminal")
+        XCTAssertEqual(newTerminal?["machine"] as? String, "vivid-newt")
+        XCTAssertEqual(newTerminal?["open"] as? Bool, false)
+        let waits = log.params(of: "vm.terminal_wait_exit")
+        XCTAssertEqual(waits.first?["terminal_id"] as? String, "term_a1")
+        XCTAssertEqual(waits.first?["timeout_ms"] as? Int, 30_000, "waits in ≤30 s slices")
+        let outputs = log.params(of: "vm.terminal_output")
+        XCTAssertEqual(outputs.map { $0["after"] as? Int }, [0, 6], "pages follow next_offset")
+    }
+
+    func testVMAgentWaitTimeoutLeavesTheAgentRunning() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-agent-wait-timeout")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let log = VMTransferRequestLog()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let home = try vmTransferTempDir("agent-home-timeout")
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let serverHandled = startVMTransferMethodMock(listenerFD: listenerFD, state: state, log: log) { method, _, _ in
+            switch method {
+            case "surface.new_terminal":
+                return ["terminal_id": "term_a1", "remote_workspace_id": "ws_1", "surface_id": ""]
+            case "vm.terminal_wait_exit":
+                // A real daemon holds the request up to timeout_ms; keep the poll honest.
+                Thread.sleep(forTimeInterval: 0.3)
+                return ["state": "pending", "lifecycle": "running"]
+            default:
+                return nil
+            }
+        }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "agent", "--agent", "codex", "--machine", "vivid-newt", "--no-open", "--wait", "--timeout", "1", "--json", "--", "summarize work/app"],
+            environment: vmTransferEnvironment(socketPath: socketPath, home: home),
+            timeout: 30
+        )
+
+        wait(for: [serverHandled], timeout: 30)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertTrue(result.stderr.contains("still running"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("cmux vm open vivid-newt/ws_1/term_a1"), "the reattach address is in the timeout message: \(result.stderr)")
+        // The JSON still describes the launch; nothing was closed or killed.
+        let payload = try XCTUnwrap(jsonObject(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)))
+        XCTAssertEqual(payload["exited"] as? Bool, false)
+        XCTAssertEqual(payload["terminal_id"] as? String, "term_a1")
+        XCTAssertFalse(log.methods.contains("vm.terminal_close"), log.methods.description)
+        let waits = log.params(of: "vm.terminal_wait_exit")
+        XCTAssertFalse(waits.isEmpty)
+        let requestedBudgets = waits.compactMap { $0["timeout_ms"] as? Int }
+        XCTAssertEqual(requestedBudgets.count, waits.count, "Every daemon wait must declare a budget")
+        XCTAssertTrue(requestedBudgets.allSatisfy { (0...1_000).contains($0) }, "Daemon request budgets must fit the configured 1 s budget: \(waits)")
+    }
+
+    func testVMSelfRendersTheReflectionIndexAndPassesPathsThrough() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-self")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let log = VMTransferRequestLog()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let index: [String: Any] = [
+            "name": "brave-otter",
+            "display_name": "Brave Otter",
+            "vm_id": "vm_123",
+            "status": "running",
+            "owner": ["user_id": "user_1", "email": "owner@example.com", "display_name": "Owner"],
+            "team_id": "team_9",
+            "plan_id": "pro",
+            "machines": [["id": "vm_123"], ["id": "vm_456"]],
+            "paths": [["path": "/owner", "description": "who owns this machine"], ["path": "/peers", "description": "sibling machines"]],
+        ]
+        let serverHandled = startVMTransferMethodMock(listenerFD: listenerFD, state: state, log: log) { method, params, _ in
+            guard method == "vm.reflection", let machine = params["id"] as? String else { return nil }
+            let path = (params["path"] as? String) ?? ""
+            switch path {
+            case "":
+                return ["machine": machine, "path": "", "http_status": 200, "reflection": index]
+            case "peers":
+                return ["machine": machine, "path": "peers", "http_status": 200, "reflection": ["peers": [["name": "vivid-newt", "route": "ws://[fd00::2]:1337/v1/link"]]]]
+            default:
+                return ["machine": machine, "path": path, "http_status": 404, "reflection": ["error": "not_found", "paths": [["path": "/owner"], ["path": "/peers"]]]]
+            }
+        }
+        let environment = vmTransferEnvironment(socketPath: socketPath)
+
+        let human = runProcess(executablePath: cliPath, arguments: ["vm", "self", "brave-otter"], environment: environment, timeout: 30)
+        XCTAssertEqual(human.status, 0, "stdout=\(human.stdout) stderr=\(human.stderr)")
+        XCTAssertEqual(human.stdout, """
+        name\tbrave-otter
+        machine\tvm_123\trunning
+        owner\towner@example.com
+        team\tteam_9\t2 machines
+        plan\tpro
+        paths\t/owner, /peers
+
+        """)
+
+        let raw = runProcess(executablePath: cliPath, arguments: ["vm", "self", "brave-otter", "--json"], environment: environment, timeout: 30)
+        XCTAssertEqual(raw.status, 0, raw.stderr)
+        let rawBody = try XCTUnwrap(jsonObject(raw.stdout.trimmingCharacters(in: .whitespacesAndNewlines)))
+        XCTAssertEqual(rawBody["vm_id"] as? String, "vm_123", "--json is the reflection body itself, not the socket envelope")
+        XCTAssertNil(rawBody["http_status"])
+
+        let peers = runProcess(executablePath: cliPath, arguments: ["vm", "self", "brave-otter", "/peers/"], environment: environment, timeout: 30)
+        XCTAssertEqual(peers.status, 0, peers.stderr)
+        XCTAssertTrue(peers.stdout.contains("vivid-newt"), peers.stdout)
+
+        let missing = runProcess(executablePath: cliPath, arguments: ["vm", "self", "brave-otter", "nope"], environment: environment, timeout: 30)
+        XCTAssertEqual(missing.status, 1, missing.stdout)
+        XCTAssertTrue(missing.stderr.contains("no reflection path 'nope'"), missing.stderr)
+        XCTAssertTrue(missing.stderr.contains("/owner, /peers"), missing.stderr)
+
+        wait(for: [serverHandled], timeout: 30)
+        XCTAssertEqual(log.params(of: "vm.reflection").map { $0["path"] as? String }, ["", "", "peers", "nope"], "slashes are trimmed before the app sees the path")
+        XCTAssertEqual(log.params(ofFirst: "vm.reflection")?["id"] as? String, "brave-otter")
+    }
+}
+
+// MARK: - vm snapshot ls / rm
+
+extension CLINotifyProcessIntegrationRegressionTests {
+    func testVMSnapshotLsListsRowsNewestFirstAndRawJSON() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-snap-ls")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let requests = VMTransferMockState()
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if line.hasPrefix("auth ") { return "OK" }
+            guard let request = self.jsonObject(line),
+                  let id = request["id"] as? String,
+                  let method = request["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = (request["params"] as? [String: Any]) ?? [:]
+            guard method == "vm.snapshot_list", let machine = params["id"] as? String else {
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "Unexpected method \(method)"])
+            }
+            // The mock alternates: a populated machine, then one with no snapshots, then
+            // a provider without the operation (the app's 501 passthrough shape).
+            switch requests.nextCount() {
+            case 1:
+                return self.v2Response(id: id, ok: true, result: [
+                    "machine": machine,
+                    "snapshots": [
+                        ["id": "snap_new", "name": "before-upgrade", "created_at": "2026-09-08T10:00:00.000Z"],
+                        ["id": "snap_old", "name": NSNull(), "created_at": "2026-09-01T09:30:00.000Z"],
+                    ],
+                ])
+            case 2:
+                return self.v2Response(id: id, ok: true, result: ["machine": machine, "snapshots": []])
+            default:
+                return self.v2Response(id: id, ok: false, error: [
+                    "code": "vm_error",
+                    "message": "The Cloud VM request failed.",
+                    "data": ["http_status": 501, "backend_code": "vm_operation_unsupported"],
+                ])
+            }
+        }
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let listed = runProcess(executablePath: cliPath, arguments: ["vm", "snapshot", "ls", "brave-otter"], environment: environment, timeout: 30)
+        XCTAssertEqual(listed.status, 0, "stdout=\(listed.stdout) stderr=\(listed.stderr)")
+        XCTAssertEqual(listed.stdout, "snap_new\t2026-09-08T10:00:00.000Z\tbefore-upgrade\nsnap_old\t2026-09-01T09:30:00.000Z\t-\n")
+
+        let empty = runProcess(executablePath: cliPath, arguments: ["vm", "snapshot", "list", "brave-otter", "--json"], environment: environment, timeout: 30)
+        XCTAssertEqual(empty.status, 0, empty.stderr)
+        let payload = try XCTUnwrap(jsonObject(empty.stdout.trimmingCharacters(in: .whitespacesAndNewlines)))
+        XCTAssertEqual(payload["machine"] as? String, "brave-otter")
+        XCTAssertEqual((payload["snapshots"] as? [Any])?.count, 0, "--json is the raw socket result")
+
+        let unsupported = runProcess(executablePath: cliPath, arguments: ["vm", "snapshot", "ls", "brave-otter"], environment: environment, timeout: 30)
+        XCTAssertNotEqual(unsupported.status, 0, unsupported.stdout)
+        XCTAssertTrue(unsupported.stderr.contains("brave-otter's provider cannot list snapshots"), unsupported.stderr)
+
+        wait(for: [serverHandled], timeout: 30)
+        let listRequests = state.snapshot().filter { $0.contains(#""method":"vm.snapshot_list""#) }
+        XCTAssertEqual(listRequests.count, 3, state.snapshot().description)
+        XCTAssertTrue(listRequests.allSatisfy { $0.contains(#""id":"brave-otter""#) }, listRequests.description)
+        XCTAssertFalse(state.snapshot().contains { $0.contains(#""method":"vm.snapshot""#) && !$0.contains("snapshot_list") }, "`snapshot ls` must never create a snapshot")
+    }
+
+    func testVMSnapshotRmDeletesAndWordsNotFound() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-snap-rm")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if line.hasPrefix("auth ") { return "OK" }
+            guard let request = self.jsonObject(line),
+                  let id = request["id"] as? String,
+                  let method = request["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = (request["params"] as? [String: Any]) ?? [:]
+            guard method == "vm.snapshot_delete",
+                  let machine = params["id"] as? String,
+                  let snapshotID = params["snapshot_id"] as? String else {
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "Unexpected method \(method)"])
+            }
+            if snapshotID == "snap_gone" {
+                return self.v2Response(id: id, ok: false, error: [
+                    "code": "vm_error",
+                    "message": "The Cloud VM request failed.",
+                    "data": ["http_status": 404, "backend_code": "vm_snapshot_not_found"],
+                ])
+            }
+            return self.v2Response(id: id, ok: true, result: ["machine": machine, "snapshot_id": snapshotID, "deleted": true])
+        }
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let deleted = runProcess(executablePath: cliPath, arguments: ["vm", "snapshot", "rm", "brave-otter", "snap_old"], environment: environment, timeout: 30)
+        XCTAssertEqual(deleted.status, 0, "stdout=\(deleted.stdout) stderr=\(deleted.stderr)")
+        XCTAssertEqual(deleted.stdout, "OK deleted snap_old from brave-otter\n")
+
+        let json = runProcess(executablePath: cliPath, arguments: ["vm", "snapshot", "delete", "brave-otter", "snap_old", "--json"], environment: environment, timeout: 30)
+        XCTAssertEqual(json.status, 0, json.stderr)
+        let payload = try XCTUnwrap(jsonObject(json.stdout.trimmingCharacters(in: .whitespacesAndNewlines)))
+        XCTAssertEqual(payload["deleted"] as? Bool, true)
+        XCTAssertEqual(payload["snapshot_id"] as? String, "snap_old")
+
+        let missing = runProcess(executablePath: cliPath, arguments: ["vm", "snapshot", "rm", "brave-otter", "snap_gone"], environment: environment, timeout: 30)
+        XCTAssertNotEqual(missing.status, 0, missing.stdout)
+        XCTAssertTrue(missing.stderr.contains("no snapshot snap_gone on brave-otter"), missing.stderr)
+        XCTAssertTrue(missing.stderr.contains("cmux vm snapshot ls brave-otter"), missing.stderr)
+
+        // Arity is checked locally: a bare `snapshot rm <machine>` never reaches the socket.
+        let short = runProcess(executablePath: cliPath, arguments: ["vm", "snapshot", "rm", "brave-otter"], environment: environment, timeout: 30)
+        XCTAssertNotEqual(short.status, 0, short.stdout)
+        XCTAssertTrue(short.stderr.contains("cmux vm snapshot rm <machine> <snapshot-id>"), short.stderr)
+
+        wait(for: [serverHandled], timeout: 30)
+        let deleteRequests = state.snapshot().filter { $0.contains(#""method":"vm.snapshot_delete""#) }
+        XCTAssertEqual(deleteRequests.count, 3, state.snapshot().description)
+        XCTAssertTrue(deleteRequests.allSatisfy { $0.contains(#""id":"brave-otter""#) }, deleteRequests.description)
+    }
+}

@@ -1633,15 +1633,15 @@ actor RetryDelayRecorder {
                 == ["DELETE"]
         )
         let reopenedStore = try PendingUnregisterStore(databaseURL: storeURL)
-        var cleanupFinished = false
-        for _ in 0..<1_000 {
-            if reopenedStore.batch(accountID: "account-a", limit: 2).isEmpty {
-                cleanupFinished = true
-                break
-            }
-            await Task.yield()
+        // A request being recorded precedes URLSession completion and the
+        // durable DELETE commit; scheduler turns are not a completion signal.
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while !reopenedStore.batch(accountID: "account-a", limit: 2).isEmpty,
+              clock.now < deadline {
+            try await clock.sleep(for: .milliseconds(1))
         }
-        #expect(cleanupFinished)
+        #expect(reopenedStore.batch(accountID: "account-a", limit: 2).isEmpty)
     }
 
     @Test func successfulReassignmentClearsOldTombstoneWithoutLosingNewOwner() async throws {
