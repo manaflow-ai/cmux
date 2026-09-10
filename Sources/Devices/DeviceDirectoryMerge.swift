@@ -24,7 +24,7 @@ struct DeviceDirectoryMerge {
         /// Records from the previous merge, kept so an instance presence forgets
         /// (its 24h offline tail expired) stays listed for the session.
         var previous: [DeviceDirectoryRecord] = []
-        /// This app instance, never listed.
+        /// The viewer's device and build; no instance on this physical Mac is listed.
         var selfInstance: SurfaceDeviceInstanceID
         var currentUserID: String?
         /// The scope the directory reads: a personal team (the team id is the
@@ -51,7 +51,7 @@ struct DeviceDirectoryMerge {
         ids.formUnion(presenceMacs.keys)
         ids.formUnion(pairedByID.keys)
         ids.formUnion(previousByID.keys)
-        ids.remove(input.selfInstance)
+        ids = ids.filter { $0.isVisible(from: input.selfInstance) }
 
         let personalScope = input.resolvedTeamID == nil || input.resolvedTeamID == input.currentUserID
 

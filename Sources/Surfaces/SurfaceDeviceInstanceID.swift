@@ -48,6 +48,19 @@ struct SurfaceDeviceInstanceID: Hashable, Codable, Sendable, CustomStringConvert
     /// Whether this instance is the stable-channel app on its device.
     var isDefaultTag: Bool { tag == Self.defaultTag }
 
+    /// Other physical Macs are visible in the viewer's channel. Dev viewers
+    /// additionally see stable and nightly, but never unrelated dev tags.
+    func isVisible(from viewer: SurfaceDeviceInstanceID) -> Bool {
+        guard deviceID != viewer.deviceID else { return false }
+        if tag == viewer.tag { return true }
+        switch viewer.tag {
+        case Self.defaultTag, "nightly", "rc", "staging":
+            return false
+        default:
+            return isDefaultTag || tag == "nightly"
+        }
+    }
+
     /// The shared cross-app spelling used by pairing and presence code.
     var appInstanceIdentity: CmxMacAppInstanceIdentity {
         CmxMacAppInstanceIdentity(macDeviceID: deviceID, instanceTag: isDefaultTag ? nil : tag)

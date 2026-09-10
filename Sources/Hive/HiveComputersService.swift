@@ -11,9 +11,17 @@ final class HiveComputersService {
 
     private let registry: DeviceSurfaceProviderRegistry
     private let openSidebar: @MainActor (SurfaceDeviceInstanceID) -> RightSidebarRemoteApplyResult?
+    private let selfInstance: SurfaceDeviceInstanceID
 
-    init(registry: DeviceSurfaceProviderRegistry, openSidebar: @escaping @MainActor (SurfaceDeviceInstanceID) -> RightSidebarRemoteApplyResult?) {
+    init(
+        registry: DeviceSurfaceProviderRegistry,
+        selfInstance: SurfaceDeviceInstanceID = SurfaceDeviceInstanceID(
+            deviceID: MobileHostIdentity.deviceID(), tag: MobileHostIdentity.instanceTag()
+        ),
+        openSidebar: @escaping @MainActor (SurfaceDeviceInstanceID) -> RightSidebarRemoteApplyResult?
+    ) {
         self.registry = registry
+        self.selfInstance = selfInstance
         self.openSidebar = openSidebar
     }
 
@@ -216,7 +224,7 @@ final class HiveComputersService {
         let existing = Set(computers.map(\.id))
         for paired in paired {
             let instance = SurfaceDeviceInstanceID(deviceID: paired.deviceID, tag: paired.instanceTag)
-            guard !existing.contains(instance.wireValue) else { continue }
+            guard instance.isVisible(from: selfInstance), !existing.contains(instance.wireValue) else { continue }
             computers.append(.init(
                 id: instance.wireValue, title: paired.displayName, tag: instance.isDefaultTag ? nil : instance.tag,
                 isPaired: true, isOnline: nil
