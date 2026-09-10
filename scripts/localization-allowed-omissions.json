@@ -2974,5 +2974,11 @@
   "cloudTree.terminal.badge.hiddenTabs": {
     "source": "+%d",
     "class": "format"
+  },
+  "cloudTree.group.displays": {
+    "source": "Displays",
+    "identityLocales": {
+      "de": "Displays is the established German plural for computer displays; the translated entry remains required."
+    }
   }
 }
