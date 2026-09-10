@@ -59,6 +59,22 @@ class XCStringsLintTests(unittest.TestCase):
         result = self.run_lint()
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_invalid_utf8_is_reported_without_stopping_other_catalogs(self) -> None:
+        """Report decoding errors and continue collecting errors from later catalogs."""
+        invalid_path = Path(self.temp_directory.name) / "invalid.xcstrings"
+        invalid_path.write_bytes(b"\xff")
+        misplaced_path = self.write_catalog(
+            {"sourceLanguage": "en", "strings": {}, "misplaced": {}, "version": "1.0"}
+        )
+
+        result = self.run_lint(invalid_path, misplaced_path)
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(f"{invalid_path}: invalid JSON:", result.stderr)
+        self.assertIn(f"{misplaced_path}: unexpected top-level key(s): misplaced", result.stderr)
+        self.assertIn("XCStrings lint failed: 2 error(s)", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
