@@ -4017,6 +4017,16 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "cmuxTests/process_contextual_init.swift",
+            'Process.run(.init(fileURLWithPath: "/usr/bin/curl"), arguments: ["https://api.openai.com/v1/items"])\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "cmuxTests/process_contextual_init_directory.swift",
+            'Process.run(.init(fileURLWithPath: "/usr/bin/curl", isDirectory: false), arguments: ["https://api.openai.com/v1/items"])\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "web/tests/exec_and_expect.ts",
             'expect(child_process.exec("curl https://api.openai.com/v1/items")).toContain("ok")\n',
             {RULE_LIVE_NETWORK_HOST},
