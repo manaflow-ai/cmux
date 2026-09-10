@@ -359,7 +359,15 @@ export function bakePreflight(options: { desktop?: boolean } = {}): { sha: strin
     }
   }
   const allowBranch = process.env.CMUX_BAKE_ALLOW_BRANCH === "1";
-  execSync("git fetch --quiet origin main", { cwd: repoRoot });
+  // Advisory: two promotions running at once (one ladder each) race here and
+  // one loses the ref lock. The fetch only refreshes the ref the staleness
+  // check reads, so a lost race falls back to the ref already on disk rather
+  // than failing a bake that has nothing wrong with it.
+  try {
+    execSync("git fetch --quiet origin main", { cwd: repoRoot, stdio: "pipe" });
+  } catch (error) {
+    console.warn(`bake-preflight: could not refresh origin/main (${String(error).split("\n")[0]}); using the ref on disk`);
+  }
   const head = git("rev-parse HEAD", repoRoot);
   const main = git("rev-parse origin/main", repoRoot);
   if (head !== main && !allowBranch) {
