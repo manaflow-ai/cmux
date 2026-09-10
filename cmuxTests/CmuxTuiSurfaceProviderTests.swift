@@ -328,6 +328,36 @@ import Testing
         ) == .unavailable, "an exact terminal selector still requires a tab id")
     }
 
+    @Test func catalogNilViewsRetainLegacyPlacementSemantics() {
+        var resource = SurfaceResource(
+            id: SurfaceResourceID(machine: Self.machine, kind: .browser, key: "port-3000"),
+            title: "Port 3000", detail: nil, lifecycle: .running, agent: nil,
+            remoteWorkspace: nil, port: 3000, url: "http://localhost:3000"
+        )
+        let resolver = VMRemoteWorkspaceResolver()
+        let unplaced = TerminalController.surfaceResourcePayload(resource, projections: [])
+        if case .notFound = resolver.resolveVMRemoteView(in: unplaced, workspaceID: "ws_main") {} else {
+            Issue.record("a catalog port without modeled views is not an unknown pane")
+        }
+        resource.remoteWorkspace = SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: false)
+        let legacy = TerminalController.surfaceResourcePayload(resource, projections: [])
+        if case .legacy = resolver.resolveVMRemoteView(in: legacy, workspaceID: "ws_main") {} else {
+            Issue.record("null views must preserve the catalog's legacy workspace edge")
+        }
+        resource.remoteViews = []
+        let detached = TerminalController.surfaceResourcePayload(resource, projections: [])
+        if case .notFound = resolver.resolveVMRemoteView(in: detached, workspaceID: "ws_main") {} else {
+            Issue.record("an authoritative empty view array overrides stale legacy placement")
+        }
+        for malformed: Any in ["invalid", [[:]] as [[String: Any]]] {
+            var payload = legacy
+            payload["remote_views"] = malformed
+            if case .unavailable = resolver.resolveVMRemoteView(in: payload, workspaceID: "ws_main") {} else {
+                Issue.record("malformed view metadata must not authorize empty-workspace mutation")
+            }
+        }
+    }
+
     @Test func vmOpenWorkspaceSkipsAmbiguousAndExitedTerminalsWhenSafeCandidateExists() {
         let resources: [[String: Any]] = [
             [

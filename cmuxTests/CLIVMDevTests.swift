@@ -602,7 +602,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                             "key": "term_dev",
                             "lifecycle": lifecycle,
                             "remote_workspace": ["id": "ws_other", "name": "other"],
-                            "remote_views": NSNull(),
+                            "remote_views": ["invalid": true],
                         ]],
                     ]
                 default: return nil
