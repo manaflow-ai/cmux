@@ -249,10 +249,10 @@ export function cloudDb(): CloudDb {
     globalForDb.__cmuxCloudDb = {
       db,
       close: () => pool.end(),
-      warm: async () => {
+      warm: coalesceWarm(async () => {
         const client = await pool.connect();
         client.release();
-      },
+      }),
       key,
     };
     return db;
@@ -266,12 +266,29 @@ export function cloudDb(): CloudDb {
   globalForDb.__cmuxCloudDb = {
     db,
     close: () => sql.end(),
-    warm: async () => {
+    warm: coalesceWarm(async () => {
       await sql`select 1`;
-    },
+    }),
     key,
   };
   return db;
+}
+
+/**
+ * Runs the warm-up once per process: every caller shares the first attempt's
+ * promise, and a failed attempt is forgotten so the next call can retry. A
+ * burst of requests, authenticated or not, therefore costs one connection,
+ * and a warm process never re-runs the probe query.
+ */
+function coalesceWarm(run: () => Promise<void>): () => Promise<void> {
+  let inFlight: Promise<void> | null = null;
+  return () => {
+    inFlight ??= run().catch((error: unknown) => {
+      inFlight = null;
+      throw error;
+    });
+    return inFlight;
+  };
 }
 
 /**
@@ -279,8 +296,9 @@ export function cloudDb(): CloudDb {
  * paid ~95 ms of TCP+TLS plus an STS round trip for the RDS IAM token inside
  * the first query (`pg-pool.connect` on the create span); a route fires this
  * while it is still verifying the caller so that cost overlaps auth instead
- * of following it. Best effort, never awaited for correctness, and a no-op
- * once the pool holds an idle connection.
+ * of following it. Best effort, never awaited for correctness, and after the
+ * first success a no-op for the life of the process, so calling it ahead of
+ * auth cannot amplify an unauthenticated burst beyond one pooled connection.
  */
 export function preconnectCloudDb(): void {
   try {
