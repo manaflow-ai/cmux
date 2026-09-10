@@ -41293,6 +41293,17 @@
         }
       }
     },
+    "cli.browser.error.circularEvaluationResult": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser evaluation result contains a circular reference"
+          }
+        }
+      }
+    },
     "cli.browser.error.diffViewerAllowlistInvalid": {
       "extractionState": "manual",
       "localizations": {
@@ -59735,6 +59746,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "OK 計畫 工作區=%@ 視窗=%@ 索引=%@"
+          }
+        }
+      }
+    },
+    "cli.restore.admission.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: waiting for cmux to verify that this agent session is not already running…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: このエージェントセッションがすでに実行中でないことを cmux が確認するのを待っています…"
           }
         }
       }

@@ -14,6 +14,7 @@
     "coderouter:reconcile-billing": "bun scripts/coderouter/reconcile-billing.ts",
     "clickhouse:migrate": "bun scripts/clickhouse-migrate.ts",
     "testflight:backfill-legacy-ownership": "bun scripts/stripe/backfill-pro-testflight-legacy-ownership.ts",
+    "stripe:backfill-subscriptions": "bun scripts/stripe/backfill-subscriptions-from-stripe.ts",
     "billing:backfill-founders-lockout": "bun scripts/backfill-founders-lockout.ts",
     "cloud-vm:env:audit": "bun scripts/cloud-vm/audit-vercel-env.mjs",
     "cloud-vm:migrate": "bun scripts/cloud-vm/migrate-vercel-aurora-iam.mjs",

@@ -1,6 +1,7 @@
 // Mint endpoint-bound access credentials and a signed, server-driven Iroh relay policy.
 // Auth is native-only because both credentials leave the browser boundary.
 
+import { runWithCloudDbQueryTags } from "../../../../db/queryTags";
 import { randomUUID, type KeyObject } from "node:crypto";
 
 import { checkRateLimit } from "@vercel/firewall";
@@ -341,5 +342,8 @@ async function parseRelayTokenRequest(
 }
 
 export function POST(request: Request): Promise<Response> {
-  return handleRelayTokenRequest(request, productionDeps);
+  return runWithCloudDbQueryTags(
+    { source: "app", route: "/api/relay/token" },
+    async () => await handleRelayTokenRequest(request, productionDeps),
+  );
 }
