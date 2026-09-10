@@ -1740,7 +1740,9 @@ guest_layout_apply() {
         cmux_sp_slot="\$(printf '%s\\n' "\$cmux_step" | jq -r '.slot')"
         cmux_sp_new="\$(printf '%s\\n' "\$cmux_step" | jq -r '.new')"
         cmux_sp_dir="\$(printf '%s\\n' "\$cmux_step" | jq -r 'if .direction == "vertical" then "--down" else "--right" end')"
-        cmux_sp_ratio="\$(printf '%s\\n' "\$cmux_step" | jq -r '.ratio')"
+        # The document stores the first child's share. A right/down pane split
+        # asks the daemon for the NEW (second) pane's share instead.
+        cmux_sp_ratio="\$(printf '%s\\n' "\$cmux_step" | jq -r '1 - .ratio')"
         cmux_sp_cwd="\$(printf '%s\\n' "\$cmux_step" | jq -r '.cwd // empty')"
         cmux_sp_pane="\$(layout_slot_get "\$cmux_sp_slot" pane)"
         [ -n "\$cmux_sp_pane" ] || die "layout apply: internal error: no pane for slot \$cmux_sp_slot" 1

@@ -1,15 +1,16 @@
 import { expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { GUEST_CMUX_SHIM } from "../services/vms/guestCli";
 
 // Run with the shipped daemon, without rebuilding Rust:
 // CMUX_TUI_TEST_BIN=/path/to/cmux-tui bun test tests/vm-guest-layout-real.test.ts
 // This integration test compares the daemon's resulting graph, not CLI argv.
 const binary = process.env.CMUX_TUI_TEST_BIN;
-test.skipIf(!binary)("guest layouts retain asymmetric and nested split geometry on the real daemon", async () => {
+(binary ? test : test.skip)("guest layouts retain asymmetric and nested split geometry on the real daemon", async () => {
   const root = mkdtempSync(join(tmpdir(), "cmux-layout-real-"));
   const home = join(root, "home");
   mkdirSync(home);
@@ -21,16 +22,17 @@ test.skipIf(!binary)("guest layouts retain asymmetric and nested split geometry 
   const run = (args: string[], guest = false) => {
     const result = spawnSync(guest ? "/bin/sh" : binary!, guest ? [shim, ...args] : [...daemonArgs.slice(1), "--json", ...args],
       { env, encoding: "utf8", timeout: 20_000 });
-    expect(result.status, `${args.join(" ")}: ${result.stderr}`).toBe(0);
+    if (result.status !== 0) throw new Error(`${args.join(" ")}: ${result.stderr}`);
     const parsed = JSON.parse(result.stdout);
     return parsed.value ?? parsed;
   };
-  const daemon = Bun.spawn([...daemonArgs, "server", "start"], { env, stdout: "ignore", stderr: "ignore" });
+  const daemon = spawn(binary!, [...daemonArgs.slice(1), "server", "start"], { env, stdio: "ignore" });
+  const exited = new Promise<void>((resolve, reject) => { daemon.once("exit", () => resolve()); daemon.once("error", reject); });
   try {
     const deadline = Date.now() + 10_000;
     while (spawnSync(binary!, [...daemonArgs.slice(1), "server", "status"], { env, stdio: "ignore", timeout: 1000 }).status !== 0) {
       if (Date.now() >= deadline) throw new Error("daemon did not become ready");
-      await Bun.sleep(25);
+      await delay(25);
     }
     const leaf = (name: string) => ({ pane: { surfaces: [{ type: "terminal", name }] } });
     const layouts = [
@@ -54,7 +56,7 @@ test.skipIf(!binary)("guest layouts retain asymmetric and nested split geometry 
   } finally {
     spawnSync(binary!, [...daemonArgs.slice(1), "server", "stop"], { env, stdio: "ignore", timeout: 5000 });
     daemon.kill();
-    await daemon.exited;
+    await exited;
     rmSync(root, { recursive: true, force: true });
   }
 }, 60_000);
