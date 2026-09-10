@@ -143,11 +143,12 @@ final class DeviceDirectory {
 
     /// The explicit Refresh verb: re-read the registry now. Presence needs no
     /// refresh; it is already live.
-    func refreshRegistry() {
-        guard registryTask == nil else { return }
+    @discardableResult
+    func refreshRegistry() -> Task<Void, Never> {
+        if let registryTask { return registryTask }
         isRefreshingRegistry = true
         notifyChanged()
-        registryTask = Task { [weak self] in
+        let task = Task { [weak self] in
             guard let self else { return }
             do {
                 let devices = try await self.registryClient.list()
@@ -164,6 +165,8 @@ final class DeviceDirectory {
             self.registryTask = nil
             self.remerge()
         }
+        registryTask = task
+        return task
     }
 
     // MARK: - Presence loop

@@ -177,12 +177,13 @@ final class DeviceSurfaceProviderRegistry {
 
     /// The explicit Refresh verb: re-read the registry and re-sync every live link.
     func refresh(force: Bool) async {
-        directory?.refreshRegistry()
+        let registryRefresh = directory?.refreshRegistry()
         await withTaskGroup(of: Void.self) { group in
             for provider in providers.values {
                 group.addTask { @MainActor in await provider.refresh(force: force) }
             }
         }
+        await registryRefresh?.value
     }
 
     private func reconcile() {
