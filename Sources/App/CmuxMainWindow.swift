@@ -105,9 +105,9 @@ final class CmuxMainWindow: NSWindow {
         zoomIntent.wantsZoomedFrame || isZoomed
     }
 
-    override func performDrag(with event: NSEvent) {
+    /// Clears remembered zoom after a confirmed user move, resize, or restore.
+    func recordUserPlacement() {
         zoomIntent.recordUserPlacement()
-        super.performDrag(with: event)
     }
 
     func setFrameForManagedPlacement(_ frameRect: NSRect, display flag: Bool) {
@@ -115,7 +115,7 @@ final class CmuxMainWindow: NSWindow {
     }
 
     func setFrameForRestoredPlacement(_ frameRect: NSRect, display flag: Bool) {
-        zoomIntent.recordUserPlacement()
+        recordUserPlacement()
         setFrame(frameRect, display: flag)
     }
 
@@ -138,7 +138,7 @@ final class CmuxMainWindow: NSWindow {
     /// pass). The user sizes this window; layout does not.
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
         if inLiveResize {
-            zoomIntent.recordUserPlacement()
+            recordUserPlacement()
         }
         guard !styleMask.contains(.fullScreen) else {
             super.setFrame(frameRect, display: flag)
