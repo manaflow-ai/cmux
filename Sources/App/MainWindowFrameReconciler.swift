@@ -11,14 +11,15 @@ final class MainWindowFrameReconciler {
 
     /// Describes the lifecycle event that requested a frame repair.
     enum Trigger {
-        case displayTopology(repairOrdinaryWindows: Bool)
+        /// A changed topology permits ordinary and full-width fullscreen repair.
+        case displayTopology(changed: Bool)
         case applicationActivation
         case restorationCheckpoint
 
         var repairsOrdinaryWindows: Bool {
             switch self {
-            case .displayTopology(let repairOrdinaryWindows):
-                return repairOrdinaryWindows
+            case .displayTopology(let topologyChanged):
+                return topologyChanged
             case .restorationCheckpoint:
                 return true
             case .applicationActivation:

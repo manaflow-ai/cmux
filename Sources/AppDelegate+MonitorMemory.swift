@@ -202,7 +202,7 @@ extension AppDelegate {
         let fitCompleted = MainWindowFrameReconciler().repair(
             displays: displays.available,
             windows: mainWindows,
-            trigger: .displayTopology(repairOrdinaryWindows: visibleFrameFitTopologyChanged)
+            trigger: .displayTopology(changed: visibleFrameFitTopologyChanged)
         )
         if visibleFrameFitTopologyChanged {
             if fitCompleted, let visibleFrameFitTopologySignature {
