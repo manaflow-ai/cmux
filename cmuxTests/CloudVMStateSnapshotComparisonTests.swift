@@ -35,6 +35,19 @@ struct CloudVMStateSnapshotComparisonTests {
         #expect(before.hasSameRevisionedContent(as: after))
     }
 
+    @Test("Live terminal geometry can change without changing the resource revision")
+    func terminalResizeDoesNotInvalidateTheGraph() throws {
+        var object = snapshot()
+        object["terminals"] = [["id": "term-1", "running": true, "lifecycle": "running", "cols": 80, "rows": 24]]
+        let before = try state(object)
+        object["terminals"] = [["id": "term-1", "running": true, "lifecycle": "running", "cols": 120, "rows": 40]]
+        let after = try state(object)
+        #expect(before != after)
+        #expect(before.hasSameRevisionedContent(as: after))
+        object["terminals"] = [["id": "term-1", "running": true, "lifecycle": "running", "cols": 120, "rows": 40, "future_field": "changed"]]
+        #expect(try !before.hasSameRevisionedContent(as: state(object)))
+    }
+
     @Test("Actual same-cursor conflicts remain rejected", arguments: ["workspaces", "terminals", "future_resources", "cursor"])
     func graphChangesRemainConflicts(field: String) throws {
         let before = try state(snapshot())
