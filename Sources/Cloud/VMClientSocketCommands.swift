@@ -1,4 +1,5 @@
 import CmuxControlSocket
+import CmuxSettings
 import Foundation
 
 extension TerminalController {
@@ -9,6 +10,17 @@ extension TerminalController {
     ) -> String {
         if let tunnelResponse = socketWorkerCloudTunnelResponse(method: method, id: id, params: params) {
             return tunnelResponse
+        }
+        // `DisableCloud`: every remaining `vm.*` verb fails closed here, before
+        // any control-plane call, with a stable error code. `VMClient` refuses
+        // as well, so this gate is the CLI's error surface, not the only line
+        // of defense.
+        if ManagedDevicePolicy().isEnforced(.disableCloud) {
+            return v2Error(
+                id: id,
+                code: "cloud_disabled",
+                message: String(localized: "cloud.managed.disabled", defaultValue: "Cloud Machines are disabled by your administrator.")
+            )
         }
         switch method {
         case "vm.list":
@@ -578,6 +590,14 @@ extension TerminalController {
         id: Any?,
         params: [String: Any]
     ) -> String {
+        // The remote registry is both a Cloud control-plane resource and a
+        // remote-connection surface: either MDM key fails it closed.
+        guard ManagedCloudPolicy.isEnabled else {
+            return v2Error(id: id, code: ManagedCloudPolicy.socketErrorCode, message: ManagedCloudPolicy.disabledMessage)
+        }
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
         switch method {
         case "remotes.list":
             return v2VmCall(id: id) {
@@ -695,6 +715,12 @@ extension TerminalController {
         id: Any?,
         params: [String: Any]
     ) -> String {
+        // `DisableCloud` (MDM): AI accounts exist to provision Cloud machines
+        // and `upload` ships local credentials to the tenant, so the family
+        // fails closed with the same code as `vm.*`.
+        guard ManagedCloudPolicy.isEnabled else {
+            return v2Error(id: id, code: ManagedCloudPolicy.socketErrorCode, message: ManagedCloudPolicy.disabledMessage)
+        }
         switch method {
         case "aiAccounts.list":
             let teamID = Self.socketWorkerString(params["teamId"]) ?? Self.socketWorkerString(params["team_id"])
@@ -703,6 +729,11 @@ extension TerminalController {
                 return ["accounts": accounts.map(\.foundationObject)]
             }
         case "aiAccounts.upload":
+            // `DisableAICredentialUpload` (MDM): the one verb that reads local
+            // credential files and ships them to the tenant.
+            guard ManagedAICredentialUploadPolicy.isEnabled else {
+                return v2Error(id: id, code: ManagedAICredentialUploadPolicy.socketErrorCode, message: ManagedAICredentialUploadPolicy.disabledMessage)
+            }
             guard let rawProvider = Self.socketWorkerString(params["provider"]),
                   let provider = AIAccountProvider(rawValue: rawProvider) else {
                 return v2Error(

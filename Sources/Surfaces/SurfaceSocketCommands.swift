@@ -1,4 +1,5 @@
 import CmuxControlSocket
+import CmuxSettings
 import Foundation
 
 // The socket face of the surface catalog: `surface.catalog`, `surface.project`,
@@ -13,10 +14,20 @@ import Foundation
 // Focus policy: `focus` defaults to true for explicit opens (the caller asked for a pane)
 // and false for desktop/port opens; the catalog never activates the app either way.
 extension TerminalController {
+    private nonisolated func cloudDisabledSocketError(id: Any?) -> String? {
+        guard ManagedDevicePolicy().isEnforced(.disableCloud) else { return nil }
+        return v2Error(
+            id: id,
+            code: "cloud_disabled",
+            message: String(localized: "cloud.managed.disabled", defaultValue: "Cloud Machines are disabled by your administrator.")
+        )
+    }
+
     nonisolated func socketWorkerSurfaceResponse(method: String, id: Any?, params: [String: Any]) -> String {
         switch method {
         case "surface.catalog":
             let machine = Self.surfaceMachineFilter(params["machine"])
+            if let machine, machine.cloudMachineID != nil, let error = cloudDisabledSocketError(id: id) { return error }
             let refresh = Self.surfaceBool(params["refresh"]) ?? false
             return v2VmCall(id: id, timeoutSeconds: 120) {
                 if refresh {
@@ -34,6 +45,7 @@ extension TerminalController {
             guard let raw = Self.surfaceString(params["resource"]), let resource = SurfaceResourceID(rawValue: raw) else {
                 return v2Error(id: id, code: "invalid_params", message: "surface.project requires `resource` (an id from `cmux surface ls --json`, e.g. vivid-newt/terminal/term_…).")
             }
+            if resource.machine.cloudMachineID != nil, let error = cloudDisabledSocketError(id: id) { return error }
             let focus = Self.surfaceBool(params["focus"]) ?? true
             let reuse = Self.surfaceBool(params["reuse"]) ?? true
             let remoteTabID = Self.surfaceString(params["remote_tab_id"])
@@ -64,6 +76,7 @@ extension TerminalController {
                 return v2Error(id: id, code: "invalid_params", message: "surface.new_terminal requires `machine` (\"local\" or a cloud machine id).")
             }
             let machine = SurfaceMachineID(rawValue: machineRaw)
+            if machine.cloudMachineID != nil, let error = cloudDisabledSocketError(id: id) { return error }
             let command = Self.surfaceStringArray(params["command"])
             let cwd = Self.surfaceString(params["cwd"])
             let name = Self.surfaceString(params["name"])
@@ -96,6 +109,9 @@ extension TerminalController {
 
     /// `vm.tree {id?, refresh?}`: the catalog payload restricted to cloud machines.
     nonisolated func socketWorkerVMTreeResponse(id: Any?, params: [String: Any]) -> String {
+        if ManagedDevicePolicy().isEnforced(.disableCloud) {
+            return v2Error(id: id, code: "cloud_disabled", message: String(localized: "cloud.managed.disabled", defaultValue: "Cloud Machines are disabled by your administrator."))
+        }
         let vmId = Self.surfaceString(params["id"]) ?? Self.surfaceString(params["machine"])
         let refresh = Self.surfaceBool(params["refresh"]) ?? false
         return v2VmCall(id: id, timeoutSeconds: 120) {
@@ -189,6 +205,9 @@ extension TerminalController {
     /// `vm.desktop_open {id, workspace_id?, focus?, …dest}` → `{surface_id, workspace_id, url, open_url}`;
     /// an empty object when the machine has no desktop.
     nonisolated func socketWorkerVMDesktopOpenResponse(id: Any?, params: [String: Any]) -> String {
+        if ManagedDevicePolicy().isEnforced(.disableCloud) {
+            return v2Error(id: id, code: "cloud_disabled", message: String(localized: "cloud.managed.disabled", defaultValue: "Cloud Machines are disabled by your administrator."))
+        }
         guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.desktop_open requires `id`. Run `cmux vm ls` to find one.")
         }
@@ -200,6 +219,9 @@ extension TerminalController {
         let destination = Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: workspaceID)
         return v2VmCall(id: id, timeoutSeconds: 180) {
             do {
+                guard try await Self.surfaceProvider(for: resource.machine, catalog: SurfaceCatalog.shared) != nil else {
+                    throw SurfaceCatalogError.noProvider(resource.machine)
+                }
                 let opened = try await SurfaceCatalog.shared.project(resource, into: destination, focus: focus, reuseExisting: false)
                 var payload = Self.surfaceProjectPayload(opened.projection, reused: opened.reused)
                 let url = await SurfaceCatalog.shared.resources[resource]?.url ?? ""
@@ -216,6 +238,9 @@ extension TerminalController {
 
     /// `vm.port_open {id, port, workspace_id?, …dest}` → `{surface_id, workspace_id, url, open_url}`.
     nonisolated func socketWorkerVMPortOpenResponse(id: Any?, params: [String: Any]) -> String {
+        if ManagedDevicePolicy().isEnforced(.disableCloud) {
+            return v2Error(id: id, code: "cloud_disabled", message: String(localized: "cloud.managed.disabled", defaultValue: "Cloud Machines are disabled by your administrator."))
+        }
         guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.port_open requires `id`. Run `cmux vm ls` to find one.")
         }
@@ -285,9 +310,20 @@ extension TerminalController {
                 reuseExisting: false
             )
             var payload = Self.surfaceProjectPayload(opened.projection, reused: opened.reused)
-            let url = await catalog.resources[resource]?.url ?? ""
+            // `url` is what the pane loads and what works from any app on this
+            // Mac: the loopback forward over the user-space hub, or, for a
+            // machine without a private address, the control plane's preview
+            // URL. A route that cannot be made is an error for the caller,
+            // never a silent fall-back to an address only `cmux vpn up` can
+            // reach; that address stays available as `private_url`.
+            let privateURL = await catalog.resources[resource]?.url
+            guard let provider = await catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider else {
+                throw SurfaceCatalogError.unsupported(SurfaceCatalog.portPreviewUnavailableMessage(machineID: resource.machine.rawValue))
+            }
+            let url = try await provider.portLinkURL(port: port)
             payload["url"] = url
             payload["open_url"] = url
+            payload["private_url"] = privateURL ?? NSNull()
             return payload
         }
     }
@@ -953,6 +989,8 @@ extension TerminalController {
                     "name": view.name ?? NSNull(),
                     "index": view.index ?? NSNull(),
                     "focused": view.focused ?? NSNull(),
+                    "screen_index": view.screenIndex ?? NSNull(),
+                    "pane_index": view.paneIndex ?? NSNull(),
                 ] as [String: Any]
             }
         } else {

@@ -120,11 +120,14 @@ cmux vm rm <id>          # irreversible and unprompted
 
 ## Inside a machine
 
-The guest `cmux` binary is the machine's relay CLI: commands go to the connected cmux app on the user's Mac; they do not act inside the VM. The most useful verb for agents running on a machine:
+Run `cmux self` first. The guest `cmux` command answers only two questions, through the machine's TLS edge (no account token lives in the VM):
 
 ```
-cmux notify --title "Build done" --subtitle "myrepo" --body "Tests green"
+cmux self [--json]     # this machine: name, id, status, team, machine count
+cmux vm ls [--json]    # the team's live machines, this one marked with *
 ```
+
+`--json` returns `{schema, machine: {id, vmId, name, displayName, slug, status, createdAt, self}, team: {id}, machines: [...]}`. `id` is the machine id every Mac `cmux vm …` verb takes. Every other verb (`vm new`, `vm exec`, `notify`, …) exits 2 and names the Mac CLI; run those there.
 
 ## Rules
 

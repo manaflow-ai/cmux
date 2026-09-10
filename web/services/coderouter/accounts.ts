@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   findAccountByProviderIdentity,
   deleteAccount,
@@ -8,7 +8,11 @@ import {
   withVaultLease,
 } from "./repository";
 import { encryptCredential } from "./encryption";
-import type { CodeRouterCredential } from "./types";
+import {
+  CODEROUTER_API_KEY_PROVIDERS,
+  type CodeRouterApiKeyProvider,
+  type CodeRouterCredential,
+} from "./types";
 import { deleteVaultCredential } from "./vault";
 import { reportCoderouterFailure } from "./observability";
 
@@ -97,9 +101,14 @@ export const removeAccount = createAccountRemover({
   report: reportCoderouterFailure,
 });
 
+const MAX_API_KEY_LENGTH = 512;
+const MAX_LABEL_LENGTH = 120;
+const API_KEY_PATTERN = /^[A-Za-z0-9._~+/=-]+$/;
+
 export function parseCredential(value: unknown): CodeRouterCredential | null {
   if (!isRecord(value)) return null;
   const provider = value.provider;
+  if (isApiKeyProviderName(provider)) return parseApiKeyCredential(provider, value);
   const accessToken = boundedString(value.accessToken, 32_768);
   const refreshToken = boundedString(value.refreshToken, 32_768);
   const accountId = boundedString(value.accountId, 512);
@@ -145,6 +154,40 @@ export function parseCredential(value: unknown): CodeRouterCredential | null {
     };
   }
   return null;
+}
+
+function isApiKeyProviderName(value: unknown): value is CodeRouterApiKeyProvider {
+  return typeof value === "string" &&
+    (CODEROUTER_API_KEY_PROVIDERS as readonly string[]).includes(value);
+}
+
+/**
+ * `{ provider, apiKey, label? }` from the dashboard or `cr add`. The key is
+ * validated as one printable token; the fingerprint becomes the provider
+ * account id, so re-adding the same key updates the existing row.
+ */
+function parseApiKeyCredential(
+  provider: CodeRouterApiKeyProvider,
+  value: Record<string, unknown>,
+): CodeRouterCredential | null {
+  const apiKey = typeof value.apiKey === "string" ? value.apiKey.trim() : "";
+  if (apiKey.length < 16 || apiKey.length > MAX_API_KEY_LENGTH || !API_KEY_PATTERN.test(apiKey)) {
+    return null;
+  }
+  const rawLabel = value.label;
+  if (rawLabel !== undefined && rawLabel !== null && typeof rawLabel !== "string") return null;
+  const label = typeof rawLabel === "string" ? rawLabel.trim() : "";
+  if (label.length > MAX_LABEL_LENGTH) return null;
+  return {
+    provider,
+    apiKey,
+    accountId: apiKeyFingerprint(provider, apiKey),
+    label,
+  };
+}
+
+export function apiKeyFingerprint(provider: CodeRouterApiKeyProvider, apiKey: string): string {
+  return createHash("sha256").update(`${provider}\n${apiKey}`).digest("hex").slice(0, 24);
 }
 
 function boundedString(value: unknown, max: number): string | null {

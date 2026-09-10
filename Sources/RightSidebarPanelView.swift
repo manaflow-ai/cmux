@@ -158,6 +158,7 @@ struct RightSidebarPanelView: View {
     /// the remote host swaps files in place on one client, so a shared client
     /// would make the two rails fight over one worker process.
     @State private var customSidebarWorkerClient: RenderWorkerClient?
+    @State private var managedPolicyRevision = 0
 
     // Re-reading the observable store inside modeBar causes SwiftUI to
     // track the pending count so the badge updates live when hooks push
@@ -167,10 +168,11 @@ struct RightSidebarPanelView: View {
     }
 
     private var featureAvailableModes: [RightSidebarMode] {
-        RightSidebarMode.availableModes(
+        _ = managedPolicyRevision
+        return RightSidebarMode.availableModes(
             feedEnabled: feedEnabled,
             dockEnabled: dockEnabled,
-            machinesEnabled: CmuxFeatureFlags.shared.isCloudVMUIEnabled || cloudMachinesBetaEnabled
+            machinesEnabled: CloudMachinesFeature.isEnabled
         )
     }
 
@@ -269,6 +271,10 @@ struct RightSidebarPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: RightSidebarTabPreferences.didChangeNotification)) { _ in
             refreshModeAvailabilityAndFocusIfNeeded()
         }
+        .onReceive(NotificationCenter.default.publisher(for: ManagedDevicePolicy.didChangeNotification)) { _ in
+            managedPolicyRevision &+= 1
+            refreshModeAvailabilityAndFocusIfNeeded()
+        }
     }
 
     private var modeBar: some View {
@@ -323,7 +329,11 @@ struct RightSidebarPanelView: View {
                 closeButton
             }
         }
-        .rightSidebarChromeBar(leadingPadding: 4, trailingPadding: 6, height: titlebarHeight)
+        .rightSidebarChromeBar(
+            leadingPadding: RightSidebarChromeMetrics.headerLeadingPadding,
+            trailingPadding: RightSidebarChromeMetrics.headerTrailingPadding,
+            height: titlebarHeight
+        )
         .contextMenu { tabCustomizationMenu }
         .overlay(alignment: .topLeading) {
             focusShortcutHintOverlay

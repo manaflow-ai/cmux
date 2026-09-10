@@ -3,7 +3,7 @@ import CmuxBrowser
 import WebKit
 
 /// The bounded result of preparing one browser WebView for automation input.
-nonisolated enum BrowserAutomationDocumentReadinessResult: Sendable, Equatable {
+enum BrowserAutomationDocumentReadinessResult: Sendable, Equatable {
     case committed
     case superseded
     case cancelled

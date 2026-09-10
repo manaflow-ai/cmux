@@ -30,7 +30,7 @@ describe("Pro pricing CTA", () => {
     );
 
     expect(html).toContain(
-      'href="/api/billing/checkout?plan=pro&amp;interval=month"',
+      'href="/api/billing/checkout?plan=pro&amp;interval=month&amp;cmux_placement=pricing_page"',
     );
     expect(html).not.toContain("interval=year");
     expect(html).not.toContain('href="/download/confirmation?dl=1"');
@@ -51,7 +51,7 @@ describe("Pro pricing CTA", () => {
     );
 
     expect(html).toContain(
-      'href="/api/billing/checkout?plan=pro&amp;interval=year"',
+      'href="/api/billing/checkout?plan=pro&amp;interval=year&amp;cmux_placement=pricing_page"',
     );
     expect(html).not.toContain("interval=month");
   });

@@ -1023,6 +1023,7 @@ jobs:
             --repo manaflow-ai/cmux \
             --release-tag nightly \
             --keep-builds 100 \
+            --max-assets 950 \
             --execute
 
       - name: Publish nightly release assets

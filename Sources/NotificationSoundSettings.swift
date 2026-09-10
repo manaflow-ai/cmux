@@ -15,7 +15,7 @@ nonisolated private let notificationSoundLogger = Logger(
     category: "notification-sound"
 )
 
-nonisolated enum NotificationSoundSettings {
+enum NotificationSoundSettings {
     private static let catalog = NotificationsCatalogSection()
 
     static let key = catalog.sound.userDefaultsKey

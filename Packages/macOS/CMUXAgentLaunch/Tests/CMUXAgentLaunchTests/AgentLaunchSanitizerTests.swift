@@ -614,6 +614,37 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Strips a restored Amp thread id that follows preserved options")
+    func stripsRestoredAmpThreadIdAfterPreservedOptions() {
+        // A cmux restore emits `amp threads continue <options> <thread>`, so
+        // the next capture carries the thread id after the preserved options.
+        // `amp threads continue` resumes every positional thread and shows the
+        // first in the foreground, so a stale id that survived here would win
+        // over the thread cmux appends for the new restore.
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["amp", "threads", "continue", "--mode", "smart", "T-old-id"],
+                launcher: "amp",
+                fallbackKind: "amp"
+            ) == ["amp", "--mode", "smart"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["amp", "t", "c", "--mode", "smart", "--effort", "high", "T-old-id"],
+                launcher: "amp",
+                fallbackKind: "amp"
+            ) == ["amp", "--mode", "smart", "--effort", "high"]
+        )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "amp",
+                sessionId: "T-new-id",
+                executablePath: "/Users/example/.local/bin/amp",
+                arguments: ["/Users/example/.local/bin/amp", "threads", "continue", "--mode", "smart", "T-old-id"]
+            ) == ["amp", "threads", "continue", "--mode", "smart", "T-new-id"]
+        )
+    }
+
     @Test("Removes cwd options that duplicate the saved working directory")
     func removesSavedWorkingDirectoryOptions() {
         #expect(

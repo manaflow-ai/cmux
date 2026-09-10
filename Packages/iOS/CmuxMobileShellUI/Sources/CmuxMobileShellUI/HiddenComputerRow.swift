@@ -239,7 +239,7 @@ struct ComputerVisibilityRows: View {
                 connect: connect,
                 isConnecting: connectingComputerID == item.id,
                 setCaffeine: setCaffeine,
-                isCaffeineMutating: caffeineMutatingComputerIDs.contains(item.id),
+                isCaffeineMutating: caffeineMutatingComputerIDs.contains(item.id)
             )
         }
     }

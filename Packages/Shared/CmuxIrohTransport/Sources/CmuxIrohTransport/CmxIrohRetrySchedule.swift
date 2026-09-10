@@ -6,7 +6,7 @@ public struct CmxIrohRetrySchedule: Equatable, Sendable {
     /// The first retry delay before jitter.
     public let initialDelay: TimeInterval
 
-    /// The largest accepted delay, including a validated `Retry-After` floor.
+    /// The largest locally generated delay. A server floor may exceed it.
     public let maximumDelay: TimeInterval
 
     /// The positive jitter fraction applied above the retry floor.
@@ -16,7 +16,7 @@ public struct CmxIrohRetrySchedule: Equatable, Sendable {
     ///
     /// - Parameters:
     ///   - initialDelay: The first retry delay before jitter.
-    ///   - maximumDelay: The hard delay cap.
+    ///   - maximumDelay: The local delay cap.
     ///   - jitterFraction: The maximum positive jitter as a fraction of the floor.
     public init(
         initialDelay: TimeInterval = 30,
@@ -45,7 +45,8 @@ public struct CmxIrohRetrySchedule: Equatable, Sendable {
     ///   - failureCount: Zero-based consecutive failure count.
     ///   - retryAfterSeconds: A validated server retry floor, when available.
     ///   - jitterUnitInterval: A deterministic value from zero through one.
-    /// - Returns: A positive delay bounded by ``maximumDelay``.
+    /// - Returns: A positive local delay bounded by ``maximumDelay``, or the
+    ///   larger server floor.
     public func delay(
         failureCount: Int,
         retryAfterSeconds: Int?,
@@ -55,7 +56,8 @@ public struct CmxIrohRetrySchedule: Equatable, Sendable {
         let exponential = initialDelay * pow(2, Double(boundedFailureCount))
         let base = min(maximumDelay, exponential)
         let serverFloor = retryAfterSeconds.map(TimeInterval.init) ?? 0
-        let floor = min(maximumDelay, max(base, serverFloor))
+        let floor = max(base, serverFloor)
+        guard floor < maximumDelay else { return floor }
         let jitter = min(1, max(0, jitterUnitInterval))
         let available = max(0, maximumDelay - floor)
         let jitterWindow = min(available, floor * jitterFraction)

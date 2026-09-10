@@ -206,6 +206,29 @@ struct CloudManualMirrorTransportTests {
     }
 
     @Test
+    func resolverReportsAnExitedTerminalInsteadOfAnEmptyPlacement() throws {
+        // A cloud pane owns no process: the only signal that the remote shell
+        // ended (`exit`, Ctrl+D) is the resolver's lifecycle. It shares
+        // `surface:null` with a live terminal that has no view, so a pane must
+        // not be kept alive for the exited one.
+        #expect(
+            parser.resolvedSurface(
+                from: try Self.line(["surface": NSNull(), "lifecycle": "exited"])
+            ) == .exited
+        )
+        #expect(
+            parser.resolvedSurface(
+                from: try Self.line(["surface": NSNull(), "lifecycle": "running"])
+            ) == .noPlacement
+        )
+        #expect(
+            parser.resolvedSurface(
+                from: try Self.line(["surface": 12, "lifecycle": "running"])
+            ) == .surface(12)
+        )
+    }
+
+    @Test
     func resizeSamplesAreLatestWinsAndResumeAfterGeometryClaim() throws {
         var scheduler = CloudTuiManualIOResizeScheduler()
         let first = try #require(CloudTuiManualIOGrid(columns: 99, rows: 35))

@@ -1468,6 +1468,10 @@ private final class WorkspaceListTableDataSource: NSObject, UITableViewDataSourc
     weak var coordinator: WorkspaceListTableCoordinator?
     private let cellProvider: CellProvider
     private(set) var items: [WorkspaceListTableItem] = []
+    /// Row lookup for the batch update path. Live workspace updates can touch
+    /// many visible rows at once, so resolving each item by scanning `items`
+    /// would turn one update into O(changedRows * totalRows) work.
+    private var rowIndexByID: [String: Int] = [:]
 
     init(tableView: UITableView, cellProvider: @escaping CellProvider) {
         self.cellProvider = cellProvider
@@ -1495,7 +1499,7 @@ private final class WorkspaceListTableDataSource: NSObject, UITableViewDataSourc
     }
 
     func indexPath(for item: WorkspaceListTableItem) -> IndexPath? {
-        indexPath(where: { $0 == item })
+        rowIndexByID[item.id].map { IndexPath(row: $0, section: 0) }
     }
 
     func indexPath(
@@ -1506,6 +1510,7 @@ private final class WorkspaceListTableDataSource: NSObject, UITableViewDataSourc
 
     func replaceItems(_ items: [WorkspaceListTableItem], in tableView: UITableView) {
         self.items = items
+        rebuildRowIndex()
         tableView.reloadData()
     }
 
@@ -1523,11 +1528,20 @@ private final class WorkspaceListTableDataSource: NSObject, UITableViewDataSourc
         let removed = items.remove(at: sourceIndexPath.row)
         let destination = min(destinationIndexPath.row, items.count)
         items.insert(replacement ?? removed, at: destination)
+        rebuildRowIndex()
         tableView.performBatchUpdates {
             tableView.moveRow(
                 at: sourceIndexPath,
                 to: IndexPath(row: destination, section: 0)
             )
+        }
+    }
+
+    private func rebuildRowIndex() {
+        rowIndexByID.removeAll(keepingCapacity: true)
+        rowIndexByID.reserveCapacity(items.count)
+        for (index, item) in items.enumerated() {
+            rowIndexByID[item.id] = index
         }
     }
 

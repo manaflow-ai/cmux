@@ -54,7 +54,12 @@ describe("coderouter middleware", () => {
     const response = middleware(
       new NextRequest(
         "https://cmux.com/ja/dashboard/coderouter?team=team-1",
-        { headers: { "x-cmux-dashboard-return-path": "/pricing" } },
+        {
+          headers: {
+            "x-cmux-dashboard-return-path": "/pricing",
+            cookie: `stack-refresh-${process.env.NEXT_PUBLIC_STACK_PROJECT_ID ?? "none"}=refresh-1`,
+          },
+        },
       ),
     );
 
@@ -66,7 +71,10 @@ describe("coderouter middleware", () => {
   test("keeps a dashboard POST body while adding the auth return path", async () => {
     const request = new NextRequest("https://cmux.com/en/dashboard/testflight", {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        cookie: `stack-refresh-${process.env.NEXT_PUBLIC_STACK_PROJECT_ID ?? "none"}=refresh-1`,
+      },
       body: "action=join",
     });
     const response = middleware(request);

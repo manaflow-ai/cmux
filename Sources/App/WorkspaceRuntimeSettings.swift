@@ -1,5 +1,6 @@
 import Darwin
 import CmuxFoundation
+import CmuxTerminal
 import Foundation
 import CmuxSettings
 enum WorkspaceTitlebarSettings {
@@ -207,6 +208,7 @@ enum TerminalCopyOnSelectSettings {
 enum TerminalManagedGhosttySettings {
     static func ghosttyConfigContents(defaults: UserDefaults = .standard, emitsCopyOnSelectFalse: Bool = true) -> String? {
         let lines = [
+            "term = \(TerminalSurface.managedTerminalType)",
             TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults, emitsFalse: emitsCopyOnSelectFalse),
         ].compactMap { $0 }
         guard !lines.isEmpty else { return nil }

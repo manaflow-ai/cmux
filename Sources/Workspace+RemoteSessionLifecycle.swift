@@ -137,11 +137,18 @@ extension Workspace {
         controller.start()
         if remoteControllerConnectionState == .connected {
             _ = reattachPersistentRemotePTYPanels()
+            drainPendingRemotePTYSessionCleanups()
         }
     }
 
     @discardableResult
     func reconnectRemoteConnection(surfaceId: UUID? = nil) -> Bool {
+        // `DisableRemoteConnections` (MDM): a configuration retained from
+        // before the policy activated must not redial. New connections are
+        // refused by `configureRemoteConnection`, and the enforcement observer
+        // disconnects live ones; this covers the reconnect affordances in
+        // between (sidebar, placeholder pane, socket `reconnect`).
+        guard !managedDevicePolicy.isEnforced(.disableRemoteConnections) else { return false }
         guard let configuration = remoteConfiguration else { return false }
         var didRespawnTerminal = false
         // Persistent SSH wrappers must not be launched while the management
@@ -159,6 +166,7 @@ extension Workspace {
             if remoteControllerIsReady {
                 let reattached = reattachPersistentRemotePTYPanels(requestedSurfaceId: surfaceId, restartEndedSessions: true)
                 didRespawnTerminal = surfaceId.map(reattached.contains) ?? !reattached.isEmpty
+                drainPendingRemotePTYSessionCleanups()
             }
         } else if let startupCommand = effectiveRemoteTerminalStartupCommand(from: configuration),
                   !startupCommand.isEmpty,
@@ -186,7 +194,16 @@ extension Workspace {
             if didRespawnTerminal || !shouldRespawnSurface { trackRemoteTerminalSurface(reconnectingSurfaceId) }
         }
         if reconnectingSurfaceId != nil, remoteControllerIsReady { return didRespawnTerminal }
-        guard remoteConnectionState != .connecting, remoteConnectionState != .reconnecting else { return didRespawnTerminal }
+        // A persistent PTY wrapper can publish a retrying presentation after
+        // its old controller has already been detached. In that state the
+        // presentation is not evidence that a controller/transition is still
+        // in flight; allow the explicit reconnect to recreate the owner.
+        let controllerRestartRequired = remoteSessionController == nil &&
+            remoteSessionTransitionTask == nil
+        guard controllerRestartRequired ||
+            (remoteConnectionState != .connecting && remoteConnectionState != .reconnecting) else {
+            return didRespawnTerminal
+        }
         configureRemoteConnection(configuration, autoConnect: true)
         return didRespawnTerminal
     }
