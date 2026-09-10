@@ -44,6 +44,8 @@ final class CloudTuiManualMirrorSession {
     /// socket is still the cleanup fence for peers without lease support.
     private var remoteLease: String?
     private var replayNeedsReset = false
+    /// The last sidecar fed to the local surface; the next one is applied as a delta from it.
+    private var appliedRemoteColors = CloudTuiRemoteColors()
     private var hasReceivedRemoteReplay = false
     private var lastRemoteGrid: CloudTuiManualIOGrid?
     private(set) var phase: CloudTuiManualMirrorPhase = .idle
@@ -430,6 +432,10 @@ final class CloudTuiManualMirrorSession {
 
     private func applyReplay(_ bytes: Data, reset: Bool) {
         if reset {
+            // Drop every remote color before the reset rather than trusting
+            // RIS to do it: the replay's own sidecar re-applies the authored
+            // set in full, so the pane ends in the same state either way.
+            applyColors(CloudTuiRemoteColors())
             surface?.processRemoteOutput(Self.replayReset)
         }
         surface?.processRemoteOutput(bytes)
@@ -437,10 +443,16 @@ final class CloudTuiManualMirrorSession {
 
     /// The replay is theme-portable: it carries no palette or default-color
     /// OSC state, so the local Ghostty theme stands for every color the
-    /// remote PTY did not author. The sidecar restores the authored ones.
+    /// remote PTY did not author. The sidecar restores the authored ones and
+    /// is a full sparse replacement, so an entry that vanished since the last
+    /// sidecar is reset back to the local theme. A frame with no sidecar
+    /// leaves the applied colors alone.
     private func applyColors(_ colors: CloudTuiRemoteColors?) {
-        guard let colors, !colors.isEmpty else { return }
-        surface?.processRemoteOutput(colors.oscBytes)
+        guard let colors else { return }
+        let delta = colors.oscDelta(from: appliedRemoteColors)
+        appliedRemoteColors = colors
+        guard !delta.isEmpty else { return }
+        surface?.processRemoteOutput(delta)
     }
 
     private func transitionToDisconnected() {

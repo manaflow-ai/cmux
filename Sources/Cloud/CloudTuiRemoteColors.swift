@@ -45,17 +45,43 @@ struct CloudTuiRemoteColors: Equatable, Sendable {
     }
 
     /// OSC 10/11/12 for the special colors and OSC 4 per authored palette
-    /// entry, in index order so output is deterministic.
+    /// entry, in index order so output is deterministic. Equivalent to the
+    /// delta from a terminal with no remote colors applied.
     var oscBytes: Data {
+        oscDelta(from: CloudTuiRemoteColors())
+    }
+
+    /// The sidecar is a full sparse replacement, not a merge: an entry the
+    /// remote PTY reset (OSC 104/110/111/112) is simply absent from the next
+    /// snapshot. libghostty keeps OSC color overrides until told otherwise,
+    /// so this emits the matching reset for every entry `previous` carried
+    /// that `self` no longer does, and a set for every entry that is new or
+    /// changed. Unchanged entries produce nothing.
+    func oscDelta(from previous: CloudTuiRemoteColors) -> Data {
         var text = ""
-        if let foreground { text += "\u{1B}]10;\(Self.rgbSpec(foreground))\u{1B}\\" }
-        if let background { text += "\u{1B}]11;\(Self.rgbSpec(background))\u{1B}\\" }
-        if let cursor { text += "\u{1B}]12;\(Self.rgbSpec(cursor))\u{1B}\\" }
-        for index in palette.keys.sorted() {
-            guard let color = palette[index] else { continue }
-            text += "\u{1B}]4;\(index);\(Self.rgbSpec(color))\u{1B}\\"
+        Self.appendSpecial(&text, set: 10, reset: 110, previous: previous.foreground, next: foreground)
+        Self.appendSpecial(&text, set: 11, reset: 111, previous: previous.background, next: background)
+        Self.appendSpecial(&text, set: 12, reset: 112, previous: previous.cursor, next: cursor)
+        for index in Set(previous.palette.keys).union(palette.keys).sorted() {
+            let before = previous.palette[index]
+            let after = palette[index]
+            guard before != after else { continue }
+            if let after {
+                text += "\u{1B}]4;\(index);\(Self.rgbSpec(after))\u{1B}\\"
+            } else {
+                text += "\u{1B}]104;\(index)\u{1B}\\"
+            }
         }
         return Data(text.utf8)
+    }
+
+    private static func appendSpecial(_ text: inout String, set: Int, reset: Int, previous: String?, next: String?) {
+        guard previous != next else { return }
+        if let next {
+            text += "\u{1B}]\(set);\(rgbSpec(next))\u{1B}\\"
+        } else {
+            text += "\u{1B}]\(reset)\u{1B}\\"
+        }
     }
 
     private static func rgbSpec(_ hex: String) -> String {
