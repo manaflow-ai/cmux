@@ -544,4 +544,54 @@ struct CloudPlacementCoordinatorTests {
         await catalog.cloudPlacementCoordinator.waitForPendingMutations()
         #expect(provider.closedTabs.isEmpty)
     }
+
+    @Test func replacementUsesTheOnlyLiveViewWhenTheSavedTabIsGone() async {
+        let bound = UUID(), panel = UUID()
+        let (catalog, provider) = Self.harness(bound: bound)
+        let term = Self.terminal("term_1", views: [SurfaceRemoteView(tabID: "tab_live", workspace: Self.api)])
+        catalog.replaceResources([term], on: Self.machine)
+        let previous = SurfaceProjection(resource: term.id, workspaceID: bound, panelID: UUID(), remoteWorkspaceID: "ws_main", remoteTabID: "tab_gone")
+        catalog.record(previous)
+        catalog.replaceProjection(previous, withPanel: panel, in: bound, remotePlacement: nil)
+        #expect(catalog.projection(forPanel: panel)?.remoteTabID == "tab_live")
+        #expect(catalog.projection(forPanel: panel)?.remoteWorkspaceID == "ws_api")
+        catalog.endProjections(panelID: panel)
+        await catalog.cloudPlacementCoordinator.waitForPendingMutations()
+        #expect(provider.closedTabs == ["tab_live"])
+    }
+
+    @Test func aMissingTrackedTabClearsCoordinatesEvenWhenOtherViewsRemain() throws {
+        let bound = UUID(), panel = UUID()
+        let (catalog, _) = Self.harness(bound: bound)
+        let term = Self.terminal("term_1", views: [SurfaceRemoteView(tabID: "tab_live", workspace: Self.api)])
+        catalog.replaceResources([term], on: Self.machine)
+        let previous = SurfaceProjection(resource: term.id, workspaceID: bound, panelID: panel, remoteWorkspaceID: "ws_main", remoteTabID: "tab_gone")
+        catalog.record(previous)
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: [
+            "cursor": ["generation": "g", "revision": "20"],
+            "workspaces": [["id": "ws_api"]],
+            "screens": [["id": "screen", "workspace_id": "ws_api"]],
+            "panes": [["id": "pane", "screen_id": "screen"]],
+            "tabs": [["id": "tab_live", "pane_id": "pane", "content_kind": "terminal", "content_id": "term_1"]],
+            "terminals": [["id": "term_1", "tab_ids": ["tab_live"]]], "browsers": [], "agents": []
+        ], machine: Self.machine))
+        catalog.reconcileCloudRemoteState(machine: Self.machine, state: state)
+        #expect(catalog.projection(forPanel: panel)?.remoteTabID == nil)
+        #expect(catalog.projection(forPanel: panel)?.remoteWorkspaceID == nil)
+    }
+
+    @Test func replacementDoesNotGuessBetweenLiveViewsAfterTheSavedTabDisappears() {
+        let bound = UUID(), panel = UUID()
+        let (catalog, _) = Self.harness(bound: bound)
+        let term = Self.terminal("term_1", views: [
+            SurfaceRemoteView(tabID: "tab_1", workspace: Self.api),
+            SurfaceRemoteView(tabID: "tab_2", workspace: Self.api)
+        ])
+        catalog.replaceResources([term], on: Self.machine)
+        let previous = SurfaceProjection(resource: term.id, workspaceID: bound, panelID: UUID(), remoteWorkspaceID: "ws_api", remoteTabID: "tab_gone")
+        catalog.record(previous)
+        catalog.replaceProjection(previous, withPanel: panel, in: bound, remotePlacement: nil)
+        #expect(catalog.projection(forPanel: panel)?.remoteTabID == nil)
+        #expect(catalog.projection(forPanel: panel)?.remoteWorkspaceID == nil)
+    }
 }
