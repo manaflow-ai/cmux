@@ -435,8 +435,7 @@ extension TerminalController {
             }
             let deviceFingerprint = Self.socketWorkerString(params["device_fingerprint"])
                 ?? Self.socketWorkerString(params["deviceFingerprint"])
-            // What the local cmux-tui client can do (`remote-probe --json` capabilities);
-            // VMClient validates the tokens before they reach the control plane.
+            // VMClient validates the local client's capability tokens before forwarding them.
             let clientCapabilities = Self.socketWorkerStringArray(
                 params["client_capabilities"] ?? params["clientCapabilities"]
             )
@@ -490,27 +489,15 @@ extension TerminalController {
                         ]
                     }
                 }
-                // A `vm tui` pane execs its own client, which the app cannot watch, so a
-                // private-network route pins the hub for the rest of the app session.
+                // External clients pin the hub and use the same address race as app links.
                 let route = payload["route"] as? String ?? ""
-                guard CloudMachineLinkManager.usesWireGuardHub(
-                    route: route,
-                    clientCapabilities: clientCapabilities,
-                    enrolledRoutes: []
-                ) else {
-                    throw CloudMachineLinkManager.ManagerError.privateRouteRequired(route)
-                }
                 let hub = await MainActor.run { CmuxTuiSurfaceProviderRegistry.shared.wireGuardHub }
                 guard let hub else { throw CloudMachineLinkManager.ManagerError.wireGuardHubMissing }
                 let ready = try await hub.pinForExternalClient()
-                guard CloudMachineLinkManager.usesWireGuardHub(
-                    route: route,
-                    clientCapabilities: clientCapabilities,
-                    enrolledRoutes: ready.routes
-                ) else {
-                    throw CloudMachineLinkManager.ManagerError.privateRouteRequired(route)
-                }
                 payload["wireguard_hub_socket"] = ready.socketPath
+                let addresses = payload["network_addresses"] as? [String: Any] ?? [:]
+                let resolvedRoute = try await registry.resolvedPrivateRoute(machineID: vmId, through: ready, fallbackRoute: route, addresses: ["ipv4", "ipv6"].compactMap { addresses[$0] as? String })
+                payload["route"] = resolvedRoute
                 return payload
             }
         case "vm.sessions":
