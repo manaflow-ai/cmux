@@ -123,6 +123,13 @@ final class AccountSignInModel {
         }
     }
 
+    /// Waits for the in-flight start attempt, if any. Tests observe the
+    /// attempt's outcome through this instead of guessing how many main-actor
+    /// yields the task needs.
+    func waitForPendingStart() async {
+        await startTask?.value
+    }
+
     func openSignInInBrowser() {
         guard let signInURL else { return }
         linkCopyState = .idle
