@@ -65,11 +65,15 @@ jobs:
         if: inputs.execute
         run: |
           python3 - <<'PY'
-          import urllib.request
+          import subprocess
           for feed in ("appcast-arm64.xml", "appcast-x86_64.xml", "appcast-universal.xml", "appcast.xml"):
-              request = urllib.request.Request(f"https://files.cmux.com/nightly/{feed}", method="HEAD")
-              with urllib.request.urlopen(request, timeout=30) as response:
-                  content_type = response.headers.get("Content-Type")
-                  print(f"{feed}: HTTP {response.status} Content-Type: {content_type}")
-                  assert content_type == "application/xml", feed
+              output = subprocess.check_output(
+                  ["curl", "--fail", "--silent", "--show-error", "--head", "--max-time", "30",
+                   f"https://files.cmux.com/nightly/{feed}"], text=True,
+              )
+              headers = dict(line.split(":", 1) for line in output.splitlines() if ":" in line)
+              headers = {key.lower(): value.strip() for key, value in headers.items()}
+              content_type = headers.get("content-type")
+              print(f"{feed}: Content-Type: {content_type}")
+              assert content_type == "application/xml", feed
           PY
