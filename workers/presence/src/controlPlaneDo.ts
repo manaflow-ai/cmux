@@ -290,7 +290,7 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
         error_code: code,
       }));
       const status = code.includes("not_found") ? 404 : code.includes("conflict") ? 409 : code.includes("forbidden") || code.includes("not_configured") || code.includes("expired") ? 403 : code.includes("invalid") ? 400 : 500;
-      return json({ error: code }, status);
+      return json({ error: code, debug: error instanceof Error ? error.message.slice(0, 120) : undefined }, status);
     }
   }
 
