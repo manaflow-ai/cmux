@@ -156,8 +156,15 @@ export function evaluatePublicationRequest(input: {
   return Effect.gen(function* () {
     const repository = yield* CloudVmPublicationRepository;
     const viewerResolver = yield* PublicationViewerResolver;
-    const target = yield* resolvePublicationForRequest(input);
-    if (!target) return { kind: "not_found" } as const satisfies PublicationRequestEvaluation;
+    const now = input.now ?? new Date();
+    const requestContext = yield* repository.findRequestContext({
+      providerTlsRuleId: input.providerTlsRuleId,
+      sessionTokenHash: isPublicationToken(input.sessionToken)
+        ? hashPublicationToken(input.sessionToken) : null,
+      now,
+    });
+    if (!requestContext) return { kind: "not_found" } as const satisfies PublicationRequestEvaluation;
+    const { session, ...target } = requestContext;
 
     if (target.publication.accessMode === "public") {
       // This can occur briefly during the fail-open-safe half of a protected ->
@@ -165,24 +172,16 @@ export function evaluatePublicationRequest(input: {
       return { kind: "allow" } as const satisfies PublicationRequestEvaluation;
     }
 
-    if (isPublicationToken(input.sessionToken)) {
-      const principal = yield* repository.findValidSession({
-        tokenHash: hashPublicationToken(input.sessionToken),
-        publicationId: target.publication.id,
-        hostname: target.publication.hostname,
-        now: input.now ?? new Date(),
-      });
-      if (principal) {
-        const owningTeamId = publicationOwningTeamId(target.vm);
-        // Only the owner of a personal VM can skip the identity lookup. Team
-        // VM ownership and email grants depend on current Stack identity.
-        const viewer: VmPublicationViewer | null =
-          owningTeamId !== null || principal.publication.accessMode === "team" || principal.session.userId !== principal.publication.ownerUserId
-            ? yield* viewerResolver.resolve(principal.session.userId)
-            : { userId: principal.session.userId, teamIds: [] };
-        if (yield* publicationAllowsViewer(principal.publication, viewer, input.now ?? new Date(), owningTeamId)) {
-          return { kind: "allow" } as const satisfies PublicationRequestEvaluation;
-        }
+    if (session) {
+      const owningTeamId = publicationOwningTeamId(target.vm);
+      // Only the owner of a personal VM can skip the identity lookup. Team
+      // VM ownership and email grants depend on current Stack identity.
+      const viewer: VmPublicationViewer | null =
+        owningTeamId !== null || target.publication.accessMode === "team" || session.userId !== target.publication.ownerUserId
+          ? yield* viewerResolver.resolve(session.userId)
+          : { userId: session.userId, teamIds: [] };
+      if (yield* publicationAllowsViewer(target.publication, viewer, now, owningTeamId)) {
+        return { kind: "allow" } as const satisfies PublicationRequestEvaluation;
       }
     }
 

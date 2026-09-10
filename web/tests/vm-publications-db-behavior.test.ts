@@ -169,6 +169,47 @@ afterAll(async () => {
 });
 
 describe("Cloud VM publication persistence", () => {
+  dbTest("reads current publication and session together without admitting stale or foreign sessions", async () => {
+    const repo = requiredRepository();
+    const sql = requiredSql();
+    const target = await createActivePublication({ suffix: "request-context" });
+    const foreign = await createActivePublication({ suffix: "request-foreign" });
+    const tokenHash = createHash("sha256").update("request-session").digest("hex");
+    await sql`insert into cloud_vm_publication_sessions (
+      token_hash, publication_id, user_id, routing_revision, created_at, expires_at
+    ) values (${tokenHash}, ${target.publication.id}, ${target.publication.ownerUserId},
+      ${target.publication.routingRevision}, ${NOW}, ${new Date(NOW.getTime() + 60_000)})`;
+    const input = { providerTlsRuleId: "tls-rule-request-context", sessionTokenHash: tokenHash, now: NOW };
+    const statements: string[] = [];
+    const driver = cloudDb().$client;
+    const previousDebug = driver.options.debug;
+    driver.options.debug = (_connection, statement) => { statements.push(statement); };
+    try {
+      const result = await runRepository(repo.findRequestContext(input));
+      expect(result?.publication.id).toBe(target.publication.id);
+      expect(result?.session?.tokenHash).toBe(tokenHash);
+      expect(statements).toHaveLength(1);
+      expect(statements[0]?.trim().toLowerCase().startsWith("select ")).toBe(true);
+    } finally {
+      driver.options.debug = previousDebug;
+    }
+    expect((await runRepository(repo.findRequestContext({ ...input, sessionTokenHash: null })))?.session).toBeNull();
+    expect((await runRepository(repo.findRequestContext({ ...input, now: new Date(NOW.getTime() + 60_000) })))?.session).toBeNull();
+    const wrongPublication = await runRepository(repo.findRequestContext({ ...input, providerTlsRuleId: foreign.publication.providerTlsRuleId! }));
+    expect(wrongPublication?.publication.id).toBe(foreign.publication.id);
+    expect(wrongPublication?.session).toBeNull();
+    await sql`update cloud_vm_publication_sessions set revoked_at=${NOW} where token_hash=${tokenHash}`;
+    expect((await runRepository(repo.findRequestContext(input)))?.session).toBeNull();
+    await sql`update cloud_vm_publication_sessions set revoked_at=null where token_hash=${tokenHash}`;
+    await sql`update cloud_vm_publications set routing_revision=routing_revision+1 where id=${target.publication.id}`;
+    expect((await runRepository(repo.findRequestContext(input)))?.session).toBeNull();
+    await sql`update cloud_vm_publications set state='disabled', disabled_at=${NOW} where id=${target.publication.id}`;
+    expect(await runRepository(repo.findRequestContext(input))).toBeNull();
+    await sql`update cloud_vm_publications set state='active', disabled_at=null where id=${target.publication.id}`;
+    await sql`update cloud_vms set status='destroyed' where id=${target.vm.id}`;
+    expect(await runRepository(repo.findRequestContext(input))).toBeNull();
+  });
+
   dbTest(
     "serializes bootstrap of the account-shared forward-auth resource",
     async () => {

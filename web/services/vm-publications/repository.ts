@@ -57,6 +57,11 @@ export type CloudVmPublicationTarget = {
   readonly vm: typeof cloudVms.$inferSelect;
 };
 
+/** Current routing and session state read from the same database snapshot. */
+export type CloudVmPublicationRequestContext = CloudVmPublicationTarget & {
+  readonly session: CloudVmPublicationSessionRow | null;
+};
+
 export type CloudVmPublicationAuthTransaction = {
   readonly transaction: CloudVmPublicationAuthTransactionRow;
   readonly publication: CloudVmPublicationRow;
@@ -396,6 +401,12 @@ export type CloudVmPublicationRepositoryShape = {
     CloudVmPublicationTarget | null,
     PublicationDatabaseError
   >;
+
+  readonly findRequestContext: (input: {
+    readonly providerTlsRuleId: string;
+    readonly sessionTokenHash: string | null;
+    readonly now: Date;
+  }) => Effect.Effect<CloudVmPublicationRequestContext | null, PublicationDatabaseError>;
 
   readonly createAuthTransaction: (input: {
     readonly publicationId: string;
@@ -1930,6 +1941,39 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
           )
           .limit(1);
         return target ?? null;
+      }),
+
+    findRequestContext: (input) =>
+      databaseEffect("findRequestContext", async () => {
+        const [context] = await cloudDb()
+          .select({
+            publication: cloudVmPublications,
+            domain: cloudVmDomains,
+            vm: cloudVms,
+            session: cloudVmPublicationSessions,
+          })
+          .from(cloudVmPublications)
+          .leftJoin(cloudVmDomains, eq(cloudVmPublications.domainId, cloudVmDomains.id))
+          .innerJoin(cloudVms, eq(cloudVmPublications.vmId, cloudVms.id))
+          // Invalid sessions remain a missing session on a valid publication;
+          // they must not hide the publication or bypass its current policy.
+          .leftJoin(cloudVmPublicationSessions, and(
+            input.sessionTokenHash === null
+              ? sql`false`
+              : eq(cloudVmPublicationSessions.tokenHash, input.sessionTokenHash),
+            eq(cloudVmPublicationSessions.publicationId, cloudVmPublications.id),
+            eq(cloudVmPublicationSessions.routingRevision, cloudVmPublications.routingRevision),
+            gt(cloudVmPublicationSessions.expiresAt, input.now),
+            isNull(cloudVmPublicationSessions.revokedAt),
+          ))
+          .where(and(
+            eq(cloudVmPublications.providerTlsRuleId, input.providerTlsRuleId),
+            eq(cloudVmPublications.state, "active"),
+            isNull(cloudVmPublications.disabledAt),
+            inArray(cloudVms.status, ["running", "paused"]),
+          ))
+          .limit(1);
+        return context ?? null;
       }),
 
     createAuthTransaction: (input) =>
