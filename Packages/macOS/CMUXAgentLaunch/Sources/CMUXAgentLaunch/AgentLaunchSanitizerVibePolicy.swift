@@ -13,12 +13,10 @@ extension AgentLaunchSanitizer {
             "--max-price",
             "--max-tokens",
             "--output",
-            "--worktree",
         ],
         optionalValueOptions: [
             "--resume",
             "--prompt", "-p",
-            "--worktree",
         ],
         booleanOptions: [
             "--auto-approve", "--yolo",
@@ -38,12 +36,14 @@ extension AgentLaunchSanitizer {
             "--prompt", "-p",
             "--max-turns", "--max-price", "--max-tokens",
             "--output",
+            "--worktree",
         ],
         droppedOptionPrefixes: [
             "--resume=",
             "--prompt=", "-p=",
             "--max-turns=", "--max-price=", "--max-tokens=",
             "--output=",
+            "--worktree=",
         ],
         rejectOptions: [
             "--setup", "--check-upgrade",
