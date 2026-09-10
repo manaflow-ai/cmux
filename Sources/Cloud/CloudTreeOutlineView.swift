@@ -21,7 +21,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     let machineActions: MachineRowActions
     let nodeActions: CloudTreeNodeActions
     let expansionStore: CloudTreeExpansionStore
-    var selectedRemoteWorkspaceID: String? = nil
+    var selectedRemoteWorkspace: CloudWorkspaceRemoteIdentity? = nil
     /// The visual preset the rows render in (the debug gallery pins one per
     /// column; the live panel passes the stored choice).
     var style: CloudTreeStyle = CloudTreeStyleStore.current
@@ -73,7 +73,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             snapshot: snapshot,
             localWorkspaces: localWorkspaces,
             unreadTerminalIDs: unreadTerminalIDs,
-            selectedRemoteWorkspaceID: selectedRemoteWorkspaceID
+            selectedRemoteWorkspace: selectedRemoteWorkspace
         ))
     }
 
@@ -375,6 +375,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             let node = outlineView.selectedRow >= 0
                 ? outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode
                 : nil
+            if let node, case .workspace = node.kind {
+                expansionStore.setExpanded(true, node: node)
+                outlineView.expandItem(node)
+            }
             updateSelection(from: node)
         }
 

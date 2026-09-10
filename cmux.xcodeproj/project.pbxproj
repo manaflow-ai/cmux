@@ -713,6 +713,7 @@
 		D12240000000000000000009 /* CloudTreeCreateAffordanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1224000000000000000000A /* CloudTreeCreateAffordanceTests.swift */; };
 		D12240000000000000000001 /* CloudTreeCreateMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12240000000000000000002 /* CloudTreeCreateMenu.swift */; };
 		D12240000000000000000003 /* CloudTreeCreateRowContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12240000000000000000004 /* CloudTreeCreateRowContent.swift */; };
+		D12240000000000000000011 /* CloudTreeCreateSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12240000000000000000012 /* CloudTreeCreateSelection.swift */; };
 		46C9B49F24011903C31179A7 /* CloudTreeExpansionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B93142FA1472ACA28B993606 /* CloudTreeExpansionStore.swift */; };
 		B5C68F2FAFD21A103AFF429D /* CloudTreeMachineMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADC9BE77DF3A402B8EC51665 /* CloudTreeMachineMenuTests.swift */; };
 		C986A0030000000000000001 /* CloudTreeNativeDragOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C986A0040000000000000001 /* CloudTreeNativeDragOwnershipTests.swift */; };
@@ -4221,6 +4222,7 @@
 		D1224000000000000000000A /* CloudTreeCreateAffordanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeCreateAffordanceTests.swift; sourceTree = "<group>"; };
 		D12240000000000000000002 /* CloudTreeCreateMenu.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeCreateMenu.swift; sourceTree = "<group>"; };
 		D12240000000000000000004 /* CloudTreeCreateRowContent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeCreateRowContent.swift; sourceTree = "<group>"; };
+		D12240000000000000000012 /* CloudTreeCreateSelection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeCreateSelection.swift; sourceTree = "<group>"; };
 		B93142FA1472ACA28B993606 /* CloudTreeExpansionStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeExpansionStore.swift; sourceTree = "<group>"; };
 		ADC9BE77DF3A402B8EC51665 /* CloudTreeMachineMenuTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeMachineMenuTests.swift; sourceTree = "<group>"; };
 		C986A0040000000000000001 /* CloudTreeNativeDragOwnershipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeNativeDragOwnershipTests.swift; sourceTree = "<group>"; };
@@ -7333,6 +7335,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A4C74749FA907F50D653EF65 /* CloudTreeNSOutlineView.swift */,
 				47E286761D314959F64AA002 /* CloudTreeCellView.swift */,
 				D12240000000000000000002 /* CloudTreeCreateMenu.swift */,
+				D12240000000000000000012 /* CloudTreeCreateSelection.swift */,
 				D12240000000000000000004 /* CloudTreeCreateRowContent.swift */,
 				D12240000000000000000006 /* CloudTreeRowHoverButtons.swift */,
 				D12240000000000000000008 /* MachinesPanelView+Create.swift */,
@@ -11419,6 +11422,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				3BCFA4F10BC6F6673CFA3BFC /* CloudTreeCellView.swift in Sources */,
 				D12240000000000000000001 /* CloudTreeCreateMenu.swift in Sources */,
 				D12240000000000000000003 /* CloudTreeCreateRowContent.swift in Sources */,
+				D12240000000000000000011 /* CloudTreeCreateSelection.swift in Sources */,
 				46C9B49F24011903C31179A7 /* CloudTreeExpansionStore.swift in Sources */,
 				2F6A1B1B2A892D4CCD6BF386 /* CloudTreeNode.swift in Sources */,
 				7A0CE1000000000000000726 /* CloudTreeNodeActions+Prompts.swift in Sources */,

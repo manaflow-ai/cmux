@@ -31,7 +31,7 @@ enum CloudVMPanelAuthState: Equatable {
 struct MachinesPanelView: View {
     @StateObject var viewModel = MachinesPanelViewModel()
     @State private var expansionStore = CloudTreeExpansionStore()
-    @State private var selectedCreateSelection: CloudTreeCreateSelection?
+    @State private(set) var selectedCreateSelection: (accountID: String?, selection: CloudTreeCreateSelection)?
     /// The explicit Cloud VPN's state (`cmux vpn up`), shown as a banner while
     /// it is starting, waiting for the extension approval, up, or failed.
     @State private var tunnelStatus = CloudTunnelStatusModel()
@@ -39,12 +39,9 @@ struct MachinesPanelView: View {
     /// and @AppStorage re-renders the live panel the moment it changes.
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
     let chromeBackgroundColor: NSColor
+    let tabManager: TabManager
 
-    private var accountFlow: HostAccountFlow? {
-        AppDelegate.shared?.auth?.accountFlow
-    }
-
-    private var authState: CloudVMPanelAuthState {
+    var authState: CloudVMPanelAuthState {
         CloudVMPanelAuthState.resolve(
             isAuthenticated: accountFlow?.isAuthenticated == true,
             // Keep the embedded sign-in screen mounted while the browser is
@@ -68,6 +65,12 @@ struct MachinesPanelView: View {
         .onAppear { syncPolling(for: authState) }
         .onChange(of: authState) { _, state in
             syncPolling(for: state)
+        }
+        .onChange(of: accountFlow?.currentIdentity?.id) { _, _ in
+            selectedCreateSelection = nil
+            viewModel.stopPolling()
+            viewModel.resetForAuthTransition()
+            syncPolling(for: authState)
         }
         .onDisappear {
             viewModel.stopPolling()
@@ -102,6 +105,7 @@ struct MachinesPanelView: View {
         case .signedIn:
             viewModel.startPolling()
         case .checking, .signedOut:
+            selectedCreateSelection = nil
             viewModel.stopPolling()
             viewModel.resetForAuthTransition()
         }
@@ -163,11 +167,11 @@ struct MachinesPanelView: View {
                 viewModel.refresh(tree: true)
             }
             CloudTreeCreateMenu(
-                selection: selectedCreateSelection,
+                selection: currentCreateSelection,
                 machineName: machineDisplayName,
                 requestNewMachine: requestNewMachine,
-                newWorkspace: { cloudTreeNodeActions.newWorkspace($0) },
-                newTerminal: { machine, workspaceID in cloudTreeNodeActions.newTerminal(machine, workspaceID) }
+                newWorkspace: createWorkspaceForSelection,
+                newTerminal: createTerminalForSelection
             )
         }
         .rightSidebarChromeBar()
@@ -433,6 +437,7 @@ struct MachinesPanelView: View {
     /// underneath. Both closure bundles are bound here, above the outline; rows
     /// never see the store.
     private var machinesList: some View {
+        let accountID = accountFlow?.currentIdentity?.id
         var machineActions = MachineRowActions.bound(
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() }
@@ -447,10 +452,10 @@ struct MachinesPanelView: View {
             machineActions: machineActions,
             nodeActions: cloudTreeNodeActions,
             expansionStore: expansionStore,
-            selectedRemoteWorkspaceID: selectedCreateSelection?.workspaceID,
+            selectedRemoteWorkspace: currentCreateSelection?.remoteWorkspace,
             style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
             onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) },
-            onSelectionChange: { selection in selectedCreateSelection = selection }
+            onSelectionChange: { selection in selectedCreateSelection = selection.map { (accountID, $0) } }
         )
         .accessibilityIdentifier("CloudMachinesTree")
     }

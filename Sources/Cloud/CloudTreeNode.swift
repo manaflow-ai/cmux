@@ -560,7 +560,7 @@ enum CloudTreeNodeBuilder {
         snapshot: SurfaceCatalogSnapshot,
         localWorkspaces: [CloudTreeLocalWorkspace],
         unreadTerminalIDs: [String: Set<String>] = [:],
-        selectedRemoteWorkspaceID: String? = nil,
+        selectedRemoteWorkspace: CloudWorkspaceRemoteIdentity? = nil,
         includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine
     ) -> [CloudTreeNode] {
         let projectionIndex = LocalProjectionIndex(snapshot: snapshot, unreadTerminalIDs: unreadTerminalIDs)
@@ -593,7 +593,7 @@ enum CloudTreeNodeBuilder {
                     machine: .cloud(machine.id),
                     info: info,
                     snapshot: snapshot,
-                    projectionIndex: projectionIndex, selectedRemoteWorkspaceID: selectedRemoteWorkspaceID
+                    projectionIndex: projectionIndex, selectedRemoteWorkspace: selectedRemoteWorkspace
                 )
             ))
         }
@@ -617,7 +617,7 @@ enum CloudTreeNodeBuilder {
                     machine: info.id,
                     info: info,
                     snapshot: snapshot,
-                    projectionIndex: projectionIndex, selectedRemoteWorkspaceID: selectedRemoteWorkspaceID
+                    projectionIndex: projectionIndex, selectedRemoteWorkspace: selectedRemoteWorkspace
                 )
             ))
         }
@@ -790,7 +790,7 @@ enum CloudTreeNodeBuilder {
         machine: SurfaceMachineID,
         info: SurfaceMachineInfo?,
         snapshot: SurfaceCatalogSnapshot,
-        projectionIndex: LocalProjectionIndex, selectedRemoteWorkspaceID: String?
+        projectionIndex: LocalProjectionIndex, selectedRemoteWorkspace: CloudWorkspaceRemoteIdentity?
     ) -> [CloudTreeNode] {
         // The catalog has not registered this machine yet: nothing to expand.
         guard let info else {
@@ -819,7 +819,7 @@ enum CloudTreeNodeBuilder {
                 resources: resources,
                 snapshot: snapshot,
                 projectionIndex: projectionIndex,
-                selectedRemoteWorkspaceID: selectedRemoteWorkspaceID
+                selectedRemoteWorkspace: selectedRemoteWorkspace
             ))
         }
         // Ports: one row per listening port, titled as the URL a person would
@@ -898,7 +898,7 @@ enum CloudTreeNodeBuilder {
         info: SurfaceMachineInfo,
         resources: [SurfaceResource],
         snapshot: SurfaceCatalogSnapshot,
-        projectionIndex: LocalProjectionIndex, selectedRemoteWorkspaceID: String?
+        projectionIndex: LocalProjectionIndex, selectedRemoteWorkspace: CloudWorkspaceRemoteIdentity?
     ) -> CloudTreeNode {
         let displays = resources.filter { $0.kind == .display }
         var byWorkspace: [String: RemoteWorkspaceRows] = [:]
@@ -956,7 +956,7 @@ enum CloudTreeNodeBuilder {
                 )
             }.filter { realPlacementSet.contains($0) }
             var workspaceChildren = layout.rows
-            if selectedRemoteWorkspaceID == workspace.id { workspaceChildren.append(CloudTreeNode(id: nodeID(createTerminal: workspace.id, machine: machine), kind: .createTerminal(machine: machine, workspaceID: workspace.id, workspaceName: workspace.name))) }
+            if selectedRemoteWorkspace == CloudWorkspaceRemoteIdentity(machine: machine, workspaceID: workspace.id) { workspaceChildren.append(CloudTreeNode(id: nodeID(createTerminal: workspace.id, machine: machine), kind: .createTerminal(machine: machine, workspaceID: workspace.id, workspaceName: workspace.name))) }
             return CloudTreeNode(
                 id: nodeID(workspace: workspace.id, machine: machine),
                 kind: .workspace(
