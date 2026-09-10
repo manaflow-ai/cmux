@@ -17,12 +17,26 @@ env:
 jobs:
   generate-ios-screenshots:
     name: Generate iOS App Store screenshots
+    # Runs alongside the macOS build so every stable tag still ships screenshot
+    # artifacts captured at the exact release ref. It is deliberately not a
+    # dependency of build-sign-notarize: the DMG consumes nothing from it, and a
+    # slow or flaky simulator capture (up to 300 minutes) must neither delay nor
+    # fail a macOS release (https://github.com/manaflow-ai/cmux/issues/12149).
+    # A failed capture still turns the run red, so it stays visible.
+    #
+    # Least privilege: capture-only reads the repository and nothing else, so
+    # this job hands the callee neither the release token scopes nor the
+    # repository secrets. The App Store Connect upload path inside the called
+    # workflow is gated to workflow_dispatch from main and is unreachable from
+    # a release run, so `secrets: inherit` would only have exposed the signing,
+    # notarization, Sparkle and R2 secrets to a UI-test job.
+    permissions:
+      contents: read
     uses: ./.github/workflows/ios-screenshots.yml
     with:
       ref: ${{ github.ref }}
       languages: "en-US,de-DE,fr-FR,ar-SA,es-ES,zh-Hant,zh-Hans,ko,ja"
       upload: false
-    secrets: inherit
 
   build-ghostty-cli-helper:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
@@ -72,9 +86,7 @@ jobs:
           retention-days: 3
 
   build-sign-notarize:
-    needs:
-      - build-ghostty-cli-helper
-      - generate-ios-screenshots
+    needs: build-ghostty-cli-helper
     # Build the app on macOS 26 so SDK-gated SwiftUI Liquid Glass code compiles
     # into stable releases. The real universal Ghostty CLI helper is built on
     # macOS 15 above because Zig 0.15.2 cannot link it on macOS 26.
@@ -84,7 +96,11 @@ jobs:
     # Notarization wait times vary on Apple's side. The standalone Computer Use
     # helper starts as soon as the unsigned app exists and overlaps the remaining
     # release preparation; the outer app and final DMG still serialize afterward.
-    timeout-minutes: 60
+    # v0.64.22 took 40 minutes before the Cloud tunnel extension, its Go engine
+    # build and the universal diff sidecar joined this job, and the helper's
+    # Gatekeeper propagation wait alone can now take twenty minutes, so 60 left
+    # no headroom. Keep at least 25 percent above the measured duration.
+    timeout-minutes: 90
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -104,6 +120,12 @@ jobs:
           submodules: recursive
 
       - name: Validate Sparkle build number is monotonic
+        # A tag push is about to publish, so a stale build number must fail.
+        # A non-tag workflow_dispatch is the built-in dry run: it publishes
+        # nothing and normally runs from a branch that has not been bumped yet,
+        # so the same condition only warns there.
+        env:
+          CMUX_SPARKLE_MONOTONIC_MODE: ${{ startsWith(github.ref, 'refs/tags/') && 'enforce' || 'warn' }}
         run: ./tests/test_ci_sparkle_build_monotonic.sh
 
       - name: Guard immutable release assets
@@ -339,7 +361,11 @@ jobs:
         run: |
           set -euo pipefail
           APP="build-universal/Build/Products/Release/cmux.app"
-          ./scripts/normalize-system-extension-bundle.sh "$APP" "7WLXT3NR37.com.cmuxterm.app.tunnel"
+          # The Release build's tunnel extension is com.cmuxterm.app.tunnel: the
+          # bundle identifier carries no team prefix (only NEMachServiceName and
+          # the profile's App ID do), exactly as nightly ships <bundle id>.tunnel.
+          # tests/test_ci_release_tunnel_identifiers.sh pins this to the project.
+          ./scripts/normalize-system-extension-bundle.sh "$APP" "com.cmuxterm.app.tunnel"
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
@@ -355,7 +381,7 @@ jobs:
           [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
           [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
           [[ "$HELPER_ARCHS" == *arm64* && "$HELPER_ARCHS" == *x86_64* ]]
-          TUNNEL_BINARY="$APP/Contents/Library/SystemExtensions/7WLXT3NR37.com.cmuxterm.app.tunnel.systemextension/Contents/MacOS/cmuxTunnel"
+          TUNNEL_BINARY="$APP/Contents/Library/SystemExtensions/com.cmuxterm.app.tunnel.systemextension/Contents/MacOS/cmuxTunnel"
           [ -x "$TUNNEL_BINARY" ] || { echo "Cloud tunnel extension binary not found at $TUNNEL_BINARY" >&2; exit 1; }
           TUNNEL_ARCHS="$(lipo -archs "$TUNNEL_BINARY")"
           echo "Tunnel extension architectures: $TUNNEL_ARCHS"
@@ -563,6 +589,13 @@ jobs:
             exit 1
           fi
           ./scripts/sparkle_generate_appcast.sh cmux-macos.dmg "$GITHUB_REF_NAME" appcast.xml
+          # macOS /bin/bash 3.2 can report "unbound variable" from a script with
+          # an EXIT trap and still exit 0; dry run 34227505375 (2026-09-08)
+          # uploaded a DMG with no appcast that way. The feed must exist, carry
+          # an EdDSA signature and point at this DMG before anything uploads it.
+          test -s appcast.xml
+          grep -q 'sparkle:edSignature' appcast.xml
+          grep -q 'cmux-macos.dmg' appcast.xml
 
       - name: Upload build artifacts (dry-run)
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'workflow_dispatch'

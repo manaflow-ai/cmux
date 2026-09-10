@@ -80,10 +80,10 @@ struct CloudTreeRowContentView: View {
         case .terminalsPool(_, let count):
             groupRow(title: String(localized: "cloudTree.group.terminals", defaultValue: "Terminals"), count: count)
         case .displaysPool(_, let count):
-            groupRow(title: String(localized: "cloudTree.group.displays", defaultValue: "VNC Displays"), count: count)
+            groupRow(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count)
         case .workspacesGroup:
             groupRow(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"))
-        case .workspace(_, let workspace, let terminalCount, let hiddenTabCount, _):
+        case .workspace(_, let workspace, let terminalCount, _, _):
             // No open marker here (none on any row since #11069); the row's open
             // verb reads "Go to Workspace" when it is already showing locally.
             CloudTreeLeafRow(
@@ -93,7 +93,7 @@ struct CloudTreeRowContentView: View {
                 title: workspace.name,
                 titleWeight: workspace.focused ? .medium : .regular,
                 detail: style.showsGroupCounts
-                    ? CloudTreeRowContentView.workspaceDetail(terminalCount: terminalCount, hiddenTabCount: hiddenTabCount)
+                    ? CloudTreeRowContentView.count(terminalCount)
                     : nil
             )
         case .localWorkspace(let row):
@@ -125,15 +125,7 @@ struct CloudTreeRowContentView: View {
                 tint: CloudTreeIconPalette.browser,
                 title: row.resource.title.isEmpty ? String(localized: "cloudTree.browser.untitled", defaultValue: "browser") : row.resource.title,
                 detail: CloudTreeBrowserDetail.text(for: row)
-            ) {
-                if style.showsViewBadges, row.hiddenTabCount > 0 {
-                    // A pane whose shown tab is a browser: its other tabs nest beneath.
-                    Text(String(format: String(localized: "cloudTree.terminal.badge.hiddenTabs", defaultValue: "+%d"), row.hiddenTabCount))
-                        .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
-                        .foregroundStyle(.secondary)
-                        .help(CloudTreeTerminalRowContent.hiddenTabsHelp(row.hiddenTabCount))
-                }
-            }
+            )
         case .portsGroup:
             groupRow(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"))
         case .port(let resource, let url, _):
@@ -204,22 +196,7 @@ struct CloudTreeRowContentView: View {
             : String(format: String(localized: "cloudTree.workspace.terminalCount.other", defaultValue: "%d terminals"), terminals)
     }
 
-    /// A workspace row's detail: the terminals its layout shows, then the tabs its
-    /// panes hold behind the shown ones ("2 terminals · 1 more tab"). The first
-    /// number matches the panes a person sees on opening; the second is what the
-    /// nested rows reveal.
-    static func workspaceDetail(terminalCount: Int, hiddenTabCount: Int) -> String {
-        guard hiddenTabCount > 0 else { return count(terminalCount) }
-        return count(terminalCount) + " · " + hiddenTabs(hiddenTabCount)
-    }
-
-    /// "1 more tab" / "%d more tabs": the tabs a workspace's panes hold behind their shown ones.
-    static func hiddenTabs(_ tabs: Int) -> String {
-        tabs == 1
-            ? String(localized: "cloudTree.workspace.hiddenTabs.one", defaultValue: "1 more tab")
-            : String(format: String(localized: "cloudTree.workspace.hiddenTabs.other", defaultValue: "%d more tabs"), tabs)
-    }
-
+    /// A workspace row's detail: the total terminal rows shown beneath it.
     /// Formats the transport and screen label shown beneath a VNC display row.
     /// A key such as `display:1` becomes `noVNC · :1`; unknown key shapes retain
     /// the transport-only detail.
@@ -480,14 +457,6 @@ struct CloudTreeTerminalRowContent: View {
                     .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
                     .foregroundStyle(.secondary)
                     .help(Self.viewsHelp(views))
-            }
-            if style.showsViewBadges, row.hiddenTabCount > 0 {
-                // A pane row: the tabs this pane holds behind the one it shows. Those
-                // tabs are the row's nested children.
-                Text(String(format: String(localized: "cloudTree.terminal.badge.hiddenTabs", defaultValue: "+%d"), row.hiddenTabCount))
-                    .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
-                    .foregroundStyle(.secondary)
-                    .help(Self.hiddenTabsHelp(row.hiddenTabCount))
             }
         }
         // Agent state stays on hover and in `cmux vm tree`; the row itself
@@ -900,12 +869,8 @@ struct CloudTreeRowHoverButtons: View {
             plus(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) {
                 nodeActions.newTerminal(machine, nil)
             }
-        case .displaysPool(let machine, _):
-            // The daemon cannot create displays yet (T10); until then "+" shows
-            // the machine's one desktop, reusing a pane that already does.
-            plus(String(localized: "machines.menu.openDesktop", defaultValue: "Open Desktop")) {
-                nodeActions.project(SurfaceResourceID(machine: machine, kind: .display, key: SurfaceResourceID.desktopDisplayKey), .split, true)
-            }
+        case .displaysPool:
+            EmptyView()
         case .workspacesGroup(let machine):
             plus(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) {
                 nodeActions.newWorkspace(machine)
@@ -935,7 +900,7 @@ struct CloudTreeRowHoverButtons: View {
     /// True when this row kind renders any hover button at all.
     static func hasButtons(for kind: CloudTreeNode.Kind) -> Bool {
         switch kind {
-        case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace:
+        case .machine, .localMachine, .terminalsPool, .workspacesGroup, .workspace:
             return true
         case .pendingMachine:
             return true
@@ -952,23 +917,5 @@ struct CloudTreeRowHoverButtons: View {
 
     private func xmark(_ label: String, action: @escaping () -> Void) -> some View {
         MachinesChromeIconButton(symbolName: "xmark", accessibilityLabel: label, isBusy: false, action: action)
-    }
-}
-
-extension CloudTreeTerminalRowContent {
-    /// Tooltip for a pane row's "+N" badge: the tabs the pane holds behind the shown one.
-    static func hiddenTabsHelp(_ tabs: Int) -> String {
-        tabs == 1
-            ? String(
-                localized: "cloudTree.terminal.badge.hiddenTabs.help.one",
-                defaultValue: "1 more tab in this pane, listed beneath this row. The pane shows this tab."
-            )
-            : String(
-                format: String(
-                    localized: "cloudTree.terminal.badge.hiddenTabs.help.other",
-                    defaultValue: "%d more tabs in this pane, listed beneath this row. The pane shows this tab."
-                ),
-                tabs
-            )
     }
 }

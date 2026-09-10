@@ -7,12 +7,10 @@ import Testing
 @testable import cmux
 #endif
 
-
 /// The cmux-tui provider's pure parts: snapshot → resources, the argv it hands the
 /// client, the URLs it opens, and the client identity paths it shares with the CLI.
 @Suite struct CmuxTuiSurfaceProviderTests {
     static let machine = SurfaceMachineID.cloud("vivid-newt")
-
     static let sessionSnapshot: [String: Any] = [
         "workspaces": [
             ["id": "ws_main", "name": "main", "focused": true],
@@ -42,7 +40,6 @@ import Testing
             ["id": "agent_1", "terminal_id": "term_build", "state": "working", "source": "claude"],
         ],
     ]
-
     @Test func legacyScreensKeepArrivalOrderAndExplicitPositions() throws {
         var snapshot = Self.sessionSnapshot
         snapshot["screens"] = [
@@ -55,7 +52,6 @@ import Testing
         #expect(views.first { $0.screenID == "screen_2" }?.screenIndex == 0)
         #expect(views.first { $0.screenID == "screen_1" }?.screenIndex == 7)
     }
-
     @Test func layoutDocumentOrdersPanesAndPlacesEveryView() throws {
         let layout: [String: Any] = [
             "version": 1, "screen_id": "screen_1", "active_pane_id": "pane_b", "zoomed_pane_id": NSNull(),
@@ -220,6 +216,10 @@ import Testing
         #expect(VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceSelector("same", in: machine) == .ambiguous(["ws-a", "ws-b"]))
         #expect(VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceSelector("missing", in: machine) == .notFound)
         #expect(VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceSelector("ws-id", in: ["id": "vivid-newt"]) == .unavailable)
+        let unfocused: [String: Any] = ["machines": [["id": "vivid-newt", "link_state": "connected", "remote_workspaces": [["id": "ws-a"], ["id": "ws-b"]]]], "resources": [[String: Any]]()]
+        #expect(VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: "vivid-newt", catalog: unfocused) == .unavailable)
+        let disconnected: [String: Any] = ["machines": [["id": "vivid-newt", "link_state": "asleep", "remote_workspaces": [["id": "ws-a"]]]], "resources": [[String: Any]]()]
+        #expect(VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: "vivid-newt", catalog: disconnected) == .unavailable)
     }
 
     @Test func vmOpenWorkspaceUsesTheSelectedTabView() {
@@ -870,26 +870,14 @@ import Testing
             == ["--socket", "/tmp/s.sock", "--json", "workspace", "ws_1", "close"])
     }
 
-    @Test func newTerminalJoinsTheFocusedElseFirstWorkspace() {
-        // Without `--remote-workspace`, a terminal lands in the daemon's focused workspace,
-        // else the first in daemon order; an empty workspace list means the provider has
-        // to ask the daemon (and only then create `main` — never a workspace named after
-        // the terminal).
-        let main = SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: false)
-        let api = SurfaceRemoteWorkspace(id: "ws_api", name: "api", index: 1, focused: true)
-        let docs = SurfaceRemoteWorkspace(id: "ws_docs", name: "docs", index: 2, focused: false)
-        #expect(CmuxTuiSurfaceProvider.preferredWorkspace([docs, api, main])?.id == "ws_api")
-        #expect(CmuxTuiSurfaceProvider.preferredWorkspace([docs, main])?.id == "ws_main")
-        #expect(CmuxTuiSurfaceProvider.preferredWorkspace([]) == nil)
-        #expect(CmuxTuiSurfaceProvider.firstWorkspaceName == "main")
+    @Test func workspaceCreationKeepsDaemonNamingAndExplicitEmptyReceivers() {
+        #expect(CloudTuiCommandLine.createWorkspaceArguments(socketPath: "/tmp/s.sock")
+            == ["--socket", "/tmp/s.sock", "--json", "workspace", "create"])
+        #expect(CloudTuiCommandLine.createWorkspaceArguments(socketPath: "/tmp/s.sock", name: "")
+            == ["--socket", "/tmp/s.sock", "--json", "workspace", "create"])
+        #expect(CloudTuiCommandLine.createWorkspaceArguments(socketPath: "/tmp/s.sock", name: "receiver", empty: true)
+            == ["--socket", "/tmp/s.sock", "--json", "workspace", "create", "--name", "receiver", "--empty"])
     }
-
-    @Test func defaultWorkspaceNamesDoNotReuseSurvivingNames() {
-        #expect(CmuxTuiSurfaceProvider.availableWorkspaceName(takenNames: []) == "main")
-        #expect(CmuxTuiSurfaceProvider.availableWorkspaceName(takenNames: ["workspace-2"]) == "workspace-3")
-        #expect(CmuxTuiSurfaceProvider.availableWorkspaceName(takenNames: ["main", "workspace-3"]) == "workspace-4")
-    }
-
 
     @Test(.timeLimit(.minutes(1))) @MainActor
     func forcedRegistryRefreshCompletesAfterAnEmptyPass() async {
@@ -985,6 +973,7 @@ import Testing
         #expect(CmuxTuiSnapshotParser.createdTerminal(fromRunResult: ["terminal_id": "term_bare"])?.terminalID == "term_bare")
         #expect(CmuxTuiSnapshotParser.createdTerminal(fromRunResult: ["value": ["kind": "terminal"]]) == nil)
         #expect(CmuxTuiSnapshotParser.createdWorkspace(fromResult: ["value": ["workspace_id": "ws_9"]]) == "ws_9")
+        #expect(CmuxTuiSnapshotParser.createdWorkspace(fromResult: ["value": ["workspace": "ws_8"]]) == "ws_8")
         #expect(CmuxTuiSnapshotParser.createdWorkspace(fromResult: ["id": "ws_bare"]) == "ws_bare")
         #expect(CmuxTuiSnapshotParser.createdWorkspace(fromResult: ["value": [:]]) == nil)
 
