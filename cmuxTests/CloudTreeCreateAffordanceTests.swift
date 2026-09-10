@@ -136,7 +136,7 @@ struct CloudTreeCreateAffordanceTests {
     }
 
     @Test("Removing a selected workspace or machine clears the header create target", arguments: [false, true])
-    func removedSelectionClearsCreateTarget(removeMachine: Bool) throws {
+    func removedSelectionClearsCreateTarget(removeMachine: Bool) async throws {
         var selection: CloudTreeCreateSelection?
         let coordinator = makeCoordinator { selection = $0 }
         let container = CloudTreeContainerView(coordinator: coordinator)
@@ -149,17 +149,19 @@ struct CloudTreeCreateAffordanceTests {
         #expect(selection == .workspace(machine: machine, workspaceID: main.id, workspaceName: main.name))
 
         coordinator.apply(nodes: removeMachine ? [] : [try #require(rows(workspaces: []).first)])
+        await coordinator.pendingSelectionPublication?.value
         #expect(outline.selectedRow == -1)
         #expect(selection == nil)
 
         // Reappearing IDs must not silently revive an obsolete create destination.
         coordinator.apply(nodes: [root])
+        await coordinator.pendingSelectionPublication?.value
         #expect(outline.selectedRow == -1)
         #expect(selection == nil)
     }
 
     @Test("A content-only workspace rename updates the selected create target")
-    func renamedSelectionRefreshesCreateTarget() throws {
+    func renamedSelectionRefreshesCreateTarget() async throws {
         var selection: CloudTreeCreateSelection?
         let coordinator = makeCoordinator { selection = $0 }
         let container = CloudTreeContainerView(coordinator: coordinator)
@@ -171,6 +173,7 @@ struct CloudTreeCreateAffordanceTests {
 
         let renamed = workspace(main.id, "Renamed workspace", index: 0)
         coordinator.apply(nodes: [try #require(rows(workspaces: [renamed]).first)])
+        await coordinator.pendingSelectionPublication?.value
         #expect(selection == .workspace(machine: machine, workspaceID: main.id, workspaceName: renamed.name))
         #expect(outline.selectedRow >= 0)
     }
@@ -287,6 +290,31 @@ struct CloudTreeCreateAffordanceTests {
         coordinator.apply(nodes: tree)
         isApplying = false
         #expect(!publishedDuringApply)
+    }
+
+    @Test("Deferred selection publishes the latest snapshot and yields to direct user selection")
+    func deferredSelectionCoalescesWithoutReplayingStaleTargets() async throws {
+        var selections: [CloudTreeCreateSelection?] = []
+        let coordinator = makeCoordinator { selections.append($0) }
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        defer { withExtendedLifetime(container) {} }
+        coordinator.apply(nodes: [try #require(rows(workspaces: [workspace("ws_main", "main", index: 0)]).first)])
+        let outline = try #require(coordinator.outlineView)
+        try select("machine:brave-otter/ws/ws_main", in: outline)
+        selections.removeAll()
+        for name in ["Intermediate", "Latest"] {
+            coordinator.apply(nodes: [try #require(rows(workspaces: [workspace("ws_main", name, index: 0)]).first)])
+        }
+        #expect(selections.isEmpty)
+        await coordinator.pendingSelectionPublication?.value
+        #expect(selections == [.workspace(machine: machine, workspaceID: "ws_main", workspaceName: "Latest")])
+
+        coordinator.apply(nodes: [try #require(rows(workspaces: [workspace("ws_main", "Stale", index: 0)]).first)])
+        let obsoletePublication = coordinator.pendingSelectionPublication
+        selections.removeAll()
+        try select("machine:brave-otter", in: outline)
+        await obsoletePublication?.value
+        #expect(selections == [.machine(machine)])
     }
 
     private func makeCoordinator(

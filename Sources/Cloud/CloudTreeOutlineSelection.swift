@@ -21,7 +21,27 @@ extension CloudTreeOutlineView.Coordinator {
     /// The coordinator owns selection; consumers receive only its current value snapshot.
     func updateSelection(from node: CloudTreeNode?) {
         selectedNodeID = node?.id
-        onSelectionChange(node.flatMap(selectionContext))
+        let selection = node.flatMap(selectionContext)
+        pendingSelectionPublication?.cancel()
+        pendingSelectionPublication = nil
+        if isUpdatingProgrammatically {
+            // Representable updates may reconcile the native outline immediately,
+            // but must publish back into SwiftUI only after that update returns.
+            pendingSelectionPublication = Task { @MainActor [weak self] in
+                guard let self, !Task.isCancelled else { return }
+                self.pendingSelectionPublication = nil
+                self.publishSelection(selection)
+            }
+        } else {
+            publishSelection(selection)
+        }
+    }
+
+    private func publishSelection(_ selection: CloudTreeCreateSelection?) {
+        guard !hasPublishedSelection || lastPublishedSelection != selection else { return }
+        hasPublishedSelection = true
+        lastPublishedSelection = selection
+        onSelectionChange(selection)
     }
 
     func selectionContext(for node: CloudTreeNode) -> CloudTreeCreateSelection? {
