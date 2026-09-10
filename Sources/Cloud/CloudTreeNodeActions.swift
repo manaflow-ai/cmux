@@ -60,7 +60,8 @@ struct CloudTreeNodeActions {
         onDidMutate: @escaping @MainActor () -> Void,
         onFailure: @escaping @MainActor (String) -> Void,
         refresh: @escaping @MainActor () -> Void,
-        refreshMachine: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in }, operationController: CloudWorkspaceOperationController? = nil
+        refreshMachine: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in }, operationController: CloudWorkspaceOperationController? = nil,
+        authorizeCreation: @escaping @MainActor (SurfaceMachineID) -> Bool = { _ in true }
     ) -> CloudTreeNodeActions {
         @MainActor @discardableResult
         func run(
