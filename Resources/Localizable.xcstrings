@@ -1,8 +1,6 @@
 {
   "sourceLanguage": "en",
   "strings": {
-  "cloudTree.error.invalidPreviewURL": {
-    "extractionState": "manual",
     "cli.vm.help.baseCreate": {
       "extractionState": "manual",
       "localizations": {
@@ -122,6 +120,8 @@
         }
       }
     },
+  "cloudTree.error.invalidPreviewURL": {
+    "extractionState": "manual",
     "localizations": {
       "en": {
         "stringUnit": {
