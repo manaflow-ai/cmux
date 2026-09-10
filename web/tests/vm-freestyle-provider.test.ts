@@ -212,6 +212,7 @@ describe("Freestyle tunnel create recovery", () => {
 // delete so the driver's guest-facing behavior can be asserted without a
 // platform. `probeExit` is what the edge readiness probe returns.
 function fakeFreestyle(input: { readonly probeExit: number }) {
+  const networkData = { publicIpv6: "2602:f75c:0:1::2a", vpcs: [{ ipv4: "10.4.0.7", ipv6: "fd00:4::7" }] };
   const creates: unknown[] = [];
   const resizes: unknown[] = [];
   const execs: string[] = [];
@@ -231,7 +232,7 @@ function fakeFreestyle(input: { readonly probeExit: number }) {
     delete: async () => {
       deletes.push(VM_ID);
     },
-    data: async () => ({ publicIpv6: "2602:f75c:0:1::2a" }),
+    data: async () => networkData,
     // Every VM boots at its snapshot's resources; create grows it to the plan
     // machine before bootstrap (see growToRequestedSize).
     resize: async (options: unknown) => {
@@ -242,7 +243,7 @@ function fakeFreestyle(input: { readonly probeExit: number }) {
     vms: {
       create: async (options: unknown) => {
         creates.push(options);
-        return { vm, vmId: VM_ID, data: { publicIpv6: "2602:f75c:0:1::2a", vpcs: [] } };
+        return { vm, vmId: VM_ID, data: networkData };
       },
       get: async () => ({ resources: { cpu: 2, memory: 4096, storage: 16384 } }),
       ref: () => vm,
@@ -612,7 +613,11 @@ describe("FreestyleProvider create with edge rules", () => {
       vpcs: [{ vpcId: "vpc_1", ipv4: true, ipv6: true }],
       tls: { rules: freestyleEdgeRules([EDGE_RULE]) },
     });
-    expect(handle.providerMetadata).toEqual({ networkId: "vpc_1" });
+    expect(handle.providerMetadata).toEqual({
+      networkId: "vpc_1",
+      networkIpv4: "10.4.0.7",
+      networkIpv6: "fd00:4::7",
+    });
     expect(JSON.stringify(fake.writes)).not.toContain("crt_");
   });
 
@@ -665,6 +670,7 @@ describe("FreestyleProvider resume policy", () => {
         snapshotId: "sh-devbox",
         resources: { cpu: 2, memory: 4096, storage: 16384 },
         idleTimeoutSeconds: 3600,
+        vpcs: [{ ipv4: "10.4.0.7", ipv6: "fd00:4::7" }],
       }),
       update: async (options: unknown) => {
         updates.push(options);

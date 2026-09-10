@@ -98,6 +98,10 @@ extension CmuxTuiSurfaceProvider {
                       let paneID = SurfacePaneFactory.paneID(ofPanel: projection.panelID, in: projection.workspaceID) else { continue }
                 materializedPanels.insert(projection.panelID)
                 let pane = (workspaceID: projection.workspaceID, panelID: projection.panelID)
+                // The old process no longer owns this URL. Retire it before
+                // any route setup can suspend, then reuse the normal preparer.
+                SurfacePaneFactory.navigate(panelID: pane.panelID, in: pane.workspaceID, to: SurfacePaneFactory.blankURL)
+                SurfacePaneFactory.showPlaceholder(SurfaceBrowserPlaceholder.connecting(resource.title), panelID: pane.panelID, in: pane.workspaceID)
                 // This task owns forward creation; materializeBrowserPane hands
                 // the same slot to its navigation task after the forward binds.
                 browserPaneTasks[pane.panelID] = Task { @MainActor [weak self] in

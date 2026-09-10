@@ -51,7 +51,9 @@ if not announced:
 /** Shared create, restore, resume, and attach boundary for private address setup. */
 export function announceFreestyleNetwork(vm: Pick<Vm, "exec">, addresses: readonly string[]) {
   const valid = [...new Set(addresses.filter((address) => isIP(address) !== 0))];
-  if (valid.length === 0) return Effect.void;
+  if (valid.length === 0) {
+    return Effect.fail(new ProviderError("freestyle", "Private network has no valid assigned address"));
+  }
   return Effect.tryPromise({
     try: () => vm.exec({ command: freestyleNetworkAnnouncementCommand(valid), linuxUser: "root", timeoutMs: 5_000 }),
     catch: (cause) => new ProviderError("freestyle", "announce private network", cause),
