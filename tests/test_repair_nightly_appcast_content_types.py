@@ -30,7 +30,7 @@ class RepairTests(unittest.TestCase):
         response.read.return_value = b""
         response.headers = {}
         with patch.dict(os.environ, {"AWS_ACCESS_KEY_ID": "example", "AWS_SECRET_ACCESS_KEY": "example"}, clear=True), \
-             patch.object(repair.urllib.request, "urlopen", return_value=response) as open_request:
+             patch.object(repair.uploader, "_open_signed_request", return_value=response) as open_request:
             repair.request(args, "PUT", BODY, {"if-match": ORIGINAL["etag"], "x-amz-meta-publisher": "nightly"})
         request = open_request.call_args.args[0]
         headers = {k.lower(): v for k, v in request.header_items()}

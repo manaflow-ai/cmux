@@ -7,8 +7,6 @@ import hashlib
 import importlib.util
 from pathlib import Path
 import sys
-import urllib.error
-import urllib.request
 import xml.etree.ElementTree as ET
 
 
@@ -23,7 +21,7 @@ METADATA = {"cache-control", "content-disposition", "content-encoding", "content
 def request(args, method, body=b"", headers=None):
     date = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     signed = uploader._build_signed_request(args, body, date, method=method, extra_headers=headers)
-    with urllib.request.urlopen(signed, timeout=30) as response:
+    with uploader._open_signed_request(signed, timeout=30) as response:
         return response.read(), {k.lower(): v for k, v in response.headers.items()}
 
 

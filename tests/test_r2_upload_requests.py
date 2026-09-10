@@ -155,6 +155,22 @@ class R2UploadRequestsTests(unittest.TestCase):
                         self.assertIn("authorization", headers)
                         self.assertEqual(headers["x-amz-security-token"], self.env["AWS_SESSION_TOKEN"])
 
+    def test_repair_reader_rejects_plaintext_and_redirects(self):
+        self.env["AWS_SESSION_TOKEN"] = "example-session-token"
+        collector, collected = self.start_endpoint(tls=False)
+        endpoint, requests = self.start_endpoint(redirects={"GET": (302, collector)})
+        for url, expected in ((collector, []), (endpoint, ["GET"])):
+            with self.subTest(endpoint=url):
+                result = subprocess.run(
+                    [sys.executable, str(UPLOADER.with_name("repair-nightly-appcast-content-types.py")),
+                     "--endpoint-url", url],
+                    env=self.env, capture_output=True, text=True, timeout=10,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(collected, [])
+                self.assertEqual([r[0] for r in requests], expected)
+                self.assertIn("HTTPS" if url == collector else "HTTP Error 302", result.stderr)
+
     def test_all_nightly_appcasts_explicit_xml_dry_run(self):
         for name in APPCASTS:
             with self.subTest(name=name):
