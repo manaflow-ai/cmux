@@ -273,6 +273,22 @@ struct CloudTreeCreateAffordanceTests {
         #expect(foreign.validated(in: tree) == nil)
     }
 
+    @Test("Outline rebuilds do not publish selection synchronously into SwiftUI")
+    func rebuildDefersSelectionPublication() throws {
+        var isApplying = false
+        var publishedDuringApply = false
+        let coordinator = makeCoordinator { _ in
+            if isApplying { publishedDuringApply = true }
+        }
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        defer { withExtendedLifetime(container) {} }
+        let tree = [try #require(rows(workspaces: [workspace("ws_main", "main", index: 0)]).first)]
+        isApplying = true
+        coordinator.apply(nodes: tree)
+        isApplying = false
+        #expect(!publishedDuringApply)
+    }
+
     private func makeCoordinator(
         onSelectionChange: @escaping @MainActor (CloudTreeCreateSelection?) -> Void = { _ in }
     ) -> CloudTreeOutlineView.Coordinator {
