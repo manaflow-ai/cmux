@@ -74,27 +74,30 @@ struct SudoRegistrationFailureTests {
         #expect(fixture.store.state(id: request.id) == nil)
     }
 
-    @Test("Runner registration failure cleans up and settles", arguments: [false, true])
-    func runnerRegistrationFailureRecovers(cleanupIncomplete: Bool) async throws {
+    @Test("An unavailable registration store does not authorize killing the runner")
+    func runnerRegistrationFailureKeepsMonitor() async throws {
         let fixture = try SudoTestFixture()
         defer { fixture.remove() }
         let launcher = RegistrationFailureLauncher(paths: fixture.paths)
-        let recovery = RegistrationFailureRecovery(
-            paths: fixture.paths, cleanupIncomplete: cleanupIncomplete
-        )
+        let recovery = TestExecutionRecovery()
         let broker = makeBroker(paths: fixture.paths, runner: launcher, recovery: recovery)
         let request = try fixture.enqueue(id: "runner-registration", createdAt: .now)
+        let events = await broker.events()
         _ = try await broker.start()
         await broker.approve(id: request.id)
-        let recovered = await recovery.recoveredStates
-        #expect(recovered.count == 1)
-        #expect(recovered.first?.runner == nil)
-        #expect(recovered.first?.execution == TestRunnerLauncher.defaultRunnerIdentity)
-        let result = fixture.store.authoritativeResult(id: request.id)
-        #expect(result?.errorCode == (cleanupIncomplete ? .processCleanupFailed : .runnerLaunchFailed))
-        if cleanupIncomplete {
-            #expect(fixture.store.cleanupFailureStates().first?.execution == TestRunnerLauncher.defaultRunnerIdentity)
+        #expect(await recovery.recoveredStates.isEmpty)
+        #expect(fixture.store.result(id: request.id) == nil)
+        try await launcher.allowRegistration(requestID: request.id)
+        #expect(try fixture.store.claimApprovedExecution(
+            id: request.id, runner: TestRunnerLauncher.defaultRunnerIdentity, now: .now
+        ) != nil)
+        let completed = SudoResult(id: request.id, status: .completed, exitCode: 0)
+        _ = try fixture.store.settle(completed)
+        await launcher.finish()
+        for await event in events {
+            if case .snapshot(let pending) = event, pending.isEmpty { break }
         }
+        #expect(fixture.store.authoritativeResult(id: request.id) == completed)
         #expect(await broker.pendingRequests().isEmpty)
         await broker.stop()
     }

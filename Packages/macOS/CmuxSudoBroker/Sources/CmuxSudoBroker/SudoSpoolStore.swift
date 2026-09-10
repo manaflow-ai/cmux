@@ -400,12 +400,14 @@ struct SudoSpoolStore {
     func recordRunnerLaunchFailure(_ recoveryState: SudoRequestState) throws -> Bool {
         try withRequestLock(id: recoveryState.id) {
             guard result(id: recoveryState.id) == nil else { return false }
-            let current = state(id: recoveryState.id)
-            guard current?.runner == nil || current?.runner == recoveryState.execution else {
+            guard let current = state(id: recoveryState.id),
+                  current.runner == nil,
+                  current.phase == .approved
+                    || (current.phase == .executing && current.execution == recoveryState.execution) else {
                 return false
             }
             let survivors = Set(
-                (current?.cleanupSurvivors ?? []) + [current?.execution].compactMap { $0 }
+                (current.cleanupSurvivors ?? []) + [current.execution].compactMap { $0 }
             )
             try writeState(SudoRequestState(
                 id: recoveryState.id,

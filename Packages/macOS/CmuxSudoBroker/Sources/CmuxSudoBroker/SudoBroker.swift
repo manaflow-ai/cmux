@@ -525,10 +525,25 @@ public actor SudoBroker {
     ) async {
         // Treat the unregistered runner as a cleanup root, not an active owner.
         // Recovery must terminate this exact generation before the request ends.
-        let recoveryState = SudoRequestState(
+        let cleanupClaim = SudoRequestState(
             id: requestID, phase: .executing, updatedAt: date, execution: runner.identity
         )
-        _ = try? store.recordRunnerLaunchFailure(recoveryState)
+        let recoveryState: SudoRequestState
+        do {
+            guard try store.recordRunnerLaunchFailure(cleanupClaim),
+                  let recorded = store.state(id: requestID),
+                  recorded.runner == nil, recorded.execution == runner.identity else {
+                monitor(runner: runner, requestID: requestID)
+                return
+            }
+            recoveryState = recorded
+        } catch {
+            // Without a durable cleanup claim, execution may still be claimed
+            // by the runner. Its termination remains owned by the normal monitor.
+            store.appendAudit("\(date.ISO8601Format()) \(requestID) failed runner-cleanup-claim")
+            monitor(runner: runner, requestID: requestID)
+            return
+        }
         let recoveries = await dependencies.recovery.recover(
             states: [recoveryState], approvedDirectory: store.paths.approved
         )
@@ -537,9 +552,6 @@ public actor SudoBroker {
             // The launcher owns the child reaper; join it instead of reaping twice.
             for await _ in runner.termination { break }
         }
-        // Retry the durable cleanup record after recovery in case the original
-        // filesystem error was transient. Preserve it when cleanup is incomplete.
-        _ = try? store.recordRunnerLaunchFailure(recoveryState)
         settleIfPossible(
             SudoResult(
                 id: requestID,
@@ -838,10 +850,10 @@ public actor SudoBroker {
         cancelRunnerMonitor(id: requestID)
         runnerMonitorTasks[requestID] = Task { [weak self] in
             for await _ in runner.termination {
-                guard !Task.isCancelled else { return }
-                await self?.runnerTerminated(requestID: requestID)
-                return
+                break
             }
+            guard !Task.isCancelled else { return }
+            await self?.runnerTerminated(requestID: requestID)
         }
     }
 
@@ -854,6 +866,10 @@ public actor SudoBroker {
         }
 
         let now = await dependencies.clock.now()
+        if let result = store.result(id: requestID) {
+            settleIfPossible(result, auditStatus: "recovered runner-result", at: now)
+            return
+        }
         guard let state = store.state(id: requestID) else {
             settleInterruptedIfPossible(id: requestID, at: now)
             return
