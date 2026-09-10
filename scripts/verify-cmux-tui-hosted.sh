@@ -342,6 +342,238 @@ artifact_binary="$artifact_dir/cmux-tui"
 mkdir -p "$artifact_dir"
 install -m 0755 "$downloaded_binary" "$artifact_binary"
 
+# Keep a small, bounded local cache. Cleanup is opt-in so existing callers do
+# not lose artifacts unexpectedly. Only directories owned by this user and
+# named for a complete commit SHA are eligible. The current commit and any
+# binary still open by a process are always retained.
+retention_count="${CMUX_TUI_HOSTED_RETENTION_COUNT:-}"
+if [[ -z "$retention_count" ]]; then
+  echo "Hosted artifact retention disabled (set CMUX_TUI_HOSTED_RETENTION_COUNT to enable)" >&2
+  echo "Hosted verification passed: $run_url"
+  echo "Artifact: $artifact_binary"
+  echo "Dogfood: $artifact_binary --session verify-${commit:0:8}"
+  exit 0
+fi
+if [[ ! "$retention_count" =~ ^[1-9][0-9]*$ ]]; then
+  echo "error: CMUX_TUI_HOSTED_RETENTION_COUNT must be a positive integer" >&2
+  exit 2
+fi
+if ((${#retention_count} > 6)) ||
+  ((${#retention_count} == 6 && retention_count > 100000)); then
+  echo "error: hosted artifact retention count is too large" >&2
+  exit 2
+fi
+if [[ "${CMUX_TUI_HOSTED_RETENTION_DRY_RUN:-0}" == "1" ]]; then
+  retention_dry_run=true
+elif [[ "${CMUX_TUI_HOSTED_RETENTION_DRY_RUN:-0}" == "0" ]]; then
+  retention_dry_run=false
+else
+  echo "error: CMUX_TUI_HOSTED_RETENTION_DRY_RUN must be 0 or 1" >&2
+  exit 2
+fi
+retention_confirmed="${CMUX_TUI_HOSTED_RETENTION_CONFIRM:-0}"
+if [[ "$retention_dry_run" == false && "$retention_confirmed" != "1" ]]; then
+  echo "error: destructive retention requires CMUX_TUI_HOSTED_RETENTION_CONFIRM=1 after a dry run" >&2
+  exit 2
+fi
+preview_file="cmux-tui/target/hosted/.retention-preview"
+hosted_artifact_root="$(cd "cmux-tui/target/hosted" && pwd -P)"
+lsof_available=false
+if command -v lsof >/dev/null 2>&1; then
+  lsof_available=true
+fi
+
+hosted_artifact_dirs=()
+hosted_artifact_order=()
+while IFS= read -r -d '' candidate_dir; do
+  candidate_commit="${candidate_dir##*/}"
+  [[ "$candidate_commit" =~ ^[0-9a-f]{40}$ ]] || continue
+  candidate_mtime=""
+  if candidate_mtime="$(stat -f '%m' "$candidate_dir" 2>/dev/null)" &&
+    [[ "$candidate_mtime" =~ ^[0-9]+$ ]]; then
+    :
+  elif candidate_mtime="$(stat -c '%Y' "$candidate_dir" 2>/dev/null)" &&
+    [[ "$candidate_mtime" =~ ^[0-9]+$ ]]; then
+    :
+  else
+    echo "error: cannot read modification time for hosted artifact: $candidate_dir" >&2
+    exit 2
+  fi
+  hosted_artifact_order+=("$candidate_mtime	$candidate_commit	$candidate_dir")
+done < <(find "$hosted_artifact_root" -mindepth 1 -maxdepth 1 -type d -uid "$(id -u)" -print0)
+if ((${#hosted_artifact_order[@]} > 0)); then
+  while IFS=$'\t' read -r _ candidate_commit candidate_dir; do
+    hosted_artifact_dirs+=("$candidate_dir")
+  done < <(printf '%s\n' "${hosted_artifact_order[@]}" | sort -t $'\t' -k1,1nr -k2,2r)
+fi
+retained=0
+cleanup_dirs=()
+for candidate_dir in "${hosted_artifact_dirs[@]}"; do
+  candidate_commit="${candidate_dir##*/}"
+  candidate_binary="$candidate_dir/cmux-tui"
+  if [[ "$candidate_commit" == "$commit" ]]; then
+    continue
+  fi
+  if (( retained < retention_count )); then
+    retained=$((retained + 1))
+    continue
+  fi
+  cleanup_dirs+=("$candidate_dir")
+done
+
+active_artifact_paths=""
+lsof_candidates=()
+if ((${#cleanup_dirs[@]} > 0)); then
+  if [[ "$lsof_available" != true ]]; then
+    echo "error: cannot prove artifact is inactive because lsof is unavailable" >&2
+    exit 2
+  fi
+  for candidate_dir in "${cleanup_dirs[@]}"; do
+    candidate_binary="$candidate_dir/cmux-tui"
+    [[ -f "$candidate_binary" ]] && lsof_candidates+=("$candidate_binary")
+  done
+  if ((${#lsof_candidates[@]} > 0)); then
+    collect_active_artifacts() {
+      local stderr_file="$1"
+      local paths_file="$temp_dir/lsof.paths"
+      local batch_size=100
+      local batch_start=0
+      local batch_output=""
+      local lsof_status=0
+      : > "$stderr_file"
+      : > "$paths_file"
+      while ((batch_start < ${#lsof_candidates[@]})); do
+        batch=("${lsof_candidates[@]:batch_start:batch_size}")
+        set +e
+        batch_output="$(lsof -Fn -- "${batch[@]}" 2>>"$stderr_file")"
+        lsof_status=$?
+        set -e
+        if (( lsof_status != 0 )) && [[ -s "$stderr_file" ]]; then
+          echo "error: cannot determine whether hosted artifacts are active" >&2
+          exit 2
+        fi
+        printf '%s\n' "$batch_output" >> "$paths_file"
+        batch_start=$((batch_start + batch_size))
+      done
+      active_artifact_paths="$(sed -n 's/^n//p' "$paths_file" | sort -u)"
+    }
+    collect_active_artifacts "$temp_dir/lsof.stderr"
+  fi
+fi
+
+deletion_dirs=()
+for candidate_dir in "${cleanup_dirs[@]}"; do
+  candidate_binary="$candidate_dir/cmux-tui"
+  if [[ -f "$candidate_binary" ]] &&
+    printf '%s\n' "$active_artifact_paths" | grep -F -x -q -- "$candidate_binary"; then
+    echo "Keeping active hosted artifact: $candidate_binary" >&2
+    continue
+  fi
+  deletion_dirs+=("$candidate_dir")
+done
+
+artifact_identity() {
+  local artifact_dir="$1"
+  local identity=""
+  if identity="$(stat -f '%i:%m' "$artifact_dir" 2>/dev/null)" &&
+    [[ "$identity" =~ ^[0-9]+:[0-9]+$ ]]; then
+    printf '%s\n' "$identity"
+  elif identity="$(stat -c '%i:%Y' "$artifact_dir" 2>/dev/null)" &&
+    [[ "$identity" =~ ^[0-9]+:[0-9]+$ ]]; then
+    printf '%s\n' "$identity"
+  else
+    return 1
+  fi
+}
+
+retention_plan_file="$temp_dir/retention-plan"
+{
+  printf 'commit\t%s\n' "$commit"
+  printf 'retention_count\t%s\n' "$retention_count"
+  for candidate_dir in "${hosted_artifact_dirs[@]}"; do
+    candidate_identity="$(artifact_identity "$candidate_dir")" || {
+      echo "error: cannot identify hosted artifact generation: $candidate_dir" >&2
+      exit 2
+    }
+    printf 'candidate\t%s\t%s\n' "$candidate_dir" "$candidate_identity"
+  done
+  for candidate_dir in "${deletion_dirs[@]}"; do
+    candidate_identity="$(artifact_identity "$candidate_dir")" || {
+      echo "error: cannot identify hosted artifact generation: $candidate_dir" >&2
+      exit 2
+    }
+    printf 'delete\t%s\t%s\n' "$candidate_dir" "$candidate_identity"
+  done
+} > "$retention_plan_file"
+if [[ "$retention_dry_run" == true ]]; then
+  preview_tmp="$temp_dir/retention-preview"
+  {
+    cat "$retention_plan_file"
+    printf 'timestamp\t%s\n' "$(date +%s)"
+  } > "$preview_tmp"
+  mv -f "$preview_tmp" "$preview_file"
+else
+  if [[ ! -f "$preview_file" ]]; then
+    echo "error: retention requires a fresh dry-run preview for this plan" >&2
+    exit 2
+  fi
+  preview_timestamp="$(awk -F '\t' '
+    $1 == "timestamp" {
+      if (seen || $2 !~ /^[0-9]+$/) exit 1
+      seen = 1
+      value = $2
+      next
+    }
+    seen { exit 1 }
+    END {
+      if (!seen) exit 1
+      print value
+    }
+  ' "$preview_file")" || {
+    echo "error: retention preview timestamp is invalid" >&2
+    exit 2
+  }
+  now="$(date +%s)"
+  if (( preview_timestamp > now || now - preview_timestamp > 600 )); then
+    echo "error: retention preview is missing or expired; run a dry run first" >&2
+    exit 2
+  fi
+  preview_plan_file="$temp_dir/retention-preview-plan"
+  sed '$d' "$preview_file" > "$preview_plan_file"
+  if ! cmp -s "$retention_plan_file" "$preview_plan_file"; then
+    echo "error: retention preview does not match the current cleanup plan" >&2
+    exit 2
+  fi
+fi
+
+if ((${#lsof_candidates[@]} > 0)); then
+  active_artifact_paths_before="$active_artifact_paths"
+  collect_active_artifacts "$temp_dir/lsof-recheck.stderr"
+  if [[ "$active_artifact_paths" != "$active_artifact_paths_before" ]]; then
+    echo "error: hosted artifact activity changed before cleanup; run a new dry run" >&2
+    exit 2
+  fi
+fi
+
+for candidate_dir in "${deletion_dirs[@]}"; do
+  candidate_binary="$candidate_dir/cmux-tui"
+  candidate_identity="$(artifact_identity "$candidate_dir")" || {
+    echo "error: hosted artifact changed before cleanup: $candidate_dir" >&2
+    exit 2
+  }
+  expected_delete_line=$'delete\t'"$candidate_dir"$'\t'"$candidate_identity"
+  if ! grep -F -x -q -- "$expected_delete_line" "$retention_plan_file"; then
+    echo "error: hosted artifact changed before cleanup: $candidate_dir" >&2
+    exit 2
+  fi
+  if [[ "$retention_dry_run" == true ]]; then
+    echo "Would remove hosted artifact: $candidate_dir" >&2
+  else
+    rm -rf -- "$candidate_dir"
+    echo "Removed hosted artifact: $candidate_dir" >&2
+  fi
+done
+
 echo "Hosted verification passed: $run_url"
 echo "Artifact: $artifact_binary"
 echo "Dogfood: $artifact_binary --session verify-${commit:0:8}"
