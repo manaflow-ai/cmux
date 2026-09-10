@@ -36,6 +36,7 @@ import type {
   ReleaseTrack,
   Status,
 } from "./generated/controlPlane";
+import { decodeControlFrameSchema } from "./controlPlaneSchemas";
 import { DEFAULT_RETRY_AFTER_SECONDS } from "./retryAfterResponse";
 
 export const CONTROL_PROTOCOL_VERSION = 1;
@@ -305,6 +306,12 @@ export type DecodedControlFrame =
  * frame is the validated input value, so round-tripping through JSON is
  * lossless (asserted by the golden-fixture tests). */
 export function decodeControlFrame(value: unknown): DecodedControlFrame | null {
+  // Zod is the canonical runtime boundary. The switch below currently maps
+  // validated data to generated DTOs and will be deleted after DTO generation
+  // is wired to the same schema source.
+  const schemaDecoded = decodeControlFrameSchema(value);
+  if (schemaDecoded === null) return null;
+  value = schemaDecoded;
   if (!isObject(value) || typeof value.type !== "string") return null;
   const payload = isObject(value.payload) ? value.payload : null;
   if (payload === null) return null;
