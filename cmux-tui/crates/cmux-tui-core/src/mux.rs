@@ -27609,6 +27609,20 @@ mod tests {
     }
 
     #[test]
+    fn automatic_workspace_sequence_survives_renaming_the_first_workspace() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        assert!(mux.rename_workspace(first.workspace, "shell".into()));
+
+        mux.new_workspace(None, None).unwrap();
+
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces[0].name, "shell");
+            assert_eq!(state.workspaces[1].name, "workspace-2");
+        });
+    }
+
+    #[test]
     fn empty_workspace_registry_has_stable_keys_revisions_and_close() {
         let mux = test_mux();
         let events = mux.subscribe();
