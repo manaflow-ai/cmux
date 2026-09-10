@@ -3262,3 +3262,58 @@ function userSubscriptionUpdate({ status }: { status: string }) {
     },
   };
 }
+
+describe("billing user lookup without a user-list scan", () => {
+  const dotted = {
+    id: "dotted-owner",
+    primaryEmail: "billing.fixture@gmail.com",
+    primaryEmailVerified: true,
+    isAnonymous: false,
+    isRestricted: false,
+    update: mock(async () => undefined),
+  };
+
+  test("a dotted Gmail alias is found through the identity snapshot, not by scanning every user", async () => {
+    const listUsers = mock(async () => []);
+    const getUser = mock(async (...args: unknown[]) => ((args[0] as string) === dotted.id ? dotted : null));
+    const snapshotUserIds = mock(async () => [dotted.id]);
+    const user = await findBillingUserByEmail(
+      { listUsers, getUser } as never,
+      "billingfixture@gmail.com",
+      { snapshotUserIds },
+    );
+    expect(user?.id).toBe(dotted.id);
+    expect(snapshotUserIds).toHaveBeenCalledWith("billingfixture@gmail.com");
+    const scanned = listUsers.mock.calls.some((call) => (call[0] as { query?: string }).query === undefined);
+    expect(scanned).toBe(false);
+  });
+
+  test("an unknown Gmail purchaser resolves to no user instead of failing the purchase", async () => {
+    const listUsers = mock(async () => []);
+    const user = await findBillingUserByEmail(
+      { listUsers, getUser: mock(async () => null) } as never,
+      "nobody.yet@gmail.com",
+      { snapshotUserIds: async () => [] },
+    );
+    expect(user).toBeNull();
+    expect(
+      await findUserIdByEmail(
+        { listUsers, getUser: mock(async () => null) } as never,
+        "nobody.yet@gmail.com",
+        { snapshotUserIds: async () => [] },
+      ),
+    ).toBeNull();
+  });
+
+  test("a query whose pages never end still returns the exact match it found", async () => {
+    const page = Object.assign([dotted], { nextCursor: "again" });
+    const listUsers = mock(async () => page);
+    const user = await findBillingUserByEmail(
+      { listUsers, getUser: mock(async () => dotted) } as never,
+      "billing.fixture@gmail.com",
+      { snapshotUserIds: async () => [] },
+    );
+    expect(user?.id).toBe(dotted.id);
+    expect(listUsers.mock.calls.length).toBeLessThanOrEqual(400);
+  });
+});
