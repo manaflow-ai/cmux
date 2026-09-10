@@ -19,7 +19,13 @@ extension CloudMachineLinkManager {
         let addresses = candidates.filter {
             CloudWireGuardHub.routesHost($0, enrolledRoutes: hub.routes)
         }
-        guard addresses.count > 1, let primary = addresses.first else { return primaryRoute }
+        guard let primary = addresses.first else { return primaryRoute }
+        // Fresh discovery or the enrolled routes can leave a single candidate.
+        // Use it directly rather than returning an older address-family route.
+        guard addresses.count > 1 else {
+            let host = primary.contains(":") ? "[\(primary)]" : primary
+            return "ws://\(host):1337/v1/link"
+        }
         let connected: CloudHubConnection
         do {
             connected = try await CloudHubConnector().connect(
