@@ -1,2 +1,1 @@
-Before: extracted at 515 seconds from test-e2e run 34432456077 (Desktop/Base picker).
-After: extracted near the end of run 34443839557 (single New Machine flow). The UI source shown is unchanged through merge 8ba29eaad8. The after run failed an identifier-only test locator; the image demonstrates the sheet was visible. Follow-up tests repair the locator.
+Before: frame at 515 seconds from hosted run 34432456077. After: New Machine sheet from passing hosted run 34448127478, tested commit 3bdf3b84c0. Both are unmodified full-resolution video frames.
