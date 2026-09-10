@@ -327,4 +327,35 @@ struct CloudPlacementCoordinatorTests {
         let missing = try #require(await CmuxTuiSnapshotParser.tabPlacement(from: empty, tabID: "tab_1"))
         #expect(missing.workspaceID == nil && missing.revision == "4")
     }
+
+    @Test func aDetachedTerminalDropsItsStaleTabBeforeMoving() async throws {
+        let viewer = UUID(), bound = UUID(), panel = UUID()
+        let (catalog, provider) = Self.harness(bound: bound)
+        let term = Self.terminal("term_1", views: [])
+        catalog.replaceResources([term], on: Self.machine)
+        catalog.record(SurfaceProjection(resource: term.id, workspaceID: viewer, panelID: panel, remoteWorkspaceID: "ws_main", remoteTabID: "tab_gone"))
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: [
+            "cursor": ["generation": "g", "revision": "20"],
+            "workspaces": [["id": "ws_main"], ["id": "ws_api"]],
+            "screens": [], "panes": [], "tabs": [],
+            "terminals": [["id": "term_1", "tab_ids": []]], "browsers": [], "agents": []
+        ], machine: Self.machine))
+        catalog.reconcileCloudRemoteState(machine: Self.machine, state: state)
+        catalog.moveProjections(panelID: panel, to: bound)
+        await catalog.cloudPlacementCoordinator.waitForPendingMutations()
+        #expect(provider.moved.isEmpty)
+        #expect(provider.projected.map { $0.terminal } == ["term_1"])
+        #expect(catalog.projection(forPanel: panel)?.remoteTabID == "tab_projected")
+    }
+
+    @Test func openingIntoABoundWorkspaceUsesTheSharedPlacementPath() async throws {
+        let bound = UUID()
+        let (catalog, provider) = Self.harness(bound: bound)
+        let term = Self.terminal("term_1", views: [SurfaceRemoteView(tabID: "tab_1", workspace: Self.main)])
+        catalog.replaceResources([term], on: Self.machine)
+        _ = try await catalog.project(term.id, into: .tab(workspaceID: bound, paneID: UUID().uuidString, index: nil), focus: false, reuseExisting: false)
+        await catalog.cloudPlacementCoordinator.waitForPendingMutations()
+        #expect(provider.moved.map { $0.workspace } == ["ws_api"])
+        #expect(provider.projected.isEmpty)
+    }
 }
