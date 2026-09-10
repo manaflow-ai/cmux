@@ -2,8 +2,11 @@ import Foundation
 
 /// Pure remote catalog selector and placement resolution shared by the app and CLI.
 enum CmuxTuiRemoteRouting {
+    /// Every `cmux vm agent` option that takes a value, so the alias walk and
+    /// the help scan skip the value instead of reading it as the first provider
+    /// argument (or as `--help`).
     private static let vmAgentValueOptions: Set<String> = [
-        "--agent", "--machine", "--cwd", "--name", "--remote-workspace", "--size",
+        "--agent", "--machine", "--cwd", "--name", "--remote-workspace", "--size", "--timeout",
     ]
 
     static func isAgentSubcommand(_ raw: String?) -> Bool {
@@ -38,7 +41,9 @@ enum CmuxTuiRemoteRouting {
             return normalized
         }
 
-        let flagOptions: Set<String> = ["--sync", "--no-open", "--new", "--json", "--help", "-h"]
+        // Boolean `cmux vm agent` options; `--wait` and `--output` are the
+        // until-done flags, which must reach the VM parser rather than the agent.
+        let flagOptions: Set<String> = ["--sync", "--no-open", "--new", "--json", "--wait", "--output", "--help", "-h"]
         var index = 0
         while index < tail.count {
             let token = tail[index]
