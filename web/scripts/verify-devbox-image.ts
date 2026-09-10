@@ -182,6 +182,7 @@ const desktopChecks = (): readonly string[] => [
   `awk '$2 ~ /:${hexPort(DEVBOX_DESKTOP_RFB_PORT)}$/ && $4 == "0A" && $2 !~ /^0100007F:/ && $2 !~ /^00000000000000000000000001000000:/ { bad=1 } END { exit bad }' /proc/net/tcp /proc/net/tcp6 && echo vnc-5901-loopback-only`,
   `awk '$2 ~ /:${hexPort(DEVBOX_DESKTOP_NOVNC_PORT)}$/ && $4 == "0A" { found=1 } END { exit !found }' /proc/net/tcp /proc/net/tcp6 && echo novnc-6901-listening`,
   `curl -fsS http://127.0.0.1:${DEVBOX_DESKTOP_NOVNC_PORT}/ | grep -qi novnc && echo novnc-6901-serves-client`,
+  `curl --noproxy '*' -g -fsS http://[::1]:${DEVBOX_DESKTOP_NOVNC_PORT}/ | grep -qi novnc && echo novnc-6901-serves-ipv6-client`,
   // start-vnc.sh runs whichever of Xvnc/Xtigervnc is on PATH; the process
   // name follows the invoked path (Ubuntu's Xvnc is a symlink to Xtigervnc).
   `pgrep -u ${DEVBOX_DESKTOP_USER} -x 'Xvnc|Xtigervnc' >/dev/null && pgrep -u ${DEVBOX_DESKTOP_USER} -x openbox >/dev/null && pgrep -u ${DEVBOX_DESKTOP_USER} -x tint2 >/dev/null && echo desktop-session-ok`,

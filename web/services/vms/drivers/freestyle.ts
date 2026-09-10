@@ -9,7 +9,10 @@ import {
   type VpcData,
   type SnapshotData,
 } from "freestyle";
+
 import { createHash, randomBytes } from "node:crypto";
+import { Effect } from "effect";
+import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
 import {
   ProviderError,
   type AttachTransport,
@@ -275,6 +278,7 @@ type FreestyleNetworkAddress = {
  * degraded path but a guaranteed timeout with a misleading address in the
  * error.
  *
+
  * Within the network, IPv4 is preferred, because only the v4 path is reliable
  * over the WireGuard tunnel. The tunnel routes the VPC's v4 prefix as a subnet,
  * so it reaches any member the moment that member exists; its v6 path does not
@@ -951,9 +955,11 @@ export class FreestyleProvider implements VMProvider {
             }
             // The baked supervisor is already bringing the daemon up; the only
             // per-machine input it needs is the model-plane env file.
+
             // The in-VM shim is a separate convenience layer over the baked
             // daemon and is installed idempotently for agents and peer links.
             await this.installGuestCli(vm);
+            await this.announcePrivateAddresses(vm, data);
           } catch (err) {
             // A VM that failed to size or configure must not survive as an
             // orphan, and an undersized machine must not ship as if it were
@@ -1070,6 +1076,18 @@ export class FreestyleProvider implements VMProvider {
           const fs = this.deps.client(CREATE_TIMEOUT_MS);
           const vm = fs.vms.ref(vmId);
           const data = await vm.start();
+          // The wake already succeeded: the machine is running and, unlike
+          // create and restore, there is no fresh allocation to roll back. A
+          // start payload can also name the network a VM is on before the
+          // platform fills in the address assigned on it, so an unusable
+          // address here is not a verdict on the machine. Prepare the route
+          // best-effort and leave readiness to openCmuxRemote, which reads the
+          // authoritative addresses and fails closed on them.
+          try {
+            await this.announcePrivateAddresses(vm, data);
+          } catch (announceError) {
+            recordSpanError(span, announceError);
+          }
           // Older cmux machines were created while the provider's account
           // default supplied a finite idle timeout. Clear that legacy policy
           // the first time the user wakes one so the box stays available after
@@ -1284,6 +1302,7 @@ export class FreestyleProvider implements VMProvider {
             "cmux.vm.network.private": !!networkId,
           });
           // The snapshot carries the installed binary and a persisted
+
           // model-plane file with placeholders only. The guest adapter is a
           // required artifact, so install it before returning; daemon healing
           // remains best-effort for a transient resume race. The new machine's
@@ -1291,6 +1310,7 @@ export class FreestyleProvider implements VMProvider {
           try {
             await this.installGuestCli(vm);
             await this.ensureCmuxTuiRunning(vm, vmId, false).catch(() => undefined);
+            await this.announcePrivateAddresses(vm, data);
           } catch (err) {
             await vm.delete().catch((cleanupErr) => {
               console.error(`[freestyle] restore rollback failed; VM ${vmId} may be orphaned`, cleanupErr);
@@ -1329,6 +1349,8 @@ export class FreestyleProvider implements VMProvider {
           const persisted = freestyleRouteAddressesFromMetadata(options?.providerMetadata);
           const data = persisted ?? await vm.data();
           const route = freestyleCmuxRemoteRoute(data, vmId);
+          await this.announcePrivateAddresses(vm, data);
+
           span.setAttribute("cmux.vm.network.private", (data.vpcs ?? data.networks ?? []).length > 0);
           span.setAttribute("cmux.vm.route.source", persisted ? "row" : "provider");
           // Direct-IPv6 carries no URL token; this one exists only for the
@@ -1416,6 +1438,15 @@ export class FreestyleProvider implements VMProvider {
       },
     );
   }
+
+  private async announcePrivateAddresses(vm: Vm, data: FreestyleRouteAddresses): Promise<void> {
+    const addresses = (data.vpcs ?? data.networks ?? [])
+      .flatMap((network) => [network.ipv4, network.ipv6])
+      .filter((address): address is string => typeof address === "string" && address.trim() !== "")
+      .map((address) => address.trim());
+    await Effect.runPromise(announceFreestyleNetwork(vm, addresses));
+  }
+
 
   async approveCmuxRemoteEnrollment(
     vmId: string,

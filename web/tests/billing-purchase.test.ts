@@ -3309,7 +3309,8 @@ describe("billing user lookup without a user-list scan", () => {
       { snapshotUserIds: async () => [] },
     );
     expect(user?.id).toBe(dotted.id);
-    expect(listUsers.mock.calls.length).toBeLessThanOrEqual(400);
+    const callCount = (listUsers as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+    expect(callCount).toBeLessThanOrEqual(400);
   });
 });
 

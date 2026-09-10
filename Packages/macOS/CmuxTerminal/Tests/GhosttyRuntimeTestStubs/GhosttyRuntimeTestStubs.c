@@ -231,6 +231,19 @@ bool ghostty_surface_clear_selection(void *surface) {
     return false;
 }
 
+bool ghostty_surface_read_selection_clipboard_text(
+    void *surface,
+    uintptr_t max_bytes,
+    ghostty_text_s *selection
+) {
+    (void)surface;
+    (void)max_bytes;
+    if (selection != NULL) {
+        *selection = (ghostty_text_s){0};
+    }
+    return false;
+}
+
 void *ghostty_config_new(void) {
     return calloc(1, sizeof(GhosttyRuntimeTestConfig));
 }
@@ -437,15 +450,6 @@ void ghostty_surface_free(void *surface) {
     }
 }
 void ghostty_surface_free_text(void) {}
-bool ghostty_surface_read_selection_clipboard_text(
-    void *surface,
-    uintptr_t max_bytes,
-    void *selection) {
-    (void)surface;
-    (void)max_bytes;
-    (void)selection;
-    return false;
-}
 float ghostty_surface_font_size(void *surface) {
     return surface == cmux_test_font_surface
         ? cmux_test_font_runtime_points
