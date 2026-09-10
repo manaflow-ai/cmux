@@ -1375,6 +1375,7 @@
 		C0A712510000000000000002 /* ExternalWindowCompanionPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A712510000000000000001 /* ExternalWindowCompanionPresenter.swift */; };
 		C0A717000000000000000002 /* ExternalWindowSample.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A717000000000000000001 /* ExternalWindowSample.swift */; };
 		C0A716910000000000000002 /* ExternalWindowSamplingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A716910000000000000001 /* ExternalWindowSamplingService.swift */; };
+		C0A717100000000000000002 /* ExternalWindowSamplingServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A717100000000000000001 /* ExternalWindowSamplingServiceTests.swift */; };
 		C0DEA7710000000000000007 /* FeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA7710000000000000008 /* FeatureFlags.swift */; };
 		FEED0A00000000000000F007 /* feed-tui in Resources */ = {isa = PBXBuildFile; fileRef = FEED0A00000000000000F006 /* feed-tui */; };
 		9466A07A0000000000000001 /* FeedAttentionTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9466A07A0000000000000002 /* FeedAttentionTarget.swift */; };
@@ -4802,6 +4803,7 @@
 		C0A712510000000000000001 /* ExternalWindowCompanionPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ExternalWindowCompanionPresenter.swift; sourceTree = "<group>"; };
 		C0A717000000000000000001 /* ExternalWindowSample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ExternalWindowSample.swift; sourceTree = "<group>"; };
 		C0A716910000000000000001 /* ExternalWindowSamplingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/ExternalWindowSamplingService.swift"; sourceTree = "<group>"; };
+		C0A717100000000000000001 /* ExternalWindowSamplingServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalWindowSamplingServiceTests.swift; sourceTree = "<group>"; };
 		C0DEA7710000000000000008 /* FeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureFlags.swift; sourceTree = "<group>"; };
 		FEED0A00000000000000F006 /* feed-tui */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "feed-tui"; sourceTree = "<group>"; };
 		9466A07A0000000000000002 /* FeedAttentionTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedAttentionTarget.swift; sourceTree = "<group>"; };
@@ -10035,6 +10037,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A10507000000000000000002 /* TitleUpdateAmplificationRegressionTests.swift */,
 				42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */,
 				C0A710120000000000000001 /* ComputerUseUXTests.swift */,
+				C0A717100000000000000001 /* ExternalWindowSamplingServiceTests.swift */,
 				C0A716950000000000000001 /* ComputerUseOnboardingWindowTests.swift */,
 				C0A716940000000000000001 /* ComputerUseCommandPaletteTests.swift */,
 				C0A716900000000000000001 /* ExternalApplicationWindowTrackerTests.swift */,
@@ -13792,6 +13795,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D3622100A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift in Sources */,
 				E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */,
 				C0A716900000000000000002 /* ExternalApplicationWindowTrackerTests.swift in Sources */,
+				C0A717100000000000000002 /* ExternalWindowSamplingServiceTests.swift in Sources */,
 				8672E0048672E0048672E004 /* FeedCoordinatorIngressTests.swift in Sources */,
 				FEEDC0DEC0DEC0DEC0DE0001 /* FeedCoordinatorTests.swift in Sources */,
 				FEED49850000000000000001 /* FeedEventClassificationTests.swift in Sources */,

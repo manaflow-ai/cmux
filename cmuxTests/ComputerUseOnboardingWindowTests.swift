@@ -10,6 +10,28 @@ import Testing
 
 @Suite("Computer Use onboarding windows", .serialized)
 struct ComputerUseOnboardingWindowTests {
+    @Test @MainActor func offscreenWindowMetadataPreservesItsIdentity() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 20, y: 20, width: 200, height: 120),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.orderBack(nil)
+        let windowID = CGWindowID(window.windowNumber)
+        window.orderOut(nil)
+
+        let snapshot = ExternalApplicationWindowTracker.windowSnapshot(
+            windowID: windowID,
+            processIdentifier: ProcessInfo.processInfo.processIdentifier,
+            primaryScreenMaxY: NSScreen.screens.first?.frame.maxY ?? 0
+        )
+
+        #expect(snapshot?.windowID == windowID)
+    }
+
     @Test @MainActor func unavailableTargetDismissesOnlyItsCompanion() throws {
         var companion: NSWindow?
         let controller = ComputerUseOnboardingWindowController(
@@ -285,7 +307,8 @@ struct ComputerUseOnboardingWindowTests {
         #expect(companionPanel?.becomesKeyOnlyIfNeeded == true)
         #expect(companionPanel?.hidesOnDeactivate == false)
         #expect(companionPanel?.level == .floating)
-        #expect(companionPanel?.collectionBehavior.contains(.moveToActiveSpace) == true)
+        #expect(companionPanel?.collectionBehavior.contains(.moveToActiveSpace) == false)
+        #expect(companionPanel?.collectionBehavior.contains(.managed) == true)
         #expect(companionPanel?.collectionBehavior.contains(.canJoinAllSpaces) == false)
     }
 
@@ -357,7 +380,8 @@ struct ComputerUseOnboardingWindowTests {
         #expect(orderedWindow === companionWindow)
         #expect(companionWindow.level == .floating)
         #expect(companionWindow.hidesOnDeactivate == false)
-        #expect(companionWindow.collectionBehavior.contains(.moveToActiveSpace))
+        #expect(!companionWindow.collectionBehavior.contains(.moveToActiveSpace))
+        #expect(companionWindow.collectionBehavior.contains(.managed))
         #expect(!companionWindow.collectionBehavior.contains(.canJoinAllSpaces))
     }
 
