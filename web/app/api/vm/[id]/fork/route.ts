@@ -10,6 +10,7 @@ import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { captureVmProvisionOutcome } from "../../../../../services/vms/observability";
 import { forkVm } from "../../../../../services/vms/workflows";
+import { vmModelPlaneGatewayFor } from "../../../../../services/vms/modelPlaneGateway";
 import { VmTimingRecorder } from "../../../../../services/vms/timings";
 import { authProviderErrorResponse } from "../../../../../services/vms/authErrors";
 import {
@@ -77,6 +78,10 @@ export async function POST(
         providerVmId: id,
         name,
         idempotencyKey,
+        modelPlane: vmModelPlaneGatewayFor({
+          teamId: entitlements.billingTeamId,
+          stackUserId: user.id,
+        }),
         timing,
       }), {
         request,
