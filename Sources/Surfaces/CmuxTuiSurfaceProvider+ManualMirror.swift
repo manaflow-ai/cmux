@@ -18,10 +18,15 @@ extension CmuxTuiSurfaceProvider {
         guard let link = await links.link(machineID: machineID) else {
             throw ProviderError.machineAsleep(machineID)
         }
+        // A pool terminal opened into a mirrored workspace takes its tab there, not in
+        // whichever workspace the daemon happens to focus.
         let remoteSurfaceID = try await resolveSurfaceIDForMaterialization(
             terminalID: resource.id.key,
             socketPath: connected.socketPath,
-            link: link
+            link: link,
+            preferredWorkspaceID: catalog.cloudPlacementCoordinator.boundRemoteWorkspaceID(
+                forLocalWorkspace: destination.workspaceID, on: machine
+            )
         )
 
         let session = CloudTuiManualMirrorSession(
@@ -82,7 +87,8 @@ extension CmuxTuiSurfaceProvider {
     private func resolveSurfaceIDForMaterialization(
         terminalID: String,
         socketPath: String,
-        link: CloudMachineLink
+        link: CloudMachineLink,
+        preferredWorkspaceID: String? = nil
     ) async throws -> UInt64 {
         switch await Self.resolveModernSurfaceID(
             terminalID: terminalID,
@@ -110,7 +116,8 @@ extension CmuxTuiSurfaceProvider {
             try await ensureRemoteTerminalView(
                 terminalID: terminalID,
                 socketPath: socketPath,
-                link: link
+                link: link,
+                preferredWorkspaceID: preferredWorkspaceID
             )
             if case let .resolved(surfaceID) = await Self.resolveModernSurfaceID(
                 terminalID: terminalID,
@@ -129,9 +136,10 @@ extension CmuxTuiSurfaceProvider {
     private func ensureRemoteTerminalView(
         terminalID: String,
         socketPath: String,
-        link: CloudMachineLink
+        link: CloudMachineLink,
+        preferredWorkspaceID: String? = nil
     ) async throws {
-        let key = socketPath + "\u{0}" + terminalID
+        let key = socketPath + "\u{0}" + terminalID + "\u{0}" + (preferredWorkspaceID ?? "")
         if let task = remoteTerminalProjectionTasks[key] {
             try await task.value
             return
@@ -143,7 +151,8 @@ extension CmuxTuiSurfaceProvider {
             try await self.createRemoteTerminalView(
                 terminalID: terminalID,
                 socketPath: socketPath,
-                link: link
+                link: link,
+                preferredWorkspaceID: preferredWorkspaceID
             )
         }
         remoteTerminalProjectionTasks[key] = task
@@ -157,7 +166,8 @@ extension CmuxTuiSurfaceProvider {
     private func createRemoteTerminalView(
         terminalID: String,
         socketPath: String,
-        link: CloudMachineLink
+        link: CloudMachineLink,
+        preferredWorkspaceID: String? = nil
     ) async throws {
         // Reuse one idempotency key across the bounded revision retry. If the
         // daemon applied the mutation but the CLI lost its response, a retry
@@ -188,7 +198,7 @@ extension CmuxTuiSurfaceProvider {
                 arguments: CloudTuiCommandLine.snapshotArguments(socketPath: socketPath)
             )
             try Task.checkCancellation()
-            guard let projection = await CmuxTuiSnapshotParser.terminalProjectionTarget(from: snapshotData)
+            guard let projection = await CmuxTuiSnapshotParser.terminalProjectionTarget(from: snapshotData, preferringWorkspace: preferredWorkspaceID)
             else {
                 throw ProviderError.terminalNotCreated(terminalID)
             }
@@ -283,7 +293,7 @@ extension CmuxTuiSurfaceProvider {
                 return
             }
             materializedPanels.insert(materialized.panelID)
-            catalog.endProjections(panelID: projection.panelID)
+            catalog.endProjections(panelID: projection.panelID, reason: .replaced)
             catalog.record(SurfaceProjection(
                 resource: resource.id,
                 workspaceID: materialized.workspaceID,

@@ -69,8 +69,13 @@ enum SurfacePaneFactory {
         _ = TerminalController.shared.controlSurfaceFocus(routing: routing(workspaceID: workspaceID), surfaceID: panelID)
     }
 
-    /// Closes a pane (a restored placeholder that a provider replaced).
+    /// Closes a pane the app is replacing or discarding itself (a restored placeholder a
+    /// provider replaced, the loser of an open race, the panes of a killed terminal). That
+    /// end is never a layout edit on the machine, unlike a pane the person closes.
     static func close(panelID: UUID, in workspaceID: UUID) {
+        guard let workspace = workspace(id: workspaceID) else { return }
+        workspace.surfaceReplacementPanelIDs.insert(panelID)
+        defer { workspace.surfaceReplacementPanelIDs.remove(panelID) }
         _ = TerminalController.shared.controlSurfaceClose(routing: routing(workspaceID: workspaceID), surfaceID: panelID, hasSurfaceIDParam: true)
     }
 

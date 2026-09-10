@@ -293,7 +293,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// protocol mismatch, and accepting it could erase live remote resources.
     /// Unknown top-level collections remain optional and are retained by the
     /// canonical document for forward compatibility.
-    private static func requiredGraphCollectionsArePresent(in snapshot: [String: Any]) -> Bool {
+    static func requiredGraphCollectionsArePresent(in snapshot: [String: Any]) -> Bool {
         ["workspaces", "screens", "panes", "tabs", "terminals", "browsers", "agents"]
             .allSatisfy { snapshot[$0] is [[String: Any]] }
     }
@@ -407,7 +407,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// order remains the compatibility fallback. An explicit index wins over
     /// an omitted one, and equal explicit indexes use the stable id before the
     /// transport offset as a deterministic tie-break.
-    private static func orderedSnapshotRows(
+    static func orderedSnapshotRows(
         _ rows: [[String: Any]],
         focusedFirst: Bool = false
     ) -> [(offset: Int, element: [String: Any])] {
