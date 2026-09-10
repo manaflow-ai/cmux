@@ -80,7 +80,7 @@ extension CMUXCLI {
 
         try withVibeConfigLock(filePath: filePath) {
             let oldString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
-            let newString = VibeHookConfig().installing(events: events, in: oldString)
+            var newString = VibeHookConfig().installing(events: events, in: oldString)
 
             if oldString == newString {
                 print(String.localizedStringWithFormat(
@@ -115,13 +115,13 @@ extension CMUXCLI {
                 // Re-read and recompute under the lock so the preview matches
                 // what is actually written if another process changed the file.
                 let currentString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
-                let recomputed = VibeHookConfig().installing(events: events, in: currentString)
                 guard currentString == oldString else {
+                    newString = VibeHookConfig().installing(events: events, in: currentString)
                     Self.printInstallPreview(
                         path: filePath,
                         oldContent: currentString,
-                        newContent: recomputed,
-                        fallbackContent: recomputed
+                        newContent: newString,
+                        fallbackContent: newString
                     )
                     print(String(
                         localized: "cli.hooks.vibe.confirmProceed",
