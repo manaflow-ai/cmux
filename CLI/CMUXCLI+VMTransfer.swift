@@ -1398,8 +1398,7 @@ extension CMUXCLI {
         var params: [String: Any] = [
             // Pool machines are shell boxes; the backend maps the kind to its image.
             "kind": VMMachineKind.base.rawValue,
-            "persistent_home": true,
-            "per_machine_home": true,
+            // Freestyle has no persistent-volume capability; keep pool creation usable.
             // Fresh key per run: a failed create is simply retried by the next
             // `vm run`, and the interactive `vm new` store stays untouched.
             "idempotency_key": UUID().uuidString,
