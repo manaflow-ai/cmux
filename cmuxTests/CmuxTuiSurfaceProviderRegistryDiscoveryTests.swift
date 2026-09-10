@@ -116,6 +116,80 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
         VMSummary(id: id, provider: "freestyle", status: "running", image: "fixture", createdAt: 0, base: nil)
     }
 
+    @Test("Retired registries reject new work even while background Cloud remains enabled")
+    func signOutStopsAllNewDiscoveryUntilRestart() async {
+        let catalog = SurfaceCatalog()
+        var allowed = false
+        var lists = 0
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            wireGuardHub: nil,
+            allowsBackgroundWork: { allowed },
+            listPage: {
+                lists += 1
+                return VMListPage(vms: [machine("vm-known")], limits: nil)
+            },
+            refreshProvider: { _, _ in }
+        )
+        registry.start(catalog: catalog)
+        _ = await registry.providerRefreshingIfMissing(machineID: "vm-known")
+        allowed = true
+        await registry.accessDidEnd()
+        registry.syncPollingToActivationPolicy()
+        let pollingAfterSignOut = registry.isPolling
+        allowed = false
+        registry.syncPollingToActivationPolicy()
+
+        #expect(!pollingAfterSignOut)
+        #expect(await registry.providerRefreshingIfMissing(machineID: "vm-known") == nil)
+        #expect(await registry.refresh(force: true) == false)
+        #expect(lists == 1)
+        #expect(catalog.snapshot == .empty)
+
+        registry.start(catalog: catalog)
+        #expect(await registry.providerRefreshingIfMissing(machineID: "vm-known") != nil)
+        #expect(lists == 2)
+        await registry.accessDidEnd()
+    }
+
+    @Test("A create overlapping an older fleet read gets a post-create discovery")
+    func missingMachineWaitsForAFreshPage() async {
+        let catalog = SurfaceCatalog()
+        let requested = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<Bool>()
+        let waiterStarted = CloudLinkFirstValue<Bool>()
+        var lists = 0
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            wireGuardHub: nil,
+            allowsBackgroundWork: { false },
+            listPage: {
+                lists += 1
+                if lists == 1 {
+                    requested.resolve(true)
+                    _ = await release.result
+                    return VMListPage(vms: [], limits: nil)
+                }
+                return VMListPage(vms: [machine("vm-new")], limits: nil)
+            },
+            refreshProvider: { _, _ in }
+        )
+        registry.start(catalog: catalog)
+        let background = Task { await registry.refresh(force: false) }
+        _ = await requested.result
+        let discovery = Task {
+            waiterStarted.resolve(true)
+            return await registry.providerRefreshingIfMissing(machineID: "vm-new") != nil
+        }
+        _ = await waiterStarted.result
+        release.resolve(true)
+
+        #expect(await discovery.value)
+        _ = await background.value
+        #expect(lists == 2)
+        await registry.accessDidEnd()
+    }
+
     @Test("A list that finishes after sign-out cannot register its machines")
     func signOutInvalidatesPendingDiscovery() async {
         let catalog = SurfaceCatalog()
