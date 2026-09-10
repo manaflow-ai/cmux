@@ -1020,6 +1020,7 @@ jobs:
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           for suite in \
             RemoteTmuxMirrorCloseDetachTests \
+            RemoteTmuxMirrorFocusPolicyTests \
             RemoteTmuxMirrorDedicatedPlacementTests
           do
             for attempt in 1 2; do
@@ -1357,6 +1358,36 @@ jobs:
             -parallel-testing-enabled NO \
             CMUX_SKIP_ZIG_BUILD=1 \
             test
+
+      - name: Run global search shortcut regressions
+        if: ${{ matrix.shard == 1 }}
+        timeout-minutes: 40
+        run: |
+          # This serialized container owns global shortcut settings. Keep its
+          # mutations out of unrelated UI suites' retained window graphs; it
+          # exceeded thirteen minutes in a shared app host. Run the whole
+          # container in its own non-tolerant app host, including every nested
+          # test, as a plain `xcodebuild test` gate like every other focused
+          # gate: a build-for-testing + test-without-building pair ahead of the
+          # sharded batches left the next `xcodebuild test` silent until the
+          # job cap (runs 34436816921 and 34448986837). The first invocation on
+          # this shard also builds, so the budget covers build plus ~9 minutes
+          # of tests.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          test_log="$RUNNER_TEMP/cmux-global-search-shortcuts.txt"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/GlobalSearchShortcutBehaviorTests \
+            test 2>&1 | tee "$test_log"
+          scripts/ci/require_selected_test_execution.sh \
+            "$test_log" cmuxTests/GlobalSearchShortcutBehaviorTests
 
       - name: Run unit tests
         run: |

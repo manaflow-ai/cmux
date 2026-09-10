@@ -867,6 +867,10 @@ def run_focused_app_host_step(
         ci_scripts = root / "scripts" / "ci"
         runner_temp.mkdir()
         ci_scripts.mkdir(parents=True)
+        shutil.copy2(
+            ROOT / "scripts/ci/require_selected_test_execution.sh",
+            ci_scripts / "require_selected_test_execution.sh",
+        )
         outcomes_file = root / "outcomes"
         outcomes_file.write_text("\n".join(outcomes) + "\n", encoding="utf-8")
         counter = root / "invocations"
@@ -886,6 +890,10 @@ printf '%s\\n' "$iteration" > "$counter"
 outcome="$(sed -n "${iteration}p" "${CMUX_TEST_OUTCOMES:?}")"
 printf 'invocation %s: %s\\n' "$iteration" "$*"
 case "$outcome" in
+  empty)
+    echo "Executed 0 tests, with 0 failures (0 unexpected)"
+    exit 0
+    ;;
   pass)
     echo "Executed 7 tests, with 0 failures (0 unexpected)"
     exit 0
@@ -928,13 +936,15 @@ esac
 
 
 def test_remote_tmux_mirror_gate_reruns_a_suite_once_after_an_app_host_crash() -> None:
-    # The close suite crashes once and passes on its rerun; the placement
-    # suite then runs and passes, so the step is green with three invocations.
-    result, invocations = run_focused_app_host_step(["crash", "pass", "pass"])
+    # The close suite crashes once and passes on its rerun; the isolated focus
+    # and placement suites then pass, for four invocations in total.
+    result, invocations = run_focused_app_host_step(["crash", "pass", "pass", "pass"])
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert invocations == 3, result.stdout
+    assert invocations == 4, result.stdout
     assert "rerunning the suite once" in result.stdout
+    assert result.stdout.count("-only-testing:cmuxTests/RemoteTmuxMirrorCloseDetachTests") == 2
+    assert result.stdout.count("-only-testing:cmuxTests/RemoteTmuxMirrorFocusPolicyTests") == 1
     assert "cmuxTests/RemoteTmuxMirrorDedicatedPlacementTests" in result.stdout
 
 
@@ -966,6 +976,20 @@ def test_devices_gate_accepts_successful_execution() -> None:
     result, invocations = run_focused_app_host_step(["pass"], "Run My Devices regressions")
     assert result.returncode == 0, result.stdout + result.stderr
     assert invocations == 1, result.stdout
+
+
+def test_global_search_gate_requires_nonempty_successful_execution() -> None:
+    for outcome, expected_status in (("pass", 0), ("fail", 65), ("empty", 1)):
+        result, invocations = run_focused_app_host_step(
+            [outcome], step_name="Run global search shortcut regressions"
+        )
+        assert result.returncode == expected_status, result.stdout + result.stderr
+        assert invocations == 1, result.stdout
+        assert "-only-testing:cmuxTests/GlobalSearchShortcutBehaviorTests" in result.stdout
+        # A plain `xcodebuild test` gate, like the other focused gates: the
+        # build-for-testing + test-without-building pair ahead of the batches
+        # left the following sharded xcodebuild silent until the job cap.
+        assert "test-without-building" not in result.stdout
 
 
 def test_app_host_rejects_failed_or_empty_shard_generation() -> None:

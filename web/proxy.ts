@@ -19,6 +19,10 @@ import {
 } from "./app/lib/dashboard-return-path";
 import { localizedVaultPath, vaultSignInHref } from "./app/lib/vault-auth";
 import { hasStackRefreshCookie } from "./app/lib/stack-session-cookies";
+import {
+  VM_REFLECTION_ALIAS_HEADER,
+  VM_REFLECTION_ALIAS_VALUE,
+} from "./services/coderouter/vmGuestEnv";
 
 const intlMiddleware = createMiddleware(routing);
 const localeSet = new Set<string>(routing.locales);
@@ -31,7 +35,68 @@ export default function middleware(incomingRequest: NextRequest) {
     routing.locales,
   );
   const host = request.headers.get("host") ?? "";
+  const { pathname } = request.nextUrl;
 
+  // A cmux Cloud machine dialing its reflection alias
+  // (`https://reflection.cmux.internal/<path>`): the platform edge marks the
+  // request with this header while injecting the machine's credential. Serve the
+  // guest-facing reflection API; the header is a routing hint, never auth.
+  if (request.headers.get(VM_REFLECTION_ALIAS_HEADER) === VM_REFLECTION_ALIAS_VALUE) {
+    // A plain URL, not NextURL: NextURL re-applies the request's trailing slash
+    // to an assigned pathname, and `/api/vm/reflection/peers/` would 308 to the
+    // slash-less route — a redirect a `curl -s` inside a machine will not follow.
+    const url = new URL(request.url);
+    url.pathname = `/api/vm/reflection${pathname.replace(/\/+$/, "")}`;
+    return NextResponse.rewrite(url);
+  }
+
+  let response = handleHostAndMachineRoutes(request, host, pathname);
+  if (response) return response;
+
+  response = handlePageRoutes(request, pathname);
+  if (response) return response;
+
+  const featureWorkflowDocRequest =
+    featureWorkflowDocRequestForPathname(pathname);
+  const fallbackContentRequest = fallbackContentRequestForPathname(pathname);
+
+  response = handleLocalizedContentRoutes(
+    request,
+    featureWorkflowDocRequest,
+    fallbackContentRequest,
+  );
+  if (response) return response;
+
+  response = handleLegalAndDocsRoutes(request, pathname);
+  if (response) return response;
+
+  response = intlMiddleware(request);
+  if (featureWorkflowDocRequest) {
+    setFeatureWorkflowDocLinkHeader(
+      response,
+      request,
+      featureWorkflowDocRequest.path,
+    );
+  }
+  if (fallbackContentRequest) {
+    setFallbackContentLinkHeader(
+      response,
+      request,
+      fallbackContentRequest.path,
+      fallbackContentRequest.locales,
+    );
+  }
+
+  return dashboardReturnPath
+    ? dashboardResponse(request, response, dashboardReturnPath)
+    : response;
+}
+
+function handleHostAndMachineRoutes(
+  request: NextRequest,
+  host: string,
+  pathname: string,
+): NextResponse | undefined {
   // 301 redirect cmux.dev (and www.cmux.dev) to cmux.com, preserving path and query
   if (host === "cmux.dev" || host === "www.cmux.dev") {
     const url = new URL(request.url);
@@ -39,8 +104,6 @@ export default function middleware(incomingRequest: NextRequest) {
     url.protocol = "https:";
     return NextResponse.redirect(url.toString(), 301);
   }
-
-  const { pathname } = request.nextUrl;
 
   if (
     (host === "coderouter.dev" || host === "www.coderouter.dev") &&
@@ -54,24 +117,23 @@ export default function middleware(incomingRequest: NextRequest) {
   // OpenAI-compatible coderouter traffic is a machine endpoint, never a
   // localized page. Keep this explicit in addition to the matcher exclusion
   // so direct middleware tests and future matcher edits fail safely.
-  if (
-    pathname === "/v1/responses" ||
-    pathname === "/v1/codex/responses"
-  ) {
+  if (pathname === "/v1/responses" || pathname === "/v1/codex/responses") {
     return NextResponse.next();
   }
 
   // coderouter has one hostname-independent landing page. In particular,
   // cmux.com/coderouter must not be rewritten to /<locale>/coderouter, because
   // the page deliberately lives outside the localized cmux site tree.
-  if (pathname === "/coderouter" || pathname === "/coderouter/") {
+  if (isCoderouterLandingPath(pathname)) {
     return NextResponse.next();
   }
 
   // cmux consumes this marker before navigation. If an ordinary browser
   // reaches the server, canonicalize the URL while preserving every public
   // query parameter.
-  if (request.nextUrl.searchParams.get("cmux_open_in_browser") === "split-right") {
+  if (
+    request.nextUrl.searchParams.get("cmux_open_in_browser") === "split-right"
+  ) {
     const url = request.nextUrl.clone();
     url.searchParams.delete("cmux_open_in_browser");
     return NextResponse.redirect(url, 307);
@@ -99,7 +161,24 @@ export default function middleware(incomingRequest: NextRequest) {
     url.pathname = `${changelogMatch[1] ?? ""}/docs/changelog${changelogMatch[2] ?? ""}`;
     return NextResponse.redirect(url, 307);
   }
+  return undefined;
+}
 
+function handlePageRoutes(
+  request: NextRequest,
+  pathname: string,
+): NextResponse | undefined {
+  return (
+    handleAgentAndImageRoutes(request, pathname) ??
+    handleBillingAndCloudRoutes(request, pathname) ??
+    handleAssetRoutes(pathname)
+  );
+}
+
+function handleAgentAndImageRoutes(
+  request: NextRequest,
+  pathname: string,
+): NextResponse | undefined {
   if (isAgentPageVariantPath(pathname)) {
     const url = request.nextUrl.clone();
     url.pathname = "/agent-page-variant";
@@ -137,12 +216,17 @@ export default function middleware(incomingRequest: NextRequest) {
     return NextResponse.next();
   }
 
+  return undefined;
+}
+
+function handleBillingAndCloudRoutes(
+  request: NextRequest,
+  pathname: string,
+): NextResponse | undefined {
+
   if (pathname === "/app-pro-welcome" || pathname === "/app-pro-welcome/") {
     const requestHeaders = new Headers(request.headers);
-    requestHeaders.set(
-      "x-next-intl-locale",
-      preferredAppRouteLocale(request),
-    );
+    requestHeaders.set("x-next-intl-locale", preferredAppRouteLocale(request));
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
@@ -193,13 +277,14 @@ export default function middleware(incomingRequest: NextRequest) {
   // opaque auth transaction URL stable while still selecting localized copy.
   if (pathname === "/cloud/access" || pathname === "/cloud/access/") {
     const requestHeaders = new Headers(request.headers);
-    requestHeaders.set(
-      "x-next-intl-locale",
-      preferredAppRouteLocale(request),
-    );
+    requestHeaders.set("x-next-intl-locale", preferredAppRouteLocale(request));
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
+  return undefined;
+}
+
+function handleAssetRoutes(pathname: string): NextResponse | undefined {
   // Machine desktop wrapper panes: the URL lives inside long-lived app panes,
   // so it must never be rewritten into the locale tree.
   if (pathname.startsWith("/vm/desktop/")) {
@@ -207,15 +292,20 @@ export default function middleware(incomingRequest: NextRequest) {
   }
 
   const isChangelogVersionPath =
-    /^(?:\/[a-z]{2}(?:-[A-Z]{2})?)?\/docs\/changelog\/[^/]+\/?$/.test(
-      pathname,
-    );
+    /^(?:\/[a-z]{2}(?:-[A-Z]{2})?)?\/docs\/changelog\/[^/]+\/?$/.test(pathname);
   if (pathname.includes(".") && !isChangelogVersionPath) {
     return NextResponse.next();
   }
+  return undefined;
+}
 
-  const featureWorkflowDocRequest =
-    featureWorkflowDocRequestForPathname(pathname);
+function handleLocalizedContentRoutes(
+  request: NextRequest,
+  featureWorkflowDocRequest: ReturnType<
+    typeof featureWorkflowDocRequestForPathname
+  >,
+  fallbackContentRequest: ReturnType<typeof fallbackContentRequestForPathname>,
+): NextResponse | undefined {
   if (featureWorkflowDocRequest && !featureWorkflowDocRequest.locale) {
     const url = request.nextUrl.clone();
     url.pathname = `/en${featureWorkflowDocRequest.path}`;
@@ -228,7 +318,6 @@ export default function middleware(incomingRequest: NextRequest) {
     return response;
   }
 
-  const fallbackContentRequest = fallbackContentRequestForPathname(pathname);
   if (fallbackContentRequest && !fallbackContentRequest.locale) {
     const preferredLocale = preferredFallbackContentLocale(
       request,
@@ -259,7 +348,13 @@ export default function middleware(incomingRequest: NextRequest) {
     url.pathname = fallbackContentRequest.path;
     return NextResponse.redirect(url, 301);
   }
+  return undefined;
+}
 
+function handleLegalAndDocsRoutes(
+  request: NextRequest,
+  pathname: string,
+): NextResponse | undefined {
   // The remaining legal pages are English-only. Redirect
   // /<locale>/legal-page to /legal-page, and skip next-intl for /legal-page so
   // locale detection can't redirect back. The privacy policy has complete
@@ -340,27 +435,7 @@ export default function middleware(incomingRequest: NextRequest) {
     url.pathname = "/en/docs/managed-policies";
     return NextResponse.rewrite(url);
   }
-
-  const response = intlMiddleware(request);
-  if (featureWorkflowDocRequest) {
-    setFeatureWorkflowDocLinkHeader(
-      response,
-      request,
-      featureWorkflowDocRequest.path,
-    );
-  }
-  if (fallbackContentRequest) {
-    setFallbackContentLinkHeader(
-      response,
-      request,
-      fallbackContentRequest.path,
-      fallbackContentRequest.locales,
-    );
-  }
-
-  return dashboardReturnPath
-    ? dashboardResponse(request, response, dashboardReturnPath)
-    : response;
+  return undefined;
 }
 
 /**
@@ -441,11 +516,7 @@ function setFallbackContentLinkHeader(
 ) {
   response.headers.set(
     "Link",
-    buildAlternateLinkHeader(
-      requestOrigin(request),
-      path,
-      availableLocales,
-    ),
+    buildAlternateLinkHeader(requestOrigin(request), path, availableLocales),
   );
 }
 
@@ -457,7 +528,10 @@ function preferredFallbackContentLocale(
   if (cookieLocale && hasFallbackContent(cookieLocale, availableLocales)) {
     return cookieLocale as (typeof routing.locales)[number];
   }
-  if (cookieLocale && routing.locales.some((locale) => locale === cookieLocale)) {
+  if (
+    cookieLocale &&
+    routing.locales.some((locale) => locale === cookieLocale)
+  ) {
     return "en";
   }
 
@@ -472,7 +546,10 @@ function preferredAppRouteLocale(
   request: NextRequest,
 ): (typeof routing.locales)[number] {
   const cookieLocale = request.cookies.get("NEXT_LOCALE")?.value;
-  if (cookieLocale && routing.locales.some((locale) => locale === cookieLocale)) {
+  if (
+    cookieLocale &&
+    routing.locales.some((locale) => locale === cookieLocale)
+  ) {
     return cookieLocale as (typeof routing.locales)[number];
   }
   return preferredLocaleFromAcceptLanguage(
@@ -521,6 +598,11 @@ function legacyOpenGraphImageRewritePath(pathname: string): string | undefined {
   return locale === routing.defaultLocale
     ? "/opengraph-image"
     : `/${locale}/opengraph-image`;
+}
+
+/** coderouter's one hostname-independent landing page (see the note in `middleware`). */
+function isCoderouterLandingPath(pathname: string): boolean {
+  return pathname === "/coderouter" || pathname === "/coderouter/";
 }
 
 export const config = {
