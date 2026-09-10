@@ -64,7 +64,7 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
         }
     }
 
-    @Test(arguments: [["--json"], ["--sync"], ["--no-open"], ["--machine", "vm-agent-test"]])
+    @Test(arguments: [["--json"], ["--sync"], ["--no-open"], ["--wait"], ["--output"], ["--timeout", "30"], ["--machine", "vm-agent-test"]])
     func aliasesAcceptLeadingCanonicalOptions(options: [String]) throws {
         for command in [["vm", "agent"], ["agent"], ["coderouter", "agent"]] {
             let result = try runWithoutMutationRequests(command + options + ["--agent", "claude", "--size", "1", "--", "reply pong"])
@@ -147,12 +147,29 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
         }
     }
 
-    @Test(arguments: ["claude", "codex", "opencode", "pi"], ["--machine", "--size", "--cwd", "--name", "--remote-workspace"])
+    @Test(arguments: ["claude", "codex", "opencode", "pi"], ["--machine", "--size", "--cwd", "--name", "--remote-workspace", "--timeout"])
     func incompleteVMOptionRemainsAnOption(agent: String, option: String) {
         #expect(CmuxTuiRemoteRouting.vmAgentAliasArgs([agent, option]) == ["--agent", agent, option])
         #expect(CmuxTuiRemoteRouting.vmAgentAliasArgs([agent, "--no-open", option]) == ["--agent", agent, "--no-open", option])
         #expect(CmuxTuiRemoteRouting.vmAgentAliasArgs([agent, "--", option]) == ["--agent", agent, "--", option])
         #expect(CmuxTuiRemoteRouting.vmAgentAliasArgs([agent, "prompt", option]) == ["--agent", agent, "--", "prompt", option])
+    }
+
+    /// The until-done flags belong to `cmux vm agent`, not to the agent: the
+    /// short forms must keep them in front of `--`, and a `--timeout` value
+    /// must not hide a later `--help`.
+    @Test(arguments: ["claude", "codex", "opencode", "pi"])
+    func untilDoneOptionsStayVMOptions(agent: String) {
+        #expect(
+            CmuxTuiRemoteRouting.vmAgentAliasArgs([agent, "--wait", "--output", "--timeout", "30", "fix the tests"])
+                == ["--agent", agent, "--wait", "--output", "--timeout", "30", "--", "fix the tests"]
+        )
+        #expect(
+            CmuxTuiRemoteRouting.vmAgentAliasArgs([agent, "--timeout", "30", "--", "--wait"])
+                == ["--agent", agent, "--timeout", "30", "--", "--wait"]
+        )
+        #expect(CmuxTuiRemoteRouting.vmAgentRequestsHelp([agent, "--timeout", "30", "--help"]))
+        #expect(CmuxTuiRemoteRouting.vmAgentRequestsHelp([agent, "--wait", "-h"]))
     }
 }
 
