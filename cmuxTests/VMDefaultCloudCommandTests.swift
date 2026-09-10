@@ -123,6 +123,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         "route": "ws://10.40.0.10:1337/v1/link",
                         "session": "cloud", "trusted_carrier": true,
                         "wireguard_hub_socket": "/tmp/cmux-wg-test.sock",
+                        "trusted_carrier": true,
                     ]
                 )
             case "workspace.create":

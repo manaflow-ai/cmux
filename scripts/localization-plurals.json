@@ -667,5 +667,35 @@
     "arguments": [
       1
     ]
+  },
+  "cli.vm.env.remove.one": {
+    "source": "OK removed %1$ld variable on %2$@: %3$@",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.vm.env.remove.many": {
+    "source": "OK removed %1$ld variables on %2$@: %3$@",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.vm.env.set.one": {
+    "source": "OK set %1$ld variable on %2$@: %3$@",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.vm.env.set.many": {
+    "source": "OK set %1$ld variables on %2$@: %3$@",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.vm.push.secretDelivered": {
+    "source": "OK %1$@ (%2$ld bytes, mode %3$@) delivered over the link",
+    "arguments": [
+      2
+    ]
   }
 }

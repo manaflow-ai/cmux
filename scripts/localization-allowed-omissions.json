@@ -701,7 +701,7 @@
     "source": "%1$@ · %2$@"
   },
   "computerUse.menu.statusWithTarget": {
-    "source": "%1$@ — %2$@",
+    "source": "%1$@: %2$@",
     "class": "format"
   },
   "computerUse.menu.title": {
@@ -2979,6 +2979,41 @@
     "source": "Displays",
     "identityLocales": {
       "de": "Displays is the established German plural for computer displays; the translated entry remains required."
+    }
+  },
+  "cli.vm.env.set": {
+    "source": "vm env set: %1$@",
+    "class": "syntax"
+  },
+  "sudo.cli.global_usage.run": {
+    "source": "sudo run [-r reason] [-t timeout] (-c 'command' | script.sh | -)",
+    "class": "syntax"
+  },
+  "sudo.cli.global_usage.pending": {
+    "source": "sudo pending",
+    "class": "syntax"
+  },
+  "sudo.cli.global_usage.setup_touch_id": {
+    "source": "sudo setup-touch-id",
+    "class": "syntax"
+  },
+  "cli.vm.push.secretDelivered": {
+    "source": "OK %1$@ (%2$ld bytes, mode %3$@) delivered over the link",
+    "identityLocales": {
+      "de": {
+        "reason": "Byte/Bytes are the established German computing unit; only the exact unit leaf may share English spelling.",
+        "values": [
+          "%ld Byte",
+          "%ld Bytes"
+        ]
+      },
+      "es": {
+        "reason": "byte/bytes are the established Spanish computing unit; the surrounding sentence remains translated.",
+        "values": [
+          "%ld byte",
+          "%ld bytes"
+        ]
+      }
     }
   }
 }

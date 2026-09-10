@@ -185,7 +185,17 @@ struct VMRemoteWorkspaceResolver: Sendable {
         in resource: [String: Any],
         workspaceID: String
     ) -> VMRemoteViewResolution {
-        if let views = resource["remote_views"] as? [[String: Any]] {
+        // The catalog contract has three states: absent/null means the provider
+        // uses the legacy workspace edge; an array is authoritative (including
+        // []); any other value is malformed and cannot prove absence.
+        if let rawViews = resource["remote_views"], !(rawViews is NSNull) {
+            guard let views = rawViews as? [[String: Any]], views.allSatisfy({ view in
+                guard let workspace = view["workspace"] as? [String: Any],
+                      let id = workspace["id"] as? String else { return false }
+                return !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }) else {
+                return .unavailable
+            }
             let matches = views.filter { view in
                 let workspace = view["workspace"] as? [String: Any]
                 return (workspace?["id"] as? String) == workspaceID
@@ -211,11 +221,11 @@ struct VMRemoteWorkspaceResolver: Sendable {
             }
             return .resolved(candidate)
         }
-        guard let workspace = resource["remote_workspace"] as? [String: Any],
-              (workspace["id"] as? String) == workspaceID else {
-            return .notFound
-        }
-        return .legacy
+        guard let rawWorkspace = resource["remote_workspace"], !(rawWorkspace is NSNull) else { return .notFound }
+        guard let workspace = rawWorkspace as? [String: Any],
+              let id = workspace["id"] as? String,
+              !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .unavailable }
+        return id == workspaceID ? .legacy : .notFound
     }
 
     /// Find a resource's exact view in one remote workspace. The view row is

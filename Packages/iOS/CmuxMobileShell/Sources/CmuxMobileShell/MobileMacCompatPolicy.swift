@@ -1,3 +1,4 @@
+public import CmuxMobileShellModel
 public import Foundation
 
 /// The minimum Mac app versions one iOS build accepts, fetched from
@@ -40,7 +41,14 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
                 nightly: NightlyRequirement(
                     minBaseVersion: nightlyBase,
                     minBuild: 3_345_650_013_202
-                )
+                ),
+                buildKinds: [
+                    MobileBuildType.dev.token: Requirement(stableMinVersion: MobileMacAppVersion(parsing: "0.64.0")!),
+                    MobileBuildType.beta.token: Requirement(stableMinVersion: MobileMacAppVersion(parsing: "0.64.22")!),
+                    MobileBuildType.internal.token: Requirement(stableMinVersion: MobileMacAppVersion(parsing: "0.64.22")!),
+                    MobileBuildType.demo.token: Requirement(stableMinVersion: MobileMacAppVersion(parsing: "0.64.22")!),
+                    MobileBuildType.prod.token: Requirement(stableMinVersion: stableMin, nightly: NightlyRequirement(minBaseVersion: nightlyBase, minBuild: 3_345_650_013_202)),
+                ]
             ),
         ])
     }()
@@ -75,15 +83,18 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
     public func violation(
         iosVersion: String,
         channel: Channel,
-        macAppVersion: String?
+        macAppVersion: String?,
+        buildType: MobileBuildType = .prod
     ) -> Violation? {
         guard let tier = tier(forIOSVersion: iosVersion) else { return nil }
+        let requirement = tier.buildKinds[buildType.token]
+            ?? Requirement(stableMinVersion: tier.stableMinVersion, nightly: tier.nightly)
         let requirementDisplay: String
         switch channel {
         case .stable:
-            requirementDisplay = tier.stableMinVersion.description
+            requirementDisplay = requirement.stableMinVersion.description
         case .nightly:
-            guard let nightly = tier.nightly else { return nil }
+            guard let nightly = requirement.nightly else { return nil }
             requirementDisplay = "\(nightly.minBaseVersion)-nightly.\(nightly.minBuild)"
         }
         let reported = macAppVersion?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -100,9 +111,9 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
             // A nightly stamp on the stable channel is a mislabeled build;
             // fail closed rather than guessing which rule it satisfies.
             guard stamp.nightlyBuild == nil else { return violation }
-            return stamp.base >= tier.stableMinVersion ? nil : violation
+            return stamp.base >= requirement.stableMinVersion ? nil : violation
         case .nightly:
-            guard let nightly = tier.nightly else { return nil }
+            guard let nightly = requirement.nightly else { return nil }
             guard let build = stamp.nightlyBuild else { return violation }
             if stamp.base > nightly.minBaseVersion { return nil }
             if stamp.base < nightly.minBaseVersion { return violation }
@@ -132,11 +143,27 @@ extension MobileMacCompatPolicy {
         tiers.reserveCapacity(payload.entries.count)
         var previousMinIOSVersion: MobileMacAppVersion?
         for entry in payload.entries {
-            guard let minIOS = MobileMacAppVersion(parsing: entry.minIOSVersion),
-                  let stableMin = MobileMacAppVersion(parsing: entry.stableMinVersion)
-            else {
+            guard let minIOS = MobileMacAppVersion(parsing: entry.minIOSVersion) else { return nil }
+            var buildKinds: [String: Requirement] = [:]
+            if let remoteKinds = entry.buildKinds {
+                for (kind, remote) in remoteKinds {
+                    guard let stable = MobileMacAppVersion(parsing: remote.stableMinVersion) else { return nil }
+                    var nightly: NightlyRequirement?
+                    if let value = remote.nightly {
+                        guard let base = MobileMacAppVersion(parsing: value.minBaseVersion), let build = UInt64(value.minBuild) else { return nil }
+                        nightly = NightlyRequirement(minBaseVersion: base, minBuild: build)
+                    }
+                    buildKinds[kind] = Requirement(stableMinVersion: stable, nightly: nightly)
+                }
+            }
+            let legacyStable = entry.stableMinVersion.flatMap(MobileMacAppVersion.init(parsing:))
+            if entry.buildKinds != nil,
+               let legacyStable,
+               legacyStable != buildKinds[MobileBuildType.prod.token]?.stableMinVersion {
                 return nil
             }
+            let stableMin = legacyStable ?? buildKinds[MobileBuildType.prod.token]?.stableMinVersion
+            guard let stableMin else { return nil }
             // The server publishes ascending, non-overwriting tiers. Reject
             // malformed responses at the trust boundary rather than caching a
             // range that could make an affected app version fail open.
@@ -153,19 +180,14 @@ extension MobileMacCompatPolicy {
             }
             var nightly: NightlyRequirement?
             if let remoteNightly = entry.nightly {
-                guard let base = MobileMacAppVersion(parsing: remoteNightly.minBaseVersion),
-                      let build = UInt64(remoteNightly.minBuild)
-                else {
-                    return nil
-                }
+                guard let base = MobileMacAppVersion(parsing: remoteNightly.minBaseVersion), let build = UInt64(remoteNightly.minBuild) else { return nil }
                 nightly = NightlyRequirement(minBaseVersion: base, minBuild: build)
             }
-            tiers.append(Tier(
-                minIOSVersion: minIOS,
-                maxIOSVersion: maxIOS,
-                stableMinVersion: stableMin,
-                nightly: nightly
-            ))
+            if entry.buildKinds != nil {
+                guard let prod = buildKinds[MobileBuildType.prod.token] else { return nil }
+                if let nightly, nightly != prod.nightly { return nil }
+            }
+            tiers.append(Tier(minIOSVersion: minIOS, maxIOSVersion: maxIOS, stableMinVersion: stableMin, nightly: nightly, buildKinds: buildKinds))
             previousMinIOSVersion = minIOS
         }
         self.init(tiers: tiers)

@@ -60,16 +60,22 @@ struct CloudTuiCommandLine: Sendable {
     /// `workspace <ws_id> run -- <argv…>`: a new terminal in that cmux-tui workspace
     /// running the exact argv. Result: `MutationResult<CreatedTerminalPath>`
     /// (`spec/resource-operations-v2.json` → `workspace.run`).
-    static func runArguments(socketPath: String, workspaceID: String, command: [String]) -> [String] {
-        ["--socket", socketPath, "--json", "workspace", workspaceID, "run", "--"] + command
+    static func runArguments(socketPath: String, workspaceID: String, command: [String], onExit: String? = nil) -> [String] {
+        var arguments = ["--socket", socketPath, "--json", "workspace", workspaceID, "run"]
+        // `--on-exit keep` retains the tab and the final screen after the process exits
+        // (spec `workspace.run`): what a sender needs when the process's last lines ARE
+        // the result (`CloudEnvDelivery`). The default (`close`) detaches every view.
+        if let onExit, !onExit.isEmpty { arguments += ["--on-exit", onExit] }
+        return arguments + ["--"] + command
     }
 
     /// `workspace create [--name <name>]`: the daemon owns auto-naming.
-    static func createWorkspaceArguments(socketPath: String, name: String? = nil) -> [String] {
+    static func createWorkspaceArguments(socketPath: String, name: String? = nil, empty: Bool = false) -> [String] {
         var arguments = ["--socket", socketPath, "--json", "workspace", "create"]
         if let name, !name.isEmpty {
             arguments += ["--name", name]
         }
+        if empty { arguments.append("--empty") }
         return arguments
     }
 
@@ -153,6 +159,13 @@ struct CloudTuiCommandLine: Sendable {
         ["--socket", socketPath, "--json", "terminal", terminalID, "write", "--text", text]
     }
 
+    /// `terminal <term_id> write` reads the UTF-8 receiver wire from stdin.
+    /// Keeping payloads out of argv prevents local process inspection from
+    /// exposing file or environment secrets before they enter the link.
+    static func writeBytesArguments(socketPath: String, terminalID: String) -> [String] {
+        ["--socket", socketPath, "--json", "terminal", terminalID, "write"]
+    }
+
     /// `terminal <term_id> keys <key>…` (spec `terminal.input.keys`): named keys such as
     /// `enter`, `tab`, `escape`, `up`, and `+`-joined chords such as `ctrl+c` (verified
     /// live; `ctrl-c` is `validation.invalid`). The daemon rejects empty names.
@@ -172,6 +185,33 @@ struct CloudTuiCommandLine: Sendable {
         var arguments = ["--socket", socketPath, "--json", "terminal", terminalID, "screen", "wait", "--pattern", pattern]
         if let timeoutMs, timeoutMs > 0 {
             arguments += ["--timeout-ms", String(timeoutMs)]
+        }
+        return arguments
+    }
+
+    /// `terminal <term_id> process wait [--timeout-ms <n>]` (spec `terminal.wait_exit`): blocks
+    /// until the terminal's process exits or the timeout elapses —
+    /// `{state: "exited", outcome: {kind: exit|signal|unknown, …}, exited_at}` or `{state: "pending", …}`.
+    /// The complement of `screen wait`: an exit is a fact, a prompt regex is a guess.
+    static func processWaitArguments(socketPath: String, terminalID: String, timeoutMs: Int?) -> [String] {
+        var arguments = ["--socket", socketPath, "--json", "terminal", terminalID, "process", "wait"]
+        if let timeoutMs, timeoutMs > 0 {
+            arguments += ["--timeout-ms", String(timeoutMs)]
+        }
+        return arguments
+    }
+
+    /// `terminal <term_id> output read [--after <offset>] [--max-bytes <n>]` (spec
+    /// `terminal.output_read`): the terminal's retained OUTPUT as text — the whole build log,
+    /// not the 24 rows currently on screen — with `{text, start_offset, next_offset, complete}`;
+    /// `next_offset` fed back as `after` reads only what arrived since.
+    static func outputReadArguments(socketPath: String, terminalID: String, after: Int?, maxBytes: Int?) -> [String] {
+        var arguments = ["--socket", socketPath, "--json", "terminal", terminalID, "output", "read"]
+        if let after, after >= 0 {
+            arguments += ["--after", String(after)]
+        }
+        if let maxBytes, maxBytes > 0 {
+            arguments += ["--max-bytes", String(maxBytes)]
         }
         return arguments
     }

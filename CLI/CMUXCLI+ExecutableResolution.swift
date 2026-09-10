@@ -200,6 +200,11 @@ extension CMUXCLI {
     /// retain cmux's root `--help` contract while forwarding nested help unchanged.
     func shouldDispatchCmuxSubcommandHelp(command: String, commandArgs: [String]) -> Bool {
         switch command {
+        case "agent":
+            return CmuxTuiRemoteRouting.vmAgentRequestsHelp(commandArgs)
+        case "vm", "cloud", "coderouter":
+            return !CmuxTuiRemoteRouting.isAgentSubcommand(commandArgs.first)
+                || CmuxTuiRemoteRouting.vmAgentRequestsHelp(Array(commandArgs.dropFirst()))
         case "claude-teams", "codex-teams":
             return false
         case "omo", "omx", "omc":
