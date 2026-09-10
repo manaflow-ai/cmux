@@ -358,4 +358,24 @@ struct CloudPlacementCoordinatorTests {
         #expect(provider.moved.map { $0.workspace } == ["ws_api"])
         #expect(provider.projected.isEmpty)
     }
+
+    @Test func aFreshSnapshotDistinguishesDetachedUniqueAndAmbiguousTerminalViews() async throws {
+        var snapshot: [String: Any] = [
+            "cursor": ["generation": "g", "revision": "8"],
+            "workspaces": [["id": "ws_main"]],
+            "screens": [["id": "screen", "workspace_id": "ws_main"]],
+            "panes": [["id": "pane", "screen_id": "screen"]],
+            "tabs": [], "terminals": [["id": "term_1"]], "browsers": [], "agents": []
+        ]
+        let detached = try #require(await CmuxTuiSnapshotParser.terminalPlacement(from: JSONSerialization.data(withJSONObject: snapshot), terminalID: "term_1"))
+        #expect(detached.placement == nil)
+        let tab = ["id": "tab_1", "pane_id": "pane", "content_kind": "terminal", "content_id": "term_1"]
+        snapshot["tabs"] = [tab]
+        let existing = try #require(await CmuxTuiSnapshotParser.terminalPlacement(from: JSONSerialization.data(withJSONObject: snapshot), terminalID: "term_1"))
+        #expect(existing.placement?.tabID == "tab_1" && existing.placement?.workspaceID == "ws_main")
+        var duplicate = tab
+        duplicate["id"] = "tab_2"
+        snapshot["tabs"] = [tab, duplicate]
+        #expect(await CmuxTuiSnapshotParser.terminalPlacement(from: try JSONSerialization.data(withJSONObject: snapshot), terminalID: "term_1") == nil)
+    }
 }

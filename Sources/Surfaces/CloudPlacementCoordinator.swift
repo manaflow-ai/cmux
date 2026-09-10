@@ -45,6 +45,12 @@ final class CloudPlacementCoordinator {
             ?? (resource.remoteWorkspaces.first(where: \.focused) ?? resource.remoteWorkspaces.first)?.id
     }
 
+    func confirmPlacement(_ placement: SurfaceRemotePlacement, on machine: SurfaceMachineID) {
+        if let cursor = placement.cursor {
+            confirmationCursors[machine, default: [:]][placement.tabID] = cursor
+        }
+    }
+
     private func placement(of projection: SurfaceProjection, resource: SurfaceResource, catalog: SurfaceCatalog) -> SurfaceRemotePlacement? {
         let receipt = receipts[resource.id]?[projection.panelID]
         let live = catalog.projection(forPanel: projection.panelID).flatMap { $0.resource == resource.id ? $0 : nil }
@@ -85,7 +91,7 @@ final class CloudPlacementCoordinator {
             guard catalog.provider(for: resource.machine) === provider else { return false }
             self.receipts[resource.id, default: [:]][projection.panelID] = result
             self.movedTabs[resource.machine, default: [:]][result.tabID] = result.workspaceID
-            self.confirmationCursors[resource.machine, default: [:]][result.tabID] = result.cursor
+            self.confirmPlacement(result, on: resource.machine)
             catalog.setRemotePlacement(for: projection, placement: result)
             return true
         }
@@ -101,6 +107,12 @@ final class CloudPlacementCoordinator {
                 guard let cursor = state.cursor else { continue }
                 if cursor.generation == receipt.generation && cursor.revision < receipt.revision { continue }
                 confirmationCursors[state.machine]?[tabID] = nil
+            }
+            if projection.resource.kind == .terminal,
+               state.terminals.contains(where: { $0.id == projection.resource.key }),
+               !state.tabs.contains(where: { $0.contentKind == "terminal" && $0.contentID == projection.resource.key }) {
+                catalog.setRemotePlacement(for: projection, workspaceID: nil, tabID: nil)
+                continue
             }
             guard let tab = state.tabs.first(where: { $0.id == tabID && $0.contentID == projection.resource.key }),
                   let pane = state.panes.first(where: { $0.id == tab.paneID }),

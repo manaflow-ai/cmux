@@ -785,6 +785,7 @@ final class SurfaceCatalog {
 
         let projection = try await provider.materialize(resource, remoteView: resolvedRemoteView, at: destination, focus: focus)
         record(projection)
+        cloudPlacementCoordinator.projectionDidMove(projection, catalog: self)
         return (projection, false)
     }
 
@@ -940,13 +941,15 @@ final class SurfaceCatalog {
             cancelCompletedMaterialization(key, waiterID: waiterID)
             throw SurfaceCatalogError.unknownResource(id)
         }
-        guard projections.contains(result.projection) else {
+        guard let projection = self.projection(forPanel: result.projection.panelID),
+              projection.resource == id, projection.workspaceID == result.projection.workspaceID else {
             cancelCompletedMaterialization(key, waiterID: waiterID)
             throw SurfaceCatalogError.unavailable(id, reason: "projection closed while opening")
         }
         acknowledgeMaterialization(key, waiterID: waiterID)
-        if result.reused, focus { focusProjection?(result.projection) }
-        return result
+        if !result.reused { cloudPlacementCoordinator.projectionDidMove(projection, catalog: self) }
+        if result.reused, focus { focusProjection?(projection) }
+        return (projection, result.reused)
     }
 
     private func acknowledgeMaterialization(_ key: MaterializationKey, waiterID: UUID) {
@@ -1248,7 +1251,7 @@ final class SurfaceCatalog {
         setRemotePlacement(for: source, workspaceID: placement.workspaceID, tabID: placement.tabID)
     }
 
-    func setRemotePlacement(for source: SurfaceProjection, workspaceID: String, tabID: String?) {
+    func setRemotePlacement(for source: SurfaceProjection, workspaceID: String?, tabID: String?) {
         let matching = projections.filter {
             $0.resource == source.resource && ($0.panelID == source.panelID
                 || (tabID != nil && $0.remoteTabID == tabID))

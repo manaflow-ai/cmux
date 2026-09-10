@@ -13,6 +13,7 @@ import selectors
 import subprocess
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 from cmux import cmux
 
@@ -24,6 +25,7 @@ class CloudLayoutHarness:
         self.tui = tui
         self.link_socket = client._call("vm.link_socket", {"id": machine}, timeout_s=120)["socket_path"]
         self.fixtures = []
+        self.local_workspaces = []
 
     def remote(self, *arguments):
         command = [self.tui, "--socket", self.link_socket, "--json", *arguments]
@@ -91,6 +93,28 @@ class CloudLayoutHarness:
         assert any(t["id"] == terminal for t in detached["terminals"]), "pane close killed its terminal"
         print("PASS native close detaches and preserves the terminal", flush=True)
 
+        viewer = self.client._call("workspace.create", {"focus": False})["workspace_id"]
+        self.local_workspaces.append(viewer)
+        self.remote("workspace", source["remote_workspace_id"], "focus")
+        self.client._call("vm.tree", {"id": self.machine, "refresh": True}, timeout_s=120)
+
+        def project(workspace):
+            with cmux(os.environ["CMUX_SOCKET_PATH"]) as other_client:
+                return other_client._call("surface.project", {
+                    "resource": self.machine + "/terminal/" + terminal,
+                    "workspace_id": workspace, "reuse": False, "focus": False,
+                }, timeout_s=180)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            unbound_future = pool.submit(project, viewer)
+            bound_future = pool.submit(project, target["workspace_id"])
+            unbound, bound = unbound_future.result(), bound_future.result()
+        self.expect_layout(lambda s: self.terminal_workspaces(s, terminal) == [remote_target], "concurrent pool opens must share one tab in the bound destination")
+        print("PASS concurrent detached-terminal opens share one correctly placed tab", flush=True)
+        self.client._call("surface.close", {"surface_id": unbound["surface_id"], "workspace_id": viewer})
+        self.client._call("surface.close", {"surface_id": bound["surface_id"], "workspace_id": target["workspace_id"]})
+        self.expect_layout(lambda s: self.terminal_workspaces(s, terminal) == [], "last bound pane closes its re-created tab")
+
         before = self.snapshot()
         self.client._call("workspace.close", {"workspace_id": target["workspace_id"]})
         after = self.snapshot()
@@ -100,6 +124,11 @@ class CloudLayoutHarness:
 
     def close(self):
         errors = []
+        for workspace in self.local_workspaces:
+            try:
+                self.client._call("workspace.close", {"workspace_id": workspace})
+            except Exception:
+                pass
         for fixture in reversed(self.fixtures):
             try:
                 self.client._call("workspace.close", {"workspace_id": fixture["workspace_id"]})

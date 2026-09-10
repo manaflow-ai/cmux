@@ -62,10 +62,25 @@ extension CmuxTuiSurfaceProvider: SurfacePlacementSyncing {
             guard let destination = await CmuxTuiSnapshotParser.terminalProjectionTarget(from: snapshot, preferringWorkspace: remoteWorkspaceID) else {
                 throw ProviderError.noWorkspaceOnMachine(machineID)
             }
+            var existingTabID = tabID
+            var command = arguments(connected.socketPath, destination.target, destination.revision, key)
+            if let terminalID {
+                guard let current = await CmuxTuiSnapshotParser.terminalPlacement(from: snapshot, terminalID: terminalID) else {
+                    throw ProviderError.terminalNotCreated(terminalID)
+                }
+                if let placement = current.placement {
+                    if placement.workspaceID == remoteWorkspaceID { return placement }
+                    existingTabID = placement.tabID
+                    command = CloudTuiCommandLine.moveTabArguments(
+                        socketPath: connected.socketPath, tabID: placement.tabID, target: destination.target,
+                        expectedRevision: destination.revision, idempotencyKey: key
+                    )
+                }
+            }
             do {
-                let response = try await link.run(arguments: arguments(connected.socketPath, destination.target, destination.revision, key))
+                let response = try await link.run(arguments: command)
                 guard let placement = await CmuxTuiSnapshotParser.placedTab(
-                    from: response, at: destination.target, tabID: tabID, terminalID: terminalID
+                    from: response, at: destination.target, tabID: existingTabID, terminalID: terminalID
                 ) else { throw ProviderError.terminalNotCreated(terminalID ?? tabID ?? remoteWorkspaceID) }
                 return placement
             } catch {

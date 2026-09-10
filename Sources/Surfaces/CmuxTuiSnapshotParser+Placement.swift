@@ -1,6 +1,31 @@
 import Foundation
 
 extension CmuxTuiSnapshotParser {
+    /// Distinguishes a detached terminal from a unique existing view. Ambiguity and
+    /// malformed snapshots fail closed; callers may not add a tab based on stale rows.
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
+    nonisolated static func terminalPlacement(from data: Data, terminalID: String) async -> (placement: SurfaceRemotePlacement?, revision: String?)? {
+        guard let snapshot = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              requiredGraphCollectionsArePresent(in: snapshot),
+              let terminals = snapshot["terminals"] as? [[String: Any]],
+              terminals.contains(where: { $0["id"] as? String == terminalID }),
+              let allTabs = snapshot["tabs"] as? [[String: Any]] else { return nil }
+        let tabs = allTabs.filter { $0["content_kind"] as? String == "terminal" && $0["content_id"] as? String == terminalID }
+        guard tabs.count <= 1 else { return nil }
+        guard let tab = tabs.first else { return (nil, resourceRevision(from: snapshot)) }
+        guard let tabID = tab["id"] as? String,
+              let paneID = tab["pane_id"] as? String,
+              let panes = snapshot["panes"] as? [[String: Any]],
+              let screenID = panes.first(where: { $0["id"] as? String == paneID })?["screen_id"] as? String,
+              let screens = snapshot["screens"] as? [[String: Any]],
+              let workspaceID = screens.first(where: { $0["id"] as? String == screenID })?["workspace_id"] as? String else { return nil }
+        return (SurfaceRemotePlacement(workspaceID: workspaceID, tabID: tabID, cursor: CloudVMCursor(snapshot: snapshot)), resourceRevision(from: snapshot))
+    }
+
     /// The mutation returns the exact created/moved tab. Never infer a new tab from
     /// a later resource snapshot, where another client may already have added a view.
 #if compiler(>=6.2)
@@ -15,13 +40,14 @@ extension CmuxTuiSnapshotParser {
         terminalID: String? = nil
     ) async -> SurfaceRemotePlacement? {
         guard let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let cursor = mutationCursor(fromResult: envelope),
               let value = envelope["value"] as? [String: Any],
               let id = value["id"] as? String, !id.isEmpty,
               value["pane_id"] as? String == target.paneID,
               tabID == nil || tabID == id,
               terminalID == nil || (value["content_id"] as? String == terminalID
                   && value["content_kind"] as? String == "terminal") else { return nil }
-        return SurfaceRemotePlacement(workspaceID: target.workspaceID, tabID: id, cursor: mutationCursor(fromResult: envelope))
+        return SurfaceRemotePlacement(workspaceID: target.workspaceID, tabID: id, cursor: cursor)
     }
 
     /// Resolves an exact tab through its pane and screen for a revision-fenced close.
