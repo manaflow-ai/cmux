@@ -797,6 +797,7 @@
 		7A0CE1000000000000000502 /* CloudTunnelTiming.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000501 /* CloudTunnelTiming.swift */; };
 		C10D00010000000000000001 /* CloudVMActionLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00020000000000000002 /* CloudVMActionLauncher.swift */; };
 		C75740010000000000000001 /* CloudVMMenuItemMetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75740010000000000000002 /* CloudVMMenuItemMetricsTests.swift */; };
+		2F48EE37A14B4D76A8013B83 /* CloudVMState+SnapshotComparison.swift in Sources */ = {isa = PBXBuildFile; fileRef = F18D73C012B643DBADE8B7B5 /* CloudVMState+SnapshotComparison.swift */; };
 		999B711473384AA9593B1936 /* CloudWireGuardHub.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8F40FDCEAFAA24EB9A175A2 /* CloudWireGuardHub.swift */; };
 		7A0CE1000000000000000710 /* CloudWireGuardHubDialer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE100000000000000070F /* CloudWireGuardHubDialer.swift */; };
 		05FCD63D10A4F9C56B683B5A /* CloudWireGuardHubProcessSpawner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20C68DA526C0C2D39FE217B6 /* CloudWireGuardHubProcessSpawner.swift */; };
@@ -4334,6 +4335,7 @@
 		7A0CE1000000000000000501 /* CloudTunnelTiming.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTunnelTiming.swift; sourceTree = "<group>"; };
 		C10D00020000000000000002 /* CloudVMActionLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVMActionLauncher.swift; sourceTree = "<group>"; };
 		C75740010000000000000002 /* CloudVMMenuItemMetricsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVMMenuItemMetricsTests.swift; sourceTree = "<group>"; };
+		F18D73C012B643DBADE8B7B5 /* CloudVMState+SnapshotComparison.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudVMState+SnapshotComparison.swift"; sourceTree = "<group>"; };
 		D8F40FDCEAFAA24EB9A175A2 /* CloudWireGuardHub.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudWireGuardHub.swift; sourceTree = "<group>"; };
 		7A0CE100000000000000070F /* CloudWireGuardHubDialer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudWireGuardHubDialer.swift; sourceTree = "<group>"; };
 		20C68DA526C0C2D39FE217B6 /* CloudWireGuardHubProcessSpawner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudWireGuardHubProcessSpawner.swift; sourceTree = "<group>"; };
@@ -7300,6 +7302,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				F11347000000000000000002 /* SurfaceCatalog+CloudPorts.swift */,
 				A09B853868B54438A5B14F26 /* CloudProviderRefreshCoordinator.swift */,
 				7289F02703E9435CBA1C598B /* CmuxTuiSurfaceProvider+Refresh.swift */,
+				F18D73C012B643DBADE8B7B5 /* CloudVMState+SnapshotComparison.swift */,
 				D01100800000000000000001 /* SurfaceCatalogQueryService.swift */,
 				278BEFB3583AED9627966DFF /* SurfaceSocketCommands.swift */,
 				47BBA1A8703756FDDFD53CF3 /* Workspace+SurfaceCatalog.swift */,
@@ -11580,6 +11583,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				7A0CE1000000000000000722 /* CloudTunnelStatusModel.swift in Sources */,
 				7A0CE1000000000000000502 /* CloudTunnelTiming.swift in Sources */,
 				C10D00010000000000000001 /* CloudVMActionLauncher.swift in Sources */,
+				2F48EE37A14B4D76A8013B83 /* CloudVMState+SnapshotComparison.swift in Sources */,
 				999B711473384AA9593B1936 /* CloudWireGuardHub.swift in Sources */,
 				7A0CE1000000000000000710 /* CloudWireGuardHubDialer.swift in Sources */,
 				05FCD63D10A4F9C56B683B5A /* CloudWireGuardHubProcessSpawner.swift in Sources */,

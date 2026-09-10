@@ -445,7 +445,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         // its graph and every pending receipt agree. This is important after a
         // rename: a delayed equal-cursor predecessor must not look current.
         if let current = cloudState, current.cursor == incoming.cursor {
-            guard current == incoming, incomingPassesPendingRenameFence(incoming) else {
+            guard current.hasSameRevisionedContent(as: incoming), incomingPassesPendingRenameFence(incoming) else {
                 #if DEBUG
                 cmuxDebugLog("cloud.state.snapshotIgnored machine=\(machineID) reason=equal-cursor-conflict")
                 #endif
