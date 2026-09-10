@@ -24,6 +24,8 @@ pub(super) enum CommandPlan {
     Plugin(PluginPlan),
     ProviderAuthority(ProviderAuthorityPlan),
     RawCommand(super::raw::RawCommandPlan),
+    Diag(super::diag::DiagPlan),
+    Bench(super::bench::BenchPlan),
 }
 
 #[derive(Clone, Debug)]
@@ -178,6 +180,8 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
         "projection" => parse_projection(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "provider" => parse_provider(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "raw" => parse_raw(&tokens.words[1..], &mut tokens.flags)?,
+        "diag" => parse_diag(&tokens.words[1..])?,
+        "bench" => parse_bench(&tokens.words[1..], &mut tokens.flags)?,
         value => return Err(super::unknown_scope(value)),
     };
     tokens.flags.reject_remaining()?;
@@ -1793,6 +1797,53 @@ fn parse_provider(
     }
 }
 
+fn parse_bench(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+    match strs(words).as_slice() {
+        ["interact"] => {
+            let creates = parse_count(flags, "creates", 20)?;
+            let clients = parse_count(flags, "clients", 1)?.max(1);
+            let typing_probes = parse_count(flags, "typing-probes", 0)?;
+            Ok(CommandPlan::Bench(super::bench::BenchPlan {
+                creates_per_client: creates,
+                clients,
+                typing_probes,
+            }))
+        }
+        [action] => {
+            Err(UsageError::new(format!("unknown bench action {action:?}; expected interact")))
+        }
+        _ => Err(UsageError::new(
+            "usage: cmux bench interact --creates <K> --clients <N> [--typing-probes <M>]",
+        )),
+    }
+}
+
+fn parse_count(flags: &mut Flags, name: &str, default: usize) -> Result<usize, UsageError> {
+    match flags.take(name) {
+        None => Ok(default),
+        Some(value) => {
+            let count = value
+                .parse::<usize>()
+                .map_err(|_| UsageError::new(format!("--{name} must be a non-negative integer")))?;
+            const MAX_BENCH_COUNT: usize = 100_000;
+            if count > MAX_BENCH_COUNT {
+                return Err(UsageError::new(format!("--{name} must be at most {MAX_BENCH_COUNT}")));
+            }
+            Ok(count)
+        }
+}
+}
+
+fn parse_diag(words: &[String]) -> Result<CommandPlan, UsageError> {
+    match strs(words).as_slice() {
+        ["budgets"] => Ok(CommandPlan::Diag(super::diag::DiagPlan::Budgets)),
+        [action] => {
+            Err(UsageError::new(format!("unknown diag action {action:?}; expected budgets")))
+        }
+        _ => Err(UsageError::new("usage: cmux diag budgets [--json]")),
+    }
+}
+
 fn parse_raw(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let refs = strs(words);
     if refs.as_slice() == ["command"] {
@@ -3109,6 +3160,16 @@ mod tests {
             CommandPlan::Protocol(plan) => plan,
             _ => panic!("expected protocol plan"),
         }
+    }
+
+    #[test]
+    fn diag_budgets_is_a_local_plan() {
+        assert!(matches!(
+            parse(&strings(&["diag", "budgets"])).unwrap(),
+            CommandPlan::Diag(super::super::diag::DiagPlan::Budgets)
+        ));
+        assert!(parse(&strings(&["diag", "locks"])).is_err());
+        assert!(parse(&strings(&["diag"])).is_err());
     }
 
     #[test]

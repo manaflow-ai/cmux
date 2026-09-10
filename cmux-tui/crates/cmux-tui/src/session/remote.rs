@@ -76,7 +76,7 @@ const INTERACTIVE_LATENCY_BUCKET_UPPER_US: [u64; 18] = [
 ];
 #[cfg(not(test))]
 fn remote_write_timeout() -> Duration {
-    Duration::from_secs(2)
+    cmux_tui_core::budgets::CLIENT_WRITE
 }
 
 #[cfg(test)]
@@ -92,7 +92,7 @@ fn remote_write_timeout() -> Duration {
     })
 }
 #[cfg(not(test))]
-const REMOTE_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const REMOTE_REQUEST_TIMEOUT: Duration = cmux_tui_core::budgets::CLIENT_REQUEST;
 #[cfg(test)]
 const REMOTE_REQUEST_TIMEOUT: Duration = Duration::from_millis(100);
 #[cfg(not(test))]

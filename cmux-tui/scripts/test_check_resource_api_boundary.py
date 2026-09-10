@@ -295,6 +295,10 @@ impl ResourceOperation {{
 
 
 class PublicBoundaryScanTests(unittest.TestCase):
+    def test_repository_public_boundary_is_clean(self) -> None:
+        diagnostics, _ = CHECKER.scan_public_boundaries(CHECKER.TUI)
+        self.assertEqual(diagnostics, [])
+
     def test_raw_internal_and_manifest_generated_occurrences_are_allowed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)

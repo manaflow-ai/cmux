@@ -5,9 +5,13 @@
 //! accidentally fall back to the private command protocol.
 
 mod command;
+mod diag;
+mod internal;
 mod lifecycle;
 mod raw;
 mod wire;
+
+use internal::bench;
 
 use std::borrow::Cow;
 use std::io::{self, Write};
@@ -33,6 +37,8 @@ const PUBLIC_SCOPES: &[&str] = &[
     "projection",
     "provider",
     "raw",
+    "diag",
+    "bench",
 ];
 
 const REMOTE_COMMANDS: &[&str] = &[
@@ -166,6 +172,8 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
                 command::run_provider_authority(global, authority)
             }
             CommandPlan::RawCommand(command) => raw::run(global, command),
+            CommandPlan::Diag(plan) => diag::run(global, plan),
+            CommandPlan::Bench(plan) => bench::run(global, plan),
         },
         Err(failure) => {
             let message = if matches!(failure.output, OutputMode::Quiet | OutputMode::Human) {
@@ -433,6 +441,8 @@ fn scope_help_for(
         "projection" => Cow::Borrowed(PROJECTION_HELP),
         "provider" => Cow::Borrowed(PROVIDER_HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
+        "diag" => Cow::Borrowed(DIAG_HELP),
+        "bench" => Cow::Borrowed(BENCH_HELP),
         _ => Cow::Owned(root_help(&catalog.local_server)),
     }
 }
@@ -490,6 +500,8 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   projection    Read and update frontend projections
   provider      Install private provider authority
   raw           Send an explicit low-level operation
+  diag          Local diagnostics (named budgets)
+  bench         Measure interaction latency against a session
 
 Run `cmux <scope> --help` for scope-specific paths.
 ";
@@ -689,6 +701,36 @@ USAGE
 
 `raw operation` uses cmux.protocol/2. `raw command` is an unsafe internal
 escape for the legacy control protocol and provides no compatibility promise.
+";
+
+const BENCH_HELP: &str = "\
+USAGE
+  cmux bench interact --creates <K> --clients <N> [--typing-probes <M>]
+    [--socket <path> | --session <name>] [--json]
+
+`bench interact` drives a session as a client and records interaction
+latencies: create request to response, request to the tree delta that makes it
+visible on a separate subscriber, attach to first frame, close to response, and
+one-byte typing latency three ways: on a separate connection while creates are
+in flight (typing.separate_conn), on the create connection with one probe
+after each create request (typing.same_conn_interleaved: what a keystroke
+waits behind 1..K in-flight creates), and on the create connection after the
+whole batch (typing.same_conn_after_batch: the wait behind the entire batch).
+With no --socket and no --session it starts and stops a throwaway session.
+The bench owns the session it runs against: at teardown it closes every
+terminal that appeared during the run, because a stopped session keeps its
+terminal hosts alive. Run it only against a throwaway or idle session.
+Exit status is 1 when any create, close, or probe failed, so a degraded
+environment (for example exhausted PTYs) does not pass as a measurement.
+It sends only existing commands; it adds no protocol command.
+";
+
+const DIAG_HELP: &str = "\
+USAGE
+  cmux diag budgets [--json]
+
+`diag budgets` prints every named timing and size budget the daemon, terminal
+hosts, and clients enforce, with its stage and code site. It needs no session.
 ";
 
 #[cfg(test)]
