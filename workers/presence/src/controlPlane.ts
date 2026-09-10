@@ -4,15 +4,13 @@
 // WebSocket over which a signed-in cmux device receives, as revisioned facts,
 // everything it needs to connect to its Macs: the account directory (bindings
 // + home-relay hints + grant verification keys + relay fleet), relay passes,
-// and live hint updates. Phase A: the DO is a smart proxy over the existing
-// Vercel broker HTTPS endpoints (GET api/devices/iroh, POST api/relay/token);
-// it is NOT the source of truth. Wire contract: schemas/control-plane/*, with
+// and live hint updates. The account Durable Object is the source of truth.
+// Wire contract: schemas/control-plane/*, with
 // generated types in ./generated/controlPlane (frozen — never hand-edited).
 //
 // This module holds every piece of logic that does not need workerd: frame
-// parsing/building, upstream response mapping, and the ControlPlaneCore state
-// machine driven through narrow injected dependencies (storage, upstream
-// fetch, sockets, clock, alarm). The thin Durable Object adapter lives in
+// parsing/building and the ControlPlaneCore state machine driven through narrow
+// injected dependencies (storage, local broker, sockets, clock, alarm). The thin Durable Object adapter lives in
 // controlPlaneDo.ts.
 
 import type {
@@ -61,7 +59,7 @@ export const CONTROL_REFRESH_INTERVAL_MS = 60_000;
  * It is a liveness signal, not an authentication or subscription deadline. */
 export const CONTROL_HEARTBEAT_TYPE = "ping" as const;
 
-/** A publish_hint is an ANNOUNCEMENT (phase A never writes hints to Vercel —
+/** A publish_hint is an ANNOUNCEMENT (the local broker never writes hints to a web origin —
  * hint registration upstream is a challenge + Ed25519-signed registration flow
  * only the Mac itself can perform). The DO broadcasts the claim immediately,
  * then confirms against broker truth this soon after. */
@@ -110,7 +108,7 @@ export const REV_KEY = "ctl:rev";
  * DO-owned device overlay is joined in at directory build time, not here. */
 export const DIR_KEY = "ctl:dir";
 /** Account-wide upstream cooldowns survive DO hibernation and prevent a
- * reconnecting fleet from replaying a Vercel 429 before its deadline. */
+ * reconnecting fleet from replaying a remote rate limit before its deadline. */
 export const DIRECTORY_RETRY_AT_KEY = "ctl:retry:directory";
 export const MINT_RETRY_AT_KEY = "ctl:retry:mint";
 /** Per-endpoint relay-pass mint generation counter (`ctl:gen:<endpointId>`).
@@ -830,7 +828,7 @@ export interface CtlUpstreamResult {
 export interface CtlDeps {
   storage: CtlStorage;
   now(): number;
-  /** Perform one upstream HTTPS call against the configured Vercel base URL.
+  /** Perform one call against the local account broker.
    * MUST throw on connection-level failure (DNS, TCP, TLS, aborted body) and
    * resolve with the status for any HTTP response. */
   upstream(path: string, init: CtlUpstreamInit): Promise<CtlUpstreamResult>;
@@ -1301,7 +1299,7 @@ export class ControlPlaneCore {
 
   // ---- publish_hint: instant-propagation announcement + confirm re-fetch ----
 
-  /** Phase A never writes hints to Vercel (upstream hint registration is a
+  /** The broker never writes hints to a web origin (hint registration is a
    * challenge + endpoint-signed flow only the Mac itself can perform; the Mac
    * keeps doing that over HTTPS in parallel). The socket path is the
    * instant-propagation lane: broadcast the claim to the account's OTHER

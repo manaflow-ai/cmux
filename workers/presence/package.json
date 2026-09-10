@@ -21,10 +21,12 @@
     "esbuild": "0.27.3",
     "miniflare": "4.20260601.0",
     "typescript": "^5.8.0",
-    "wrangler": "^4.20.0"
+    "wrangler": "^4.20.0",
+    "@types/node": "22.15.0"
   },
   "dependencies": {
     "drizzle-orm": "1.0.0-beta.22",
-    "zod": "4.3.6"
+    "zod": "4.3.6",
+    "effect": "3.21.4"
   }
 }

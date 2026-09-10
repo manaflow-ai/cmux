@@ -3,7 +3,7 @@
 //
 // Thin adapter: all protocol logic lives in controlPlane.ts (bun-testable);
 // this file binds it to workerd — WebSocket hibernation, DO storage, the DO
-// alarm, and upstream fetch against the configured Vercel base URL.
+// alarm, and the local account broker.
 //
 // Authorization happens in the worker before anything reaches this object
 // (same trust model as TeamPresence): the worker verifies the Stack bearer
@@ -12,6 +12,7 @@
 // upstream calls, stored per-socket and deleted on close.
 
 import { DurableObject } from "cloudflare:workers";
+import * as Effect from "effect/Effect";
 import { bearerToken } from "./auth";
 import {
   CONTROL_REFRESH_INTERVAL_MS,
@@ -23,7 +24,7 @@ import {
   type CtlStorage,
 } from "./controlPlane";
 import { captureSentryException, type SentryEnv } from "./sentry";
-import { parseRetryAfterSeconds, rateLimitedJson } from "./retryAfterResponse";
+import { rateLimitedJson } from "./retryAfterResponse";
 import {
   pruneExpiredAccountState,
   nextAccountRetentionAt,
@@ -31,14 +32,17 @@ import {
 import { accountDrizzleDatabase } from "./accountDrizzleDatabase";
 import { accountDrizzleMigrations } from "./accountDrizzleMigrations";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
+import { LocalIrohBroker } from "./iroh/localBroker";
+import { sha256 } from "./iroh/model";
+import type { IrohBindingRequestProof } from "./iroh/crypto";
 
 export interface ControlPlaneEnv extends SentryEnv {
-  /** Vercel web API origin the DO proxies (dev/prod), e.g. https://cmux.com.
-   * Same optional-with-production-default pattern as STACK_API_URL. */
-  CMUX_WEB_BASE_URL?: string;
+  CMUX_IROH_LAN_DISCOVERY_SECRET_B64?: string;
+  CMUX_IROH_ACCOUNT_SUBJECT_SECRET_B64?: string;
+  CMUX_IROH_GRANT_SIGNING_KEY_P8?: string;
+  CMUX_IROH_GRANT_SIGNING_KID?: string;
+  CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON?: string;
 }
-
-const PRODUCTION_WEB_BASE_URL = "https://cmux.com";
 
 function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
@@ -81,6 +85,15 @@ function wrapSocket(ws: WebSocket): CtlSocket {
 export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
   private readonly sqlite = this.ctx.storage.sql;
   private readonly db = accountDrizzleDatabase(this.ctx.storage);
+  private readonly localIroh = new LocalIrohBroker(this.ctx.storage, {
+    lanDiscoverySecretBase64: this.env.CMUX_IROH_LAN_DISCOVERY_SECRET_B64 ?? "",
+    accountSubjectSecretBase64: this.env.CMUX_IROH_ACCOUNT_SUBJECT_SECRET_B64,
+    grantSigningPrivateKeyPem: this.env.CMUX_IROH_GRANT_SIGNING_KEY_P8,
+    grantSigningKid: this.env.CMUX_IROH_GRANT_SIGNING_KID,
+    grantVerificationKeys: this.env.CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON
+      ? JSON.parse(this.env.CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON)
+      : { version: 1, current_kid: "", keys: [] },
+  });
 
   constructor(ctx: DurableObjectState, env: ControlPlaneEnv) {
     super(ctx, env);
@@ -97,63 +110,11 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
     // single widening cast, same pattern as TeamPresence.syncStorage().
     storage: this.ctx.storage as unknown as CtlStorage,
     now: () => Date.now(),
-    upstream: async (path, init) => {
-      const base = (this.env.CMUX_WEB_BASE_URL ?? PRODUCTION_WEB_BASE_URL).replace(/\/+$/, "");
-      let response: Response;
-      try {
-        response = await fetch(`${base}${path}`, {
-          method: init.method,
-          headers: init.headers,
-          ...(init.body !== undefined ? { body: init.body } : {}),
-        });
-      } catch (error) {
-        // Preserve connection-level failures for the core's one immediate
-        // retry, while leaving a safe, token-free breadcrumb in the DO tail.
-        console.error(
-          `control-plane upstream ${init.method} ${path} network failure`,
-          String(error).slice(0, 300),
-        );
-        await captureSentryException(this.env, "cloudflare-control-plane", error, {
-          durable_object: "AccountControlPlane",
-          operation: "upstream_fetch",
-          method: init.method,
-          path,
-          failure: "network",
-        });
-        throw error;
-      }
-      // A connection-level failure throws out of fetch (the core's retry-once
-      // trigger); any HTTP response resolves and is never retried.
-      const json = await response.json().catch(() => null);
-      if (response.status >= 400) {
-        // Upstream refusals must be attributable from the worker tail alone;
-        // clients only ever see the mapped retryable/non-retryable error code.
-        console.error(
-          `control-plane upstream ${init.method} ${path} -> ${response.status}`,
-          JSON.stringify(json)?.slice(0, 300) ?? "<no body>",
-        );
-        await captureSentryException(this.env, "cloudflare-control-plane", new Error(
-          `upstream ${init.method} ${path} returned ${response.status}`,
-        ), {
-          durable_object: "AccountControlPlane",
-          operation: "upstream_fetch",
-          method: init.method,
-          path,
-          status: response.status,
-          failure: "http",
-        });
-      }
-      return {
-        status: response.status,
-        json,
-        ...(response.status === 429
-          ? {
-            retryAfterSeconds: parseRetryAfterSeconds(
-              response.headers.get("retry-after"),
-            ),
-          }
-          : {}),
-      };
+    upstream: async () => {
+      // The Durable Object has no Vercel or database proxy fallback. The
+      // local SQLite broker owns the control path; this adapter remains only
+      // for the legacy fact-stream core until its facts are fully local.
+      return { status: 503, json: { error: "local_control_plane_not_ready" } };
     },
     scheduleAlarmAt: (atMs) => this.ensureAlarmAt(atMs),
     sockets: () => this.ctx.getWebSockets().map(wrapSocket),
@@ -174,6 +135,10 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
   }
 
   private async handleFetch(request: Request): Promise<Response> {
+    const path = new URL(request.url).pathname;
+    if (path.startsWith("/api/devices/iroh")) {
+      return await this.handleLocalIroh(request, path);
+    }
     // Device revocation, forwarded by the worker with rebuilt headers after
     // Stack bearer verification. This DO instance IS the verified account
     // scope; the strict-parsed body carries only {endpointId, revoked}.
@@ -227,6 +192,55 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
       ...(namespace ? { namespace } : {}),
     });
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  private async handleLocalIroh(request: Request, path: string): Promise<Response> {
+    const accountId = request.headers.get("x-control-account-id")?.trim();
+    if (!accountId) return json({ error: "account_required" }, 403);
+    const namespace = request.headers.get("x-cmux-app-namespace")?.trim() || "legacy";
+    let body: unknown = undefined;
+    let bodyBytes = new Uint8Array();
+    if (request.method !== "GET") {
+      try { bodyBytes = new Uint8Array(await request.arrayBuffer()); body = JSON.parse(new TextDecoder().decode(bodyBytes)); } catch { return json({ error: "invalid_request" }, 400); }
+    }
+    const proof = this.bindingProof(request, bodyBytes, path);
+    if (proof instanceof Response) return proof;
+    const operation = path.endsWith("/challenge") ? "challenge"
+      : path.endsWith("/register") ? "register"
+      : path.endsWith("/pair-grants") ? "pair_grant"
+      : path.endsWith("/endpoint-attestations") ? "endpoint_attestation"
+      : path === "/api/devices/iroh" && request.method === "GET" ? "discover"
+      : path === "/api/devices/iroh" && request.method === "DELETE" ? "revoke"
+      : null;
+    if (operation === null) return json({ error: "not_implemented" }, 501);
+    try {
+      const result = operation === "challenge"
+        ? await Effect.runPromise(this.localIroh.issueChallenge(accountId, body, Date.now(), namespace))
+        : operation === "register"
+          ? await Effect.runPromise(this.localIroh.register(accountId, body, Date.now(), namespace))
+          : operation === "discover"
+            ? await Effect.runPromise(this.localIroh.discover(accountId, namespace))
+            : operation === "revoke"
+              ? await Effect.runPromise(this.localIroh.revoke(accountId, body, Date.now(), namespace, proof ?? undefined))
+              : operation === "pair_grant"
+                ? await Effect.runPromise(this.localIroh.issuePairGrant(accountId, body, Date.now(), namespace, proof ?? undefined))
+                : await Effect.runPromise(this.localIroh.issueEndpointAttestation(accountId, body, Date.now(), namespace, proof ?? undefined));
+      return json(result, operation === "discover" || operation === "revoke" ? 200 : 201);
+    } catch (error) {
+      console.error("local iroh operation failed", String(error));
+      const code = error && typeof error === "object" && "code" in error ? String((error as { code: unknown }).code) : "iroh_internal_error";
+      const status = code.includes("not_found") ? 404 : code.includes("invalid") || code.includes("expired") ? 400 : 500;
+      return json({ error: code }, status);
+    }
+  }
+
+  private bindingProof(request: Request, body: Uint8Array, path: string): IrohBindingRequestProof | Response | null {
+    const bindingId = request.headers.get("x-cmux-iroh-binding-id");
+    const timestamp = request.headers.get("x-cmux-iroh-request-time");
+    const signature = request.headers.get("x-cmux-iroh-request-signature");
+    if (!bindingId && !timestamp && !signature) return null;
+    if (!bindingId || !timestamp || !signature || !/^[0-9]+$/.test(timestamp)) return json({ error: "invalid_binding_request_proof" }, 400);
+    return { bindingId, method: request.method, path, timestampSeconds: Number(timestamp), bodySha256: sha256(body), signature };
   }
 
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {

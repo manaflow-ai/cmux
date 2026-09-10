@@ -6,18 +6,22 @@ import { build } from "esbuild";
 import { Miniflare, Log, LogLevel } from "miniflare";
 
 const directory = await mkdtemp(join(tmpdir(), "cmux-account-e2e-"));
-const { outputFiles } = await build({
+const workerBundle = join(import.meta.dirname, ".tmp-account-worker.mjs");
+await build({
   entryPoints: [new URL("./account.worker.ts", import.meta.url).pathname],
-  bundle: true, write: false, format: "esm", target: "es2022", external: ["cloudflare:workers"],
+  bundle: true, write: true, outfile: workerBundle, format: "esm", target: "es2022", external: ["cloudflare:workers", "node:*"] ,
   loader: { ".sql": "text" },
 });
 let runtime;
 let outboundCalls = 0;
 const start = async (stage = "base") => {
   runtime = new Miniflare({
-    log: new Log(LogLevel.NONE), bindings: { MIGRATION_STAGE: stage },
-    name: "account-storage-sandbox", modules: true, script: outputFiles[0].text,
-    compatibilityDate: "2026-05-01", host: "127.0.0.1", port: 0,
+    log: new Log(LogLevel.NONE), scriptPath: workerBundle, bindings: {
+      MIGRATION_STAGE: stage,
+      CMUX_IROH_LAN_DISCOVERY_SECRET_B64: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    },
+    name: "account-storage-sandbox", modules: true,
+    compatibilityDate: "2026-05-01", compatibilityFlags: ["nodejs_compat"], host: "127.0.0.1", port: 0,
     durableObjects: {
       ACCOUNT: { className: "SandboxAccount", useSQLite: true },
       SCHEMA: { className: "SandboxSchema", useSQLite: true },
@@ -30,15 +34,26 @@ const start = async (stage = "base") => {
 };
 const request = async (path, body) => {
   const response = await runtime.dispatchFetch(`http://sandbox${path}`, body === undefined ? {} : {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    method: "POST", headers: { "content-type": "application/json", ...(path.startsWith("/api/devices/iroh") ? { "x-cmux-app-namespace": "dev.cmux.ios.e2e" } : {}) }, body: JSON.stringify(body),
   });
   const text = await response.text();
-  assert.equal(response.status, 200, text);
+  assert.ok(response.status === 200 || response.status === 201, text);
   return JSON.parse(text);
 };
 try {
   await start();
   assert.deepEqual(await request("/drizzle/probe"), { rows: [] }, "Drizzle transaction must roll back atomically in workerd");
+  const challenge = await request("/api/devices/iroh/challenge?account=fresh", {
+    deviceId: "00000000-0000-4000-8000-000000000001",
+    appInstanceId: "00000000-0000-4000-8000-000000000002",
+    clientNamespace: "dev.cmux.ios.e2e",
+    tag: "e2e",
+    endpointId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    identityGeneration: 1,
+    payloadSha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  });
+  assert.match(challenge.challenge_id, /^[0-9a-f-]{36}$/);
+  assert.ok(challenge.nonce.length >= 32);
   const first = await request("/inspect");
   assert.equal(first.schema.length, 3);
   assert.equal(first.schema[0].name, "20260910012737_redundant_ironclad");
@@ -107,8 +122,9 @@ try {
   await start("good");
   assert.deepEqual(await request("/schema/inspect"), upgraded, "Forward recovery must preserve upgraded data");
   assert.equal(outboundCalls, 0);
-  console.log(JSON.stringify({ result: "pass", checks: ["drizzle transaction rollback", "fresh schema", "persisted restart", "migration idempotence", "account isolation", "alarm preservation", "idle cleanup", "alarm rearm", "real alarm delivery", "drained alarm stop", "populated schema upgrade", "failed upgrade rollback", "unsupported downgrade rejection", "forward recovery", "external network blocked"] }));
+  console.log(JSON.stringify({ result: "pass", checks: ["local iroh challenge", "drizzle transaction rollback", "fresh schema", "persisted restart", "migration idempotence", "account isolation", "alarm preservation", "idle cleanup", "alarm rearm", "real alarm delivery", "drained alarm stop", "populated schema upgrade", "failed upgrade rollback", "unsupported downgrade rejection", "forward recovery", "external network blocked"] }));
 } finally {
   await runtime?.dispose();
   await rm(directory, { recursive: true, force: true });
+  await rm(workerBundle, { force: true });
 }

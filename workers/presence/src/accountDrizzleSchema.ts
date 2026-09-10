@@ -52,20 +52,15 @@ export const accountBindings = sqliteTable(
   ],
 );
 
-function temporaryTable(name: string, keyName: string) {
-  return sqliteTable(name, {
-    [keyName]: text(keyName).primaryKey(),
-    ...payloadColumns,
-    expiresAt: integer("expires_at").notNull(),
-  }, (table) => [
-    index(`${name}_expiry`).on(table.expiresAt),
-    check(`${name}_payload_size_check`, sql`${table.payloadBytes} = length(cast(${table.payload} as blob)) and ${table.payloadBytes} between 0 and 65536`),
-  ]);
-}
-
-export const accountChallenges = temporaryTable("account_challenges", "challenge_id");
-export const accountPairGrants = temporaryTable("account_pair_grants", "grant_id");
-export const accountRelayIssuances = temporaryTable("account_relay_issuances", "issuance_id");
+export const accountChallenges = sqliteTable("account_challenges", {
+  challengeId: text("challenge_id").primaryKey(), ...payloadColumns, expiresAt: integer("expires_at").notNull(),
+}, (table) => [index("account_challenges_expiry").on(table.expiresAt), check("account_challenges_payload_size_check", sql`${table.payloadBytes} = length(cast(${table.payload} as blob)) and ${table.payloadBytes} between 0 and 65536`)]);
+export const accountPairGrants = sqliteTable("account_pair_grants", {
+  grantId: text("grant_id").primaryKey(), ...payloadColumns, expiresAt: integer("expires_at").notNull(),
+}, (table) => [index("account_pair_grants_expiry").on(table.expiresAt), check("account_pair_grants_payload_size_check", sql`${table.payloadBytes} = length(cast(${table.payload} as blob)) and ${table.payloadBytes} between 0 and 65536`)]);
+export const accountRelayIssuances = sqliteTable("account_relay_issuances", {
+  issuanceId: text("issuance_id").primaryKey(), ...payloadColumns, expiresAt: integer("expires_at").notNull(),
+}, (table) => [index("account_relay_issuances_expiry").on(table.expiresAt), check("account_relay_issuances_payload_size_check", sql`${table.payloadBytes} = length(cast(${table.payload} as blob)) and ${table.payloadBytes} between 0 and 65536`)]);
 
 export const accountPreferences = sqliteTable(
   "account_preferences",

@@ -126,6 +126,14 @@ export default {
         new Request(new URL(request.url).toString().replace("/drizzle", ""), request),
       );
     }
+    if (url.pathname.startsWith("/api/devices/iroh")) {
+      const account = url.searchParams.get("account") ?? "a";
+      const headers = new Headers(request.headers);
+      headers.set("x-control-account-id", account);
+      return env.ACCOUNT.get(env.ACCOUNT.idFromName(account)).fetch(
+        new Request(request.url, { method: request.method, headers, body: request.method === "GET" ? undefined : request.body }),
+      );
+    }
     const account = url.searchParams.get("account") ?? "a";
     return env.ACCOUNT.get(env.ACCOUNT.idFromName(account)).fetch(request);
   },
