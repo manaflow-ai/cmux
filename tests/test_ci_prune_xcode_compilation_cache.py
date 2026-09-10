@@ -70,9 +70,11 @@ def test_keeps_the_two_newest_generations_of_every_cas_dir() -> None:
         assert child_names(plugin) == {"lock", "v1.validation", "v1.9", "v1.10"}
         assert (builtin / "v1.2" / "data.1").stat().st_size == 128 * 1024
         assert stray.read_text() == "keep me\n"
-        assert "builtin: kept v1.2" in result.stdout
-        assert "removed v1.1" in result.stdout
-        assert "plugin: kept v1.9" in result.stdout
+        # Only the removed generations are measured; the live ones are left to
+        # the workflow's single `du` over the retained cache.
+        assert "builtin: kept v1.2, v1.3; removed v1.1 (" in result.stdout
+        assert "plugin: kept v1.9, v1.10; removed v1.8 (" in result.stdout
+        assert "generic: kept v1.1; removed nothing" in result.stdout
         assert "removed 2 stale Xcode compilation cache generation(s)" in result.stdout
 
 
@@ -112,14 +114,9 @@ def test_cas_dir_held_open_by_another_process_is_left_alone() -> None:
         assert "builtin: still in use" in result.stdout
 
 
-def test_root_level_generations_and_unlistable_dirs_do_not_stop_pruning() -> None:
+def test_unlistable_cas_dir_does_not_stop_pruning() -> None:
     with tempfile.TemporaryDirectory() as temp_dir:
         cache_dir = Path(temp_dir) / "CompilationCache.noindex"
-        cache_dir.mkdir(parents=True)
-        # Generations directly under the cache root: pruning one must not
-        # break the walk over the sibling CAS directories listed before it.
-        for name in ("v1.7", "v1.8", "v1.9"):
-            make_generation(cache_dir, name, payload_kib=8)
         builtin = make_cas_dir(cache_dir, "builtin", ["v1.1", "v1.2", "v1.3"])
         sealed = make_cas_dir(cache_dir, "sealed", ["v1.1", "v1.2", "v1.3"])
         # `zzz` sorts after `sealed`, so it is only reached if the unlistable
@@ -135,8 +132,6 @@ def test_root_level_generations_and_unlistable_dirs_do_not_stop_pruning() -> Non
 
         assert result.returncode == 0, result.stderr
         assert "Traceback" not in result.stderr, result.stderr
-        assert "v1.7" not in child_names(cache_dir)
-        assert {"v1.8", "v1.9", "builtin", "sealed", "zzz"} <= child_names(cache_dir)
         assert child_names(builtin) == {"lock", "v1.validation", "v1.2", "v1.3"}
         assert child_names(trailing) == {"lock", "v1.validation", "v1.2", "v1.3"}
         if can_seal:
@@ -148,6 +143,25 @@ def test_root_level_generations_and_unlistable_dirs_do_not_stop_pruning() -> Non
                 "v1.3",
             }
             assert "sealed: could not inspect" in result.stdout
+
+
+def test_generations_outside_a_cas_dir_are_left_alone() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        cache_dir = Path(temp_dir) / "CompilationCache.noindex"
+        cache_dir.mkdir(parents=True)
+        # Xcode never writes generations directly under the cache root. A
+        # layout the pruner does not recognise is measured unpruned, never
+        # guessed at.
+        for name in ("v1.7", "v1.8", "v1.9"):
+            make_generation(cache_dir, name, payload_kib=8)
+        builtin = make_cas_dir(cache_dir, "builtin", ["v1.1", "v1.2", "v1.3"])
+
+        result = run_helper(cache_dir)
+
+        assert result.returncode == 0, result.stderr
+        assert {"v1.7", "v1.8", "v1.9", "builtin"} <= child_names(cache_dir)
+        assert child_names(builtin) == {"lock", "v1.validation", "v1.2", "v1.3"}
+        assert "removed 1 stale Xcode compilation cache generation(s)" in result.stdout
 
 
 def test_missing_cache_is_noop() -> None:
@@ -165,7 +179,8 @@ def main() -> int:
     test_keeps_the_two_newest_generations_of_every_cas_dir()
     test_live_generations_are_untouched()
     test_cas_dir_held_open_by_another_process_is_left_alone()
-    test_root_level_generations_and_unlistable_dirs_do_not_stop_pruning()
+    test_unlistable_cas_dir_does_not_stop_pruning()
+    test_generations_outside_a_cas_dir_are_left_alone()
     test_missing_cache_is_noop()
     print("PASS: Xcode compilation cache pruning keeps only the live CAS generations")
     return 0
