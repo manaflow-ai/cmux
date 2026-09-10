@@ -74,6 +74,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let socketPath = makeSocketPath("vm-new-sshd")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
+        // The CLI remembers the machine's trusted route under the home directory
+        // (~/.cmuxterm/vm-tui-devices.json); a private one keeps the developer's
+        // own store untouched. CFFIXED_USER_HOME is what NSHomeDirectory() reads.
+        let homeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vm-new-home-\(UUID().uuidString)", isDirectory: true)
         let vmID = "vm-persistent-freestyle"
         let workspaceID = "11111111-1111-1111-1111-111111111111"
         let workspaceRef = "workspace:sshd"
@@ -82,6 +87,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
+            try? FileManager.default.removeItem(at: homeURL)
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
@@ -183,6 +189,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = homeURL.path
+        environment["CFFIXED_USER_HOME"] = homeURL.path
+        // The ready line is localized; the assertion reads its English form.
+        environment["AppleLanguages"] = "(en)"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -197,6 +207,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(result.stdout.contains("Created Cloud VM \(vmID)"), result.stdout)
         XCTAssertTrue(result.stdout.contains("OK workspace=\(workspaceRef) transport=cmux-remote terminal=term_cloud_shell"), result.stdout)
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        // The trusted listener the app proved is remembered per machine, so the
+        // next open dials the private route with no control-plane call.
+        let devicesData = try Data(contentsOf: homeURL.appendingPathComponent(".cmuxterm/vm-tui-devices.json"))
+        let devices = try XCTUnwrap(JSONSerialization.jsonObject(with: devicesData) as? [String: [String: Any]])
+        XCTAssertEqual(devices[vmID]?["deviceFingerprint"] as? String, "carrier", "vm new remembers the trusted-carrier route")
         let requests = state.commands.compactMap { self.jsonObject($0) }
         let methods = requests.compactMap { $0["method"] as? String }
         XCTAssertEqual(methods.filter { $0 == "workspace.create" }.count, 1)
@@ -259,6 +274,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
         environment["HOME"] = homeURL.path
+        // The ready line is localized; the assertion reads its English form.
+        environment["AppleLanguages"] = "(en)"
 
         let result = runProcess(
             executablePath: cliPath,

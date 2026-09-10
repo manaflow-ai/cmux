@@ -7204,7 +7204,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
-
+        environment["AppleLanguages"] = "(en)"  // the ready line is localized; the assertion reads English
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["vm", "new", "--window", requestedWindowId, "--detach"],

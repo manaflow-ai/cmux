@@ -54,7 +54,7 @@ final class NewMachineSheetKindUITests: XCTestCase {
         XCTAssertTrue(opened, "Expected New Machine to open as a sheet with its Create button")
         XCTAssertTrue(app.staticTexts["New Machine"].exists, "Expected the New Machine title")
         XCTAssertEqual(Self.buttons(in: app, identifier: "NewMachineSheet.create", label: "Create").count, 1)
-        XCTAssertTrue(cancel.exists, "Expected the sheet's Cancel button")
+        XCTAssertTrue(cancel.waitForExistence(timeout: 3.0), "Expected the sheet's Cancel button")
         attachScreenshot(of: app, named: "new-machine-single-flow")
 
         // Every witness of the old Kind picker: its segments, its label, its
