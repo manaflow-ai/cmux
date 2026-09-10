@@ -23,6 +23,11 @@ import tempfile
 # or does ArgumentParser's own validation intercept it first.
 CASES: list[tuple[list[str], str]] = [
     (["dismiss-notification"], "missing selector: legacy CLIError default exit code"),
+    # `tmux` is an attach-only alias: every other verb has to reach the legacy
+    # runner's own diagnostic instead of failing inside ArgumentParser, which
+    # declares `attach` as the only subcommand.
+    (["tmux", "start", "s1"], "tmux alias non-attach verb must reach the legacy attach-only diagnostic"),
+    (["tmux", "list"], "tmux alias non-attach verb without an operand must reach the same diagnostic"),
     (["bind-key", "C-a", "send-prefix"], "tmux-compat unsupported command with real args"),
     (["copy-mode", "-t", "x"], "tmux-compat unsupported command with an unrecognized option"),
     (["resize-pane", "-L", "5"], "tmux-compat option the facade must forward, not reject"),
