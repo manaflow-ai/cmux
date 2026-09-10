@@ -125,6 +125,15 @@ def test_unlistable_cas_dir_does_not_stop_pruning() -> None:
         can_seal = os.geteuid() != 0
         if can_seal:
             sealed.chmod(0o000)
+            # Permission bits are not enforced for every user (root, some
+            # containers); only exercise the unlistable path if they took hold.
+            try:
+                next(sealed.iterdir())
+            except OSError:
+                pass
+            else:
+                can_seal = False
+                sealed.chmod(0o755)
         try:
             result = run_helper(cache_dir)
         finally:
@@ -164,6 +173,24 @@ def test_generations_outside_a_cas_dir_are_left_alone() -> None:
         assert "removed 1 stale Xcode compilation cache generation(s)" in result.stdout
 
 
+def test_cas_dir_without_lock_file_is_left_alone() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        cache_dir = Path(temp_dir) / "CompilationCache.noindex"
+        builtin = make_cas_dir(cache_dir, "builtin", ["v1.1", "v1.2", "v1.3"])
+        # Every CAS directory the toolchain has opened carries a `lock` file.
+        # Without one there is nothing to lock, so nothing may be deleted.
+        unlocked = make_cas_dir(cache_dir, "unlocked", ["v1.1", "v1.2", "v1.3"])
+        (unlocked / "lock").unlink()
+
+        result = run_helper(cache_dir)
+
+        assert result.returncode == 0, result.stderr
+        assert child_names(builtin) == {"lock", "v1.validation", "v1.2", "v1.3"}
+        assert child_names(unlocked) == {"v1.validation", "v1.1", "v1.2", "v1.3"}
+        assert "unlocked: no CAS lock file; leaving it alone" in result.stdout
+        assert "removed 1 stale Xcode compilation cache generation(s)" in result.stdout
+
+
 def test_missing_cache_is_noop() -> None:
     with tempfile.TemporaryDirectory() as temp_dir:
         cache_dir = Path(temp_dir) / "missing-compilation-cache"
@@ -181,6 +208,7 @@ def main() -> int:
     test_cas_dir_held_open_by_another_process_is_left_alone()
     test_unlistable_cas_dir_does_not_stop_pruning()
     test_generations_outside_a_cas_dir_are_left_alone()
+    test_cas_dir_without_lock_file_is_left_alone()
     test_missing_cache_is_noop()
     print("PASS: Xcode compilation cache pruning keeps only the live CAS generations")
     return 0

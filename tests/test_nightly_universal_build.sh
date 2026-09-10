@@ -511,26 +511,36 @@ for expected in \
   fi
 done
 
-if ! awk '
-  /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
-  /^  build-nightly-app:/ { job="app"; next }
-  /^  build-sign-notarize-nightly:/ { job="sign"; next }
-  /^  publish-nightly:/ { job="publish"; next }
-  /^  [a-zA-Z0-9_-]+:/ { job="" }
-  job && /^    if: / {
-    if (/needs\.decide\.outputs\.should_build == '\''true'\''/) build_gate[job]=1
-    if (/needs\.decide\.outputs\.build_only != '\''true'\''/) measure_gate[job]=1
-  }
-  END {
-    exit !(build_gate["helper"] && measure_gate["helper"] &&
-           build_gate["app"] && !measure_gate["app"] &&
-           build_gate["sign"] && measure_gate["sign"] &&
-           build_gate["publish"] && measure_gate["publish"])
-  }
-' "$WORKFLOW_FILE"; then
-  echo "FAIL: build_only must skip the helper, signing, and publication jobs while still running the unsigned app build"
+# Each job's complete job-level `if:` is matched verbatim, so the build_only
+# exclusion can only ever be a conjunctive clause: an `||` around it would run
+# helper, signing, or publish work during a measurement dispatch.
+job_if() {
+  awk -v job="$1" '
+    $0 == "  " job ":" { in_job=1; next }
+    in_job && /^  [a-zA-Z0-9_-]+:$/ { in_job=0 }
+    in_job && /^    if: / { print; exit }
+  ' "$WORKFLOW_FILE"
+}
+PUBLISH_SCHEDULE="(github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')"
+if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE" ] \
+  || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
+  || [ "$(job_if build-sign-notarize-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
+  || [ "$(job_if publish-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE" ]; then
+  echo "FAIL: build_only must be a conjunctive exclusion on the helper, signing, and publication jobs, and must not gate the unsigned app build"
   exit 1
 fi
+
+# A measurement run always builds the production universal workload: it must
+# not depend on the nightly tag (a build-only dispatch on main would otherwise
+# skip when the tag already matches HEAD) and must ignore the fast arm64 path.
+for expected in \
+  "const shouldBuild = buildOnly || !isMainRef || forceBuild || nightlySha !== headSha;" \
+  "const fastBuild = !buildOnly && process.env.FAST_BUILD === 'true';"; do
+  if ! grep -Fq "$expected" "$WORKFLOW_FILE"; then
+    echo "FAIL: build_only must always build the universal app: $expected"
+    exit 1
+  fi
+done
 
 if ! awk '
   /^  build-nightly-app:/ { job="app"; next }
