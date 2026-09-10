@@ -724,6 +724,11 @@ struct CodexAppServerSessionTests {
 
         expectEqual(
             accumulator.consumeLine(
+                #"{"type":"message_start","message":{"id":"msg_1","role":"assistant"}}"#),
+            []
+        )
+        expectEqual(
+            accumulator.consumeLine(
                 #"{"type":"content_block_delta","delta":{"type":"text_delta","text":"first"}}"#),
             ["first"]
         )
@@ -732,6 +737,11 @@ struct CodexAppServerSessionTests {
                 #"{"type":"assistant","message":{"id":"msg_1","role":"assistant","content":[{"type":"text","text":"first done"}]}}"#
             ),
             [" done"]
+        )
+        expectEqual(
+            accumulator.consumeLine(
+                #"{"type":"message_start","message":{"id":"msg_2","role":"assistant"}}"#),
+            []
         )
         expectEqual(
             accumulator.consumeLine(

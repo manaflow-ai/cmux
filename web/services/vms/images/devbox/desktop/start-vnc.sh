@@ -8,7 +8,7 @@
 #     owner's private network; a VNC password would be a second prompt
 #     noVNC's autoconnect cannot answer).
 #   - noVNC web client via websockify on 6901, at `/`.
-# It runs as the work user `ubuntu` with HOME=/home/ubuntu and DISPLAY=:1
+# It runs as the work user `cmux` with HOME=/home/cmux and DISPLAY=:1
 # (cmux-desktop-boot under the cmux-desktop systemd unit on Freestyle, or
 # under cmux-devbox-boot in a container; a driver heal runs exactly the same
 # invocation), so the desktop session is the same account terminals and SSH

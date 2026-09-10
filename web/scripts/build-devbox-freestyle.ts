@@ -18,12 +18,14 @@
  * Dockerfile's toolchain: `freestyle/ubuntu` comes with Node LTS under nvm
  * (symlinked into /usr/local/bin), Bun, Python 3.12, uv, Docker (running from
  * boot), git, jq, tmux, and an `ubuntu` user (uid 1000, passwordless sudo,
- * the API's default exec user and the SSH default). The bake adds the
+ * the API's default exec user and the SSH default), which the bake renames to
+ * `cmux` and keeps as the machine's ONE work user. The bake adds the
  * chatmux-devbox devtools, gh, Chrome + cua-driver, the pinned coding agents
  * (`npm install -g` on the base's Node, so the exact Dockerfile pins replace
  * the base's copies), the ble.sh devshell, the agent-config generator, the
- * login banner, and the desktop. No mise, no extra users: `ubuntu` is the
- * work user for terminals, agents, SSH, and the desktop session.
+ * login banner, and the desktop. No mise, no extra users: `cmux` (uid 1000)
+ * is the work user for terminals, agents, SSH, and the desktop session, and
+ * the machine is renamed `cmux` so prompts read `cmux@cmux`.
  *
  * Auth: FREESTYLE_API_KEY (permanent key from the Freestyle dashboard or
  * `freestyle tokens create`), or FREESTYLE_STACK_ACCESS_TOKEN +
@@ -45,7 +47,7 @@
  *
  * Daemon contract: the session daemon is cmux-tui (docs/cloud-cmux-tui-daemon.md).
  * The bake installs the pinned files.cmux.com build (sha256-verified, the same
- * install command the driver's attach-time heal uses) at /root/.cmux/bin/cmux-tui
+ * install command the driver's attach-time heal uses) in the daemon user's home
  * and the cmux-tui-daemon systemd unit runs /usr/local/bin/cmux-devbox-boot,
  * which starts and supervises it. The bake proves the daemon answers on
  * [::]:1337, then parks it: a snapshot is a memory image, so a daemon left
@@ -57,12 +59,12 @@
  * readiness exec at create; it writes the model-plane env file and returns.
  * The unit binds the listener dual-stack (CMUX_TUI_REMOTE_WS_BIND=[::]:1337)
  * because the driver routes attaches to a private VPC address by default and
- * to the stable public IPv6 for legacy public-network machines. The
- * daemon still runs as root until the driver adopts the ubuntu user for
- * sessions.
+ * to the stable public IPv6 for legacy public-network machines. The daemon
+ * itself drops to the work user, so every terminal pane is a non-root shell
+ * with passwordless sudo and coding agents start.
  *
  * Desktop contract (web/services/vms/images/desktop.ts, desktop/start-vnc.sh):
- * RFB 5901 loopback, noVNC 6901, run as `ubuntu` by the cmux-desktop systemd
+ * RFB 5901 loopback, noVNC 6901, run as `cmux` by the cmux-desktop systemd
  * unit, which publishes DISPLAY and the accessibility bus at
  * /run/cmux-desktop/env for every other shell (/etc/cmux/desktop-env.sh). The
  * desktop packages, files and the Ghostty .deb come from the Dockerfile
@@ -82,9 +84,11 @@ import { Freestyle } from "freestyle";
 import { fileURLToPath } from "node:url";
 import { VM_GUEST_MODEL_PLANE_ENV_PATH, renderVmGuestModelPlaneEnvFile, vmGuestModelPlaneEnv } from "../services/coderouter/vmGuestEnv";
 import {
+  CMUX_TUI_LAYOUT_MARKER_PATH,
   CMUX_TUI_SESSION,
   cmuxTuiInstallCommand,
   cmuxTuiPinCheckCommand,
+  cmuxTuiRunCommand,
   resolveCmuxTuiSource,
 } from "../services/vms/drivers/cmuxTuiDaemon";
 import {
@@ -104,22 +108,26 @@ import {
   devboxIdentityInstallCommand,
   devboxJournalResetCommand,
   devboxParkDaemonCommand,
+  devboxWaitForDaemonCommand,
   cmuxTuiWebsocketSmokeCommand,
   emitBakeResult,
   hasFlag,
   manifestEntrySkeleton,
 } from "./devbox-image-common";
 import {
+  DEVBOX_WORK_HOME,
+  DEVBOX_WORK_USER,
+  devboxWorkUserSetupCommand,
+} from "../services/vms/images/workUser";
+import {
   DEVBOX_DESKTOP_DISPLAY,
   DEVBOX_DESKTOP_ENV_FILE,
-  DEVBOX_DESKTOP_HOME,
   DEVBOX_DESKTOP_NOVNC_PORT,
   DEVBOX_DESKTOP_RFB_PORT,
   DEVBOX_DESKTOP_RUNTIME_DIR,
   DEVBOX_DESKTOP_START_SCRIPT,
   DEVBOX_DESKTOP_SUPERVISOR,
   DEVBOX_DESKTOP_UNIT,
-  DEVBOX_DESKTOP_USER,
 } from "../services/vms/images/desktop";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
 
@@ -160,11 +168,15 @@ const BUILD_ENV = {
   LANG: "C.UTF-8",
 };
 
-/** The work user: the base's uid-1000 account, the API and SSH default, and the desktop session's user. */
-const WORK_USER = DEVBOX_DESKTOP_USER;
+/**
+ * The work user: the base's uid-1000 account renamed to `cmux`, so the API and
+ * SSH default, the desktop session, and the terminals the cmux-tui daemon
+ * opens are all the same non-root account.
+ */
+const WORK_USER = DEVBOX_WORK_USER;
+const WORK_HOME = DEVBOX_WORK_HOME;
 
 const instanceIdCommand = DEVBOX_INSTANCE_ID_COMMAND;
-const WORK_HOME = DEVBOX_DESKTOP_HOME;
 
 const builderSnapshot = process.env.CMUX_FREESTYLE_BUILDER_SNAPSHOT?.trim() || "freestyle/ubuntu-sm";
 const { vm, vmId } = await fs.vms.create({
@@ -192,8 +204,8 @@ async function step(label: string, command: string): Promise<void> {
     command: `${HOME_PREFIX} && ${command}`,
     env: BUILD_ENV,
     timeoutMs: STEP_TIMEOUT_MS,
-    // The 0.2 API's default guest user is uid 1000 (ubuntu). Every build step
-    // writes to /usr/local and /etc, so the bake runs as root.
+    // The 0.2 API's default guest user is uid 1000 (the work user). Every
+    // build step writes to /usr/local and /etc, so the bake runs as root.
     linuxUser: "root",
   });
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
@@ -241,16 +253,26 @@ const interactiveShellProbe = (run: number): string =>
 try {
   await step(
     "base-inventory",
-    `id ${WORK_USER} && [ "$(id -u ${WORK_USER})" = 1000 ] && sudo -n -u ${WORK_USER} sudo -n true && node --version && npm --version && bun --version && python3 --version && uv --version && docker --version && test -L /usr/local/bin/node && readlink /usr/local/bin/node | grep -q /usr/local/nvm/ && echo base-ok`,
+    `node --version && npm --version && bun --version && python3 --version && uv --version && docker --version && test -L /usr/local/bin/node && readlink /usr/local/bin/node | grep -q /usr/local/nvm/ && echo base-ok`,
   );
 
   // The machine's name, before anything records it (host keys, caches, the
   // daemon, the journal): see the identity contract in the header.
   await step("identity", devboxIdentityInstallCommand());
 
+  // Then the account, before any layer writes into the home or names it: the
+  // base's uid-1000 `ubuntu` becomes `cmux`, home moved with it, its NOPASSWD
+  // policy rewritten. The prompt renders \u@\h, so with the name above this is
+  // the other half of what a person reads on every line of every cmux
+  // Cloud terminal.
+  await step("work-user", devboxWorkUserSetupCommand());
+
+  // The Dockerfile's devtools list, bubblewrap included: codex's Linux sandbox
+  // prerequisite, so codex uses the distro's bwrap instead of warning on every
+  // launch that it is falling back to its bundled copy.
   await step(
     "apt-devtools",
-    "apt-get update -q && apt-get install -y --no-install-recommends git ripgrep build-essential curl ca-certificates unzip zip xz-utils zstd procps iproute2 openssh-client pkg-config jq fd-find fzf sqlite3 tmux less rsync file tree nano vim sudo util-linux && rm -rf /var/lib/apt/lists/* && ln -sf $(command -v fdfind) /usr/local/bin/fd && echo 'LANG=C.UTF-8' > /etc/default/locale && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V",
+    "apt-get update -q && apt-get install -y --no-install-recommends git ripgrep build-essential curl ca-certificates unzip zip xz-utils zstd procps iproute2 openssh-client pkg-config jq fd-find fzf sqlite3 tmux less rsync file tree nano vim sudo util-linux bubblewrap && rm -rf /var/lib/apt/lists/* && ln -sf $(command -v fdfind) /usr/local/bin/fd && echo 'LANG=C.UTF-8' > /etc/default/locale && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V && bwrap --version",
   );
 
   await step(
@@ -288,11 +310,15 @@ try {
   await step(
     "agents",
     // The pin probes run AS the work user: an agent run as root with
-    // HOME=/home/ubuntu leaves root-owned state dirs behind that break
+    // its HOME leaves root-owned state dirs behind that break
     // ble.sh for every later login.
     `npm install -g --foreground-scripts ${pins.map((pin) => `'${pin.spec}'`).join(" ")} && nvm_bin="$(dirname "$(readlink -f /usr/local/bin/node)")" && ${pins.map((pin) => `ln -sfn "$nvm_bin/${pin.binary}" /usr/local/bin/${pin.binary}`).join(" && ")} && ${pins.map((pin) => `${pin.binary} --version`).join(" && ")} && ${pins.map((pin) => `sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm bash -lc '${pin.binary} --version' | grep -F '${pin.version}'`).join(" && ")} && echo agents-pinned`,
   );
 
+  // Claude Code machine policy. The first-run answers themselves are seeded
+  // per shell by agent-config.sh from the model-plane env, not baked: the
+  // bake's own login probes would otherwise freeze a seed that predates the
+  // env and ship it in the snapshot.
   await step(
     "claude-managed-settings",
     `mkdir -p /etc/claude-code && echo '{ "cleanupPeriodDays": 99999, "skipDangerousModePermissionPrompt": true }' > /etc/claude-code/managed-settings.json && node -e 'JSON.parse(require("fs").readFileSync("/etc/claude-code/managed-settings.json","utf8"))'`,
@@ -309,7 +335,7 @@ try {
 
   // devshell replays the Dockerfile devshell + ble.sh tput cache bake (same
   // echo-fed seed shells and test -s guards; see ../services/vms/images/devbox/Dockerfile).
-  // Cache seeds cover root and the ubuntu work user (uid 1000).
+  // Cache seeds cover root and the work user (uid 1000).
   await step("cmux-etc", "mkdir -p /etc/cmux /etc/skel");
   await put("cmux-bashrc", "/etc/cmux/bashrc");
   await put("seed-history", "/etc/cmux/seed-history");
@@ -420,13 +446,23 @@ try {
     );
   }
 
+  // Re-assert the work user's private-directory permissions before the daemon
+  // first writes its identity: cmux-tui refuses a group- or other-writable
+  // ancestor of its auth dir, and every layer above this ran shells as that
+  // user. The umask is already 022 (devboxWorkUserSetupCommand), so this is a
+  // guard, not a repair.
+  await step(
+    "home-perms",
+    `find ${WORK_HOME} -type d -exec chmod g-w,o-w {} + && [ "$(find ${WORK_HOME} -type d \\( -perm -g+w -o -perm -o+w \\) | wc -l)" = 0 ] && [ "$(sudo -n -u ${WORK_USER} sh -c umask)" = 0022 ] && echo home-perms-ok`,
+  );
+
   // The pinned cmux-tui build, installed with the driver's own command so the
   // bake and the attach-time heal can never disagree about path or digest.
   console.log(`cmux-tui pin: commit ${cmuxTuiSource.commit} sha256 ${cmuxTuiSource.sha256.slice(0, 12)}…`);
   await step("cmux-tui-install", cmuxTuiInstallCommand(cmuxTuiSource));
   await step(
     "cmux-tui-pin",
-    `${cmuxTuiPinCheckCommand(cmuxTuiSource)} && mkdir -p /etc/cmux /root/.config/cmux && printf '%s %s\n' ${cmuxTuiSource.sha256} ${cmuxTuiSource.commit} > /etc/cmux/cmux-tui-pin && cat /etc/cmux/cmux-tui-pin`,
+    `${cmuxTuiPinCheckCommand(cmuxTuiSource)} && mkdir -p /etc/cmux && printf '%s %s\n' ${cmuxTuiSource.sha256} ${cmuxTuiSource.commit} > /etc/cmux/cmux-tui-pin && cat /etc/cmux/cmux-tui-pin`,
   );
 
   // The Ghostty generation panes announce as TERM_PROGRAM_VERSION (the
@@ -471,11 +507,12 @@ try {
   // daemon on its own, the session answers, and the listener is dual-stack.
   await step(
     "cmux-tui-daemon-up",
-    `for i in $(seq 1 30); do env HOME=/root /root/.cmux/bin/cmux-tui server status --session ${CMUX_TUI_SESSION} >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6 && break; sleep 1; done && env HOME=/root /root/.cmux/bin/cmux-tui server status --session ${CMUX_TUI_SESSION} && grep -qi ':0539 ' /proc/net/tcp6 && test "$(cat /etc/cmux/daemon-instance-id)" = "$(${instanceIdCommand})" && echo daemon-up-bound-to-builder`,
+    `for i in $(seq 1 30); do ${cmuxTuiRunCommand(`server status --session ${CMUX_TUI_SESSION}`)} >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6 && break; sleep 1; done && ${cmuxTuiRunCommand(`server status --session ${CMUX_TUI_SESSION}`)} && grep -qi ':0539 ' /proc/net/tcp6 && test "$(cat /etc/cmux/daemon-instance-id)" = "$(${instanceIdCommand})" && [ "$(cat ${CMUX_TUI_LAYOUT_MARKER_PATH})" = user ] && [ "$(ps -o user= -C cmux-tui | tr -d ' ' | sort -u)" = ${WORK_USER} ] && echo daemon-up-bound-to-builder`,
   );
   // Wait after the daemon first reports ready, then exercise the real
   // WebSocket/Noise/RPC/PTY path before this machine can become a snapshot.
-  await step("cmux-tui-websocket-smoke", `sleep 30 && ${cmuxTuiWebsocketSmokeCommand()}`);
+  await step("cmux-tui-ready", devboxWaitForDaemonCommand());
+  await step("cmux-tui-websocket-smoke", cmuxTuiWebsocketSmokeCommand());
   // Park it (devboxParkDaemonCommand): the supervisor stops the daemon while
   // the machine's id equals the recorded bake id, its identity and session
   // state are wiped, and a clone (different id) starts fresh within one tick.
@@ -495,7 +532,7 @@ try {
   // interactive logins as the work user are silent and ghost text works.
   await step(
     "home-hygiene",
-    `mkdir -p /usr/local/share/blesh/state.d && chmod a+rwxt /usr/local/share/blesh/state.d && for h in ${WORK_HOME} /root /etc/skel; do mkdir -p "$h/.cache" "$h/.local/state" && touch "$h/.cache/motd.legal-displayed"; done && chown -R ${WORK_USER}:${WORK_USER} ${WORK_HOME} && [ "$(find ${WORK_HOME} -not -user ${WORK_USER} | wc -l)" = 0 ] && ${interactiveShellProbe(1)} && ${interactiveShellProbe(2)} && sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm-256color bash -c 'tmux -L bake new-session -d -s ghost -x 100 -y 24 && sleep 2 && tmux -L bake send-keys -t ghost cl && sleep 2 && tmux -L bake capture-pane -pt ghost | grep -o "claude --dangerously-skip-permissions" | head -1; rc=$?; tmux -L bake kill-server 2>/dev/null; exit $rc' && [ "$(find ${WORK_HOME} -not -user ${WORK_USER} | wc -l)" = 0 ] && echo home-hygiene-ok`,
+    `mkdir -p /usr/local/share/blesh/state.d && chmod a+rwxt /usr/local/share/blesh/state.d && for h in ${WORK_HOME} /root /etc/skel; do mkdir -p "$h/.cache" "$h/.local/state" && touch "$h/.cache/motd.legal-displayed"; done && chown -R ${WORK_USER}:${WORK_USER} ${WORK_HOME} && find ${WORK_HOME} -type d -exec chmod g-w,o-w {} + && [ "$(find ${WORK_HOME} -not -user ${WORK_USER} | wc -l)" = 0 ] && ${interactiveShellProbe(1)} && ${interactiveShellProbe(2)} && sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm-256color bash -c 'tmux -L bake new-session -d -s ghost -x 100 -y 24 && sleep 2 && tmux -L bake send-keys -t ghost cl && sleep 2 && tmux -L bake capture-pane -pt ghost | grep -o "claude --dangerously-skip-permissions" | head -1; rc=$?; tmux -L bake kill-server 2>/dev/null; exit $rc' && [ "$(find ${WORK_HOME} -not -user ${WORK_USER} | wc -l)" = 0 ] && echo home-hygiene-ok`,
   );
 
   // The model-plane env is the same bytes for every machine (an alias host the
@@ -560,7 +597,7 @@ try {
   }
 }
 
-const metadata = bakeMetadata(preflight, fileURLToPath(import.meta.url));
+const metadata = bakeMetadata(preflight, fileURLToPath(import.meta.url), withDesktop ? "desktop" : "base");
 emitBakeResult({
   provider: "freestyle",
   imageId: snapshotId,
@@ -575,8 +612,8 @@ emitBakeResult({
       "FREESTYLE_SANDBOX_SNAPSHOT",
       metadata,
       withDesktop
-        ? `Devbox on the Freestyle public platform (api.freestyle.sh) from ${builderSnapshot}: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as ubuntu; ubuntu (uid 1000, NOPASSWD sudo) is the work user; hostname ${DEVBOX_HOSTNAME} (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ${cmuxTuiSource.commit.slice(0, 10)}, identity bound to the instance id, no create-time bootstrap.`
-        : `Devbox on the Freestyle public platform (api.freestyle.sh) from ${builderSnapshot}: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner; ubuntu (uid 1000, NOPASSWD sudo) is the work user; hostname ${DEVBOX_HOSTNAME} (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ${cmuxTuiSource.commit.slice(0, 10)}, identity bound to the instance id, no create-time bootstrap.`,
+        ? `Devbox on the Freestyle public platform (api.freestyle.sh) from ${builderSnapshot}: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as ${WORK_USER}; ${WORK_USER} (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname ${DEVBOX_HOSTNAME} (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ${cmuxTuiSource.commit.slice(0, 10)}, identity bound to the instance id, no create-time bootstrap.`
+        : `Devbox on the Freestyle public platform (api.freestyle.sh) from ${builderSnapshot}: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner; ${WORK_USER} (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname ${DEVBOX_HOSTNAME} (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ${cmuxTuiSource.commit.slice(0, 10)}, identity bound to the instance id, no create-time bootstrap.`,
       withDesktop ? "desktop" : "base",
     ),
     cmuxTuiCommit: cmuxTuiSource.commit,
