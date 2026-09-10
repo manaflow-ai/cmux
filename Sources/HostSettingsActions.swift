@@ -55,9 +55,9 @@ final class HostSettingsActions: SettingsHostActions {
     init(
         configFileURL: URL,
         computerUseRuntimeService: ComputerUseRuntimeService,
-        computersActions: ComputersSettingsActions = ComputersSettingsActions()
+        computersActions: ComputersSettingsActions? = nil
     ) {
-        self.computersActions = computersActions
+        self.computersActions = computersActions ?? ComputersSettingsActions()
         self.configFileURL = configFileURL
         self.computerUseRuntimeService = computerUseRuntimeService
         startObservingAppIconMode()
