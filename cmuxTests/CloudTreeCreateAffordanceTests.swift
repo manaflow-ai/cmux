@@ -13,9 +13,9 @@ struct CloudTreeCreateAffordanceTests {
     private let machineID = "brave-otter"
     private var machine: SurfaceMachineID { .cloud(machineID) }
 
-    private func info(workspaces: [SurfaceRemoteWorkspace]) -> SurfaceMachineInfo {
+    private func info(workspaces: [SurfaceRemoteWorkspace], machineID: SurfaceMachineID? = nil) -> SurfaceMachineInfo {
         SurfaceMachineInfo(
-            id: machine,
+            id: machineID ?? machine,
             name: "Big Machine",
             status: "running",
             image: "cmux-devbox:latest",
@@ -199,6 +199,66 @@ struct CloudTreeCreateAffordanceTests {
             (outline.item(atRow: $0) as? CloudTreeNode)?.id == id
         })
         outline.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+    }
+
+    @Test("Workspace IDs are scoped to their machine when displaying a terminal create row")
+    func duplicateWorkspaceIDsOnlyShowOneCreateRow() {
+        let main = workspace("ws_main", "main", index: 0)
+        let otherMachine = SurfaceMachineID.cloud("another-machine")
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [info(workspaces: [main]), info(workspaces: [main], machineID: otherMachine)],
+            resources: [], projections: []
+        )
+        let nodes = CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(
+            machines: [fleetRow()], snapshot: snapshot, localWorkspaces: [],
+            selectedRemoteWorkspaceID: main.id, includeLocalMachine: false
+        ))
+        let targets = nodes.compactMap { node -> SurfaceMachineID? in
+            if case .createTerminal(let machine, _, _) = node.kind { return machine }
+            return nil
+        }
+        #expect(targets == [machine])
+    }
+
+    @Test("Selecting a collapsed workspace reveals its new terminal row")
+    func selectedCollapsedWorkspaceRevealsCreateRow() throws {
+        let coordinator = makeCoordinator()
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        defer { withExtendedLifetime(container) {} }
+        let main = workspace("ws_main", "main", index: 0)
+        let selectedRows = rows(workspaces: [main], selectedRemoteWorkspaceID: main.id)
+        coordinator.apply(nodes: [try #require(selectedRows.first)])
+        let outline = try #require(coordinator.outlineView)
+        let workspaceNode = try #require(selectedRows.first { $0.id == "machine:brave-otter/ws/ws_main" })
+        outline.collapseItem(workspaceNode)
+        try select(workspaceNode.id, in: outline)
+        #expect(outline.isItemExpanded(workspaceNode))
+        let create = try #require(selectedRows.first { $0.id == "machine:brave-otter/ws/ws_main/create-terminal" })
+        #expect(outline.row(forItem: create) >= 0)
+
+        // A subsequent explicit collapse remains the user's choice.
+        outline.collapseItem(workspaceNode)
+        #expect(!outline.isItemExpanded(workspaceNode))
+    }
+
+    @Test("Create cells expose their destination through native accessibility and tooltips")
+    func createCellMetadataNamesDestination() throws {
+        let coordinator = makeCoordinator()
+        let cases: [(CloudTreeNode.Kind, String)] = [
+            (.createWorkspace(machine: machine, machineName: "Big Machine"),
+             String(format: String(localized: "cloudTree.row.newWorkspace.help", defaultValue: "New Workspace on %@"), "Big Machine")),
+            (.createTerminal(machine: machine, workspaceID: "ws_main", workspaceName: "main"),
+             String(format: String(localized: "cloudTree.row.newTerminal.help", defaultValue: "New Terminal in %@"), "main"))
+        ]
+        for (kind, title) in cases {
+            let cell = CloudTreeCellView(frame: .zero)
+            cell.configure(
+                node: CloudTreeNode(id: "create", kind: kind),
+                machineActions: coordinator.machineActions, nodeActions: coordinator.nodeActions
+            )
+            #expect(cell.toolTip == title)
+            #expect(cell.accessibilityLabel() == title)
+        }
     }
 
     private func makeCoordinator(
