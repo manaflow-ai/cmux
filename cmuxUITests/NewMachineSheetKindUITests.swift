@@ -52,7 +52,7 @@ final class NewMachineSheetKindUITests: XCTestCase {
             print("NewMachineSheetKindUITests hierarchy:\n\(app.debugDescription.prefix(8000))")
         }
         XCTAssertTrue(opened, "Expected New Machine to open as a sheet with its Create button")
-        XCTAssertTrue(app.staticTexts["New Machine"].exists, "Expected the New Machine title")
+        XCTAssertTrue(app.staticTexts["New Machine"].waitForExistence(timeout: 3.0), "Expected the New Machine title")
         XCTAssertEqual(Self.buttons(in: app, identifier: "NewMachineSheet.create", label: "Create").count, 1)
         XCTAssertTrue(cancel.waitForExistence(timeout: 3.0), "Expected the sheet's Cancel button")
         attachScreenshot(of: app, named: "new-machine-single-flow")

@@ -207,11 +207,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(result.stdout.contains("Created Cloud VM \(vmID)"), result.stdout)
         XCTAssertTrue(result.stdout.contains("OK workspace=\(workspaceRef) transport=cmux-remote terminal=term_cloud_shell"), result.stdout)
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
-        // The trusted listener the app proved is remembered per machine, so the
-        // next open dials the private route with no control-plane call.
+        // The trusted listener the app proved is recorded per machine; the CLI's
+        // next open reads this record (openVMTuiWorkspace's `known` branch) to dial
+        // the private route without the control-plane check.
         let devicesData = try Data(contentsOf: homeURL.appendingPathComponent(".cmuxterm/vm-tui-devices.json"))
         let devices = try XCTUnwrap(JSONSerialization.jsonObject(with: devicesData) as? [String: [String: Any]])
-        XCTAssertEqual(devices[vmID]?["deviceFingerprint"] as? String, "carrier", "vm new remembers the trusted-carrier route")
+        XCTAssertEqual(devices[vmID]?["deviceFingerprint"] as? String, "carrier", "vm new records the trusted-carrier marker")
         let requests = state.commands.compactMap { self.jsonObject($0) }
         let methods = requests.compactMap { $0["method"] as? String }
         XCTAssertEqual(methods.filter { $0 == "workspace.create" }.count, 1)
@@ -274,6 +275,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
         environment["HOME"] = homeURL.path
+        environment["CFFIXED_USER_HOME"] = homeURL.path
         // The ready line is localized; the assertion reads its English form.
         environment["AppleLanguages"] = "(en)"
 
@@ -346,6 +348,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
         environment["HOME"] = homeURL.path
+        environment["CFFIXED_USER_HOME"] = homeURL.path
 
         let firstRun = runProcess(
             executablePath: cliPath,
@@ -432,6 +435,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
         environment["HOME"] = homeURL.path
+        environment["CFFIXED_USER_HOME"] = homeURL.path
 
         let firstRun = runProcess(
             executablePath: cliPath,
