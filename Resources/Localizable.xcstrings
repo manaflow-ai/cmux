@@ -41055,6 +41055,17 @@
         }
       }
     },
+    "cli.browser.error.circularEvaluationResult": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser evaluation result contains a circular reference"
+          }
+        }
+      }
+    },
     "cli.browser.error.diffViewerAllowlistInvalid": {
       "extractionState": "manual",
       "localizations": {
