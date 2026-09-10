@@ -90,7 +90,9 @@ struct DeviceLinkReconnectPolicyTests {
         #expect(policy.apply(.connectSucceeded) == .idle, "a late success after stop is ignored")
         #expect(policy.apply(.refreshRequested) == .connecting(attempt: 1), "the directory verdict survives a stop")
         _ = policy.apply(.connectFailed(retryable: false, reason: "blocked"))
-        #expect(policy.apply(.directory(dialable: true)) == .connecting(attempt: 1), "a presence change is the other way out of blocked")
+        #expect(policy.apply(.directory(dialable: true)) == .blocked(reason: "blocked"), "ordinary directory updates cannot retry an identity rejection")
+        #expect(policy.apply(.directory(dialable: false)) == .idle)
+        #expect(policy.apply(.directory(dialable: true)) == .connecting(attempt: 1), "a real dialability change permits a new attempt")
     }
 
     @Test("A failure that lands after the device went offline idles instead of waiting")

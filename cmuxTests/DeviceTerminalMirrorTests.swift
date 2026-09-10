@@ -120,6 +120,19 @@ struct DeviceTerminalMirrorTests {
         #expect(DeviceTerminalEvent.decode(MobileEventEnvelope(topic: "terminal.updated", payloadJSON: nil, streamID: nil)) == nil)
     }
 
+    @Test("Terminal grid updates reject malformed dimensions")
+    func rejectsMalformedGridUpdates() throws {
+        let invalid: [Any] = [true, "80", 1.5, 0, -1, 65_536, NSNull()]
+        for value in invalid {
+            #expect(DeviceTerminalEvent.decode(try envelope("terminal.updated", [
+                "surface_id": surfaceID.uuidString, "columns": value, "rows": 24
+            ])) == nil)
+            #expect(DeviceTerminalEvent.decode(try envelope("terminal.updated", [
+                "surface_id": surfaceID.uuidString, "columns": 80, "rows": value
+            ])) == nil)
+        }
+    }
+
     @Test("The desired grid derives from the pane's backing pixels minus the surface padding, clamped")
     func desiredGrid() {
         func sample(width: CGFloat, height: CGFloat, scale: CGFloat = 2) -> TerminalSurfaceRawSizingSample {

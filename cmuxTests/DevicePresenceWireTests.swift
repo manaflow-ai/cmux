@@ -20,6 +20,13 @@ struct DevicePresenceWireTests {
         try DevicePresenceFrame.parse(JSONSerialization.data(withJSONObject: object))
     }
 
+    @Test("A malformed presence snapshot cannot clear the directory")
+    func malformedSnapshotIsIgnored() throws {
+        #expect(try frame(["type": "snapshot"]) == .ignored)
+        #expect(try frame(["type": "snapshot", "devices": "invalid"]) == .ignored)
+        #expect(try frame(["type": "snapshot", "devices": []]) == .snapshot(devices: []))
+    }
+
     @Test("Credentialed presence rejects cleartext remote service endpoints")
     func rejectsCleartextRemotePresence() throws {
         #expect(DevicePresenceSubscriber.subscribeURL(serviceBaseURL: try #require(URL(string: "http://presence.example.test"))) == nil)
