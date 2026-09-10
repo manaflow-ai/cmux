@@ -22,6 +22,7 @@ struct CloudLoopbackPortForwardTests {
         private let lock = NSLock()
         private var targets: [CloudPortForwardTarget] = []
         private var _replyCode: UInt8 = SocksV5Client.replySucceeded
+        private var _refusedHosts: Set<String> = []
         private var _silent = false
         let accepted = CloudLinkFirstValue<Bool>()
         private var _closesAfterReplyHeader = false
@@ -31,6 +32,10 @@ struct CloudLoopbackPortForwardTests {
         var replyCode: UInt8 {
             get { lock.withLock { _replyCode } }
             set { lock.withLock { _replyCode = newValue } }
+        }
+        var refusedHosts: Set<String> {
+            get { lock.withLock { _refusedHosts } }
+            set { lock.withLock { _refusedHosts = newValue } }
         }
         /// Accept the socket and never answer, like a hub that hung.
         var silent: Bool {
@@ -105,7 +110,7 @@ struct CloudLoopbackPortForwardTests {
                 }
                 let port = Int(rest[addressLength]) << 8 | Int(rest[addressLength + 1])
                 lock.withLock { targets.append(CloudPortForwardTarget(host: host, port: port)) }
-                let code = replyCode
+                let code: UInt8 = refusedHosts.contains(host) ? 0x05 : replyCode
                 if closesAfterReplyHeader {
                     try await connection.sendAll(Data([SocksV5Client.version, code, 0x00, SocksV5Client.addressTypeIPv4]))
                     connection.cancel()
@@ -219,6 +224,40 @@ struct CloudLoopbackPortForwardTests {
         #expect(hub.connectTargets.first?.host.hasPrefix("fd60:1e5e:6720") == true)
         client.cancel()
         await forward.stop()
+    }
+
+    @Test("Successive browser connections reuse the working family and recover if it fails")
+    func browserConnectionsReuseWorkingFamily() async throws {
+        let hub = try FakeSocksHub()
+        try await hub.start()
+        defer { hub.stop() }
+        let ipv4 = "10.0.0.7"
+        let ipv6 = "fd00::1"
+        hub.refusedHosts = [ipv4]
+        let dialer = FakeHubDialer(endpoint: hub.endpoint)
+        let target = CloudPortForwardTarget(host: ipv4, port: 6901, fallbackHosts: [ipv6])
+        let forward = try CloudLoopbackPortForward(target: target, dialer: dialer)
+        let localPort = try await forward.start()
+
+        for _ in 0..<3 {
+            let client = try await Self.client(port: localPort)
+            try await client.sendAll(Data("ping".utf8))
+            #expect(try await client.receiveExactly(4) == Array("ping".utf8))
+            client.cancel()
+        }
+        let attempts = hub.connectTargets
+        #expect(attempts.filter { $0.host == ipv4 }.count == 1,
+                "A desktop asset burst must not dial the failed family for every connection")
+        #expect(attempts.filter { $0.host == ipv6 }.count == 3)
+
+        hub.refusedHosts = [ipv6]
+        let recovered = try await Self.client(port: localPort)
+        try await recovered.sendAll(Data("back".utf8))
+        #expect(try await recovered.receiveExactly(4) == Array("back".utf8),
+                "Remembering a family must preserve fallback when reachability changes")
+        recovered.cancel()
+        await forward.stop()
+        #expect(await Self.waitUntil { dialer.claims == dialer.releases })
     }
 
     @Test("the hub is dialed over its unix socket, the way the real cmux-tui hub listens")

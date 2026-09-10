@@ -145,6 +145,82 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
         #expect(catalog.snapshot == .empty)
     }
 
+    @Test("Sign-out retires forced waiters before they can start another fleet read", arguments: [false, true])
+    func signOutRetiresForcedWaiters(fullRefresh: Bool) async {
+        let catalog = SurfaceCatalog()
+        let requested = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<Bool>()
+        let waiterStarted = CloudLinkFirstValue<Bool>()
+        var lists = 0
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            wireGuardHub: nil,
+            allowsBackgroundWork: { false },
+            listPage: {
+                lists += 1
+                requested.resolve(true)
+                _ = await release.result
+                return VMListPage(vms: [machine("vm-retired")], limits: nil)
+            },
+            refreshProvider: { _, _ in Issue.record("Sign-out must retire waiting refreshes") }
+        )
+        registry.start(catalog: catalog)
+        let first = Task { await registry.refresh(force: false) }
+        let started = await boundedResult(requested)
+        let waiter = Task {
+            // This MainActor task enters the registry before the test resumes.
+            waiterStarted.resolve(true)
+            if fullRefresh { return await registry.refresh(force: true) }
+            return await registry.providerRefreshingIfMissing(machineID: "vm-retired") != nil
+        }
+        let waiting = await boundedResult(waiterStarted)
+        await registry.accessDidEnd()
+        release.resolve(true)
+        let firstResult = await first.value
+        let waiterResult = await waiter.value
+
+        #expect(started && waiting)
+        #expect(!firstResult && !waiterResult)
+        #expect(lists == 1, "A pre-sign-out waiter must not begin a new account operation")
+        #expect(catalog.snapshot == .empty)
+        await registry.accessDidEnd()
+    }
+
+    @Test("Missing-machine discovery leaves known providers to their owning refresh pass")
+    func discoveryDoesNotRewriteAnUnrelatedProvider() async throws {
+        let catalog = SurfaceCatalog()
+        let started = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<Bool>()
+        var older = machine("vm-older")
+        older.displayName = "Original name"
+        var page = VMListPage(vms: [older], limits: nil)
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            wireGuardHub: nil,
+            allowsBackgroundWork: { false },
+            listPage: { page },
+            refreshProvider: { _, _ in
+                started.resolve(true)
+                _ = await release.result
+            }
+        )
+        registry.start(catalog: catalog)
+        let background = Task { await registry.refresh(force: false) }
+        let refreshing = await boundedResult(started)
+        older.displayName = "Updated name"
+        page = VMListPage(vms: [older, machine("vm-new")], limits: nil)
+        let found = await registry.providerRefreshingIfMissing(machineID: "vm-new")
+        let nameDuringRefresh = registry.provider(machineID: "vm-older")?.info.name
+        release.resolve(true)
+        _ = await background.value
+
+        #expect(refreshing && found != nil)
+        #expect(nameDuringRefresh == "Original name", "Discovery must not invalidate a known provider's suspended snapshot work")
+        _ = await registry.refresh(force: true)
+        #expect(registry.provider(machineID: "vm-older")?.info.name == "Updated name")
+        await registry.accessDidEnd()
+    }
+
     /// Wait on a signal with a failure deadline, never a settling delay.
     private func boundedResult(_ signal: CloudLinkFirstValue<Bool>) async -> Bool {
         await withTaskGroup(of: Bool.self) { group in
