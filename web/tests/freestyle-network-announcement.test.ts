@@ -80,7 +80,7 @@ describe("Freestyle private network readiness", () => {
       ? provider.create({ image: "sh-fixture", network: { id: "vpc-fixture" } })
       : provider.restore("sh-fixture", { network: { id: "vpc-fixture" } });
     const preparation = operation === "restore"
-      ? ["allocated", "guest-daemon", "guest-daemon", "guest-daemon"]
+      ? ["allocated", "guest-daemon", "guest-daemon"]
       : ["allocated", "guest-daemon"];
     if (hasAddresses) {
       await allocation;
