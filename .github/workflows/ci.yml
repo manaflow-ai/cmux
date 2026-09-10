@@ -1441,6 +1441,7 @@ jobs:
                 -disableAutomaticPackageResolution \
                 -destination "platform=macOS" \
                 "${only_testing_args[@]}" \
+                -parallel-testing-enabled NO \
                 -test-timeouts-enabled YES \
                 -default-test-execution-time-allowance "${CMUX_UNIT_TEST_CASE_TIMEOUT_SECONDS:-300}" \
                 -maximum-test-execution-time-allowance "${CMUX_UNIT_TEST_CASE_TIMEOUT_SECONDS:-300}" \
@@ -1481,26 +1482,26 @@ jobs:
             } | tee "$batch_output"
             batch_status="${PIPESTATUS[0]}"
 
-            if [ "$batch_status" -eq 65 ] \
-              && python3 scripts/ci/classify-app-host-test-output.py "$batch_output"; then
-                echo "All failures in app-host batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} are expected, continuing"
-                return 0
+            if [ "$batch_status" -ne 0 ]; then
+              return "$batch_status"
             fi
-            return "$batch_status"
+            python3 scripts/ci/classify-app-host-test-output.py "$batch_output"
           }
 
           run_unit_tests() {
-            local logical_shard
+            local logical_shard combined_status=0
             for logical_shard in "${LOGICAL_SHARDS[@]}"; do
+              # Keep the other batch visible after a failure, without allowing
+              # a later successful batch to turn this worker green.
               run_unit_test_batch "$logical_shard" || {
-                local batch_status=$?
-                return "$batch_status"
+                combined_status=$?
               }
             done
+            return "$combined_status"
           }
 
           # Stream output via tee so CI logs are visible in real time, while still
-          # capturing for post-run analysis of expected vs unexpected failures.
+          # capturing every batch's test result for diagnosis.
           TEST_OUTPUT="$RUNNER_TEMP/cmux-unit-output-shard-${{ matrix.shard }}.txt"
           set +e
           run_unit_tests | tee "$TEST_OUTPUT"

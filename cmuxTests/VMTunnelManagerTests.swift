@@ -324,8 +324,21 @@ struct VMTunnelManagerTests {
     func terminalAndBrowserRolesUseSeparateKeysAndConfigs() throws {
         let home = try temporaryHome()
         defer { try? FileManager.default.removeItem(at: home) }
-        let browser = VMTunnelManager(home: home, purpose: .browser)
-        let terminal = VMTunnelManager(home: home, purpose: .terminal)
+        let productionURL = URL(string: "https://cmux.com")!
+        let browser = VMTunnelManager(
+            home: home,
+            purpose: .browser,
+            bundleIdentifier: "com.cmuxterm.app",
+            environment: [:],
+            apiBaseURL: productionURL
+        )
+        let terminal = VMTunnelManager(
+            home: home,
+            purpose: .terminal,
+            bundleIdentifier: "com.cmuxterm.app",
+            environment: [:],
+            apiBaseURL: productionURL
+        )
 
         #expect(try terminal.deviceFingerprint() != browser.deviceFingerprint())
 
