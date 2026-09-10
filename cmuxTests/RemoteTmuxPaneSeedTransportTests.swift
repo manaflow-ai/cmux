@@ -1789,7 +1789,9 @@ import Testing
 
         if condition() { return }
         GhosttyApp.shared.scheduleTick()
-        for await _ in events where !condition() {}
+        for await _ in events {
+            if condition() { return }
+        }
     }
 
     private func readTerminalText(
