@@ -162,6 +162,12 @@ jobs:
       - name: Validate cmux-cloud-vm skill covers the vm CLI
         run: python3 tests/test_cloud_vm_skill_coverage.py
 
+      - name: Test XCStrings catalog lint
+        run: python3 tests/test_lint_xcstrings.py
+
+      - name: Validate XCStrings catalog structure
+        run: python3 scripts/lint-xcstrings.py
+
       - name: Validate TUI npm package artifact transfer
         run: python3 tests/test_tui_npm_package_artifact.py
 
