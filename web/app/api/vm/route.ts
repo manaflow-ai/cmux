@@ -2,6 +2,7 @@
 // provider credentials stay behind server-side ownership checks.
 
 import type { Span } from "@opentelemetry/api";
+import { preconnectCloudDb } from "../../../db/client";
 import { preconnectFreestyle } from "../../../services/vms/drivers/freestyle";
 import {
   unauthorized,
@@ -180,8 +181,9 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  // Warm the Freestyle connection while the caller is being verified.
+  // Warm the Freestyle and database connections while the caller is being verified.
   preconnectFreestyle();
+  preconnectCloudDb();
   return withAuthedVmApiRoute(
     request,
     "/api/vm",

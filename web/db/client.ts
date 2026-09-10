@@ -19,6 +19,8 @@ type CloudDb = ReturnType<typeof createPostgresJsDb>;
 type CloudDbState = {
   db: CloudDb;
   close: () => Promise<void>;
+  /** Opens one pooled connection ahead of the first query; see preconnectCloudDb. */
+  warm: () => Promise<void>;
   key: string;
 };
 
@@ -244,7 +246,15 @@ export function cloudDb(): CloudDb {
     const pool = createAwsRdsIamPool(config);
     attachDatabasePool(pool);
     const db = drizzleNodePg({ client: pool, schema }) as unknown as CloudDb;
-    globalForDb.__cmuxCloudDb = { db, close: () => pool.end(), key };
+    globalForDb.__cmuxCloudDb = {
+      db,
+      close: () => pool.end(),
+      warm: async () => {
+        const client = await pool.connect();
+        client.release();
+      },
+      key,
+    };
     return db;
   }
 
@@ -253,8 +263,32 @@ export function cloudDb(): CloudDb {
     prepare: false,
   });
   const db = createPostgresJsDb(sql);
-  globalForDb.__cmuxCloudDb = { db, close: () => sql.end(), key };
+  globalForDb.__cmuxCloudDb = {
+    db,
+    close: () => sql.end(),
+    warm: async () => {
+      await sql`select 1`;
+    },
+    key,
+  };
   return db;
+}
+
+/**
+ * Open a database connection before a route needs one. A cold invocation
+ * paid ~95 ms of TCP+TLS plus an STS round trip for the RDS IAM token inside
+ * the first query (`pg-pool.connect` on the create span); a route fires this
+ * while it is still verifying the caller so that cost overlaps auth instead
+ * of following it. Best effort, never awaited for correctness, and a no-op
+ * once the pool holds an idle connection.
+ */
+export function preconnectCloudDb(): void {
+  try {
+    cloudDb();
+    void globalForDb.__cmuxCloudDb?.warm().catch(() => undefined);
+  } catch {
+    // No database configured (tests, offline builds): the first query reports it.
+  }
 }
 
 /**

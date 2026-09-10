@@ -987,6 +987,7 @@ export class FreestyleProvider implements VMProvider {
                 vmId,
                 undefined,
                 span,
+                data.resources,
                 {
                   cpu: options.imageSize.cpu,
                   memory: options.imageSize.memoryMb,
@@ -997,7 +998,7 @@ export class FreestyleProvider implements VMProvider {
               // A size-less image boots at its snapshot's resources and only a
               // grow-only resize raises them. Size first so the daemon comes
               // up on the provider profile requested by the server.
-              await this.growToRequestedSize(fs, vm, vmId, options.memoryMb, span);
+              await this.growToRequestedSize(fs, vm, vmId, options.memoryMb, span, data.resources);
             }
             // The baked supervisor is already bringing the daemon up; the only
             // per-machine input it needs is the model-plane env file.
@@ -1046,9 +1047,12 @@ export class FreestyleProvider implements VMProvider {
     vmId: string,
     memoryMb: number | undefined,
     span: Parameters<typeof setSpanAttributes>[0],
+    // The create response already describes the machine; a caller without
+    // it (an older row being re-sized) pays one status read instead.
+    currentResources?: VmResources,
     targetResources?: VmResources,
   ): Promise<void> {
-    const current = (await fs.vms.get(vmId)).resources;
+    const current = currentResources ?? (await fs.vms.get(vmId)).resources;
     const target = targetResources ?? freestyleTargetResources(memoryMb ?? PLAN_MACHINE_MEMORY_MB);
     const request = freestyleResizeRequest(current, target);
     setSpanAttributes(span, {
