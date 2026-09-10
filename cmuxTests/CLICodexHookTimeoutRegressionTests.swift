@@ -141,9 +141,22 @@ struct CLICodexHookTimeoutRegressionTests {
         ]
         #expect(Set(emittedEvents) == expectedInjectedEvents)
         #expect(emittedEvents.count == expectedInjectedEvents.count)
-        for event in ["SubagentStart", "SubagentStop"] {
-            #expect(emit.stdout.contains("hooks.\(event)="))
-            #expect(emit.stdout.contains("timeout=10000"))
+        let generatedHookDirectory = root
+            .appendingPathComponent(".cmux", isDirectory: true)
+            .appendingPathComponent("hooks", isDirectory: true)
+        for (event, subcommand) in [("SubagentStart", "subagent-start"), ("SubagentStop", "subagent-stop")] {
+            let config = try #require(
+                emittedArguments.first { $0.hasPrefix("hooks.\(event)=") }
+            )
+            #expect(config.contains("timeout=5000"))
+            let script = try #require(
+                FileManager.default
+                    .contentsOfDirectory(at: generatedHookDirectory, includingPropertiesForKeys: nil)
+                    .first { $0.lastPathComponent.hasSuffix("-\(subcommand).sh") }
+            )
+            let scriptBody = try String(contentsOf: script, encoding: .utf8)
+            #expect(scriptBody.contains("hooks codex \(subcommand)"))
+            #expect(!scriptBody.contains("hooks enqueue codex \(subcommand)"))
         }
 
         let hooksAfterLaunch = try Data(contentsOf: hooksURL)
