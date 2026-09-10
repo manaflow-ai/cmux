@@ -50,7 +50,7 @@ extension CmuxTuiSurfaceProvider {
         try await CloudEnvDelivery.removeReceiverResources(
             terminalIDs: receiver.map { [$0.id.key] } ?? [],
             discoverTerminalIDs: {
-                guard await self.refresh(force: true) else {
+                guard await self.refreshCurrentGraph(force: true) else {
                     throw CloudFileDelivery.DeliveryError.workspaceCleanupFailed(workspaceID)
                 }
                 return self.catalog.snapshot.resources(on: self.machine).filter {
