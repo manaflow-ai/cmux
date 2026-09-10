@@ -192,6 +192,12 @@ struct SurfaceCatalogTests {
         }
     }
 
+    /// One-shot latch for the focus hook, so the first finishing caller rewrites the
+    /// recorded projection exactly once.
+    private final class MoveOnce {
+        var pending = false
+    }
+
     private final class FakeProvider: SurfaceProvider {
         let machine: SurfaceMachineID
         var info: SurfaceMachineInfo
@@ -488,6 +494,60 @@ struct SurfaceCatalogTests {
         #expect(secondResult.reused)
         #expect(firstResult.projection == secondResult.projection)
         #expect(catalog.projections(of: term.id).count == 1)
+    }
+
+    /// A pane's identity is its resource and panel. While coalesced callers are still
+    /// finishing, focus handling (or a tab drag) can rewrite the recorded projection's
+    /// workspace in place. That pane is open, so no caller may be told it closed.
+    @Test func `Coalesced callers accept a projection whose value changed while opening`() async throws {
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: .cloud("vivid-newt"))
+        let gate = MaterializeGate()
+        provider.materializeGate = gate
+        catalog.register(provider)
+        let term = terminal(.cloud("vivid-newt"), "term_1")
+        catalog.replaceResources([term], on: .cloud("vivid-newt"))
+        let destination = SurfaceDestination.workspace(id: UUID(), placement: .split)
+        let movedWorkspaceID = UUID()
+        let moveOnce = MoveOnce()
+        catalog.focusProjection = { [weak catalog] projection in
+            guard !moveOnce.pending else { return }
+            moveOnce.pending = true
+            catalog?.moveProjections(panelID: projection.panelID, to: movedWorkspaceID)
+        }
+
+        let first = Task { try await catalog.project(term.id, into: destination) }
+        await gate.waitUntilEntered()
+
+        var joined: [Task<(projection: SurfaceProjection, reused: Bool), any Error>] = []
+        for _ in 0..<2 {
+            let (started, startedContinuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            joined.append(Task { @MainActor in
+                startedContinuation.yield(())
+                startedContinuation.finish()
+                return try await catalog.project(term.id, into: destination)
+            })
+            _ = try await awaitFirst(started)
+        }
+        #expect(provider.materialized.count == 1)
+
+        gate.release()
+        var results = [try await first.value]
+        for task in joined { results.append(try await task.value) }
+
+        #expect(moveOnce.pending)
+        #expect(catalog.projections(of: term.id).count == 1)
+        let live = try #require(catalog.projections(of: term.id).first)
+        #expect(live.workspaceID == movedWorkspaceID)
+        for result in results {
+            #expect(result.projection.panelID == live.panelID)
+        }
+        // Every caller that focused the pane sees where the pane actually is.
+        for result in results where result.reused {
+            #expect(result.projection.workspaceID == movedWorkspaceID)
+        }
     }
 
     @Test func `An adopted projection wins a materialization race`() async throws {

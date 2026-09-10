@@ -1023,13 +1023,27 @@ final class SurfaceCatalog {
             cancelCompletedMaterialization(key, waiterID: waiterID)
             throw SurfaceCatalogError.unknownResource(id)
         }
-        guard projections.contains(result.projection) else {
+        // A pane's identity is its resource and panel, not the whole projection value.
+        // Remote coordinates and the local workspace are mutable fields: a concurrent
+        // `attachRemoteView` or pane move rewrites the recorded value in place while
+        // this caller is still resuming. Whole-value membership would read that live
+        // pane as closed and fail an open that actually succeeded, so resolve the
+        // current value by identity and hand the caller that one.
+        guard let live = projections.first(where: {
+            $0.resource == result.projection.resource && $0.panelID == result.projection.panelID
+        }) else {
             cancelCompletedMaterialization(key, waiterID: waiterID)
             throw SurfaceCatalogError.unavailable(id, reason: "projection closed while opening")
         }
         acknowledgeMaterialization(key, waiterID: waiterID)
-        if result.reused, focus { focusProjection?(result.projection) }
-        return result
+        guard result.reused, focus else { return (projection: live, reused: result.reused) }
+        focusProjection?(live)
+        // Focusing a pane can select another tab or move it between workspaces, so
+        // read the pane's value once more rather than returning the pre-focus copy.
+        let focused = projections.first {
+            $0.resource == live.resource && $0.panelID == live.panelID
+        }
+        return (projection: focused ?? live, reused: result.reused)
     }
 
     private func acknowledgeMaterialization(_ key: MaterializationKey, waiterID: UUID) {
