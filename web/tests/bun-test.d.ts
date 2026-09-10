@@ -6,6 +6,11 @@ declare module "bun:test" {
     only: TestFunction;
     skip: TestFunction;
     todo: (name: string) => void;
+    each: <Value>(values: readonly Value[]) => (
+      name: string,
+      fn: (...args: Value extends readonly unknown[] ? [...Value] : [Value]) => unknown | Promise<unknown>,
+      timeout?: number,
+    ) => void;
   };
   type MatcherFunction = (...args: unknown[]) => unknown;
   type Matchers = Record<string, MatcherFunction> & {
@@ -14,14 +19,17 @@ declare module "bun:test" {
     resolves: Matchers;
   };
   type MockFunction<T extends (...args: never[]) => unknown> = T & {
-    // Argument-free implementations can still record arguments passed by callers.
     mock: { calls: Parameters<T> extends [] ? unknown[][] : Parameters<T>[] };
     mockClear: () => void;
     mockResolvedValue: (value: unknown) => void;
   };
   type Mock = {
+    // `never[]` (not `unknown[]`) so a typed implementation such as
+    // `(input: AlertInput) => Promise<AlertResult>` infers T exactly instead of
+    // widening to the constraint and failing assignment back to that type.
+    (): MockFunction<(...args: unknown[]) => unknown>;
     <T extends (...args: never[]) => unknown>(
-      implementation?: T,
+      implementation: T,
     ): MockFunction<T>;
     module: (specifier: string, factory: () => unknown) => void;
   };
@@ -44,6 +52,7 @@ declare module "bun:test" {
   };
   export const mock: Mock;
   export const setSystemTime: (time?: Date | number) => void;
+  export const setDefaultTimeout: (milliseconds: number) => void;
   export const spyOn: <T extends object, K extends keyof T>(
     target: T,
     method: K,

@@ -92,7 +92,7 @@ cmux notify --title "Cloud build done" --body "…"
 
 The user cannot see inside the machine: print URLs, pull artifacts, or open a pane when there is something to look at, and `cmux notify` for long work. Only share URLs minted by `cmux vm open` — never guess raw provider URLs.
 
-A pane showing a machine surface is an ordinary local pane: move, split, reorder, or close it with the local topology verbs (`../cmux/SKILL.md`) and the surface catalog follows the pane; closing a pane never kills the machine's terminal. Rearranging the machine's own cmux-tui topology from inside is what `cmux vm tui <id>` is for.
+A pane showing a machine surface is an ordinary local pane: move, split, reorder, or close it with the local topology verbs (`../cmux/SKILL.md`) and the surface catalog follows the pane; closing a pane never kills the machine's terminal. A local workspace that *mirrors* a machine workspace (opened with `cmux vm workspace open`, or bound with `workspace.cloud_vm_bind`) is that workspace seen from the Mac, so its structure is the machine's: a pane moved into it takes its tab there (a pool terminal gets one), a terminal pane closed in it closes that tab (the terminal detaches into the Terminals pool, still running), and a tab or workspace renamed there is renamed on the machine. Closing the local workspace itself (⌘⇧W) only ends the view: the machine workspace and its terminals stay exactly as they were. Panes in any other local workspace are viewers and never touch the machine's layout. Rearranging the machine's topology in full is what `cmux vm tui <id>` is for.
 
 ## CodeRouter and model credentials
 
