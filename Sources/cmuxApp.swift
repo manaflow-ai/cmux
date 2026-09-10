@@ -213,8 +213,8 @@ struct cmuxApp: App {
         LanguageSettingsStore(defaults: .standard).reconcileLanguageOverrideAtLaunch()
         StartupBreadcrumbLog.append("app.init.language.applied")
         let devicesRegistry = DeviceSurfaceProviderRegistry()
-        let computersService = HiveComputersService(registry: devicesRegistry, openSidebar: {
-            AppDelegate.shared?.applyRightSidebarRemoteCommand(.setMode(.machines, focus: true))
+        let computersService = HiveComputersService(registry: devicesRegistry, openSidebar: { instance in
+            AppDelegate.shared?.openDevicesSidebarAndReveal(instance: instance, registry: devicesRegistry)
         })
         self.settingsRuntime = SettingsRuntime(
             catalog: settingsCatalog,

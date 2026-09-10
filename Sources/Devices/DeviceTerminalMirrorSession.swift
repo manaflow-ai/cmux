@@ -296,7 +296,12 @@ final class DeviceTerminalMirrorSession {
             viewportTask?.cancel()
             viewportTask = Task { [weak self] in
                 _ = try? await self?.link.request("mobile.terminal.viewport", params: params)
-                self?.viewportTask = nil
+                guard let self, self.isVisible, self.pendingGrid != nil, self.phase != .stopped else {
+                    self?.viewportTask = nil
+                    return
+                }
+                self.viewportTask = nil
+                self.startViewportTask()
             }
         }
     }
@@ -327,6 +332,11 @@ final class DeviceTerminalMirrorSession {
         if let reported = reportedGrid, reported.columns == grid.columns, reported.rows == grid.rows { return }
         pendingGrid = grid
         guard viewportTask == nil, phase == .attached || phase == .attaching else { return }
+        startViewportTask()
+    }
+
+    private func startViewportTask() {
+        guard viewportTask == nil else { return }
         viewportTask = Task { [weak self] in
             guard let self else { return }
             while let next = self.pendingGrid, self.phase != .stopped, self.isVisible, !Task.isCancelled {

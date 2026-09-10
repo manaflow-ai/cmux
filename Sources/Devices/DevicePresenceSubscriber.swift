@@ -95,14 +95,17 @@ actor DevicePresenceSubscriber {
                         try await clock.sleep(for: .seconds(30))
                         try await withThrowingTaskGroup(of: Void.self) { group in
                             group.addTask {
-                                // Foundation exposes pong delivery through a
-                                // one-shot callback; bridge it at this boundary.
-                                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                                    task.sendPing { error in
-                                        if let error { continuation.resume(throwing: error) }
-                                        else { continuation.resume() }
-                                    }
+                                let (pong, continuation) = AsyncThrowingStream<Void, any Error>.makeStream()
+                                task.sendPing { error in
+                                    // Stream termination is idempotent, so a
+                                    // duplicate Foundation callback cannot
+                                    // resume a checked continuation twice.
+                                    if let error { continuation.finish(throwing: error) }
+                                    else { continuation.yield(()); continuation.finish() }
                                 }
+                                var iterator = pong.makeAsyncIterator()
+                                _ = try await iterator.next()
+                                try Task.checkCancellation()
                             }
                             group.addTask {
                                 try await clock.sleep(for: .seconds(10))

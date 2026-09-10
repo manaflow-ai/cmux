@@ -43,7 +43,9 @@ enum DeviceTerminalEvent: Equatable, Sendable {
     }
 
     private static func dimension(_ value: Any?) -> Int? {
-        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID(),
+              ["c", "s", "i", "l", "q", "C", "S", "I", "L", "Q"].contains(String(cString: number.objCType)) else { return nil }
         let value = number.doubleValue
         guard value.isFinite, value >= 1, value <= Double(UInt16.max), value.rounded(.towardZero) == value else { return nil }
         return number.intValue
@@ -57,11 +59,13 @@ enum DeviceTerminalEvent: Equatable, Sendable {
 @MainActor
 final class DeviceLinkTerminalEvents {
     private var continuations: [UUID: [UUID: AsyncStream<DeviceTerminalEvent>.Continuation]] = [:]
+    private var pendingControls: [UUID: [UUID: [DeviceTerminalEvent]]] = [:]
 
     func stream(surfaceID: UUID) -> AsyncStream<DeviceTerminalEvent> {
         let id = UUID()
         return AsyncStream(bufferingPolicy: .bufferingNewest(512)) { continuation in
             continuations[surfaceID, default: [:]][id] = continuation
+            pendingControls[surfaceID, default: [:]][id] = []
             continuation.onTermination = { @Sendable [weak self] _ in
                 Task { @MainActor in self?.remove(surfaceID: surfaceID, id: id) }
             }
@@ -71,20 +75,39 @@ final class DeviceLinkTerminalEvents {
     var hasSubscribers: Bool { continuations.values.contains { !$0.isEmpty } }
 
     func send(_ event: DeviceTerminalEvent, surfaceID: UUID) {
-        for continuation in continuations[surfaceID]?.values ?? [:].values {
-            deliver(event, to: continuation)
+        for (id, continuation) in continuations[surfaceID] ?? [:] {
+            deliver(event, to: continuation, surfaceID: surfaceID, id: id)
         }
     }
 
     func broadcast(_ event: DeviceTerminalEvent) {
-        for surface in continuations.values {
-            for continuation in surface.values {
-                deliver(event, to: continuation)
+        for (surfaceID, surface) in continuations {
+            for (id, continuation) in surface {
+                deliver(event, to: continuation, surfaceID: surfaceID, id: id)
             }
         }
     }
 
-    private func deliver(_ event: DeviceTerminalEvent, to continuation: AsyncStream<DeviceTerminalEvent>.Continuation) {
+    private func deliver(_ event: DeviceTerminalEvent, to continuation: AsyncStream<DeviceTerminalEvent>.Continuation, surfaceID: UUID, id: UUID) {
+        let isControl: Bool
+        switch event {
+        case .linkReconnected, .linkLost, .resyncRequired: isControl = true
+        case .bytes, .updated: isControl = false
+        }
+        if isControl {
+            pendingControls[surfaceID, default: [:]][id, default: []].append(event)
+            while let next = pendingControls[surfaceID]?[id]?.first {
+                switch continuation.yield(next) {
+                case .enqueued, .terminated:
+                    pendingControls[surfaceID]?[id]?.removeFirst()
+                case .dropped:
+                    return
+                @unknown default:
+                    return
+                }
+            }
+            return
+        }
         if case .dropped = continuation.yield(event) {
             // Every overflow appends a fresh recovery marker. If a later byte
             // drops that marker, it appends another, so recovery cannot vanish.
@@ -95,6 +118,7 @@ final class DeviceLinkTerminalEvents {
     func finishAll() {
         let all = continuations
         continuations = [:]
+        pendingControls = [:]
         for surface in all.values {
             for continuation in surface.values { continuation.finish() }
         }
@@ -102,6 +126,7 @@ final class DeviceLinkTerminalEvents {
 
     private func remove(surfaceID: UUID, id: UUID) {
         continuations[surfaceID]?[id] = nil
+        pendingControls[surfaceID]?[id] = nil
         if continuations[surfaceID]?.isEmpty == true {
             continuations[surfaceID] = nil
         }

@@ -153,8 +153,9 @@ public final class HivePairingController {
     }
 
     /// Cancels the account's active handshake and clears its in-memory connection authority.
-    public func stop() {
-        guard !isStopped else { return }
+    @discardableResult
+    public func stop() -> Task<Void, Never> {
+        if isStopped { return disconnectTask ?? Task<Void, Never> {} }
         isStopped = true
         loadGeneration &+= 1
         computers = []
@@ -162,8 +163,13 @@ public final class HivePairingController {
         let client = client
         self.client = nil
         client?.retire()
-        disconnectTask = Task { await client?.disconnect() }
+        let persistence = persistenceTask
+        disconnectTask = Task {
+            _ = try? await persistence?.value
+            await client?.disconnect()
+        }
         onChange?()
+        return disconnectTask!
     }
 
     deinit {

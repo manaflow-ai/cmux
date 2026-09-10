@@ -7783,6 +7783,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    /// Opens My Devices in the selected main window and scopes its reveal request
+    /// to that window so another mounted Machines panel cannot consume it first.
+    @MainActor
+    func openDevicesSidebarAndReveal(
+        instance: SurfaceDeviceInstanceID,
+        registry: DeviceSurfaceProviderRegistry
+    ) -> RightSidebarRemoteApplyResult? {
+        guard let context = preferredRegisteredMainWindowContext() else { return nil }
+        let target = RightSidebarRemoteTarget(windowId: context.windowId)
+        let result = applyRightSidebarRemoteCommand(.setMode(.machines, focus: true), target: target)
+        switch result {
+        case .ok, .state:
+            registry.reveal(instance: instance, windowID: context.windowId)
+        case .failure:
+            break
+        }
+        return result
+    }
+
     private func rightSidebarRemoteContext(target: RightSidebarRemoteTarget) -> MainWindowContext? {
         if let windowId = target.windowId {
             return mainWindowContexts.values.first(where: { $0.windowId == windowId })
@@ -10234,7 +10253,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             updateViewModel: updateViewModel,
             windowId: windowId,
             titlebarControlsLayoutModel: titlebarControlsLayoutModel,
-            devicesModel: devicesRegistry.map { DevicesPanelViewModel(registry: $0) }
+            devicesModel: devicesRegistry.map { DevicesPanelViewModel(registry: $0, windowID: windowId) }
         )
             .environmentObject(tabManager)
             .environmentObject(notificationStore)

@@ -10,9 +10,9 @@ final class HiveComputersService {
     static let didChangeNotification = Notification.Name("cmux.computers.pairingsDidChange")
 
     private let registry: DeviceSurfaceProviderRegistry
-    private let openSidebar: @MainActor () -> RightSidebarRemoteApplyResult?
+    private let openSidebar: @MainActor (SurfaceDeviceInstanceID) -> RightSidebarRemoteApplyResult?
 
-    init(registry: DeviceSurfaceProviderRegistry, openSidebar: @escaping @MainActor () -> RightSidebarRemoteApplyResult?) {
+    init(registry: DeviceSurfaceProviderRegistry, openSidebar: @escaping @MainActor (SurfaceDeviceInstanceID) -> RightSidebarRemoteApplyResult?) {
         self.registry = registry
         self.openSidebar = openSidebar
     }
@@ -132,7 +132,7 @@ final class HiveComputersService {
             await provider.refresh(force: true)
         }
         guard identity == scope, isPaired(instance) else { return }
-        guard let result = openSidebar() else { return }
+        guard let result = openSidebar(instance) else { return }
         switch result {
         case .failure(let message):
             error = message

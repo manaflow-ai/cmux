@@ -12,11 +12,13 @@ final class DevicesPanelViewModel {
     private(set) var hasLoadedDirectory = false
     private(set) var isRefreshing = false
     private let registry: DeviceSurfaceProviderRegistry?
+    private let windowID: UUID?
     @ObservationIgnored private var directoryObserver: NSObjectProtocol?
     private var refreshTask: Task<Void, Never>?
 
-    init(registry: DeviceSurfaceProviderRegistry? = nil) {
+    init(registry: DeviceSurfaceProviderRegistry? = nil, windowID: UUID? = nil) {
         self.registry = registry
+        self.windowID = windowID
         directoryObserver = NotificationCenter.default.addObserver(
             forName: DeviceDirectory.didChangeNotification,
             object: nil,
@@ -43,7 +45,7 @@ final class DevicesPanelViewModel {
 
     /// Settings › Computers "Open": expand and select the device's row.
     func consumePendingReveal() {
-        guard let instance = registry?.takePendingReveal() else { return }
+        guard let instance = registry?.takePendingReveal(windowID: windowID) else { return }
         revealRequest = .machine(.device(instance))
     }
 

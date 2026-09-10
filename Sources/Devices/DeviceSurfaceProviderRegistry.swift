@@ -15,6 +15,7 @@ final class DeviceSurfaceProviderRegistry {
     /// pending request on it (userInfo `instance`: the wire value).
     static let revealDeviceNotification = Notification.Name("cmux.devices.revealDevice")
     private(set) var pendingReveal: SurfaceDeviceInstanceID?
+    private var pendingWindowReveals: [UUID: SurfaceDeviceInstanceID] = [:]
 
     private var catalog: SurfaceCatalog?
     private var auth: AuthCoordinator?
@@ -152,8 +153,9 @@ final class DeviceSurfaceProviderRegistry {
     /// expanded and selected, even if it was collapsed. Never opens a terminal.
     /// The panel consumes the request when it is (or becomes) mounted, so the
     /// caller may switch the sidebar mode first and reveal right after.
-    func reveal(instance: SurfaceDeviceInstanceID) {
-        pendingReveal = instance
+    func reveal(instance: SurfaceDeviceInstanceID, windowID: UUID? = nil) {
+        if let windowID { pendingWindowReveals[windowID] = instance }
+        else { pendingReveal = instance }
         NotificationCenter.default.post(
             name: Self.revealDeviceNotification,
             object: nil,
@@ -161,7 +163,10 @@ final class DeviceSurfaceProviderRegistry {
         )
     }
 
-    func takePendingReveal() -> SurfaceDeviceInstanceID? {
+    func takePendingReveal(windowID: UUID? = nil) -> SurfaceDeviceInstanceID? {
+        if let windowID, let instance = pendingWindowReveals.removeValue(forKey: windowID) {
+            return instance
+        }
         defer { pendingReveal = nil }
         return pendingReveal
     }
