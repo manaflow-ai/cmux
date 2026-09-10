@@ -27,7 +27,7 @@ struct DevicesCloudTreeBuilderTests {
         let coordinator = CloudTreeOutlineView.Coordinator(
             machineActions: MachineRowActions(
                 openShell: { _ in }, openDesktop: { _ in }, runCommand: { _, _ in },
-                confirmDelete: { _ in }, promptRename: { _, _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}
+                confirmDelete: { _ in }, promptRename: { _, _ in }, promptUpgrade: {}
             ),
             nodeActions: CloudTreeNodeActions(
                 project: { _, _, _ in }, projectRemoteView: { _, _, _, _ in },
@@ -35,7 +35,7 @@ struct DevicesCloudTreeBuilderTests {
                 newTerminal: { _, _ in }, openGroup: { _, _, _, _ in }, openGroupAsWorkspace: { _, _, _ in },
                 newWorkspace: { _ in }, closeTerminal: { _ in }, closeWorkspace: { _, _ in },
                 renameWorkspace: { _, _ in }, renameTerminal: { _, _ in },
-                selectLocalWorkspace: { _ in }, copyToPasteboard: { _ in }, refresh: {}
+                selectLocalWorkspace: { _ in }, copyToPasteboard: { _ in }, copyPortLink: { _ in }, refresh: {}
             ),
             expansionStore: CloudTreeExpansionStore(defaults: defaults),
             tabDragTransferRegistry: { nil }
@@ -179,7 +179,7 @@ struct DevicesCloudTreeBuilderTests {
             switch node.kind {
             case .workspacesGroup(let machine):
                 sawWorkspacesGroup = machine == studioMachine
-            case .workspace(let machine, let workspace, let terminalCount, _):
+            case .workspace(let machine, let workspace, let terminalCount, _, _):
                 sawWorkspace = machine == studioMachine && workspace.id == "w1" && terminalCount == 1
             case .terminal(let row):
                 sawTerminal = row.resource.id.key == "t1"
