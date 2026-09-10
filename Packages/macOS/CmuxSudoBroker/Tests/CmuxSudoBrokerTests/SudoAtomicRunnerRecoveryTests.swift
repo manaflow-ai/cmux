@@ -15,7 +15,8 @@ struct SudoAtomicRunnerRecoveryTests {
             pending: pending, now: now, executionGraceSeconds: 90
         )
         let identity = TestRunnerLauncher.defaultRunnerIdentity
-        _ = try #require(fixture.store.claimApprovedExecution(id: request.id, runner: identity, now: now))
+        let manifest = try fixture.store.claimApprovedExecution(id: request.id, runner: identity, now: now)
+        _ = try #require(manifest)
         let claimedState = fixture.store.state(id: request.id)
         let registered = try fixture.store.recordRunnerLaunchFailure(SudoRequestState(
             id: request.id, phase: .executing, updatedAt: now, execution: identity
