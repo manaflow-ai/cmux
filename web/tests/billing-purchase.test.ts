@@ -8,7 +8,6 @@ import {
   stripeSubscriptions,
 } from "../db/schema";
 import { FOUNDER_TESTFLIGHT_GROUP_ID } from "../services/asc/testflightOwnership";
-import type { StackBillingApp } from "../services/billing/purchase";
 
 process.env.RESEND_API_KEY ??= "test-resend-key";
 process.env.CMUX_FEEDBACK_FROM_EMAIL ??= "feedback@example.com";
@@ -3270,7 +3269,7 @@ describe("billing user lookup without a user-list scan", () => {
   };
 
   test("a dotted Gmail alias is found through the identity snapshot, not by scanning every user", async () => {
-    const listUsers = mock<NonNullable<StackBillingApp["listUsers"]>>(async () => []);
+    const listUsers = mock(async (..._args: unknown[]) => []);
     const getUser = mock(async (...args: unknown[]) => ((args[0] as string) === dotted.id ? dotted : null));
     const snapshotUserIds = mock(async () => [dotted.id]);
     const user = await findBillingUserByEmail(
@@ -3280,7 +3279,7 @@ describe("billing user lookup without a user-list scan", () => {
     );
     expect(user?.id).toBe(dotted.id);
     expect(snapshotUserIds).toHaveBeenCalledWith("billingfixture@gmail.com");
-    const scanned = listUsers.mock.calls.some(([options]) => options?.query === undefined);
+    const scanned = listUsers.mock.calls.some((call) => (call[0] as { query?: string }).query === undefined);
     expect(scanned).toBe(false);
   });
 
