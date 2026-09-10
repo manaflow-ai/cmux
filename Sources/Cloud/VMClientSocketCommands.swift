@@ -491,26 +491,13 @@ extension TerminalController {
                 }
                 // External clients pin the hub and use the same address race as app links.
                 let route = payload["route"] as? String ?? ""
-                guard CloudMachineLinkManager.usesWireGuardHub(
-                    route: route,
-                    clientCapabilities: clientCapabilities,
-                    enrolledRoutes: []
-                ) else {
-                    throw CloudMachineLinkManager.ManagerError.privateRouteRequired(route)
-                }
                 let hub = await MainActor.run { CmuxTuiSurfaceProviderRegistry.shared.wireGuardHub }
                 guard let hub else { throw CloudMachineLinkManager.ManagerError.wireGuardHubMissing }
                 let ready = try await hub.pinForExternalClient()
-                guard CloudMachineLinkManager.usesWireGuardHub(
-                    route: route,
-                    clientCapabilities: clientCapabilities,
-                    enrolledRoutes: ready.routes
-                ) else {
-                    throw CloudMachineLinkManager.ManagerError.privateRouteRequired(route)
-                }
                 payload["wireguard_hub_socket"] = ready.socketPath
                 let addresses = payload["network_addresses"] as? [String: Any] ?? [:]
-                payload["route"] = try await registry.resolvedPrivateRoute(machineID: vmId, through: ready, fallbackRoute: route, addresses: ["ipv4", "ipv6"].compactMap { addresses[$0] as? String })
+                let resolvedRoute = try await registry.resolvedPrivateRoute(machineID: vmId, through: ready, fallbackRoute: route, addresses: ["ipv4", "ipv6"].compactMap { addresses[$0] as? String })
+                payload["route"] = resolvedRoute
                 return payload
             }
         case "vm.sessions":

@@ -134,7 +134,7 @@ actor CloudMachineLinkManager {
             throw ManagerError.retryLater(failure.error)
         }
         guard let clientURL else { throw ManagerError.clientMissing }
-        guard let privateRoute = privateRoutes[machineID] else {
+        guard privateRoutes[machineID] != nil else {
             throw ManagerError.privateRouteRequired(machineID)
         }
         #if DEBUG
@@ -177,19 +177,8 @@ actor CloudMachineLinkManager {
             guard capabilities.contains(CloudTuiCommandLine.wireGuardHubCapability) else {
                 throw ManagerError.wireGuardHubUnsupported
             }
-            guard Self.usesWireGuardHub(route: privateRoute, clientCapabilities: capabilities, enrolledRoutes: []) else {
-                throw ManagerError.privateRouteRequired(privateRoute)
-            }
             guard let hub else { throw ManagerError.wireGuardHubMissing }
             let claim = try await hub.acquire()
-            guard Self.usesWireGuardHub(
-                route: privateRoute,
-                clientCapabilities: capabilities,
-                enrolledRoutes: claim.ready.routes
-            ) else {
-                await hub.release(claim.lease)
-                throw ManagerError.privateRouteRequired(privateRoute)
-            }
             let releaseLease: @Sendable () async -> Void = { await hub.release(claim.lease) }
             let reachableRoute: String
             do {

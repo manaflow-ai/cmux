@@ -146,7 +146,7 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
         #expect(lists == 1)
         #expect(catalog.snapshot == .empty)
 
-        registry.start(catalog: catalog)
+        await registry.resumeAfterSignIn()
         #expect(await registry.providerRefreshingIfMissing(machineID: "vm-known") != nil)
         #expect(lists == 2)
         await registry.accessDidEnd()
@@ -187,6 +187,50 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
         #expect(await discovery.value)
         _ = await background.value
         #expect(lists == 2)
+        await registry.accessDidEnd()
+    }
+
+    @Test("Sign-in waits for retiring transports before discovering another account")
+    func signInWaitsForTeardown() async {
+        let catalog = SurfaceCatalog()
+        let closing = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<Bool>()
+        let resuming = CloudLinkFirstValue<Bool>()
+        var lists = 0
+        var resumed = false
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            wireGuardHub: nil,
+            allowsBackgroundWork: { false },
+            listPage: {
+                lists += 1
+                return VMListPage(vms: [machine("vm-next-account")], limits: nil)
+            },
+            refreshProvider: { _, _ in },
+            closeTransports: {
+                closing.resolve(true)
+                _ = await release.result
+            }
+        )
+        registry.start(catalog: catalog)
+        let retiring = Task { await registry.accessDidEnd() }
+        _ = await closing.result
+        let signIn = Task {
+            resuming.resolve(true)
+            await registry.resumeAfterSignIn()
+            resumed = true
+        }
+        _ = await resuming.result
+        #expect(!resumed)
+        #expect(await registry.refresh(force: true) == false)
+        #expect(await registry.providerRefreshingIfMissing(machineID: "vm-next-account") == nil)
+        #expect(lists == 0)
+        #expect(catalog.snapshot == .empty)
+        release.resolve(true)
+        await retiring.value
+        await signIn.value
+        #expect(await registry.providerRefreshingIfMissing(machineID: "vm-next-account") != nil)
+        #expect(lists == 1)
         await registry.accessDidEnd()
     }
 

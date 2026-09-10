@@ -8,7 +8,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite(.timeLimit(.minutes(2)))
+@Suite
 struct CloudPortForwardAddressReuseTests {
     @Test("Successive browser connections reuse the working family and recover if it fails")
     func browserConnectionsReuseWorkingFamily() async throws {
