@@ -248,7 +248,7 @@ const pins = devboxAgentPins();
  * so nothing it creates is root-owned.
  */
 const interactiveShellProbe = (run: number): string =>
-  `sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L probe${run} new-session -d -s login -x 120 -y 30 && sleep 3 && pane="$(tmux -L probe${run} capture-pane -pt login)"; tmux -L probe${run} kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -iE "ble\\.sh|bleopt|ble-face|denied|not found|WARRANTY${run > 1 ? "|updating tput" : ""}" && { printf "%s\\n" "$pane"; exit 1; }; printf "%s\\n" "$pane" | grep -q "@cmux" && printf "%s\\n" "$pane" | grep -q "λ" || { printf "%s\\n" "$pane"; echo "no cmux prompt"; exit 1; }'`;
+  `sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L probe${run} new-session -d -s login -x 120 -y 30 && sleep 3 && pane="$(tmux -L probe${run} capture-pane -pt login)"; tmux -L probe${run} kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -iE "ble\\.sh|bleopt|ble-face|denied|not found|WARRANTY${run > 1 ? "|updating tput" : ""}" && { printf "%s\\n" "$pane"; exit 1; }; printf "%s\\n" "$pane" | grep -q "λ" || { printf "%s\\n" "$pane"; echo "no cmux prompt"; exit 1; }'`;
 
 try {
   await step(

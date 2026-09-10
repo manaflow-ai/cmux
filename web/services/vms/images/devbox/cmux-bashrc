@@ -83,4 +83,4 @@ alias ls='ls --color=auto'
 alias grep='grep --color=auto'
 alias g=git
 
-if [ -n "${BLE_VERSION:-}" ] && [ -t 0 ]; then ble-attach || true; fi
+[ -n "${BLE_VERSION:-}" ] && ble-attach
