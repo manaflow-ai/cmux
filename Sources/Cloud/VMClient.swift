@@ -361,10 +361,10 @@ struct VMPlanLimits {
     /// The earliest free-access expiry across the caller's machines (epoch ms);
     /// nil when no machine is on a window. Server-authoritative.
     var freeAccessExpiresAt: Int64?
-    /// Memory sizes the server accepts for new base machines, in MB.
+    /// Memory sizes the server accepts for new machines, in MB.
     var memoryOptionsMb: [Int] = []
-    /// Legacy compatibility data for older clients. The current New Machine
-    /// sheet always creates one base kind and does not display this field.
+    /// The kinds the default provider can serve and the image each resolves to;
+    /// the New Machine sheet offers them and preselects Desktop when listed.
     var imageKinds: [VMImageKindOption] = []
 }
 

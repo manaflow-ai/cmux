@@ -120,8 +120,10 @@ Image policy:
 - Clients request a machine **kind** (`kind: "desktop" | "base"` on `POST /api/vm`,
   `POST /api/vm/base/open`, and `POST /api/vm/base/reset`) rather than pinning an image id. With
   no `image`, the resolver serves the manifest entry flagged `kind` + `defaultForKind` at the
-  plan's **size** (a body with neither `image` nor `kind` gets the `base` default) and otherwise
-  fails closed with `vm_image_config_error`. Sizes are Freestyle's ladder (`sm` … `2xl`,
+  plan's **size** (a body with neither `image` nor `kind` gets the **`desktop`** default,
+  `VM_IMAGE_DEFAULT_KIND`: a machine with a screen is the product default and shell-only is
+  always an explicit `kind: "base"`, #12239) and otherwise fails closed with
+  `vm_image_config_error`. Sizes are Freestyle's ladder (`sm` … `2xl`,
   `services/vms/images/sizes.ts`): one snapshot per size, and the smallest whose memory covers
   the plan's `defaultMemoryMbForPlan` is served, so machines boot at their shape and the driver
   never resizes. Create responses and `limits.imageKinds` carry the `size`. `image` still wins when present, but a client-requested `image` must be
@@ -151,10 +153,14 @@ Image policy:
   `services/vms/images/devbox/README.md`. `tests/vm-image-manifest.test.ts` holds the invariants:
   one `defaultForKind` per provider and kind, unique versions, every default
   `validationStatus: "passed"`.
-- Every devbox default is a **desktop** image (one snapshot serves both kinds): TigerVNC on
-  `:1` with an openbox session, the tint2 dock (Chrome, Files, Ghostty), the CC0 wallpaper, the
-  accessibility bus for computer-use, and noVNC on 6901; the contract lives in
-  `services/vms/images/desktop.ts`. `POST /api/vm/[id]/open-port` (the app's Displays row, `cmux
+- The **desktop** ladder is what every default create path boots (the app's New Machine sheet,
+  bare `cmux vm new`, `vm base open` / `vm base reset`, and any API body without a `kind`):
+  TigerVNC on `:1` with an openbox session, the tint2 dock (Chrome, Files, Ghostty), the CC0
+  wallpaper, the accessibility bus for computer-use, and noVNC on 6901, run by the
+  `cmux-desktop` unit; the contract lives in `services/vms/images/desktop.ts`. The separately
+  baked **base** ladder (`--no-desktop`, no VNC layer) is served only for an explicit
+  `kind: "base"` (`--base` in the CLI, Base in the sheet); the Mac app lists a Displays row only
+  for desktop-kind machines, so a base machine truthfully shows none. `POST /api/vm/[id]/open-port` (the app's Displays row, `cmux
   vm open <m>:desktop`, port rows) returns the machine's **private VPC address**
   (`http://10.x.x.x:6901/vnc.html?…`), reachable only over the owner's WireGuard tunnel, the same
   path the daemon route takes; the driver (re)starts the `cmux-desktop` unit first when noVNC is

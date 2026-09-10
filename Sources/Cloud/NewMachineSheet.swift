@@ -1,7 +1,8 @@
 import CmuxFoundation
 import SwiftUI
 
-/// The New Machine sheet: one base-image size and what the plan allows.
+/// The New Machine sheet: the machine kind (Desktop with a VNC screen by
+/// default, Base for terminal only), one image size, and what the plan allows.
 /// Presented by ``NewMachineSheetPresenter`` as a window sheet on the main
 /// window. Create closes it at once; the machine coming up is shown by the
 /// Machines panel, not here, so the sheet never holds the window.
@@ -11,6 +12,7 @@ struct NewMachineSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
+            kindSection
             if model.supportsSize {
                 sizeSection
             }
@@ -44,6 +46,36 @@ struct NewMachineSheet: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    /// Desktop or Base. Desktop is preselected whenever the backend can serve
+    /// it, so a plain Create gets a machine with a screen; Base is an explicit
+    /// pick, never a silent default (#12239).
+    private var kindSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(String(localized: "machines.new.kind.label", defaultValue: "Kind"))
+                .cmuxFont(size: 13, weight: .semibold)
+            VStack(alignment: .leading, spacing: 4) {
+                Picker(selection: $model.kind) {
+                    ForEach(model.selectableKinds, id: \.self) { kind in
+                        Text(kind.displayName).tag(kind)
+                    }
+                } label: {
+                    Text(String(localized: "machines.new.kind.label", defaultValue: "Kind"))
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .accessibilityIdentifier("NewMachineSheet.kind")
+                .accessibilityLabel(String(localized: "machines.new.kind.label", defaultValue: "Kind"))
+                .accessibilityValue(model.kind.displayName)
+                Text(model.kindSummaryText)
+                    .cmuxFont(size: 11)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("NewMachineSheet.kindSummary")
+            }
+        }
+        .accessibilityIdentifier("NewMachineSheet.kindSection")
     }
 
     private var sizeSection: some View {

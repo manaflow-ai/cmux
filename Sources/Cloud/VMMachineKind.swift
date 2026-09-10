@@ -37,6 +37,20 @@ enum VMMachineKind: String, CaseIterable, Sendable, Equatable {
         return inferred(fromImage: (image as? String) ?? "")
     }
 
+    /// The product default: every create path that does not ask for a kind
+    /// (the New Machine sheet, bare `cmux vm new`, `vm base open` / `vm base
+    /// reset`) gets a machine with a screen. Shell-only is an explicit choice.
+    static let defaultKind: VMMachineKind = .desktop
+
+    /// The `cmux vm new` / `vm base open` / `vm base reset` flag that requests
+    /// this kind. Always sent, so the create never depends on a server default.
+    var cliFlag: String {
+        switch self {
+        case .desktop: return "--desktop"
+        case .base: return "--base"
+        }
+    }
+
     var hasDesktop: Bool { self == .desktop }
 
     var displayName: String {
