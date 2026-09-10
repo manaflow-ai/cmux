@@ -86,6 +86,9 @@ public actor SudoBroker {
 
     /// Returns the lifecycle stream consumed by the approval presentation.
     ///
+    /// Call this once for the broker's single presentation consumer. The broker
+    /// owns one bounded stream so every event has one authoritative recipient.
+    ///
     /// - Returns: A bounded stream of authoritative request lifecycle events.
     public func events() -> AsyncStream<SudoBrokerEvent> {
         eventStream

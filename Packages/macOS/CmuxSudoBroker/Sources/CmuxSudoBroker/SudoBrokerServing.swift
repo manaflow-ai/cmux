@@ -2,6 +2,9 @@
 public protocol SudoBrokerServing: Sendable {
     /// Returns the authoritative lifecycle event stream.
     ///
+    /// Call once for the broker's single presentation consumer; the returned
+    /// bounded stream is not a broadcast bus for independent consumers.
+    ///
     /// - Returns: A bounded stream of request lifecycle changes.
     func events() async -> AsyncStream<SudoBrokerEvent>
 
