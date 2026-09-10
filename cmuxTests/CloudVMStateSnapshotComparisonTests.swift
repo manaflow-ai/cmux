@@ -47,4 +47,23 @@ struct CloudVMStateSnapshotComparisonTests {
         }
         #expect(try !before.hasSameRevisionedContent(as: state(changed)))
     }
+
+    @Test("Applying a delta keeps the session revision aligned with its cursor", arguments: [false, true])
+    func deltaAdvancesBothRevisionRepresentations(legacyNumeric: Bool) throws {
+        var object = snapshot()
+        object["session"] = ["id": "session-1", "revision": legacyNumeric ? (2 as Any) : "2", "name": "Kept"]
+        var document = CloudVMStateDocument(snapshot: object)
+        #expect(document.setCursor(CloudVMCursor(generation: "daemon-1", revision: 3)))
+        let session = try #require(document.value(forKey: "session") as? [String: Any])
+        #expect(CloudWireNumber.unsigned(session["revision"]) == 3)
+        #expect(session["name"] as? String == "Kept")
+        #expect((session["revision"] is String) == !legacyNumeric)
+    }
+
+    @Test("A legacy document without a session object does not gain one")
+    func deltaDoesNotInventASessionRecord() {
+        var document = CloudVMStateDocument(snapshot: snapshot())
+        #expect(document.setCursor(CloudVMCursor(generation: "daemon-1", revision: 3)))
+        #expect(document.value(forKey: "session") == nil)
+    }
 }
