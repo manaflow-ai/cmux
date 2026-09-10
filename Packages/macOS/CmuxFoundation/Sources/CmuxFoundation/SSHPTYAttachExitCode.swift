@@ -2,9 +2,8 @@ import Foundation
 
 /// Describes the process exit status and retry policy for an SSH PTY attach.
 ///
-/// Status 252 has a bounded consecutive-failure budget, statuses 247–250 carry
-/// managed transport/authentication phases, and statuses 251, 254, and 255 use
-/// the general reconnect budget.
+/// Status 252 has a bounded consecutive-failure budget, while statuses 251,
+/// 254, and 255 use the general reconnect budget.
 public enum SSHPTYAttachExitCode: Int32 {
     private static let healthyBridgeUptime: Double = 30
 
@@ -13,27 +12,6 @@ public enum SSHPTYAttachExitCode: Int32 {
 
     /// Temporary daemon-side admission pressure that should retry without reauthentication.
     case retryableWithoutReauthentication = 251
-
-    /// The SSH endpoint cannot currently be reached.
-    ///
-    /// This status is emitted only to a managed reconnect wrapper so the
-    /// wrapper can present a concise reason without exposing OpenSSH stderr.
-    case hostUnreachable = 247
-
-    /// The SSH control connection is stale or wedged and needs reauthentication.
-    ///
-    /// This status is emitted only to a managed reconnect wrapper so the
-    /// wrapper can distinguish a control-master failure from a host outage.
-    case controlMasterUnavailable = 248
-
-    /// The remote cmux daemon is still starting or its tunnel is not ready.
-    ///
-    /// This status is emitted only to a managed reconnect wrapper so it can
-    /// keep the user-facing state separate from host reachability.
-    case daemonNotReady = 249
-
-    /// The remote endpoint requires foreground authentication before retrying.
-    case authenticationRequired = 250
 
     /// A rapidly closed bridge that produced no live remote PTY output.
     case bridgeClosedWithoutProgress = 252
@@ -57,83 +35,9 @@ public enum SSHPTYAttachExitCode: Int32 {
     /// Failures with these statuses keep app-side surface tracking intact
     /// because the wrapper immediately reattaches on the same surface.
     public var isWrapperRetryable: Bool {
-        self == .hostUnreachable ||
-            self == .controlMasterUnavailable ||
-            self == .daemonNotReady ||
-            self == .authenticationRequired ||
-            self == .retryableWithoutReauthentication ||
+        self == .retryableWithoutReauthentication ||
             self == .bridgeClosedSessionRunning ||
             self == .retryableTransient
-    }
-
-    /// Whether a managed retry must run the foreground authentication phase.
-    ///
-    /// A confirmed host/daemon transport outage deliberately waits for the
-    /// app-side reachability owner instead of launching another noisy SSH
-    /// prompt. Explicit control-master, authentication, and unknown transient
-    /// failures retain the historical authentication behavior.
-    public var requiresForegroundAuthentication: Bool {
-        self == .controlMasterUnavailable ||
-            self == .authenticationRequired ||
-            self == .retryableTransient
-    }
-
-    /// Refines a retryable error for the managed wrapper's status line.
-    ///
-    /// The bridge protocol intentionally keeps its transport error payload
-    /// human-readable for older clients. A managed wrapper can still classify
-    /// the stable diagnostic phrases into a small set of user-facing phases;
-    /// direct invocations retain their original status and diagnostic output.
-    ///
-    /// - Parameter rawDescription: The bridge or transport diagnostic.
-    /// - Returns: A typed managed-retry status, or this status when no stable
-    ///   phase can be inferred.
-    public func managedRetryStatus(for rawDescription: String) -> Self {
-        guard isWrapperRetryable else { return self }
-        let description = rawDescription
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-
-        if description.range(
-            of: #"[^[:space:]]+@[^[:space:]]+: permission denied"#,
-            options: .regularExpression
-        ) != nil ||
-            description.contains("authentication failed") ||
-            description.contains("host key verification failed") ||
-            description.contains("too many authentication failures") {
-            return .authenticationRequired
-        }
-        if description.contains("remote daemon is not ready") ||
-            description.contains("remote daemon tunnel is not ready") ||
-            description.contains("remote connection is not active") ||
-            description == "remote pty operation failed" ||
-            description.hasSuffix(": remote pty operation failed") ||
-            description.contains("remote daemon did not respond in time") ||
-            description.contains("did not respond in time") ||
-            description.contains("timed out waiting for remote pty") {
-            return .daemonNotReady
-        }
-        if description.contains("mux_client_request_session") ||
-            description.contains("control master") ||
-            description.contains("control socket") ||
-            description.contains("broken pipe") {
-            return .controlMasterUnavailable
-        }
-        if description.contains("ssh: connect to host") ||
-            description.contains("connect to host") ||
-            description.contains("operation timed out") ||
-            description.contains("connection timed out") ||
-            description.contains("network is unreachable") ||
-            description.contains("network is down") ||
-            description.contains("no route to host") ||
-            description.contains("host is down") ||
-            description.contains("connection refused") ||
-            description.contains("could not resolve hostname") ||
-            description.contains("temporary failure in name resolution") ||
-            description.contains("name or service not known") {
-            return .hostUnreachable
-        }
-        return self
     }
 
     /// Determines whether a bridge closed before demonstrating useful progress.
@@ -160,29 +64,6 @@ public enum SSHPTYAttachExitCode: Int32 {
     /// - Returns: `true` when another attempt is allowed.
     public static func hasNoProgressRetryRemaining(currentRetry: Int, limit: Int) -> Bool {
         currentRetry >= 0 && limit > 0 && currentRetry + 1 < limit
-    }
-
-    /// Builds the shared persistent-attach retry loop.
-    ///
-    /// This compatibility entry point delegates to
-    /// ``SSHPTYAttachRetryScriptBuilder`` so older package clients keep their
-    /// source compatibility without retaining a second retry implementation.
-    ///
-    /// - Parameters:
-    ///   - command: Shell command that performs one attach attempt.
-    ///   - reauthenticates: Whether foreground authentication is available.
-    /// - Returns: Shell lines implementing the shared retry state machine.
-    @available(
-        *,
-        deprecated,
-        message: "Use SSHPTYAttachRetryScriptBuilder.lines(command:reauthenticates:initialAuthentication:) with initialAuthentication: false"
-    )
-    public static func retryLoopLines(command: String, reauthenticates: Bool) -> [String] {
-        SSHPTYAttachRetryScriptBuilder().lines(
-            command: command,
-            reauthenticates: reauthenticates,
-            initialAuthentication: false
-        )
     }
 
     /// Builds a bounded no-progress sub-loop for a wrapper that already owns
