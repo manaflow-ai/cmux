@@ -415,14 +415,14 @@ struct MachinesPanelView: View {
 
     /// ＋ on a free plan at its ceiling is the upgrade moment: open the Pro flow
     /// instead of launching a create that the backend would only paywall.
-    /// Otherwise the New Machine sheet collects the base-machine size, and its
-    /// Create runs the same `cmux vm new` path the CLI and palette use. The
-    /// create itself shows up here as a pending row (`viewModel.pendingCreates`),
-    /// never as panel chrome tied to this view's lifetime.
+    /// Otherwise the New Machine sheet collects the kind and size; its Create
+    /// runs the same `cmux vm new` path the CLI and palette use, and shows up
+    /// here as a pending row (`viewModel.pendingCreates`), not as panel chrome.
     private func requestNewMachine() {
         NewMachineSheetPresenter.shared.presentNewMachine(
             plan: viewModel.plan,
             memoryOptionsMb: viewModel.memoryOptionsMb,
+            imageKinds: viewModel.imageKinds,
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
             coordinator: viewModel.createCoordinator
         )

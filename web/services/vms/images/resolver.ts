@@ -19,6 +19,16 @@ export type VmImageKind = "desktop" | "base";
 
 export const VM_IMAGE_KINDS: readonly VmImageKind[] = ["desktop", "base"];
 
+/**
+ * The kind served when a request names neither an image nor a kind: a
+ * machine with a screen (TigerVNC on 5901 loopback, noVNC on 6901, the
+ * `cmux-desktop` unit). Shell-only is always an explicit `kind: "base"`, so
+ * older clients that send no kind (`vm base open`, third-party callers) get
+ * the same default as the app's New Machine sheet and bare `cmux vm new`
+ * (#12239).
+ */
+export const VM_IMAGE_DEFAULT_KIND: VmImageKind = "desktop";
+
 export function isVmImageKind(value: unknown): value is VmImageKind {
   return typeof value === "string" && (VM_IMAGE_KINDS as readonly string[]).includes(value);
 }
@@ -221,8 +231,9 @@ export function inferVmProviderForImage(requestedImage: string | undefined): Pro
  *     images are allowed, which they are outside deployed runtimes or with
  *     CMUX_VM_ALLOW_UNMANIFESTED_IMAGES=1);
  *  2. the manifest entry flagged `defaultForKind` for the requested kind
- *     (`base` when the client did not ask for a kind) at the plan's size:
- *     the smallest sized default with at least `memoryMb` of memory.
+ *     (`VM_IMAGE_DEFAULT_KIND`, desktop, when the client did not ask for a
+ *     kind) at the plan's size: the smallest sized default with at least
+ *     `memoryMb` of memory.
  * Rollback is a manifest change (revert the promotion PR) and a deploy.
  */
 export function resolveVmImage(
@@ -247,7 +258,7 @@ export function resolveVmImage(
     return resolveRequested(provider, requested, env, kind);
   }
 
-  const effectiveKind = kind ?? "base";
+  const effectiveKind = kind ?? VM_IMAGE_DEFAULT_KIND;
   const kindDefault = findVmImageKindDefault(provider, effectiveKind, options.memoryMb);
   if (kindDefault) return selectionFromEntry(kindDefault);
 
