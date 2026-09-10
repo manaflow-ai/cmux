@@ -81,7 +81,7 @@ describe("Freestyle private network readiness", () => {
       events.push("published");
       expect(events).toEqual([...preparation, "guest-network", "published"]);
     } else {
-      await expect(allocation).rejects.toThrow("Private network has no valid assigned address");
+      await expect(allocation).rejects.toThrow();
       expect(events).toEqual([...preparation, "delete"]);
     }
   });
@@ -140,7 +140,7 @@ describe("Freestyle private network readiness", () => {
   test.each([{ addresses: [] }, { addresses: ["invalid-address"] }])("missing usable addresses fail before guest execution: %j", async ({ addresses }) => {
     let executed = false;
     const vm = { exec: async () => { executed = true; return { statusCode: 0, stdout: "", stderr: "" }; } };
-    await expect(Effect.runPromise(announceFreestyleNetwork(vm as never, addresses))).rejects.toThrow();
+    await expect(Effect.runPromise(announceFreestyleNetwork(vm as never, addresses))).rejects.toThrow("Private network has no valid assigned address");
     expect(executed).toBe(false);
   });
 });
