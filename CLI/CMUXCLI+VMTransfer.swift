@@ -566,6 +566,8 @@ extension CMUXCLI {
                 if settled == current { break }
                 current = settled
             }
+            // A transient edit may disappear while settling.
+            guard current != last else { continue }
             let outcome = try performVMPush(
                 vmID: vmID,
                 localURL: localURL,

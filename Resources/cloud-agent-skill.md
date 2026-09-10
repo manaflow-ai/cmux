@@ -115,6 +115,8 @@ cmux vm pull <id> <remote-path> [local-path]
 
 Directories travel as tarballs with default excludes (node_modules, .git, and similar); transfers are size-capped, so ship repos without build artifacts. `--watch` re-pushes on local change (one line per push, Ctrl-C to stop). `--secret` is for keys, tokens and config files with credentials: like `vm env set`, it rides the end-to-end link into the machine's `cmux file receive`, which turns echo off before it reads, so the bytes never touch a command line, the control plane, the provider API, a screen or scrollback; it refuses directories.
 
+Push and watch uploads copy files over the destination. They preserve remote-only files, including files deleted locally; remove those explicitly on the machine when needed. This lets agents keep files they create remotely, but it does not produce an exact directory mirror.
+
 Snapshot, fork, restore:
 
 ```bash

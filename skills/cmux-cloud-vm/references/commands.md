@@ -182,7 +182,7 @@ cmux vm push <id> ./site --exclude dist             # extra excludes on top of d
 cmux vm push <id> ./repo --no-default-excludes      # include .git, node_modules, ...
 cmux vm pull <id> <remote-path> [local-path]        # file or directory back to local disk
 cmux vm push --secret <id> ./id_ed25519 ~/.ssh/id_ed25519 [--mode 600]   # ONE file that must never transit exec: over the machine's link into `cmux file receive` (0600 by default, 256 KiB cap)
-cmux vm push <id> ./site work/site --watch [--interval 1]              # keep pushing on change (mtime/size scan, same excludes); one `synced <n> files at HH:MM:SS` line per push; Ctrl-C exits 0
+cmux vm push <id> ./site work/site --watch [--interval 1]              # keep copying on change (mtime/size scan, same excludes); remote-only files are preserved; Ctrl-C exits 0
 ```
 
 Aliases: `upload` / `download`. Transfers ride the exec channel (no SSH), chunked base64, 256 MB cap; directories travel as tarballs and merge into the destination. Remote paths are relative to `/root` (the persistent volume). `--secret` is the exception: like `vm env set`, it goes Mac → app → the machine's cmux-tui link → a receiver terminal (`cmux file receive <path>`) that turns echo off before it reads, writes to a temp file next to the destination and moves it into place atomically. Nothing appears in a command line, the control plane, the provider API, a screen or scrollback. It refuses directories and `--exclude`; use it for keys, tokens, kubeconfigs, `.npmrc` and the like.
