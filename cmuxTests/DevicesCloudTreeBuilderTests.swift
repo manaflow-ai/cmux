@@ -383,7 +383,7 @@ struct DevicesCloudTreeBuilderTests {
         #expect(CloudTreeDeviceRow.relativeAge(from: now.addingTimeInterval(60), now: now) == String(localized: "cloudTree.device.age.justNow", defaultValue: "just now"), "clock skew never yields a negative age")
         #expect(CloudTreeDeviceRow.displayName(baseName: "Studio", instance: studio) == "Studio")
         #expect(CloudTreeDeviceRow.displayName(baseName: "Laptop", instance: laptop) == "Laptop (issue-8001)")
-        #expect(CloudTreeDeviceRow.displayName(baseName: "Laptop (issue-8001)", instance: laptop) == "Laptop (issue-8001)")
+        #expect(CloudTreeDeviceRow.displayName(baseName: "Laptop (issue-8001)", instance: laptop) == "Laptop (issue-8001) (issue-8001)", "a raw Mac name ending in the tag still needs its instance qualifier")
         #expect(CloudTreeDeviceRow.displayName(baseName: "  ", instance: studio) == "22222222")
     }
 
