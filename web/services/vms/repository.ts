@@ -482,6 +482,16 @@ export type VmRepositoryShape = {
     readonly userId: string;
     readonly limit: number;
   }) => Effect.Effect<CloudVmIdentityLeaseRow[], VmDatabaseError>;
+  /**
+   * Delete leases that expired before `before` and no longer need provider
+   * cleanup: either they never carried a provider identity, or that identity
+   * was already revoked. Leases with an unrevoked identity stay so the
+   * revoke cron keeps retrying them. Returns the number of rows deleted.
+   */
+  readonly deleteExpiredLeases?: (input: {
+    readonly before: Date;
+    readonly limit: number;
+  }) => Effect.Effect<number, VmDatabaseError>;
   readonly markLeaseRevocationRetry?: (input: {
     readonly id: string;
     readonly retryAfter: Date;
@@ -2969,6 +2979,27 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           isNotNull(cloudVms.providerVmId),
         ))
         .orderBy(asc(cloudVmLeases.createdAt), asc(cloudVmLeases.id)) as CloudVmAccessLeaseRow[];
+    }),
+
+  deleteExpiredLeases: (input) =>
+    dbEffect("deleteExpiredLeases", async () => {
+      const db = cloudDb();
+      const candidates = db
+        .select({ id: cloudVmLeases.id })
+        .from(cloudVmLeases)
+        .where(
+          and(
+            lt(cloudVmLeases.expiresAt, input.before),
+            or(isNull(cloudVmLeases.providerIdentityHandle), isNotNull(cloudVmLeases.revokedAt)),
+          ),
+        )
+        .orderBy(asc(cloudVmLeases.expiresAt), asc(cloudVmLeases.id))
+        .limit(input.limit);
+      const deleted = await db
+        .delete(cloudVmLeases)
+        .where(inArray(cloudVmLeases.id, candidates))
+        .returning({ id: cloudVmLeases.id });
+      return deleted.length;
     }),
 
   markLeasesRevoked: (ids) =>
