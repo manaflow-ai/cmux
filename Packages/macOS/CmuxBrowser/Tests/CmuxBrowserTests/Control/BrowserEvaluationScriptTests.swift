@@ -57,7 +57,7 @@ final class BrowserEvaluationScriptTests: NSObject, WKNavigationDelegate {
         return {__cmux_t: typeof value === 'undefined' ? 'undefined' : 'value', __cmux_v: value};
         """
         let expected = try #require(try await webView.callAsyncJavaScript(
-            baseline, arguments: [:], in: nil, in: .page
+            baseline, arguments: [:], in: nil, contentWorld: .page
         ) as? NSDictionary)
         let result = try await evaluate(script)
         #expect(NSDictionary(dictionary: result) == expected)
@@ -73,7 +73,7 @@ final class BrowserEvaluationScriptTests: NSObject, WKNavigationDelegate {
     func errorsReturnNormallyAndNextEvaluationSucceeds(script: String) async throws {
         try await loadPage()
         await #expect(throws: (any Error).self) {
-            try await self.evaluate(script)
+            _ = try await self.evaluate(script)
         }
         let next = try await evaluate("6 * 7")
         #expect(next["__cmux_v"] as? Int == 42)
@@ -97,7 +97,7 @@ final class BrowserEvaluationScriptTests: NSObject, WKNavigationDelegate {
         frameSelector: String? = nil
     ) async throws -> [String: Any] {
         let body = service.evaluationScript(script: script, useEval: useEval, frameSelector: frameSelector)
-        let result = try await webView.callAsyncJavaScript(body, arguments: [:], in: nil, in: .page)
+        let result = try await webView.callAsyncJavaScript(body, arguments: [:], in: nil, contentWorld: .page)
         return try #require(result as? [String: Any])
     }
 
