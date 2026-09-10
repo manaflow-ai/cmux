@@ -3939,12 +3939,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """.write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            cliMockAgentHookDeliveryTargetResponse(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
+                ?? cliMockAcceptAnyResponse(line: line)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4014,12 +4010,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """.write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            cliMockAgentHookDeliveryTargetResponse(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
+                ?? cliMockAcceptAnyResponse(line: line)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4090,12 +4082,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """.write(to: discoveredTranscriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            cliMockAgentHookDeliveryTargetResponse(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
+                ?? cliMockAcceptAnyResponse(line: line)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4237,12 +4225,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            cliMockAgentHookDeliveryTargetResponse(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
+                ?? cliMockAcceptAnyResponse(line: line)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4298,12 +4282,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            cliMockAgentHookDeliveryTargetResponse(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
+                ?? cliMockAcceptAnyResponse(line: line)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4359,12 +4339,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            cliMockAgentHookDeliveryTargetResponse(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
+                ?? cliMockAcceptAnyResponse(line: line)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4420,12 +4396,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            cliMockAgentHookDeliveryTargetResponse(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
+                ?? cliMockAcceptAnyResponse(line: line)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4481,12 +4453,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            cliMockAgentHookDeliveryTargetResponse(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
+                ?? cliMockAcceptAnyResponse(line: line)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4556,12 +4524,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """.write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            cliMockAgentHookDeliveryTargetResponse(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
+                ?? cliMockAcceptAnyResponse(line: line)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4633,12 +4597,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """.write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            cliMockAgentHookDeliveryTargetResponse(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
+                ?? cliMockAcceptAnyResponse(line: line)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4707,12 +4667,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """.write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            cliMockAgentHookDeliveryTargetResponse(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
+                ?? cliMockAcceptAnyResponse(line: line)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4782,12 +4738,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """.write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            cliMockAgentHookDeliveryTargetResponse(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
+                ?? cliMockAcceptAnyResponse(line: line)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4852,12 +4804,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """.write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            cliMockAgentHookDeliveryTargetResponse(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
+                ?? cliMockAcceptAnyResponse(line: line)
         }
 
         var environment = ProcessInfo.processInfo.environment
