@@ -104,7 +104,7 @@ const worker = {
 
     // Iroh control requests terminate in the account Durable Object. They must
     // never fall through to Vercel or another database-backed proxy.
-    if (url.pathname.startsWith("/api/devices/iroh")) {
+    if (url.pathname.startsWith("/api/devices/iroh") || url.pathname.startsWith("/api/relay") || url.pathname.startsWith("/api/connectivity/")) {
       if (!["GET", "POST", "DELETE"].includes(request.method)) return json({ error: "method_not_allowed" }, 405);
       const user = await verifyRequest(request, env);
       if (!user) return unauthorized();

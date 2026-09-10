@@ -42,6 +42,8 @@ export interface ControlPlaneEnv extends SentryEnv {
   CMUX_IROH_GRANT_SIGNING_KEY_P8?: string;
   CMUX_IROH_GRANT_SIGNING_KID?: string;
   CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON?: string;
+  CMUX_IROH_MINT_URL?: string;
+  CMUX_IROH_MINT_HMAC_SECRET_B64?: string;
 }
 
 function json(body: unknown, status: number): Response {
@@ -90,6 +92,8 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
     accountSubjectSecretBase64: this.env.CMUX_IROH_ACCOUNT_SUBJECT_SECRET_B64,
     grantSigningPrivateKeyPem: this.env.CMUX_IROH_GRANT_SIGNING_KEY_P8,
     grantSigningKid: this.env.CMUX_IROH_GRANT_SIGNING_KID,
+    relayMinterUrl: this.env.CMUX_IROH_MINT_URL,
+    relayMinterHmacSecretBase64: this.env.CMUX_IROH_MINT_HMAC_SECRET_B64,
     grantVerificationKeys: this.env.CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON
       ? JSON.parse(this.env.CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON)
       : { version: 1, current_kid: "", keys: [] },
@@ -136,7 +140,7 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
 
   private async handleFetch(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
-    if (path.startsWith("/api/devices/iroh")) {
+    if (path.startsWith("/api/devices/iroh") || path.startsWith("/api/relay") || path.startsWith("/api/connectivity/")) {
       return await this.handleLocalIroh(request, path);
     }
     // Device revocation, forwarded by the worker with rebuilt headers after
@@ -209,6 +213,7 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
       : path.endsWith("/register") ? "register"
       : path.endsWith("/pair-grants") ? "pair_grant"
       : path.endsWith("/endpoint-attestations") ? "endpoint_attestation"
+      : path === "/api/relay/token" ? "relay_token"
       : path === "/api/devices/iroh" && request.method === "GET" ? "discover"
       : path === "/api/devices/iroh" && request.method === "DELETE" ? "revoke"
       : null;
@@ -224,7 +229,9 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
               ? await Effect.runPromise(this.localIroh.revoke(accountId, body, Date.now(), namespace, proof ?? undefined))
               : operation === "pair_grant"
                 ? await Effect.runPromise(this.localIroh.issuePairGrant(accountId, body, Date.now(), namespace, proof ?? undefined))
-                : await Effect.runPromise(this.localIroh.issueEndpointAttestation(accountId, body, Date.now(), namespace, proof ?? undefined));
+                : operation === "endpoint_attestation"
+                  ? await Effect.runPromise(this.localIroh.issueEndpointAttestation(accountId, body, Date.now(), namespace, proof ?? undefined))
+                  : await this.localIroh.issueRelayToken(accountId, body, Date.now(), namespace, proof ?? undefined);
       return json(result, operation === "discover" || operation === "revoke" ? 200 : 201);
     } catch (error) {
       console.error("local iroh operation failed", String(error));

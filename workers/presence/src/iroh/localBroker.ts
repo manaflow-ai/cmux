@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { Effect } from "effect";
 import { accountBindings, accountChallenges, accountDrizzleSchema } from "../accountDrizzleSchema";
@@ -33,6 +33,8 @@ export type LocalIrohConfig = {
   readonly grantVerificationKeys: unknown;
   readonly grantSigningPrivateKeyPem?: string;
   readonly grantSigningKid?: string;
+  readonly relayMinterUrl?: string;
+  readonly relayMinterHmacSecretBase64?: string;
 };
 
 type StoredBinding = {
@@ -223,6 +225,27 @@ export class LocalIrohBroker {
       },
       catch: (error) => error,
     });
+  }
+
+  async issueRelayToken(userId: string, raw: unknown, now = Date.now(), namespace = "legacy", proof?: IrohBindingRequestProof) {
+    const body = raw as { endpointId?: unknown };
+    if (typeof body.endpointId !== "string") throw new IrohInvalidInputError({ code: "invalid_endpoint_id" });
+    const binding = this.db.select().from(accountBindings).where(and(eq(accountBindings.endpointId, body.endpointId), eq(accountBindings.clientNamespace, namespace), isNull(accountBindings.revokedAt))).get();
+    if (!binding) throw new IrohNotFoundError({ resource: "binding" });
+    const local = this.readBinding(binding.bindingId, userId);
+    if (proof) verifyBindingRequestSignature({ ...proof, endpointId: local.endpointId, nowSeconds: Math.floor(now / 1000) });
+    if (!this.config.relayMinterUrl || !this.config.relayMinterHmacSecretBase64) throw new IrohForbiddenError({ code: "relay_minter_not_configured" });
+    const bodyText = JSON.stringify({ endpointId: local.endpointId, lifetimeSeconds: 24 * 60 * 60 });
+    const url = new URL(this.config.relayMinterUrl);
+    const timestamp = String(Math.floor(now / 1000));
+    const bodyHash = createHash("sha256").update(bodyText).digest("hex");
+    const secret = Buffer.from(this.config.relayMinterHmacSecretBase64, "base64");
+    const signature = createHmac("sha256", secret).update(`POST\n${url.pathname}\n${timestamp}\n${bodyHash}`).digest("base64url");
+    const response = await fetch(url, { method: "POST", redirect: "error", signal: AbortSignal.timeout(10_000), headers: { "content-type": "application/json", "x-cmux-iroh-timestamp": timestamp, "x-cmux-iroh-signature": signature }, body: bodyText });
+    if (!response.ok) throw new IrohForbiddenError({ code: "relay_minter_rejected" });
+    const result = await response.json() as { token?: unknown; expiresAt?: unknown };
+    if (typeof result.token !== "string" || typeof result.expiresAt !== "string") throw new IrohInvalidInputError({ code: "invalid_relay_minter_response" });
+    return { token: result.token, expires_at: result.expiresAt, refresh_after: new Date(now + 12 * 60 * 60 * 1000).toISOString(), relay_fleet: MANAGED_RELAY_URLS };
   }
 
   private discovery(userId: string, namespace: string, now: number) {
