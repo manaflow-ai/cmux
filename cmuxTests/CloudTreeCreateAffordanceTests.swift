@@ -317,6 +317,18 @@ struct CloudTreeCreateAffordanceTests {
         #expect(selections == [.machine(machine)])
     }
 
+    @Test("A dismantled outline cannot publish into its former panel")
+    func dismantledOutlineDiscardsPendingPublication() async throws {
+        var selections: [CloudTreeCreateSelection?] = []
+        let coordinator = makeCoordinator { selections.append($0) }
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        coordinator.apply(nodes: [try #require(rows(workspaces: []).first)])
+        let pending = coordinator.pendingSelectionPublication
+        CloudTreeOutlineView.dismantleNSView(container, coordinator: coordinator)
+        await pending?.value
+        #expect(selections.isEmpty)
+    }
+
     private func makeCoordinator(
         onSelectionChange: @escaping @MainActor (CloudTreeCreateSelection?) -> Void = { _ in }
     ) -> CloudTreeOutlineView.Coordinator {

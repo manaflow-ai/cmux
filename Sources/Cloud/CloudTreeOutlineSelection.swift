@@ -61,3 +61,11 @@ extension CloudTreeOutlineView.Coordinator {
         }
     }
 }
+
+extension CloudTreeOutlineView {
+    static func dismantleNSView(_ container: CloudTreeContainerView, coordinator: Coordinator) {
+        coordinator.pendingSelectionPublication?.cancel()
+        coordinator.pendingSelectionPublication = nil
+        coordinator.onSelectionChange = { _ in }
+    }
+}
