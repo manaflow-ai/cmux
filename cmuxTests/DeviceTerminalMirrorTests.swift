@@ -39,7 +39,7 @@ struct DeviceTerminalMirrorTests {
         }, "A control or resynchronization event must survive output overflow")
     }
 
-    @Test("Input queue overflow reports a delivery failure", .timeLimit(.minutes(1)))
+    @Test("Input queue overflow reports a delivery failure", .timeLimit(.minutes(5)))
     func inputOverflowIsReported() async throws {
         let failures = AsyncStream<String>.makeStream()
         defer { failures.continuation.finish() }

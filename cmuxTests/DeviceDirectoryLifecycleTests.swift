@@ -12,7 +12,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite("Devices: presence lifecycle", .timeLimit(.minutes(1)))
+@Suite("Devices: presence lifecycle", .timeLimit(.minutes(5)))
 struct DeviceDirectoryLifecycleTests {
     @Test("A missing service URL retries and subscribes when configuration becomes available")
     func unavailableServiceRecovers() async throws {

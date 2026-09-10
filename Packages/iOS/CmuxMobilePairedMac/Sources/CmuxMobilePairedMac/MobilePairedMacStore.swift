@@ -93,7 +93,7 @@ public actor MobilePairedMacStore: MobilePairedMacPairingStoring {
     private var didMigrate = false
 
     /// Run schema migrations exactly once, on first store access (actor-isolated).
-    private func ensureReady() throws {
+    func ensureReady() throws {
         guard !didMigrate else { return }
         try runMigrations()
         didMigrate = true
