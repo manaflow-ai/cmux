@@ -345,43 +345,38 @@ describe("billing email matching", () => {
     });
   });
 
-  test("finds a dotted Gmail account through the paginated canonical fallback", async () => {
+  test("finds a dotted Gmail account through the identity snapshot, never a list scan", async () => {
     const dotted = {
       id: "dotted-only",
       primaryEmail: "billing.fixture@gmail.com",
       primaryEmailVerified: true,
       update: mock(async () => undefined),
     };
-    const listUsers = mock(async (...args: unknown[]) => {
-      const options = (args[0] ?? {}) as { query?: string };
-      return options.query ? [] : [dotted];
-    });
+    const listUsers = mock(async () => []);
 
     const user = await findBillingUserByEmail(
       { listUsers, getUser: async () => dotted } as never,
       "billingfixture@gmail.com",
+      { snapshotUserIds: async () => ["dotted-only"] },
     );
 
     expect(user?.id).toBe("dotted-only");
-    expect(listUsers).toHaveBeenCalledWith({
+    expect(listUsers).not.toHaveBeenCalledWith({
       limit: 100,
       includeAnonymous: true,
       includeRestricted: true,
     });
   });
 
-  test("uses the same canonical fallback when checking email ownership", async () => {
-    const listUsers = mock(async (...args: unknown[]) => {
-      const options = (args[0] ?? {}) as { query?: string };
-      return options.query
-        ? []
-        : [{ id: "dotted-owner", primaryEmail: "billing.fixture@gmail.com" }];
-    });
+  test("uses the same snapshot fallback when checking email ownership", async () => {
+    const listUsers = mock(async () => []);
+    const getUser = async () => ({ id: "dotted-owner", primaryEmail: "billing.fixture@gmail.com" });
 
     await expect(
       findUserIdByEmail(
-        { listUsers } as never,
+        { listUsers, getUser } as never,
         "billingfixture@gmail.com",
+        { snapshotUserIds: async () => ["dotted-owner"] },
       ),
     ).resolves.toBe("dotted-owner");
   });
@@ -3262,3 +3257,58 @@ function userSubscriptionUpdate({ status }: { status: string }) {
     },
   };
 }
+
+describe("billing user lookup without a user-list scan", () => {
+  const dotted = {
+    id: "dotted-owner",
+    primaryEmail: "billing.fixture@gmail.com",
+    primaryEmailVerified: true,
+    isAnonymous: false,
+    isRestricted: false,
+    update: mock(async () => undefined),
+  };
+
+  test("a dotted Gmail alias is found through the identity snapshot, not by scanning every user", async () => {
+    const listUsers = mock(async () => []);
+    const getUser = mock(async (...args: unknown[]) => ((args[0] as string) === dotted.id ? dotted : null));
+    const snapshotUserIds = mock(async () => [dotted.id]);
+    const user = await findBillingUserByEmail(
+      { listUsers, getUser } as never,
+      "billingfixture@gmail.com",
+      { snapshotUserIds },
+    );
+    expect(user?.id).toBe(dotted.id);
+    expect(snapshotUserIds).toHaveBeenCalledWith("billingfixture@gmail.com");
+    const scanned = listUsers.mock.calls.some((call) => (call[0] as { query?: string }).query === undefined);
+    expect(scanned).toBe(false);
+  });
+
+  test("an unknown Gmail purchaser resolves to no user instead of failing the purchase", async () => {
+    const listUsers = mock(async () => []);
+    const user = await findBillingUserByEmail(
+      { listUsers, getUser: mock(async () => null) } as never,
+      "nobody.yet@gmail.com",
+      { snapshotUserIds: async () => [] },
+    );
+    expect(user).toBeNull();
+    expect(
+      await findUserIdByEmail(
+        { listUsers, getUser: mock(async () => null) } as never,
+        "nobody.yet@gmail.com",
+        { snapshotUserIds: async () => [] },
+      ),
+    ).toBeNull();
+  });
+
+  test("a query whose pages never end still returns the exact match it found", async () => {
+    let cursor = 0;
+    const listUsers = mock(async () => Object.assign([dotted], { nextCursor: `page-${(cursor += 1)}` }));
+    const user = await findBillingUserByEmail(
+      { listUsers, getUser: mock(async () => dotted) } as never,
+      "billing.fixture@gmail.com",
+      { snapshotUserIds: async () => [] },
+    );
+    expect(user?.id).toBe(dotted.id);
+    expect(listUsers.mock.calls.length).toBeLessThanOrEqual(400);
+  });
+});
