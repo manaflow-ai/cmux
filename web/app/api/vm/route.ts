@@ -252,8 +252,7 @@ export async function POST(request: Request): Promise<Response> {
         imageVersion: imageSelection.imageVersion,
         provider,
         idempotencyKey,
-        persistentHome: candidate.persistentHome === true,
-        perMachineHome: candidate.perMachineHome === true,
+        ...homeVolumeOptionsFor(provider, candidate, span),
         memoryMb,
         imageSize: imageSelection.size ?? undefined,
         modelPlane,
@@ -281,17 +280,44 @@ export async function POST(request: Request): Promise<Response> {
   );
 }
 
+/**
+ * The home-volume flags the workflow receives. A provider that does not honor
+ * `CreateOptions.homeVolume` gets neither flag, so the row never claims a
+ * volume it does not have; the span records the drop for operators.
+ */
+function homeVolumeOptionsFor(
+  provider: ProviderId,
+  candidate: Record<string, unknown>,
+  span: Span,
+): { readonly persistentHome: boolean; readonly perMachineHome: boolean } {
+  const requested = {
+    persistentHome: candidate.persistentHome === true,
+    perMachineHome: candidate.perMachineHome === true,
+  };
+  const supported = vmCapabilitiesFor(provider).persistentHome;
+  const anyRequested = requested.persistentHome || requested.perMachineHome;
+  setSpanAttributes(span, {
+    "cmux.vm.home_volume_requested": anyRequested,
+    "cmux.vm.home_volume_dropped": anyRequested && !supported,
+  });
+  if (supported) return requested;
+  return { persistentHome: false, perMachineHome: false };
+}
+
 async function unsupportedCreateOptionResponse(
   provider: ProviderId,
   candidate: Record<string, unknown>,
   request: Request,
 ): Promise<Response | null> {
   const capabilities = vmCapabilitiesFor(provider);
+  // Only an explicit, user-chosen option is rejected here. `persistentHome` and
+  // `perMachineHome` are sent by every shipped `cmux vm new` (they are the
+  // client's default for a fresh machine, not a person's choice), so a provider
+  // that ignores home volumes must still create the machine; the route drops
+  // the flags and records that instead (see `homeVolumeOptionsFor`).
   const unsupported = candidate.memoryMb !== undefined && !capabilities.sizing
     ? { operation: "sizing" as const, field: "memoryMb" }
-    : (candidate.persistentHome === true || candidate.perMachineHome === true) && !capabilities.persistentHome
-      ? { operation: "persistentHome" as const, field: candidate.persistentHome === true ? "persistentHome" : "perMachineHome" }
-      : null;
+    : null;
   if (!unsupported) return null;
   const copy = await vmUnsupportedCopy(unsupported.operation, vmRequestLocale(request));
   return vmErrorResponse({
