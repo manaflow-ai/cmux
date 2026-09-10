@@ -383,6 +383,22 @@ struct DevicesCloudTreeBuilderTests {
         #expect(CloudTreeDeviceRow.displayName(baseName: "  ", instance: studio) == "22222222")
     }
 
+    @Test(
+        "Connected devices sort online even when presence is stale or missing",
+        arguments: [.offline, .unknown, nil] as [SurfaceDevicePresence.State?]
+    )
+    func orderingUsesLiveLink(state: SurfaceDevicePresence.State?) {
+        let offline = info(laptop, name: "Alpha", online: false, linkState: .offline)
+        var connected = info(studio, name: "Zulu", online: false, linkState: .connected)
+        connected.presence = state.map {
+            SurfaceDevicePresence(state: $0, lastSeenAt: nil, tag: studio.tag, bundleID: nil, accountTrust: .sameAccount)
+        }
+        #expect(CloudTreeNodeBuilder.orderedDeviceInfos([offline, connected]).map(\.id) == [connected.id, offline.id])
+
+        connected.linkState = .offline
+        #expect(CloudTreeNodeBuilder.orderedDeviceInfos([offline, connected]).map(\.id) == [offline.id, connected.id])
+    }
+
     @Test("Ordering: online first, then name, then tag; cloud and local machines are never device rows")
     func ordering() {
         let infos = [
