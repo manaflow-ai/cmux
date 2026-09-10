@@ -29,7 +29,7 @@ declare module "bun:test" {
     // widening to the constraint and failing assignment back to that type.
     (): MockFunction<(...args: unknown[]) => unknown>;
     <T extends (...args: never[]) => unknown>(
-      implementation?: T,
+      implementation: T,
     ): MockFunction<T>;
     module: (specifier: string, factory: () => unknown) => void;
   };
