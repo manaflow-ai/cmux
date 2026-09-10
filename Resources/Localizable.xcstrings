@@ -68276,6 +68276,23 @@
         }
       }
     },
+    "cli.vm.run.poolRecordFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm run: provisioned %1$@ but could not record it in the pool store, so later runs will not reuse it. Use `cmux vm run --machine %1$@` to keep using it or `cmux vm rm %1$@` to remove it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm run: %1$@ を作成しましたが、プールに記録できなかったため、今後の実行では再利用されません。引き続き使用するには `cmux vm run --machine %1$@`、削除するには `cmux vm rm %1$@` を実行してください。"
+          }
+        }
+      }
+    },
     "cli.vm.tree.empty": {
       "extractionState": "manual",
       "localizations": {

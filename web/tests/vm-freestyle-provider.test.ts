@@ -252,7 +252,7 @@ function fakeFreestyle(input: { readonly probeExit: number }) {
   return { client, creates, resizes, execs, writes, deletes };
 }
 
-function providerWith(fake: ReturnType<typeof fakeFreestyle>): FreestyleProvider {
+function providerWith(fake: { readonly client: Freestyle }): FreestyleProvider {
   return new FreestyleProvider({
     client: () => fake.client,
     resolveDaemonSource: async () => ({
@@ -657,6 +657,76 @@ describe("FreestyleProvider create with edge rules", () => {
     expect(ok.writes).toEqual([]);
     expect(JSON.stringify(ok.writes)).not.toContain("crt_");
     expect(ok.deletes).toEqual([]);
+  });
+});
+
+// A wake: `start()` reports the machine running, and its payload may or may not
+// carry the address the platform assigned it on the private network. `delete`
+// and `pause` are recorded so a test can prove the wake rolled nothing back.
+function resumeFake(vpcs?: readonly Record<string, unknown>[]) {
+  const execs: string[] = [];
+  const deletes: string[] = [];
+  const pauses: string[] = [];
+  const vm = {
+    start: async () => ({
+      id: VM_ID,
+      state: "running" as const,
+      snapshotId: "sh-devbox",
+      resources: { cpu: 2, memory: 4096, storage: 16384 },
+      ...(vpcs === undefined ? {} : { vpcs }),
+    }),
+    update: async () => ({}),
+    exec: async ({ command }: { command: string }) => {
+      execs.push(command);
+      return { statusCode: 0, stdout: "", stderr: "" };
+    },
+    delete: async () => {
+      deletes.push(VM_ID);
+    },
+    pause: async () => {
+      pauses.push(VM_ID);
+    },
+  };
+  const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+  return { client, execs, deletes, pauses };
+}
+
+/** The addresses the guest announcement was asked to announce, if it ran. */
+function announcedAddresses(execs: readonly string[]): readonly string[] {
+  const announcement = execs.find((command) => command.includes("Private network addresses are not ready"));
+  const payload = announcement?.match(/'(\[[^\[\]]*\])'$/)?.[1];
+  return payload ? (JSON.parse(payload) as string[]) : [];
+}
+
+describe("FreestyleProvider resume network readiness", () => {
+  test("a wake announces the private addresses its payload carries", async () => {
+    const fake = resumeFake([{ vpcId: "vpc_1", ipv4: "10.4.0.7", ipv6: "fd00:4::7" }]);
+
+    const handle = await providerWith(fake).resume(VM_ID);
+
+    expect(handle.status).toBe("running");
+    expect(announcedAddresses(fake.execs)).toEqual(["10.4.0.7", "fd00:4::7"]);
+  });
+
+  test.each([
+    { vpcs: undefined },
+    { vpcs: [] },
+    { vpcs: [{ vpcId: "vpc_1", routes: [] }] },
+    { vpcs: [{ ipv4: "not-an-ip", ipv6: "also-not-an-ip" }] },
+  ])("a wake without a usable address still wakes and rolls nothing back: %j", async ({ vpcs }) => {
+    // `start()` has already returned, so the machine is running and a resume
+    // has no fresh allocation to undo. A start payload can also name the
+    // network before the platform fills in the address assigned on it, so a
+    // missing address here is not a verdict on the machine. openCmuxRemote
+    // reads the authoritative addresses and is the boundary that fails closed.
+    const fake = resumeFake(vpcs);
+
+    const handle = await providerWith(fake).resume(VM_ID);
+
+    expect(handle.status).toBe("running");
+    expect(announcedAddresses(fake.execs)).toEqual([]);
+    expect(fake.deletes).toEqual([]);
+    expect(fake.pauses).toEqual([]);
   });
 });
 

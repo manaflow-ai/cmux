@@ -48,7 +48,12 @@ if not announced:
   return `python3 -c ${shellQuote(script)} ${shellQuote(JSON.stringify(addresses))}`;
 }
 
-/** Shared create, restore, resume, and attach boundary for private address setup. */
+/**
+ * The shared private-address setup every lifecycle path runs. It fails closed:
+ * a machine with no usable address has no route to its daemon or its ports.
+ * Create, restore, and attach surface that failure; a wake reports it without
+ * failing, having nothing to roll back (see FreestyleProvider.resume).
+ */
 export function announceFreestyleNetwork(vm: Pick<Vm, "exec">, addresses: readonly string[]) {
   const valid = [...new Set(addresses.filter((address) => isIP(address) !== 0))];
   if (valid.length === 0) {
