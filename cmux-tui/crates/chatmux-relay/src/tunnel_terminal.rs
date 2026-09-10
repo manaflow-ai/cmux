@@ -538,7 +538,7 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
     let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
     let open_deadline = tokio::time::sleep(OPEN_TIMEOUT);
     tokio::pin!(open_deadline);
-    loop {
+    'reader: loop {
         tokio::select! {
             biased;
             _ = parent.cancelled() => {
@@ -563,7 +563,19 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                 match decoder.push(&buffer[..count]) {
                     Ok(frames) => {
                         for frame in frames {
-                            handle_client_frame(&connection, &context, frame).await;
+                            // An OPEN can wait on an injected or external
+                            // provider. Parent shutdown and connection close
+                            // must cancel that future instead of waiting only
+                            // for the ten-second protocol deadline.
+                            tokio::select! {
+                                biased;
+                                _ = parent.cancelled() => {
+                                    connection.finish();
+                                    break 'reader;
+                                }
+                                _ = connection.done.cancelled() => break 'reader,
+                                _ = handle_client_frame(&connection, &context, frame) => {}
+                            }
                         }
                     }
                     Err(_) => {
@@ -702,11 +714,19 @@ mod tests {
 
     struct FakeDeps {
         spawned: Arc<StdMutex<Vec<FakePty>>>,
+        spawn_started: Option<Arc<tokio::sync::Notify>>,
+        spawn_wait: Option<Arc<tokio::sync::Notify>>,
     }
 
     #[async_trait]
     impl PtyDeps for FakeDeps {
         async fn spawn_pty(&self, _spec: SpawnSpec) -> PtyHandle {
+            if let Some(started) = &self.spawn_started {
+                started.notify_one();
+            }
+            if let Some(wait) = &self.spawn_wait {
+                wait.notified().await;
+            }
             let pty = FakePty { state: Arc::new(StdMutex::new(FakeState::default())) };
             self.spawned.lock().unwrap().push(pty.clone());
             PtyHandle { control: Arc::new(pty.clone()), output: Arc::new(pty), banner: None }
@@ -750,7 +770,11 @@ mod tests {
 
     async fn rig_with_limits(max_ptys: usize) -> Rig {
         let spawned = Arc::new(StdMutex::new(Vec::new()));
-        let deps = Arc::new(FakeDeps { spawned: Arc::clone(&spawned) });
+        let deps = Arc::new(FakeDeps {
+            spawned: Arc::clone(&spawned),
+            spawn_started: None,
+            spawn_wait: None,
+        });
         let env = HashMap::from([
             ("SHELL".to_owned(), "/bin/fakesh".to_owned()),
             ("HOME".to_owned(), std::env::temp_dir().to_string_lossy().into_owned()),
@@ -1123,5 +1147,47 @@ mod tests {
         assert_eq!(error["code"], "session_limit");
         read_eof(&mut read).await;
         rig.cancel.cancel();
+    }
+
+    #[tokio::test]
+    async fn parent_cancellation_interrupts_an_open_wait() {
+        let spawned = Arc::new(StdMutex::new(Vec::new()));
+        let started = Arc::new(tokio::sync::Notify::new());
+        let wait = Arc::new(tokio::sync::Notify::new());
+        let deps = Arc::new(FakeDeps {
+            spawned: Arc::clone(&spawned),
+            spawn_started: Some(Arc::clone(&started)),
+            spawn_wait: Some(wait),
+        });
+        let env = HashMap::from([
+            ("SHELL".to_owned(), "/bin/fakesh".to_owned()),
+            ("HOME".to_owned(), std::env::temp_dir().to_string_lossy().into_owned()),
+        ]);
+        let manager =
+            Arc::new(PtyManager::with_limits(deps, std::env::temp_dir(), env, 8, 32, 1_048_576));
+        let parent = CancellationToken::new();
+        let port = start_tunnel_terminal_listener(
+            Arc::clone(&manager),
+            parent.clone(),
+            TUNNEL_TERMINAL_HOST,
+            0,
+        )
+        .await
+        .expect("bind test listener");
+        let stream = TcpStream::connect((TUNNEL_TERMINAL_HOST, port)).await.expect("connect");
+        let (mut read, mut write) = stream.into_split();
+        let started_wait = started.notified();
+        tokio::pin!(started_wait);
+        write
+            .write_all(&encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })))
+            .await
+            .expect("send open");
+        started_wait.await;
+
+        parent.cancel();
+        let mut buffer = [0_u8; 1];
+        let result = tokio::time::timeout(Duration::from_secs(1), read.read(&mut buffer)).await;
+        assert_eq!(result.expect("cancellation deadline").expect("read"), 0);
+        drop(write);
     }
 }
