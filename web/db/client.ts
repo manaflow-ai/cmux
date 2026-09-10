@@ -7,6 +7,7 @@ import { Client, Pool, Query as PgQuery } from "pg";
 import postgres, { type Sql } from "postgres";
 import { cloudDbConfig, cloudDbConfigKey, type CloudDbAwsRdsIamConfig } from "./config";
 import { currentCloudDbQuerySignal } from "./queryScope";
+import { tagCloudDbQuery } from "./queryTags";
 import * as schema from "./schema";
 
 function createPostgresJsDb(sql: Sql) {
@@ -46,7 +47,11 @@ function installPostgresJsQueryCancellation(sql: Sql): void {
   const originalUnsafe = sql.unsafe;
   let currentUnsafe = originalUnsafe;
   const wrappedUnsafe = (...args: Parameters<typeof originalUnsafe>) => {
-    const query = currentUnsafe(...args) as unknown as CancellablePostgresQuery;
+    // Every statement carries the SQLCommenter tags for its request or job,
+    // so Insights attributes load to a route instead of to `postgres.js`.
+    const [statement, ...rest] = args;
+    const tagged = [tagCloudDbQuery(statement), ...rest] as Parameters<typeof originalUnsafe>;
+    const query = currentUnsafe(...tagged) as unknown as CancellablePostgresQuery;
     const signal = currentCloudDbQuerySignal();
     if (signal) watchPostgresJsQuery(query, signal);
     return query;
@@ -273,9 +278,17 @@ export async function pingCloudDb(
       prepare: false,
       connect_timeout: Math.max(1, Math.ceil(timeoutMs / 1_000)),
       idle_timeout: 1,
-      connection: { statement_timeout: Math.max(1, Math.floor(timeoutMs)) },
     });
-    const query = sql.unsafe("select 1");
+    // The deadline is set with `set local` inside an explicit transaction
+    // rather than as a startup parameter: PgBouncer in transaction pooling
+    // mode (the production pooled URL) rejects `statement_timeout` in the
+    // startup options with "unsupported startup parameter", and a plain
+    // session-level `set` would leak onto the shared server connection.
+    // One simple-protocol query keeps `query.cancel()` available for aborts.
+    const statementTimeoutMs = Math.max(1, Math.floor(timeoutMs));
+    const query = sql.unsafe(
+      `begin; set local statement_timeout = ${statementTimeoutMs}; select 1; commit`,
+    );
     const cancel = () => {
       try {
         query.cancel();

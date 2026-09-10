@@ -109,6 +109,13 @@ extension CMUXCLI {
     func printAppManagedVPNState(_ response: [String: Any]) {
         let state = (response["tunnel_state"] as? String) ?? "off"
         let configPresent = (response["config_present"] as? Bool) ?? false
+        // The app refuses to start (Cloud Machines off, or no machine yet):
+        // say why instead of promising an automatic start.
+        if state == "off", let refusal = response["start_refusal_message"] as? String, !refusal.isEmpty {
+            let format = String(localized: "cli.vpn.status.unavailable", defaultValue: "Tunnel: unavailable (%@)")
+            print(String(format: format, refusal))
+            return
+        }
         switch state {
         case "up":
             print(String(localized: "cli.vpn.status.up", defaultValue: "Tunnel: up"))

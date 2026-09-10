@@ -1,7 +1,8 @@
 import CmuxFoundation
 import SwiftUI
 
-/// The New Machine sheet: one base-image size and what the plan allows.
+/// The New Machine sheet: one image size and what the plan allows. Every
+/// machine is the same devbox with a screen, so there is nothing else to ask.
 /// Presented by ``NewMachineSheetPresenter`` as a window sheet on the main
 /// window. Create closes it at once; the machine coming up is shown by the
 /// Machines panel, not here, so the sheet never holds the window.

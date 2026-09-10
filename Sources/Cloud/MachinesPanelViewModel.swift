@@ -393,7 +393,10 @@ final class MachinesPanelViewModel: ObservableObject {
             return .sessionRejected
         case .httpStatus(402, _):
             return .requiresPro
-        case .notSignedIn, .sessionRefreshFailed, .backendUnreachable, .httpStatus, .malformedResponse:
+        case .notSignedIn, .sessionRefreshFailed, .backendUnreachable, .httpStatus, .malformedResponse,
+             .disabledByManagedPolicy:
+            // The Machines mode is removed from the sidebar under `DisableCloud`;
+            // a refresh that races the removal renders the generic state.
             return .unreachable
         }
     }
@@ -453,8 +456,6 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Last plan limits the list returned; the banner countdown re-derives from
     /// these on every local recompute without another round trip.
     private var lastLimits: VMPlanLimits?
-    /// Legacy image-kind data for older callers; the current sheet is base-only.
-    var imageKinds: [VMImageKindOption] { lastLimits?.imageKinds ?? [] }
     var memoryOptionsMb: [Int] { lastLimits?.memoryOptionsMb ?? [] }
     private var authSignOutObserver: NSObjectProtocol?
     private var treeChangeObserver: NSObjectProtocol?
@@ -463,6 +464,8 @@ final class MachinesPanelViewModel: ObservableObject {
     private static let statsInterval: Duration = .seconds(20)
 
     init(createCoordinator: MachineCreateCoordinator? = nil) {
+        // `.shared` is main-actor-isolated, so it cannot be a default argument
+        // (default values evaluate in a nonisolated context); resolve it here.
         let createCoordinator = createCoordinator ?? .shared
         self.createCoordinator = createCoordinator
         pendingCreates = createCoordinator.operations

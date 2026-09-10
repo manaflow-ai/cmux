@@ -960,6 +960,14 @@ struct CloudVMStateDocument: Hashable, Codable, Sendable {
         guard let data = Self.canonicalData(cursorObject) else { return false }
         values["cursor"] = data
         collections.removeValue(forKey: "cursor")
+        // session.revision mirrors the public cursor (resource_api.rs). Keep
+        // it aligned when a delta changes only resource rows.
+        if var session = value(forKey: "session") as? [String: Any],
+           let revision = session["revision"], CloudWireNumber.unsigned(revision) != nil {
+            session["revision"] = revision is String ? (String(cursor.revision) as Any) : NSNumber(value: cursor.revision)
+            guard let sessionData = Self.canonicalData(session) else { return false }
+            values["session"] = sessionData
+        }
         canonicalDataCache = nil
         return true
     }
@@ -984,7 +992,7 @@ struct CloudVMStateDocument: Hashable, Codable, Sendable {
         guard uniqueMatches.count <= 1 else { return false }
         let rowID = uniqueMatches.first
         let existingObject = rowID.flatMap { collection.object(forRowID: $0) }
-        if let rowID,
+        if rowID != nil,
            let existingID = existingObject.flatMap({ Self.nonEmptyString($0["id"]) }),
            let explicitID,
            existingID != explicitID {
@@ -1268,19 +1276,6 @@ struct CloudVMState: Hashable, Codable, Sendable {
 
     // New archives contain one canonical document. The decoder keeps a
     // one-way rawSnapshot fallback for archives written before this model.
-
-    static func == (lhs: CloudVMState, rhs: CloudVMState) -> Bool {
-        lhs.machine == rhs.machine
-            && lhs.cursor == rhs.cursor
-            && lhs.document == rhs.document
-            && lhs.workspaces == rhs.workspaces
-            && lhs.screens == rhs.screens
-            && lhs.panes == rhs.panes
-            && lhs.tabs == rhs.tabs
-            && lhs.terminals == rhs.terminals
-            && lhs.browsers == rhs.browsers
-            && lhs.agents == rhs.agents
-    }
 
     func hash(into hasher: inout Hasher) {
         hasher.combine(machine)
@@ -1617,7 +1612,14 @@ struct SurfaceRemoteView: Hashable, Codable, Sendable {
     var paneID: String? = nil
     var name: String? = nil
     var index: Int? = nil
+    /// True when this tab is the one its pane shows; the daemon flags exactly one
+    /// tab per pane. The pane's other tabs sit behind it in its tab bar.
     var focused: Bool? = nil
+    /// Where the tab's pane sits in the workspace's layout: the screen's index and
+    /// the pane's depth-first position in that screen's split tree. nil when the
+    /// snapshot carried no layout document (older daemons, focused snapshots).
+    var screenIndex: Int? = nil
+    var paneIndex: Int? = nil
 }
 
 struct SurfaceResource: Identifiable, Hashable, Codable, Sendable {

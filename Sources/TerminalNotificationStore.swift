@@ -2352,7 +2352,11 @@ final class TerminalNotificationStore: ObservableObject {
         if didMoveNotification {
             notifications = updated
         }
-        if didMoveNotification, focusedReadIndicatorByTabId[sourceTabId] == surfaceId {
+        // The focused-read indicator is per (workspace, surface): it leaves
+        // with the surface even when no notification moved, so the source
+        // never keeps an indicator for a surface it no longer hosts. The
+        // destination's own indicator, if any, wins.
+        if focusedReadIndicatorByTabId[sourceTabId] == surfaceId {
             focusedReadIndicatorByTabId.removeValue(forKey: sourceTabId)
             if focusedReadIndicatorByTabId[destinationTabId] == nil {
                 focusedReadIndicatorByTabId[destinationTabId] = surfaceId

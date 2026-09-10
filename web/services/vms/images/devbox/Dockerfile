@@ -32,14 +32,17 @@ FROM ubuntu:24.04
 # Cache-buster: bump the date to force remote builders past stale layer
 # caches (a remote builder served stale layers for chatmux on 2026-08-21 and
 # 2026-08-25). Also the image version /etc/cmux/image-stamp carries.
-ENV CMUX_IMAGE_EPOCH=2026-09-07-r1
+ENV CMUX_IMAGE_EPOCH=2026-09-10-r2
 
 ENV LANG=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive
 
 # Devtools (chatmux devbox apt list) plus vim, sudo for non-root provider
-# exec users, procps for the driver's daemon process discovery (pgrep), and
-# iproute2 for the desktop's port probes (ss).
+# exec users, procps for the driver's daemon process discovery (pgrep),
+# iproute2 for the desktop's port probes (ss), and bubblewrap: codex's Linux
+# sandbox prerequisite (developers.openai.com/codex/concepts/sandboxing), so
+# codex uses the distro's bwrap instead of warning on every launch that it is
+# falling back to its bundled copy.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     ripgrep \
@@ -67,10 +70,37 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     vim \
     sudo \
     util-linux \
+    bubblewrap \
   && rm -rf /var/lib/apt/lists/* \
   && ln -s "$(command -v fdfind)" /usr/local/bin/fd \
   && echo 'LANG=C.UTF-8' > /etc/default/locale \
-  && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V && ss -V
+  && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V && ss -V && bwrap --version
+
+# The work user: the base's uid-1000 account renamed to `cmux`
+# (web/services/vms/images/workUser.ts). ONE account owns the desktop session,
+# the terminals the cmux-tui daemon opens, the provider's default exec user
+# and anything an agent writes; it is not root, because coding agents refuse
+# root (`claude --dangerously-skip-permissions` exits before it starts), and
+# it holds passwordless sudo so root stays one word away. Renamed rather than
+# added: a provider whose exec default is "the account holding uid 1000" then
+# lands in the same home as cmux's terminals.
+# Ubuntu's user-private-group rule would give the account a 002 umask, so
+# every directory it creates is group-writable and cmux-tui refuses to store
+# its Noise identity under one. Kept byte-for-byte in step with
+# devboxWorkUserSetupCommand, which does the same on the VM bake.
+# (A container's hostname belongs to whoever runs it; the VM bake sets `cmux`.)
+RUN if ! id -u cmux >/dev/null 2>&1; then \
+      old="$(getent passwd 1000 | cut -d: -f1)" && test -n "$old" \
+      && usermod -l cmux -d /home/cmux -m "$old" && groupmod -n cmux "$old"; \
+    fi \
+  && for f in /etc/sudoers.d/*; do [ -f "$f" ] || continue; grep -q '^cmux[[:space:]]' "$f" || rm -f "$f"; done \
+  && echo "cmux ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/91-cmux-work-user && chmod 0440 /etc/sudoers.d/91-cmux-work-user \
+  && sed -i 's/^USERGROUPS_ENAB.*/USERGROUPS_ENAB no/' /etc/login.defs \
+  && find /home/cmux -type d -exec chmod g-w,o-w {} + \
+  && [ "$(id -u cmux)" = 1000 ] && [ "$(getent passwd cmux | cut -d: -f6)" = /home/cmux ] \
+  && [ "$(find /home/cmux -type d \( -perm -g+w -o -perm -o+w \) | wc -l)" = 0 ] \
+  && [ "$(sudo -n -u cmux sh -c umask)" = 0022 ] \
+  && sudo -n -u cmux sudo -n true
 
 # GitHub CLI from the official apt repo (not in the Ubuntu archive).
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
@@ -194,12 +224,14 @@ RUN chmod 0755 /usr/local/bin/start-vnc.sh /usr/local/bin/cmux-desktop-boot \
 
 # Coding agents, pinned at bake time (bump with the image epoch; keep in
 # lockstep with the chatmux devbox). Installed on the mise node so they
-# ride the same toolchain users get.
-ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=2.1.252
-ARG CMUX_IMAGE_CODEX_VERSION=0.151.0
-ARG CMUX_IMAGE_OPENCODE_VERSION=1.18.25
-ARG CMUX_IMAGE_PI_VERSION=0.84.4
-ARG CMUX_IMAGE_AGENT_BROWSER_VERSION=0.35.2
+# ride the same toolchain users get. `bun run devbox:pins:check` (web/)
+# compares these with the npm registry and `--write` rewrites them; a pin is
+# always an exact release, never a range or a tag.
+ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=2.1.267
+ARG CMUX_IMAGE_CODEX_VERSION=0.154.0
+ARG CMUX_IMAGE_OPENCODE_VERSION=1.18.30
+ARG CMUX_IMAGE_PI_VERSION=0.85.1
+ARG CMUX_IMAGE_AGENT_BROWSER_VERSION=0.37.1
 RUN npm install -g --foreground-scripts \
     "@anthropic-ai/claude-code@${CMUX_IMAGE_CLAUDE_CODE_VERSION}" \
     "@openai/codex@${CMUX_IMAGE_CODEX_VERSION}" \
@@ -228,15 +260,6 @@ RUN python3 -c 'import tomllib; d = tomllib.load(open("/etc/codex/managed_config
 # /etc/hostname and /etc/hosts from the daemon and discards writes to them, and
 # the runtime names every container it starts. cmux-devbox-boot regenerates the
 # host keys on a clone for both recipes.
-#
-# The work user is the uid-1000 account (`ubuntu` on the Ubuntu base, as on
-# Freestyle): the desktop session runs as it, and it gets passwordless sudo
-# so a person shelling in through the provider's own surfaces can still
-# administer the machine and coding agents' root-refusing modes work
-# (cmux sessions run as root via the cmux-tui daemon).
-RUN work_user="$(getent passwd 1000 | cut -d: -f1)" && test -n "$work_user" \
-  && echo "$work_user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/91-work-user-nopasswd && chmod 0440 /etc/sudoers.d/91-work-user-nopasswd \
-  && sudo -n -u "$work_user" sudo -n true
 
 # Interactive shell polish: bash IS the shell (chatmux parity); it
 # borrows the oh-my-zsh half-life theme colors and ble.sh supplies

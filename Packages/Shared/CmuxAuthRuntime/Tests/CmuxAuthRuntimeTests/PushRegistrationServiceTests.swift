@@ -582,11 +582,15 @@ actor RetryDelayRecorder {
         statusCode: Int
     ) async {
         await PushRegistrationURLProtocol.script.reset([
-            .response(statusCode, headers: ["Retry-After": "0"]),
+            .response(statusCode, headers: ["Retry-After": "45"]),
             .response(200),
         ])
+        let delays = RetryDelayRecorder()
         let (service, _) = makeScriptedService(
-            retryDelays: [.seconds(30)]
+            retryDelays: [.seconds(30)],
+            retrySleep: { duration in
+                await delays.record(duration)
+            }
         )
 
         await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
@@ -597,6 +601,7 @@ actor RetryDelayRecorder {
         #expect(await wait(for: .registered, from: service))
 
         #expect(await service.snapshot.backendState == .registered)
+        #expect(await delays.values.first == .seconds(45))
         #expect(await PushRegistrationURLProtocol.script.requests.count == 2)
     }
 
@@ -604,12 +609,18 @@ actor RetryDelayRecorder {
         await PushRegistrationURLProtocol.script.reset([
             .response(
                 429,
-                headers: ["Retry-After": "0"],
-                json: #"{"error":"rate_limited","retryAfterSeconds":0}"#
+                headers: ["Retry-After": "45"],
+                json: #"{"error":"rate_limited","retryAfterSeconds":45}"#
             ),
             .response(200),
         ])
-        let (service, _) = makeScriptedService(retryDelays: [.seconds(30)])
+        let delays = RetryDelayRecorder()
+        let (service, _) = makeScriptedService(
+            retryDelays: [.seconds(30)],
+            retrySleep: { duration in
+                await delays.record(duration)
+            }
+        )
 
         await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
         await service.setEnabled(true)
@@ -619,6 +630,7 @@ actor RetryDelayRecorder {
         )
         #expect(await wait(for: .registered, from: service))
         #expect(await service.snapshot.backendState == .registered)
+        #expect(await delays.values.first == .seconds(45))
         #expect(await PushRegistrationURLProtocol.script.requests.count == 2)
     }
 
@@ -642,7 +654,7 @@ actor RetryDelayRecorder {
         )
         #expect(await wait(for: .registered, from: service))
 
-        #expect(await delays.values.first == .seconds(30))
+        #expect(await delays.values.first == .seconds(60))
         #expect(await PushRegistrationURLProtocol.script.requests.count == 2)
     }
 
@@ -674,7 +686,13 @@ actor RetryDelayRecorder {
             .response(429, headers: ["Retry-After": "0"], json: body),
             .response(200),
         ])
-        let (service, _) = makeScriptedService(retryDelays: [.zero])
+        let delays = RetryDelayRecorder()
+        let (service, _) = makeScriptedService(
+            retryDelays: [.zero],
+            retrySleep: { duration in
+                await delays.record(duration)
+            }
+        )
 
         await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
         await service.setEnabled(true)
@@ -684,6 +702,7 @@ actor RetryDelayRecorder {
         #expect(await wait(for: .registered, from: service))
 
         #expect(await service.snapshot.backendState == .registered)
+        #expect(await delays.values.first == .seconds(60))
         #expect(await PushRegistrationURLProtocol.script.requests.count == 2)
     }
 

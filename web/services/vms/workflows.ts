@@ -731,6 +731,7 @@ export function openBaseVm(input: {
   readonly image: string;
   readonly imageVersion?: string | null;
   readonly baseName?: string;
+  readonly modelPlane?: VmModelPlaneProvisioner;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -763,6 +764,7 @@ export function resetBaseVm(input: {
   readonly imageVersion?: string | null;
   readonly baseName?: string;
   readonly reason?: string | null;
+  readonly modelPlane?: VmModelPlaneProvisioner;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -798,7 +800,8 @@ function finishBaseCreate(
     readonly image: string;
     readonly imageVersion?: string | null;
     readonly baseName?: string;
-      readonly timing?: VmTimingSink;
+    readonly modelPlane?: VmModelPlaneProvisioner;
+    readonly timing?: VmTimingSink;
   },
   create: BeginBaseCreateResult,
 ): Effect.Effect<BaseVmEntry, VmWorkflowError, never> {
@@ -858,6 +861,27 @@ function finishBaseCreate(
       ),
     );
 
+    const materials = yield* measureVmEffect(
+      input.timing,
+      "model_plane_provision",
+      provisionModelPlane(input.modelPlane, create.vm.id),
+    ).pipe(
+      Effect.tapError((err) =>
+        Effect.all([
+          refundCredit(billing, repo, create.vm, creditReservation),
+          repo.markBaseCreateFailed({
+            baseId: create.base.id,
+            generation: create.generation.generation,
+            vmId: create.vm.id,
+            userId: input.userId,
+            code: VM_MODEL_PLANE_FAILURE_CODES[err.kind],
+            message: errorMessage(err.cause),
+          }),
+          recordCreateFailureEvent(repo, input, create.vm, "model_plane_provision", errorMessage(err.cause)),
+        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void)),
+      ),
+    );
+
     const handle = yield* measureVmEffect(
       input.timing,
       "provider_create",
@@ -865,12 +889,14 @@ function finishBaseCreate(
         image: input.image,
         displayName: create.vm.slug ?? undefined,
         providerMetadata: create.vm.providerMetadata,
+        edgeRules: materials?.edgeRules,
         network: { id: network.providerNetworkId },
       }),
     ).pipe(
       Effect.tapError((err) =>
         Effect.all([
           refundCredit(billing, repo, create.vm, creditReservation),
+          revokeModelPlane(input.modelPlane, create.vm.id),
           repo.markBaseCreateFailed({
             baseId: create.base.id,
             generation: create.generation.generation,
@@ -910,6 +936,7 @@ function finishBaseCreate(
       Effect.catchAll((err) =>
         Effect.gen(function* () {
           yield* rollbackProviderCreate(providers, input.provider, handle);
+          yield* revokeModelPlane(input.modelPlane, create.vm.id);
           yield* refundCredit(billing, repo, create.vm, creditReservation);
           yield* repo.markBaseCreateFailed({
             baseId: create.base.id,
@@ -1293,6 +1320,7 @@ export function forkVm(input: {
   readonly providerVmId: string;
   readonly name?: string;
   readonly idempotencyKey?: string;
+  readonly modelPlane?: VmModelPlaneProvisioner;
   readonly timing?: VmTimingSink;
 }) {
   return Effect.gen(function* () {
@@ -1320,7 +1348,10 @@ export function forkVm(input: {
       { forceProviderProbe: true, maxActiveVms: input.maxActiveVms },
     );
 
-    const nativeFork = source.provider === "freestyle" && providers.fork !== undefined;
+    // A native fork has no way to accept the new row's edge rules. Use the
+    // snapshot/create path for a model-plane machine so it receives its own
+    // VM-bound credential instead of inheriting an unrouteable alias.
+    const nativeFork = !input.modelPlane && source.provider === "freestyle" && providers.fork !== undefined;
     // The provider owns cloning the source. Record its initial shape and
     // reconcile the copied machine independently after the fork completes.
     const sourceHasReservation = hasVmResourceReservationMetadata(source.providerMetadata);
@@ -1520,6 +1551,7 @@ export function forkVm(input: {
       ...(sourceReservation ? { resourceReservation: sourceReservation } : {}),
       idempotencyKey: input.idempotencyKey,
       origin: "fork",
+      modelPlane: input.modelPlane,
       timing: input.timing,
     });
     yield* repo.recordUsageEvent({

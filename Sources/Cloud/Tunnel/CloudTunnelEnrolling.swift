@@ -5,6 +5,10 @@ import Foundation
 /// over ``VMTunnelManager``; tests use a fake.
 protocol CloudTunnelEnrolling: Sendable {
     func enroll() async throws -> CloudTunnelEnrollment
+
+    /// Forget an enrollment the policy refused right after it completed, so
+    /// nothing it wrote can make the next launch treat this Mac as configured.
+    func discardEnrollment()
 }
 
 /// The result of enrollment: everything the VPN configuration needs.

@@ -31,6 +31,13 @@ extension UpdateController {
             break
         }
 
+        if isDisabledByPolicy() {
+            // `DisableAutoUpdate` (MDM): the host explains the managed state
+            // before asking; nothing here may touch the appcast.
+            log.append("manual update check suppressed (disabled by managed policy, intent=\(intent.rawValue))")
+            return
+        }
+
         if isDevLikeBundle {
             // DEV/staging builds are not on the public release train (#6292).
             log.append("manual update check suppressed (dev/staging build, intent=\(intent.rawValue))")
