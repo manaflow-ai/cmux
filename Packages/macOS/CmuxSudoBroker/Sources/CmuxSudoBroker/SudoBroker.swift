@@ -116,7 +116,8 @@ public actor SudoBroker {
             guard generation == watcherGeneration,
                   shouldWatch,
                   !Task.isCancelled else {
-                if !shouldWatch {
+                if !shouldWatch || generation == watcherGeneration {
+                    if generation == watcherGeneration { shouldWatch = false }
                     await watcher.stop()
                 }
                 throw CancellationError()
@@ -486,6 +487,10 @@ public actor SudoBroker {
                     store.appendAudit(
                         "\(now.ISO8601Format()) \(id) failed runner-launch-record"
                     )
+                    if store.state(id: id)?.runner != runner.identity {
+                        await failRunnerRegistration(runner, requestID: id, at: now)
+                        return
+                    }
                 }
                 monitor(runner: runner, requestID: id)
             } catch {
@@ -511,6 +516,43 @@ public actor SudoBroker {
             auditStatus: "denied",
             at: now
         )
+    }
+
+    private func failRunnerRegistration(
+        _ runner: SudoLaunchedRunner,
+        requestID: String,
+        at date: Date
+    ) async {
+        // Treat the unregistered runner as a cleanup root, not an active owner.
+        // Recovery must terminate this exact generation before the request ends.
+        let recoveryState = SudoRequestState(
+            id: requestID, phase: .executing, updatedAt: date, execution: runner.identity
+        )
+        _ = try? store.recordRunnerLaunchFailure(recoveryState)
+        let recoveries = await dependencies.recovery.recover(
+            states: [recoveryState], approvedDirectory: store.paths.approved
+        )
+        let cleanedUp = recoveries[requestID] == .recovered
+        if cleanedUp {
+            // The launcher owns the child reaper; join it instead of reaping twice.
+            for await _ in runner.termination { break }
+        }
+        // Retry the durable cleanup record after recovery in case the original
+        // filesystem error was transient. Preserve it when cleanup is incomplete.
+        _ = try? store.recordRunnerLaunchFailure(recoveryState)
+        settleIfPossible(
+            SudoResult(
+                id: requestID,
+                status: .failed,
+                errorCode: cleanedUp ? .runnerLaunchFailed : .processCleanupFailed,
+                note: cleanedUp ? messages.runnerLaunchFailed : messages.cleanupFailed
+            ),
+            auditStatus: cleanedUp ? "failed runner-launch-record" : "failed runner-launch-cleanup",
+            at: date
+        )
+        if store.authoritativeResult(id: requestID) == nil {
+            monitor(runner: runner, requestID: requestID)
+        }
     }
 
     /// Stops observation and pending expiry work without abandoning live runners.

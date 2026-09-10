@@ -3,6 +3,8 @@ public import Foundation
 
 /// Runs one approved sudo manifest under an independent process-tree deadline.
 public struct SudoExecutionRunner {
+    private struct ExecutionRegistrationRejected: Error {}
+
     /// The private bundled-CLI command used only by ``SudoBroker``.
     public static let hiddenCommand = "__cmux-sudo-runner"
 
@@ -227,9 +229,7 @@ public struct SudoExecutionRunner {
                     execution: process.identity,
                     now: now()
                 ) else {
-                    let survivors = processRunner.terminate(process)
-                    recordCleanupSurvivors(survivors, requestID: requestID)
-                    return 0
+                    throw ExecutionRegistrationRejected()
                 }
             } catch {
                 let survivors = processRunner.terminate(process)

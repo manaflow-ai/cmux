@@ -395,6 +395,32 @@ struct SudoSpoolStore {
         }
     }
 
+    /// Retains an unregistered runner as a cleanup root without granting it execution ownership.
+    @discardableResult
+    func recordRunnerLaunchFailure(_ recoveryState: SudoRequestState) throws -> Bool {
+        try withRequestLock(id: recoveryState.id) {
+            guard result(id: recoveryState.id) == nil else { return false }
+            let current = state(id: recoveryState.id)
+            guard current?.runner == nil || current?.runner == recoveryState.execution else {
+                return false
+            }
+            let survivors = Set(
+                (current?.cleanupSurvivors ?? []) + [current?.execution].compactMap { $0 }
+            )
+            try writeState(SudoRequestState(
+                id: recoveryState.id,
+                phase: .executing,
+                updatedAt: recoveryState.updatedAt,
+                execution: recoveryState.execution,
+                cleanupSurvivors: survivors.sorted {
+                    ($0.processIdentifier, $0.startSeconds, $0.startMicroseconds)
+                        < ($1.processIdentifier, $1.startSeconds, $1.startMicroseconds)
+                }
+            ))
+            return true
+        }
+    }
+
     func recordCleanupSurvivors(
         id: String,
         survivors: [SudoProcessIdentity],
