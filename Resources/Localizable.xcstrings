@@ -1,6 +1,125 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cli.vm.help.baseCreate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "open creates it: the devbox with a VNC screen."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "初回にVNC画面付きのdevboxを作成します。"
+          }
+        }
+      }
+    },
+    "cli.vm.help.legacyBaseKindFlags": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "accepted for older scripts; Base always has a screen"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "旧スクリプトとの互換性のため受け付けます。Baseには常に画面があります"
+          }
+        }
+      }
+    },
+    "cli.vm.help.legacyKindFlags": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "accepted for older scripts; every machine has a screen"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "旧スクリプトとの互換性のため受け付けます。すべてのマシンに画面があります"
+          }
+        }
+      }
+    },
+    "cli.vm.help.newDevbox": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create a new machine: the devbox with devtools,"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開発ツール、コーディングエージェント、VNC画面付きの"
+          }
+        }
+      }
+    },
+    "cli.vm.help.newDevboxImage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the image for the size; --image <id> is an"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "イメージを選択します。--image <id>で明示的に"
+          }
+        }
+      }
+    },
+    "cli.vm.help.newDevboxOverride": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "explicit override you normally omit."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指定できますが、通常は省略してください。"
+          }
+        }
+      }
+    },
+    "cli.vm.help.newDevboxScreen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "coding agents and a VNC screen. The server picks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいdevboxを作成します。サーバーがサイズに応じて"
+          }
+        }
+      }
+    },
   "cloudTree.error.invalidPreviewURL": {
     "extractionState": "manual",
     "localizations": {
@@ -741,13 +860,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Computer Use — Running in Background"
+            "value": "cmux Computer Use: Running in Background"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Computer Use — バックグラウンドで実行中"
+            "value": "cmux Computer Use: バックグラウンドで実行中"
           }
         }
       }
@@ -860,13 +979,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ — %2$@"
+            "value": "%1$@: %2$@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ — %2$@"
+            "value": "%1$@: %2$@"
           }
         }
       }
@@ -1285,7 +1404,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Drag the app card—not this window—into the permission list."
+            "value": "Drag the app card, not this window, into the permission list."
           }
         },
         "ja": {
@@ -1370,13 +1489,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permissions go to the separate cmux Computer Use helper — the cmux terminal itself never receives them."
+            "value": "Permissions belong to a separate Computer Use helper. You can quit or reopen it without closing cmux or your terminal sessions."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "権限は独立したcmux Computer Useヘルパーに付与され、cmuxターミナル本体には付与されません。"
+            "value": "権限は独立したComputer Useヘルパーに付与されます。ヘルパーを終了して再度開いても、cmuxやターミナルセッションは終了しません。"
           }
         }
       }
@@ -1795,7 +1914,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS asks to confirm — allow screen capture"
+            "value": "macOS asks for confirmation. Allow screen capture."
           }
         },
         "ja": {
@@ -41055,6 +41174,17 @@
         }
       }
     },
+    "cli.browser.error.circularEvaluationResult": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser evaluation result contains a circular reference"
+          }
+        }
+      }
+    },
     "cli.browser.error.diffViewerAllowlistInvalid": {
       "extractionState": "manual",
       "localizations": {
@@ -58741,6 +58871,23 @@
         }
       }
     },
+    "cli.restore.admission.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: waiting for cmux to verify that this agent session is not already running…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: このエージェントセッションがすでに実行中でないことを cmux が確認するのを待っています…"
+          }
+        }
+      }
+    },
     "cli.restore.codexCheckpointUnavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -67302,13 +67449,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "VNC Displays/"
+            "value": "Displays/"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "VNC ディスプレイ/"
+            "value": "ディスプレイ/"
           }
         }
       }
@@ -67376,7 +67523,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux vm tree [<machine>|local] [--refresh] [--json]\n       cmux surface ls [<machine>|local] [--refresh] [--json]\n\nすべてのサーフェスを Finder 風に表示します。最初にこの Mac（ワークスペース別の\nターミナルとブラウザ）、続いて各クラウドマシンの Workspaces、Ports、VNC Displays\n（画面ごとに 1 行）、最後にマシンが所有するすべてのターミナルを含む Terminals\nセクションを表示します。各行には `cmux vm open` または `cmux surface open` が\n受け付けるアドレスが含まれます。\n\nオプション:\n  <machine>   このマシンだけを表示します（この Mac は `local`）。\n  --refresh   最初に全プロバイダ（マシン一覧、リンク、ローカルペイン）を再読み込みします。\n  --json      カタログのペイロード（{machines, resources, projections}）を表示します。"
+            "value": "使用法: cmux vm tree [<machine>|local] [--refresh] [--json]\n       cmux surface ls [<machine>|local] [--refresh] [--json]\n\nすべてのサーフェスを Finder 風に表示します。最初にこの Mac（ワークスペース別の\nターミナルとブラウザ）、続いて各クラウドマシンの Workspaces、Ports、Displays\n（画面ごとに 1 行）、最後にマシンが所有するすべてのターミナルを含む Terminals\nセクションを表示します。各行には `cmux vm open` または `cmux surface open` が\n受け付けるアドレスが含まれます。\n\nオプション:\n  <machine>   このマシンだけを表示します（この Mac は `local`）。\n  --refresh   最初に全プロバイダ（マシン一覧、リンク、ローカルペイン）を再読み込みします。\n  --json      カタログのペイロード（{machines, resources, projections}）を表示します。"
           }
         }
       }
@@ -68545,13 +68692,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "VNC Displays"
+            "value": "Displays"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "VNC ディスプレイ"
+            "value": "ディスプレイ"
           }
         }
       }
@@ -288861,40 +289008,6 @@
         }
       }
     },
-    "machines.new.kind.desktop.summary": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal plus a screen you can watch and control. Best for browsers and GUI apps."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルに加えて、見たり操作したりできる画面。ブラウザや GUI アプリに最適です。"
-          }
-        }
-      }
-    },
-    "machines.new.kind.base.summary": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal only. Boots faster and uses less memory."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルのみ。起動が速く、メモリ消費が少なくなります。"
-          }
-        }
-      }
-    },
     "machines.new.plan.single": {
       "extractionState": "manual",
       "localizations": {
@@ -289180,23 +289293,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "ラベル(任意)"
-          }
-        }
-      }
-    },
-    "machines.new.kind.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kind"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "種類"
           }
         }
       }
@@ -298747,6 +298843,62 @@
           "value": "ポートを検出中…"
         }
       }
+    }
+  },
+  "cloudTree.displays.loading": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Discovering displays…" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "ディスプレイを検出中…" } }
+    }
+  },
+  "cloudTree.displays.failed": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Couldn’t discover displays. Refresh to retry." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "ディスプレイを検出できませんでした。更新して再試行してください。" } }
+    }
+  },
+  "cloudTree.displays.asleep": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Displays unavailable while the machine sleeps" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "マシンがスリープ中はディスプレイを利用できません" } }
+    }
+  },
+  "cloudTree.displays.unavailable": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Display discovery unavailable. Refresh to retry." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "ディスプレイ検出を利用できません。更新して再試行してください。" } }
+    }
+  },
+  "cloudTree.displays.empty": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "No displays available" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "利用可能なディスプレイはありません" } }
+    }
+  },
+  "cloudTree.workspace.pending": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "New workspace" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "新しいワークスペース" } }
+    }
+  },
+  "cli.vm.open.sessionsUnavailable": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "The machine’s sessions are unavailable. Refresh and retry." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "マシンのセッションを利用できません。更新して再試行してください。" } }
+    }
+  },
+  "cli.vm.tree.noDisplays": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "(none available)" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "（利用可能なものはありません）" } }
     }
   },
   "cloudTree.ports.failed": {

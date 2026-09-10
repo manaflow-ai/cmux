@@ -414,7 +414,6 @@ struct AgentHibernationRestoreMonitorTests {
             transcriptPath: live.path,
             snapshotPath: snapshotURL.path
         )
-        let monitorKey = AgentHibernationController.postTeardownRestoreTaskKey(transcriptPath: live.path)
         let processExit = AsyncStream<Void>.makeStream()
         defer { processExit.continuation.finish() }
         #expect(controller.armPostTeardownRestoreMonitor(
@@ -427,6 +426,9 @@ struct AgentHibernationRestoreMonitorTests {
             initialRetryDelaysNanoseconds: [0],
             backstopDelaysSeconds: []
         ))
+        let monitorKey = AgentHibernationController.postTeardownRestoreTaskKey(
+            transcriptPath: live.path
+        )
         let monitor = try #require(
             controller.postTeardownRestoreTasksByTranscriptPath[monitorKey]?.task
         )

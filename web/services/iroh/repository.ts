@@ -29,6 +29,8 @@ import {
   sha256,
   type IrohPathHint,
   type IrohRegistrationPayload,
+  IROH_MIN_REGISTRATION_SPACING_MS,
+  IROH_IRX_CAPABILITY,
 } from "./model";
 import {
   canIOSBindingForgetMac,
@@ -98,6 +100,8 @@ export type IrohRepositoryShape = {
     readonly nonceHash: string;
     readonly now: Date;
     readonly expiresAt: Date;
+    /** Floor between accepted registrations of one identity; tests may lower it. */
+    readonly minimumSpacingMs?: number;
   }) => Effect.Effect<IrohChallengeRecord, RepositoryError>;
   readonly findChallenge: (
     userId: string,
@@ -240,7 +244,11 @@ function makeLiveRepository(): IrohRepositoryShape {
         // the per-user challenge advisory lock above, so this read cannot race
         // another mint for the same slot.
         const [priorChallenge] = await tx
-          .select({ createdAt: irohRegistrationChallenges.createdAt })
+          .select({
+            createdAt: irohRegistrationChallenges.createdAt,
+            endpointId: irohRegistrationChallenges.endpointId,
+            identityGeneration: irohRegistrationChallenges.identityGeneration,
+          })
           .from(irohRegistrationChallenges)
           .where(and(
             eq(irohRegistrationChallenges.userId, input.userId),
@@ -257,7 +265,12 @@ function makeLiveRepository(): IrohRepositoryShape {
         // registeredAt (stamped from that challenge's createdAt) is the other
         // high-water mark the new mint must clear.
         const [slot] = await tx
-          .select({ registeredAt: irohEndpointBindings.registeredAt })
+          .select({
+            registeredAt: irohEndpointBindings.registeredAt,
+            endpointId: irohEndpointBindings.endpointId,
+            identityGeneration: irohEndpointBindings.identityGeneration,
+            capabilities: irohEndpointBindings.capabilities,
+          })
           .from(irohEndpointBindings)
           .where(and(
             eq(irohEndpointBindings.userId, input.userId),
@@ -267,6 +280,11 @@ function makeLiveRepository(): IrohRepositoryShape {
             isNull(irohEndpointBindings.revokedAt),
           ))
           .limit(1);
+        // A live slot re-registering the same identity too soon is told to
+        // wait. Nothing has been written yet, and the client's rate-limit
+        // path sleeps for Retry-After and then publishes once, so the fleet
+        // write rate is capped per slot however fast observed addresses churn.
+        enforceRegistrationSpacing(input, slot, priorChallenge);
         const floor = Math.max(
           priorChallenge?.createdAt.getTime() ?? 0,
           slot?.registeredAt?.getTime() ?? 0,
@@ -480,7 +498,16 @@ function makeLiveRepository(): IrohRepositoryShape {
             .delete(irohRegistrationChallenges)
             .where(eq(irohRegistrationChallenges.id, challenge.id));
           if (!updated) throw new Error("binding update returned no row");
-          const accountRevision = await advanceRouteRevision(tx, input.userId, input.now);
+          // A heartbeat that changes nothing a peer can act on must not bump
+          // the account route revision: every other device on the account
+          // treats a bump as "the route table changed" and refetches
+          // discovery. Liveness is already refreshed through lastSeenAt.
+          const accountRevision = await heartbeatRouteRevision(
+            tx,
+            input.userId,
+            input.now,
+            bindingMateriallyEqual(existingSlot, input.payload, accountPrivatePathHints),
+          );
           return { binding: updated, created: false, accountRevision };
         }
 
@@ -1006,87 +1033,12 @@ function makeLiveRepository(): IrohRepositoryShape {
           await advanceRouteRevision(tx, input.userId, input.now);
         }
 
-        const challengeRetentionCutoff = new Date(input.now.getTime() - IROH_EXPIRED_CHALLENGE_RETENTION_MS);
-        const auditRetentionCutoff = new Date(input.now.getTime() - 30 * 24 * 60 * 60 * 1_000);
-        await tx.execute(sql`
-          with candidates as materialized (
-            select id
-            from iroh_registration_challenges
-            where user_id = ${input.userId}
-              and expires_at < ${challengeRetentionCutoff.toISOString()}::timestamptz
-            order by expires_at, id
-            limit ${IROH_RETENTION_BATCH_SIZE}
-            for update skip locked
-          )
-          delete from iroh_registration_challenges as challenge
-          using candidates
-          where challenge.id = candidates.id
-        `);
-        await tx.execute(sql`
-          with candidates as materialized (
-            select id
-            from iroh_registration_challenges
-            where user_id = ${input.userId}
-              and consumed_at is not null
-            order by consumed_at, id
-            limit ${IROH_RETENTION_BATCH_SIZE}
-            for update skip locked
-          )
-          delete from iroh_registration_challenges as challenge
-          using candidates
-          where challenge.id = candidates.id
-        `);
-        await tx.execute(sql`
-          with candidates as materialized (
-            select id
-            from iroh_relay_token_issuances
-            where user_id = ${input.userId}
-              and requested_at < ${auditRetentionCutoff.toISOString()}::timestamptz
-            order by requested_at, id
-            limit ${IROH_RETENTION_BATCH_SIZE}
-            for update skip locked
-          )
-          delete from iroh_relay_token_issuances as issuance
-          using candidates
-          where issuance.id = candidates.id
-        `);
-        await tx.execute(sql`
-          with candidates as materialized (
-            select id
-            from iroh_pair_grant_issuances
-            where user_id = ${input.userId}
-              and expires_at < ${auditRetentionCutoff.toISOString()}::timestamptz
-            order by expires_at, id
-            limit ${IROH_RETENTION_BATCH_SIZE}
-            for update skip locked
-          )
-          delete from iroh_pair_grant_issuances as issuance
-          using candidates
-          where issuance.id = candidates.id
-        `);
-        await tx.execute(sql`
-          with candidates as materialized (
-            select binding.id
-            from iroh_endpoint_bindings as binding
-            where binding.user_id = ${input.userId}
-              and binding.revoked_at < ${auditRetentionCutoff.toISOString()}::timestamptz
-            and not exists (
-              select 1 from iroh_pair_grant_issuances as pair_grant
-              where pair_grant.initiator_binding_id = binding.id
-                or pair_grant.acceptor_binding_id = binding.id
-            )
-            and not exists (
-              select 1 from iroh_relay_token_issuances as issuance
-              where issuance.binding_id = binding.id
-            )
-            order by binding.revoked_at, binding.id
-            limit ${IROH_RETENTION_BATCH_SIZE}
-            for update skip locked
-          )
-          delete from iroh_endpoint_bindings as binding
-          using candidates
-          where binding.id = candidates.id
-        `);
+        // Retention deletes for challenges, relay and pair-grant audit rows,
+        // and old revoked bindings run in the scheduled global drain
+        // (`pruneExpiredStateGlobally`). They used to run here on every
+        // discovery call as well, which cost three to five statements per
+        // heartbeat fleet-wide for rows that the drain removes within minutes.
+        // This path keeps only the route-affecting work: expiring path hints.
       });
     }),
 
@@ -1355,6 +1307,119 @@ async function revokeActiveBindings(
       },
     });
   return revokedIds;
+}
+
+type SpacingSlot = {
+  readonly registeredAt: Date;
+  readonly endpointId: string;
+  readonly identityGeneration: number;
+  readonly capabilities: unknown;
+};
+
+type SpacingMint = {
+  readonly createdAt: Date;
+  readonly endpointId: string;
+  readonly identityGeneration: number;
+};
+
+/**
+ * Refuse a same-identity mint inside the spacing floor. The floor is measured
+ * from the newest mint of that identity on the slot, accepted or still
+ * outstanding, so several challenges minted inside one window cannot be
+ * banked and consumed later. A new endpoint id or generation is never
+ * delayed, and an irx slot is exempt until that runtime honors Retry-After.
+ */
+function enforceRegistrationSpacing(
+  input: {
+    readonly endpointId: string;
+    readonly identityGeneration: number;
+    readonly now: Date;
+    readonly minimumSpacingMs?: number;
+  },
+  slot: SpacingSlot | undefined,
+  priorChallenge: SpacingMint | undefined,
+): void {
+  if (!slot) return;
+  const sameIdentity = (candidate: { endpointId: string; identityGeneration: number }) =>
+    candidate.endpointId === input.endpointId
+    && candidate.identityGeneration === input.identityGeneration;
+  if (!sameIdentity(slot)) return;
+  if (Array.isArray(slot.capabilities) && slot.capabilities.includes(IROH_IRX_CAPABILITY)) return;
+  const minimumSpacingMs = input.minimumSpacingMs ?? IROH_MIN_REGISTRATION_SPACING_MS;
+  const newestMintMs = Math.max(
+    slot.registeredAt.getTime(),
+    priorChallenge && sameIdentity(priorChallenge) ? priorChallenge.createdAt.getTime() : 0,
+  );
+  const elapsedMs = input.now.getTime() - newestMintMs;
+  if (elapsedMs >= minimumSpacingMs) return;
+  throw new IrohQuotaExceededError({
+    code: "registration_spacing",
+    retryAfterSeconds: Math.max(1, Math.ceil((minimumSpacingMs - elapsedMs) / 1_000)),
+  });
+}
+
+/** Keep the account revision for a no-op heartbeat; advance it for real news. */
+async function heartbeatRouteRevision(
+  tx: CloudDbTransaction,
+  userId: string,
+  now: Date,
+  unchanged: boolean,
+): Promise<number> {
+  return unchanged
+    ? await currentRouteRevision(tx, userId, now)
+    : await advanceRouteRevision(tx, userId, now);
+}
+
+/** The material fields of a binding as a peer sees them, timestamps excluded. */
+function bindingMateriallyEqual(
+  existing: {
+    readonly appInstanceId: string;
+    readonly displayName: string | null;
+    readonly pairingEnabled: boolean;
+    readonly capabilities: readonly string[] | unknown;
+    readonly directPortV4: number | null;
+    readonly directPortV6: number | null;
+    readonly pathHints: readonly unknown[] | unknown;
+  },
+  payload: {
+    readonly appInstanceId: string;
+    readonly displayName?: string | null;
+    readonly pairingEnabled: boolean;
+    readonly capabilities: readonly string[];
+    readonly directPorts?: { readonly ipv4?: number | null; readonly ipv6?: number | null } | null;
+  },
+  nextPathHints: readonly IrohPathHint[],
+): boolean {
+  const existingCapabilities = Array.isArray(existing.capabilities)
+    ? [...existing.capabilities].map(String).sort()
+    : [];
+  const nextCapabilities = [...payload.capabilities].sort();
+  if (existing.appInstanceId !== payload.appInstanceId) return false;
+  if ((existing.displayName ?? null) !== (payload.displayName ?? null)) return false;
+  if (existing.pairingEnabled !== payload.pairingEnabled) return false;
+  if (existingCapabilities.join("\u001f") !== nextCapabilities.join("\u001f")) return false;
+  if ((existing.directPortV4 ?? null) !== (payload.directPorts?.ipv4 ?? null)) return false;
+  if ((existing.directPortV6 ?? null) !== (payload.directPorts?.ipv6 ?? null)) return false;
+  return routeKeys(Array.isArray(existing.pathHints) ? existing.pathHints : []) ===
+    routeKeys(nextPathHints);
+}
+
+/** Hint identity without observed_at and expires_at, sorted for comparison. */
+function routeKeys(hints: readonly unknown[]): string {
+  return hints
+    .map((raw) => {
+      const hint = raw as Partial<IrohPathHint>;
+      return [
+        hint.kind ?? "",
+        hint.value ?? "",
+        hint.source ?? "",
+        hint.privacy_scope ?? "",
+        hint.network_profile?.source ?? "",
+        hint.network_profile?.profile_id ?? "",
+      ].join("\u001f");
+    })
+    .sort()
+    .join("\u001e");
 }
 
 async function advanceRouteRevision(
