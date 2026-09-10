@@ -450,11 +450,14 @@ extension CMUXCLI {
 
     /// Chunk progress: rewrites one line on a TTY, but emits whole lines when
     /// stderr is captured (agents, logs) so the counts do not run together.
-    private func vmTransferProgress(_ line: String, final: Bool) {
+    /// Returns whether the TTY line still needs a newline if the transfer fails.
+    private func vmTransferProgress(_ line: String, final: Bool) -> Bool {
         if isatty(STDERR_FILENO) != 0 {
             cliWriteStderr("\r" + line + (final ? "\n" : ""))
+            return !final
         } else {
             cliWriteStderr(line + "\n")
+            return false
         }
     }
 
@@ -508,6 +511,10 @@ extension CMUXCLI {
         let totalChunks = max(1, (data.count + Self.vmTransferPushChunkBytes - 1) / Self.vmTransferPushChunkBytes)
         var offset = 0
         var chunkIndex = 0
+        var progressLineOpen = false
+        defer {
+            if progressLineOpen { cliWriteStderr("\n") }
+        }
         while offset < data.count {
             let end = min(offset + Self.vmTransferPushChunkBytes, data.count)
             let chunk = data.subdata(in: offset..<end)
@@ -522,7 +529,7 @@ extension CMUXCLI {
                     "cli.vm.push.progress",
                     defaultValue: "cmux vm push: %1$d/%2$d chunks"
                 )
-                vmTransferProgress(String(format: template, chunkIndex, totalChunks), final: chunkIndex == totalChunks)
+                progressLineOpen = vmTransferProgress(String(format: template, chunkIndex, totalChunks), final: chunkIndex == totalChunks)
             }
         }
 
@@ -574,6 +581,10 @@ extension CMUXCLI {
         var data = Data()
         data.reserveCapacity(totalBytes)
         let totalChunks = max(1, (totalBytes + Self.vmTransferChunkBytes - 1) / Self.vmTransferChunkBytes)
+        var progressLineOpen = false
+        defer {
+            if progressLineOpen { cliWriteStderr("\n") }
+        }
         for chunkIndex in 0..<totalChunks {
             let read = "dd if=\(quoted) bs=\(Self.vmTransferChunkBytes) skip=\(chunkIndex) count=1 2>/dev/null | base64"
             let response = try vmTransferExec(command: read, vmID: vmID, client: client)
@@ -590,7 +601,7 @@ extension CMUXCLI {
                     "cli.vm.pull.progress",
                     defaultValue: "cmux vm pull: %1$d/%2$d chunks"
                 )
-                vmTransferProgress(String(format: template, chunkIndex + 1, totalChunks), final: chunkIndex + 1 == totalChunks)
+                progressLineOpen = vmTransferProgress(String(format: template, chunkIndex + 1, totalChunks), final: chunkIndex + 1 == totalChunks)
             }
         }
 
