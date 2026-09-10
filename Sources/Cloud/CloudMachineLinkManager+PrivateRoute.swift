@@ -19,6 +19,9 @@ extension CloudMachineLinkManager {
         let addresses = candidates.filter {
             CloudWireGuardHub.routesHost($0, enrolledRoutes: hub.routes)
         }
+        if addresses.count == 1, let address = addresses.first {
+            return Self.route(for: address)
+        }
         guard addresses.count > 1, let primary = addresses.first else { return primaryRoute }
         let connected: CloudHubConnector.Connected
         do {
@@ -33,6 +36,11 @@ extension CloudMachineLinkManager {
         }
         connected.connection.cancel()
         let host = connected.host.contains(":") ? "[\(connected.host)]" : connected.host
+        return "ws://\(host):1337/v1/link"
+    }
+
+    private static func route(for address: String) -> String {
+        let host = address.contains(":") ? "[\(address)]" : address
         return "ws://\(host):1337/v1/link"
     }
 }

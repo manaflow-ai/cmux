@@ -182,11 +182,13 @@ actor CloudMachineLinkManager {
             }
             guard let hub else { throw ManagerError.wireGuardHubMissing }
             let claim = try await hub.acquire()
-            guard Self.usesWireGuardHub(
-                route: privateRoute,
-                clientCapabilities: capabilities,
-                enrolledRoutes: claim.ready.routes
-            ) else {
+            let candidates = privateAddresses(for: machineID)
+            let hasEligibleCandidate = candidates.contains {
+                CloudWireGuardHub.routesHost($0, enrolledRoutes: claim.ready.routes)
+            }
+            guard candidates.isEmpty
+                ? Self.usesWireGuardHub(route: privateRoute, clientCapabilities: capabilities, enrolledRoutes: claim.ready.routes)
+                : hasEligibleCandidate else {
                 await hub.release(claim.lease)
                 throw ManagerError.privateRouteRequired(privateRoute)
             }

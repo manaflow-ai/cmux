@@ -235,6 +235,10 @@ final class CmuxTuiSurfaceProviderRegistry {
         await links.privateRoute(for: machineID)
     }
 
+    func privateAddresses(machineID: String) async -> [String] {
+        await links.privateAddresses(for: machineID)
+    }
+
     func resolvedPrivateRoute(machineID: String, through hub: CloudWireGuardHub.Ready, fallbackRoute: String, addresses: [String]) async throws -> String {
         try await links.resolvedPrivateRoute(machineID: machineID, through: hub, fallbackRoute: fallbackRoute, addresses: addresses)
     }

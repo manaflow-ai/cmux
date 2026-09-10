@@ -501,16 +501,33 @@ extension TerminalController {
                 let hub = await MainActor.run { CmuxTuiSurfaceProviderRegistry.shared.wireGuardHub }
                 guard let hub else { throw CloudMachineLinkManager.ManagerError.wireGuardHubMissing }
                 let ready = try await hub.pinForExternalClient()
-                guard CloudMachineLinkManager.usesWireGuardHub(
-                    route: route,
-                    clientCapabilities: clientCapabilities,
-                    enrolledRoutes: ready.routes
-                ) else {
-                    throw CloudMachineLinkManager.ManagerError.privateRouteRequired(route)
-                }
                 payload["wireguard_hub_socket"] = ready.socketPath
                 let addresses = payload["network_addresses"] as? [String: Any] ?? [:]
-                payload["route"] = try await registry.resolvedPrivateRoute(machineID: vmId, through: ready, fallbackRoute: route, addresses: ["ipv4", "ipv6"].compactMap { addresses[$0] as? String })
+                var candidates = ["ipv4", "ipv6"].compactMap { addresses[$0] as? String }
+                if candidates.isEmpty {
+                    candidates = await registry.privateAddresses(machineID: vmId)
+                }
+                if candidates.isEmpty {
+                    guard CloudMachineLinkManager.usesWireGuardHub(
+                        route: route,
+                        clientCapabilities: clientCapabilities,
+                        enrolledRoutes: ready.routes
+                    ) else {
+                        throw CloudMachineLinkManager.ManagerError.privateRouteRequired(route)
+                    }
+                } else {
+                    guard candidates.contains(where: {
+                        CloudWireGuardHub.routesHost($0, enrolledRoutes: ready.routes)
+                    }) else {
+                        throw CloudMachineLinkManager.ManagerError.privateRouteRequired(route)
+                    }
+                }
+                payload["route"] = try await registry.resolvedPrivateRoute(
+                    machineID: vmId,
+                    through: ready,
+                    fallbackRoute: route,
+                    addresses: candidates
+                )
                 return payload
             }
         case "vm.sessions":

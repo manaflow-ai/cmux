@@ -37,6 +37,16 @@ struct CloudPrivateRouteSelectionTests {
         #expect(route == "ws://[fd00::2]:1337/v1/link")
     }
 
+    @Test func soleIPv4AddressInsideTheEnrolledRoutesWinsAfterFiltering() async throws {
+        let route = try await manager().resolvedPrivateRoute(
+            machineID: "vm-test",
+            through: CloudWireGuardHub.Ready(socketPath: "/unused", routes: ["10.16.0.0/24"]),
+            fallbackRoute: "ws://[fd00::2]:1337/v1/link",
+            addresses: ["fd00::2", "10.16.0.2"]
+        )
+        #expect(route == "ws://10.16.0.2:1337/v1/link")
+    }
+
     @Test func legacyCallerWithoutAddressCandidatesKeepsItsRoute() async throws {
         let route = try await manager().resolvedPrivateRoute(
             machineID: "vm-test",
