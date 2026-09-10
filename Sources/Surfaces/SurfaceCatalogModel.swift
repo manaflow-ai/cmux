@@ -960,6 +960,14 @@ struct CloudVMStateDocument: Hashable, Codable, Sendable {
         guard let data = Self.canonicalData(cursorObject) else { return false }
         values["cursor"] = data
         collections.removeValue(forKey: "cursor")
+        // session.revision mirrors the public cursor (resource_api.rs). Keep
+        // it aligned when a delta changes only resource rows.
+        if var session = value(forKey: "session") as? [String: Any],
+           let revision = session["revision"], CloudWireNumber.unsigned(revision) != nil {
+            session["revision"] = revision is String ? (String(cursor.revision) as Any) : NSNumber(value: cursor.revision)
+            guard let sessionData = Self.canonicalData(session) else { return false }
+            values["session"] = sessionData
+        }
         canonicalDataCache = nil
         return true
     }
