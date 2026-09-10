@@ -3,11 +3,8 @@ import SwiftUI
 
 @MainActor
 final class SudoApprovalWindowController: NSWindowController, NSWindowDelegate {
-    private var presentation: SudoApprovalPresentation
-    private var deny: @MainActor @Sendable () async -> Void
     private let didClose: @MainActor () -> Void
     private let hostingController: NSHostingController<SudoApprovalReviewView>
-    private var isProgrammaticDismissal = false
 
     init(
         presentation: SudoApprovalPresentation,
@@ -15,8 +12,6 @@ final class SudoApprovalWindowController: NSWindowController, NSWindowDelegate {
         deny: @MainActor @Sendable @escaping () async -> Void,
         didClose: @MainActor @escaping () -> Void
     ) {
-        self.presentation = presentation
-        self.deny = deny
         self.didClose = didClose
         hostingController = NSHostingController(
             rootView: SudoApprovalReviewView(
@@ -46,8 +41,6 @@ final class SudoApprovalWindowController: NSWindowController, NSWindowDelegate {
         approve: @MainActor @Sendable @escaping () async -> Void,
         deny: @MainActor @Sendable @escaping () async -> Void
     ) {
-        self.presentation = presentation
-        self.deny = deny
         hostingController.rootView = SudoApprovalReviewView(
             presentation: presentation,
             approve: approve,
@@ -69,14 +62,10 @@ final class SudoApprovalWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func dismiss() {
-        isProgrammaticDismissal = true
         close()
     }
 
     func windowWillClose(_ notification: Notification) {
-        if !isProgrammaticDismissal, presentation.canDecide {
-            Task { await deny() }
-        }
         didClose()
     }
 }
