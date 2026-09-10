@@ -95,9 +95,15 @@ on 6901. The contract (`web/services/vms/images/desktop.ts`;
   `ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256` before dpkg runs); the apt list is
   `ARG CMUX_IMAGE_DESKTOP_PACKAGES`. `devbox-image-common.ts` reads all three.
 
-Desktop and base defaults use separate snapshots. `--no-desktop --kinds base`
-builds the shell-only base ladder; the verifier reads `/etc/cmux/image-stamp`
-and rejects a desktop snapshot passed as a base image.
+Desktop and base defaults use separate snapshots, and desktop is the kind
+every default create path asks for (`VM_IMAGE_DEFAULT_KIND` in
+`services/vms/images/resolver.ts`; the app sheet and the CLI send `--desktop`
+unless the person picks Base). `--kinds desktop` promotes the desktop ladder
+and `--no-desktop --kinds base` builds and promotes the shell-only base
+ladder; the verifier reads `/etc/cmux/image-stamp` and rejects a desktop
+snapshot passed as a base image. A daemon change (the cmux-tui pin) reaches
+machines only through a rebake of both ladders: the driver's attach-time heal
+never upgrades a healthy baked daemon.
 
 The Freestyle base slug is only the input to the cmux bake. The ids recorded in
 `manifest.json` are cmux-derived snapshots, created by baking cmux-tui and its
