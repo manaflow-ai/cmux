@@ -355,7 +355,7 @@ describe("provider inference from explicit images", () => {
   });
 
   test("manifest versions infer their provider too", () => {
-    expect(inferVmProviderForImage(`${baseLadderVersion}-base-xl`)).toBe("freestyle");
+    expect(inferVmProviderForImage(`${baseLadderVersion}-xl-base`)).toBe("freestyle");
     expect(inferVmProviderForImage(legacyVersion)).toBe("freestyle");
   });
 
