@@ -1364,6 +1364,7 @@
 		E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */; };
 		E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */; };
 		C0A712500000000000000002 /* ExternalApplicationWindowTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A712500000000000000001 /* ExternalApplicationWindowTracker.swift */; };
+		C0A716900000000000000002 /* ExternalApplicationWindowTrackerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A716900000000000000001 /* ExternalApplicationWindowTrackerTests.swift */; };
 		C0A712510000000000000002 /* ExternalWindowCompanionPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A712510000000000000001 /* ExternalWindowCompanionPresenter.swift */; };
 		C0DEA7710000000000000007 /* FeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA7710000000000000008 /* FeatureFlags.swift */; };
 		FEED0A00000000000000F007 /* feed-tui in Resources */ = {isa = PBXBuildFile; fileRef = FEED0A00000000000000F006 /* feed-tui */; };
@@ -4781,6 +4782,7 @@
 		E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreePrototype.swift; sourceTree = "<group>"; };
 		E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreeSpawnArgsTests.swift; sourceTree = "<group>"; };
 		C0A712500000000000000001 /* ExternalApplicationWindowTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ExternalApplicationWindowTracker.swift; sourceTree = "<group>"; };
+		C0A716900000000000000001 /* ExternalApplicationWindowTrackerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalApplicationWindowTrackerTests.swift; sourceTree = "<group>"; };
 		C0A712510000000000000001 /* ExternalWindowCompanionPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ExternalWindowCompanionPresenter.swift; sourceTree = "<group>"; };
 		C0DEA7710000000000000008 /* FeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureFlags.swift; sourceTree = "<group>"; };
 		FEED0A00000000000000F006 /* feed-tui */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "feed-tui"; sourceTree = "<group>"; };
@@ -10008,6 +10010,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A10507000000000000000002 /* TitleUpdateAmplificationRegressionTests.swift */,
 				42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */,
 				C0A710120000000000000001 /* ComputerUseUXTests.swift */,
+				C0A716900000000000000001 /* ExternalApplicationWindowTrackerTests.swift */,
 				C95FA2E4CBC042628EE67957 /* RemoteClaudeTeamsRespawnRoutingTests.swift */,
 				B11049000000000000000002 /* RemotePTYReconnectLifecycleTests.swift */,
 				B11049000000000000000004 /* RemoteRelayTmuxCompatAuthorizationTests.swift */,
@@ -13752,6 +13755,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D86860000000000000000001 /* DockWorkingDirectoryInheritanceTests.swift in Sources */,
 				D3622100A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift in Sources */,
 				E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */,
+				C0A716900000000000000002 /* ExternalApplicationWindowTrackerTests.swift in Sources */,
 				8672E0048672E0048672E004 /* FeedCoordinatorIngressTests.swift in Sources */,
 				FEEDC0DEC0DEC0DEC0DE0001 /* FeedCoordinatorTests.swift in Sources */,
 				FEED49850000000000000001 /* FeedEventClassificationTests.swift in Sources */,
