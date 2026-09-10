@@ -48,6 +48,7 @@ import {
   devboxDesktopOpenUrl,
 } from "../images/desktop";
 import { GUEST_CMUX_SELF_SHIM_PATH, guestSelfCliInstallCommand } from "../guestSelfCli";
+import { devboxNetworkAnnounceCommand } from "../images/network";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import {
   CMUX_TUI_INSTALL_TIMEOUT_MS,
@@ -1354,6 +1355,15 @@ export class FreestyleProvider implements VMProvider {
     const shim = await this.execResult(vm, guestSelfCliInstallCommand());
     if (shim?.exitCode !== 0) {
       console.warn(`[freestyle] guest cmux shim install in ${vmId} failed: ${(shim?.stderr || shim?.stdout || "no exec result").slice(0, 200)}`);
+    }
+    // Every attach also announces the machine on its private network: the VPC
+    // fabric forwards to a machine only after a frame from it, and a clone
+    // sends none on its own, so the Mac's first dial after this call would
+    // otherwise vanish for the whole connect timeout (images/network.ts).
+    // Best-effort: the boot supervisor on a current image announces anyway.
+    const announce = await this.execResult(vm, devboxNetworkAnnounceCommand());
+    if (announce?.exitCode !== 0) {
+      console.warn(`[freestyle] private-network announce in ${vmId} failed: ${(announce?.stderr || announce?.stdout || "no exec result").slice(0, 200)}`);
     }
     let result = await this.execResult(
       vm,

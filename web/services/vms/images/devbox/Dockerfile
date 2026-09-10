@@ -55,6 +55,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zstd \
     procps \
     iproute2 \
+    iputils-arping \
     openssh-client \
     pkg-config \
     jq \
