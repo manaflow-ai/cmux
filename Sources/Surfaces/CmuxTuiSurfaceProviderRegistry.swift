@@ -30,6 +30,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     private var accessObserver: NSObjectProtocol?
     private var themeObserver: NSObjectProtocol?
     private var activationObserver: NSObjectProtocol?
+    private let notificationCenter: NotificationCenter
     /// Whether the periodic fleet read may run right now.
     private let allowsBackgroundWork: @MainActor () -> Bool
     private let listPage: @MainActor () async -> VMListPage?
@@ -67,13 +68,15 @@ final class CmuxTuiSurfaceProviderRegistry {
         refreshProvider: @escaping @MainActor (CmuxTuiSurfaceProvider, Bool) async -> Void = { provider, force in
             await provider.refresh(force: force)
         },
-        closeTransports: (@MainActor () async -> Void)? = nil
+        closeTransports: (@MainActor () async -> Void)? = nil,
+        notificationCenter: NotificationCenter = .default
     ) {
         self.links = links
         self.wireGuardHub = wireGuardHub
         self.allowsBackgroundWork = allowsBackgroundWork
         self.listPage = listPage
         self.refreshProvider = refreshProvider
+        self.notificationCenter = notificationCenter
         let forwards = wireGuardHub.map { CloudHubPortForwarder(dialer: CloudWireGuardHubDialer(hub: $0)) }
         portForwards = forwards
         self.closeTransports = closeTransports ?? {
@@ -122,8 +125,8 @@ final class CmuxTuiSurfaceProviderRegistry {
         let epoch = accessEpoch
         // Block observers are retained by NotificationCenter: drop the previous
         // tokens so a re-start never leaves stale callbacks registered.
-        if let accessObserver { NotificationCenter.default.removeObserver(accessObserver) }
-        accessObserver = NotificationCenter.default.addObserver(
+        if let accessObserver { notificationCenter.removeObserver(accessObserver) }
+        accessObserver = notificationCenter.addObserver(
             forName: .cmuxCloudVMAccessDidEnd,
             object: nil,
             queue: .main
@@ -132,8 +135,8 @@ final class CmuxTuiSurfaceProviderRegistry {
         }
         // A Ghostty config reload can change the resolved theme; re-push it so remote
         // panes keep matching the local ones (connect-time push covers new links).
-        if let themeObserver { NotificationCenter.default.removeObserver(themeObserver) }
-        themeObserver = NotificationCenter.default.addObserver(
+        if let themeObserver { notificationCenter.removeObserver(themeObserver) }
+        themeObserver = notificationCenter.addObserver(
             forName: .ghosttyConfigDidReload,
             object: nil,
             queue: .main
@@ -143,8 +146,8 @@ final class CmuxTuiSurfaceProviderRegistry {
         }
         // The Beta Features toggle can change while the app runs; the poll
         // follows it without a relaunch in both directions.
-        if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
-        activationObserver = NotificationCenter.default.addObserver(
+        if let activationObserver { notificationCenter.removeObserver(activationObserver) }
+        activationObserver = notificationCenter.addObserver(
             forName: RightSidebarBetaFeatureSettings.didChangeNotification,
             object: nil,
             queue: .main
