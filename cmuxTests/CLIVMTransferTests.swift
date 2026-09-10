@@ -800,7 +800,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let socketPath = makeSocketPath("vm-push-secret-dir")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
-        let log = VMTransferRequestLog()
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -808,7 +807,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let tempDir = try vmTransferTempDir("secret-dir")
         defer { try? FileManager.default.removeItem(at: tempDir) }
         try Data("x".utf8).write(to: tempDir.appendingPathComponent("a.txt"))
-        _ = startVMTransferMethodMock(listenerFD: listenerFD, state: state, log: log) { _, _, _ in nil }
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+            self.v2Response(
+                id: self.jsonObject(line)?["id"] as? String ?? "unknown",
+                ok: false,
+                error: ["code": "unexpected", "message": "Local validation must not reach the socket"]
+            )
+        }
         let environment = vmTransferEnvironment(socketPath: socketPath)
 
         let directory = runProcess(
@@ -838,7 +843,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNotEqual(badMode.status, 0, badMode.stdout)
         XCTAssertTrue(badMode.stderr.contains("--mode must be three or four octal digits"), badMode.stderr)
 
-        XCTAssertTrue(log.methods.isEmpty, "local validation must not reach the socket: \(log.methods)")
+        XCTAssertTrue(state.snapshot().isEmpty, "local validation must not reach the socket: \(state.snapshot())")
     }
 
     func testVMPushWatchPushesAgainWhenAFileChanges() throws {

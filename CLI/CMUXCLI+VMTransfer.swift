@@ -234,7 +234,7 @@ extension CMUXCLI {
                 excludes: excludes
             ).count
             payload["sync"] = 0
-            print(jsonString(payload))
+            print(jsonString(payload, prettyPrinted: false))
             fflush(stdout)
         }
         // `vm run` embeds pushes: stdout stays reserved for the command's own
@@ -582,7 +582,7 @@ extension CMUXCLI {
                 payload["event"] = "synced"
                 payload["files"] = current.count
                 payload["sync"] = syncs
-                print(jsonString(payload))
+                print(jsonString(payload, prettyPrinted: false))
             } else {
                 print("synced \(current.count) files at \(clock.string(from: Date())) (\(Self.formatByteCount(outcome.bytes)))")
             }
