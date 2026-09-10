@@ -94,14 +94,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             startDetachedMockServer(listenerFD: listenerFD, state: state, handler: respond)
         }
 
-        let serverHandled: XCTestExpectation?
-        if waitForSocket {
-            serverHandled = startMockServer(listenerFD: listenerFD, state: state, handler: respond)
-        } else {
-            startDetachedMockServer(listenerFD: listenerFD, state: state, handler: respond)
-            serverHandled = nil
-        }
-
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
