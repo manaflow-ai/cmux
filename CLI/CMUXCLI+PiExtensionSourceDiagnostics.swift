@@ -10,8 +10,9 @@ const defaultPiHookTimeoutMilliseconds = 15_000;
 const maximumPiHookTimeoutMilliseconds = 60_000;
 // Feed's CLI owns a four-second end-to-end deadline. Give the wrapper enough
 // headroom that the child reports that outcome itself instead of being killed
-// mid-deadline, while lifecycle tuning still cannot pin the shared Feed pool.
-const maximumPiFeedCommandTimeoutMilliseconds = 4_500;
+// mid-deadline. Keep this strictly later than the dispatcher's 4.5-second drain
+// deadline, while lifecycle tuning still cannot pin the shared Feed pool.
+const maximumPiFeedCommandTimeoutMilliseconds = 5_000;
 // Diagnostics are best effort and may hold a serialized hook queue only briefly.
 const piHookDiagnosticWriteDeadlineMilliseconds = 100;
 

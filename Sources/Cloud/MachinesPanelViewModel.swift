@@ -393,7 +393,10 @@ final class MachinesPanelViewModel: ObservableObject {
             return .sessionRejected
         case .httpStatus(402, _):
             return .requiresPro
-        case .notSignedIn, .sessionRefreshFailed, .backendUnreachable, .httpStatus, .malformedResponse:
+        case .notSignedIn, .sessionRefreshFailed, .backendUnreachable, .httpStatus, .malformedResponse,
+             .disabledByManagedPolicy:
+            // The Machines mode is removed from the sidebar under `DisableCloud`;
+            // a refresh that races the removal renders the generic state.
             return .unreachable
         }
     }
@@ -407,6 +410,10 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Local workspaces in sidebar order, so this Mac's terminals group under
     /// the workspace that shows them (titles resolved here, above the outline).
     @Published private(set) var localWorkspaces: [CloudTreeLocalWorkspace] = []
+    /// Machine id to terminal ids with a notification this Mac has not read,
+    /// from the per-machine notification syncs.
+    @Published private(set) var unreadTerminalIDs: [String: Set<String>] = [:]
+    private var unreadObserver: NSObjectProtocol?
     /// Last failure from a tree verb (open, new terminal, …); shown in the
     /// control bar's help text, cleared by the next successful refresh.
     @Published private(set) var treeErrorDescription: String?
@@ -491,6 +498,15 @@ final class MachinesPanelViewModel: ObservableObject {
             // Delivered on the main queue (`queue: .main`), which is the main actor.
             MainActor.assumeIsolated { self?.scheduleCatalogRead() }
         }
+        if let unreadObserver { NotificationCenter.default.removeObserver(unreadObserver) }
+        unreadObserver = NotificationCenter.default.addObserver(
+            forName: .cmuxCloudNotificationUnreadDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.readUnreadTerminalIDs() }
+        }
+        readUnreadTerminalIDs()
     }
 
     /// Catalog changes arrive in bursts (a link snapshot upserts dozens of resources, a
@@ -531,6 +547,9 @@ final class MachinesPanelViewModel: ObservableObject {
         if let treeChangeObserver {
             NotificationCenter.default.removeObserver(treeChangeObserver)
         }
+        if let unreadObserver {
+            NotificationCenter.default.removeObserver(unreadObserver)
+        }
         if let createChangeObserver {
             NotificationCenter.default.removeObserver(createChangeObserver)
         }
@@ -560,6 +579,18 @@ final class MachinesPanelViewModel: ObservableObject {
     func readCatalog() {
         catalog = SurfaceCatalog.shared.snapshot
         localWorkspaces = localWorkspacesProvider()
+        // The unread index and the catalog change on the same accepted daemon
+        // state, so a catalog read also refreshes it. Cheap: a dictionary read.
+        readUnreadTerminalIDs()
+    }
+
+    private func readUnreadTerminalIDs() {
+        let unread = CloudNotificationSyncHub.shared.unreadTerminalIDs
+        guard unread != unreadTerminalIDs else { return }
+        #if DEBUG
+        cmuxDebugLog("cloud.notifications.panelUnread machines=\(unread.count) terminals=\(unread.values.reduce(0) { $0 + $1.count })")
+        #endif
+        unreadTerminalIDs = unread
     }
 
     /// The explicit Refresh verb: asks every provider to re-sync (machine list,

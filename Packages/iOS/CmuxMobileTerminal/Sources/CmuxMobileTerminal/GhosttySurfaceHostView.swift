@@ -54,6 +54,7 @@ import UIKit
 public final class GhosttySurfaceHostView: UIView {
     public let surfaceView: GhosttySurfaceView
     private let keyboardFrameTracker: MobileKeyboardFrameTracker
+    private var isHandlingKeyboardTransition = false
     /// Safe-area value captured outside the SwiftUI terminal subtree. The
     /// surface can be intentionally underlapped, so its UIKit leaf may report
     /// zero even when the screen still has a home-indicator inset.
@@ -408,6 +409,9 @@ public final class GhosttySurfaceHostView: UIView {
     }
 
     @objc private func keyboardWillChangeFrame(_ notification: Notification) {
+        guard !isHandlingKeyboardTransition else { return }
+        isHandlingKeyboardTransition = true
+        defer { isHandlingKeyboardTransition = false }
         guard window != nil,
               let transition = MobileKeyboardTransition(notification: notification) else { return }
         beginKeyboardLeg(

@@ -7,6 +7,7 @@ import { Client, Pool, Query as PgQuery } from "pg";
 import postgres, { type Sql } from "postgres";
 import { cloudDbConfig, cloudDbConfigKey, type CloudDbAwsRdsIamConfig } from "./config";
 import { currentCloudDbQuerySignal } from "./queryScope";
+import { tagCloudDbQuery } from "./queryTags";
 import * as schema from "./schema";
 
 function createPostgresJsDb(sql: Sql) {
@@ -46,7 +47,11 @@ function installPostgresJsQueryCancellation(sql: Sql): void {
   const originalUnsafe = sql.unsafe;
   let currentUnsafe = originalUnsafe;
   const wrappedUnsafe = (...args: Parameters<typeof originalUnsafe>) => {
-    const query = currentUnsafe(...args) as unknown as CancellablePostgresQuery;
+    // Every statement carries the SQLCommenter tags for its request or job,
+    // so Insights attributes load to a route instead of to `postgres.js`.
+    const [statement, ...rest] = args;
+    const tagged = [tagCloudDbQuery(statement), ...rest] as Parameters<typeof originalUnsafe>;
+    const query = currentUnsafe(...tagged) as unknown as CancellablePostgresQuery;
     const signal = currentCloudDbQuerySignal();
     if (signal) watchPostgresJsQuery(query, signal);
     return query;

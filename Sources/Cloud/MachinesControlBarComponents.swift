@@ -56,7 +56,7 @@ struct MachinesFreeAccessBanner: View {
 
     var body: some View {
         Button {
-            ProUpgradePresenter.present()
+            ProUpgradePresenter.present(source: .machinesPanelTrialBanner)
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: isExpired ? "lock.fill" : "clock")

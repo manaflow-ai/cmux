@@ -23,7 +23,7 @@ enum CloudVMPanelAuthState: Equatable {
 }
 
 /// Right-sidebar Machines tab: the user's cloud machine fleet as a Finder-like
-/// tree (machine → Workspaces → terminals, Ports, VNC Displays, Terminals). Matches the
+/// tree (machine → Workspaces → terminals, Ports, Displays, Terminals). Matches the
 /// Vault/Feed visual language — compact 13pt rows, full-width hover
 /// backgrounds, chrome-pill control bar. Outline rows receive immutable
 /// snapshots plus closure bundles only (snapshot-boundary rule); every mutation
@@ -36,6 +36,9 @@ struct MachinesPanelView: View {
     @AppStorage(RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
     private var cloudBetaEnabled = RightSidebarBetaFeatureSettings.defaultCloudMachinesEnabled
     @State private var expansionStore = CloudTreeExpansionStore()
+    /// The explicit Cloud VPN's state (`cmux vpn up`), shown as a banner while
+    /// it is starting, waiting for the extension approval, up, or failed.
+    @State private var tunnelStatus = CloudTunnelStatusModel()
     /// The tree's visual preset; the debug gallery's "Use" buttons write this,
     /// and @AppStorage re-renders the live panel the moment it changes.
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
@@ -106,12 +109,20 @@ struct MachinesPanelView: View {
         .onDisappear {
             viewModel.stopPolling()
         }
+        .task {
+            await tunnelStatus.observe(AppDelegate.shared?.cloudTunnelCoordinator)
+        }
         .accessibilityIdentifier("CloudMachinesPanel")
     }
 
     @ViewBuilder
     private var authenticatedContent: some View {
         controlBar
+        if includesCloud, let banner = tunnelStatus.banner {
+            MachinesTunnelBanner(banner: banner, backgroundColor: chromeBackgroundColor) {
+                SystemExtensionSettingsLink.open()
+            }
+        }
         if includesCloud, let plan = viewModel.plan, !plan.isPaidPlan, let text = plan.freeAccessBannerText {
             MachinesFreeAccessBanner(
                 text: text,
@@ -397,7 +408,7 @@ struct MachinesPanelView: View {
         .multilineTextAlignment(.center)
         .padding(.horizontal, 24)
         Button {
-            ProUpgradePresenter.present()
+            ProUpgradePresenter.present(source: .machinesPanelRequiresPro)
         } label: {
             Text(String(localized: "machines.requiresPro.upgrade", defaultValue: "Upgrade to Pro"))
                 .cmuxFont(size: 12)
@@ -509,6 +520,7 @@ struct MachinesPanelView: View {
             pendingCreates: includesCloud ? viewModel.pendingCreates : [],
             snapshot: treeSnapshot,
             localWorkspaces: viewModel.localWorkspaces,
+            unreadTerminalIDs: viewModel.unreadTerminalIDs,
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore,
@@ -565,7 +577,7 @@ struct MachinesPanelView: View {
                     // The upgrade nudge under the create button: same Pro flow
                     // as the meter's at-limit hint and the ＋ at the ceiling.
                     Button {
-                        ProUpgradePresenter.present()
+                        ProUpgradePresenter.present(source: .machinesPanelUpgradeNudge)
                     } label: {
                         Text(upgradeNudgeLabel(plan))
                             .cmuxFont(size: 11)
@@ -646,7 +658,6 @@ struct MachineRowActions {
     let runCommand: @MainActor (String, [String]) -> Void
     let confirmDelete: @MainActor (String) -> Void
     let promptRename: @MainActor (String, String?) -> Void
-    let resizeDisk: @MainActor (String, Int) -> Void
     /// A locked (free-window-expired) machine routes here instead of a doomed
     /// connect; the backend enforces the same boundary with 402s.
     let promptUpgrade: @MainActor () -> Void
@@ -688,14 +699,8 @@ struct MachineRowActions {
             promptRename: { id, currentLabel in
                 presentRenamePrompt(id: id, currentLabel: currentLabel, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
             },
-            resizeDisk: { id, gib in
-                onWillMutate(String(format: String(localized: "machines.operation.resizeDisk", defaultValue: "Increasing %@ disk to %d GiB…"), id, gib))
-                if !launch(arguments: ["vm", "resize", id, "--disk", "\(gib)G"], onDidMutate: onDidMutate) {
-                    onDidMutate()
-                }
-            },
             promptUpgrade: {
-                ProUpgradePresenter.present()
+                ProUpgradePresenter.present(source: .machinesPanelMachineAction)
             }
         )
     }

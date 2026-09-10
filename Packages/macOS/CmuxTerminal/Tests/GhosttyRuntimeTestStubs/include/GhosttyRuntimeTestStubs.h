@@ -32,6 +32,7 @@ void ghostty_config_load_string(
     const char *contents,
     uintptr_t contents_len,
     const char *path);
+ghostty_string_s ghostty_config_serialize(void *config);
 bool ghostty_config_get(
     void *config,
     void *value,

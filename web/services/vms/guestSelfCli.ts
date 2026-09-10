@@ -29,20 +29,24 @@ msg() {
 
   cmux self [--json]     which machine this is: name, id, status, team
   cmux vm ls [--json]    the team'"'"'s machines, this one marked with *
+  cmux notify [flags]    post a notification from this machine (Mac flags: --title, --subtitle, --body, --clear, --surface)
 
-Every other cmux verb (vm new, vm exec, vm push, notify, …) runs on the Mac
+Every other cmux verb (vm new, vm exec, vm push, …) runs on the Mac
 cmux CLI. This machine holds no account token; the TLS edge authenticates it.
 ' ;;
     ja/help) printf '%s' 'cmux（cmux Cloud マシン内）
 
   cmux self [--json]     このマシンの名前、ID、状態、チーム
   cmux vm ls [--json]    チームのマシン一覧。このマシンには * が付きます
+  cmux notify [flags]    このマシンから通知を送ります（Mac と同じフラグ: --title、--subtitle、--body、--clear、--surface）
 
-その他の cmux コマンド（vm new、vm exec、vm push、notify など）は Mac の
+その他の cmux コマンド（vm new、vm exec、vm push など）は Mac の
 cmux CLI で実行してください。このマシンはアカウントトークンを持たず、
 TLS エッジが認証します。
 ' ;;
     en/hostOnly) printf 'cmux: %s runs on the Mac cmux CLI, not inside a machine (try cmux --help)\\n' "$@" ;;
+    en/noDaemon) printf 'cmux: %s needs the cmux-tui daemon, which is not installed in this machine\\n' "$@" ;;
+    ja/noDaemon) printf 'cmux: %s には cmux-tui デーモンが必要ですが、このマシンにはインストールされていません\\n' "$@" ;;
     ja/hostOnly) printf 'cmux: %s は Mac の cmux CLI で実行してください。マシン内では使えません（cmux --help を参照）\\n' "$@" ;;
     en/noEdge) printf 'cmux: no cmux API endpoint in this machine (CMUX_CODEROUTER_URL is missing)\\n' ;;
     ja/noEdge) printf 'cmux: このマシンに cmux API エンドポイントがありません（CMUX_CODEROUTER_URL が未設定）\\n' ;;
@@ -128,6 +132,21 @@ cmd_vm_ls() {
 
 case "\${1:-}" in
   self) shift; cmd_self "$@" ;;
+  notify|notification)
+    # Notifications live in this machine's cmux-tui daemon; the Mac derives
+    # its unread state from them. Same flags as the macOS cmux notify. Inside
+    # a daemon terminal CMUX_TUI_SOCKET is set; elsewhere (vm exec, cron) the
+    # daemon's own session socket is the target, never a default "main".
+    tui="\${CMUX_TUI_BIN:-/usr/local/bin/cmux-tui}"
+    if [ -x "$tui" ]; then
+      if [ -z "\${CMUX_TUI_SOCKET:-}" ]; then
+        run_dir="\${CMUX_TUI_RUN_DIR:-/tmp/cmux-tui-$(id -u)}"
+        if [ -S "$run_dir/cloud.sock" ]; then exec "$tui" --socket "$run_dir/cloud.sock" "$@"; fi
+      fi
+      exec "$tui" "$@"
+    fi
+    die 2 noDaemon "cmux $1"
+    ;;
   vm)
     shift
     case "\${1:-}" in

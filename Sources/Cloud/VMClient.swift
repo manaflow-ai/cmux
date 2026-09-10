@@ -1,4 +1,5 @@
 import CmuxAuthRuntime
+import CMUXMobileCore
 import Foundation
 
 extension URLError.Code {
@@ -38,9 +39,16 @@ enum VMClientError: Error, CustomStringConvertible {
     case backendUnreachable(url: String, detail: String)
     case httpStatus(Int, String)
     case malformedResponse(String)
+    /// An MDM profile forces `DisableCloud`; no request was attempted.
+    case disabledByManagedPolicy
 
     var description: String {
         switch self {
+        case .disabledByManagedPolicy:
+            return String(
+                localized: "cloud.managed.disabled",
+                defaultValue: "Cloud Machines are disabled by your administrator."
+            )
         case .notSignedIn:
             return """
                 You are not signed in to cmux.
@@ -167,7 +175,7 @@ private func defaultCloudVMMessage(status: Int) -> String {
     }
 }
 
-private func defaultCloudVMAction(status: Int, errorCode: String) -> String {
+func defaultCloudVMAction(status: Int, errorCode: String) -> String {
     switch errorCode {
     case "vm_active_limit_exceeded":
         return "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before retrying."
@@ -178,7 +186,7 @@ private func defaultCloudVMAction(status: Int, errorCode: String) -> String {
     case "vm_requires_pro":
         return String(
             localized: "cloudVM.error.requiresPro.action",
-            defaultValue: "Upgrade to cmux Pro at https://cmux.com/pricing to create Cloud VMs."
+            defaultValue: "Upgrade to cmux Pro at https://cmux.com/pricing?cmux_source=mac_vm_requires_pro_error&cmux_client=mac to create Cloud VMs."
         )
     case "vm_create_credits_insufficient":
         return "Ask a team admin to upgrade the plan or grant more Cloud VM create credits, then retry."
@@ -700,14 +708,10 @@ actor VMClient {
     @MainActor private(set) static var shared: VMClient!
 
     /// Build the shared client with its injected auth dependency. Call once at
-    /// the composition root. `privateNetwork` is used only for Cloud webviews.
+    /// the composition root.
     @MainActor
-    static func bootstrap(
-        auth: AuthCoordinator,
-        session: URLSession = .shared,
-        privateNetwork: any CloudPrivateNetworkGate = CloudPrivateNetworkNoopGate()
-    ) {
-        shared = VMClient(session: session, auth: auth, privateNetwork: privateNetwork)
+    static func bootstrap(auth: AuthCoordinator, session: URLSession = .shared) {
+        shared = VMClient(session: session, auth: auth)
     }
 
     /// Revoke endpoint credentials issued by the Cloud VM service during sign-out.
@@ -747,28 +751,23 @@ actor VMClient {
     private let session: URLSession
     private let auth: AuthCoordinator
     private let telemetry: VMClientTelemetry
-    /// The browser-only private-network gate. Terminal and metadata traffic
-    /// uses the separate user-space WireGuard hub.
-    private let privateNetwork: any CloudPrivateNetworkGate
+    /// "Does this account have a machine?", remembered for the next launch
+    /// (``CloudActivationPolicy``). Every list and every create updates it.
+    private let machineCache: CloudMachineCache
+    private let isDisabledByManagedPolicy: (@Sendable () -> Bool)?
 
     init(
         session: URLSession = .shared,
         auth: AuthCoordinator,
         telemetry: VMClientTelemetry = .shared,
-        privateNetwork: any CloudPrivateNetworkGate = CloudPrivateNetworkNoopGate()
+        machineCache: CloudMachineCache = CloudMachineCache(),
+        isDisabledByManagedPolicy: (@Sendable () -> Bool)? = nil
     ) {
         self.session = session
         self.auth = auth
         self.telemetry = telemetry
-        self.privateNetwork = privateNetwork
-    }
-
-    /// Do not let a Cloud webview navigate until the browser tunnel is ready.
-    /// Direct private URLs call this without a control-plane request.
-    func requireCloudBrowserAccess(machineID: String) async throws {
-        try await privateNetwork.requirePrivateNetworkUse(
-            CloudPrivateNetworkUse(machineID: machineID, purpose: .openPort)
-        )
+        self.machineCache = machineCache
+        self.isDisabledByManagedPolicy = isDisabledByManagedPolicy
     }
 
     func list() async throws -> [VMSummary] {
@@ -827,6 +826,7 @@ actor VMClient {
             }
             return summary
         }
+        machineCache.record(hasAnyMachine: !vms.isEmpty)
         return VMListPage(vms: vms, limits: limits)
     }
 
@@ -1201,6 +1201,7 @@ actor VMClient {
         summary.capabilities = VMCapabilities(json: obj["capabilities"])
         summary.displayName = (obj["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        machineCache.record(hasAnyMachine: true)
         return summary
     }
 
@@ -1245,6 +1246,7 @@ actor VMClient {
         var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
         summary.kind = Self.decodeKind(obj["kind"])
         summary.capabilities = VMCapabilities(json: obj["capabilities"])
+        machineCache.record(hasAnyMachine: true)
         return summary
     }
 
@@ -1293,6 +1295,10 @@ actor VMClient {
         let encodedID = try pathSegment(id, fieldName: "vm id")
         let (data, http) = try await request("DELETE", path: "/api/vm/\(encodedID)")
         try ensureOK(http, data: data)
+        // Whether any machine remains is only known after the next list; a
+        // tunnel start meanwhile asks the control plane instead of trusting
+        // a marker that may have just described the deleted machine.
+        machineCache.clear()
     }
 
     func snapshot(id: String, name: String? = nil) async throws -> VMSnapshotResult {
@@ -1354,6 +1360,7 @@ actor VMClient {
             base: nil
         )
         forked.capabilities = VMCapabilities(json: obj["capabilities"])
+        machineCache.record(hasAnyMachine: true)
         return (
             snapshot: snapshotID.map { VMSnapshotResult(id: $0, name: nil, createdAt: Int64(Date().timeIntervalSince1970 * 1000)) },
             vm: forked
@@ -1383,6 +1390,7 @@ actor VMClient {
         let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         var restored = VMSummary(id: id, provider: providerValue, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
         restored.capabilities = VMCapabilities(json: obj["capabilities"])
+        machineCache.record(hasAnyMachine: true)
         return restored
     }
 
@@ -1558,7 +1566,8 @@ actor VMClient {
         let (data, http) = try await request(
             "DELETE",
             path: revocation.path,
-            jsonBody: revocation.body
+            jsonBody: revocation.body,
+            allowedUnderManagedPolicy: true
         )
         try ensureOK(http, data: data)
     }
@@ -1793,9 +1802,11 @@ actor VMClient {
         )
     }
 
+    /// Asks the control plane to open (and, for a paused machine, resume)
+    /// `port`. This is a plain HTTPS request: it never involves the Mac's
+    /// private-network route, which Ports panes get from the user-space hub.
     func openPort(id: String, port: Int) async throws -> VMOpenPortEndpoint {
         let encodedID = try pathSegment(id, fieldName: "vm id")
-        try await requireCloudBrowserAccess(machineID: id)
         let (data, http) = try await request(
             "POST",
             path: "/api/vm/\(encodedID)/open-port",
@@ -1885,8 +1896,12 @@ actor VMClient {
         jsonBody: [String: Any]? = nil,
         extraHeaders: [String: String] = [:],
         timeoutSeconds: TimeInterval? = nil,
-        retryTransientServiceUnavailable: Bool = false
+        retryTransientServiceUnavailable: Bool = false,
+        allowedUnderManagedPolicy: Bool = false
     ) async throws -> (Data, HTTPURLResponse) {
+        if !allowedUnderManagedPolicy, isDisabledByManagedPolicy?() == true {
+            throw VMClientError.disabledByManagedPolicy
+        }
         let trace = VMRequestTraceContext.mint()
         let route = VMClientTelemetry.normalizedRoute(path: path)
         let startedAt = DispatchTime.now().uptimeNanoseconds
@@ -1944,7 +1959,7 @@ actor VMClient {
         case .sessionRefreshFailed: return .sessionRefreshFailed
         case .backendUnreachable: return .backendUnreachable
         case .malformedResponse: return .malformedResponse
-        case .httpStatus: return .unknown
+        case .httpStatus, .disabledByManagedPolicy: return .unknown
         }
     }
 
@@ -1952,7 +1967,7 @@ actor VMClient {
         switch error {
         case .backendUnreachable(let url, let detail): return "\(url): \(detail)"
         case .malformedResponse(let message): return message
-        case .notSignedIn, .sessionRefreshFailed, .httpStatus: return ""
+        case .notSignedIn, .sessionRefreshFailed, .httpStatus, .disabledByManagedPolicy: return ""
         }
     }
 
@@ -2060,9 +2075,11 @@ actor VMClient {
             if http.statusCode == 429, retriesLeft > 0 {
                 retriesLeft -= 1
                 onRetry()
-                let retryAfterSeconds = (http.value(forHTTPHeaderField: "Retry-After")).flatMap(Double.init)
-                let delaySeconds = min(max(retryAfterSeconds ?? 2, 1), 10)
-                try await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
+                let delaySeconds = Self.retryDelaySeconds(
+                    statusCode: http.statusCode,
+                    retryAfterHeader: http.value(forHTTPHeaderField: "Retry-After")
+                ) ?? 2
+                try await CmxRetryAfterPolicy.sleep(seconds: delaySeconds)
                 continue
             }
             if retryTransientServiceUnavailable,
@@ -2070,9 +2087,7 @@ actor VMClient {
                let delaySeconds = Self.transientVMRetryDelay(http: http, data: data) {
                 retriesLeft -= 1
                 onRetry()
-                try await Task.sleep(
-                    nanoseconds: UInt64(delaySeconds.components.seconds) * 1_000_000_000
-                )
+                try await CmxRetryAfterPolicy.sleep(seconds: TimeInterval(delaySeconds.components.seconds))
                 continue
             }
             if let sessionIdentity {
@@ -2103,7 +2118,18 @@ actor VMClient {
         let error = object["error"] as? String
         guard retryable || error == "vm_cloud_service_unavailable" else { return nil }
         let requested = cloudVMInt(object["retryAfterSeconds"]) ?? 2
-        return .seconds(min(max(requested, 1), 10))
+        return .seconds(max(requested, 1))
+    }
+
+    nonisolated static func retryDelaySeconds(
+        statusCode: Int,
+        retryAfterHeader: String?
+    ) -> TimeInterval? {
+        guard statusCode == 429 else { return nil }
+        return TimeInterval(
+            CmxRetryAfterPolicy.seconds(from: retryAfterHeader)
+                ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+        )
     }
 
     private func decodeWebSocketDaemonEndpoint(_ value: Any?) throws -> VMWebSocketDaemonEndpoint? {

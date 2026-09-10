@@ -67,9 +67,9 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
     )
 
     /// Cloud Machines: the Cloud tab in the right sidebar plus every other
-    /// Cloud VM surface (Settings section, palette commands, titlebar button,
-    /// new-workspace menu). Defaults off; the remote rollout flag can also
-    /// enable the same surfaces, so this opt-in only ever adds availability.
+    /// Cloud VM surface (Settings section, palette commands), and the gate
+    /// for launch-time Cloud work (fleet polling, the Cloud tunnel). Defaults
+    /// off on every build; this toggle is the only way in.
     public let cloudMachines = DefaultsKey<Bool>(
         id: "cloud.beta.machines.enabled",
         defaultValue: false,

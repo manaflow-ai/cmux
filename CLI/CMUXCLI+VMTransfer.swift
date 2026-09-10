@@ -1,3 +1,4 @@
+import CmuxSettings
 import CryptoKit
 import Foundation
 
@@ -82,11 +83,25 @@ extension CMUXCLI {
 
     // MARK: - push
 
+    /// `DisableFileTransfer` (MDM). The CLI performs the transfer itself, so
+    /// it resolves the forced preference directly rather than trusting a flag
+    /// from its own process. Same resolver, same release-domain fallback the
+    /// app uses.
+    static func throwIfFileTransferIsManagedOff() throws {
+        guard ManagedDevicePolicy().isEnforced(.disableFileTransfer) else { return }
+        throw CLIError(message: String(
+            localized: "managedPolicy.fileTransfer.disabled",
+            defaultValue: "File transfer is disabled by your organization."
+        ))
+    }
+
     func runVMPushCommand(rest: [String], client: SocketClient, jsonOutput: Bool, quiet: Bool = false) throws {
         if rest.contains("--help") || rest.contains("-h") {
             print(Self.vmPushUsage)
             return
         }
+        // Help stays readable under the policy; only the transfer is refused.
+        try Self.throwIfFileTransferIsManagedOff()
         var positional: [String] = []
         var extraExcludes: [String] = []
         var useDefaultExcludes = true
@@ -237,6 +252,8 @@ extension CMUXCLI {
             print(Self.vmPullUsage)
             return
         }
+        // Help stays readable under the policy; only the transfer is refused.
+        try Self.throwIfFileTransferIsManagedOff()
         let positional = rest.filter { !$0.hasPrefix("--") }
         guard positional.count == rest.count else {
             let unknown = rest.first { $0.hasPrefix("--") } ?? ""
@@ -689,6 +706,10 @@ extension CMUXCLI {
                 throw CLIError(message: "vm run: unknown size '\(sizeOption)'. Sizes: 4g, 8g, 16g, 24g, 32g, 64g (or memory in MB).")
             }
             memoryMb = parsed
+        }
+
+        if sync || pullPath != nil {
+            try Self.throwIfFileTransferIsManagedOff()
         }
 
         let started = Date()
@@ -1309,6 +1330,11 @@ extension CMUXCLI {
         }
         let workDirectory = cwdOption.map { URL(fileURLWithPath: $0).standardizedFileURL.path }
             ?? FileManager.default.currentDirectoryPath
+
+        if sync {
+            // Help stays readable; refuse the transfer before VM selection.
+            try Self.throwIfFileTransferIsManagedOff()
+        }
 
         let selection = try selectVMForRun(
             machineOverride: machineOverride,
