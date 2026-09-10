@@ -3,7 +3,7 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
-import { VmProviderOperationError } from "../services/vms/errors";
+import { VmDatabaseError, VmProviderOperationError } from "../services/vms/errors";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { VmRepository, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
 import { deleteVmSnapshot, listVmSnapshots } from "../services/vms/workflows";
@@ -53,14 +53,28 @@ function fakes(options: {
   withList?: boolean;
   withDelete?: boolean;
   deleteFailure?: unknown;
+  pending?: string[];
+  finalWriteFailures?: number;
+  intentWriteFails?: boolean;
 }) {
   const recorded: Recorded = { listed: [], deleted: [], events: [] };
+  let finalFailures = options.finalWriteFailures ?? 0;
+  const pending = new Set(options.pending ?? []);
   const repo = {
+    pendingSnapshotDeletions: () => Effect.sync(() => [...pending]),
     findUserVm: (input: { providerVmId: string }) =>
       Effect.succeed(input.providerVmId === options.row.providerVmId ? options.row : null),
     recordUsageEvent: (input: { eventType: string; metadata?: Record<string, unknown> }) => {
-      recorded.events.push({ eventType: input.eventType, metadata: input.metadata ?? {} });
-      return Effect.void;
+      return Effect.suspend(() => {
+        if ((input.eventType === "vm.snapshot.deleted" && finalFailures-- > 0) ||
+            (input.eventType === "vm.snapshot.delete_requested" && options.intentWriteFails)) {
+          return Effect.fail(new VmDatabaseError({ operation: "recordUsageEvent", cause: new Error("database offline") }));
+        }
+        recorded.events.push({ eventType: input.eventType, metadata: input.metadata ?? {} });
+        if (input.eventType === "vm.snapshot.delete_requested") pending.add(String(input.metadata?.snapshotId));
+        if (input.eventType === "vm.snapshot.deleted") pending.delete(String(input.metadata?.snapshotId));
+        return Effect.void;
+      });
     },
   } as unknown as VmRepositoryShape;
   const provider = {
@@ -127,7 +141,10 @@ describe("deleteVmSnapshot", () => {
     const result = await Effect.runPromise(deleteVmSnapshot({ ...caller, snapshotId: "snap-old" }).pipe(Effect.provide(layer)));
     expect(result).toEqual({ id: "snap-old", deleted: true });
     expect(recorded.deleted).toEqual([["freestyle", "fs-1", "snap-old"]]);
-    expect(recorded.events).toEqual([{ eventType: "vm.snapshot.deleted", metadata: { snapshotId: "snap-old" } }]);
+    expect(recorded.events).toEqual([
+      { eventType: "vm.snapshot.delete_requested", metadata: { snapshotId: "snap-old" } },
+      { eventType: "vm.snapshot.deleted", metadata: { snapshotId: "snap-old" } },
+    ]);
   });
 
   test("a snapshot the provider does not know for this machine is snapshot-not-found, with no ledger row", async () => {
@@ -139,7 +156,33 @@ describe("deleteVmSnapshot", () => {
   test("any other provider failure stays a provider failure", async () => {
     const { recorded, layer } = fakes({ row: machineRow(), deleteFailure: new Error("upstream 503") });
     expect(await failureTag(deleteVmSnapshot({ ...caller, snapshotId: "snap-old" }), layer)).toBe("VmProviderOperationError");
-    expect(recorded.events).toEqual([]);
+    expect(recorded.events).toEqual([{ eventType: "vm.snapshot.delete_requested", metadata: { snapshotId: "snap-old" } }]);
+  });
+
+  test("never deletes before its intent is durable", async () => {
+    const { recorded, layer } = fakes({ row: machineRow(), intentWriteFails: true });
+    expect(await failureTag(deleteVmSnapshot({ ...caller, snapshotId: "snap-old" }), layer)).toBe("VmDatabaseError");
+    expect(recorded.deleted).toEqual([]);
+  });
+
+  test("retries final ledger writes without repeating deletion", async () => {
+    const { recorded, layer } = fakes({ row: machineRow(), finalWriteFailures: 2 });
+    expect(await failureTag(deleteVmSnapshot({ ...caller, snapshotId: "snap-old" }), layer)).toBeNull();
+    expect(recorded.deleted).toHaveLength(1);
+    expect(recorded.events.at(-1)?.eventType).toBe("vm.snapshot.deleted");
+  });
+
+  test("a pending delete reconciles provider 404 on retry", async () => {
+    const { recorded, layer } = fakes({ row: machineRow(), pending: ["snap-gone"], deleteFailure: { status: 404 } });
+    expect(await failureTag(deleteVmSnapshot({ ...caller, snapshotId: "snap-gone" }), layer)).toBeNull();
+    expect(recorded.events).toEqual([{ eventType: "vm.snapshot.deleted", metadata: { snapshotId: "snap-gone" } }]);
+  });
+
+  test("inventory repairs a final ledger write left by an interrupted delete", async () => {
+    const { recorded, layer } = fakes({ row: machineRow(), pending: ["snap-gone"] });
+    await Effect.runPromise(listVmSnapshots(caller).pipe(Effect.provide(layer)));
+    expect(recorded.events).toEqual([{ eventType: "vm.snapshot.deleted", metadata: { snapshotId: "snap-gone" } }]);
+    expect(recorded.deleted).toEqual([]);
   });
 
   test("a machine the caller does not own is not found, and a provider without delete is unsupported", async () => {
