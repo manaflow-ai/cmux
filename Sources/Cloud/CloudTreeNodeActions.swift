@@ -199,6 +199,7 @@ struct CloudTreeNodeActions {
                 }
             },
             newTerminal: { machine, remoteWorkspaceID in
+                guard authorizeCreation(machine) else { return }
                 // A cloud machine gets its pane at once; the sidebar shares the
                 // shortcut routes' optimistic path. The local machine and a missing
                 // workspace keep the awaited create below.
@@ -224,6 +225,7 @@ struct CloudTreeNodeActions {
             },
             openGroup: { machine, group, placement, remoteWorkspaceID in
                 if group.isEmpty {
+                    guard authorizeCreation(machine) else { return }
                     if !machine.isLocal, let workspaceID = selectedWorkspaceID(),
                        let workspace = Workspace.liveWorkspace(id: workspaceID),
                        workspace.openCloudTerminalOptimistically(on: machine, remoteWorkspaceID: remoteWorkspaceID) {
@@ -255,6 +257,7 @@ struct CloudTreeNodeActions {
             },
             openGroupAsWorkspace: { machine, group, remoteWorkspaceID in
                 if group.isEmpty {
+                    guard authorizeCreation(machine) else { return }
                     run(startingLabel(machine)) { catalog in
                         guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                         let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
@@ -303,6 +306,7 @@ struct CloudTreeNodeActions {
                 }
             },
             newWorkspace: { machine in
+                guard authorizeCreation(machine) else { return }
                 run(String(format: String(localized: "cloudTree.operation.newWorkspace", defaultValue: "Creating a workspace on %@\u{2026}"), machineName(machine))) { catalog in
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                     _ = try await Self.createWorkspaceAndOpenLocally(machine: machine, provider: provider, catalog: catalog, name: nil, focus: true)

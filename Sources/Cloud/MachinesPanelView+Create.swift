@@ -38,7 +38,13 @@ extension MachinesPanelView {
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
             refresh: { [weak viewModel] in viewModel?.refresh(tree: true) },
-            refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) }
+            refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) },
+            authorizeCreation: { [weak viewModel] machine in
+                guard let viewModel else { return false }
+                guard viewModel.machines.first(where: { .cloud($0.id) == machine })?.freeAccess == .expired else { return true }
+                ProUpgradePresenter.present(source: .machinesPanelMachineAction)
+                return false
+            }
         )
     }
 
