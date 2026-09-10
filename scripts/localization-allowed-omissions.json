@@ -2970,5 +2970,9 @@
     "identityLocales": {
       "de": "Reviewed shared native developer term, abbreviation, or borrowed technical noun. The translated entry is still required."
     }
+  },
+  "cloudTree.terminal.badge.hiddenTabs": {
+    "source": "+%d",
+    "class": "format"
   }
 }

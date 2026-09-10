@@ -66,24 +66,28 @@ import Testing
     }
 
     @Test func oversizedSleepUsesSafeChunksWithoutShorteningTheWait() async throws {
-        let cancelledChunks = RetryAfterTestChunks()
+        let firstChunks = AsyncStream<TimeInterval>.makeStream()
         do {
             try await CmxRetryAfterPolicy.sleep(seconds: 18_446_744_074) { chunk in
-                await cancelledChunks.append(chunk)
+                firstChunks.continuation.yield(chunk)
                 throw CancellationError()
             }
             Issue.record("Expected cancellation to stop the long sleep")
         } catch is CancellationError {}
-        #expect(await cancelledChunks.values() == [86_400])
+        firstChunks.continuation.finish()
+        let cancelledChunks = await firstChunks.stream.reduce(into: [TimeInterval]()) { $0.append($1) }
+        #expect(cancelledChunks == [86_400])
 
+        let secondChunks = AsyncStream<TimeInterval>.makeStream()
         let time = RetryAfterTestTime()
         try await CmxRetryAfterPolicy.sleep(seconds: 172_801) { chunk in
+            secondChunks.continuation.yield(chunk)
             time.advance(by: chunk)
         }
-        let observedTime = time.now
-        let expectedTime: TimeInterval = 172_801
-        let timeDelta = abs(observedTime - expectedTime)
-        #expect(timeDelta == 0)
+        secondChunks.continuation.finish()
+        let completedChunks = await secondChunks.stream.reduce(into: [TimeInterval]()) { $0.append($1) }
+        #expect(completedChunks == [86_400, 86_400, 1])
+        #expect(time.now == 172_801)
     }
 }
 
@@ -98,14 +102,4 @@ private final class RetryAfterTestTime: @unchecked Sendable {
     func advance(by delay: TimeInterval) {
         lock.withLock { value += delay }
     }
-}
-
-private actor RetryAfterTestChunks {
-    private var recorded: [TimeInterval] = []
-
-    func append(_ chunk: TimeInterval) {
-        recorded.append(chunk)
-    }
-
-    func values() -> [TimeInterval] { recorded }
 }

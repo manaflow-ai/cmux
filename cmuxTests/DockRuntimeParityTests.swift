@@ -26,6 +26,7 @@ private final class DockRuntimeParityPanel: Panel, ObservableObject {
 
     private(set) var flashReasons: [WorkspaceAttentionFlashReason] = []
     private(set) var closeCount = 0
+    private(set) var focusCount = 0
 
     init(id: UUID = UUID(), title: String) {
         self.id = id
@@ -35,7 +36,9 @@ private final class DockRuntimeParityPanel: Panel, ObservableObject {
     func close() {
         closeCount += 1
     }
-    func focus() {}
+    func focus() {
+        focusCount += 1
+    }
     func unfocus() {}
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
@@ -714,8 +717,8 @@ struct DockRuntimeParityTests {
         }
     }
 
-    @Test("Focusing a window Dock panel dismisses its unread notification")
-    func focusingWindowDockPanelDismissesUnreadNotification() async throws {
+    @Test("Keyboard entry into a window Dock dismisses its unread notification")
+    func keyboardEntryIntoWindowDockDismissesUnreadNotification() async throws {
         try await withAppContext { appDelegate, _, _, windowID in
             let notificationStore = TerminalNotificationStore.shared
             let previousNotificationStore = appDelegate.notificationStore
@@ -759,7 +762,8 @@ struct DockRuntimeParityTests {
                 isEnabled: true
             ) == "1")
 
-            dock.focusPanelFromDockInteraction(panel.id, window: nil)
+            #expect(dock.focusFirstControl())
+            #expect(panel.focusCount == 1)
 
             #expect(!notificationStore.hasUnreadNotification(
                 forTabId: dock.workspaceId,

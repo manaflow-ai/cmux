@@ -424,8 +424,11 @@ struct AgentHibernationRestoreMonitorTests {
                 return false
             }
         ))
+        let monitorKey = AgentHibernationController.postTeardownRestoreTaskKey(
+            transcriptPath: live.path
+        )
         let monitor = try #require(
-            controller.postTeardownRestoreTasksByTranscriptPath.values.first?.task
+            controller.postTeardownRestoreTasksByTranscriptPath[monitorKey]?.task
         )
 
         try clobberedContent.write(to: live, atomically: true, encoding: .utf8)

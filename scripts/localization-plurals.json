@@ -643,5 +643,29 @@
     "arguments": [
       1
     ]
+  },
+  "cli.vm.tree.hiddenTabs": {
+    "source": "(+%d hidden)",
+    "arguments": [
+      1
+    ]
+  },
+  "cloudTree.terminal.badge.hiddenTabs.help.other": {
+    "source": "%d more tabs in this pane, listed beneath this row. The pane shows this tab.",
+    "arguments": [
+      1
+    ]
+  },
+  "cloudTree.workspace.hiddenTabs.other": {
+    "source": "%d more tabs",
+    "arguments": [
+      1
+    ]
+  },
+  "debug.splitButtonLayout.plusClicks": {
+    "source": "Plus clicks: %d",
+    "arguments": [
+      1
+    ]
   }
 }

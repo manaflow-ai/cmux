@@ -64,9 +64,13 @@ struct CloudTuiCommandLine: Sendable {
         ["--socket", socketPath, "--json", "workspace", workspaceID, "run", "--"] + command
     }
 
-    /// `workspace create --name <name>`: a workspace with one terminal.
-    static func createWorkspaceArguments(socketPath: String, name: String) -> [String] {
-        ["--socket", socketPath, "--json", "workspace", "create", "--name", name]
+    /// `workspace create [--name <name>]`: the daemon owns auto-naming.
+    static func createWorkspaceArguments(socketPath: String, name: String? = nil) -> [String] {
+        var arguments = ["--socket", socketPath, "--json", "workspace", "create"]
+        if let name, !name.isEmpty {
+            arguments += ["--name", name]
+        }
+        return arguments
     }
 
     /// `terminal <term_id> close`: end that remote terminal (spec `terminal.close`).

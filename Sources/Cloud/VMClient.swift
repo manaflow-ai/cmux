@@ -39,9 +39,16 @@ enum VMClientError: Error, CustomStringConvertible {
     case backendUnreachable(url: String, detail: String)
     case httpStatus(Int, String)
     case malformedResponse(String)
+    /// An MDM profile forces `DisableCloud`; no request was attempted.
+    case disabledByManagedPolicy
 
     var description: String {
         switch self {
+        case .disabledByManagedPolicy:
+            return String(
+                localized: "cloud.managed.disabled",
+                defaultValue: "Cloud Machines are disabled by your administrator."
+            )
         case .notSignedIn:
             return """
                 You are not signed in to cmux.
@@ -307,11 +314,9 @@ struct VMSummary {
     let image: String
     let createdAt: Int64
     let base: VMBaseSummary?
-    /// The backend's `kind` (desktop/base) when it reports one; older control
-    /// planes omit it and ``resolvedKind`` infers it from the image id.
+    /// The backend's `kind` (desktop/base); when omitted, ``resolvedKind`` infers it from the image id.
     var kind: VMMachineKind? = nil
-    /// Verbs the machine's provider can honor (`GET /api/vm` → `capabilities`); an older
-    /// control plane that sends none is treated as supporting everything.
+    /// Verbs the provider can honor (`GET /api/vm` → `capabilities`); none sent means everything.
     var capabilities: VMCapabilities = .all
     /// User-chosen label; the id stays the machine's address.
     var displayName: String?
@@ -354,10 +359,10 @@ struct VMPlanLimits {
     /// The earliest free-access expiry across the caller's machines (epoch ms);
     /// nil when no machine is on a window. Server-authoritative.
     var freeAccessExpiresAt: Int64?
-    /// Memory sizes the server accepts for new base machines, in MB.
+    /// Memory sizes the server accepts for new machines, in MB.
     var memoryOptionsMb: [Int] = []
-    /// Legacy compatibility data for older clients. The current New Machine
-    /// sheet always creates one base kind and does not display this field.
+    /// The kinds the default provider can serve and the image each resolves to;
+    /// informational (`vm.limits` echoes it): one snapshot serves every kind.
     var imageKinds: [VMImageKindOption] = []
 }
 
@@ -747,17 +752,20 @@ actor VMClient {
     /// "Does this account have a machine?", remembered for the next launch
     /// (``CloudActivationPolicy``). Every list and every create updates it.
     private let machineCache: CloudMachineCache
+    private let isDisabledByManagedPolicy: (@Sendable () -> Bool)?
 
     init(
         session: URLSession = .shared,
         auth: AuthCoordinator,
         telemetry: VMClientTelemetry = .shared,
-        machineCache: CloudMachineCache = CloudMachineCache()
+        machineCache: CloudMachineCache = CloudMachineCache(),
+        isDisabledByManagedPolicy: (@Sendable () -> Bool)? = nil
     ) {
         self.session = session
         self.auth = auth
         self.telemetry = telemetry
         self.machineCache = machineCache
+        self.isDisabledByManagedPolicy = isDisabledByManagedPolicy
     }
 
     func list() async throws -> [VMSummary] {
@@ -1245,14 +1253,10 @@ actor VMClient {
         let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)")
         try ensureOK(http, data: data)
         let obj = try decodeJSONObject(data)
-        guard let id = obj["id"] as? String,
-              let provider = obj["provider"] as? String,
-              let image = obj["image"] as? String
-        else {
+        guard let id = obj["id"] as? String, let provider = obj["provider"] as? String, let image = obj["image"] as? String else {
             throw VMClientError.malformedResponse("Cloud VM status response was missing required fields.")
         }
-        let createdAt = (obj["createdAt"] as? Int64)
-            ?? Int64((obj["createdAt"] as? Double) ?? 0)
+        let createdAt = (obj["createdAt"] as? Int64) ?? Int64((obj["createdAt"] as? Double) ?? 0)
         let rawStatus = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
         var summary = VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
@@ -1262,6 +1266,10 @@ actor VMClient {
             summary.displayName = label
         }
         summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        if let address = obj["address"] as? [String: Any] {
+            summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        }
         return summary
     }
 
@@ -1285,9 +1293,8 @@ actor VMClient {
         let encodedID = try pathSegment(id, fieldName: "vm id")
         let (data, http) = try await request("DELETE", path: "/api/vm/\(encodedID)")
         try ensureOK(http, data: data)
-        // Whether any machine remains is only known after the next list; a
-        // tunnel start meanwhile asks the control plane instead of trusting
-        // a marker that may have just described the deleted machine.
+        // Whether any machine remains is only known after the next list; a tunnel start
+        // meanwhile asks the control plane, not a marker that may describe this machine.
         machineCache.clear()
     }
 
@@ -1556,7 +1563,8 @@ actor VMClient {
         let (data, http) = try await request(
             "DELETE",
             path: revocation.path,
-            jsonBody: revocation.body
+            jsonBody: revocation.body,
+            allowedUnderManagedPolicy: true
         )
         try ensureOK(http, data: data)
     }
@@ -1885,8 +1893,12 @@ actor VMClient {
         jsonBody: [String: Any]? = nil,
         extraHeaders: [String: String] = [:],
         timeoutSeconds: TimeInterval? = nil,
-        retryTransientServiceUnavailable: Bool = false
+        retryTransientServiceUnavailable: Bool = false,
+        allowedUnderManagedPolicy: Bool = false
     ) async throws -> (Data, HTTPURLResponse) {
+        if !allowedUnderManagedPolicy, isDisabledByManagedPolicy?() == true {
+            throw VMClientError.disabledByManagedPolicy
+        }
         let trace = VMRequestTraceContext.mint()
         let route = VMClientTelemetry.normalizedRoute(path: path)
         let startedAt = DispatchTime.now().uptimeNanoseconds
@@ -1944,7 +1956,7 @@ actor VMClient {
         case .sessionRefreshFailed: return .sessionRefreshFailed
         case .backendUnreachable: return .backendUnreachable
         case .malformedResponse: return .malformedResponse
-        case .httpStatus: return .unknown
+        case .httpStatus, .disabledByManagedPolicy: return .unknown
         }
     }
 
@@ -1952,7 +1964,7 @@ actor VMClient {
         switch error {
         case .backendUnreachable(let url, let detail): return "\(url): \(detail)"
         case .malformedResponse(let message): return message
-        case .notSignedIn, .sessionRefreshFailed, .httpStatus: return ""
+        case .notSignedIn, .sessionRefreshFailed, .httpStatus, .disabledByManagedPolicy: return ""
         }
     }
 
