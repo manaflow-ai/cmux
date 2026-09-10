@@ -19,58 +19,30 @@ struct NewMachineModelTests {
         mode: NewMachineModel.Mode = .newMachine,
         plan: MachinePlanSnapshot? = nil,
         memoryOptionsMb: [Int] = NewMachineModel.memoryOptionsMb,
-        imageKinds: [VMImageKindOption] = [],
         starts: Bool = true
     ) -> (NewMachineModel, Box<[MachineCreateRequest]>) {
         let recorder = Box<[MachineCreateRequest]>([])
-        let model = NewMachineModel(mode: mode, plan: plan, memoryOptionsMb: memoryOptionsMb, imageKinds: imageKinds) { request in
+        let model = NewMachineModel(mode: mode, plan: plan, memoryOptionsMb: memoryOptionsMb) { request in
             recorder.value.append(request)
             return starts
         }
         return (model, recorder)
     }
 
-    @Test func desktopIsPreselectedAndBaseIsAnExplicitChoice() {
-        let (model, recorder) = makeModel(imageKinds: [
-            VMImageKindOption(kind: .desktop, image: "sh-desktop"),
-            VMImageKindOption(kind: .base, image: "sh-base"),
-        ])
-        #expect(model.selectableKinds == [.desktop, .base])
-        #expect(model.kind == .desktop)
-        #expect(model.kindSummaryText == VMMachineKind.desktop.summary)
-        model.kind = .base
-        #expect(model.kindSummaryText == VMMachineKind.base.summary)
+    /// One snapshot serves every kind, so the sheet never asks: whatever the
+    /// backend lists under `limits.imageKinds`, every create is the devbox
+    /// with a screen (#12244).
+    @Test func theSheetHasNoKindInputAndAlwaysCreatesTheDevboxWithAScreen() {
+        let (model, recorder) = makeModel()
+        #expect(NewMachineModel.machineKind == .desktop)
         model.create()
-        let request = recorder.value.first
-        #expect(request?.kind == .base)
-        #expect(request?.arguments == ["vm", "new", "--base", "--size", "8192", "--focus", "false"])
-    }
-
-    @Test func baseSetupOffersTheKindAndSendsThePick() {
+        #expect(recorder.value.first?.kind == .desktop)
+        #expect(recorder.value.first?.arguments == ["vm", "new", "--desktop", "--size", "8192", "--focus", "false"])
         let workspaceID = UUID()
-        let (model, recorder) = makeModel(mode: .base(workspaceID: workspaceID))
-        #expect(model.selectableKinds == [.desktop, .base])
-        model.kind = .base
-        model.create()
-        #expect(recorder.value.first?.kind == .base)
-        #expect(recorder.value.first?.arguments == ["vm", "base", "open", "--workspace", workspaceID.uuidString, "--base", "--focus", "false"])
-    }
-
-    @Test func aDeploymentWithoutADesktopImageOpensOnBaseAndSaysSo() {
-        // The only case Base is preselected: the backend reports it cannot serve
-        // a desktop at all. The sheet then explains why instead of failing the
-        // create with an image config error.
-        let (model, _) = makeModel(imageKinds: [VMImageKindOption(kind: .base, image: "sh-base")])
-        #expect(model.selectableKinds == [.base])
-        #expect(model.kind == .base)
-        #expect(model.kindSummaryText != VMMachineKind.base.summary)
-        #expect(model.cliArguments == ["vm", "new", "--base", "--size", "8192", "--focus", "false"])
-    }
-
-    @Test func anOlderControlPlaneWithoutImageKindsStillOffersBothKinds() {
-        let (model, _) = makeModel(imageKinds: [])
-        #expect(model.selectableKinds == [.desktop, .base])
-        #expect(model.kind == .desktop)
+        let (base, baseRecorder) = makeModel(mode: .base(workspaceID: workspaceID))
+        base.create()
+        #expect(baseRecorder.value.first?.kind == .desktop)
+        #expect(baseRecorder.value.first?.arguments == ["vm", "base", "open", "--workspace", workspaceID.uuidString, "--desktop", "--focus", "false"])
     }
 
     @Test func defaultSizeIsTheSmallestSupportedBaseImage() {

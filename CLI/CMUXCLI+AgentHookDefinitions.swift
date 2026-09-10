@@ -206,11 +206,11 @@ extension CMUXCLI {
     }
 
     /// Wraps a codex persistent hook command as a `#!/bin/sh` script file in the
-    /// cmux-owned hooks dir and returns its path. A bare executable path runs
-    /// correctly under any runtime, including ones (subrouters/proxies) that exec
-    /// the `command` string directly and fail an inline shell snippet with
-    /// "No such file or directory (os error 2)". Falls back to the inline command
-    /// on any write failure, so the persistent install can never regress.
+    /// cmux-owned hooks dir and returns its shell command token. Shell-safe paths
+    /// stay bare for runtimes that execute the command directly; paths with
+    /// separators or metacharacters are quoted for Codex's `/bin/sh -lc` runner.
+    /// Falls back to the inline command on any write failure, so the persistent
+    /// install can never regress.
     private static func codexPersistentHookScriptCommand(
         _ inlineCommand: String,
         eventTag: String,
@@ -223,7 +223,7 @@ extension CMUXCLI {
               ) else {
             return inlineCommand
         }
-        return path
+        return CodexHookScriptName.shellCommand(forScriptPath: path)
     }
 
     private static func codexHookCanRunFireAndForget(_ subcommand: String) -> Bool {
@@ -561,12 +561,7 @@ extension CMUXCLI {
     }
 
     private static func isCmuxOwnedCodexHookScriptCommand(_ command: String) -> Bool {
-        let hooksDirectory = codexHookScriptsURL()
-        let url = URL(fileURLWithPath: command, isDirectory: false)
-        let name = url.lastPathComponent
-        return CodexHookScriptName(filename: name) != nil
-            && url.deletingLastPathComponent().standardizedFileURL
-                == hooksDirectory.standardizedFileURL
+        codexHookScriptPath(fromCommand: command) != nil
     }
 
     private static func isLegacyCmuxOwnedHookCommand(_ command: String, for def: AgentHookDef) -> Bool {

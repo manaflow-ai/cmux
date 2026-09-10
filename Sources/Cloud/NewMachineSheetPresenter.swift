@@ -61,16 +61,16 @@ final class NewMachineSheetPresenter {
     /// command palette) goes through: paywall check, model, sheet. Create
     /// launches `cmux vm new …` through the shared coordinator; the Machines
     /// panel shows the pending row and the outcome, whichever window it is in.
-    /// `plan`, `memoryOptionsMb`, and `imageKinds` come from whatever fleet
-    /// page the caller already holds; `imageKinds` decides which kinds the
-    /// sheet offers (Desktop first, and preselected when servable).
+    /// `plan` and `memoryOptionsMb` come from whatever fleet page the caller
+    /// already holds.
     func presentNewMachine(
         plan: MachinePlanSnapshot?,
         memoryOptionsMb: [Int],
-        imageKinds: [VMImageKindOption] = [],
         preferredWindow: NSWindow?,
         coordinator: MachineCreateCoordinator? = nil
     ) {
+        // `.shared` is main-actor-isolated, so it cannot be a default argument
+        // (default values evaluate in a nonisolated context); resolve it here.
         let coordinator = coordinator ?? .shared
         if let plan, plan.isAtLimit, !plan.isPaidPlan {
             ProUpgradePresenter.present(source: .newMachineAtLimit)
@@ -80,7 +80,6 @@ final class NewMachineSheetPresenter {
             mode: .newMachine,
             plan: plan,
             memoryOptionsMb: memoryOptionsMb,
-            imageKinds: imageKinds,
             submit: { request in
                 coordinator.start(request, cancellableLaunch: { arguments, progress, completion in
                     var cancellation: CloudVMActionLauncher.CancellationHandle?
@@ -100,7 +99,7 @@ final class NewMachineSheetPresenter {
     }
 
     /// Entrypoints with no panel state on hand (command palette) read the
-    /// fleet page first for the plan meter and image kinds. A nil page (signed
+    /// fleet page first for the plan meter and sizes. A nil page (signed
     /// out, unreachable) still opens the sheet; the CLI reports the real error
     /// through the Machines panel when the person creates.
     func presentNewMachineFetchingPlan(preferredWindow: NSWindow?) {
@@ -112,7 +111,6 @@ final class NewMachineSheetPresenter {
             presentNewMachine(
                 plan: MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits),
                 memoryOptionsMb: page?.limits?.memoryOptionsMb ?? [],
-                imageKinds: page?.limits?.imageKinds ?? [],
                 preferredWindow: preferredWindow
             )
         }

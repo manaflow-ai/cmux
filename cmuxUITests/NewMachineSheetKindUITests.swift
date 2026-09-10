@@ -1,15 +1,13 @@
 import XCTest
 
-/// #12239: the New Machine sheet opens on Desktop (a machine with a VNC
-/// screen) and offers Base as an explicit choice; the summary under the
-/// picker describes whichever kind is picked.
+/// New Machine has one creation flow with no Desktop/Base switcher.
 final class NewMachineSheetKindUITests: XCTestCase {
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
     }
 
-    func testNewMachineSheetPreselectsDesktopAndOffersBase() throws {
+    func testNewMachineSheetHasOneFlowWithoutAKindSwitcher() throws {
         let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += [
             "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-menuBarOnly", "false",
@@ -27,7 +25,7 @@ final class NewMachineSheetKindUITests: XCTestCase {
 
         // The palette's New Cloud Machine… runs the same presenter path the
         // Machines panel ＋ uses. Signed out, the sheet still opens (the plan
-        // meter is simply absent) with every kind on offer.
+        // meter and the size row are simply absent) without a kind switcher.
         let searchField = app.textFields["CommandPaletteSearchField"]
         app.typeKey("p", modifierFlags: [.command, .shift])
         XCTAssertTrue(searchField.waitForExistence(timeout: 5.0), "Expected command palette search field")
@@ -43,67 +41,45 @@ final class NewMachineSheetKindUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 5.0), "Expected the New Cloud Machine… palette row")
         row.click()
 
-        // SwiftUI's segmented Picker exposes its segments as radio buttons and
-        // drops the picker's own identifier, so the segments are the handle.
-        // A segment's selection shows as its accessibility value (1 = on);
-        // the summary under the picker is the user-visible witness of the
-        // selection, so it is what the assertions rest on.
-        let desktop = app.radioButtons["Desktop"]
-        let base = app.radioButtons["Base"]
-        if !desktop.waitForExistence(timeout: 8.0) {
-            print("NewMachineSheetKindUITests hierarchy:\n\(app.debugDescription.prefix(6000))")
+        // The sheet is a window sheet on the main window. NSHostingController can
+        // expose a button's localized label without its SwiftUI identifier on
+        // macOS 15, so both representations match (the run forces English).
+        let create = Self.button(in: app, identifier: "NewMachineSheet.create", label: "Create")
+        let cancel = Self.button(in: app, identifier: "NewMachineSheet.cancel", label: "Cancel")
+        let opened = app.sheets.firstMatch.waitForExistence(timeout: 8.0)
+            && create.waitForExistence(timeout: 8.0)
+        if !opened {
+            print("NewMachineSheetKindUITests hierarchy:\n\(app.debugDescription.prefix(8000))")
         }
-        XCTAssertTrue(desktop.exists, "Expected the Desktop segment of the Kind picker in the New Machine sheet")
-        XCTAssertTrue(base.exists, "Expected the Base segment of the Kind picker")
-        attachScreenshot(of: app, named: "new-machine-sheet-opened")
-        print("NewMachineSheetKindUITests segments: desktop=\(String(describing: desktop.value)) selected=\(desktop.isSelected) base=\(String(describing: base.value)) selected=\(base.isSelected)")
-        let desktopSummary = app.staticTexts.matching(
-            NSPredicate(format: "label CONTAINS[c] %@", "screen you can watch")
-        ).firstMatch
-        let baseSummary = app.staticTexts.matching(
-            NSPredicate(format: "label CONTAINS[c] %@", "terminal only")
-        ).firstMatch
-        XCTAssertTrue(
-            desktopSummary.waitForExistence(timeout: 3.0),
-            "A plain Create must make a machine with a screen: the sheet opens on Desktop"
-        )
-        XCTAssertFalse(baseSummary.exists, "Base must not be the preselected kind")
-        if let desktopOn = Self.segmentIsOn(desktop), let baseOn = Self.segmentIsOn(base) {
-            XCTAssertTrue(desktopOn && !baseOn, "Desktop segment should be the selected one")
-        }
-        attachScreenshot(of: app, named: "new-machine-sheet-desktop-preselected")
-
-        // Base is one click away, never the default.
-        base.click()
-        XCTAssertTrue(
-            pollUntil(timeout: 4.0) { baseSummary.exists && !desktopSummary.exists },
-            "Expected the picker to select Base and the summary to say terminal only"
-        )
-        if let desktopOn = Self.segmentIsOn(desktop), let baseOn = Self.segmentIsOn(base) {
-            XCTAssertTrue(baseOn && !desktopOn, "Base segment should be the selected one after the click")
-        }
-        attachScreenshot(of: app, named: "new-machine-sheet-base-explicit")
-
-        let cancel = app.buttons["NewMachineSheet.cancel"].exists
-            ? app.buttons["NewMachineSheet.cancel"]
-            : app.buttons["Cancel"]
+        XCTAssertTrue(opened, "Expected New Machine to open as a sheet with its Create button")
+        XCTAssertTrue(app.staticTexts["New Machine"].waitForExistence(timeout: 3.0), "Expected the New Machine title")
+        XCTAssertEqual(Self.buttons(in: app, identifier: "NewMachineSheet.create", label: "Create").count, 1)
         XCTAssertTrue(cancel.waitForExistence(timeout: 3.0), "Expected the sheet's Cancel button")
+        attachScreenshot(of: app, named: "new-machine-single-flow")
+
+        // Every witness of the old Kind picker: its segments, its label, its
+        // section, and the summary lines it switched between.
+        XCTAssertFalse(app.radioButtons["Desktop"].exists, "No Desktop segment")
+        XCTAssertFalse(app.radioButtons["Base"].exists, "No Base segment")
+        XCTAssertFalse(app.staticTexts["Kind"].exists, "No Kind label")
+        XCTAssertFalse(app.descendants(matching: .any)["NewMachineSheet.kindSection"].exists)
+        XCTAssertEqual(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "terminal only")).count, 0
+        )
+        XCTAssertEqual(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "screen you can watch")).count, 0
+        )
+
         cancel.click()
-        XCTAssertTrue(pollUntil(timeout: 5.0) { !desktop.exists }, "Cancel should close the sheet")
+        XCTAssertTrue(pollUntil(timeout: 5.0) { !create.exists }, "Cancel should close the sheet")
     }
 
-    /// A segmented control's segment reports its selection as an accessibility
-    /// value (1 / 0, sometimes a string); nil when the value is not readable.
-    private static func segmentIsOn(_ segment: XCUIElement) -> Bool? {
-        if let number = segment.value as? NSNumber { return number.intValue != 0 }
-        if let text = segment.value as? String {
-            switch text.lowercased() {
-            case "1", "on", "true", "selected": return true
-            case "0", "off", "false": return false
-            default: return nil
-            }
-        }
-        return nil
+    private static func buttons(in app: XCUIApplication, identifier: String, label: String) -> XCUIElementQuery {
+        app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", identifier, label))
+    }
+
+    private static func button(in app: XCUIApplication, identifier: String, label: String) -> XCUIElement {
+        buttons(in: app, identifier: identifier, label: label).firstMatch
     }
 
     private func attachScreenshot(of app: XCUIApplication, named name: String) {

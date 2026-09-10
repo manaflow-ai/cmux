@@ -326,7 +326,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
         ( /bin/sh "$CMUX_TEST_LEAF_SCRIPT" & wait $! ) &
         cmux_test_auth_root=$!
-        trap '/bin/kill -CONT "$cmux_test_auth_root" >/dev/null 2>&1 || true; /bin/kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true' EXIT
+        trap 'kill -CONT "$cmux_test_auth_root" >/dev/null 2>&1 || true; kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true' EXIT
         cmux_test_ready_attempt=0
         while [ ! -f "$CMUX_TEST_READY_MARKER" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
           /bin/sleep 0.01
@@ -422,6 +422,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-auth-deadline-\(UUID().uuidString)", isDirectory: true)
         let chainScript = root.appendingPathComponent("chain.sh")
+        let setIDLauncher = root.appendingPathComponent("setid-launcher.pl")
         let readyMarker = root.appendingPathComponent("ready")
         let cleanupStartedMarker = root.appendingPathComponent("cleanup-started")
         let pidLog = root.appendingPathComponent("pids")
@@ -441,6 +442,17 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         while :; do /bin/sleep 30; done
         """.write(to: chainScript, atomically: true, encoding: .utf8)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: chainScript.path)
+        // Keep the synthetic authentication tree in its own session/process
+        // group. When a fork-starved cleanup stops members and then kills them,
+        // Darwin may send SIGHUP to an orphaned stopped group; that signal must
+        // not reach this test's harness shell, which is a sibling of the tree.
+        try """
+        #!/usr/bin/perl
+        use POSIX qw(setsid);
+        setsid() or exit 125;
+        exec @ARGV or exit 126;
+        """.write(to: setIDLauncher, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: setIDLauncher.path)
         defer {
             let processIDs = (try? String(contentsOf: pidLog, encoding: .utf8))?
                 .split(separator: "\n")
@@ -456,7 +468,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         # the harness can finish reporting cleanup assertions.
         trap '' HUP INT TERM
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
-        CMUX_TEST_CHAIN_DEPTH=24 /bin/sh "$CMUX_TEST_CHAIN_SCRIPT" &
+        CMUX_TEST_CHAIN_DEPTH=24 /usr/bin/perl "$CMUX_TEST_SETID_LAUNCHER" /bin/sh "$CMUX_TEST_CHAIN_SCRIPT" &
         cmux_test_auth_root=$!
         cmux_test_ready_attempt=0
         while [ ! -f "$CMUX_TEST_READY_MARKER" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
@@ -495,6 +507,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.arguments = ["-c", command]
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_CHAIN_SCRIPT": chainScript.path,
+            "CMUX_TEST_SETID_LAUNCHER": setIDLauncher.path,
             "CMUX_TEST_CLEANUP_STARTED_MARKER": cleanupStartedMarker.path,
             "CMUX_TEST_READY_MARKER": readyMarker.path,
             "CMUX_TEST_PID_LOG": pidLog.path,
@@ -525,7 +538,12 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             .compactMap { Int32($0) }
         waitForProcessesToExit(processIDs, timeout: 10)
 
-        #expect(process.terminationStatus == 0)
+        try? stderrCapture.handle.synchronize()
+        let cleanupStderr = (try? String(contentsOf: stderrCapture.url, encoding: .utf8)) ?? ""
+        #expect(
+            process.terminationStatus == 0,
+            "Cleanup shell terminated with reason=\(process.terminationReason.rawValue) status=\(process.terminationStatus); stderr=\(cleanupStderr)"
+        )
         #expect(processIDs.count == 25)
         // The helper has one shared two-second discovery budget plus a bounded
         // force pass. Process-table scans can be slow on a loaded macOS host,

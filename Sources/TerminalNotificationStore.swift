@@ -1219,13 +1219,24 @@ final class TerminalNotificationStore: ObservableObject {
         preRegisteredPolicyRequestId: UUID? = nil,
         notificationID: UUID? = nil,
         agent: TerminalNotificationPolicyAgentContext? = nil,
-        soundContext: NotificationSoundOverrideContext? = nil
+        soundContext: NotificationSoundOverrideContext? = nil,
+        origin: TerminalNotificationOrigin = .local
     ) -> UUID? {
 #if DEBUG
         cmuxDebugLog(
-            "notification.store.add workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) cooldown=\(cooldownKey == nil ? 0 : 1)"
+            "notification.store.add workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) cooldown=\(cooldownKey == nil ? 0 : 1) origin=\(origin.kind)"
         )
 #endif
+        // SECURITY: a remote origin (ssh relay, cloud machine) is untrusted text. It gets
+        // display, sound, badge, hooks, and phone forwarding — never a reply affordance
+        // that types into a pane, a click action that opens a local path, agent context
+        // that hooks treat as trusted identity, or a sound override. Clamped here so no
+        // caller can regress it, and hooks are never resolved from a local cwd for it.
+        let replyShape = origin.isRemote ? .none : replyShape
+        let clickAction = origin.isRemote ? nil : clickAction
+        let agent = origin.isRemote ? nil : agent
+        let soundContext = origin.isRemote ? nil : soundContext
+        let resolvedHooks = origin.isRemote ? (resolvedHooks ?? []) : resolvedHooks
         let admissionTabId = notificationMuteAdmissionTabID(
             claimedTabId: tabId,
             surfaceId: surfaceId,
@@ -1277,7 +1288,8 @@ final class TerminalNotificationStore: ObservableObject {
             correlationKey: correlationKey ?? cooldownKey,
             resolvedHooks: resolvedHooks,
             agent: agent,
-            soundContext: soundContext
+            soundContext: soundContext,
+            origin: origin
         )
         if policyContext.hooks.isEmpty, preRegisteredPolicyRequestId == nil {
             inFlightPolicyRequests.discardPending(
@@ -1461,7 +1473,8 @@ final class TerminalNotificationStore: ObservableObject {
         correlationKey: String?,
         resolvedHooks: [CmuxResolvedNotificationHook]?,
         agent: TerminalNotificationPolicyAgentContext? = nil,
-        soundContext: NotificationSoundOverrideContext? = nil
+        soundContext: NotificationSoundOverrideContext? = nil,
+        origin: TerminalNotificationOrigin = .local
     ) -> NotificationPolicyContext {
         let appDelegate = AppDelegate.shared
         let focusState = notificationFocusState(tabId: tabId, surfaceId: surfaceId)
@@ -1469,9 +1482,15 @@ final class TerminalNotificationStore: ObservableObject {
         let workspace = focusState.workspace
         let isFocusedPanel = focusState.isActiveTab && focusState.isFocusedSurface
         let isAppFocused = focusState.isAppFocused
-        let cwd = workspace?.surfaceTabBarDirectory
-            ?? workspace?.currentDirectory
-            ?? FileManager.default.homeDirectoryForCurrentUser.path
+        // A remote emitter's text has no local cwd: the pane's directory would name
+        // the wrong project config, so the envelope carries none and hooks are only
+        // ever the caller-resolved (global) set.
+        let cwd: String? = origin.isRemote
+            ? nil
+            : workspace?.surfaceTabBarDirectory
+                ?? workspace?.currentDirectory
+                ?? FileManager.default.homeDirectoryForCurrentUser.path
+        assert(!origin.isRemote || resolvedHooks != nil, "remote-origin notifications must carry pre-resolved hooks")
         let panelId = surfaceId.flatMap {
             workspace?.surfaceOwnershipTarget(for: $0)?.containerPanelID
         }
@@ -1501,12 +1520,13 @@ final class TerminalNotificationStore: ObservableObject {
                 isAppFocused: isAppFocused,
                 isFocusedPanel: isFocusedPanel,
                 agent: agent,
-                soundContext: soundContext
+                soundContext: soundContext,
+                origin: origin
             ),
             scrollPosition: scrollPosition,
-            hooks: resolvedHooks ?? cmuxConfigStore?.notificationHooks(
+            hooks: resolvedHooks ?? (origin.isRemote ? [] : cmuxConfigStore?.notificationHooks(
                 startingFrom: workspace?.isRemoteWorkspace == true ? nil : cwd
-            ) ?? [],
+            )) ?? [],
             globalConfigPath: cmuxConfigStore?.globalConfigPath
         )
     }
@@ -1547,7 +1567,8 @@ final class TerminalNotificationStore: ObservableObject {
                 isAppFocused: request.isAppFocused,
                 isFocusedPanel: request.isFocusedPanel,
                 agent: request.agent,
-                soundContext: envelope.context.soundContext
+                soundContext: envelope.context.soundContext,
+                origin: request.origin
             ),
             effects: envelope.effects,
             now: now,
@@ -1606,7 +1627,8 @@ final class TerminalNotificationStore: ObservableObject {
             scrollPosition: scrollPosition,
             clickAction: clickAction,
             replyShape: request.replyShape,
-            soundContext: request.soundContext
+            soundContext: request.soundContext,
+            origin: request.origin
         )
         if effects.record {
             recordNotification(
@@ -2346,7 +2368,8 @@ final class TerminalNotificationStore: ObservableObject {
                 scrollPosition: notification.scrollPosition,
                 clickAction: notification.clickAction,
                 replyShape: notification.replyShape,
-                soundContext: notification.soundContext
+                soundContext: notification.soundContext,
+                origin: notification.origin
             )
         }
         if didMoveNotification {
@@ -2426,7 +2449,8 @@ final class TerminalNotificationStore: ObservableObject {
                 subtitle: notification.subtitle,
                 body: notification.body,
                 effects: effects,
-                soundContext: notification.soundContext
+                soundContext: notification.soundContext,
+                origin: notification.origin
             )
             return
         }
@@ -2435,6 +2459,7 @@ final class TerminalNotificationStore: ObservableObject {
         let notificationTitle = resolvedNotificationTitle(for: notification)
         let notificationSubtitle = notification.subtitle
         let notificationBody = notification.body
+        let notificationOrigin = notification.origin
         let notificationId = notification.id
         let notificationTabId = notification.tabId
         let notificationSurfaceId = notification.surfaceId
@@ -2571,7 +2596,8 @@ final class TerminalNotificationStore: ObservableObject {
                     nativeDeliveryHooks.runCommand(
                         title: commandTitle,
                         subtitle: commandSubtitle,
-                        body: commandBody
+                        body: commandBody,
+                        origin: notificationOrigin
                     )
                 }
             }
@@ -2590,7 +2616,8 @@ final class TerminalNotificationStore: ObservableObject {
             subtitle: notification.subtitle,
             body: notification.body,
             effects: effects,
-            soundContext: notification.soundContext
+            soundContext: notification.soundContext,
+            origin: notification.origin
         )
     }
 
@@ -2599,11 +2626,12 @@ final class TerminalNotificationStore: ObservableObject {
         subtitle: String,
         body: String,
         effects: TerminalNotificationPolicyEffects,
-        soundContext: NotificationSoundOverrideContext? = nil
+        soundContext: NotificationSoundOverrideContext? = nil,
+        origin: TerminalNotificationOrigin = .local
     ) {
         let hooks = nativeNotificationDeliveryHooks
         if effects.command {
-            hooks.runCommand(title: title, subtitle: subtitle, body: body)
+            hooks.runCommand(title: title, subtitle: subtitle, body: body, origin: origin)
         }
         guard effects.sound else { return }
         var soundEffects = effects
@@ -2614,7 +2642,8 @@ final class TerminalNotificationStore: ObservableObject {
                 subtitle: subtitle,
                 body: body,
                 effects: soundEffects,
-                soundContext: soundContext
+                soundContext: soundContext,
+                origin: origin
             )
         }
     }
@@ -2631,7 +2660,8 @@ final class TerminalNotificationStore: ObservableObject {
         effects: TerminalNotificationPolicyEffects,
         runCommand: Bool,
         soundContext: NotificationSoundOverrideContext? = nil,
-        playbackAdmission: NativeNotificationDeliveryHooks.PlaybackAdmission? = nil
+        playbackAdmission: NativeNotificationDeliveryHooks.PlaybackAdmission? = nil,
+        origin: TerminalNotificationOrigin = .local
     ) async {
         let hooks = nativeNotificationDeliveryHooks
         let task = enqueueNotificationFeedback(ownerID: ownerID) {
@@ -2643,7 +2673,8 @@ final class TerminalNotificationStore: ObservableObject {
                 effects: effects,
                 runCommand: runCommand,
                 soundContext: soundContext,
-                playbackAdmission: playbackAdmission
+                playbackAdmission: playbackAdmission,
+                origin: origin
             )
         }
         await task.value

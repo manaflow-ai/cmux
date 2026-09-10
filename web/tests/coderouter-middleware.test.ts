@@ -57,7 +57,7 @@ describe("coderouter middleware", () => {
         {
           headers: {
             "x-cmux-dashboard-return-path": "/pricing",
-            cookie: `stack-refresh-${process.env.NEXT_PUBLIC_STACK_PROJECT_ID ?? "none"}=refresh-1`,
+            cookie: `stack-refresh-${process.env.NEXT_PUBLIC_STACK_PROJECT_ID ?? "test-project"}=refresh-token`,
           },
         },
       ),
@@ -73,7 +73,7 @@ describe("coderouter middleware", () => {
       method: "POST",
       headers: {
         "content-type": "application/x-www-form-urlencoded",
-        cookie: `stack-refresh-${process.env.NEXT_PUBLIC_STACK_PROJECT_ID ?? "none"}=refresh-1`,
+        cookie: `stack-refresh-${process.env.NEXT_PUBLIC_STACK_PROJECT_ID ?? "test-project"}=refresh-token`,
       },
       body: "action=join",
     });

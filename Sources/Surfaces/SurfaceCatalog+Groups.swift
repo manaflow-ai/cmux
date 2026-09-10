@@ -289,12 +289,17 @@ extension SurfaceCatalog {
         var paneLookup: PaneLookup
         /// Removes the starter pane once the group's first resource is in place.
         var closeStarter: @MainActor (_ panelID: UUID, _ workspaceID: UUID) -> Void
+        /// Sets the local dividers to the ratios of a layout the walk just built (the tree
+        /// actually realized, so a split that failed to materialize is not in it). Defaults
+        /// to a no-op so a headless test host can check the walk without a pane engine.
+        var applyDividerRatios: @MainActor (_ workspaceID: UUID, _ layout: SurfaceProjectionLayout) -> Void = { _, _ in }
 
         @MainActor
         static let app = NewWorkspaceHost(
             create: { title in try SurfacePaneFactory.createLocalWorkspace(title: title) },
             paneLookup: { panelID, workspaceID in SurfacePaneFactory.paneID(ofPanel: panelID, in: workspaceID) },
-            closeStarter: { panelID, workspaceID in SurfacePaneFactory.close(panelID: panelID, in: workspaceID) }
+            closeStarter: { panelID, workspaceID in SurfacePaneFactory.close(panelID: panelID, in: workspaceID) },
+            applyDividerRatios: { workspaceID, layout in SurfacePaneFactory.applyDividerRatios(layout, in: workspaceID) }
         )
     }
 
@@ -321,16 +326,40 @@ extension SurfaceCatalog {
 
     /// Placement-aware new-workspace projection. The local workspace is created
     /// before the first remote call so the user's destination is deterministic.
+    ///
+    /// With a `layout` (the machine screen's geometry, `CloudWorkspaceLayoutTranslator`),
+    /// the tree decides everything the grid used to guess: which pane each placement
+    /// lands in, which pane is split for the next one and in which direction, and the
+    /// ratio every divider gets — so the workspace opens looking the way it does on the
+    /// machine. Without one, the right/down alternation below still applies.
     @discardableResult
     func projectGroupAsNewLocalWorkspace(
         _ group: SurfaceResourceGroup,
         title: String,
         focus: Bool,
-        host: NewWorkspaceHost
+        host: NewWorkspaceHost,
+        layout: SurfaceProjectionLayout? = nil
     ) async throws -> (workspaceID: UUID, projections: [SurfaceProjection]) {
         let ids = group.resources
         guard !ids.isEmpty else { throw SurfaceCatalogError.destinationNotFound("empty group") }
         let created = try host.create(title)
+        if let layout {
+            var walk = LayoutProjectionWalk(
+                catalog: self,
+                group: group,
+                workspaceID: created.workspaceID,
+                starterPanelID: created.starterPanelID,
+                focus: focus,
+                host: host
+            )
+            let realized = await walk.run(layout.includingMissingPlacements(group.placements))
+            if walk.projected.isEmpty {
+                if let starter = created.starterPanelID { host.closeStarter(starter, created.workspaceID) }
+                throw walk.firstError ?? SurfaceCatalogError.destinationNotFound("empty group")
+            }
+            if let realized { host.applyDividerRatios(created.workspaceID, realized) }
+            return (created.workspaceID, walk.projected)
+        }
         var projected: [SurfaceProjection] = []
         var firstError: Error?
         var lastPane: String?
@@ -369,5 +398,123 @@ extension SurfaceCatalog {
             throw firstError ?? SurfaceCatalogError.destinationNotFound("empty group")
         }
         return (created.workspaceID, projected)
+    }
+
+    /// One layout-driven new-workspace projection (`projectGroupAsNewLocalWorkspace(_:layout:)`).
+    ///
+    /// Splits are created parent-first: a split node makes its second pane BEFORE its
+    /// first child's own splits subdivide the first pane. That is the order in which the
+    /// local Bonsplit tree ends up mirroring the layout node for node (the same order
+    /// `Workspace.applyCustomLayout` builds cmux.json layouts in), which is what lets the
+    /// ratio pass walk both trees in step afterwards. The walk returns the tree it really
+    /// built, so a placement that failed to materialize cannot misalign the two.
+    @MainActor
+    private struct LayoutProjectionWalk {
+        let catalog: SurfaceCatalog
+        let group: SurfaceResourceGroup
+        let workspaceID: UUID
+        let starterPanelID: UUID?
+        let focus: Bool
+        let host: NewWorkspaceHost
+        private(set) var projected: [SurfaceProjection] = []
+        private(set) var firstError: Error?
+
+        init(catalog: SurfaceCatalog, group: SurfaceResourceGroup, workspaceID: UUID, starterPanelID: UUID?, focus: Bool, host: NewWorkspaceHost) {
+            self.catalog = catalog
+            self.group = group
+            self.workspaceID = workspaceID
+            self.starterPanelID = starterPanelID
+            self.focus = focus
+            self.host = host
+        }
+
+        /// Builds `layout` into the fresh workspace; the realized tree, or nil when nothing
+        /// projected at all.
+        mutating func run(_ layout: SurfaceProjectionLayout) async -> SurfaceProjectionLayout? {
+            // The first placement takes the starter pane's place, exactly as the grid walk does.
+            guard let root = await consumeFirst(of: layout, into: .workspace(id: workspaceID, placement: .split)) else {
+                return nil
+            }
+            return await build(root.remaining, in: root.paneID)
+        }
+
+        /// Projects one placement, recording the first failure; nil when it did not land.
+        private mutating func projectOne(_ placement: SurfaceResourcePlacement, into destination: SurfaceDestination) async -> SurfaceProjection? {
+            do {
+                let remoteView = try catalog.resolveRemoteView(for: placement, fallbackWorkspaceID: group.remoteWorkspaceID)
+                let result = try await catalog.project(
+                    placement.resource,
+                    into: destination,
+                    focus: projected.isEmpty && focus,
+                    reuseExisting: false,
+                    remoteView: remoteView
+                )
+                if projected.isEmpty, let starterPanelID, starterPanelID != result.projection.panelID {
+                    host.closeStarter(starterPanelID, workspaceID)
+                }
+                projected.append(result.projection)
+                return result.projection
+            } catch {
+                if firstError == nil { firstError = error }
+                return nil
+            }
+        }
+
+        /// Projects the first placement of `node` that materializes at `destination` — the
+        /// one that creates the pane — and returns that pane with what is left of the node
+        /// to fill in around it. A leaf whose every placement fails is dropped so its
+        /// sibling takes the slot; nil when nothing in the node could be projected.
+        private mutating func consumeFirst(
+            of node: SurfaceProjectionLayout,
+            into destination: SurfaceDestination
+        ) async -> (paneID: String?, remaining: SurfaceProjectionLayout)? {
+            switch node {
+            case .leaf(let placements):
+                for (offset, placement) in placements.enumerated() {
+                    guard let projection = await projectOne(placement, into: destination) else { continue }
+                    let paneID = host.paneLookup(projection.panelID, workspaceID)
+                    return (paneID, .leaf(placements: Array(placements[(offset + 1)...])))
+                }
+                return nil
+            case .split(let direction, let ratio, let first, let second):
+                if let consumed = await consumeFirst(of: first, into: destination) {
+                    return (consumed.paneID, .split(direction: direction, ratio: ratio, first: consumed.remaining, second: second))
+                }
+                return await consumeFirst(of: second, into: destination)
+            }
+        }
+
+        /// Fills `node` in around `paneID`, whose content is already the node's first
+        /// placement: a leaf's remaining placements become tabs there; a split first makes
+        /// its second pane beside `paneID`, then fills both halves. Returns the tree as built.
+        private mutating func build(_ node: SurfaceProjectionLayout, in paneID: String?) async -> SurfaceProjectionLayout {
+            switch node {
+            case .leaf(let placements):
+                for placement in placements {
+                    _ = await projectOne(placement, into: tabDestination(paneID))
+                }
+                return node
+            case .split(let direction, let ratio, let first, let second):
+                guard let consumed = await consumeFirst(of: second, into: splitDestination(paneID, direction)) else {
+                    // Nothing of the second half could open: the first half keeps the whole slot.
+                    return await build(first, in: paneID)
+                }
+                let builtFirst = await build(first, in: paneID)
+                let builtSecond = await build(consumed.remaining, in: consumed.paneID)
+                return .split(direction: direction, ratio: ratio, first: builtFirst, second: builtSecond)
+            }
+        }
+
+        /// A pane the factory could not name falls back to the workspace's focused pane,
+        /// as the tab-anchored group walk above does.
+        private func tabDestination(_ paneID: String?) -> SurfaceDestination {
+            guard let paneID else { return .workspace(id: workspaceID, placement: .tab) }
+            return .tab(workspaceID: workspaceID, paneID: paneID, index: nil)
+        }
+
+        private func splitDestination(_ paneID: String?, _ direction: SurfaceSplitDirection) -> SurfaceDestination {
+            guard let paneID else { return .workspace(id: workspaceID, placement: .split) }
+            return .split(workspaceID: workspaceID, paneID: paneID, direction: direction)
+        }
     }
 }
