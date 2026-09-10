@@ -2620,6 +2620,7 @@
 		A6AC73340000000000000001 /* SidebarWorkspaceUnreadBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC73340000000000000002 /* SidebarWorkspaceUnreadBadge.swift */; };
 		6707F00D6707F00D6707F00D /* SidebarWorkspaceWindowMoveTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6707F00E6707F00E6707F00E /* SidebarWorkspaceWindowMoveTarget.swift */; };
 		C51A720000000000000000A1 /* SimulatorCommandPaletteIntegration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A720000000000000000A2 /* SimulatorCommandPaletteIntegration.swift */; };
+		A9EF1F4980EE428CBB952285 /* SimulatorControlGestureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7087FDD4AC5F4BA1A533EB79 /* SimulatorControlGestureTests.swift */; };
 		C51A710000000000000000C3 /* SimulatorFeatureDisabledView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A710000000000000000C4 /* SimulatorFeatureDisabledView.swift */; };
 		C51A71F10000000000000002 /* SimulatorFocusOwnershipBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A71F10000000000000001 /* SimulatorFocusOwnershipBridge.swift */; };
 		C51A71F10000000000000004 /* SimulatorFocusOwnershipView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A71F10000000000000003 /* SimulatorFocusOwnershipView.swift */; };
@@ -6019,6 +6020,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		A6AC73340000000000000002 /* SidebarWorkspaceUnreadBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarWorkspaceUnreadBadge.swift; sourceTree = "<group>"; };
 		6707F00E6707F00E6707F00E /* SidebarWorkspaceWindowMoveTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceWindowMoveTarget.swift; sourceTree = "<group>"; };
 		C51A720000000000000000A2 /* SimulatorCommandPaletteIntegration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorCommandPaletteIntegration.swift; sourceTree = "<group>"; };
+		7087FDD4AC5F4BA1A533EB79 /* SimulatorControlGestureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorControlGestureTests.swift; sourceTree = "<group>"; };
 		C51A710000000000000000C4 /* SimulatorFeatureDisabledView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SimulatorFeatureDisabledView.swift; sourceTree = "<group>"; };
 		C51A71F10000000000000001 /* SimulatorFocusOwnershipBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SimulatorFocusOwnershipBridge.swift; sourceTree = "<group>"; };
 		C51A71F10000000000000003 /* SimulatorFocusOwnershipView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SimulatorFocusOwnershipView.swift; sourceTree = "<group>"; };
@@ -9547,6 +9549,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A9E010000000000000000005 /* AgentExecutableResolverTests.swift */,
 				A9E030000000000000000001 /* AgentSessionSocketSurfaceTests.swift */,
 				C51A720000000000000000B2 /* SimulatorPanelIntegrationTests.swift */,
+				7087FDD4AC5F4BA1A533EB79 /* SimulatorControlGestureTests.swift */,
 				C51A760000000000000000D2 /* SimulatorPanelThemeTests.swift */,
 				A9E050000000000000000001 /* AgentSessionWebRendererTests.swift */,
 				A9E040000000000000000001 /* CodexAppServerSessionTests.swift */,
@@ -14085,6 +14088,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				961200010000000000000001 /* SidebarWorkspaceSwitchLayoutFaultTests.swift in Sources */,
 				B8624C030000000000000003 /* SidebarWorkspaceTableSuspensionTests.swift in Sources */,
 				B804C0010000000000000001 /* SidebarWorkspaceTableTests.swift in Sources */,
+				A9EF1F4980EE428CBB952285 /* SimulatorControlGestureTests.swift in Sources */,
 				C51A720000000000000000B1 /* SimulatorPanelIntegrationTests.swift in Sources */,
 				C51A760000000000000000D1 /* SimulatorPanelThemeTests.swift in Sources */,
 				A7984AE10000000000000001 /* SocketACLReloadRegressionTests+Connections.swift in Sources */,
