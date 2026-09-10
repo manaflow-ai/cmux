@@ -21,10 +21,31 @@ Python 3.12, uv, Docker (running from boot), and its own copies of Claude
 Code, Codex and OpenCode. The bake keeps all of that and replaces the agent
 copies with the exact Dockerfile pins (`npm install -g` on the base's npm,
 every agent bin symlinked into `/usr/local/bin` so daemon panes resolve them
-without a login profile). The work user is the base's **`ubuntu`** (uid
-1000, passwordless sudo, the API's default exec user and the SSH default);
-the bake creates no users. A cmux login banner (`cmux-motd`, rendered by
+without a login profile). A cmux login banner (`cmux-motd`, rendered by
 pam_motd on SSH) replaces the stock Ubuntu and Freestyle motd text.
+
+## One work user, one machine name (`workUser.ts`)
+
+Every prompt on a cmux Cloud machine reads `cmux@cmux`. Both halves are
+contract, not decoration:
+
+- The work user is **`cmux`** (uid 1000, `/home/cmux`, passwordless sudo):
+  the base's `ubuntu` account **renamed** right after the machine's own name is
+  set, before any layer writes into the home or names the account. Freestyle's exec API
+  resolves its default `linuxUser` to "the account holding uid 1000", so a
+  rename (rather than a second account) keeps the provider's own surfaces,
+  SSH, the desktop session, and the terminals the cmux-tui daemon opens all
+  in one home. The base's `/etc/sudoers.d/90-freestyle` names the old
+  account, so the step replaces every sudoers drop-in that does not name
+  `cmux`.
+- The machine is named **`cmux`**, not the base's `freestyle-vm`. That half is
+  its own contract (`services/vms/images/identity.ts`): the static and live
+  name, the loopback alias, per-machine SSH host keys, and a residue audit.
+- **Sessions are not root.** Coding agents refuse to run as root:
+  `claude --dangerously-skip-permissions` exits before it starts. The daemon
+  drops to `cmux` (docs/cloud-cmux-tui-daemon.md), root stays one `sudo`
+  away, and the verifier proves both that the refusal is gone and that a pane
+  the daemon opens really reports `cmux@cmux`.
 
 `vm-devbox-image.test.ts` pins the shared files (`cmux-bashrc`,
 `agent-config.sh`, `seed-history`, `chrome-managed-policy.json`) to their
@@ -40,7 +61,7 @@ on 6901. The contract (`web/services/vms/images/desktop.ts`;
 `vm-devbox-desktop.test.ts` pins it, the Mac app's Displays row, the CLI's
 `cloudVMDesktopPort` and the Freestyle driver's `openPort` depend on it):
 
-- `start-vnc.sh` runs as the work user `ubuntu` with `HOME=/home/ubuntu`
+- `start-vnc.sh` runs as the work user `cmux` with `HOME=/home/cmux`
   and `DISPLAY=:1`, so the desktop session is the same account terminals
   and SSH land in; RFB on **5901 loopback-only** (no VNC auth: the owner's
   private network is the only ingress), noVNC via websockify on **6901**
@@ -53,14 +74,15 @@ on 6901. The contract (`web/services/vms/images/desktop.ts`;
   and nudges the dock), and websockify.
 - It publishes `DISPLAY` and the accessibility bus (`AT_SPI_BUS_ADDRESS` for
   AT-SPI clients, `AT_SPI_BUS` for `cua-driver doctor`) at `/run/cmux-desktop/env`
-  (the unit's `RuntimeDirectory=`, owned by `ubuntu`, readable by all).
+  (the unit's `RuntimeDirectory=`, owned by `cmux`, readable by all).
   `/etc/cmux/desktop-env.sh`, sourced by `/etc/profile.d/cmux-desktop.sh`
   and the bashrc chain (every pane the cmux-tui daemon opens, root's
   included), points any shell without a `DISPLAY` at the desktop while it
   is up, so `agent-browser`, `xdotool` and `cua-driver mcp`/`call` act on
-  the screen a person can watch. The session's own user also inherits its
-  D-Bus session bus; root does not (the bus admits only its owner). Root
-  can reach the display itself (`cmux` sessions run as root).
+  the screen a person can watch. The desktop session and the cmux-tui daemon
+  are the same account, so an app started from a terminal pane joins the
+  session bus of the screen a person is watching; root gets `DISPLAY` but not
+  that bus (it admits only its owner).
 - Readiness is signalled by its owners, never inferred from elapsed time:
   Xvnc reports its display on `-displayfd` once it accepts connections, the
   accessibility bus is awaited by name (`gdbus wait org.a11y.Bus`), the
@@ -70,19 +92,18 @@ on 6901. The contract (`web/services/vms/images/desktop.ts`;
   port-open heal, the bake) returns exactly when the screen is usable.
   websockify has no readiness signal of its own, so its 6901 bind is the one
   bounded connect wait (`wait_listening`).
-- The `cmux-desktop` systemd unit runs `cmux-desktop-boot` as `ubuntu`,
+- The `cmux-desktop` systemd unit runs `cmux-desktop-boot` as `cmux`,
   which re-asserts Chrome's pre-accepted first run and re-runs the
   idempotent `start-vnc.sh` every 30 s. In a container (no systemd) the
   `cmux-devbox-boot` boot supervisor starts the same `cmux-desktop-boot` as
   the uid-1000 account and restarts it if it exits; under systemd it starts
   nothing (the bake and the verifier count exactly one desktop supervisor).
-- `ubuntu` has passwordless sudo, so coding agents' root-refusing modes
-  (`claude --dangerously-skip-permissions`) work. The Freestyle driver still
-  runs the cmux-tui daemon as root; moving sessions to `ubuntu` is a driver
-  change.
+- `cmux` has passwordless sudo, so coding agents' root-refusing modes
+  (`claude --dangerously-skip-permissions`) work, and the cmux-tui daemon
+  runs sessions as that same account.
 - Agents are trusted everywhere. codex: `codex-managed.toml` is baked to
   `/etc/codex/managed_config.toml` with `trust_level = "trusted"` for `/root`
-  and `/home/ubuntu`, and the `codex()` function in `agent-config.sh` adds the
+  and the work user's home, and the `codex()` function in `agent-config.sh` adds the
   launch directory's git root per invocation (codex trust is exact-path).
   claude: `agent-config.sh` seeds `~/.claude.json` (onboarding done, bypass
   accepted, the placeholder API key approved, `/` trusted) and exports `CLAUDE_CODE_SANDBOXED=1` (trust gate)
@@ -95,9 +116,15 @@ on 6901. The contract (`web/services/vms/images/desktop.ts`;
   `ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256` before dpkg runs); the apt list is
   `ARG CMUX_IMAGE_DESKTOP_PACKAGES`. `devbox-image-common.ts` reads all three.
 
-Desktop and base defaults use separate snapshots. `--no-desktop --kinds base`
-builds the shell-only base ladder; the verifier reads `/etc/cmux/image-stamp`
-and rejects a desktop snapshot passed as a base image.
+Desktop and base defaults use separate snapshots, and desktop is the kind
+every default create path asks for (`VM_IMAGE_DEFAULT_KIND` in
+`services/vms/images/resolver.ts`; the app sheet and the CLI send `--desktop`
+unless the person picks Base). `--kinds desktop` promotes the desktop ladder
+and `--no-desktop --kinds base` builds and promotes the shell-only base
+ladder; the verifier reads `/etc/cmux/image-stamp` and rejects a desktop
+snapshot passed as a base image. A daemon change (the cmux-tui pin) reaches
+machines only through a rebake of both ladders: the driver's attach-time heal
+never upgrades a healthy baked daemon.
 
 The Freestyle base slug is only the input to the cmux bake. The ids recorded in
 `manifest.json` are cmux-derived snapshots, created by baking cmux-tui and its
@@ -186,7 +213,7 @@ queries it, and `verify-devbox-image.ts` proves the same on a fresh machine.
 Machines attach through the cmux-tui remote daemon on port 1337
 (transport `cmux-remote`, docs/cloud-cmux-tui-daemon.md). The Freestyle bake
 installs the pinned files.cmux.com build (sha256-verified, the driver's own
-install command) at `/root/.cmux/bin/cmux-tui`, proves the daemon answers,
+install command) at `/home/cmux/.cmux/bin/cmux-tui`, proves the daemon answers,
 then parks it, because a Freestyle snapshot is a memory image and a live
 daemon would give every machine the builder's Noise identity. The
 `cmux-devbox-boot` supervisor, run by the baked `cmux-tui-daemon` systemd
@@ -308,14 +335,16 @@ never from the image.
 
 Each bake prints a `next` command. The verifier boots one VM from the
 snapshot, asserts the toolchain, the exact agent pins, ghost text
-under a tmux PTY, byte-identical baked files, the work user, and (when
+under a tmux PTY, byte-identical baked files, the work user and machine name
+(one uid-1000 account named `cmux`, no `ubuntu` left behind, a login prompt
+reading `cmux@cmux`, `claude --dangerously-skip-permissions` accepted), and (when
 `/etc/cmux/image-stamp` says `desktop`) the desktop contract (both ports,
 RFB loopback-only, the session processes, the wallpaper on the root window,
-one supervisor, `DISPLAY` in root's and `ubuntu`'s login shells,
+one supervisor, `DISPLAY` in root's and the work user's login shells,
 `cua-driver doctor` seeing the display and the accessibility bus, every
 desktop file byte-identical), then waits for
 the baked daemon to come up on its own, asserts the daemon contract (current
-pin, identity bound to this instance id) and that a second machine from the
+pin, running as the work user, identity bound to this instance id) and that a second machine from the
 snapshot holds a different daemon identity, and deletes both sandboxes:
 
 ```bash

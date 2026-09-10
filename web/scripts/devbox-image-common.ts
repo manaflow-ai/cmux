@@ -14,11 +14,13 @@
  * cmux-devbox-boot supervisor.
  */
 import { execSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Buffer } from "node:buffer";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { CMUX_TUI_SESSION, cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector, cmuxTuiRunCommand, shellQuote } from "../services/vms/drivers/cmuxTuiDaemon";
+import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../services/vms/images/workUser";
 import { VM_IMAGE_SIZES, VM_IMAGE_SIZE_NAMES, vmImageSizeRank, type VmImageSizeName } from "../services/vms/images/sizes";
 import { DEVBOX_HOSTNAME, DEVBOX_HOSTNAME_LOOPBACK, DEVBOX_PROVIDER_HOSTNAME } from "../services/vms/images/identity";
 
@@ -72,14 +74,18 @@ export const devboxTerminfoInstallCommand =
  * temporary device and removes the workspace before a snapshot can capture
  * test state.
  */
-export function cmuxTuiWebsocketSmokeCommand(
-  session = "cloud",
-  binary = "/root/.cmux/bin/cmux-tui",
-): string {
+export function cmuxTuiWebsocketSmokeCommand(session = "cloud", binary?: string): string {
+  const identity = `${DEVBOX_WORK_USER}@${DEVBOX_HOSTNAME}`;
+  // Runs as the daemon's own user with the daemon's HOME: enrollment reads and
+  // writes the session state the daemon owns, and as root that state dir is a
+  // different (empty) one on a work-user machine.
+  // The layout is selected by the caller (as root, the only user that can drop
+  // privileges) and handed in: re-running the selector here, already dropped to
+  // the daemon's user, would fail every probe and fall back to root's path.
   const shell = `#!/usr/bin/env bash
 set -euo pipefail
-export HOME=/root
-BIN=${binary}
+BIN="\${CMUX_TUI_BIN:?cmux-tui binary not provided}"
+: "\${HOME:?home not provided}"
 SESSION=${session}
 ROOT=/tmp/cmux-tui-websocket-smoke
 ROUTE='ws://[::1]:1337/v1/link'
@@ -142,7 +148,7 @@ echo "$CAPABILITIES" | jq -e '.type == "capabilities"' >/dev/null
 WORKSPACE="$(rpc '{"type":"open-workspace","root":"/tmp"}')"
 WORKSPACE_ID="$(echo "$WORKSPACE" | jq -r '.id // .result.Ok.id')"
 test -n "$WORKSPACE_ID" && test "$WORKSPACE_ID" != "null"
-SPAWN_REQUEST="$(jq -nc --arg workspace "$WORKSPACE_ID" --arg marker "$MARKER" '{type:"spawn-process",workspace:$workspace,argv:["bash","-lc",("printf "+$marker+"; sleep 60")],cwd:null,env:{},io:{type:"pty",cols:120,rows:40,term:"xterm-256color",eof:"control-d"},lifetime:"detached"}')"
+SPAWN_REQUEST="$(jq -nc --arg workspace "$WORKSPACE_ID" --arg marker "$MARKER" '{type:"spawn-process",workspace:$workspace,argv:["bash","-lc",("printf %s:%s@%s "+$marker+" \\"$(id -un)\\" \\"$(hostname)\\"; sleep 60")],cwd:null,env:{},io:{type:"pty",cols:120,rows:40,term:"xterm-256color",eof:"control-d"},lifetime:"detached"}')"
 SPAWN="$(rpc "$SPAWN_REQUEST")"
 PROCESS_ID="$(echo "$SPAWN" | jq -r '.process // .result.Ok.process')"
 test -n "$PROCESS_ID" && test "$PROCESS_ID" != "null"
@@ -150,6 +156,9 @@ sleep 2
 SNAPSHOT_REQUEST="$(jq -nc --arg process "$PROCESS_ID" '{type:"snapshot-process-terminal",process:$process}')"
 FIRST="$(rpc "$SNAPSHOT_REQUEST")"
 echo "$FIRST" | jq -e --arg marker "$MARKER" 'tostring | contains($marker)' >/dev/null
+# The whole point of the daemon layout: a pane it opens is a shell of the work
+# user on a machine named cmux, which is what the prompt shows a person.
+echo "$FIRST" | jq -e --arg who "$MARKER:${identity}" 'tostring | contains($who)' >/dev/null
 FIRST_SEQUENCE="$(echo "$FIRST" | jq -r '.snapshot.through_sequence // .result.Ok.snapshot.through_sequence')"
 test "$FIRST_SEQUENCE" -ge 1
 SECOND="$(rpc "$SNAPSHOT_REQUEST")"
@@ -159,8 +168,18 @@ test "$SECOND_SEQUENCE" -ge "$FIRST_SEQUENCE"
 echo "websocket-smoke-ok marker=$MARKER through_sequence=$FIRST_SEQUENCE->$SECOND_SEQUENCE"
 `;
   const encoded = Buffer.from(shell, "utf8").toString("base64");
-  return `printf %s ${encoded} | base64 -d >/tmp/cmux-tui-websocket-smoke.sh && chmod 700 /tmp/cmux-tui-websocket-smoke.sh && bash /tmp/cmux-tui-websocket-smoke.sh`;
+  const script = "/tmp/cmux-tui-websocket-smoke.sh";
+  return (
+    `printf %s ${encoded} | base64 -d >${script} && chmod 755 ${script} && ` +
+    `${cmuxTuiLayoutSelector()} && ` +
+    // `binary` overrides only the client: the reachability check drives a
+    // freshly downloaded build against the daemon the image baked. HOME still
+    // comes from the layout, because enrollment reads the daemon's own state.
+    `${cmuxTuiAsDaemonUser(`CMUX_TUI_BIN=${binary ? shellQuote(binary) : '"$CMUX_TUI_BIN"'} bash ${script}`)}`
+  );
 }
+
+
 
 /**
  * The desktop layer (ported from the retired Blaxel cmux-devbox image): an
@@ -340,7 +359,30 @@ export function bakePreflight(options: { desktop?: boolean } = {}): { sha: strin
     }
   }
   const allowBranch = process.env.CMUX_BAKE_ALLOW_BRANCH === "1";
-  execSync("git fetch --quiet origin main", { cwd: repoRoot });
+  // Two promotions running at once (one ladder each) race on the ref lock, so
+  // a lost race is retried rather than fatal. What must NOT happen is blessing
+  // a stale ref: the whole point of the check below is to refuse a bake from
+  // an obsolete checkout, and `HEAD === origin/main` can pass against a ref
+  // that predates main. So an unrefreshed ref is only tolerated for a
+  // deliberate branch bake, which is not making that claim anyway.
+  let fetched = false;
+  let fetchError = "";
+  for (let attempt = 0; attempt < 3 && !fetched; attempt += 1) {
+    try {
+      execSync("git fetch --quiet origin main", { cwd: repoRoot, stdio: "pipe" });
+      fetched = true;
+    } catch (error) {
+      fetchError = String(error).split("\n")[0];
+      if (attempt < 2) execSync("sleep 2", { cwd: repoRoot });
+    }
+  }
+  if (!fetched && !allowBranch) {
+    throw new Error(
+      `bake refused: could not refresh origin/main (${fetchError}), so the staleness check below cannot be trusted. ` +
+        "Retry, or set CMUX_BAKE_ALLOW_BRANCH=1 for a deliberate branch bake.",
+    );
+  }
+  if (!fetched) console.warn(`bake-preflight: could not refresh origin/main (${fetchError}); branch bake, continuing`);
   const head = git("rev-parse HEAD", repoRoot);
   const main = git("rev-parse origin/main", repoRoot);
   if (head !== main && !allowBranch) {
@@ -474,6 +516,51 @@ export const DEVBOX_INSTANCE_ID_COMMAND =
   "curl -sf -m 2 -H \"X-aws-ec2-metadata-token: $(curl -sf -m 2 -X PUT http://169.254.169.254/latest/api/token -H 'X-metadata-token-ttl-seconds: 60')\" http://169.254.169.254/latest/meta-data/instance-id";
 
 /**
+ * Guest-side condition for "the session daemon is fully up on THIS machine":
+ * it answers on its control socket, it is listening dual-stack on 1337
+ * (0x0539; a machine reached at a private VPC address needs the v6 table),
+ * and the supervisor has bound its identity to this machine's instance id.
+ *
+ * This is the signal every phase used to approximate with `sleep 30`. It is
+ * not slow: a machine resumed from a snapshot answers in well under a second
+ * (the verifier prints the number), so waiting on it instead of on the clock
+ * removes ~30 s per phase without weakening the check.
+ */
+export function devboxDaemonReadyCondition(): string {
+  return (
+    `${cmuxTuiRunCommand(`server status --session ${CMUX_TUI_SESSION}`)} >/dev/null 2>&1 && ` +
+    `grep -qi ':0539 ' /proc/net/tcp6 && ` +
+    // Not just "a marker exists": a machine cloned from a snapshot resumes the
+    // SOURCE machine's daemon, which answers and listens with the source's
+    // identity until cmux-devbox-boot notices the instance id changed and
+    // re-keys it. A ready check that accepted the stale marker would hand the
+    // next phase a daemon that is about to be stopped and rebuilt.
+    //
+    // Both sides must be non-empty. An unreachable metadata service yields an
+    // empty id, and an unwritten marker reads empty too, so a bare comparison
+    // would call "" = "" a bound identity and report ready immediately. This
+    // command only ever runs on a Freestyle VM, which always has MMDS, so
+    // failing closed here surfaces a broken machine instead of hiding it.
+    `cmux_instance="$(${DEVBOX_INSTANCE_ID_COMMAND})" && [ -n "$cmux_instance" ] && ` +
+    `[ "$(cat /etc/cmux/daemon-instance-id 2>/dev/null)" = "$cmux_instance" ]`
+  );
+}
+
+/**
+ * Blocks in the guest until {@link devboxDaemonReadyCondition} holds, then
+ * exits 0. Bounded: on timeout it exits 1 with the elapsed budget on stderr,
+ * so a daemon that never comes up fails the bake instead of hanging it.
+ */
+export function devboxWaitForDaemonCommand(timeoutSeconds = 120): string {
+  return (
+    `cmux_ready=0; for i in $(seq 1 ${timeoutSeconds * 2}); do ` +
+    `if ${devboxDaemonReadyCondition()}; then cmux_ready=1; break; fi; sleep 0.5; done; ` +
+    `if [ "$cmux_ready" = 1 ]; then echo daemon-ready; else ` +
+    `echo "cmux-tui daemon not ready after ${timeoutSeconds}s" >&2; exit 1; fi`
+  );
+}
+
+/**
  * Park the cmux-tui daemon on a machine about to be snapshotted: record this
  * machine's instance id as the bake id (cmux-devbox-boot keeps the daemon
  * stopped while the ids match), wait for the supervisor to stop it, wipe the
@@ -484,12 +571,13 @@ export const DEVBOX_INSTANCE_ID_COMMAND =
  */
 export function devboxParkDaemonCommand(): string {
   return [
+    cmuxTuiLayoutSelector(),
     `mkdir -p /etc/cmux && ${DEVBOX_INSTANCE_ID_COMMAND} > /etc/cmux/bake-instance-id && test -s /etc/cmux/bake-instance-id`,
     // [s]tart: the pattern must not match the exec shell carrying this command line.
     "for i in $(seq 1 30); do pgrep -f 'cmux-tui server [s]tart' >/dev/null || break; sleep 1; done",
     "! pgrep -f 'cmux-tui server [s]tart' >/dev/null",
     "systemctl is-active cmux-tui-daemon >/dev/null",
-    "rm -rf /root/.local/state/cmux/remote /root/.local/state/cmux-tui /etc/cmux/daemon-instance-id",
+    'rm -rf "$CMUX_TUI_HOME/.local/state/cmux/remote" "$CMUX_TUI_HOME/.local/state/cmux-tui" /etc/cmux/daemon-instance-id',
     "! grep -qi ':0539 ' /proc/net/tcp6",
     "echo daemon-parked-for-clones",
   ].join(" && ");
@@ -556,7 +644,7 @@ export type DevboxManifestEntry = {
   /** The shape this snapshot boots at (Freestyle ladder). Size-less entries are pre-ladder bakes. */
   size?: DevboxImageSize;
   cmuxdRemoteCommit: string;
-  /** The cmux-tui build baked at /root/.cmux/bin/cmux-tui (files.cmux.com manifest pin at bake time). Absent on images that installed it at create time. */
+  /** The cmux-tui build baked in the daemon user's home (files.cmux.com manifest pin at bake time). Absent on images that installed it at create time. */
   cmuxTuiCommit?: string;
   cmuxTuiSha256?: string;
   /** The cmux commit whose devbox definition produced this image. */
@@ -636,6 +724,57 @@ export type DevboxImageManifest = {
   schemaVersion: number;
   images: DevboxManifestEntry[];
 };
+
+/**
+ * Serializes the manifest's read-modify-write across concurrent promotions.
+ * Both ladders can then be promoted at once (they share nothing else), which
+ * halves a full refresh; without it the second writer would silently drop the
+ * first one's entries. Advisory and bounded: an abandoned lock older than its
+ * TTL is taken over, so a killed promotion cannot wedge the next one.
+ */
+export async function withImageManifestLock<T>(run: () => Promise<T> | T): Promise<T> {
+  const lockPath = `${imageManifestPath}.lock`;
+  const deadline = Date.now() + 180_000;
+  const staleAfterMs = 10 * 60 * 1000;
+  const token = `${process.pid}:${randomUUID()}`;
+  for (;;) {
+    try {
+      writeFileSync(lockPath, `${token}\n`, { flag: "wx" });
+      break;
+    } catch {
+      let age = 0;
+      try {
+        age = Date.now() - statSync(lockPath).mtimeMs;
+      } catch {
+        continue; // released between the failed create and the stat
+      }
+      if (age > staleAfterMs) {
+        console.warn(`taking over an abandoned manifest lock (${(age / 1000).toFixed(0)}s old)`);
+        rmSync(lockPath, { force: true });
+        continue;
+      }
+      if (Date.now() > deadline) {
+        throw new Error(`another promotion has held ${lockPath} for over 3 minutes; re-run once it finishes`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+  try {
+    return await run();
+  } finally {
+    // Only remove the lock if it is still ours: a stale takeover (or an
+    // operator clearing it) may have handed it to another promotion, and
+    // deleting that one would let a third in beside it.
+    let held = "";
+    try {
+      held = readFileSync(lockPath, "utf8").trim();
+    } catch {
+      held = "";
+    }
+    if (held === token) rmSync(lockPath, { force: true });
+    else if (held !== "") console.warn(`manifest lock was taken over by ${held}; leaving it in place`);
+  }
+}
 
 export function readImageManifest(file = imageManifestPath): DevboxImageManifest {
   const parsed = JSON.parse(readFileSync(file, "utf8")) as DevboxImageManifest;

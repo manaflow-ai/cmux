@@ -1196,10 +1196,23 @@ extension CMUXCLI {
     }
 
     /// What the machine's cmux-tui session runs: a login shell so the persistent-home tool
-    /// paths (/root/.npm-global, bun, uv) resolve even before .bashrc is sourced, then exec.
-    func vmAgentShellCommand(argv: [String]) -> [String] {
+    /// paths ($HOME/.npm-global, bun, uv) resolve even before .bashrc is sourced, then exec.
+    ///
+    /// Every path is relative to the session's own $HOME, never a literal /root: a cmux Cloud
+    /// machine runs its sessions as the non-root work user, and older machines run them as
+    /// root, so the home is whatever the daemon's user has. `workDirectory` is likewise the
+    /// pushed directory relative to that home; if it is gone, the agent starts in the home
+    /// rather than failing to launch.
+    func vmAgentShellCommand(argv: [String], workDirectory: String? = nil) -> [String] {
         let joined = argv.map(shellQuote).joined(separator: " ")
-        return ["bash", "-lc", "export PATH=/root/.npm-global/bin:/root/.bun/bin:/root/.local/bin:$PATH; exec \(joined)"]
+        // Not `|| true`: a push reported this directory as the agent's cwd, so
+        // starting in $HOME instead would run the agent against the wrong tree
+        // while the JSON still claims it synced.
+        let enter = workDirectory.map { "cd \(shellQuote($0)) || exit 1; " } ?? ""
+        return [
+            "bash", "-lc",
+            "cd \"$HOME\"; \(enter)export PATH=\"$HOME/.npm-global/bin:$HOME/.bun/bin:$HOME/.local/bin:$PATH\"; exec \(joined)",
+        ]
     }
 
     func runVMRouteCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
@@ -1346,7 +1359,6 @@ extension CMUXCLI {
         cliWriteStderr("[cmux vm agent] \(selection.id) (\(selection.reason))\n")
         Self.saveVMRunBinding(workKey: Self.vmRunWorkKey(forDirectory: workDirectory), machine: selection.id)
 
-        var remoteCwd = "/root"
         var syncedRemoteDir: String?
         if sync {
             let basename = (workDirectory as NSString).lastPathComponent
@@ -1358,8 +1370,10 @@ extension CMUXCLI {
                 quiet: true
             )
             syncedRemoteDir = remoteDir
-            remoteCwd = "/root/\(remoteDir)"
         }
+        // Reported, not requested: the daemon starts the terminal in its own home and the
+        // command cd's from there, so the CLI never has to know which user owns the machine.
+        let remoteCwd = syncedRemoteDir.map { "~/\($0)" } ?? "~"
 
         let name = nameOption ?? Self.vmAgentTerminalName(agent: agent, args: agentArgs)
         // The agent is a terminal resource on the machine (`surface.new_terminal`): it lives
@@ -1367,8 +1381,7 @@ extension CMUXCLI {
         // pane unless --no-open.
         let params: [String: Any] = [
             "machine": selection.id,
-            "command": vmAgentShellCommand(argv: argv),
-            "cwd": remoteCwd,
+            "command": vmAgentShellCommand(argv: argv, workDirectory: syncedRemoteDir),
             "name": name,
             "open": !noOpen,
         ]
