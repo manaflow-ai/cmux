@@ -37,6 +37,18 @@ final class DeviceDirectory {
     private(set) var hasLoadedRegistry = false
     private(set) var isRefreshingRegistry = false
 
+    /// Notifications describe the whole UI snapshot, not only its rows. A
+    /// status transition is observable even when the directory stays empty.
+    private struct PublishedState: Equatable {
+        let records: [DeviceDirectoryRecord]
+        let presenceState: PresenceState
+        let registryError: String?
+        let hasLoadedRegistry: Bool
+        let isRefreshingRegistry: Bool
+    }
+
+    private var lastPublishedState: PublishedState?
+
     private let identity: AuthenticatedSessionIdentity
     private let teamID: String?
     private let tokens: HiveAccountTokenSource
@@ -134,6 +146,7 @@ final class DeviceDirectory {
     func refreshRegistry() {
         guard registryTask == nil else { return }
         isRefreshingRegistry = true
+        notifyChanged()
         registryTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -266,12 +279,20 @@ final class DeviceDirectory {
             currentUserID: identity.accountID,
             resolvedTeamID: teamID
         ))
-        guard merged != records else { return }
-        records = merged
+        if merged != records { records = merged }
         notifyChanged()
     }
 
     private func notifyChanged() {
+        let state = PublishedState(
+            records: records,
+            presenceState: presenceState,
+            registryError: registryError,
+            hasLoadedRegistry: hasLoadedRegistry,
+            isRefreshingRegistry: isRefreshingRegistry
+        )
+        guard state != lastPublishedState else { return }
+        lastPublishedState = state
         NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
     }
 }
