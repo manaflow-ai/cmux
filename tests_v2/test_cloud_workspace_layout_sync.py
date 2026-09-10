@@ -15,7 +15,7 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
-from cmux import cmux
+from cmux import cmux, cmuxError
 
 
 class CloudLayoutHarness:
@@ -130,20 +130,21 @@ class CloudLayoutHarness:
         assert any(w["id"] == remote_target for w in after["workspaces"])
         print("PASS local workspace teardown preserves the machine layout", flush=True)
 
+    def close_local_workspace(self, workspace, errors):
+        try:
+            self.client._call("workspace.close", {"workspace_id": workspace})
+        except Exception as error:
+            # A last-pane transfer or the teardown assertion may already have
+            # removed this workspace. Transport and other server errors matter.
+            if not (isinstance(error, cmuxError) and str(error) == "not_found: Workspace not found"):
+                errors.append(f"local workspace {workspace}: {error}")
+
     def close(self):
         errors = []
         for workspace in self.local_workspaces:
-            try:
-                self.client._call("workspace.close", {"workspace_id": workspace})
-            except Exception:
-                pass
+            self.close_local_workspace(workspace, errors)
         for fixture in reversed(self.fixtures):
-            try:
-                self.client._call("workspace.close", {"workspace_id": fixture["workspace_id"]})
-            except Exception:
-                # Moving the last surface or the teardown assertion may already
-                # have removed this local workspace.
-                pass
+            self.close_local_workspace(fixture["workspace_id"], errors)
             for arguments in [("terminal", fixture["terminal_id"], "close"),
                               ("workspace", fixture["remote_workspace_id"], "close")]:
                 try:

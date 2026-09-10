@@ -110,16 +110,16 @@ final class CloudPlacementCoordinator {
                 if cursor.generation == receipt.generation && cursor.revision < receipt.revision { continue }
                 confirmationCursors[state.machine]?[tabID] = nil
             }
-            if projection.resource.kind == .terminal,
-               state.lookupIndex.terminal(id: projection.resource.key) != nil,
-               state.lookupIndex.tabIDsByContent[CloudVMTabContentKey(kind: "terminal", id: projection.resource.key)]?.isEmpty != false {
+            let trackedTab = state.lookupIndex.tab(id: tabID)
+            if trackedTab?.contentID != projection.resource.key
+                || trackedTab?.contentKind != projection.resource.kind.rawValue {
                 var updated = projection
                 updated.remoteWorkspaceID = nil
                 updated.remoteTabID = nil
                 replacements[projection] = updated
                 continue
             }
-            guard let tab = state.lookupIndex.tab(id: tabID), tab.contentID == projection.resource.key,
+            guard let tab = trackedTab,
                   let pane = state.lookupIndex.pane(id: tab.paneID),
                   let screen = state.lookupIndex.screen(id: pane.screenID),
                   projection.remoteWorkspaceID != screen.workspaceID else { continue }

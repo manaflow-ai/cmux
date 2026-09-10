@@ -1190,10 +1190,13 @@ final class SurfaceCatalog {
         in workspaceID: UUID,
         remotePlacement: SurfaceRemotePlacement?
     ) {
-        let view = resources[previous.resource].flatMap { resource in
-            let tabID = cloudWorkspaceRenameService.remoteTabID(for: previous, resource: resource)
-            return resource.remoteViews?.first { $0.tabID == tabID }
-        }
+        let views = resources[previous.resource]?.remoteViews
+        let exactView = views?.first { $0.tabID == previous.remoteTabID }
+        // A dead saved ID cannot describe the rematerialized terminal. A unique
+        // live view is unambiguous; several live views must remain unresolved.
+        let view = exactView ?? (views?.count == 1 ? views?.first : nil)
+        let savedWorkspace = views == nil ? previous.remoteWorkspaceID : nil
+        let savedTab = views == nil ? previous.remoteTabID : nil
         if let remotePlacement {
             cloudPlacementCoordinator.confirmPlacement(remotePlacement, on: previous.resource.machine)
         }
@@ -1202,8 +1205,8 @@ final class SurfaceCatalog {
             resource: previous.resource,
             workspaceID: workspaceID,
             panelID: panelID,
-            remoteWorkspaceID: remotePlacement?.workspaceID ?? view?.workspace.id ?? previous.remoteWorkspaceID,
-            remoteTabID: remotePlacement?.tabID ?? view?.tabID ?? previous.remoteTabID
+            remoteWorkspaceID: remotePlacement?.workspaceID ?? view?.workspace.id ?? savedWorkspace,
+            remoteTabID: remotePlacement?.tabID ?? view?.tabID ?? savedTab
         ))
     }
 
