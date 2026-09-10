@@ -38,8 +38,9 @@ extension AppDelegate {
         // at launch until it opts in or this Mac lists its fleet again.
         CloudMachineCache().clear()
         guard let coordinator = cloudTunnelCoordinator else { return }
-        cloudTunnelTeardownTask?.cancel()
+        let previous = cloudTunnelTeardownTask
         cloudTunnelTeardownTask = Task {
+            await previous?.value
             try? await coordinator.revoke()
         }
     }

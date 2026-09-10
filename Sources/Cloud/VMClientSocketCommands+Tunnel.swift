@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSettings
 
 /// `vm.tunnel_*`: this Mac's membership in the user's private Cloud VM
 /// network. The terminal role uses the user-space hub. `up`, `down`, and
@@ -20,6 +21,24 @@ extension TerminalController {
         id: Any?,
         params: [String: Any]
     ) -> String? {
+        // `DisableCloud`: only the cleanup verbs stay reachable so a managed
+        // Mac can still report, stop, and remove tunnel state. Enrollment,
+        // `up`, and `wait` fail closed; the coordinator refuses them as well.
+        if method.hasPrefix("vm.tunnel_"), ManagedDevicePolicy().isEnforced(.disableCloud) {
+            switch method {
+            case "vm.tunnel_status", "vm.tunnel_down", "vm.tunnel_revoke":
+                break
+            default:
+                return v2Error(
+                    id: id,
+                    code: "cloud_disabled",
+                    message: String(
+                        localized: "cloud.managed.tunnelDisabled",
+                        defaultValue: "Cloud private-network access is disabled by your organization."
+                    )
+                )
+            }
+        }
         switch method {
         case "vm.tunnel_config":
             // Enrolls the browser role and writes its WireGuard config. The

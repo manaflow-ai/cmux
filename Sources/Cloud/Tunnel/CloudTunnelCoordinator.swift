@@ -83,7 +83,9 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
         consumers: any CloudTunnelConsumerSource,
         clock: any Clock<Duration> = ContinuousClock(),
         timing: CloudTunnelTiming = CloudTunnelTiming(),
-        admission: CloudTunnelAdmission = .open
+        admission: CloudTunnelAdmission = .open,
+        isDisabledByManagedPolicy: (@Sendable () -> Bool)? = nil,
+        isDisabledByPolicy: (@Sendable () -> Bool)? = nil
     ) {
         self.backend = backend
         self.controller = controller
@@ -91,7 +93,14 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
         self.consumers = consumers
         self.clock = clock
         self.timing = timing
-        self.admission = admission
+        if let isDisabledByManagedPolicy = isDisabledByManagedPolicy ?? isDisabledByPolicy {
+            self.admission = CloudTunnelAdmission(
+                knownRefusal: { isDisabledByManagedPolicy() ? .managedPolicyDisabled : nil },
+                resolvedRefusal: { isDisabledByManagedPolicy() ? .managedPolicyDisabled : nil }
+            )
+        } else {
+            self.admission = admission
+        }
     }
 
     /// Why the next start would be refused, or nil when it would proceed;

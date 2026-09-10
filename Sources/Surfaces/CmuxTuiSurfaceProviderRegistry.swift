@@ -37,6 +37,13 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// fleet read. This prevents an older page from unregistering a machine that
     /// a newer page just added.
     private var refreshGeneration: UInt64 = 0
+    /// Bumped by every ``start(catalog:)``. `NotificationCenter` blocks queued
+    /// on `.main` are already enqueued when `removeObserver` runs, so a
+    /// teardown posted before a restart can still land after it. The observer
+    /// carries the epoch it was registered with and a stale one is dropped:
+    /// without this, a `DisableCloud` teardown that lands just after the
+    /// policy lifts would clear the freshly restarted registry.
+    private var accessEpoch: UInt64 = 0
     /// Same cadence as the Machines panel's list refresh.
     private let pollInterval: Duration = .seconds(45)
     /// In-flight forward and link teardowns for deleted machines, keyed by
@@ -83,6 +90,8 @@ final class CmuxTuiSurfaceProviderRegistry {
     func start(catalog: SurfaceCatalog) {
         self.catalog = catalog
         guard !ManagedDevicePolicy().isEnforced(.disableCloud) else { return }
+        accessEpoch &+= 1
+        let epoch = accessEpoch
         // Block observers are retained by NotificationCenter: drop the previous
         // tokens so a re-start never leaves stale callbacks registered.
         if let accessObserver { NotificationCenter.default.removeObserver(accessObserver) }
@@ -91,7 +100,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in await self?.accessDidEnd() }
+            Task { @MainActor in await self?.accessDidEnd(epoch: epoch) }
         }
         // A Ghostty config reload can change the resolved theme; re-push it so remote
         // panes keep matching the local ones (connect-time push covers new links).
@@ -280,6 +289,13 @@ final class CmuxTuiSurfaceProviderRegistry {
             }
         }
         return true
+    }
+
+    /// Notification-driven teardown. Ignored when it belongs to a registry
+    /// generation an intervening ``start(catalog:)`` has already replaced.
+    func accessDidEnd(epoch: UInt64) async {
+        guard epoch == accessEpoch else { return }
+        await accessDidEnd()
     }
 
     func accessDidEnd() async {

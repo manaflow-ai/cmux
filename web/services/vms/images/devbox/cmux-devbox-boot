@@ -3,14 +3,21 @@
 #
 # Supervises the cmux-tui session daemon, the machine's only session daemon
 # (docs/cloud-cmux-tui-daemon.md), and, on a container image without systemd,
-# the desktop session (see "Desktop" below). The Freestyle bake installs the pinned
-# files.cmux.com build at /root/.cmux/bin/cmux-tui (sha256-verified; see
+# the desktop session (see "Desktop" below). The Freestyle bake installs the
+# pinned files.cmux.com build in the daemon user's home (sha256-verified; see
 # web/scripts/build-devbox-freestyle.ts) and this loop starts the daemon and
 # restarts it if it ever exits. On an image without the binary (the container
 # Dockerfile) the loop waits for a driver to install it. The daemon command
 # must stay identical to cmuxTuiDaemonCommand() in
 # web/services/vms/drivers/cmuxTuiDaemon.ts; vm-devbox-image.test.ts pins
 # the equality.
+#
+# The daemon runs as the image's work user (cmux, uid 1000, passwordless
+# sudo), so every terminal pane is a non-root shell and coding agents start.
+# The command picks that layout on the machine; a machine from an image baked
+# before the work user existed keeps a root daemon and its /root state. This
+# script reads the same selection so the state it wipes on a clone is the
+# state the daemon actually writes.
 #
 # Per-machine daemon identity. A Freestyle snapshot is a memory image: every
 # machine created from it resumes the source machine's processes, so a daemon
@@ -54,7 +61,6 @@
 # cmux-desktop-boot loop as the work user (the uid-1000 account, else root)
 # and restarts it if it ever exits. The daemon loop below is untouched by it:
 # the desktop is a sibling process, never a child of the session daemon.
-BIN=/root/.cmux/bin/cmux-tui
 # Terminal identity for every pane the daemon opens. Children inherit the
 # daemon's environment, and the Mac app renders each pane in its embedded
 # Ghostty, so panes carry the same identity the app exports to local and SSH
@@ -64,19 +70,30 @@ BIN=/root/.cmux/bin/cmux-tui
 # synchronized output, progress reporting, strikethrough, and Cmd-click on
 # TERM_PROGRAM; without it Claude Code treats the pane as a plain xterm.
 # The exact string is CMUX_TUI_DAEMON_TERMINAL_ENV in cmuxTuiDaemon.ts.
+# BIN is not fixed here: cmux_tui_layout() below sets it from the layout.
 DESKTOP_BOOT=/usr/local/bin/cmux-desktop-boot
 DESKTOP_RUNTIME_DIR=/run/cmux-desktop
 DESKTOP_DISPLAY=:1
-# cmux-remote's default state dir for root on Linux; identity.json lives under sessions/<session>/auth.
-REMOTE_STATE_DIR=/root/.local/state/cmux/remote
 BOUND_INSTANCE_FILE=/etc/cmux/daemon-instance-id
 BAKE_INSTANCE_FILE=/etc/cmux/bake-instance-id
 METADATA=http://169.254.169.254
+
+# Selects the daemon's user, home and binary; keep identical to
+# cmuxTuiLayoutSelector() in web/services/vms/drivers/cmuxTuiDaemon.ts.
+cmux_tui_layout() {
+  if id -u cmux >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && setpriv --reuid=cmux --regid=cmux --init-groups test -w /home/cmux 2>/dev/null && setpriv --reuid=cmux --regid=cmux --init-groups sudo -n true >/dev/null 2>&1; then CMUX_TUI_USER=cmux; CMUX_TUI_HOME=/home/cmux; CMUX_TUI_LAYOUT=user; else CMUX_TUI_USER=root; CMUX_TUI_HOME=/root; CMUX_TUI_LAYOUT=root; fi; CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui"
+  BIN="$CMUX_TUI_BIN"
+  # cmux-remote's state dir for the daemon user; identity.json lives under
+  # sessions/<session>/auth.
+  REMOTE_STATE_DIR="$CMUX_TUI_HOME/.local/state/cmux/remote"
+}
 
 instance_id() {
   token=$(curl -sf -m 1 -X PUT "$METADATA/latest/api/token" -H 'X-metadata-token-ttl-seconds: 60') || return 1
   curl -sf -m 1 -H "X-aws-ec2-metadata-token: $token" "$METADATA/latest/meta-data/instance-id"
 }
+
+cmux_tui_layout
 
 daemon_pid=""
 desktop_pid=""
@@ -128,6 +145,9 @@ stop_daemon() {
 
 while true; do
   start_desktop
+  # A driver can install the binary after boot, and it installs into the home
+  # this same selection names, so re-read the layout until one appears.
+  [ -x "$BIN" ] || cmux_tui_layout
   if [ -x "$BIN" ]; then
     id=$(instance_id 2>/dev/null) || id=""
     if [ -n "$id" ] && [ -f "$BAKE_INSTANCE_FILE" ] && [ "$id" = "$(cat "$BAKE_INSTANCE_FILE")" ]; then
@@ -144,7 +164,7 @@ while true; do
         # --remote-ws-trusted-carrier: the listener is reachable only inside the
         # owner's private network, whose members are all authorized, so every
         # link gets carrier authentication with no device enrollment.
-        (cd /root && exec env HOME=/root TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION="$(cat /etc/cmux/ghostty-version 2>/dev/null)" /root/.cmux/bin/cmux-tui server start --session cloud --remote-ws "${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}" --remote-ws-insecure-bind --remote-ws-trusted-carrier) &
+        (if id -u cmux >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && setpriv --reuid=cmux --regid=cmux --init-groups test -w /home/cmux 2>/dev/null && setpriv --reuid=cmux --regid=cmux --init-groups sudo -n true >/dev/null 2>&1; then CMUX_TUI_USER=cmux; CMUX_TUI_HOME=/home/cmux; CMUX_TUI_LAYOUT=user; else CMUX_TUI_USER=root; CMUX_TUI_HOME=/root; CMUX_TUI_LAYOUT=root; fi; CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui"; { mkdir -p /etc/cmux 2>/dev/null; printf '%s\n' "$CMUX_TUI_LAYOUT" > /etc/cmux/daemon-layout; } 2>/dev/null; cd "$CMUX_TUI_HOME" && if [ "$CMUX_TUI_USER" = root ]; then exec env HOME="$CMUX_TUI_HOME" TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION="$(cat /etc/cmux/ghostty-version 2>/dev/null)" "$CMUX_TUI_BIN" server start --session cloud --remote-ws "${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}" --remote-ws-insecure-bind --remote-ws-trusted-carrier; else exec setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" SHELL=/bin/bash TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION="$(cat /etc/cmux/ghostty-version 2>/dev/null)" "$CMUX_TUI_BIN" server start --session cloud --remote-ws "${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}" --remote-ws-insecure-bind --remote-ws-trusted-carrier; fi) &
         daemon_pid=$!
       fi
     fi

@@ -1,3 +1,4 @@
+import CmuxCore
 import Foundation
 
 /// One resource in a group, with the immutable daemon placement that produced the
@@ -102,9 +103,9 @@ struct SurfaceResourceGroup: Hashable, Codable, Sendable {
 extension SurfaceCatalog {
     /// Builds the one canonical group for a daemon workspace. A resource is
     /// repeated once for every tab placement, so opening a workspace cannot
-    /// collapse two tabs that point at the same terminal. The catalog snapshot
-    /// is already ordered by daemon workspace and tab order; the kind buckets
-    /// preserve the existing UI contract of terminals, browsers, then displays.
+    /// collapse two tabs that point at the same terminal. Order matches the
+    /// Cloud sidebar: panes in layout order, the shown tab before that pane's
+    /// hidden tabs, then pane-less resources in kind order.
     func remoteWorkspaceGroup(
         machine: SurfaceMachineID,
         workspaceID: String
@@ -114,26 +115,41 @@ extension SurfaceCatalog {
         var workspace = machineInfo?.remoteWorkspaces?.first { $0.id == workspaceID }
         let resources = machineSnapshot.resources(on: machine)
 
+        struct Candidate {
+            let placement: SurfaceResourcePlacement
+            let layout: RemoteWorkspacePlacement
+        }
         let orderedKinds: [SurfaceResourceKind] = [.terminal, .browser, .display]
-        var placements: [SurfaceResourcePlacement] = []
+        var candidates: [Candidate] = []
         for kind in orderedKinds {
+            let kindOrder = kind == .terminal ? 0 : (kind == .browser ? 1 : 2)
             for resource in resources where resource.kind == kind {
                 if let views = resource.remoteViews, !views.isEmpty {
                     for view in views where view.workspace.id == workspaceID {
                         workspace = workspace ?? view.workspace
-                        placements.append(
-                            SurfaceResourcePlacement(resource: resource.id, remoteView: view)
-                        )
+                        candidates.append(Candidate(
+                            placement: SurfaceResourcePlacement(resource: resource.id, remoteView: view),
+                            layout: RemoteWorkspacePlacement(
+                                screenID: view.screenID,
+                                paneID: view.paneID,
+                                screenIndex: view.screenIndex,
+                                paneIndex: view.paneIndex,
+                                tabIndex: view.index,
+                                focused: view.focused == true,
+                                kindOrder: kindOrder
+                            )
+                        ))
                     }
                 } else if let resourceWorkspace = resource.remoteWorkspace,
                           resourceWorkspace.id == workspaceID {
                     workspace = workspace ?? resourceWorkspace
-                    placements.append(
-                        SurfaceResourcePlacement(
+                    candidates.append(Candidate(
+                        placement: SurfaceResourcePlacement(
                             resource: resource.id,
                             remoteWorkspaceID: workspaceID
-                        )
-                    )
+                        ),
+                        layout: RemoteWorkspacePlacement(kindOrder: kindOrder)
+                    ))
                 }
             }
         }
@@ -143,10 +159,14 @@ extension SurfaceCatalog {
                 "workspace \(workspaceID) on \(machine.rawValue)"
             )
         }
-        guard !placements.isEmpty else {
+        guard !candidates.isEmpty else {
             throw SurfaceCatalogError.destinationNotFound(
                 "workspace \(workspaceID) on \(machine.rawValue) has no projectable resources"
             )
+        }
+        let layout = RemoteWorkspaceLayout(placements: candidates.map(\.layout))
+        let placements = layout.rows.flatMap { row in
+            [candidates[row.shownIndex].placement] + row.hiddenIndices.map { candidates[$0].placement }
         }
         return SurfaceResourceGroup(
             title: workspace.name,
