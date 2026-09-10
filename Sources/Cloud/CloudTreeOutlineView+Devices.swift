@@ -27,7 +27,7 @@ extension CloudTreeOutlineView.Coordinator {
     /// Increase Disk, Desktop, or Status: those are cloud control-plane
     /// operations on a VM the account rents, and a Mac on the account has no
     /// equivalent (nothing to fork, nothing to bill, no VNC desktop to show).
-    func deviceMenuItems(machine: SurfaceMachineID, isOnline: Bool) -> [NSMenuItem] {
+    func deviceMenuItems(machine: SurfaceMachineID, canCreate: Bool) -> [NSMenuItem] {
         let nodeActions = nodeActions
         var items: [NSMenuItem] = []
         // An unpaired Mac never gets a credentialed dial from the tree: the one
@@ -41,7 +41,7 @@ extension CloudTreeOutlineView.Coordinator {
             })
             items.append(.separator())
         }
-        if isOnline, !needsPairing {
+        if canCreate, !needsPairing {
             items.append(item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { nodeActions.newTerminal(machine, nil) })
             items.append(item(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) { nodeActions.newWorkspace(machine) })
         }

@@ -870,9 +870,8 @@ struct CloudTreeRowHoverButtons: View {
                 nodeActions.newTerminal(.local, nil)
             }
         case .device(let row):
-            // A device's "+" is the same New Terminal verb as its pool; an
-            // offline device has nowhere to start one, so the button stays away.
-            if row.isOnline {
+            // The same authenticated-connection gate as its context menu.
+            if row.canCreateWorkspacesAndTerminals {
                 plus(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) {
                     nodeActions.newTerminal(row.machine, nil)
                 }
@@ -917,7 +916,7 @@ struct CloudTreeRowHoverButtons: View {
         case .pendingMachine:
             return true
         case .device(let row):
-            return row.isOnline
+            return row.canCreateWorkspacesAndTerminals
         case .terminal(let row):
             return !row.resource.machine.isLocal
         default:

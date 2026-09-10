@@ -739,12 +739,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 ]
             case .placeholder(let machineID, _):
                 if machineID.isDevice {
-                    return deviceMenuItems(machine: machineID, isOnline: false)
+                    return deviceMenuItems(machine: machineID, canCreate: false)
                 }
                 guard let machine = machine(id: machineID) else { return [] }
                 return machineMenuItems(machine)
             case .device(let row):
-                return deviceMenuItems(machine: row.machine, isOnline: row.isOnline)
+                return deviceMenuItems(machine: row.machine, canCreate: row.canCreateWorkspacesAndTerminals)
             case .devicesSection:
                 return [
                     item(String(localized: "devices.manage", defaultValue: "Manage My Devices")) {

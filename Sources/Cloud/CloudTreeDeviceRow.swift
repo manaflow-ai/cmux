@@ -19,6 +19,12 @@ struct CloudTreeDeviceRow: Equatable {
     /// is online whatever presence knows).
     var isOnline: Bool { linkState == .connected || presence?.isOnline == true }
 
+    /// Creation requires an authenticated live link; discovery alone only
+    /// makes a device visible. Shared by hover controls, menus, and children.
+    var canCreateWorkspacesAndTerminals: Bool {
+        linkState == .connected && presence?.accountTrust != .otherAccount
+    }
+
     private var presenceUnknown: Bool { presence?.state == .unknown }
 
     /// The presence glyph's meaning, folded from presence and link state.

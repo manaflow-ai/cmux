@@ -65,15 +65,19 @@ extension CloudTreeNodeBuilder {
             workspaceCount: info.remoteWorkspaces?.count ?? 0,
             terminalCount: resources.filter { $0.kind == .terminal }.count
         )
+        let children = cloudChildren(
+            machine: info.id,
+            info: info,
+            snapshot: snapshot,
+            projectionIndex: projectionIndex
+        )
         return CloudTreeNode(
             id: nodeID(machine: info.id),
             kind: .device(row),
-            children: cloudChildren(
-                machine: info.id,
-                info: info,
-                snapshot: snapshot,
-                projectionIndex: projectionIndex
-            )
+            children: row.canCreateWorkspacesAndTerminals ? children : children.filter {
+                if case .placeholder = $0.kind { return true }
+                return false
+            }
         )
     }
 }
