@@ -58,11 +58,15 @@ writes):
   `CMUX_IMAGE_EPOCH` (the entry's `epoch`, or the `cmux devbox epoch` prefix
   of its `notes` on older entries), so an epoch bump lands together with its
   promotion and a rollback to an older ladder also reverts the sources;
-- an entry that recorded `devboxSource` (`{ layers, digest }`,
+- an entry that recorded `devboxSource` (`{ layers, digest, schema }`,
   `devboxSourceDigest()`: sha256 over the files the bake ships verbatim, the
-  agent, cua-driver and Ghostty pins, the desktop apt list and the epoch,
-  per layer set; Dockerfile prose is excluded because a comment cannot change
-  a machine) was baked from exactly this checkout's sources.
+  agent, cua-driver and Ghostty pins, the desktop apt list, the epoch and,
+  from schema 2, the Dockerfile's instructions and the bake script's code
+  with comment and blank lines dropped, per layer set; prose is excluded
+  because a comment cannot change a machine) was baked from exactly this
+  checkout's sources. An entry is checked with the schema it was recorded
+  with (absent: 1), so a formula change never forces a rebake; new bakes
+  record `DEVBOX_SOURCE_SCHEMA`.
 
 Rollback is therefore a revert of the promotion commit as a whole, never the
 manifest flags alone.

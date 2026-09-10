@@ -334,22 +334,76 @@ export function devboxImageEpoch(dockerfile = readDevboxDockerfile()): string {
 }
 
 /**
+ * The source-digest formula version a manifest entry was recorded with.
+ * Schema 1 covered the verbatim files, the ARG pins and the epoch; schema 2
+ * adds the Dockerfile's instructions and the Freestyle bake script (both with
+ * comment and blank lines dropped), so a step change such as a new apt
+ * package can no longer leave the digest unchanged. Entries keep the schema
+ * they were recorded with and are checked with that formula, so a formula
+ * change never forces a rebake of an already promoted ladder; new bakes
+ * record the current schema.
+ */
+export const DEVBOX_SOURCE_SCHEMA = 2;
+export const bakeScriptPath = path.join(webRoot, "scripts/build-devbox-freestyle.ts");
+
+/**
+ * A Dockerfile reduced to its instructions: comment lines and blank lines
+ * dropped, trailing whitespace trimmed. The container recipe and the Freestyle
+ * replay are kept in step by hand, so an instruction edit is an image change
+ * even when no ARG moved; a comment is not.
+ */
+export function normalizedDockerfileInstructions(dockerfile: string): string {
+  return dockerfile
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim() !== "" && !line.trim().startsWith("#"))
+    .join("\n");
+}
+
+/**
+ * A TypeScript source reduced to its code lines: whole-line comments (lines
+ * beginning with two slashes, a slash-star opener, or a star inside a doc
+ * block) and blank lines dropped, trailing whitespace trimmed. Trailing
+ * comments after code stay, as do comment markers inside strings: no
+ * tokenizer, so the result is byte-stable across runtimes. The prose in the
+ * bake script cannot change a machine; every step it runs can.
+ */
+export function normalizedBakeScript(source: string): string {
+  return source
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => {
+      const trimmed = line.trim();
+      return trimmed !== "" && !trimmed.startsWith("//") && !trimmed.startsWith("/*") && !trimmed.startsWith("*");
+    })
+    .join("\n");
+}
+
+/**
  * Everything the Freestyle bake takes from this checkout for an image with
  * `layers` (the shell layer for `base`, plus the desktop layer for
  * `desktop`): the files shipped verbatim (sha256 each, the desktop files by
  * their DEVBOX_DESKTOP_INSTALLS path), the pins the Dockerfile ARGs carry
- * (agents, cua-driver, the Ghostty .deb, the desktop apt list) and the
- * epoch. Dockerfile prose is deliberately not part of it: a comment cannot
- * change a machine. `devboxSourceDigest` is its sha256, recorded on every
- * manifest entry at bake time so `devboxSourceDriftProblems` can tell when
- * main describes a machine the promoted default no longer is.
+ * (agents, cua-driver, the Ghostty .deb, the desktop apt list), the epoch
+ * and, from schema 2, the Dockerfile's instructions and the bake script's
+ * code (normalizedDockerfileInstructions, normalizedBakeScript). Prose is
+ * deliberately not part of it: a comment cannot change a machine.
+ * `devboxSourceDigest` is its sha256, recorded on every manifest entry at
+ * bake time so `devboxSourceDriftProblems` can tell when main describes a
+ * machine the promoted default no longer is.
  */
-export function devboxSourceManifest(layers: DevboxImageKind, dockerfile = readDevboxDockerfile()): Record<string, unknown> {
+export function devboxSourceManifest(
+  layers: DevboxImageKind,
+  dockerfile = readDevboxDockerfile(),
+  schema: number = DEVBOX_SOURCE_SCHEMA,
+  bakeScript = () => readFileSync(bakeScriptPath, "utf8"),
+): Record<string, unknown> {
+  if (schema !== 1 && schema !== 2) throw new Error(`unknown devbox source schema ${schema}`);
   const files = Object.fromEntries(
     DEVBOX_TEMPLATE_FILES.filter((name) => name !== "Dockerfile").map((name) => [name, sha256File(path.join(devboxDir, name))]),
   );
-  const shell = {
-    schema: 1,
+  const shell: Record<string, unknown> = {
+    schema,
     layers,
     epoch: devboxImageEpoch(dockerfile),
     agentPins: Object.fromEntries(devboxAgentPins(dockerfile).map((pin) => [pin.pkg, pin.version])),
@@ -357,6 +411,10 @@ export function devboxSourceManifest(layers: DevboxImageKind, dockerfile = readD
     ghosttyVersion: devboxGhosttyVersion(dockerfile),
     files,
   };
+  if (schema >= 2) {
+    shell.dockerfileInstructions = createHash("sha256").update(normalizedDockerfileInstructions(dockerfile)).digest("hex");
+    shell.bakeScript = createHash("sha256").update(normalizedBakeScript(bakeScript())).digest("hex");
+  }
   if (layers === "base") return shell;
   return {
     ...shell,
@@ -368,14 +426,20 @@ export function devboxSourceManifest(layers: DevboxImageKind, dockerfile = readD
   };
 }
 
-export function devboxSourceDigest(layers: DevboxImageKind, dockerfile = readDevboxDockerfile()): string {
-  return createHash("sha256").update(JSON.stringify(devboxSourceManifest(layers, dockerfile))).digest("hex");
+export function devboxSourceDigest(
+  layers: DevboxImageKind,
+  dockerfile = readDevboxDockerfile(),
+  schema: number = DEVBOX_SOURCE_SCHEMA,
+  bakeScript?: () => string,
+): string {
+  return createHash("sha256").update(JSON.stringify(devboxSourceManifest(layers, dockerfile, schema, bakeScript))).digest("hex");
 }
 
-/** Which layers an image carries and the digest of the sources they were baked from. */
+/** Which layers an image carries, the digest of the sources they were baked from, and the formula it was computed with (absent: schema 1). */
 export type DevboxSourceRecord = {
   readonly layers: DevboxImageKind;
   readonly digest: string;
+  readonly schema?: number;
 };
 
 export function devboxTemplateFile(name: string): string {
@@ -618,7 +682,7 @@ export function bakeMetadata(
     agentToolResolvedVersions: Object.fromEntries(
       devboxAgentPins().map((pin) => [pin.pkg, pin.version]),
     ),
-    devboxSource: { layers, digest: devboxSourceDigest(layers) },
+    devboxSource: { layers, digest: devboxSourceDigest(layers), schema: DEVBOX_SOURCE_SCHEMA },
   };
 }
 
@@ -1019,7 +1083,7 @@ export function devboxSourceDriftProblems(
 ): string[] {
   const problems: string[] = [];
   const epoch = devboxImageEpoch(dockerfile);
-  const digests = new Map<DevboxImageKind, string>();
+  const digests = new Map<string, string>();
   for (const entry of manifest.images) {
     if (entry.provider !== provider || !entry.defaultForKind) continue;
     const bakedEpoch = manifestEntryEpoch(entry);
@@ -1032,10 +1096,16 @@ export function devboxSourceDriftProblems(
       problems.push(`${entry.version}: devboxSource.layers ${String(source.layers)} is not desktop|base`);
       continue;
     }
-    const current = digests.get(source.layers) ?? devboxSourceDigest(source.layers, dockerfile);
-    digests.set(source.layers, current);
+    const schema = source.schema ?? 1;
+    if (schema !== 1 && schema !== 2) {
+      problems.push(`${entry.version}: devboxSource.schema ${String(source.schema)} is not a known formula (1 or 2)`);
+      continue;
+    }
+    const key = `${source.layers}/${schema}`;
+    const current = digests.get(key) ?? devboxSourceDigest(source.layers, dockerfile, schema);
+    digests.set(key, current);
     if (source.digest !== current) {
-      problems.push(`${entry.version}: baked from devbox sources ${source.digest.slice(0, 12)}…, this checkout's ${source.layers} sources are ${current.slice(0, 12)}…; promote a new bake or revert the sources with the manifest`);
+      problems.push(`${entry.version}: baked from devbox sources ${source.digest.slice(0, 12)}… (schema ${schema}), this checkout's ${source.layers} sources are ${current.slice(0, 12)}…; promote a new bake or revert the sources with the manifest`);
     }
   }
   return problems;

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import path from "node:path";
 import {
+  DEVBOX_SOURCE_SCHEMA,
   appendImageManifestEntries,
   bakeMetadata,
   devboxImageEpoch,
@@ -76,7 +77,7 @@ describe("devboxSourceDriftProblems", () => {
       kind: layers,
       defaultForKind: true,
       epoch,
-      devboxSource: { layers, digest: devboxSourceDigest(layers, dockerfile) },
+      devboxSource: { layers, digest: devboxSourceDigest(layers, dockerfile), schema: DEVBOX_SOURCE_SCHEMA },
       notes: `cmux devbox epoch ${epoch}`,
       ...overrides,
     });
@@ -114,9 +115,15 @@ describe("devboxSourceDriftProblems", () => {
     expect(drifted).toHaveLength(1);
     expect(drifted[0]).toContain("baked from devbox sources 000000000000");
     // A desktop image promoted as the base kind is held to the desktop sources it was baked from.
-    expect(devboxSourceDriftProblems(manifestOf(current("base", { devboxSource: { layers: "desktop", digest: devboxSourceDigest("desktop", dockerfile) } })))).toEqual([]);
-    expect(devboxSourceDriftProblems(manifestOf(current("base", { devboxSource: { layers: "desktop", digest: devboxSourceDigest("base", dockerfile) } })))).toHaveLength(1);
+    expect(devboxSourceDriftProblems(manifestOf(current("base", { devboxSource: { layers: "desktop", digest: devboxSourceDigest("desktop", dockerfile), schema: DEVBOX_SOURCE_SCHEMA } })))).toEqual([]);
+    expect(devboxSourceDriftProblems(manifestOf(current("base", { devboxSource: { layers: "desktop", digest: devboxSourceDigest("base", dockerfile), schema: DEVBOX_SOURCE_SCHEMA } })))).toHaveLength(1);
     expect(devboxSourceDriftProblems(manifestOf(current("base", { devboxSource: { layers: "vnc" as "base", digest: "x" } })))[0]).toContain("is not desktop|base");
+    // An entry keeps the formula it was recorded with: a schema-1 record (no
+    // `schema` field, the first promoted ladders) is checked with schema 1 and
+    // stays valid across a formula change; an unknown schema is refused.
+    expect(devboxSourceDriftProblems(manifestOf(current("base", { devboxSource: { layers: "base", digest: devboxSourceDigest("base", dockerfile, 1) } })))).toEqual([]);
+    expect(devboxSourceDriftProblems(manifestOf(current("base", { devboxSource: { layers: "base", digest: devboxSourceDigest("base", dockerfile, 1), schema: 2 } })))).toHaveLength(1);
+    expect(devboxSourceDriftProblems(manifestOf(current("base", { devboxSource: { layers: "base", digest: "x", schema: 9 } })))[0]).toContain("is not a known formula");
     // A Dockerfile change is what makes the checkout drift from the default.
     const bumped = dockerfile.replace(/^ENV CMUX_IMAGE_EPOCH=.*$/m, "ENV CMUX_IMAGE_EPOCH=2099-01-01-r1");
     const problems = devboxSourceDriftProblems(manifestOf(current("desktop")), "freestyle", bumped);
@@ -126,7 +133,7 @@ describe("devboxSourceDriftProblems", () => {
 
   test("the bake records the epoch and the source digest, and promotion carries them onto every variant", () => {
     const metadata = bakeMetadata({ sha: "abc123", epoch }, path.join(import.meta.dirname, "../scripts/build-devbox-freestyle.ts"), "desktop");
-    expect(metadata.devboxSource).toEqual({ layers: "desktop", digest: devboxSourceDigest("desktop", dockerfile) });
+    expect(metadata.devboxSource).toEqual({ layers: "desktop", digest: devboxSourceDigest("desktop", dockerfile), schema: DEVBOX_SOURCE_SCHEMA });
     const entry = manifestEntrySkeleton("freestyle", "freestyle-x", "sh-x", "FREESTYLE_SANDBOX_SNAPSHOT", metadata, "", "desktop");
     expect(entry).toMatchObject({ epoch, devboxSource: metadata.devboxSource, validationStatus: "unknown" });
     const promoted = promoteImageManifestEntry(manifestOf(), { ...entry, validationStatus: "passed" }, {

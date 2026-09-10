@@ -12,6 +12,7 @@ import {
 } from "../services/vms/drivers/cmuxTuiDaemon";
 import {
   AGENT_PIN_ARGS,
+  DEVBOX_SOURCE_SCHEMA,
   DEVBOX_TEMPLATE_FILES,
   agentPinDrift,
   devboxAgentPins,
@@ -20,6 +21,8 @@ import {
   devboxParkDaemonCommand,
   devboxSourceDigest,
   devboxSourceManifest,
+  normalizedBakeScript,
+  normalizedDockerfileInstructions,
   rewriteDevboxAgentPins,
 } from "../scripts/devbox-image-common";
 
@@ -411,7 +414,10 @@ describe("devbox image template", () => {
     const desktop = devboxSourceManifest("desktop", dockerfile);
     // Pins, epoch and the verbatim files: a pin bump, an epoch bump, or a
     // template edit each changes the digest; Dockerfile prose does not.
-    expect(base).toMatchObject({ schema: 1, layers: "base", agentPins: Object.fromEntries(devboxAgentPins(dockerfile).map((pin) => [pin.pkg, pin.version])) });
+    expect(DEVBOX_SOURCE_SCHEMA).toBe(2);
+    expect(base).toMatchObject({ schema: 2, layers: "base", agentPins: Object.fromEntries(devboxAgentPins(dockerfile).map((pin) => [pin.pkg, pin.version])) });
+    expect(typeof base.dockerfileInstructions).toBe("string");
+    expect(typeof base.bakeScript).toBe("string");
     expect(Object.keys(base.files as Record<string, string>).sort()).toEqual([...DEVBOX_TEMPLATE_FILES].filter((name) => name !== "Dockerfile").sort());
     expect(base).not.toHaveProperty("desktopFiles");
     expect(desktop).toHaveProperty("desktopFiles");
@@ -421,6 +427,24 @@ describe("devbox image template", () => {
     const codex = devboxAgentPins(dockerfile).find((pin) => pin.pkg === "@openai/codex")!;
     expect(devboxSourceDigest("base", rewriteDevboxAgentPins(dockerfile, { "@openai/codex": `${codex.version}9` }))).not.toBe(devboxSourceDigest("base", dockerfile));
     expect(devboxSourceDigest("base", dockerfile.replace(/^ENV CMUX_IMAGE_EPOCH=.*$/m, "ENV CMUX_IMAGE_EPOCH=1999-01-01-r1"))).not.toBe(devboxSourceDigest("base", dockerfile));
+    // Schema 2 also sees a Dockerfile instruction change (a package added to a
+    // RUN, no ARG moved) and a bake-script code change; comment lines in
+    // either move nothing. Schema 1, the formula the first promoted ladders
+    // were recorded with, still ignores both.
+    const withStep = dockerfile.replace(/^    bubblewrap \\$/m, "    bubblewrap \\\n    cowsay \\");
+    expect(withStep).not.toBe(dockerfile);
+    expect(devboxSourceDigest("base", withStep)).not.toBe(devboxSourceDigest("base", dockerfile));
+    expect(devboxSourceDigest("base", withStep, 1)).toBe(devboxSourceDigest("base", dockerfile, 1));
+    const bake = readScript("build-devbox-freestyle.ts");
+    const withCode = () => `${bake}\nconsole.log("one more step");\n`;
+    const withComment = () => `${bake}\n// a comment changes no machine\n/**\n * neither does a doc block\n */\n`;
+    expect(devboxSourceDigest("base", dockerfile, 2, withCode)).not.toBe(devboxSourceDigest("base", dockerfile, 2, () => bake));
+    expect(devboxSourceDigest("base", dockerfile, 2, withComment)).toBe(devboxSourceDigest("base", dockerfile, 2, () => bake));
+    expect(devboxSourceDigest("base", dockerfile, 1, withCode)).toBe(devboxSourceDigest("base", dockerfile, 1, () => bake));
+    expect(() => devboxSourceDigest("base", dockerfile, 3)).toThrow(/unknown devbox source schema/);
+    // The normalizers themselves: comment and blank lines gone, code kept verbatim (trailing space trimmed).
+    expect(normalizedDockerfileInstructions("# c\n\nFROM ubuntu:24.04  \nRUN echo hi # keep\n  # indented comment\n")).toBe("FROM ubuntu:24.04\nRUN echo hi # keep");
+    expect(normalizedBakeScript("// c\n/**\n * doc\n */\nconst a = 1; // trailing stays\n\n  const url = \"https://x\";\n")).toBe("const a = 1; // trailing stays\n  const url = \"https://x\";");
     // Both bake entry points record the digest for the layers they baked.
     expect(readScript("build-devbox-freestyle.ts")).toContain('bakeMetadata(preflight, fileURLToPath(import.meta.url), withDesktop ? "desktop" : "base")');
     expect(readScript("promote-devbox-image.ts")).toContain("devboxSourceDriftProblems({ ...next, images: added })");
