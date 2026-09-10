@@ -28,6 +28,7 @@ extension CMUXCLI {
     static let vmTransferMaxBytes = 256 * 1024 * 1024
     static let vmTransferExecTimeoutMs = 100_000
     static let vmTransferExecResponseTimeout: TimeInterval = 120
+    static let vmPushWatchSettleTimeoutSeconds: TimeInterval = 10
     /// Directory entries skipped by default on `vm push` of a directory. Every
     /// entry here is cheap to recreate on the machine (installs, build output)
     /// or meaningless there (VCS internals, OS litter); `--no-default-excludes`
@@ -43,16 +44,32 @@ extension CMUXCLI {
     static var vmPushUsage: String {
         """
         Usage: cmux vm push <id> <local-path> [remote-path] [--exclude <pattern>]... [--no-default-excludes]
+               cmux vm push <id> <local-path> [remote-path] --watch [--interval <seconds>] [--exclude <pattern>]...
+               cmux vm push --secret <id> <local-file> [remote-path] [--mode <octal>]
 
         Copy a local file or directory onto a cloud machine over the exec channel
         (no SSH needed). Directories travel as tarballs; by default \(vmPushDefaultExcludes.joined(separator: ", "))
         are skipped. The remote path defaults to the local basename in the exec
         working directory (the machine user's home).
 
+        --watch keeps syncing: after the first push it pushes again whenever a file
+        under <local-path> changes (polled every --interval seconds, default 1;
+        the same excludes apply), printing one line per sync, until Ctrl-C.
+
+        --secret is for a file that must never transit the control plane (a token
+        file, a deploy key, an .npmrc). It travels over the machine's cmux-tui link
+        into the in-VM `cmux file receive`, which turns terminal echo off before it
+        reads, writes the file with --mode (default 600), and moves it into place
+        atomically — the same path `cmux vm env set` uses. One file up to 256 KiB;
+        not combinable with --watch or --exclude.
+
         Examples:
           cmux vm push brave-otter ./script.sh
           cmux vm push brave-otter ./myrepo work/myrepo
           cmux vm push brave-otter ./site --exclude dist
+          cmux vm push brave-otter . work/app --watch
+          cmux vm push --secret brave-otter ~/.npmrc .npmrc
+          cmux vm push --secret brave-otter ./deploy_key .ssh/deploy_key --mode 600
         """
     }
 
@@ -105,6 +122,10 @@ extension CMUXCLI {
         var positional: [String] = []
         var extraExcludes: [String] = []
         var useDefaultExcludes = true
+        var secret = false
+        var modeOption: String?
+        var watch = false
+        var intervalOption: String?
         var index = 0
         while index < rest.count {
             let arg = rest[index]
@@ -118,6 +139,24 @@ extension CMUXCLI {
             case "--no-default-excludes":
                 useDefaultExcludes = false
                 index += 1
+            case "--secret":
+                secret = true
+                index += 1
+            case "--mode":
+                guard index + 1 < rest.count else {
+                    throw CLIError(message: "--mode requires an octal file mode such as 600\n\n\(Self.vmPushUsage)")
+                }
+                modeOption = rest[index + 1]
+                index += 2
+            case "--watch":
+                watch = true
+                index += 1
+            case "--interval":
+                guard index + 1 < rest.count else {
+                    throw CLIError(message: "--interval requires a number of seconds\n\n\(Self.vmPushUsage)")
+                }
+                intervalOption = rest[index + 1]
+                index += 2
             default:
                 guard !arg.hasPrefix("--") else {
                     throw CLIError(message: "Unknown option \(arg)\n\n\(Self.vmPushUsage)")
@@ -137,15 +176,155 @@ extension CMUXCLI {
         guard FileManager.default.fileExists(atPath: localURL.path, isDirectory: &isDirectory) else {
             throw CLIError(message: "No such local path: \(localPath)")
         }
-
-        let started = Date()
         let remotePath = positional.count == 3 ? positional[2] : localURL.lastPathComponent
+
+        if secret {
+            guard !watch, extraExcludes.isEmpty, useDefaultExcludes else {
+                throw CLIError(message: "vm push --secret delivers one file once; it does not combine with --watch, --exclude, or --no-default-excludes\n\n\(Self.vmPushUsage)")
+            }
+            try pushSecretFile(
+                vmID: vmID,
+                localURL: localURL,
+                localPath: localPath,
+                isDirectory: isDirectory.boolValue,
+                remotePath: remotePath,
+                mode: modeOption ?? Self.vmSecretPushDefaultMode,
+                client: client,
+                jsonOutput: jsonOutput
+            )
+            return
+        }
+        guard modeOption == nil else {
+            throw CLIError(message: "--mode belongs to --secret (exec-channel pushes keep the tarball's own modes)\n\n\(Self.vmPushUsage)")
+        }
+        var intervalSeconds = Self.vmPushWatchDefaultIntervalSeconds
+        if let intervalOption {
+            guard watch else {
+                throw CLIError(message: "--interval belongs to --watch\n\n\(Self.vmPushUsage)")
+            }
+            guard let parsed = Double(intervalOption), parsed >= 0.2, parsed <= 60 else {
+                throw CLIError(message: "--interval must be between 0.2 and 60 seconds (got '\(intervalOption)')\n\n\(Self.vmPushUsage)")
+            }
+            intervalSeconds = parsed
+        }
+        let excludes = isDirectory.boolValue ? (useDefaultExcludes ? Self.vmPushDefaultExcludes : []) + extraExcludes : []
+        let initialWatchSignature = watch
+            ? Self.vmPushTreeSignature(root: localURL, isDirectory: isDirectory.boolValue, excludes: excludes)
+            : nil
+
+        let outcome = try performVMPush(
+            vmID: vmID,
+            localURL: localURL,
+            localPath: localPath,
+            isDirectory: isDirectory.boolValue,
+            remotePath: remotePath,
+            excludes: excludes,
+            client: client
+        )
+        if jsonOutput && !watch {
+            print(jsonString(outcome.jsonPayload))
+            return
+        }
+        if jsonOutput {
+            var payload = outcome.jsonPayload
+            payload["event"] = "synced"
+            payload["files"] = Self.vmPushTreeSignature(
+                root: localURL,
+                isDirectory: isDirectory.boolValue,
+                excludes: excludes
+            ).count
+            payload["sync"] = 0
+            print(jsonString(payload, prettyPrinted: false))
+            fflush(stdout)
+        }
+        // `vm run` embeds pushes: stdout stays reserved for the command's own
+        // output, so the transfer summary goes to stderr instead.
+        for line in outcome.summaryLines() {
+            if jsonOutput {
+                continue
+            } else if quiet {
+                cliWriteStderr(line + "\n")
+            } else {
+                print(line)
+            }
+        }
+        guard watch else { return }
+        try watchAndPush(
+            vmID: vmID,
+            localURL: localURL,
+            localPath: localPath,
+            isDirectory: isDirectory.boolValue,
+            remotePath: remotePath,
+            excludes: excludes,
+            intervalSeconds: intervalSeconds,
+            client: client,
+            jsonOutput: jsonOutput,
+            initialSignature: initialWatchSignature
+        )
+    }
+
+    /// What one exec-channel push did, for the human summary or the JSON payload.
+    struct VMPushOutcome {
+        let vmID: String
+        let localPath: String
+        let remotePath: String
+        let isDirectory: Bool
+        let bytes: Int
+        let sha256: String
+        let seconds: Int
+        let appliedExcludes: [String]
+
+        var jsonPayload: [String: Any] {
+            var payload: [String: Any] = [
+                "ok": true,
+                "direction": "push",
+                "vm": vmID,
+                "local": localPath,
+                "remote": remotePath,
+                "kind": isDirectory ? "directory" : "file",
+                "bytes": bytes,
+                "sha256": sha256,
+                "seconds": seconds,
+            ]
+            if !appliedExcludes.isEmpty {
+                payload["excluded"] = appliedExcludes
+            }
+            return payload
+        }
+
+        func summaryLines() -> [String] {
+            let template = CMUXDiffViewerLocalization.string(
+                "cli.vm.push.summary",
+                defaultValue: "Pushed %1$@ to %2$@:%3$@ (%4$@)"
+            )
+            var lines = [String(format: template, localPath, vmID, remotePath, CMUXCLI.formatByteCount(bytes))]
+            if !appliedExcludes.isEmpty {
+                let excludedTemplate = CMUXDiffViewerLocalization.string(
+                    "cli.vm.push.excludedNote",
+                    defaultValue: "Skipped: %1$@ (pass --no-default-excludes to send everything)"
+                )
+                lines.append(String(format: excludedTemplate, appliedExcludes.joined(separator: ", ")))
+            }
+            return lines
+        }
+    }
+
+    /// One push over the exec channel: pack (directories), upload in base64 chunks,
+    /// verify the digest, extract. Shared by the one-shot command, `--watch`, and the
+    /// `vm run` / `vm agent` `--sync` paths.
+    func performVMPush(
+        vmID: String,
+        localURL: URL,
+        localPath: String,
+        isDirectory: Bool,
+        remotePath: String,
+        excludes: [String],
+        client: SocketClient
+    ) throws -> VMPushOutcome {
+        let started = Date()
         let payloadData: Data
         var stagingTarURL: URL?
-        var appliedExcludes: [String] = []
-        if isDirectory.boolValue {
-            let excludes = (useDefaultExcludes ? Self.vmPushDefaultExcludes : []) + extraExcludes
-            appliedExcludes = excludes
+        if isDirectory {
             let tarURL = try makeLocalTarball(of: localURL, excludes: excludes)
             stagingTarURL = tarURL
             do {
@@ -177,7 +356,7 @@ extension CMUXCLI {
         let localDigest = SHA256.hash(data: payloadData).map { String(format: "%02x", $0) }.joined()
         let remoteStaging: String
         let extractDestination: String?
-        if isDirectory.boolValue {
+        if isDirectory {
             remoteStaging = "/tmp/cmux-push-\(UUID().uuidString.prefix(8)).tgz"
             extractDestination = remotePath
         } else {
@@ -202,46 +381,217 @@ extension CMUXCLI {
             try requireExecSuccess(response, context: "extracting \(remoteStaging) into \(extractDestination)")
         }
 
-        let seconds = Int(Date().timeIntervalSince(started).rounded())
+        return VMPushOutcome(
+            vmID: vmID,
+            localPath: localPath,
+            remotePath: remotePath,
+            isDirectory: isDirectory,
+            bytes: payloadData.count,
+            sha256: localDigest,
+            seconds: Int(Date().timeIntervalSince(started).rounded()),
+            appliedExcludes: excludes
+        )
+    }
+
+    // MARK: - push --secret (over the link, never the exec channel)
+
+    /// Same ceiling as `cmux vm env set`: the receiver reads a PTY, a control channel.
+    static let vmSecretPushMaxBytes = 256 * 1024
+    static let vmSecretPushDefaultMode = "600"
+
+    /// One file over the machine's link into `cmux file receive` (socket `vm.file_put`),
+    /// so the bytes never appear in a command line, on the control plane, or on a
+    /// terminal's screen. The app runs the receiver protocol (`CloudFileDelivery`);
+    /// the CLI only reads the file and reports what landed.
+    private func pushSecretFile(
+        vmID: String,
+        localURL: URL,
+        localPath: String,
+        isDirectory: Bool,
+        remotePath: String,
+        mode: String,
+        client: SocketClient,
+        jsonOutput: Bool
+    ) throws {
+        guard !isDirectory else {
+            throw CLIError(message: "vm push --secret delivers one file; \(localPath) is a directory. Pack it first (tar czf), or push it without --secret if it holds nothing secret.")
+        }
+        guard mode.range(of: "^[0-7]{3,4}$", options: .regularExpression) != nil else {
+            throw CLIError(message: "--mode must be three or four octal digits such as 600 or 0644 (got '\(mode)')")
+        }
+        let data = try Data(contentsOf: localURL)
+        guard !data.isEmpty else {
+            throw CLIError(message: "\(localPath) is empty; nothing to deliver")
+        }
+        guard data.count <= Self.vmSecretPushMaxBytes else {
+            throw CLIError(message: """
+                \(localPath) is \(Self.formatByteCount(data.count)); --secret delivers up to \
+                \(Self.formatByteCount(Self.vmSecretPushMaxBytes)) over the link. Larger files that hold \
+                nothing secret go through `cmux vm push` without --secret.
+                """)
+        }
+        let started = Date()
+        let response = try client.sendV2(
+            method: "vm.file_put",
+            params: [
+                "id": vmID,
+                "path": remotePath,
+                "mode": mode,
+                "data_base64": data.base64EncodedString(),
+            ],
+            responseTimeout: 260
+        )
+        let bytes = (response["bytes"] as? Int) ?? data.count
+        let landedPath = (response["path"] as? String) ?? remotePath
+        let landedMode = (response["mode"] as? String) ?? mode
         if jsonOutput {
-            var payload: [String: Any] = [
+            print(jsonString([
                 "ok": true,
                 "direction": "push",
                 "vm": vmID,
                 "local": localPath,
-                "remote": remotePath,
-                "kind": isDirectory.boolValue ? "directory" : "file",
-                "bytes": payloadData.count,
-                "sha256": localDigest,
-                "seconds": seconds,
-            ]
-            if !appliedExcludes.isEmpty {
-                payload["excluded"] = appliedExcludes
-            }
-            print(jsonString(payload))
+                "remote": landedPath,
+                "kind": "file",
+                "bytes": bytes,
+                "mode": landedMode,
+                "transport": "link",
+                "seconds": Int(Date().timeIntervalSince(started).rounded()),
+            ]))
             return
         }
-        let template = CMUXDiffViewerLocalization.string(
-            "cli.vm.push.summary",
-            defaultValue: "Pushed %1$@ to %2$@:%3$@ (%4$@)"
-        )
-        let summary = String(format: template, localPath, vmID, remotePath, Self.formatByteCount(payloadData.count))
-        var notes: [String] = []
-        if !appliedExcludes.isEmpty {
-            let excludedTemplate = CMUXDiffViewerLocalization.string(
-                "cli.vm.push.excludedNote",
-                defaultValue: "Skipped: %1$@ (pass --no-default-excludes to send everything)"
-            )
-            notes.append(String(format: excludedTemplate, appliedExcludes.joined(separator: ", ")))
-        }
-        // `vm run` embeds pushes: stdout stays reserved for the command's own
-        // output, so the transfer summary goes to stderr instead.
-        for line in [summary] + notes {
-            if quiet {
-                cliWriteStderr(line + "\n")
-            } else {
-                print(line)
+        print(String(
+            format: String(localized: "cli.vm.push.secretDelivered", defaultValue: "OK %1$@ (%2$ld bytes, mode %3$@) delivered over the link"),
+            landedPath, bytes, landedMode
+        ))
+    }
+
+    // MARK: - push --watch
+
+    static let vmPushWatchDefaultIntervalSeconds = 1.0
+    /// A tree in the middle of a save (an editor writing several files, a `git checkout`)
+    /// must settle before it is packed, or the machine gets a half-written state.
+    static let vmPushWatchSettleSeconds = 0.3
+
+    /// What `--watch` compares between polls: every regular file under the root that the
+    /// excludes let through, with the two cheap facts that change when a file does.
+    struct VMPushTreeEntry: Equatable {
+        let modified: TimeInterval
+        let size: Int
+        let permissions: Int
+    }
+
+    /// True when tar's `--exclude <pattern>` would skip a path with this component: the
+    /// literal name or a shell glob (`*.log`) matched against each path component.
+    static func vmPushIsExcluded(_ relativePath: String, excludes: [String]) -> Bool {
+        guard !excludes.isEmpty else { return false }
+        for component in relativePath.split(separator: "/") {
+            let name = String(component)
+            for pattern in excludes where name == pattern || fnmatch(pattern, name, 0) == 0 {
+                return true
             }
+        }
+        return false
+    }
+
+    /// A single file's signature is itself; a directory's is every file beneath it.
+    static func vmPushTreeSignature(root: URL, isDirectory: Bool, excludes: [String]) -> [String: VMPushTreeEntry] {
+        func entry(_ url: URL) -> VMPushTreeEntry? {
+            guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey]),
+                  values.isRegularFile == true else { return nil }
+            return VMPushTreeEntry(
+                modified: values.contentModificationDate?.timeIntervalSince1970 ?? 0,
+                size: values.fileSize ?? 0,
+                permissions: ((try? FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions]) as? NSNumber)?.intValue ?? 0
+            )
+        }
+        guard isDirectory else {
+            return entry(root).map { [root.lastPathComponent: $0] } ?? [:]
+        }
+        var signature: [String: VMPushTreeEntry] = [:]
+        let rootPath = root.standardizedFileURL.path
+        guard let enumerator = FileManager.default.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey, .isDirectoryKey],
+            options: []
+        ) else { return signature }
+        while let next = enumerator.nextObject() as? URL {
+            let fullPath = next.standardizedFileURL.path
+            var relative = fullPath.hasPrefix(rootPath) ? String(fullPath.dropFirst(rootPath.count)) : next.lastPathComponent
+            if relative.hasPrefix("/") { relative.removeFirst() }
+            if Self.vmPushIsExcluded(relative, excludes: excludes) {
+                if (try? next.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+                    enumerator.skipDescendants()
+                }
+                continue
+            }
+            if let fileEntry = entry(next) {
+                signature[relative] = fileEntry
+            }
+        }
+        return signature
+    }
+
+    /// Polls the local tree and pushes again whenever it changes, until Ctrl-C (exit 0).
+    /// `CMUX_VM_PUSH_WATCH_ROUNDS=<n>` (tests) ends the watch after n syncs.
+    private func watchAndPush(
+        vmID: String,
+        localURL: URL,
+        localPath: String,
+        isDirectory: Bool,
+        remotePath: String,
+        excludes: [String],
+        intervalSeconds: Double,
+        client: SocketClient,
+        jsonOutput: Bool,
+        initialSignature: [String: VMPushTreeEntry]?
+    ) throws {
+        // Ctrl-C ends the watch, not the CLI's shell: exit 0 straight from the handler
+        // (`_exit` is async-signal-safe; nothing here needs unwinding).
+        signal(SIGINT) { _ in _exit(0) }
+        let maxRounds = ProcessInfo.processInfo.environment["CMUX_VM_PUSH_WATCH_ROUNDS"].flatMap { Int($0) }
+        var last = initialSignature ?? Self.vmPushTreeSignature(root: localURL, isDirectory: isDirectory, excludes: excludes)
+        if !jsonOutput {
+            cliWriteStderr("watching \(localPath) (\(last.count) files) — every change is pushed to \(vmID):\(remotePath); Ctrl-C stops\n")
+        }
+        var syncs = 0
+        let clock = DateFormatter()
+        clock.dateFormat = "HH:mm:ss"
+        while true {
+            Thread.sleep(forTimeInterval: intervalSeconds)
+            var current = Self.vmPushTreeSignature(root: localURL, isDirectory: isDirectory, excludes: excludes)
+            guard current != last else { continue }
+            // Settle: keep re-reading until two consecutive reads agree.
+            let settleDeadline = Date().addingTimeInterval(Self.vmPushWatchSettleTimeoutSeconds)
+            while Date() < settleDeadline {
+                Thread.sleep(forTimeInterval: Self.vmPushWatchSettleSeconds)
+                let settled = Self.vmPushTreeSignature(root: localURL, isDirectory: isDirectory, excludes: excludes)
+                if settled == current { break }
+                current = settled
+            }
+            // A transient edit may disappear while settling.
+            guard current != last else { continue }
+            let outcome = try performVMPush(
+                vmID: vmID,
+                localURL: localURL,
+                localPath: localPath,
+                isDirectory: isDirectory,
+                remotePath: remotePath,
+                excludes: excludes,
+                client: client
+            )
+            last = current
+            syncs += 1
+            if jsonOutput {
+                var payload = outcome.jsonPayload
+                payload["event"] = "synced"
+                payload["files"] = current.count
+                payload["sync"] = syncs
+                print(jsonString(payload, prettyPrinted: false))
+            } else {
+                print("synced \(current.count) files at \(clock.string(from: Date())) (\(Self.formatByteCount(outcome.bytes)))")
+            }
+            fflush(stdout)
+            if let maxRounds, syncs >= maxRounds { return }
         }
     }
 
@@ -633,7 +983,7 @@ extension CMUXCLI {
 
     static var vmRunUsage: String {
         """
-        Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <4g|8g|16g|24g|32g|64g>] [--timeout <seconds>] -- <command...>
+        Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <20g>] [--timeout <seconds>] -- <command...>
 
         Run a command on a cloud machine without naming one: reuses an idle
         machine the router itself provisioned earlier (shown as "\(vmRunPoolLabel)"
@@ -651,6 +1001,8 @@ extension CMUXCLI {
           --new                 Force a fresh pool machine.
           --size <s>            Memory preset for a machine this run creates.
           --timeout <seconds>   Command timeout (default \(vmRunDefaultTimeoutSeconds)s, max 15 minutes).
+          --wait, --output      Accepted for symmetry with `vm agent`; `vm run` always
+                                blocks on the command and prints its output.
 
         Examples:
           cmux vm run -- uname -a
@@ -689,6 +1041,10 @@ extension CMUXCLI {
             switch arg {
             case "--sync":
                 sync = true
+            case "--wait", "--output":
+                // Implied: `vm run` always blocks on the command and prints its output.
+                // Accepted so a script can pass the flags it passes to `vm agent`.
+                break
             case "--new":
                 forceNew = true
             case "--pull":
@@ -714,7 +1070,7 @@ extension CMUXCLI {
         var memoryMb: Int?
         if let sizeOption {
             guard let parsed = Self.parseCloudVMSize(sizeOption) else {
-                throw CLIError(message: "vm run: unknown size '\(sizeOption)'. Sizes: 4g, 8g, 16g, 24g, 32g, 64g (or memory in MB).")
+                throw CLIError(message: "vm run: unknown size '\(sizeOption)'. Sizes: 20g (the plan machine) or memory in MB (at least 512).")
             }
             memoryMb = parsed
         }
@@ -1147,7 +1503,7 @@ extension CMUXCLI {
 extension CMUXCLI {
     static var vmRouteUsage: String {
         """
-            Usage: cmux vm route [--cwd <dir>] [--new] [--provision] [--size <4g|8g|16g|24g|32g|64g>] [--json]
+        Usage: cmux vm route [--cwd <dir>] [--new] [--provision] [--size <20g>] [--json]
 
         Print the machine `cmux vm run` / `cmux vm agent` would use for work in a
         directory, and why — without running anything. The policy is the router's
@@ -1169,7 +1525,11 @@ extension CMUXCLI {
 
     static var vmAgentUsage: String {
         """
-        Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--new] [--size <s>] [--json] -- <prompt or args...>
+        Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--remote-workspace <ws>] [--wait [--output] [--timeout <seconds>]] [--new] [--size <s>] [--json] -- <prompt or args...>
+
+        Short forms:
+          cmux agent <claude|codex|opencode|pi> [vm-agent-options] -- <prompt or args...>
+          cmux coderouter agent <claude|codex|opencode|pi> [vm-agent-options] -- <prompt or args...>
 
         Run a coding agent on a cloud machine. The machine is chosen like `vm run`
         (sticky per directory, then idle pool machine, then a fresh one) unless
@@ -1189,6 +1549,17 @@ extension CMUXCLI {
           --cwd <dir>      Local directory to route for (and sync with --sync).
           --name <name>    Terminal name in the tree (default: "<agent>: <prompt…>").
           --no-open        Do not open a pane in this app; just start it.
+          --remote-workspace <ws>
+                           Land the agent's terminal in this machine workspace
+                           (a `ws_…` id from `vm tree`, e.g. one staged with
+                           `vm workspace new --no-open`) instead of the detached pool.
+          --wait           Block until the agent's process exits and pass its exit
+                           code through (`exited code=<n>`; 1 for a signal). Ctrl-C
+                           stops waiting only — the agent keeps running detached.
+          --output         With --wait: print the agent's whole terminal output on
+                           stdout when it ends (the launch lines move to stderr).
+          --timeout <s>    With --wait: give up waiting after this many seconds
+                           (exit 1, the agent is not stopped). Default: no limit.
           --new            Force a fresh pool machine.
           --size <s>       Memory preset for a machine this call creates.
 
@@ -1196,6 +1567,7 @@ extension CMUXCLI {
           cmux vm agent --agent claude --sync -- "run the test suite and fix failures"
           cmux vm agent --agent codex --machine vivid-newt -- exec "summarize work/app"
           cmux vm agent --agent opencode --no-open --json -- "add a README"
+          cmux vm agent --agent claude --machine vivid-newt --no-open --wait --output -- "fix the failing test"
         """
     }
 
@@ -1221,6 +1593,14 @@ extension CMUXCLI {
         case "pi": return ["pi", "-p", prompt]
         default: return nil
         }
+    }
+
+    /// Normalizes the ergonomic provider-first aliases into the canonical
+    /// `vm agent --agent <name> ...` argument shape. VM options are recognized
+    /// until the first unrecognized token; the remainder is kept behind `--`
+    /// so provider flags and subcommands cannot be mistaken for cmux options.
+    static func vmAgentAliasArgs(_ rest: [String]) -> [String] {
+        CmuxTuiRemoteRouting.vmAgentAliasArgs(rest)
     }
 
     /// The default terminal name for an agent run: the agent plus the start of its prompt.
@@ -1284,7 +1664,7 @@ extension CMUXCLI {
         var memoryMb: Int?
         if let sizeOption {
             guard let parsed = Self.parseCloudVMSize(sizeOption) else {
-                throw CLIError(message: "vm route: unknown size '\(sizeOption)'. Sizes: 4g, 8g, 16g, 24g, 32g, 64g (or memory in MB).")
+                throw CLIError(message: "vm route: unknown size '\(sizeOption)'. Sizes: 20g (the plan machine) or memory in MB (at least 512).")
             }
             memoryMb = parsed
         }
@@ -1321,7 +1701,7 @@ extension CMUXCLI {
     }
 
     func runVMAgentCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
-        if rest.contains("--help") || rest.contains("-h") {
+        if CmuxTuiRemoteRouting.vmAgentRequestsHelp(rest) {
             print(Self.vmAgentUsage)
             return
         }
@@ -1337,8 +1717,12 @@ extension CMUXCLI {
         var cwdOption: String?
         var nameOption: String?
         var noOpen = false
+        var remoteWorkspaceOption: String?
         var forceNew = false
         var sizeOption: String?
+        var wait = false
+        var wantOutput = false
+        var waitTimeoutOption: String?
         var index = 0
         while index < flags.count {
             let arg = flags[index]
@@ -1356,8 +1740,14 @@ extension CMUXCLI {
             case "--cwd": cwdOption = try takeValue()
             case "--name": nameOption = try takeValue()
             case "--no-open": noOpen = true
+            case "--remote-workspace": remoteWorkspaceOption = try takeValue()
             case "--new": forceNew = true
             case "--size": sizeOption = try takeValue()
+            case "--wait": wait = true
+            case "--output":
+                wait = true
+                wantOutput = true
+            case "--timeout": waitTimeoutOption = try takeValue()
             case "--json": break
             default:
                 throw CLIError(message: "Unknown option \(arg)\n\n\(Self.vmAgentUsage)")
@@ -1373,9 +1763,19 @@ extension CMUXCLI {
         var memoryMb: Int?
         if let sizeOption {
             guard let parsed = Self.parseCloudVMSize(sizeOption) else {
-                throw CLIError(message: "vm agent: unknown size '\(sizeOption)'. Sizes: 4g, 8g, 16g, 24g, 32g, 64g (or memory in MB).")
+                throw CLIError(message: "vm agent: unknown size '\(sizeOption)'. Sizes: 20g (the plan machine) or memory in MB (at least 512).")
             }
             memoryMb = parsed
+        }
+        var waitTimeoutSeconds = 0
+        if let waitTimeoutOption {
+            guard wait else {
+                throw CLIError(message: "vm agent: --timeout belongs to --wait\n\n\(Self.vmAgentUsage)")
+            }
+            guard let parsed = Int(waitTimeoutOption), parsed >= 0 else {
+                throw CLIError(message: "vm agent: --timeout must be a whole number of seconds (0 = no limit; got '\(waitTimeoutOption)')\n\n\(Self.vmAgentUsage)")
+            }
+            waitTimeoutSeconds = parsed
         }
         let workDirectory = cwdOption.map { URL(fileURLWithPath: $0).standardizedFileURL.path }
             ?? FileManager.default.currentDirectoryPath
@@ -1415,44 +1815,176 @@ extension CMUXCLI {
         // The agent is a terminal resource on the machine (`surface.new_terminal`): it lives
         // in the machine's cmux-tui session, shows up in `cmux vm tree`, and opens locally as a
         // pane unless --no-open.
-        let params: [String: Any] = [
+        var params: [String: Any] = [
             "machine": selection.id,
             "command": vmAgentShellCommand(argv: argv, workDirectory: syncedRemoteDir),
             "name": name,
             "open": !noOpen,
         ]
+        // --remote-workspace: land the agent's terminal in a staged machine
+        // workspace (from `vm workspace new --no-open` or `vm tree`), so it joins
+        // that group instead of the detached pool.
+        if let remoteWorkspaceOption, !remoteWorkspaceOption.isEmpty {
+            params["remote_workspace_id"] = remoteWorkspaceOption
+        }
         let response = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 240)
         let terminalId = (response["terminal_id"] as? String) ?? "?"
         let workspaceId = (response["remote_workspace_id"] as? String) ?? "?"
         let surfaceId = (response["surface_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        if jsonOutput {
-            var payload: [String: Any] = [
-                "machine": selection.id,
-                "created": selection.created,
-                "reason": selection.reason,
-                "agent": agent,
-                "command": argv,
-                "name": name,
-                "terminal_id": terminalId,
-                "workspace_id": workspaceId,
-                "cwd": remoteCwd,
-                "reattach": "cmux vm open \(selection.id)/\(workspaceId)/\(terminalId)",
-            ]
-            if let surfaceId { payload["surface_id"] = surfaceId }
-            if let syncedRemoteDir { payload["synced_to"] = syncedRemoteDir }
-            print(jsonString(payload))
-            return
-        }
-        print(String(
+        let reattach = "cmux vm open \(selection.id)/\(workspaceId)/\(terminalId)"
+        var payload: [String: Any] = [
+            "machine": selection.id,
+            "created": selection.created,
+            "reason": selection.reason,
+            "agent": agent,
+            "command": argv,
+            "name": name,
+            "terminal_id": terminalId,
+            "workspace_id": workspaceId,
+            "cwd": remoteCwd,
+            "reattach": reattach,
+        ]
+        if let surfaceId { payload["surface_id"] = surfaceId }
+        if let syncedRemoteDir { payload["synced_to"] = syncedRemoteDir }
+        let startedLine = String(
             format: String(localized: "cli.vm.agent.started", defaultValue: "Started %1$@ on %2$@ \u{2014} terminal %3$@ in workspace %4$@ (detached: it keeps running if the pane closes)."),
             agent, selection.id, terminalId, workspaceId
-        ))
-        print(String(
+        )
+        let reattachLine = String(
             format: String(localized: "cli.vm.agent.reattach", defaultValue: "Reattach: cmux vm open %1$@/%2$@/%3$@"),
             selection.id, workspaceId, terminalId
-        ))
-        if let surfaceId {
-            print("OK surface=\(surfaceId) terminal=\(terminalId) workspace=\(workspaceId)")
+        )
+
+        guard wait else {
+            if jsonOutput {
+                print(jsonString(payload))
+                return
+            }
+            print(startedLine)
+            print(reattachLine)
+            if let surfaceId {
+                print("OK surface=\(surfaceId) terminal=\(terminalId) workspace=\(workspaceId)")
+            }
+            return
         }
+
+        // --wait: the launch report moves to stderr so stdout carries only the agent's
+        // output (--output) or the exit line; the JSON form is one object at the end.
+        guard terminalId != "?" else {
+            throw CLIError(message: "vm agent: the app did not return a terminal id for the agent, so there is nothing to wait on. It may still be running; check `cmux vm tree \(selection.id)`.")
+        }
+        if !jsonOutput {
+            cliWriteStderr(startedLine + "\n")
+        }
+        cliWriteStderr(String(
+            format: String(localized: "cli.vm.agent.waiting", defaultValue: "Waiting for %1$@ to finish (Ctrl-C stops waiting; the agent keeps running — %2$@).\n"),
+            terminalId, reattach
+        ))
+        let waitStarted = Date()
+        let exit = try waitForVMTerminalExit(
+            machine: selection.id,
+            terminalID: terminalId,
+            timeoutSeconds: waitTimeoutSeconds,
+            client: client
+        )
+        let waited = Int(Date().timeIntervalSince(waitStarted).rounded())
+        var outputText: String?
+        if wantOutput {
+            outputText = try readVMTerminalOutput(machine: selection.id, terminalID: terminalId, client: client)
+        }
+        if jsonOutput {
+            payload["exited"] = exit != nil
+            payload["exit"] = exit?["outcome"] ?? NSNull()
+            payload["waited_seconds"] = waited
+            if let outputText { payload["output"] = outputText }
+            print(jsonString(payload))
+        } else {
+            if let outputText, !outputText.isEmpty {
+                print(outputText, terminator: outputText.hasSuffix("\n") ? "" : "\n")
+            }
+            if let exit {
+                let summary = Self.vmTerminalExitSummary(exit)
+                if wantOutput {
+                    cliWriteStderr(summary + "\n")
+                } else {
+                    print(summary)
+                }
+            }
+        }
+        guard let exit else {
+            throw CLIError(message: "\(agent) on \(selection.id) is still running after \(waited)s (not stopped). Reattach: \(reattach) — or keep waiting: cmux vm terminal wait-exit \(selection.id) \(terminalId) --timeout 3600", exitCode: 1)
+        }
+        let code = Self.vmTerminalExitCode(exit)
+        if code != 0 {
+            throw CLIError(message: "exit \(code)", exitCode: code)
+        }
+    }
+
+    // MARK: - until-done helpers (shared by `vm agent --wait` and `vm dev`)
+
+    /// One `vm.terminal_wait_exit` round trip never exceeds this, so a long agent run is
+    /// many short waits and no single socket call can time out on it.
+    static let vmAgentWaitSliceMs = 30_000
+
+    /// Blocks until the terminal's process exits and returns the `vm.terminal_wait_exit`
+    /// result, or nil when `timeoutSeconds` (> 0) elapsed first. Errors from the socket
+    /// (machine asleep, terminal gone) propagate.
+    func waitForVMTerminalExit(machine: String, terminalID: String, timeoutSeconds: Int, client: SocketClient) throws -> [String: Any]? {
+        let deadline = timeoutSeconds > 0 ? Date().addingTimeInterval(TimeInterval(timeoutSeconds)) : nil
+        while true {
+            var sliceMs = Self.vmAgentWaitSliceMs
+            if let deadline {
+                let remaining = deadline.timeIntervalSinceNow
+                if remaining <= 0 { return nil }
+                sliceMs = min(sliceMs, max(1_000, Int(remaining * 1000)))
+            }
+            let response = try client.sendV2(
+                method: "vm.terminal_wait_exit",
+                params: ["id": machine, "terminal_id": terminalID, "timeout_ms": sliceMs],
+                responseTimeout: TimeInterval(sliceMs / 1000 + 20)
+            )
+            if (response["state"] as? String) == "exited" {
+                return response
+            }
+        }
+    }
+
+    /// The terminal's whole retained output: `vm.terminal_output` paged by `next_offset`
+    /// until the daemon reports `complete`.
+    func readVMTerminalOutput(machine: String, terminalID: String, client: SocketClient, after initialOffset: Int = 0, maxBytes: Int? = nil) throws -> String {
+        var text = ""
+        var after = initialOffset
+        var pages = 0
+        while true {
+            var params: [String: Any] = ["id": machine, "terminal_id": terminalID, "after": after]
+            if let maxBytes { params["max_bytes"] = maxBytes }
+            let response = try client.sendV2(
+                method: "vm.terminal_output",
+                params: params,
+                responseTimeout: 120
+            )
+            text += (response["text"] as? String) ?? ""
+            let next = (response["next_offset"] as? Int) ?? (response["next_offset"] as? String).flatMap(Int.init)
+            guard let complete = response["complete"] as? Bool else {
+                throw CLIError(message: String(localized: "cli.vm.output.invalidPage", defaultValue: "The machine returned an invalid output page. Reconnect and retry."))
+            }
+            pages += 1
+            if complete { return text }
+            guard let next, next > after, pages < 4096 else {
+                throw CLIError(message: String(localized: "cli.vm.output.incomplete", defaultValue: "The machine's output could not be read completely. Reconnect and retry."))
+            }
+            after = next
+        }
+    }
+
+    /// The exit status to pass through for a `vm.terminal_wait_exit` result: the process's
+    /// own code for a normal exit (clamped to 1…255 when out of range), 1 for a signal or
+    /// an unknown outcome.
+    static func vmTerminalExitCode(_ response: [String: Any]) -> Int32 {
+        let outcome = (response["outcome"] as? [String: Any]) ?? [:]
+        guard (outcome["kind"] as? String) == "exit" else { return 1 }
+        let code = (outcome["code"] as? Int) ?? 1
+        if code == 0 { return 0 }
+        return Int32((1...255).contains(code) ? code : 1)
     }
 }

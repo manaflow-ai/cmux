@@ -4356,15 +4356,6 @@ struct CMUXCLI {
         if let mb = Int(key), mb >= 512 { return mb }
         return nil
     }
-    static func parseCloudVMDiskMb(_ raw: String) -> Int? {
-        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let number = normalized.hasSuffix("g") ? String(normalized.dropLast())
-            : normalized.hasSuffix("gb") ? String(normalized.dropLast(2))
-            : normalized.hasSuffix("gib") ? String(normalized.dropLast(3))
-            : normalized
-        guard let gib = Int(number), (4...256).contains(gib), gib % 4 == 0 else { return nil }
-        return gib * 1024
-    }
     /// All create verbs provision the same devbox. Legacy kind flags remain
     /// accepted; contradictory flags still report the caller's mistake.
     static func cloudVMCreateKind(_ args: [String], command: String) throws -> VMMachineKind {
@@ -4658,12 +4649,10 @@ struct CMUXCLI {
         }
         let normalized = trimmed.lowercased()
         guard normalized == "freestyle" else {
-            throw CLIError(message: """
-                vm new: unsupported Cloud VM service override.
-
-                Try:
-                  cmux vm new
-                """)
+            throw CLIError(message: String(
+                localized: "cli.vm.unsupportedProviderOverride",
+                defaultValue: "vm: unsupported Cloud VM service override. Omit --provider and retry the same command."
+            ))
         }
         return normalized
     }
@@ -5653,6 +5642,9 @@ struct CMUXCLI {
                 throw CLIError(message: "Usage: cmux auth <status|login|logout>")
             }
 
+        case "agent":
+            try runVMAgentCommand(rest: Self.vmAgentAliasArgs(commandArgs), client: client, jsonOutput: jsonOutput)
+
         case "vm", "cloud":
             let sub = commandArgs.first?.lowercased() ?? "ls"
             let rest = Array(commandArgs.dropFirst())
@@ -5889,28 +5881,23 @@ struct CMUXCLI {
                 }
                 print(Self.formatVMStatsLine(id: vmId, payload: response))
 
-            case "resize":
-                let (diskOpt, remaining) = parseOption(rest, name: "--disk")
-                guard let vmId = remaining.first, let diskOpt else {
-                    throw CLIError(message: """
-                        Usage: cmux vm resize <id> --disk <GiB>
-
-                        Disk can grow in 4 GiB steps from 4 GiB to 256 GiB. It cannot shrink.
-                        """)
+            case "pause", "resume":
+                // Lifecycle, not sizing: pausing parks the machine (compute stops, the volume
+                // stays); resuming brings the daemon and its terminals back.
+                let lifecycleArgs = rest.filter { $0 != "--json" }
+                guard lifecycleArgs.count == 1, let vmId = lifecycleArgs.first, !vmId.hasPrefix("-") else {
+                    throw CLIError(message: Self.vmLifecycleUsage)
                 }
-                guard remaining.dropFirst().isEmpty, let diskMb = Self.parseCloudVMDiskMb(diskOpt) else {
-                    throw CLIError(message: "vm resize: disk must be 4-256 GiB in 4 GiB steps.")
-                }
-                let response = try client.sendV2(
-                    method: "vm.resize",
-                    params: ["id": vmId, "storage_mb": diskMb],
-                    responseTimeout: 120
-                )
+                let response = try client.sendV2(method: "vm.\(sub)", params: ["id": vmId], responseTimeout: 180)
                 if jsonOutput {
                     print(jsonString(response))
+                    break
+                }
+                let status = (response["status"] as? String) ?? "?"
+                if sub == "pause" {
+                    print("OK \(vmId) paused (status=\(status)); `cmux vm resume \(vmId)` wakes it")
                 } else {
-                    let actual = (response["disk_total_mb"] as? Int).map { $0 / 1024 } ?? diskMb / 1024
-                    print("OK \(vmId) disk=\(actual) GiB")
+                    print("OK \(vmId) resumed (status=\(status))")
                 }
 
             case "base":
@@ -6185,10 +6172,22 @@ struct CMUXCLI {
                 }
 
             case "snapshot", "checkpoint":
+                // `snapshot ls|rm` are the only new shapes; a machine id in first position
+                // keeps creating a snapshot exactly as before.
+                if let first = rest.first?.lowercased(), first == "ls" || first == "list" {
+                    try runVMSnapshotListCommand(rest: Array(rest.dropFirst()), client: client, jsonOutput: jsonOutput)
+                    break
+                }
+                if let first = rest.first?.lowercased(), first == "rm" || first == "delete" {
+                    try runVMSnapshotDeleteCommand(rest: Array(rest.dropFirst()), client: client, jsonOutput: jsonOutput)
+                    break
+                }
                 let (nameOpt, snapshotArgs) = parseOption(rest, name: "--name")
                 guard let vmId = snapshotArgs.first else {
                     throw CLIError(message: """
                         Usage: cmux vm snapshot <id> [--name <name>]
+                               cmux vm snapshot ls <id>
+                               cmux vm snapshot rm <id> <snapshot-id>
 
                         Find an id:
                           cmux vm ls
@@ -6399,23 +6398,21 @@ struct CMUXCLI {
                 try runVMSSHAttach(commandArgs: rest, client: client)
 
             case "exec":
-                guard let vmId = rest.first else {
-                    throw CLIError(message: """
-                        Usage: cmux vm exec <id> -- <command...>
-
-                        Examples:
-                          cmux vm ls
-                          cmux vm exec <id> -- pwd
-                        """)
+                // `--timeout <seconds>` may sit anywhere before `--`; everything after `--`
+                // is the command, verbatim (parseOption stops at the separator).
+                let (execTimeoutOpt, execRest) = parseOption(rest, name: "--timeout")
+                let execSeconds = try Self.vmExecTimeoutSeconds(execTimeoutOpt)
+                guard let vmId = execRest.first, !vmId.hasPrefix("-") else {
+                    throw CLIError(message: Self.vmExecUsage)
                 }
-                var commandArgsForVM: [String] = Array(rest.dropFirst())
+                var commandArgsForVM: [String] = Array(execRest.dropFirst())
                 // Consume a leading "--" separator if present.
                 if commandArgsForVM.first == "--" {
                     commandArgsForVM.removeFirst()
                 }
                 guard !commandArgsForVM.isEmpty else {
                     throw CLIError(message: """
-                        Usage: cmux vm exec <id> -- <command...>
+                        Usage: cmux vm exec [--timeout <seconds>] <id> -- <command...>
 
                         Example:
                           cmux vm exec \(vmId) -- uname -a
@@ -6428,8 +6425,8 @@ struct CMUXCLI {
                 let command = commandArgsForVM.map(shellQuote).joined(separator: " ")
                 let response = try client.sendV2(
                     method: "vm.exec",
-                    params: ["id": vmId, "command": command],
-                    responseTimeout: 35
+                    params: ["id": vmId, "command": command, "timeout_ms": execSeconds * 1000],
+                    responseTimeout: TimeInterval(execSeconds + 10)
                 )
                 let stdout = (response["stdout"] as? String) ?? ""
                 let stderr = (response["stderr"] as? String) ?? ""
@@ -6455,11 +6452,23 @@ struct CMUXCLI {
             case "tree":
                 try runVMTreeCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
+            case "self":
+                try runVMSelfCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+
+            case "dev":
+                try runVMDevCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+
             case "workspace":
                 try runVMWorkspaceCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
             case "terminal":
                 try runVMTerminalCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+
+            case "layout":
+                try runVMLayoutCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+
+            case "env":
+                try runVMEnvCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
             case "tab":
                 try runVMTabCommand(rest: rest, client: client, jsonOutput: jsonOutput)
@@ -6544,7 +6553,7 @@ struct CMUXCLI {
 
             default:
                 throw CLIError(message: """
-                    Usage: cmux \(command) <base|new|ls|domains|tree|status|stats|resize|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info|workspace|terminal|tab> [args...]
+                    Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
                     Common commands:
                       cmux vm ls
@@ -6553,9 +6562,13 @@ struct CMUXCLI {
                       cmux vm status <id>
                       cmux vm tree
                       cmux vm snapshot <id>
+                      cmux vm snapshot ls <id>
                       cmux vm fork <id>
                       cmux vm exec <id> -- <command...>
                       cmux vm push <id> <local-path>
+                      cmux vm dev <id>
+                      cmux vm self <id>
+                      cmux vm ssh <id>
                       cmux vm shell <id>
                       cmux vm rm <id>
                     """)
@@ -18288,6 +18301,8 @@ struct CMUXCLI {
             defaultValue: "Run this as the new terminal's initial command"
         )
         switch command {
+        case "agent":
+            return Self.vmAgentUsage.replacingOccurrences(of: "cmux vm agent", with: "cmux agent")
         case "remotes", "remote":
             return Self.remotesUsage
         case "todo":
@@ -18446,7 +18461,9 @@ struct CMUXCLI {
                 defaultValue: "Publish VM ports on generated or custom domains."
             )
             return """
-            Usage: cmux \(command) <base|new|ls|domains|tree|status|stats|resize|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info|workspace|terminal|tab> [args...]
+            Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
+
+            `cmux vm <verb> --help` prints that verb's own usage.
 
             Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
             Machines live on your private network with no public ports. Terminal
@@ -18457,9 +18474,10 @@ struct CMUXCLI {
             Subcommands:
               ls                        List your cloud VMs.
               domains                   \(domainsDescription)
-              workspace new <machine> [--name <name>]
+              workspace new <machine> [--name <name>] [--reuse]
                                         Create a workspace on the machine (its ⌘N) and
-                                        open it as a new local workspace.
+                                        open it as a new local workspace; --reuse opens
+                                        the one already named so instead of a duplicate.
               workspace open <machine> <ws-id>
                                         Open a machine workspace here: a new local
                                         workspace with one pane per terminal.
@@ -18482,6 +18500,27 @@ struct CMUXCLI {
                                         Rename a terminal for every client.
               terminal wait <machine> <term-id> --pattern <regex> [--timeout <s>]
                                         Block until the screen matches; exit 1 on timeout.
+              terminal wait-exit <machine> <term-id> [--timeout <s>]
+                                        Block until the terminal's process exits: prints
+                                        `exited code=<n>`; `pending` + exit 1 if still running.
+              terminal output <machine> <term-id> [--after <offset>] [--max-bytes <n>]
+                                        Print the terminal's retained output (the whole log);
+                                        --json adds next_offset to read only what is new.
+              layout export <machine> [<ws-id|name>] [--raw]
+                                        Print a machine workspace's layout as a declarative
+                                        layout document (the same JSON `cmux layout`,
+                                        `new-workspace --layout`, and cmux.json use);
+                                        --raw prints the daemon's own LayoutDocument.
+              layout apply <machine> (<file>|-|--from-saved <name>) [--workspace <ws-id>] [--name <n>] [--cwd <dir>] [--open]
+                                        Build panes, splits, and tabs on the machine from a
+                                        layout document (a new workspace, or an empty one);
+                                        --open then shows it here with the same geometry.
+              env set <machine> KEY=VALUE… [--from-file <.env>]
+                                        Set environment variables for every terminal, agent,
+                                        and command cmux starts on the machine (persisted in
+                                        its ~/.config/cmux/env; names only are echoed back).
+              env ls <machine> [--show]  List them (names; --show adds values).
+              env rm <machine> KEY…      Remove them.
               tab rename <machine> <tab-id> <name>
                                         Rename one daemon tab placement.
               prompt [--open <agent>]   Install the cmux-cloud skill file and print the
@@ -18494,6 +18533,11 @@ struct CMUXCLI {
                                         and final Terminals index — each with the
                                         address
                                         `vm open` / `surface open` accepts.
+              self <machine> [<path>]   Who the machine is, as the platform sees it: the
+                                        reflection `cmux self` prints inside it (name,
+                                        owner, team, plan; paths owner|machine|peers|
+                                        integrations) — read through your session, no
+                                        shell started.
               status <id>                Print provider, status, and image.
               base open [--workspace <id>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d]
                                         Open Base, your persistent cloud workspace.
@@ -18516,6 +18560,10 @@ struct CMUXCLI {
               snapshot <id> [--name <name>]
                                         Create a provider snapshot/checkpoint and print its id.
                                         Alias: `checkpoint`.
+              snapshot ls <id>          List the machine's snapshots, newest first
+                                        (`<id>  <created>  <name|->`).
+              snapshot rm <id> <snapshot-id>
+                                        Delete one of the machine's snapshots. Permanent.
               fork <id> [--name <name>] [--window <id|ref|index>] [--detach|-d]
                                         Fork a VM as a tracked Cloud VM and open it unless
                                         --detach is passed.
@@ -18545,8 +18593,13 @@ struct CMUXCLI {
                                         VM, using the same session path as `cmux ssh`.
               ssh-info <id>             Print SSH connection details when the Cloud VM
                                         exposes SSH.
+              pause <id>                Park the machine: compute stops (and stops billing);
+                                        the volume, workspaces and history stay.
+              resume <id>               Wake a paused machine; the daemon and terminals return.
               rm <id>                   Destroy a VM.
-              exec <id> -- <command...> Run a shell command inside the VM and print stdout.
+              exec [--timeout <s>] <id> -- <command...>
+                                        Run a shell command inside the VM and print stdout;
+                                        --timeout 1…900 seconds (default 30).
               run [--sync] [--pull <remote>] [--machine <id>] [--new] -- <command...>
                                         Run a command without naming a machine: the router
                                         reuses an idle pool machine, wakes a sleeper, or
@@ -18554,13 +18607,27 @@ struct CMUXCLI {
               route [--cwd <dir>] [--new] [--provision]
                                         Print the machine `run`/`agent` would use for a
                                         directory and why, without running anything.
-              agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <n>] [--no-open] -- <prompt or args...>
+              agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <n>] [--no-open] [--wait [--output] [--timeout <s>]] -- <prompt or args...>
                                         Start a coding agent as a detached terminal in a
                                         machine's cmux-tui session (routed like `run`);
                                         reattach with `vm open <machine>/<ws>/<term>`.
+                                        --wait blocks until it exits and passes the exit
+                                        code through; --output then prints its whole log.
+              dev <machine> [<dir>] [--name <workspace>] [--layout <file>] [--command <c>] [--port <n>] [--sync|--no-sync] [--no-open]
+                                        One command from a folder to a running dev layout:
+                                        route + sync the folder + detect the dev command +
+                                        a named workspace with a dev pane, a shell, and a
+                                        browser tab on its port, opened here.
               push <id> <local> [remote] [--exclude <pattern>]... [--no-default-excludes]
                                         Copy a local file or directory onto the VM over the
                                         exec channel (no SSH needed). Alias: `upload`.
+              push <id> <local> [remote] --watch [--interval <s>]
+                                        Keep pushing: re-sync whenever a local file changes,
+                                        until Ctrl-C.
+              push --secret <id> <local-file> [remote] [--mode <octal>]
+                                        A file that must never transit the control plane
+                                        (token, deploy key, .npmrc): over the machine's link
+                                        into `cmux file receive`, mode 600 by default.
               pull <id> <remote> [local]
                                         Copy a file or directory from the VM to local disk.
                                         Alias: `download`.
@@ -20484,9 +20551,12 @@ struct CMUXCLI {
     /// Dispatch help for a subcommand. Returns true if help was printed.
     private func dispatchSubcommandHelp(command: String, commandArgs: [String]) -> Bool {
         guard commandArgs.contains("--help") || commandArgs.contains("-h") else { return false }
-        if command == "vm" || command == "cloud", let verb = commandArgs.first,
-           let verbText = Self.vmSubcommandUsage(commandArgs) {
-            print("cmux \(command) \(verb.lowercased())")
+        // `cmux vm <verb> --help` answers for that verb; the family text stays for
+        // `cmux vm --help` and verbs without their own usage.
+        if command == "vm" || command == "cloud",
+           let verb = commandArgs.first?.lowercased(), !verb.hasPrefix("-"),
+           let verbText = Self.vmSubcommandUsage(commandArgs) ?? Self.vmVerbUsage(verb) {
+            print("cmux \(command) \(verb)")
             print("")
             print(verbText)
             return true
@@ -40984,7 +41054,7 @@ export default CMUXSessionRestore;
           login | logout                                      (aliases for auth login/logout)
           \(localizedCoderouterAliases())
           \(localizedCoderouterCommands())
-          vm <base|new|ls|domains|tree|status|stats|resize|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info|workspace|terminal|tab> [args...]    (alias: cloud)
+          vm <base|new|ls|domains|tree|self|status|stats|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]    (alias: cloud)
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           ai-accounts <list|upload|remove> [--team <id>] [--json]
           rpc <method> [json-params]

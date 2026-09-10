@@ -998,11 +998,15 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// cmux-tui's selectors, so its tab is closed instead. Either way the resource
     /// leaves the catalog now and the next snapshot confirms.
     func closeTerminal(_ id: SurfaceResourceID) async throws {
+        try await closeTerminal(id, fallbackTabID: nil)
+    }
+
+    func closeTerminal(_ id: SurfaceResourceID, fallbackTabID: String?) async throws {
         pendingRemoteCreations.removeValue(forKey: id)
         do {
             _ = try await runCloseCommand { CloudTuiCommandLine.closeTerminalArguments(socketPath: $0, terminalID: id.key) }
         } catch {
-            guard let tabID = tabByTerminal[id.key], Self.isSelectorNotFound(error) else { throw error }
+            guard let tabID = fallbackTabID ?? tabByTerminal[id.key], Self.isSelectorNotFound(error) else { throw error }
             _ = try await runCloseCommand { CloudTuiCommandLine.closeTabArguments(socketPath: $0, tabID: tabID) }
         }
         closeLocalPanes(showing: [id])
@@ -1090,6 +1094,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     /// A new terminal in the machine's cmux-tui session (`workspace <ws> run -- argv`).
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
+        try await createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID, onExit: nil)
+    }
+
+    /// The same, choosing the daemon's exit policy: `"keep"` retains the tab and final
+    /// screen after the process exits (a sender that reads the process's last lines as
+    /// its result needs that); nil is the daemon default, `close`.
+    func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, onExit: String?) async throws -> SurfaceResource {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         // Resolve the active workspace inside the daemon mutation. A stale Mac
@@ -1100,7 +1111,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             cwd: cwd,
             command: (command?.isEmpty == false ? command : nil) ?? CloudTuiCommandLine.defaultTerminalCommand
         )
-        let data = try await link.run(arguments: CloudTuiCommandLine.runArguments(socketPath: connected.socketPath, workspaceID: workspaceID, command: argv))
+        let data = try await link.run(arguments: CloudTuiCommandLine.runArguments(socketPath: connected.socketPath, workspaceID: workspaceID, command: argv, onExit: onExit))
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let created = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) else {
             throw ProviderError.terminalNotCreated(String(data: data, encoding: .utf8) ?? "")
@@ -1163,10 +1174,43 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// A new workspace in the machine's cmux-tui session (`workspace create`),
     /// called directly — not as a side effect of creating a terminal.
     func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace {
+        try await createRemoteWorkspace(name: name, expectedRevision: nil)
+    }
+
+    /// Uses the daemon's revision fence for the name lookup/create, including
+    /// races with another Mac or a guest CLI, without serializing unrelated I/O.
+    func getOrCreateRemoteWorkspace(name: String) async throws -> (workspace: SurfaceRemoteWorkspace, existing: Bool) {
+        let connected = try await links.connected(machineID: machineID)
+        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
+        for attempt in 0..<8 {
+            try Task.checkCancellation()
+            let data = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: connected.socketPath))
+            guard let snapshot = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let state = CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: machine),
+                  let revision = state.cursor?.revision else { throw ProviderError.invalidSnapshot(machineID) }
+            let matches = CmuxTuiSnapshotParser.workspaces(fromSnapshot: snapshot).filter { $0.name == name }
+            if matches.count > 1 {
+                throw SurfaceCatalogError.destinationNotFound(String(localized: "cloud.workspace.ambiguousName", defaultValue: "Several machine workspaces have that name. Use a workspace ID or choose a unique name."))
+            }
+            if let workspace = matches.first { return (workspace, true) }
+            do {
+                return (try await createRemoteWorkspace(name: name, expectedRevision: revision), false)
+            } catch let error as CloudMachineLink.LinkError {
+                guard attempt < 7, case .exited(_, let output) = error,
+                      let object = try? JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any],
+                      (object["code"] as? String) == "revision.conflict" else { throw error }
+            }
+        }
+        throw ProviderError.invalidSnapshot(machineID)
+    }
+
+    private func createRemoteWorkspace(name: String?, expectedRevision: UInt64?) async throws -> SurfaceRemoteWorkspace {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         let workspaceName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let created = try await link.run(arguments: CloudTuiCommandLine.createWorkspaceArguments(socketPath: connected.socketPath, name: workspaceName))
+        var arguments = CloudTuiCommandLine.createWorkspaceArguments(socketPath: connected.socketPath, name: workspaceName)
+        if let expectedRevision { arguments += ["--expected-revision", String(expectedRevision)] }
+        let created = try await link.run(arguments: arguments)
         guard let object = try JSONSerialization.jsonObject(with: created) as? [String: Any],
               let id = CmuxTuiSnapshotParser.createdWorkspace(fromResult: object) else {
             throw ProviderError.noWorkspaceOnMachine(machineID)
@@ -1808,6 +1852,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     private func deliverNotification(_ row: CloudVMNotificationRow, to target: CloudNotificationDeliveryTarget) -> Bool {
         guard let store = AppDelegate.shared?.notificationStore else { return false }
+        guard CloudNotificationSyncHub.shared.admit(row, machineID: machineID) else { return true }
         let terminalTitle = row.terminalID.flatMap { cloudState?.lookupIndex.terminal(id: $0)?.title } ?? ""
         let machineName = summary.preferredName
         let subtitle: String
@@ -1830,7 +1875,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             subtitle: subtitle,
             body: row.body,
             retargetsToLiveSurfaceOwner: target.panelID != nil,
-            correlationKey: CloudNotificationCorrelation.key(machineID: machineID, notificationID: row.id)
+            correlationKey: CloudNotificationCorrelation.key(machineID: machineID, notificationID: row.id),
+            origin: .cloudVM(machineID: machineID)
         ) != nil
     }
 

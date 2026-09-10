@@ -486,6 +486,18 @@ describe("VM REST auth", () => {
       image: "snapshot-test",
       kind: "base",
       createdAt: 1_777_000_000_000,
+      capabilities: {
+        snapshot: true,
+        restore: true,
+        fork: false,
+        exec: true,
+        stats: true,
+        ports: true,
+        desktop: true,
+        sizing: true,
+        persistentHome: false,
+        attachTransports: ["cmux-remote"],
+      },
     });
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "user-1",

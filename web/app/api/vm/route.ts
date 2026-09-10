@@ -54,6 +54,7 @@ import {
   runAfterResponse,
   type VmWorkflowErrorOverrides,
 } from "../../../services/vms/routeHelpers";
+import { vmRequestLocale, vmUnsupportedCopy } from "../../../services/vms/vmErrorMessages";
 import { runVmRoute } from "../../../services/vms/routeWorkflow";
 import { captureVmProvisionOutcome } from "../../../services/vms/observability";
 import { annotateVmRequestBilling } from "../../../services/vms/requestContext";
@@ -141,8 +142,6 @@ export async function GET(request: Request): Promise<Response> {
         capabilities: vmCapabilitiesFor(entry.provider),
         createdAt: entry.createdAt,
         displayName: entry.displayName,
-        // Generated three-word name; clients show it when no displayName is
-        // set. Null on rows created before names were assigned.
         slug: entry.slug,
         // The machine's address on its owner's private network (reachable over
         // the WireGuard tunnel); null for machines created before private
@@ -223,6 +222,8 @@ export async function POST(request: Request): Promise<Response> {
       if (!selected.ok) return selected.response;
       const { imageSelection } = selected;
       const image = imageSelection.image;
+      const unsupportedOption = await unsupportedCreateOptionResponse(provider, candidate, request);
+      if (unsupportedOption) return unsupportedOption;
       setSpanAttributes(span, {
         "cmux.vm.provider": provider,
         "cmux.vm.image_set": image.length > 0,
@@ -272,11 +273,34 @@ export async function POST(request: Request): Promise<Response> {
         kind: vmImageKindFor(created.provider, created.image),
         ...(imageSelection.size ? { size: imageSelection.size } : {}),
         createdAt: created.createdAt,
+        capabilities: vmCapabilitiesFor(created.provider),
         displayName: created.displayName,
         slug: created.slug,
       });
     },
   );
+}
+
+async function unsupportedCreateOptionResponse(
+  provider: ProviderId,
+  candidate: Record<string, unknown>,
+  request: Request,
+): Promise<Response | null> {
+  const capabilities = vmCapabilitiesFor(provider);
+  const unsupported = candidate.memoryMb !== undefined && !capabilities.sizing
+    ? { operation: "sizing" as const, field: "memoryMb" }
+    : (candidate.persistentHome === true || candidate.perMachineHome === true) && !capabilities.persistentHome
+      ? { operation: "persistentHome" as const, field: candidate.persistentHome === true ? "persistentHome" : "perMachineHome" }
+      : null;
+  if (!unsupported) return null;
+  const copy = await vmUnsupportedCopy(unsupported.operation, vmRequestLocale(request));
+  return vmErrorResponse({
+    error: "vm_operation_unsupported",
+    status: 400,
+    message: copy.message,
+    action: copy.action,
+    details: { provider, field: unsupported.field },
+  });
 }
 
 type CreateBody = {

@@ -724,15 +724,15 @@ the expected text without connecting to a cmux socket.
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
 - `cmux events --help` -> `Usage: cmux events [options]`
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout>`
-- `cmux vm --help` -> `Usage: cmux vm <base|new|ls|domains|tree|status|stats|resize|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info|workspace|terminal|tab> [args...]`
-- `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|domains|tree|status|stats|resize|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info|workspace|terminal|tab> [args...]`
-- `cmux vm ls --help` -> `Usage: cmux vm <base|new|ls|domains|tree|status|stats|resize|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info|workspace|terminal|tab> [args...]`
+- `cmux vm --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
+- `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|domains|tree|self|status|stats|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
+- `cmux vm ls --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
 - `cmux vm domains --help` -> `cmux cloud domains [list]`
-- `cmux vm run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <4g|8g|16g|24g|32g|64g>] [--timeout <seconds>] -- <command...>`
-- `cmux vm run -h` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <4g|8g|16g|24g|32g|64g>] [--timeout <seconds>] -- <command...>`
-- `cmux cloud run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <4g|8g|16g|24g|32g|64g>] [--timeout <seconds>] -- <command...>`
-- `cmux vm route --help` -> `Usage: cmux vm route [--cwd <dir>] [--new] [--provision] [--size <4g|8g|16g|24g|32g|64g>] [--json]`
-- `cmux vm agent --help` -> `Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--new] [--size <s>] [--json] -- <prompt or args...>`
+- `cmux vm run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <20g>] [--timeout <seconds>] -- <command...>`
+- `cmux vm run -h` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <20g>] [--timeout <seconds>] -- <command...>`
+- `cmux cloud run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <20g>] [--timeout <seconds>] -- <command...>`
+- `cmux vm route --help` -> `Usage: cmux vm route [--cwd <dir>] [--new] [--provision] [--size <20g>] [--json]`
+- `cmux vm agent --help` -> `Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--remote-workspace <ws>] [--wait [--output] [--timeout <seconds>]] [--new] [--size <s>] [--json] -- <prompt or args...>`
 - `cmux vm push --help` -> `Usage: cmux vm push <id> <local-path> [remote-path] [--exclude <pattern>]... [--no-default-excludes]`
 - `cmux vm upload --help` -> `Usage: cmux vm push <id> <local-path> [remote-path] [--exclude <pattern>]... [--no-default-excludes]`
 - `cmux vm pull --help` -> `Usage: cmux vm pull <id> <remote-path> [local-path]`
@@ -747,7 +747,7 @@ the expected text without connecting to a cmux socket.
 - `cmux surface --help` -> `Usage: cmux surface ls [<machine>|local] [--refresh] [--json]`
 - `cmux remotes --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux remote --help` -> `Usage: cmux remotes <list|add|remove> [options]`
-- `cmux coderouter --help` -> `Usage: cmux coderouter <status|machines|claude> [options]`
+- `cmux coderouter --help` -> `Usage: cmux coderouter <status|machines|claude|agent> [options]`
 - `cmux rpc --help` -> `Usage: cmux rpc <method> [json-params]`
 - `cmux comments --help` -> `Usage: cmux comments <subcommand> [options]`
 - `cmux vault --help` -> `Usage: cmux vault <subcommand> [options]`
