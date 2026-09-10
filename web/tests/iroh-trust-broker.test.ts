@@ -212,6 +212,7 @@ describe("Iroh trust broker registration", () => {
     const result = await Effect.runPromise(fixture.broker.register(USER_A, request, NOW)) as {
       revision: number;
       binding: { endpoint_id: string };
+      minimum_publication_spacing_seconds: number;
       relay: { status: string; token: string };
       discovery_complete: boolean;
       discovery: {
@@ -220,6 +221,8 @@ describe("Iroh trust broker registration", () => {
       };
     };
     expect(result.binding.endpoint_id).toBe(fixture.endpointId);
+    // Server-owned publication policy travels with every registration.
+    expect(result.minimum_publication_spacing_seconds).toBe(60);
     expect(result.relay.status).toBe("issued");
     expect(result.discovery.revision).toBe(result.revision);
     expect(result.discovery_complete).toBe(true);
@@ -529,7 +532,9 @@ describe("Iroh trust broker registration", () => {
     const replay = makeFixture();
     const request = await replay.signedRegistration();
     await Effect.runPromise(replay.broker.register(USER_A, request, NOW));
-    await expectEffectFailure(replay.broker.register(USER_A, request, NOW), "IrohConflictError");
+    // A consumed challenge is deleted with its registration, so a replay of
+    // the same signed request reads as an unknown challenge.
+    await expectEffectFailure(replay.broker.register(USER_A, request, NOW), "IrohNotFoundError");
   });
 
   test("re-keys the slot onto a fresh binding id when the endpoint rotates", async () => {
@@ -2004,7 +2009,7 @@ class MemoryRepository implements IrohRepositoryShape {
       existing.platform === input.payload.platform &&
       existing.identityGeneration === input.payload.identityGeneration
     ) {
-      challenge.consumedAt = input.now;
+      this.challenges.splice(this.challenges.indexOf(challenge), 1);
       existing.appInstanceId = input.payload.appInstanceId;
       existing.platform = input.payload.platform;
       existing.identityGeneration = input.payload.identityGeneration;
@@ -2060,7 +2065,7 @@ class MemoryRepository implements IrohRepositoryShape {
       updatedAt: input.now,
       lastSeenAt: input.now,
     });
-    challenge.consumedAt = input.now;
+    this.challenges.splice(this.challenges.indexOf(challenge), 1);
     this.bindings.push(inserted);
     if (!existing) {
       this.lanGenerations.set(

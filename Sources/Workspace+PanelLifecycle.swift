@@ -360,6 +360,14 @@ extension Workspace {
                 processIdentity: agentPIDProcessIdentitiesByKey[key]
             )
         })
+        if remainingAgentRoots.isEmpty, !agentListeningPorts.isEmpty {
+            // No agent is left to own a port, so there is no later scan result
+            // to flicker against: drop the panel-owned ports now instead of
+            // waiting for the scanner's asynchronous empty publication, which
+            // is what pane close and detach promise (#3744).
+            agentListeningPorts.removeAll()
+            recomputeListeningPorts()
+        }
         PortScanner.shared.refreshAgentPorts(workspaceId: id, agentRoots: remainingAgentRoots)
     }
 

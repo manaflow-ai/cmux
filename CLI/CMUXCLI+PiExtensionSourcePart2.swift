@@ -20,15 +20,13 @@ async function sendHook(
     event: eventName(subcommand),
     ...extra,
   };
-  const result = runCmux(["hooks", "enqueue", "pi", subcommand], cwd, JSON.stringify(payload));
-  if (!result.ok) {
-    warn(context, "cmux hook command failed", {
-      subcommand,
-      status: result.status,
-      stderr_available: result.stderr.trim().length > 0,
-      error_available: result.error !== undefined,
-    });
-  }
+  const result = await dispatcher.run(
+    ["hooks", "pi", subcommand, ...target],
+    cwd,
+    JSON.stringify(payload),
+    context,
+  );
+  if (result.ok) rememberSurfaceTarget(dispatcher, sessionId, result);
   return result.ok;
 }
 
@@ -90,159 +88,26 @@ function parseJSONOutput(result: CommandResult): Record<string, unknown> | null 
   }
 }
 
-function resumeBindingMatches(payload: Record<string, unknown> | null, sessionId: string): boolean {
-  const binding = payload?.resume_binding;
-  if (!binding || typeof binding !== "object") return false;
-  const typed = binding as Record<string, unknown>;
-  return firstString(typed.kind) === "pi" &&
-    firstString(typed.checkpoint_id, typed.checkpointId) === sessionId;
-}
-
-const piOptionsWithValue = new Set([
-  "--model",
-  "-m",
-  "--thinking",
-  "--provider",
-  "--extension",
-  "-e",
-  "--skill",
-  "--mcp-config",
-  "--permission-mode",
-  "--session-dir",
-  "--config",
-  "--profile",
-  "--system-prompt",
-  "--append-system-prompt",
-  "--cwd",
-  "--dir",
-  "--trust",
-  "--sandbox",
-]);
-
-const piOptionsWithoutValue = new Set([
-  "--no-color",
-  "--dangerously-skip-permissions",
-  "--yolo",
-]);
-
-const piSelectorsToDrop = new Set([
-  "--session",
-  "-s",
-  "--resume",
-  "--fork",
-  "--api-key",
-  "--prompt",
-  "--print",
-]);
-
-function sanitizedResumeArgv(sessionId: string): string[] {
-  const raw = normalizedLaunchArgv();
-  const executable = raw[0] || resolveExecutable("pi");
-  const out = [executable, "--session", sessionId];
-  for (let index = 1; index < raw.length; index += 1) {
-    const arg = raw[index];
-    if (!arg) continue;
-    if (piSelectorsToDrop.has(arg)) {
-      if (index + 1 < raw.length && !raw[index + 1].startsWith("-")) index += 1;
-      continue;
-    }
-    if (
-      arg.startsWith("--session=") ||
-      arg.startsWith("--resume=") ||
-      arg.startsWith("--fork=") ||
-      arg.startsWith("--api-key=") ||
-      arg.startsWith("--prompt=")
-    ) {
-      continue;
-    }
-    if (piOptionsWithValue.has(arg)) {
-      out.push(arg);
-      if (index + 1 < raw.length) {
-        out.push(raw[index + 1]);
-        index += 1;
-      }
-      continue;
-    }
-    if ([...piOptionsWithValue].some((option) => arg.startsWith(`${option}=`)) || piOptionsWithoutValue.has(arg)) {
-      out.push(arg);
-    }
-  }
-  return out;
-}
-
-async function ensureResumeBinding(
+async function clearResumeBinding(
   dispatcher: PiCmuxCommandDispatcher,
   context: PiExtensionContextSnapshot,
   sessionId: string,
 ): Promise<void> {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
-  if (!detectedPiVersion()) return;
   const target = surfaceTargetArgs(dispatcher, sessionId);
   if (!target) return;
-
   const cwd = context.cwd;
-  const resumeArgv = sanitizedResumeArgv(sessionId);
-  const set = await dispatcher.run([
+  await dispatcher.run([
     "--json",
     "surface",
     "resume",
-    "set",
+    "clear",
     ...target,
-    "--name",
-    "Pi",
-    "--kind",
-    "pi",
     "--checkpoint-id",
     sessionId,
     "--source",
     "agent-hook",
-    "--cwd",
-    cwd,
-    "--",
-    ...resumeArgv,
   ], cwd, undefined, context);
-  if (!set.ok && !set.surfaceUnavailable) return;
-  if (set.surfaceUnavailable) return;
-
-  const verification = await dispatcher.run(
-    ["--json", "surface", "resume", "get", ...target],
-    cwd,
-    undefined,
-    context,
-  );
-  if (verification.surfaceUnavailable) return;
-  const verified = parseJSONOutput(verification);
-  if (!resumeBindingMatches(verified, sessionId)) {
-    await warn(context, "Pi resume binding did not verify after write", {
-      session_id: sessionId,
-      hook_name: "surface-resume-get",
-      reason: "verification-failure",
-    });
-  }
-}
-
-function sendDirectSessionFinalize(ctx: ExtensionContext, sessionId: string, cwd: string): void {
-  const payload: HookExtra = {
-    session_id: sessionId,
-    cwd,
-    hook_event_name: eventName("session-finalize"),
-    event: eventName("session-finalize"),
-  };
-  try {
-    const child = spawn(cmuxExecutable(), ["hooks", "pi", "session-finalize"], {
-      env: hookEnvironment(cwd, true),
-      stdio: ["pipe", "ignore", "ignore"],
-      detached: true,
-    });
-    child.on("error", () => {
-      warn(ctx, "failed to launch direct Pi finalization fallback", { session_id: sessionId });
-    });
-    child.stdin.on("error", () => {});
-    child.stdin.end(JSON.stringify(payload));
-    child.unref();
-  } catch (_) {
-    warn(ctx, "failed to launch direct Pi finalization fallback", { session_id: sessionId });
-  }
 }
 
 type PiFeedEventName =
@@ -452,8 +317,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
     if (!sessionId) return;
     enqueueLifecycleTask(sessionId, context, async () => {
-      const ok = await sendHook(dispatcher, "session-start", context);
-      if (ok) await ensureResumeBinding(dispatcher, context, sessionId);
+      await sendHook(dispatcher, "session-start", context);
     });
   });
 
@@ -556,9 +420,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
       state.feedDeliveryFailed = false;
       if (!feedDelivered) await warnFeedDeliveryDropped(context, sessionId);
       if (stopPayload) await sendHook(dispatcher, "stop", context, stopPayload);
-      const finalized = await sendHook(dispatcher, "session-finalize", context);
-      if (!finalized) sendDirectSessionFinalize(ctx, sessionId, context.cwd);
-      releaseSessionRuntime(dispatcher, sessionStates, sessionId);
+      try {
+        await clearResumeBinding(dispatcher, context, sessionId);
+      } finally {
+        releaseSessionRuntime(dispatcher, sessionStates, sessionId);
+      }
     });
   });
 }
