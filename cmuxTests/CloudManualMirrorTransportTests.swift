@@ -103,6 +103,39 @@ struct CloudManualMirrorTransportTests {
         #expect(CloudTuiRemoteColors(palette: [:]).isEmpty)
     }
 
+    /// The sidecar is a full sparse replacement: an entry the remote PTY
+    /// reset is absent from the next snapshot, and the pane must send its own
+    /// libghostty the matching reset or the stale remote color outlives it.
+    @Test
+    func sidecarDeltaResetsEntriesTheRemoteDropped() {
+        let first = CloudTuiRemoteColors(
+            foreground: "#eeeeee",
+            background: "#101010",
+            cursor: "#ffee00",
+            palette: [1: "#112233", 15: "#abcdef"]
+        )
+        // fg unchanged, bg reset, cursor changed; 1 changed, 15 reset, 9 added.
+        let second = CloudTuiRemoteColors(
+            foreground: "#eeeeee",
+            cursor: "#00ff00",
+            palette: [1: "#445566", 9: "#777777"]
+        )
+        #expect(
+            String(decoding: second.oscDelta(from: first), as: UTF8.self)
+                == "\u{1B}]111\u{1B}\\\u{1B}]12;rgb:00/ff/00\u{1B}\\"
+                + "\u{1B}]4;1;rgb:44/55/66\u{1B}\\\u{1B}]4;9;rgb:77/77/77\u{1B}\\\u{1B}]104;15\u{1B}\\"
+        )
+        // An empty sidecar after an authored one resets everything it had set.
+        #expect(
+            String(decoding: CloudTuiRemoteColors().oscDelta(from: second), as: UTF8.self)
+                == "\u{1B}]110\u{1B}\\\u{1B}]112\u{1B}\\\u{1B}]104;1\u{1B}\\\u{1B}]104;9\u{1B}\\"
+        )
+        // Nothing changed, nothing sent.
+        #expect(second.oscDelta(from: second).isEmpty)
+        // From nothing, the delta is the plain set.
+        #expect(second.oscDelta(from: CloudTuiRemoteColors()) == second.oscBytes)
+    }
+
     @Test
     func inputAndResizeCommandsTargetTheRemotePtyWithoutRendering() throws {
         let attach = try #require(commands.attach(surfaceID: 17, columns: 120, rows: 40))
