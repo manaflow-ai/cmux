@@ -24,15 +24,13 @@ final class CloudTreeNode: NSObject {
         /// "Terminals" pool under a cloud machine: every terminal the machine owns, one
         /// row per identity, whatever workspaces (zero or more) show it.
         case terminalsPool(machine: SurfaceMachineID, count: Int)
-        /// "VNC Displays" group under a cloud machine: one row per screen it exposes.
+        /// "Displays" group under a cloud machine: one row per VNC screen it exposes.
         case displaysPool(machine: SurfaceMachineID, count: Int)
         /// "Workspaces" group under a machine.
         case workspacesGroup(machine: SurfaceMachineID)
-        /// A cmux-tui workspace on a cloud machine; its children are pointer rows into
-        /// the machine's pools, shaped like the workspace's layout: one row per pane (the
-        /// tab the pane shows) with the pane's other tabs nested beneath that row.
-        /// `terminalCount`: terminal rows the layout shows. `hiddenTabCount`: tabs those
-        /// panes hold behind their shown one (the nested rows).
+        /// A cmux-tui workspace on a cloud machine; its children are flat pointer rows
+        /// into the machine's pools, one row per terminal, browser, or display placement.
+        /// `terminalCount` counts every terminal placement in the workspace.
         /// `openIn`: the local workspace already showing this remote one (its open mark;
         /// clicking jumps there), else nil.
         case workspace(machine: SurfaceMachineID, SurfaceRemoteWorkspace, terminalCount: Int, hiddenTabCount: Int, openIn: UUID?)
@@ -146,7 +144,7 @@ final class CloudTreeNode: NSObject {
         case .pendingMachine(let operation): return operation.request.displayName
         case .localMachine(let row): return row.name
         case .terminalsPool: return String(localized: "cloudTree.group.terminals", defaultValue: "Terminals")
-        case .displaysPool: return String(localized: "cloudTree.group.displays", defaultValue: "VNC Displays")
+        case .displaysPool: return String(localized: "cloudTree.group.displays", defaultValue: "Displays")
         case .workspacesGroup: return String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces")
         case .workspace(_, let workspace, _, _, _): return workspace.name
         case .localWorkspace(let row): return row.title
@@ -256,8 +254,7 @@ struct CloudTreeTerminalRow: Equatable {
     /// The exact daemon tab represented by a workspace pointer row. Pool rows
     /// leave this nil because one terminal may have several placement names.
     var remoteView: SurfaceRemoteView? = nil
-    /// Tabs the same daemon pane holds behind this one. Only a workspace's pane row
-    /// (the tab its pane shows) carries a count; those tabs are its child rows.
+    /// Legacy payload retained for source compatibility; flat projections always set zero.
     var hiddenTabCount: Int = 0
 
     /// A terminal resource has one process title, but each daemon tab can have
@@ -284,7 +281,7 @@ struct CloudTreeBrowserRow: Equatable {
     /// currently have one tab in the public schema, but retaining the same
     /// placement contract as terminals keeps future multi-view browsers safe.
     var remoteView: SurfaceRemoteView? = nil
-    /// Tabs the same daemon pane holds behind this one (see `CloudTreeTerminalRow`).
+    /// Legacy payload retained for source compatibility; flat projections always set zero.
     var hiddenTabCount: Int = 0
 }
 
@@ -298,6 +295,14 @@ struct CloudTreePlaceholder: Equatable {
 
     let text: String
     let style: Style
+    /// Only wake placeholders set this. Empty resource categories remain inert.
+    let opensMachine: Bool
+
+    init(text: String, style: Style, opensMachine: Bool = false) {
+        self.text = text
+        self.style = style
+        self.opensMachine = opensMachine
+    }
 }
 
 /// A local workspace, in sidebar order, for grouping this Mac's terminals.
@@ -309,7 +314,7 @@ struct CloudTreeLocalWorkspace: Equatable {
 
 /// Pure assembly of outline nodes from the fleet rows and the catalog snapshot.
 /// Order: This Mac (local workspaces → terminals; Browsers) first, then every
-/// cloud machine, with Workspaces first, then Ports, VNC Displays, and the
+/// cloud machine, with Workspaces first, then Ports, Displays, and the
 /// complete Terminals process index. Workspace children preserve exact daemon
 /// tab placement identities. A machine without a connected link keeps cached
 /// pool rows beside its status placeholder.
@@ -676,25 +681,6 @@ enum CloudTreeNodeBuilder {
         return "machine:\(resource.machine.rawValue)/ws/\(workspaceID)/resource:\(resource.rawValue)\(tabSuffix)"
     }
 
-    /// A pane row that nests hidden tabs. Identity is the daemon pane, not the
-    /// tab it currently shows, so collapse and selection survive a tab switch.
-    static func nodeID(
-        pane paneID: String,
-        screenID: String?,
-        screenIndex: Int?,
-        inRemoteWorkspace workspaceID: String,
-        machine: SurfaceMachineID
-    ) -> String {
-        let screenPart: String
-        if let screenID, !screenID.isEmpty {
-            screenPart = "/screen:\(screenID)"
-        } else if let screenIndex {
-            screenPart = "/screen-index:\(screenIndex)"
-        } else {
-            screenPart = ""
-        }
-        return "machine:\(machine.rawValue)/ws/\(workspaceID)\(screenPart)/pane:\(paneID)"
-    }
     static func nodeID(browsersGroup machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/browsers" }
     static func nodeID(portsGroup machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/ports" }
     static func nodeID(placeholder machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/placeholder" }
@@ -810,7 +796,7 @@ enum CloudTreeNodeBuilder {
 
         switch info.linkState {
         case .asleep:
-            children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.asleep", defaultValue: "Asleep \u{2014} open to wake"), style: .dimmed))
+            children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.asleep", defaultValue: "Asleep \u{2014} open to wake"), style: .dimmed, opensMachine: true))
         case .connecting:
             children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.connecting", defaultValue: "Connecting\u{2026}"), style: .connecting))
         case .error:
@@ -860,21 +846,25 @@ enum CloudTreeNodeBuilder {
             ))
         }
 
-        // Displays stay reachable while the session link reconnects.
-        if !displays.isEmpty {
+        // Connected machines expose Displays as a machine-level category, just
+        // like Ports and Terminals. The catalog owns real VNC resources; a
+        // connected empty state is explicit, while a down link stays truthful.
+        if info.linkState == .connected || info.linkState == .notApplicable || !displays.isEmpty {
             children.append(CloudTreeNode(
                 id: nodeID(displaysPool: machine),
                 kind: .displaysPool(machine: machine, count: displays.count),
-                children: displays.map {
-                    CloudTreeNode(
-                        id: nodeID(resource: $0.id),
-                        kind: .display(
-                            $0,
-                            openIn: nil,
-                            remoteView: $0.remoteViews?.count == 1 ? $0.remoteViews?.first : nil
+                children: displays.isEmpty
+                    ? [CloudMachineSurfacePresentation.emptyDisplays(info: info)]
+                    : displays.map {
+                        CloudTreeNode(
+                            id: nodeID(resource: $0.id),
+                            kind: .display(
+                                $0,
+                                openIn: nil,
+                                remoteView: $0.remoteViews?.count == 1 ? $0.remoteViews?.first : nil
+                            )
                         )
-                    )
-                }
+                    }
             ))
         }
 
@@ -965,7 +955,7 @@ enum CloudTreeNodeBuilder {
                     machine: machine,
                     workspace,
                     terminalCount: layout.terminalCount,
-                    hiddenTabCount: layout.hiddenTabCount,
+                    hiddenTabCount: 0,
                     openIn: openInLocal
                 ),
                 children: layout.rows,
@@ -994,24 +984,15 @@ enum CloudTreeNodeBuilder {
 
     private struct WorkspaceLayoutRows {
         var rows: [CloudTreeNode] = []
-        /// Every placement in row order: each pane's shown tab, then its hidden tabs,
-        /// then the pane-less rows. The workspace's open/drag group follows this order
-        /// so "Open Workspace" and a row drag lay panes out the way the tree lists them.
+        /// Every placement in row order. The workspace's open/drag group follows this
+        /// order so opening a workspace lays out the same resources the tree lists.
         var placements: [RemoteResourcePlacement] = []
-        /// Terminal rows the layout shows: one per pane whose shown tab is a terminal,
-        /// plus placements that name no pane.
+        /// Every terminal placement represented by a leaf row.
         var terminalCount = 0
-        /// Tabs the panes hold behind their shown one; each is a nested row.
-        var hiddenTabCount = 0
     }
 
-    /// A workspace's rows, shaped like its layout. Every placement that names a daemon
-    /// pane joins that pane; panes come in layout order (the screen's index, then the
-    /// pane's position in the screen's split tree; arrival order when the daemon sent
-    /// no layout document). Each pane is one row, the tab it shows, with the pane's
-    /// other tabs nested beneath it in tab order. Placements without a pane (a provider
-    /// that does not model panes, the machine's pool display) stay flat after the
-    /// panes, in the caller's kind order.
+    /// A workspace's rows, ordered by its layout, with every placement as a leaf.
+    /// Pane membership determines ordering only; it never creates a nested row.
     private static func layoutRows(
         placements: [RemoteResourcePlacement],
         workspace: SurfaceRemoteWorkspace,
@@ -1034,29 +1015,21 @@ enum CloudTreeNodeBuilder {
         })
 
         var result = WorkspaceLayoutRows()
-        func append(_ placement: RemoteResourcePlacement, hiddenTabs: [RemoteResourcePlacement]) {
-            let nested = hiddenTabs.map { tab in
-                placementNode(
-                    tab, workspace: workspace, machine: machine, info: info, snapshot: snapshot,
-                    projectionIndex: projectionIndex, openInLocal: openInLocal, hiddenTabCount: 0, children: [], paneRow: false
-                )
-            }
+        func append(_ placement: RemoteResourcePlacement) {
             result.rows.append(placementNode(
                 placement, workspace: workspace, machine: machine, info: info, snapshot: snapshot,
-                projectionIndex: projectionIndex, openInLocal: openInLocal, hiddenTabCount: hiddenTabs.count, children: nested, paneRow: true
+                projectionIndex: projectionIndex, openInLocal: openInLocal
             ))
             result.placements.append(placement)
-            result.placements.append(contentsOf: hiddenTabs)
             if placement.resource.kind == .terminal { result.terminalCount += 1 }
-            result.hiddenTabCount += hiddenTabs.count
         }
-        for row in layout.rows {
-            append(placements[row.shownIndex], hiddenTabs: row.hiddenIndices.map { placements[$0] })
+        for index in layout.flatPlacementIndices {
+            append(placements[index])
         }
         return result
     }
 
-    /// One pointer row for a placement, of the resource's kind, with its nested tab rows.
+    /// One flat pointer row for a placement, of the resource's kind.
     private static func placementNode(
         _ placement: RemoteResourcePlacement,
         workspace: SurfaceRemoteWorkspace,
@@ -1064,27 +1037,13 @@ enum CloudTreeNodeBuilder {
         info: SurfaceMachineInfo,
         snapshot: SurfaceCatalogSnapshot,
         projectionIndex: LocalProjectionIndex,
-        openInLocal: UUID?,
-        hiddenTabCount: Int,
-        children: [CloudTreeNode],
-        paneRow: Bool
+        openInLocal: UUID?
     ) -> CloudTreeNode {
-        let id: String
-        if paneRow, let paneID = placement.view?.paneID, !paneID.isEmpty {
-            id = nodeID(
-                pane: paneID,
-                screenID: placement.view?.screenID,
-                screenIndex: placement.view?.screenIndex,
-                inRemoteWorkspace: workspace.id,
-                machine: machine
-            )
-        } else {
-            id = nodeID(
-                resource: placement.resource.id,
-                inRemoteWorkspace: workspace.id,
-                remoteTabID: placement.view?.tabID
-            )
-        }
+        let id = nodeID(
+            resource: placement.resource.id,
+            inRemoteWorkspace: workspace.id,
+            remoteTabID: placement.view?.tabID
+        )
         switch placement.resource.kind {
         case .terminal:
             return terminalNode(
@@ -1092,9 +1051,7 @@ enum CloudTreeNodeBuilder {
                 snapshot: snapshot,
                 projectionIndex: projectionIndex,
                 id: id,
-                remoteView: placement.view,
-                hiddenTabCount: hiddenTabCount,
-                children: children
+                remoteView: placement.view
             )
         case .browser:
             if placement.resource.id.isForwardedPort {
@@ -1108,8 +1065,7 @@ enum CloudTreeNodeBuilder {
                             port: placement.resource.id.forwardedPort ?? placement.resource.port
                         ),
                         openIn: openInLocal
-                    ),
-                    children: children
+                    )
                 )
             }
             return CloudTreeNode(
@@ -1118,10 +1074,8 @@ enum CloudTreeNodeBuilder {
                     resource: placement.resource,
                     isOpen: projectionIndex.isOpen(placement.resource.id, remoteView: placement.view),
                     workspaceTitle: nil,
-                    remoteView: placement.view,
-                    hiddenTabCount: hiddenTabCount
-                )),
-                children: children
+                    remoteView: placement.view
+                ))
             )
         case .display:
             return CloudTreeNode(
@@ -1130,8 +1084,7 @@ enum CloudTreeNodeBuilder {
                     placement.resource,
                     openIn: openInLocal,
                     remoteView: placement.view
-                ),
-                children: children
+                )
             )
         }
     }
@@ -1175,8 +1128,7 @@ enum CloudTreeNodeBuilder {
         id: String? = nil,
         viewBadge: Int? = nil,
         remoteView: SurfaceRemoteView? = nil,
-        hiddenTabCount: Int = 0,
-        children: [CloudTreeNode] = []
+        hiddenTabCount: Int = 0
     ) -> CloudTreeNode {
         CloudTreeNode(
             id: id ?? nodeID(resource: resource.id),
@@ -1187,15 +1139,19 @@ enum CloudTreeNodeBuilder {
                 hasUnreadNotification: projectionIndex.hasUnreadNotification(resource.id),
                 remoteView: remoteView,
                 hiddenTabCount: hiddenTabCount
-            )),
-            children: children
+            ))
         )
     }
 
-    private static func placeholder(_ machine: SurfaceMachineID, text: String, style: CloudTreePlaceholder.Style) -> CloudTreeNode {
+    private static func placeholder(
+        _ machine: SurfaceMachineID,
+        text: String,
+        style: CloudTreePlaceholder.Style,
+        opensMachine: Bool = false
+    ) -> CloudTreeNode {
         CloudTreeNode(
             id: nodeID(placeholder: machine),
-            kind: .placeholder(machine: machine, CloudTreePlaceholder(text: text, style: style))
+            kind: .placeholder(machine: machine, CloudTreePlaceholder(text: text, style: style, opensMachine: opensMachine))
         )
     }
 

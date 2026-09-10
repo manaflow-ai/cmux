@@ -22,12 +22,21 @@
 // The devbox freestyle bake targets the public platform (see
 // build-devbox-freestyle.ts), the same platform the shipped driver speaks.
 import { Freestyle } from "freestyle";
+import { agentLaunchCheck } from "./devbox-agent-launch";
 import { DEFAULT_VM_EDGE_ALIAS_DOMAIN } from "../services/coderouter/vmGuestEnv";
 import path from "node:path";
 import {
+  CMUX_TUI_LAYOUT_MARKER_PATH,
   CMUX_TUI_SESSION,
+  cmuxTuiLayoutSelector,
+  cmuxTuiRunCommand,
   resolveCmuxTuiSource,
 } from "../services/vms/drivers/cmuxTuiDaemon";
+import {
+  DEVBOX_WORK_HOME,
+  DEVBOX_WORK_UID,
+  DEVBOX_WORK_USER,
+} from "../services/vms/images/workUser";
 import {
   DEVBOX_DESKTOP_INSTALLS,
   DEVBOX_INSTANCE_ID_COMMAND,
@@ -36,6 +45,7 @@ import {
   devboxGhosttyVersion,
   devboxIdentityCheckCommand,
   devboxTerminfoCheckCommand,
+  devboxWaitForDaemonCommand,
   cmuxTuiWebsocketSmokeCommand,
   sha256File,
 } from "./devbox-image-common";
@@ -82,6 +92,9 @@ const CHECKS: readonly string[] = [
   "grep -q AGENT_BROWSER_EXECUTABLE_PATH /etc/profile.d/cmux-media.sh && echo media-profile-ok",
   "cua-driver --version",
   "ffmpeg -version | head -1 && command -v Xvfb && command -v xdpyinfo && command -v xdotool",
+  // codex's Linux sandbox prerequisite: without the distro bwrap, codex warns
+  // on every launch that it is falling back to its bundled copy.
+  "bwrap --version && echo bubblewrap-ok",
   // Baked files are byte-identical to this checkout.
   ...FILE_PIN_CHECKS,
   // Devshell: ble.sh installed, bashrc chained, tmux pinned to bash, seed
@@ -115,15 +128,20 @@ const CHECKS: readonly string[] = [
 const INSTANCE_ID = DEVBOX_INSTANCE_ID_COMMAND;
 // cmux-remote keys per-session state by the base64url session name under its
 // default root state dir; the Noise static identity lives in auth/.
-const REMOTE_IDENTITY = `/root/.local/state/cmux/remote/sessions/${Buffer.from(CMUX_TUI_SESSION).toString("base64url")}/auth/identity.json`;
+const REMOTE_IDENTITY = `${DEVBOX_WORK_HOME}/.local/state/cmux/remote/sessions/${Buffer.from(CMUX_TUI_SESSION).toString("base64url")}/auth/identity.json`;
 // cmux-tui's own per-machine secrets, regenerated on first start after the bake wiped them.
-const MACHINE_SECRETS = "/root/.local/state/cmux-tui/sessions/machine-id /root/.local/state/cmux-tui/sessions/resource-effect-pepper";
+const MACHINE_SECRETS = `${DEVBOX_WORK_HOME}/.local/state/cmux-tui/sessions/machine-id ${DEVBOX_WORK_HOME}/.local/state/cmux-tui/sessions/resource-effect-pepper`;
 const DAEMON_CHECKS: readonly string[] = [
   // [s]tart: the pattern must not match the exec shell carrying this very command line.
   "pgrep -f 'cmux-tui server [s]tart' >/dev/null && echo daemon-running",
-  `env HOME=/root /root/.cmux/bin/cmux-tui server status --session ${CMUX_TUI_SESSION} >/dev/null && echo daemon-status-ok`,
+  `${cmuxTuiRunCommand(`server status --session ${CMUX_TUI_SESSION}`)} >/dev/null && echo daemon-status-ok`,
   "awk '$2 ~ /:0539$/ && $4 == \"0A\" { found=1 } END { exit !found }' /proc/net/tcp /proc/net/tcp6 && echo daemon-port-1337-ok",
-  "test \"$(readlink /usr/local/bin/cmux-tui)\" = /root/.cmux/bin/cmux-tui && echo cmux-tui-symlink-ok",
+  `test "$(readlink /usr/local/bin/cmux-tui)" = ${DEVBOX_WORK_HOME}/.cmux/bin/cmux-tui && echo cmux-tui-symlink-ok`,
+  // Sessions are the work user's, not root's: the daemon took the user layout,
+  // the process really runs as that account, and a pane it opens is a non-root
+  // shell in that home on a machine named cmux.
+  `[ "$(cat ${CMUX_TUI_LAYOUT_MARKER_PATH})" = user ] && echo daemon-layout-user`,
+  `[ "$(ps -o user= -C cmux-tui | tr -d ' ' | sort -u)" = ${DEVBOX_WORK_USER} ] && echo daemon-runs-as-work-user`,
   `test -s ${REMOTE_IDENTITY} && echo daemon-identity-present`,
   `test "$(cat /etc/cmux/daemon-instance-id)" = "$(${INSTANCE_ID})" && echo daemon-identity-bound-to-this-instance`,
   `test -s /etc/cmux/bake-instance-id && test "$(cat /etc/cmux/bake-instance-id)" != "$(${INSTANCE_ID})" && echo builder-instance-differs`,
@@ -164,6 +182,7 @@ const desktopChecks = (): readonly string[] => [
   `awk '$2 ~ /:${hexPort(DEVBOX_DESKTOP_RFB_PORT)}$/ && $4 == "0A" && $2 !~ /^0100007F:/ && $2 !~ /^00000000000000000000000001000000:/ { bad=1 } END { exit bad }' /proc/net/tcp /proc/net/tcp6 && echo vnc-5901-loopback-only`,
   `awk '$2 ~ /:${hexPort(DEVBOX_DESKTOP_NOVNC_PORT)}$/ && $4 == "0A" { found=1 } END { exit !found }' /proc/net/tcp /proc/net/tcp6 && echo novnc-6901-listening`,
   `curl -fsS http://127.0.0.1:${DEVBOX_DESKTOP_NOVNC_PORT}/ | grep -qi novnc && echo novnc-6901-serves-client`,
+  `curl --noproxy '*' -g -fsS http://[::1]:${DEVBOX_DESKTOP_NOVNC_PORT}/ | grep -qi novnc && echo novnc-6901-serves-ipv6-client`,
   // start-vnc.sh runs whichever of Xvnc/Xtigervnc is on PATH; the process
   // name follows the invoked path (Ubuntu's Xvnc is a symlink to Xtigervnc).
   `pgrep -u ${DEVBOX_DESKTOP_USER} -x 'Xvnc|Xtigervnc' >/dev/null && pgrep -u ${DEVBOX_DESKTOP_USER} -x openbox >/dev/null && pgrep -u ${DEVBOX_DESKTOP_USER} -x tint2 >/dev/null && echo desktop-session-ok`,
@@ -178,7 +197,7 @@ const desktopChecks = (): readonly string[] => [
   `env DISPLAY=${DEVBOX_DESKTOP_DISPLAY} xprop -root _XROOTPMAP_ID | grep -q 0x && echo wallpaper-on-root-window`,
   `grep -q "^export DISPLAY='${DEVBOX_DESKTOP_DISPLAY}'$" ${DEVBOX_DESKTOP_ENV_FILE} && grep -q '^export AT_SPI_BUS_ADDRESS=' ${DEVBOX_DESKTOP_ENV_FILE} && grep -q '^export AT_SPI_BUS=' ${DEVBOX_DESKTOP_ENV_FILE} && echo session-env-published`,
   `[ "$(${rootLogin('echo "$DISPLAY"')})" = "${DEVBOX_DESKTOP_DISPLAY}" ] && [ -z "$(${rootLogin('echo "$DBUS_SESSION_BUS_ADDRESS"')})" ] && echo root-login-display-ok`,
-  `[ "$(${loginAs(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, 'echo "$DISPLAY"')})" = "${DEVBOX_DESKTOP_DISPLAY}" ] && ${loginAs(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, 'test -n "$DBUS_SESSION_BUS_ADDRESS" && test -n "$AT_SPI_BUS_ADDRESS"')} && echo ubuntu-login-display-ok`,
+  `[ "$(${loginAs(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, 'echo "$DISPLAY"')})" = "${DEVBOX_DESKTOP_DISPLAY}" ] && ${loginAs(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, 'test -n "$DBUS_SESSION_BUS_ADDRESS" && test -n "$AT_SPI_BUS_ADDRESS"')} && echo work-user-login-display-ok`,
   // The accessibility bus itself answers a client (the registry activates on demand).
   `${loginAs(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, 'gdbus introspect --session --dest org.a11y.Bus --object-path /org/a11y/bus >/dev/null && gdbus call --address "$AT_SPI_BUS_ADDRESS" --dest org.a11y.atspi.Registry --object-path /org/a11y/atspi/accessible/root --method org.a11y.atspi.Accessible.GetChildren >/dev/null')} && echo accessibility-bus-answers`,
   `${loginAs(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, "cua-driver doctor")} 2>&1 | tee /tmp/cua-doctor.txt | grep -q 'X11 connection: connected' && grep -q 'AT-SPI: bus address present' /tmp/cua-doctor.txt && ! grep -q 'accessibility bus not reachable' /tmp/cua-doctor.txt && rm -f /tmp/cua-doctor.txt && echo cua-driver-sees-desktop`,
@@ -189,49 +208,83 @@ const desktopChecks = (): readonly string[] => [
   ...desktopFilePinChecks(),
 ];
 
-// Freestyle: the work user is the base's `ubuntu` (uid 1000, passwordless
-// sudo, the API's default exec user and the SSH default), the toolchain is
-// the base's (Node under nvm symlinked into /usr/local/bin, Bun, Python, uv,
-// Docker) with the pinned agents installed on top, and the pins must win in
-// every shell family: a clean login shell (no PATH help from this verifier)
-// and a daemon pane (non-login, the unit's PATH).
+// These probes watch real PTY output with a deadline and cancellation cleanup.
+// The work-user Claude flow is also covered by FREESTYLE_BASE_CHECKS below.
+const CLAUDE_LAUNCH_MARKER = "bypass permissions on";
+const CLAUDE_GATE_TEXTS = "Do you trust|Detected a custom API key|text style that looks best|Yes, I accept|cannot be used with root|Select login method";
+const CODEX_LAUNCH_MARKER = "Ask Codex to do anything";
+const CODEX_GATE_TEXTS = "Do you trust|new version|bubblewrap|sandbox prerequisites|Sign in with ChatGPT";
+const AGENT_LAUNCH_CHECKS: readonly string[] = [
+  agentLaunchCheck("root", "/root", "claude-root-launch", "claude --dangerously-skip-permissions", CLAUDE_LAUNCH_MARKER, CLAUDE_GATE_TEXTS),
+  agentLaunchCheck("root", "/root", "codex-root-launch", "codex", CODEX_LAUNCH_MARKER, CODEX_GATE_TEXTS),
+  agentLaunchCheck(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, "codex-work-user-launch", "codex", CODEX_LAUNCH_MARKER, CODEX_GATE_TEXTS),
+  // Nothing a launch wrote in the work user's home may be root-owned (the
+  // root probes ran with HOME=/root, never the work user's home).
+  `[ "$(find ${DEVBOX_DESKTOP_HOME} -not -user ${DEVBOX_DESKTOP_USER} | wc -l)" = 0 ] && echo home-still-owned-by-${DEVBOX_DESKTOP_USER}`,
+];
+
+// Freestyle: the work user is the base's uid-1000 account renamed to `cmux`
+// (passwordless sudo, the API's default exec user and the SSH default), the
+// machine is named `cmux`, the toolchain is the base's (Node under nvm
+// symlinked into /usr/local/bin, Bun, Python, uv, Docker) with the pinned
+// agents installed on top, and the pins must win in every shell family: a
+// clean login shell (no PATH help from this verifier) and a daemon pane
+// (non-login, the unit's PATH).
 const FREESTYLE_BASE_CHECKS: readonly string[] = [
-  "[ \"$(id -u ubuntu)\" = 1000 ] && sudo -n -u ubuntu sudo -n true && echo ubuntu-user-sudo-ok",
-  "sudo -n -u ubuntu bash -ic 'head -1 ~/.bash_history' | grep -q claude && echo ubuntu-user-shell-ok",
+  // One work user, and no trace of the account it was renamed from: a leftover
+  // `ubuntu` would take uid 1000 back from the provider's exec default.
+  `[ "$(getent passwd ${DEVBOX_WORK_UID} | cut -d: -f1)" = ${DEVBOX_WORK_USER} ] && ! id -u ubuntu >/dev/null 2>&1 && test ! -e /home/ubuntu && echo one-work-user`,
+  `[ "$(hostname)" = ${DEVBOX_HOSTNAME} ] && [ "$(cat /etc/hostname)" = ${DEVBOX_HOSTNAME} ] && grep -q '^127\\.0\\.1\\.1[[:space:]]\\+${DEVBOX_HOSTNAME}$' /etc/hosts && echo hostname-ok`,
+  // The prompt a person reads on every line: \u@\h under a real login shell.
+  `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L prompt new-session -d -s p -x 120 -y 30 && sleep 3 && pane="$(tmux -L prompt capture-pane -pt p)"; tmux -L prompt kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -q "${DEVBOX_WORK_USER}@${DEVBOX_HOSTNAME}"' && echo prompt-says-cmux-at-cmux`,
+  // The reason none of this is cosmetic, and the exact thing a person does on
+  // a new machine: type the seeded command into a pane and get a prompt.
+  // `claude --dangerously-skip-permissions --version` is NOT this check —
+  // it exits 0 even as root. Only the interactive path refuses root, and only
+  // the interactive path shows the five first-run dialogs, so the probe is a
+  // real PTY with an interactive shell (what the daemon spawns), types the
+  // command, and reads the screen.
+  `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L claude new-session -d -s c -x 110 -y 34 && sleep 1 && tmux -L claude send-keys -t c "claude --dangerously-skip-permissions" Enter; pane=""; for i in $(seq 1 120); do pane="$(tmux -L claude capture-pane -pt c)"; printf "%s\\n" "$pane" | grep -qE "bypass permissions on|root/sudo|Lets get started|Select login method|use this API key|trust this folder|Do you want to proceed" && break; sleep 0.5; done; tmux -L claude kill-server 2>/dev/null; printf "%s\\n" "$pane"; printf "%s\\n" "$pane" | grep -qiE "root/sudo|Lets get started|Select login method|use this API key|trust this folder|Do you want to proceed" && exit 1; printf "%s\\n" "$pane" | grep -q "bypass permissions on"' && echo claude-reaches-the-prompt`,
+  `[ "$(id -u ${DEVBOX_WORK_USER})" = 1000 ] && sudo -n -u ${DEVBOX_WORK_USER} sudo -n true && echo work-user-sudo-ok`,
+  `sudo -n -u ${DEVBOX_WORK_USER} bash -ic 'head -1 ~/.bash_history' | grep -q claude && echo work-user-shell-ok`,
   "test ! -e /opt/mise && test ! -e /usr/local/bin/mise && readlink /usr/local/bin/node | grep -q /usr/local/nvm/ && echo base-toolchain-in-use",
   "for b in node claude codex opencode pi agent-browser bun; do test -L /usr/local/bin/$b || exit 1; done && echo agent-symlinks-ok",
-  ...pins.map((pin) => `env -i HOME=/home/ubuntu TERM=xterm sudo -n -u ubuntu bash -lc '${pin.binary} --version' | grep -F '${pin.version}' >/dev/null && echo ${pin.binary}-login-pin-ok`),
-  // Non-login probe, as the work user: probing as root with HOME=/home/ubuntu
-  // would itself leave root-owned state dirs behind.
-  ...pins.map((pin) => `sudo -n -u ubuntu env -i HOME=/home/ubuntu USER=ubuntu TERM=xterm PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin ${pin.binary} --version | grep -F '${pin.version}' >/dev/null && echo ${pin.binary}-nonlogin-pin-ok`),
+  ...pins.map((pin) => `env -i HOME=${DEVBOX_WORK_HOME} TERM=xterm sudo -n -u ${DEVBOX_WORK_USER} bash -lc '${pin.binary} --version' | grep -F '${pin.version}' >/dev/null && echo ${pin.binary}-login-pin-ok`),
+  // Non-login probe, as the work user: probing as root with the work user's
+  // HOME would itself leave root-owned state dirs behind.
+  ...pins.map((pin) => `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin ${pin.binary} --version | grep -F '${pin.version}' >/dev/null && echo ${pin.binary}-nonlogin-pin-ok`),
   "systemctl show cmux-tui-daemon -p Environment | grep -q 'PATH=/usr/local/sbin:/usr/local/bin:' && echo daemon-env-path-ok",
   // Every pane inherits the daemon's terminal identity (cmux-devbox-boot):
   // TERM_PROGRAM=ghostty and the baked Ghostty version.
   `pid=$(pgrep -f 'cmux-tui server [s]tart' | head -1) && tr '\\0' '\\n' < /proc/$pid/environ > /tmp/daemon-env && grep -qx TERM=xterm-256color /tmp/daemon-env && grep -qx TERM_PROGRAM=ghostty /tmp/daemon-env && grep -qx "TERM_PROGRAM_VERSION=${devboxGhosttyVersion()}" /tmp/daemon-env && test "$(cat /etc/cmux/ghostty-version)" = ${devboxGhosttyVersion()} && rm -f /tmp/daemon-env && echo daemon-terminal-identity-ok`,
   devboxTerminfoCheckCommand,
-  "sudo -n -u ubuntu env -i HOME=/home/ubuntu TERM=xterm-256color PATH=/usr/bin:/bin sh -c 'tput setaf 8 | od -An -tx1 | tr -d \" \\n\"' | grep -qx 1b5b33383b353b386d && echo ubuntu-terminfo-ok",
+  `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} TERM=xterm-256color PATH=/usr/bin:/bin sh -c 'tput setaf 8 | od -An -tx1 | tr -d " \\n"' | grep -qx 1b5b33383b353b386d && echo work-user-terminfo-ok`,
   "grep -qx 'unset TERMINFO' /etc/profile.d/cmux-terminfo.sh && grep -qx 'export TERMINFO_DIRS=/etc/terminfo:' /etc/profile.d/cmux-terminfo.sh && echo terminfo-search-path-ok",
-  "shadow=$(mktemp -d) && mkdir -p \"$shadow/.terminfo\" && tic -x -o \"$shadow/.terminfo\" /etc/cmux/terminfo.src && sudo -n -u ubuntu env -i HOME=\"$shadow\" USER=ubuntu TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -lc 'test -z \"$TERMINFO\" && test \"$TERMINFO_DIRS\" = /etc/terminfo: && test \"$(tput setaf 8 | od -An -tx1 | tr -d \" \\n\")\" = 1b5b33383b353b386d && infocmp -x xterm-256color | head -1 | grep -q /etc/terminfo/ && tput -T screen-256color colors | grep -qx 256' && rm -rf \"$shadow\" && echo terminfo-shadow-resistant",
-  "docker --version && sudo -n -u ubuntu docker ps >/dev/null && echo docker-ok",
+  `shadow=$(mktemp -d) && mkdir -p "$shadow/.terminfo" && tic -x -o "$shadow/.terminfo" /etc/cmux/terminfo.src && sudo -n -u ${DEVBOX_WORK_USER} env -i HOME="$shadow" USER=${DEVBOX_WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -lc 'test -z "$TERMINFO" && test "$TERMINFO_DIRS" = /etc/terminfo: && test "$(tput setaf 8 | od -An -tx1 | tr -d " \\n")" = 1b5b33383b353b386d && infocmp -x xterm-256color | head -1 | grep -q /etc/terminfo/ && tput -T screen-256color colors | grep -qx 256' && rm -rf "$shadow" && echo terminfo-shadow-resistant`,
+  `docker --version && sudo -n -u ${DEVBOX_WORK_USER} docker ps >/dev/null && echo docker-ok`,
   // Home hygiene: nothing root-owned in the work user's home, ble.sh's
   // fallback state dir writable, the legal-notice marker present, and two
   // real interactive logins as the work user print nothing from ble.sh or
   // the shell (a `bash -c` probe would not load ble.sh at all).
-  "[ \"$(find /home/ubuntu -not -user ubuntu | wc -l)\" = 0 ] && echo home-owned-by-ubuntu",
+  `[ "$(find ${DEVBOX_WORK_HOME} -not -user ${DEVBOX_WORK_USER} | wc -l)" = 0 ] && echo home-owned-by-work-user`,
+  // Not cosmetic: cmux-tui refuses to store its Noise identity under a group-
+  // or other-writable ancestor, and the daemon's state dir lives in this home.
+  // Ubuntu's user-private-group umask (002) is what puts it there.
+  `[ "$(find ${DEVBOX_WORK_HOME} -type d \\( -perm -g+w -o -perm -o+w \\) | wc -l)" = 0 ] && [ "$(sudo -n -u ${DEVBOX_WORK_USER} sh -c umask)" = 0022 ] && echo home-perms-ok`,
   "[ \"$(stat -c %a /usr/local/share/blesh/state.d)\" = 1777 ] && [ \"$(stat -c %a /usr/local/share/blesh/cache.d)\" = 1777 ] && echo blesh-dirs-ok",
-  "test -f /home/ubuntu/.cache/motd.legal-displayed && test -f /root/.cache/motd.legal-displayed && test -f /etc/skel/.cache/motd.legal-displayed && echo legal-notice-silenced",
+  `test -f ${DEVBOX_WORK_HOME}/.cache/motd.legal-displayed && test -f /root/.cache/motd.legal-displayed && test -f /etc/skel/.cache/motd.legal-displayed && echo legal-notice-silenced`,
   ...[1, 2].map((run) =>
-    `sudo -n -u ubuntu env -i HOME=/home/ubuntu USER=ubuntu TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L vprobe${run} new-session -d -s login -x 120 -y 30 && sleep 3 && pane="$(tmux -L vprobe${run} capture-pane -pt login)"; tmux -L vprobe${run} kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -iE "ble\\.sh|bleopt|ble-face|denied|not found|WARRANTY${run > 1 ? "|updating tput" : ""}" && { printf "%s\\n" "$pane"; exit 1; }; printf "%s\\n" "$pane" | grep -q "λ" && echo ubuntu-login-silent-${run}'`,
+    `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L vprobe${run} new-session -d -s login -x 120 -y 30 && sleep 3 && pane="$(tmux -L vprobe${run} capture-pane -pt login)"; tmux -L vprobe${run} kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -iE "ble\\.sh|bleopt|ble-face|denied|not found|WARRANTY${run > 1 ? "|updating tput" : ""}" && { printf "%s\\n" "$pane"; exit 1; }; printf "%s\\n" "$pane" | grep -q "λ" && echo work-user-login-silent-${run}'`,
   ),
   // The devshell chain lives in the per-user rc files (after Ubuntu's own
   // PS1), never in /etc/bash.bashrc, so it loads once and the cmux prompt wins.
-  "grep -q '/etc/cmux/bashrc' /home/ubuntu/.bashrc && grep -q '/etc/cmux/bashrc' /etc/skel/.bashrc && ! grep -q '/etc/cmux/bashrc' /etc/bash.bashrc && echo devshell-sourced-once",
+  `grep -q '/etc/cmux/bashrc' ${DEVBOX_WORK_HOME}/.bashrc && grep -q '/etc/cmux/bashrc' /etc/skel/.bashrc && ! grep -q '/etc/cmux/bashrc' /etc/bash.bashrc && echo devshell-sourced-once`,
   // The login banner is cmux's and offline.
   "run-parts /etc/update-motd.d | grep -q 'persistent cloud VM' && ! run-parts /etc/update-motd.d | grep -qi 'ubuntu.com' && test ! -s /etc/motd && echo motd-ok",
   // ble.sh tput-cache seeds are readable by the work user and land in its
   // XDG cache verbatim on first shell, so no login prints the tput notice.
   "[ \"$(find /etc/cmux/blesh-cache-seed -not -perm -o+r | wc -l)\" = 0 ] && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-ghostty && echo blesh-seeds-readable",
-  "sudo -n -u ubuntu env -i HOME=/home/ubuntu USER=ubuntu TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'rm -rf ~/.cache/blesh; tmux -L seed new-session -d -s s -x 100 -y 24 \"env TERM=xterm-256color bash -i\" && sleep 3; tmux -L seed kill-server 2>/dev/null; cmp ~/.cache/blesh/*/term.xterm-256color /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color' && echo blesh-cache-seeded",
+  `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'rm -rf ~/.cache/blesh; tmux -L seed new-session -d -s s -x 100 -y 24 "env TERM=xterm-256color bash -i" && sleep 3; tmux -L seed kill-server 2>/dev/null; cmp ~/.cache/blesh/*/term.xterm-256color /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color' && echo blesh-cache-seeded`,
   `echo '${shaOf("cmux-motd")}  /etc/update-motd.d/00-cmux' | sha256sum -c -`,
   "cat /etc/cmux/tool-versions",
   "cat /etc/cmux/image-stamp",
@@ -277,7 +330,7 @@ async function runChecks(label: string, checks: readonly string[], exec: Exec): 
 async function waitForBakedDaemon(provider: string, exec: Exec): Promise<number> {
   const t0 = Date.now();
   for (let attempt = 0; attempt < 45; attempt += 1) {
-    const status = await exec(`env HOME=/root /root/.cmux/bin/cmux-tui server status --session ${CMUX_TUI_SESSION}`, 30_000);
+    const status = await exec(cmuxTuiRunCommand(`server status --session ${CMUX_TUI_SESSION}`), 30_000);
     if (status.exitCode === 0) return Date.now() - t0;
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
@@ -332,7 +385,8 @@ if (provider === "freestyle") {
     const exec = execFor(vm);
     const daemonMs = await waitForBakedDaemon("freestyle", exec);
     console.log(`baked daemon answered ${daemonMs} ms after the first probe (${Date.now() - t0} ms after create)`);
-    await new Promise((resolve) => setTimeout(resolve, 30_000));
+    const settled = await exec(devboxWaitForDaemonCommand(), 200_000);
+    if (settled.exitCode !== 0) throw new Error(`baked daemon never reached its listener: ${settled.output.slice(-500)}`);
     // The baked binary must be the pin the bake resolved and recorded in
     // /etc/cmux/cmux-tui-pin (that is the image's contract; the manifest entry
     // carries the same commit). The live files.cmux.com pin moves with every
@@ -343,7 +397,7 @@ if (provider === "freestyle") {
     if (bakedPin.exitCode !== 0 || !/^[0-9a-f]{64}$/.test(bakedSha ?? "")) {
       throw new Error(`image carries no readable /etc/cmux/cmux-tui-pin: ${bakedPin.output.slice(-300)}`);
     }
-    const pin = await exec(`printf '%s  %s\\n' ${bakedSha} /root/.cmux/bin/cmux-tui | sha256sum -c >/dev/null 2>&1 && echo baked-pin-ok`, 30_000);
+    const pin = await exec(`printf '%s  %s\\n' ${bakedSha} ${DEVBOX_WORK_HOME}/.cmux/bin/cmux-tui | sha256sum -c >/dev/null 2>&1 && echo baked-pin-ok`, 30_000);
     if (pin.exitCode !== 0) {
       throw new Error(`baked cmux-tui does not match the pin recorded at bake time: ${pin.output.slice(-500)}`);
     }
@@ -359,7 +413,8 @@ if (provider === "freestyle") {
     try {
       const exec2 = execFor(second.vm);
       await waitForBakedDaemon("freestyle", exec2);
-      await new Promise((resolve) => setTimeout(resolve, 30_000));
+      const settled2 = await exec2(devboxWaitForDaemonCommand(), 200_000);
+      if (settled2.exitCode !== 0) throw new Error(`second machine's daemon never reached its listener: ${settled2.output.slice(-500)}`);
       const digest = `cat ${REMOTE_IDENTITY} ${MACHINE_SECRETS} | sha256sum | cut -c1-64`;
       const [a, b] = await Promise.all([exec(digest, 30_000), exec2(digest, 30_000)]);
       const digestA = a.output.trim();
@@ -401,6 +456,7 @@ if (provider === "freestyle") {
       ...CHECKS,
       ...DAEMON_CHECKS,
       ...FREESTYLE_BASE_CHECKS,
+      ...AGENT_LAUNCH_CHECKS,
       ...IDENTITY_CHECKS,
       ...(desktop
         ? desktopChecks()

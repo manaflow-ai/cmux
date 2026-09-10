@@ -2,6 +2,32 @@ import Foundation
 
 /// Pure catalog identity resolution shared by the CLI and its behavior tests.
 struct VMRemoteWorkspaceResolver: Sendable {
+    /// A machine open reattaches its active workspace's terminal. Only an
+    /// authoritative empty graph permits creation; a missing or ambiguous graph
+    /// must not turn a reconnect into another workspace or terminal.
+    func resolveVMMachineTerminal(machine: String, catalog: [String: Any]) -> VMMachineTerminalResolution {
+        guard let machinePayload = vmMachinePayload(machine, from: catalog),
+              let workspaces = machinePayload["remote_workspaces"] as? [[String: Any]],
+              let resources = catalog["resources"] as? [[String: Any]],
+              machinePayload["link_state"] as? String == "connected" else { return .unavailable }
+        guard !workspaces.isEmpty else { return .empty(workspaceID: nil) }
+        let focused = workspaces.filter { ($0["focused"] as? Bool) == true }
+        guard focused.count <= 1 else { return .unavailable }
+        // A single workspace is unambiguous without a focus marker. Several
+        // unfocused workspaces have no authoritative active target, so fail
+        // closed instead of selecting by wire-array order.
+        guard let workspace = focused.first ?? (workspaces.count == 1 ? workspaces[0] : nil),
+              let workspaceID = workspace["id"] as? String, !workspaceID.isEmpty else { return .unavailable }
+        switch resolveVMRemoteWorkspaceTerminal(resources, machine: machine, workspaceID: workspaceID) {
+        case .resolved(let terminalID, let tabID):
+            return .resolved(workspaceID: workspaceID, terminalID: terminalID, tabID: tabID)
+        case .none:
+            return .empty(workspaceID: workspaceID)
+        case .ambiguous, .unavailable:
+            return .unavailable
+        }
+    }
+
     /// Resolution of a remote workspace selector. Workspace ids are identities;
     /// names are mutable labels and are accepted only when they identify one row.
     /// Keeping this result explicit prevents a missing or ambiguous catalog from
@@ -92,7 +118,12 @@ struct VMRemoteWorkspaceResolver: Sendable {
         workspaceID: String
     ) -> VMRemoteWorkspaceTerminalResolution {
         let liveTerminals = resources.filter { resource in
-            (resource["kind"] as? String) == "terminal" && (resource["lifecycle"] as? String) != "exited"
+            guard (resource["kind"] as? String) == "terminal",
+                  (resource["lifecycle"] as? String) != "exited" else { return false }
+            if let resourceMachine = resource["machine"] as? String {
+                return resourceMachine == machine
+            }
+            return (resource["id"] as? String)?.hasPrefix("\(machine)/terminal/") == true
         }
         var candidates: [(terminalID: String, tabID: String?, focused: Bool, sortID: String)] = []
         var ambiguousSelectors: [String] = []

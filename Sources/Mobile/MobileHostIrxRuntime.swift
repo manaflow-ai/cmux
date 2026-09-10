@@ -32,6 +32,31 @@ final class MobileHostIrxRuntime {
         return true
     }
 
+    /// Longest wait between two activation attempts on the doubling ladder.
+    nonisolated static let maximumActivationRetryDelay: TimeInterval = 5 * 60
+
+    /// Delay before the next activation attempt after `error`.
+    ///
+    /// The ladder starts at 5 s and doubles per consecutive failure up to
+    /// `maximumActivationRetryDelay`. A broker `Retry-After` is a floor that
+    /// wins over the ladder, and `jitterUnitInterval` (0...1) adds up to a
+    /// quarter of the resulting delay so a fleet told to wait the same window
+    /// does not re-mint in lockstep.
+    nonisolated static func activationRetryDelay(
+        after error: any Error,
+        failureCount: Int,
+        jitterUnitInterval: Double
+    ) -> TimeInterval {
+        let exponent = min(max(failureCount, 0), 16)
+        let ladder = min(5 * pow(2, Double(exponent)), maximumActivationRetryDelay)
+        let serverFloor = TimeInterval(
+            max(0, (error as? any CmxRetryAfterProviding)?.retryAfterSeconds ?? 0)
+        )
+        let base = max(ladder, serverFloor)
+        let jitter = min(max(jitterUnitInterval, 0), 1) * base * 0.25
+        return base + jitter
+    }
+
     nonisolated static var forceRelayOnly: Bool {
         if ProcessInfo.processInfo.environment["CMUX_IRX_FORCE_RELAY"] == "1" {
             UserDefaults.standard.set(true, forKey: forceRelayDefaultsKey)
@@ -145,6 +170,9 @@ final class MobileHostIrxRuntime {
     private var managedNetworkingTask: Task<Void, Never>?
     /// Changes on every (de)activation; per-connection supervisors compare it.
     private var generationToken = UUID()
+    /// Consecutive activation failures since the last successful activation.
+    /// Drives the doubling retry ladder; reset on success and on transition.
+    private var activationFailureCount = 0
 
     /// Coarse lifecycle mirror for the Settings Networking section (see
     /// `MobileHostIrxRuntime+SettingsControl`). `failed` means the last
@@ -238,6 +266,7 @@ final class MobileHostIrxRuntime {
         }
         await deactivate()
         activeAccountID = accountID
+        activationFailureCount = 0
         guard let accountID else { return }
         Self.journal.record("host-runtime", "activating", ["account": accountID])
         setSettingsPhase(.activating)
@@ -546,6 +575,7 @@ final class MobileHostIrxRuntime {
                 ]
             )
             setSettingsPhase(.active)
+            activationFailureCount = 0
         } catch {
             guard !Task.isCancelled, generationToken == token else { return }
             Self.journal.record(
@@ -557,9 +587,27 @@ final class MobileHostIrxRuntime {
                 // flicker in Settings); success or an account change clears it.
                 setSettingsPhase(.failed)
             }
-            // One bounded retry ladder, reset by the auth observation loop on
-            // account change: retry activation after 5s while still desired.
-            try? await Task.sleep(for: .seconds(5))
+            // One bounded retry ladder, reset on success and by the auth
+            // observation loop on account change. The broker's Retry-After
+            // (429 on challenge/register under mint spacing) is a floor, so a
+            // rejected Mac never re-mints inside the window it was told to
+            // wait out; the doubling ladder covers every other failure.
+            let delay = Self.activationRetryDelay(
+                after: error,
+                failureCount: activationFailureCount,
+                jitterUnitInterval: Double.random(in: 0 ... 1)
+            )
+            activationFailureCount = min(activationFailureCount + 1, 20)
+            Self.journal.record(
+                "host-runtime", "activation-retry-scheduled",
+                [
+                    "delay_s": String(Int(delay)),
+                    "server_floor_s": (error as? any CmxRetryAfterProviding)?
+                        .retryAfterSeconds.map(String.init) ?? "-",
+                    "failure_count": String(activationFailureCount),
+                ]
+            )
+            try? await Task.sleep(for: .seconds(delay))
             if !Task.isCancelled, isNetworkingAllowed,
                generationToken == token, activeAccountID == accountID {
                 await activate(accountID: accountID)

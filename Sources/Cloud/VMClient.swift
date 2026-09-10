@@ -314,11 +314,9 @@ struct VMSummary {
     let image: String
     let createdAt: Int64
     let base: VMBaseSummary?
-    /// The backend's `kind` (desktop/base) when it reports one; older control
-    /// planes omit it and ``resolvedKind`` infers it from the image id.
+    /// The backend's `kind` (desktop/base); when omitted, ``resolvedKind`` infers it from the image id.
     var kind: VMMachineKind? = nil
-    /// Verbs the machine's provider can honor (`GET /api/vm` → `capabilities`); an older
-    /// control plane that sends none is treated as supporting everything.
+    /// Verbs the provider can honor (`GET /api/vm` → `capabilities`); none sent means everything.
     var capabilities: VMCapabilities = .all
     /// User-chosen label; the id stays the machine's address.
     var displayName: String?
@@ -361,10 +359,10 @@ struct VMPlanLimits {
     /// The earliest free-access expiry across the caller's machines (epoch ms);
     /// nil when no machine is on a window. Server-authoritative.
     var freeAccessExpiresAt: Int64?
-    /// Memory sizes the server accepts for new base machines, in MB.
+    /// Memory sizes the server accepts for new machines, in MB.
     var memoryOptionsMb: [Int] = []
-    /// Legacy compatibility data for older clients. The current New Machine
-    /// sheet always creates one base kind and does not display this field.
+    /// The kinds the default provider can serve and the image each resolves to;
+    /// informational (`vm.limits` echoes it): one snapshot serves every kind.
     var imageKinds: [VMImageKindOption] = []
 }
 
@@ -1255,14 +1253,10 @@ actor VMClient {
         let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)")
         try ensureOK(http, data: data)
         let obj = try decodeJSONObject(data)
-        guard let id = obj["id"] as? String,
-              let provider = obj["provider"] as? String,
-              let image = obj["image"] as? String
-        else {
+        guard let id = obj["id"] as? String, let provider = obj["provider"] as? String, let image = obj["image"] as? String else {
             throw VMClientError.malformedResponse("Cloud VM status response was missing required fields.")
         }
-        let createdAt = (obj["createdAt"] as? Int64)
-            ?? Int64((obj["createdAt"] as? Double) ?? 0)
+        let createdAt = (obj["createdAt"] as? Int64) ?? Int64((obj["createdAt"] as? Double) ?? 0)
         let rawStatus = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
         var summary = VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
@@ -1272,6 +1266,10 @@ actor VMClient {
             summary.displayName = label
         }
         summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        if let address = obj["address"] as? [String: Any] {
+            summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        }
         return summary
     }
 
@@ -1295,9 +1293,8 @@ actor VMClient {
         let encodedID = try pathSegment(id, fieldName: "vm id")
         let (data, http) = try await request("DELETE", path: "/api/vm/\(encodedID)")
         try ensureOK(http, data: data)
-        // Whether any machine remains is only known after the next list; a
-        // tunnel start meanwhile asks the control plane instead of trusting
-        // a marker that may have just described the deleted machine.
+        // Whether any machine remains is only known after the next list; a tunnel start
+        // meanwhile asks the control plane, not a marker that may describe this machine.
         machineCache.clear()
     }
 
@@ -2458,16 +2455,17 @@ actor MachineUsageClient {
         return nil
     }
 
+    // Date.ISO8601FormatStyle is Sendable, so these can be nonisolated
+    // constants; ISO8601DateFormatter is not and warned here.
+    private nonisolated static let iso8601WithFractions = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+
+    private nonisolated static let iso8601 = Date.ISO8601FormatStyle()
+
     /// `null`/absent is nil; an unparseable string is nil too, since the date
     /// only labels the readout and must never fail the whole payload.
     private nonisolated static func dateValue(_ raw: Any?) -> Date? {
         guard let text = raw as? String, !text.isEmpty else { return nil }
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: text) { return date }
-        let wholeSeconds = ISO8601DateFormatter()
-        wholeSeconds.formatOptions = [.withInternetDateTime]
-        return wholeSeconds.date(from: text)
+        return (try? Date(text, strategy: iso8601WithFractions)) ?? (try? Date(text, strategy: iso8601))
     }
 
     private func request(
