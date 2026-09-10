@@ -362,7 +362,7 @@ struct VMPlanLimits {
     /// Memory sizes the server accepts for new machines, in MB.
     var memoryOptionsMb: [Int] = []
     /// The kinds the default provider can serve and the image each resolves to;
-    /// the New Machine sheet offers them and preselects Desktop when listed.
+    /// informational (`vm.limits` echoes it): one snapshot serves every kind.
     var imageKinds: [VMImageKindOption] = []
 }
 
