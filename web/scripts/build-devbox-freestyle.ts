@@ -108,6 +108,7 @@ import {
   devboxIdentityInstallCommand,
   devboxJournalResetCommand,
   devboxParkDaemonCommand,
+  devboxWaitForDaemonCommand,
   cmuxTuiWebsocketSmokeCommand,
   emitBakeResult,
   hasFlag,
@@ -507,7 +508,8 @@ try {
   );
   // Wait after the daemon first reports ready, then exercise the real
   // WebSocket/Noise/RPC/PTY path before this machine can become a snapshot.
-  await step("cmux-tui-websocket-smoke", `sleep 30 && ${cmuxTuiWebsocketSmokeCommand()}`);
+  await step("cmux-tui-ready", devboxWaitForDaemonCommand());
+  await step("cmux-tui-websocket-smoke", cmuxTuiWebsocketSmokeCommand());
   // Park it (devboxParkDaemonCommand): the supervisor stops the daemon while
   // the machine's id equals the recorded bake id, its identity and session
   // state are wiped, and a clone (different id) starts fresh within one tick.

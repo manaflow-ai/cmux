@@ -16,6 +16,7 @@ import {
   devboxAgentPins,
   devboxCuaDriverVersion,
   devboxGhosttyVersion,
+  devboxWaitForDaemonCommand,
   devboxParkDaemonCommand,
 } from "../scripts/devbox-image-common";
 import { DEVBOX_DESKTOP_USER } from "../services/vms/images/desktop";
@@ -239,6 +240,33 @@ describe("devbox image template", () => {
     expect(verify).toContain("prompt-says-cmux-at-cmux");
     expect(verify).toContain("claude-reaches-the-prompt");
     expect(verify).toContain("daemon-runs-as-work-user");
+  });
+
+  test("the image pipeline waits on readiness signals, never on the clock", () => {
+    // 30 fixed `sleep 30`s were 15 of the ~26 minutes a full two-ladder
+    // refresh took, while the verifier's own log showed the daemon answering
+    // in under a second. Every one of them now waits on the daemon's actual
+    // readiness, bounded so a daemon that never comes up fails instead of
+    // hanging. This is the same rule the repo already applies to runtime code.
+    const wait = devboxWaitForDaemonCommand(120);
+    expect(wait).toContain("server status --session cloud");
+    expect(wait).toContain("grep -qi ':0539 ' /proc/net/tcp6");
+    expect(wait).toContain("test -s /etc/cmux/daemon-instance-id");
+    // Bounded and fails closed.
+    expect(wait).toContain("seq 1 240");
+    expect(wait).toContain("exit 1");
+    for (const name of ["build-devbox-freestyle.ts", "verify-devbox-image.ts", "derive-devbox-sizes.ts"]) {
+      const script = readScript(name);
+      expect({ name, sleeps: /sleep 30\b|setTimeout\(resolve, 30_000\)|sleep\(30_000\)/.test(script) })
+        .toEqual({ name, sleeps: false });
+      expect({ name, waits: script.includes("devboxWaitForDaemonCommand") }).toEqual({ name, waits: true });
+    }
+    // The ladder rows are independent, so they run concurrently, and the full
+    // Noise/RPC/PTY round trip runs once per ladder instead of on all six.
+    const derive = readScript("derive-devbox-sizes.ts");
+    expect(derive).toContain("CMUX_DEVBOX_DERIVE_CONCURRENCY");
+    expect(derive).toContain("async function deriveSize(");
+    expect(derive).toContain("if (name === smokeSize) {");
   });
 
   test("ble.sh integration stays minimal: no token highlighting, ghost text only", () => {

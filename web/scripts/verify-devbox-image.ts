@@ -44,6 +44,7 @@ import {
   devboxGhosttyVersion,
   devboxIdentityCheckCommand,
   devboxTerminfoCheckCommand,
+  devboxWaitForDaemonCommand,
   cmuxTuiWebsocketSmokeCommand,
   sha256File,
 } from "./devbox-image-common";
@@ -223,7 +224,7 @@ const FREESTYLE_BASE_CHECKS: readonly string[] = [
   // the interactive path shows the five first-run dialogs, so the probe is a
   // real PTY with an interactive shell (what the daemon spawns), types the
   // command, and reads the screen.
-  `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L claude new-session -d -s c -x 110 -y 34 && sleep 3 && tmux -L claude send-keys -t c "claude --dangerously-skip-permissions" Enter && sleep 30 && pane="$(tmux -L claude capture-pane -pt c)"; tmux -L claude kill-server 2>/dev/null; printf "%s\\n" "$pane"; printf "%s\\n" "$pane" | grep -qiE "root/sudo|Lets get started|Select login method|use this API key|trust this folder|Do you want to proceed" && exit 1; printf "%s\\n" "$pane" | grep -q "bypass permissions on"' && echo claude-reaches-the-prompt`,
+  `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L claude new-session -d -s c -x 110 -y 34 && sleep 1 && tmux -L claude send-keys -t c "claude --dangerously-skip-permissions" Enter; pane=""; for i in $(seq 1 120); do pane="$(tmux -L claude capture-pane -pt c)"; printf "%s\\n" "$pane" | grep -qE "bypass permissions on|root/sudo|Lets get started|Select login method|use this API key|trust this folder|Do you want to proceed" && break; sleep 0.5; done; tmux -L claude kill-server 2>/dev/null; printf "%s\\n" "$pane"; printf "%s\\n" "$pane" | grep -qiE "root/sudo|Lets get started|Select login method|use this API key|trust this folder|Do you want to proceed" && exit 1; printf "%s\\n" "$pane" | grep -q "bypass permissions on"' && echo claude-reaches-the-prompt`,
   `[ "$(id -u ${DEVBOX_WORK_USER})" = 1000 ] && sudo -n -u ${DEVBOX_WORK_USER} sudo -n true && echo work-user-sudo-ok`,
   `sudo -n -u ${DEVBOX_WORK_USER} bash -ic 'head -1 ~/.bash_history' | grep -q claude && echo work-user-shell-ok`,
   "test ! -e /opt/mise && test ! -e /usr/local/bin/mise && readlink /usr/local/bin/node | grep -q /usr/local/nvm/ && echo base-toolchain-in-use",
@@ -364,7 +365,8 @@ if (provider === "freestyle") {
     const exec = execFor(vm);
     const daemonMs = await waitForBakedDaemon("freestyle", exec);
     console.log(`baked daemon answered ${daemonMs} ms after the first probe (${Date.now() - t0} ms after create)`);
-    await new Promise((resolve) => setTimeout(resolve, 30_000));
+    const settled = await exec(devboxWaitForDaemonCommand(), 200_000);
+    if (settled.exitCode !== 0) throw new Error(`baked daemon never reached its listener: ${settled.output.slice(-500)}`);
     // The baked binary must be the pin the bake resolved and recorded in
     // /etc/cmux/cmux-tui-pin (that is the image's contract; the manifest entry
     // carries the same commit). The live files.cmux.com pin moves with every
@@ -391,7 +393,8 @@ if (provider === "freestyle") {
     try {
       const exec2 = execFor(second.vm);
       await waitForBakedDaemon("freestyle", exec2);
-      await new Promise((resolve) => setTimeout(resolve, 30_000));
+      const settled2 = await exec2(devboxWaitForDaemonCommand(), 200_000);
+      if (settled2.exitCode !== 0) throw new Error(`second machine's daemon never reached its listener: ${settled2.output.slice(-500)}`);
       const digest = `cat ${REMOTE_IDENTITY} ${MACHINE_SECRETS} | sha256sum | cut -c1-64`;
       const [a, b] = await Promise.all([exec(digest, 30_000), exec2(digest, 30_000)]);
       const digestA = a.output.trim();

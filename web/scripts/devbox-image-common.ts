@@ -16,10 +16,10 @@
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { Buffer } from "node:buffer";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector, shellQuote } from "../services/vms/drivers/cmuxTuiDaemon";
+import { CMUX_TUI_SESSION, cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector, cmuxTuiRunCommand, shellQuote } from "../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../services/vms/images/workUser";
 import { VM_IMAGE_SIZES, VM_IMAGE_SIZE_NAMES, vmImageSizeRank, type VmImageSizeName } from "../services/vms/images/sizes";
 import { DEVBOX_HOSTNAME, DEVBOX_HOSTNAME_LOOPBACK, DEVBOX_PROVIDER_HOSTNAME } from "../services/vms/images/identity";
@@ -493,6 +493,38 @@ export const DEVBOX_INSTANCE_ID_COMMAND =
   "curl -sf -m 2 -H \"X-aws-ec2-metadata-token: $(curl -sf -m 2 -X PUT http://169.254.169.254/latest/api/token -H 'X-metadata-token-ttl-seconds: 60')\" http://169.254.169.254/latest/meta-data/instance-id";
 
 /**
+ * Guest-side condition for "the session daemon is fully up on THIS machine":
+ * it answers on its control socket, it is listening dual-stack on 1337
+ * (0x0539; a machine reached at a private VPC address needs the v6 table),
+ * and the supervisor has bound its identity to this machine's instance id.
+ *
+ * This is the signal every phase used to approximate with `sleep 30`. It is
+ * not slow: a machine resumed from a snapshot answers in well under a second
+ * (the verifier prints the number), so waiting on it instead of on the clock
+ * removes ~30 s per phase without weakening the check.
+ */
+export function devboxDaemonReadyCondition(): string {
+  return (
+    `${cmuxTuiRunCommand(`server status --session ${CMUX_TUI_SESSION}`)} >/dev/null 2>&1 && ` +
+    `grep -qi ':0539 ' /proc/net/tcp6 && test -s /etc/cmux/daemon-instance-id`
+  );
+}
+
+/**
+ * Blocks in the guest until {@link devboxDaemonReadyCondition} holds, then
+ * exits 0. Bounded: on timeout it exits 1 with the elapsed budget on stderr,
+ * so a daemon that never comes up fails the bake instead of hanging it.
+ */
+export function devboxWaitForDaemonCommand(timeoutSeconds = 120): string {
+  return (
+    `cmux_ready=0; for i in $(seq 1 ${timeoutSeconds * 2}); do ` +
+    `if ${devboxDaemonReadyCondition()}; then cmux_ready=1; break; fi; sleep 0.5; done; ` +
+    `if [ "$cmux_ready" = 1 ]; then echo daemon-ready; else ` +
+    `echo "cmux-tui daemon not ready after ${timeoutSeconds}s" >&2; exit 1; fi`
+  );
+}
+
+/**
  * Park the cmux-tui daemon on a machine about to be snapshotted: record this
  * machine's instance id as the bake id (cmux-devbox-boot keeps the daemon
  * stopped while the ids match), wait for the supervisor to stop it, wipe the
@@ -656,6 +688,46 @@ export type DevboxImageManifest = {
   schemaVersion: number;
   images: DevboxManifestEntry[];
 };
+
+/**
+ * Serializes the manifest's read-modify-write across concurrent promotions.
+ * Both ladders can then be promoted at once (they share nothing else), which
+ * halves a full refresh; without it the second writer would silently drop the
+ * first one's entries. Advisory and bounded: an abandoned lock older than its
+ * TTL is taken over, so a killed promotion cannot wedge the next one.
+ */
+export async function withImageManifestLock<T>(run: () => Promise<T> | T): Promise<T> {
+  const lockPath = `${imageManifestPath}.lock`;
+  const deadline = Date.now() + 180_000;
+  const staleAfterMs = 10 * 60 * 1000;
+  for (;;) {
+    try {
+      writeFileSync(lockPath, `${process.pid}\n`, { flag: "wx" });
+      break;
+    } catch {
+      let age = 0;
+      try {
+        age = Date.now() - statSync(lockPath).mtimeMs;
+      } catch {
+        continue; // released between the failed create and the stat
+      }
+      if (age > staleAfterMs) {
+        console.warn(`taking over an abandoned manifest lock (${(age / 1000).toFixed(0)}s old)`);
+        rmSync(lockPath, { force: true });
+        continue;
+      }
+      if (Date.now() > deadline) {
+        throw new Error(`another promotion has held ${lockPath} for over 3 minutes; re-run once it finishes`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+  try {
+    return await run();
+  } finally {
+    rmSync(lockPath, { force: true });
+  }
+}
 
 export function readImageManifest(file = imageManifestPath): DevboxImageManifest {
   const parsed = JSON.parse(readFileSync(file, "utf8")) as DevboxImageManifest;
