@@ -68,9 +68,9 @@ describe("iroh route query tags", () => {
   });
 
   test("handleIrohRoute runs its work inside the route's tag context", async () => {
-    const { handleIrohRoute } = await import("../services/iroh/routeHandler");
+    const { handleTaggedIrohRoute } = await import("../services/iroh/routeHandler");
     let seen: ReturnType<typeof currentCloudDbQueryTags>;
-    const response = await handleIrohRoute(
+    const response = await handleTaggedIrohRoute(
       new Request("https://cmux.test/api/devices/iroh/register", { method: "POST" }),
       "register",
       {
