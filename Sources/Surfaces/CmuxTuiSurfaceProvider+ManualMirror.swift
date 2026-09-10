@@ -186,20 +186,20 @@ extension CmuxTuiSurfaceProvider {
             for session in sessions where session.terminalID == terminalID {
                 session.markSurfaceResolutionUnavailable()
             }
-            do {
-                _ = try await ensureRemoteTerminalView(
+            await catalog.cloudPlacementCoordinator.repairPlacement(
+                for: SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID),
+                catalog: catalog
+            ) { preferredWorkspaceID in
+                try await self.ensureRemoteTerminalView(
                     terminalID: terminalID,
                     socketPath: socketPath,
-                    link: link
+                    link: link,
+                    preferredWorkspaceID: preferredWorkspaceID
                 )
-                resolutions[terminalID] = await Self.resolveModernSurfaceID(
-                    terminalID: terminalID,
-                    socketPath: socketPath,
-                    link: link
-                )
-            } catch {
-                resolutions[terminalID] = .failed
             }
+            resolutions[terminalID] = await Self.resolveModernSurfaceID(
+                terminalID: terminalID, socketPath: socketPath, link: link
+            )
         }
         return resolutions
     }
@@ -218,17 +218,20 @@ extension CmuxTuiSurfaceProvider {
                 at: .tab(workspaceID: projection.workspaceID, paneID: paneID, index: nil),
                 focus: false
             )
-            guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else {
+            guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog(),
+                  let currentProjection = catalog.projection(forPanel: projection.panelID),
+                  currentProjection.resource == resource.id,
+                  currentProjection.workspaceID == projection.workspaceID else {
                 SurfacePaneFactory.close(panelID: materialized.panelID, in: materialized.workspaceID)
                 return
             }
             materializedPanels.insert(materialized.panelID)
-            catalog.endProjections(panelID: projection.panelID, reason: .replaced)
-            catalog.record(SurfaceProjection(
-                resource: resource.id,
-                workspaceID: materialized.workspaceID,
-                panelID: materialized.panelID
-            ))
+            catalog.replaceProjection(
+                currentProjection,
+                withPanel: materialized.panelID,
+                in: materialized.workspaceID,
+                remotePlacement: materialized.remotePlacement
+            )
             SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
         } catch {
             materializedPanels.remove(projection.panelID)

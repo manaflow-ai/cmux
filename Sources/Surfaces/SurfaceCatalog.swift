@@ -1182,6 +1182,31 @@ final class SurfaceCatalog {
         notifyChange()
     }
 
+    /// A restored placeholder yields to its native pane without authoring a layout edit.
+    /// Keep the exact saved view, or the receipt of a backing tab just created for it.
+    func replaceProjection(
+        _ previous: SurfaceProjection,
+        withPanel panelID: UUID,
+        in workspaceID: UUID,
+        remotePlacement: SurfaceRemotePlacement?
+    ) {
+        let view = resources[previous.resource].flatMap { resource in
+            let tabID = cloudWorkspaceRenameService.remoteTabID(for: previous, resource: resource)
+            return resource.remoteViews?.first { $0.tabID == tabID }
+        }
+        if let remotePlacement {
+            cloudPlacementCoordinator.confirmPlacement(remotePlacement, on: previous.resource.machine)
+        }
+        endProjections(panelID: previous.panelID, reason: .replaced)
+        record(SurfaceProjection(
+            resource: previous.resource,
+            workspaceID: workspaceID,
+            panelID: panelID,
+            remoteWorkspaceID: remotePlacement?.workspaceID ?? view?.workspace.id ?? previous.remoteWorkspaceID,
+            remoteTabID: remotePlacement?.tabID ?? view?.tabID ?? previous.remoteTabID
+        ))
+    }
+
     /// Fills a legacy projection's missing remote coordinates, or replaces a
     /// stale coordinate only when the caller explicitly supplied the same tab.
     /// The set remains the single owner of projection identity.

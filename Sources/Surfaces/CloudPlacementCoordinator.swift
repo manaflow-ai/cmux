@@ -15,6 +15,7 @@ final class CloudPlacementCoordinator {
     private let binding: @MainActor (UUID) -> WorkspaceCloudVMBinding?
     private let reportFailure: @MainActor (SurfaceProjection, Error) -> Void
     private var lanes: [SurfaceMachineID: Lane] = [:]
+    private var failureRefreshes: [SurfaceMachineID: Task<Void, Never>] = [:]
     // These receipts bridge queued move → move → close operations, including a pane
     // already removed locally. They are released as soon as that machine's lane drains.
     private var receipts: [SurfaceResourceID: [UUID: SurfaceRemotePlacement]] = [:]
@@ -143,7 +144,8 @@ final class CloudPlacementCoordinator {
                   self.closedTabs[resource.machine]?.contains(current.tabID) != true else { return false }
             let stillShown = catalog.projections.contains { other in
                 other.resource == resource.id
-                    && self.placement(of: other, resource: resource, catalog: catalog)?.tabID == current.tabID
+                    && (other.remoteTabID == nil
+                        || self.placement(of: other, resource: resource, catalog: catalog)?.tabID == current.tabID)
             }
             guard !stillShown else { return false }
             try await provider.closeRemoteTab(id: current.tabID, inRemoteWorkspace: bound)
@@ -152,17 +154,76 @@ final class CloudPlacementCoordinator {
         }
     }
 
-    /// Waits for the edits already submitted by this caller, without polling snapshots.
+    /// Repairs an attachment in the same lane as user edits, so a late reconnect
+    /// cannot overwrite a newer move. A viewer may use daemon focus; a mirrored
+    /// pane must supply its binding. Conflicting bindings cannot be guessed.
+    func repairPlacement(
+        for resourceID: SurfaceResourceID,
+        catalog: SurfaceCatalog,
+        ensure: @escaping @MainActor (String?) async throws -> SurfaceRemotePlacement
+    ) async {
+        guard let projection = catalog.projections.first(where: { $0.resource == resourceID }),
+              let provider = catalog.provider(for: resourceID.machine) else { return }
+        let task = enqueue(projection, catalog: catalog, presentFailure: false) {
+            let current = catalog.projections.filter { $0.resource == resourceID }
+            guard !current.isEmpty else { return false }
+            let targets = Set(current.compactMap {
+                self.boundRemoteWorkspaceID(forLocalWorkspace: $0.workspaceID, on: resourceID.machine)
+            })
+            guard targets.count <= 1 else {
+                throw SurfaceCatalogError.unavailable(resourceID, reason: String(
+                    localized: "cloudPane.layoutSyncFailed.ambiguous",
+                    defaultValue: "The pane does not identify a unique machine tab. Reopen it from the machine workspace."
+                ))
+            }
+            let placement = try await ensure(targets.first)
+            guard catalog.provider(for: resourceID.machine) === provider else { return false }
+            self.confirmPlacement(placement, on: resourceID.machine)
+            self.movedTabs[resourceID.machine, default: [:]][placement.tabID] = placement.workspaceID
+            // A pane may already be closed locally while its close waits behind
+            // this repair. Keep its receipt until the lane drains, too.
+            for projection in current {
+                self.receipts[resourceID, default: [:]][projection.panelID] = placement
+            }
+            var replacements: [SurfaceProjection: SurfaceProjection] = [:]
+            for projection in catalog.projections where projection.resource == resourceID {
+                self.receipts[resourceID, default: [:]][projection.panelID] = placement
+                var updated = projection
+                updated.remoteWorkspaceID = placement.workspaceID
+                updated.remoteTabID = placement.tabID
+                replacements[projection] = updated
+            }
+            catalog.reconcileRemotePlacements(replacements)
+            return true
+        }
+        await task.value
+    }
+
+    /// Waits for submitted edits and their failure refreshes without polling snapshots.
     func waitForPendingMutations() async {
         let pending = lanes.values.map(\.task)
         for task in pending { await task.value }
+        for refresh in Array(failureRefreshes.values) { await refresh.value }
     }
 
+    private func refreshAfterFailure(machine: SurfaceMachineID, provider: any SurfaceProvider, catalog: SurfaceCatalog) {
+        guard failureRefreshes[machine] == nil else { return }
+        // Refresh may itself enqueue attachment recovery. Start it outside the
+        // mutation lane so it can never await an operation queued behind itself.
+        failureRefreshes[machine] = Task { @MainActor in
+            defer { self.failureRefreshes[machine] = nil }
+            guard catalog.provider(for: machine) === provider else { return }
+            await provider.refresh()
+        }
+    }
+
+    @discardableResult
     private func enqueue(
         _ projection: SurfaceProjection,
         catalog: SurfaceCatalog,
+        presentFailure: Bool = true,
         operation: @escaping @MainActor () async throws -> Bool
-    ) {
+    ) -> Task<Void, Never> {
         let machine = projection.resource.machine
         let previous = lanes[machine]?.task
         let provider = catalog.provider(for: machine)
@@ -186,10 +247,13 @@ final class CloudPlacementCoordinator {
                 if try await operation() { self.failures[projection.resource] = nil }
             } catch {
                 self.failures[projection.resource] = CloudMachineLink.errorText(error)
-                self.reportFailure(projection, error)
-                await provider.refresh()
+                if presentFailure {
+                    self.reportFailure(projection, error)
+                    self.refreshAfterFailure(machine: machine, provider: provider, catalog: catalog)
+                }
             }
         }
         lanes[machine] = Lane(token: token, task: task)
+        return task
     }
 }

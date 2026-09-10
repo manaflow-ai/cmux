@@ -419,4 +419,129 @@ struct CloudPlacementCoordinatorTests {
         await catalog.cloudPlacementCoordinator.waitForPendingMutations()
         #expect(provider.closedTabs == ["tab_failed"])
     }
+
+    @Test func replacingARestoredPaneKeepsItsExactTabAmongMultipleViews() async {
+        let bound = UUID(), oldPanel = UUID(), newPanel = UUID()
+        let (catalog, provider) = Self.harness(bound: bound)
+        let term = Self.terminal("term_1", views: [
+            SurfaceRemoteView(tabID: "tab_main", workspace: Self.main),
+            SurfaceRemoteView(tabID: "tab_api", workspace: Self.api)
+        ])
+        catalog.replaceResources([term], on: Self.machine)
+        let previous = SurfaceProjection(resource: term.id, workspaceID: bound, panelID: oldPanel, remoteWorkspaceID: "ws_api", remoteTabID: "tab_api")
+        catalog.record(previous)
+        catalog.replaceProjection(previous, withPanel: newPanel, in: bound, remotePlacement: nil)
+        await catalog.cloudPlacementCoordinator.waitForPendingMutations()
+        #expect(catalog.projection(forPanel: oldPanel) == nil)
+        #expect(catalog.projection(forPanel: newPanel)?.remoteTabID == "tab_api")
+        #expect(provider.closedTabs.isEmpty && provider.moved.isEmpty)
+        catalog.endProjections(panelID: newPanel)
+        await catalog.cloudPlacementCoordinator.waitForPendingMutations()
+        #expect(provider.closedTabs == ["tab_api"])
+    }
+
+    @Test func replacementPrefersTheNewBackingTabReceiptOverSavedCoordinates() {
+        let bound = UUID(), newPanel = UUID()
+        let (catalog, _) = Self.harness(bound: bound)
+        let term = Self.terminal("term_1", views: [])
+        catalog.replaceResources([term], on: Self.machine)
+        let previous = SurfaceProjection(resource: term.id, workspaceID: bound, panelID: UUID(), remoteWorkspaceID: "ws_main", remoteTabID: "gone")
+        catalog.record(previous)
+        catalog.replaceProjection(previous, withPanel: newPanel, in: bound, remotePlacement: SurfaceRemotePlacement(workspaceID: "ws_api", tabID: "tab_new"))
+        #expect(catalog.projection(forPanel: newPanel)?.remoteTabID == "tab_new")
+        #expect(catalog.projection(forPanel: newPanel)?.remoteWorkspaceID == "ws_api")
+    }
+
+    @Test func repairUsesTheBindingAndFinishesBeforeALaterUserMove() async {
+        let api = UUID(), main = UUID(), panel = UUID()
+        let coordinator = CloudPlacementCoordinator(binding: { id in
+            WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: false, remoteWorkspaceID: id == api ? "ws_api" : "ws_main")
+        })
+        let catalog = SurfaceCatalog(cloudPlacementCoordinator: coordinator)
+        let provider = CloudPlacementTestProvider(machine: Self.machine)
+        catalog.register(provider)
+        let term = Self.terminal("term_1", views: [])
+        catalog.replaceResources([term], on: Self.machine)
+        catalog.record(SurfaceProjection(resource: term.id, workspaceID: api, panelID: panel))
+        let (started, start) = AsyncStream<Void>.makeStream()
+        let (released, release) = AsyncStream<Void>.makeStream()
+        let repair = Task { @MainActor in
+            await coordinator.repairPlacement(for: term.id, catalog: catalog) { workspace in
+                #expect(workspace == "ws_api")
+                start.yield(())
+                start.finish()
+                for await _ in released { break }
+                return SurfaceRemotePlacement(workspaceID: "ws_api", tabID: "tab_repaired")
+            }
+        }
+        for await _ in started { break }
+        catalog.moveProjections(panelID: panel, to: main)
+        release.yield(())
+        release.finish()
+        await repair.value
+        await coordinator.waitForPendingMutations()
+        #expect(provider.moved.map { $0.tab + "->" + $0.workspace } == ["tab_repaired->ws_main"])
+        #expect(catalog.projection(forPanel: panel)?.remoteWorkspaceID == "ws_main")
+        #expect(catalog.projection(forPanel: panel)?.remoteTabID == "tab_repaired")
+    }
+
+    @Test func repairDoesNotGuessBetweenConflictingBindings() async {
+        let api = UUID(), main = UUID()
+        let coordinator = CloudPlacementCoordinator(binding: { id in
+            WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: false, remoteWorkspaceID: id == api ? "ws_api" : "ws_main")
+        })
+        let catalog = SurfaceCatalog(cloudPlacementCoordinator: coordinator)
+        let provider = CloudPlacementTestProvider(machine: Self.machine)
+        catalog.register(provider)
+        let term = Self.terminal("term_1", views: [])
+        catalog.replaceResources([term], on: Self.machine)
+        for workspace in [api, main] {
+            catalog.record(SurfaceProjection(resource: term.id, workspaceID: workspace, panelID: UUID()))
+        }
+        var attempted = false
+        await coordinator.repairPlacement(for: term.id, catalog: catalog) { _ in
+            attempted = true
+            return SurfaceRemotePlacement(workspaceID: "unexpected", tabID: "unexpected")
+        }
+        #expect(!attempted && coordinator.failures[term.id] != nil)
+        #expect(provider.refreshCount == 0, "recovery must not recursively await the refresh that owns it")
+    }
+
+    @Test func aCloseDuringRepairClosesTheRepairedTab() async {
+        let bound = UUID(), panel = UUID()
+        let (catalog, provider) = Self.harness(bound: bound)
+        let term = Self.terminal("term_1", views: [])
+        catalog.replaceResources([term], on: Self.machine)
+        catalog.record(SurfaceProjection(resource: term.id, workspaceID: bound, panelID: panel))
+        let (started, start) = AsyncStream<Void>.makeStream()
+        let (released, release) = AsyncStream<Void>.makeStream()
+        let repair = Task { @MainActor in
+            await catalog.cloudPlacementCoordinator.repairPlacement(for: term.id, catalog: catalog) { _ in
+                start.yield(())
+                start.finish()
+                for await _ in released { break }
+                return SurfaceRemotePlacement(workspaceID: "ws_api", tabID: "tab_repaired")
+            }
+        }
+        for await _ in started { break }
+        catalog.endProjections(panelID: panel)
+        release.yield(())
+        release.finish()
+        await repair.value
+        await catalog.cloudPlacementCoordinator.waitForPendingMutations()
+        #expect(provider.closedTabs == ["tab_repaired"])
+        #expect(catalog.resources[term.id] != nil)
+    }
+
+    @Test func anUnresolvedViewerKeepsTheBackingTabUntilItsIdentityIsKnown() async {
+        let bound = UUID(), closing = UUID()
+        let (catalog, provider) = Self.harness(bound: bound)
+        let term = Self.terminal("term_1", views: [])
+        catalog.replaceResources([term], on: Self.machine)
+        catalog.record(SurfaceProjection(resource: term.id, workspaceID: bound, panelID: closing, remoteWorkspaceID: "ws_api", remoteTabID: "tab_api"))
+        catalog.record(SurfaceProjection(resource: term.id, workspaceID: UUID(), panelID: UUID()))
+        catalog.endProjections(panelID: closing)
+        await catalog.cloudPlacementCoordinator.waitForPendingMutations()
+        #expect(provider.closedTabs.isEmpty)
+    }
 }
