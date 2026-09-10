@@ -47,11 +47,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         )
     }
 
-    private func info(
-        workspaces: [SurfaceRemoteWorkspace],
-        hasDesktop: Bool = false,
-        linkState: SurfaceLinkState = .connected
-    ) -> SurfaceMachineInfo {
+    private func info(workspaces: [SurfaceRemoteWorkspace], hasDesktop: Bool = false, linkState: SurfaceLinkState = .connected) -> SurfaceMachineInfo {
         SurfaceMachineInfo(
             id: machine, name: "Big Machine", status: "running", image: "sh-08be343bf2b54b4bb0e5226b97eaa6c4",
             hasDesktop: hasDesktop, memoryMb: nil, diskMb: nil, linkState: linkState, linkError: nil,
@@ -207,7 +203,8 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "machine:brave-otter",
             "machine:brave-otter/workspaces",
             "machine:brave-otter/ws/ws_main",
-            "machine:brave-otter/ws/ws_main/resource:brave-otter/terminal/term_1",
+            "machine:brave-otter/ws/ws_main/resource:brave-otter/terminal/term_1/tab:tab_term_1_0",
+            "machine:brave-otter/ports", "machine:brave-otter/ports/status",
             "machine:brave-otter/terminals",
             "resource:brave-otter/terminal/term_1",
         ], "the group is its own row above the lone workspace — never folded into it")
@@ -244,13 +241,13 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "machine:brave-otter",
             "machine:brave-otter/workspaces",
             "machine:brave-otter/ws/ws_main",
-            "machine:brave-otter/ws/ws_main/resource:brave-otter/terminal/term_1",
-            "machine:brave-otter/ws/ws_main/resource:brave-otter/terminal/term_shared",
+            "machine:brave-otter/ws/ws_main/resource:brave-otter/terminal/term_1/tab:tab_term_1_0",
+            "machine:brave-otter/ws/ws_main/resource:brave-otter/terminal/term_shared/tab:tab_term_shared_0",
             "machine:brave-otter/ws/ws_main/resource:brave-otter/display/display:1",
             "machine:brave-otter/ws/ws_side",
-            "machine:brave-otter/ws/ws_side/resource:brave-otter/terminal/term_2",
-            "machine:brave-otter/ws/ws_side/resource:brave-otter/terminal/term_shared",
-            "machine:brave-otter/ws/ws_side/resource:brave-otter/display/display:1",
+            "machine:brave-otter/ws/ws_side/resource:brave-otter/terminal/term_2/tab:tab_term_2_0",
+            "machine:brave-otter/ws/ws_side/resource:brave-otter/terminal/term_shared/tab:tab_term_shared_1",
+            "machine:brave-otter/ws/ws_side/resource:brave-otter/display/display:1/tab:tab_desk_0",
             "machine:brave-otter/ports",
             "resource:brave-otter/browser/port:3000",
             "machine:brave-otter/displays",
@@ -301,6 +298,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "machine:brave-otter",
             "machine:brave-otter/workspaces",
             "machine:brave-otter/workspaces/placeholder",
+            "machine:brave-otter/ports", "machine:brave-otter/ports/status",
             "machine:brave-otter/terminals",
             "machine:brave-otter/terminals/placeholder",
         ])
@@ -629,9 +627,10 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "machine:brave-otter",
             "machine:brave-otter/workspaces",
             "machine:brave-otter/ws/ws_main",
-            "machine:brave-otter/ws/ws_main/resource:brave-otter/terminal/term_1",
+            "machine:brave-otter/ws/ws_main/resource:brave-otter/terminal/term_1/tab:tab_term_1_0",
             "machine:brave-otter/ws/ws_side",
-            "machine:brave-otter/ws/ws_side/resource:brave-otter/terminal/term_2",
+            "machine:brave-otter/ws/ws_side/resource:brave-otter/terminal/term_2/tab:tab_term_2_0",
+            "machine:brave-otter/ports", "machine:brave-otter/ports/status",
             "machine:brave-otter/terminals",
             "resource:brave-otter/terminal/term_1",
             "resource:brave-otter/terminal/term_bg",
@@ -640,7 +639,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         let byID = Dictionary(tree.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         guard case .terminal(let poolRow) = try #require(byID["resource:brave-otter/terminal/term_bg"]).kind,
               case .terminal(let viewedPoolRow) = try #require(byID["resource:brave-otter/terminal/term_1"]).kind,
-              case .terminal(let layoutRow) = try #require(byID["machine:brave-otter/ws/ws_main/resource:brave-otter/terminal/term_1"]).kind else {
+              case .terminal(let layoutRow) = try #require(byID["machine:brave-otter/ws/ws_main/resource:brave-otter/terminal/term_1/tab:tab_term_1_0"]).kind else {
             Issue.record("expected the terminal rows"); return
         }
         #expect(poolRow.isDetached, "greyed, marked detached")

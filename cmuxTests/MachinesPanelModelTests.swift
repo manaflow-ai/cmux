@@ -1074,8 +1074,8 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
         MachineSnapshot(id: id, provider: "freestyle", image: "cmux-xfce-vnc:latest", isDesktop: true, activity: .ready, createdAt: nil, label: nil)
     }
 
-    func testTreeShowsThisMacByDefaultAndCloudOnlyStaysOneFlipAway() {
-        XCTAssertTrue(CloudTreeNodeBuilder.includesLocalMachine, "every machine — this Mac included — shows the same shape")
+    func testTreeIsCloudOnlyByDefaultAndThisMacStaysOneFlipAway() {
+        XCTAssertFalse(CloudTreeNodeBuilder.includesLocalMachine, "#10918: the panel is the cloud fleet; this Mac stays one flip away")
         let local = UUID()
         let snapshot = SurfaceCatalogSnapshot(
             machines: [info(.local), info(.cloud("vivid-newt"))],
@@ -1083,11 +1083,11 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
             projections: [SurfaceProjection(resource: SurfaceResourceID(machine: .local, kind: .terminal, key: "AAA"), workspaceID: local, panelID: UUID())]
         )
         let workspaces = [CloudTreeLocalWorkspace(id: local, title: "cmux90", isSelected: true)]
-        let byDefault = CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(machines: [machine("vivid-newt")], snapshot: snapshot, localWorkspaces: workspaces))
-        XCTAssertEqual(byDefault.first?.id, "machine:local")
-        XCTAssertTrue(byDefault.contains { $0.id == "resource:vivid-newt/terminal/term_1" })
+        let withThisMac = CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(machines: [machine("vivid-newt")], snapshot: snapshot, localWorkspaces: workspaces, includeLocalMachine: true))
+        XCTAssertEqual(withThisMac.first?.id, "machine:local")
+        XCTAssertTrue(withThisMac.contains { $0.id == "resource:vivid-newt/terminal/term_1" })
 
-        let cloudOnly = CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(machines: [machine("vivid-newt")], snapshot: snapshot, localWorkspaces: workspaces, includeLocalMachine: false))
+        let cloudOnly = CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(machines: [machine("vivid-newt")], snapshot: snapshot, localWorkspaces: workspaces))
         XCTAssertEqual(cloudOnly.first?.id, "machine:vivid-newt")
         XCTAssertFalse(cloudOnly.contains { $0.machine.isLocal }, "no This Mac rows when the tree is cloud-only")
     }
