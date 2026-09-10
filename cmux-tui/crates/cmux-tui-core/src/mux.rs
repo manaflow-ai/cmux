@@ -2389,16 +2389,19 @@ impl Mux {
     fn default_workspace_name(state: &State) -> String {
         // Provider-created workspaces use a stable, human-readable sequence.
         // Existing names (including user-renamed workspaces) are left untouched;
-        // only the next automatically generated name is derived here.
-        let next = state
+        // only the next automatically generated name is derived here. The
+        // sequence never restarts below the number of workspaces that exist:
+        // renaming `workspace-1` to `shell` and creating another one yields
+        // `workspace-2` (the second workspace), not a second `workspace-1`.
+        let highest = state
             .workspaces
             .iter()
             .filter_map(|workspace| {
                 workspace.name.strip_prefix("workspace-")?.parse::<usize>().ok()
             })
             .max()
-            .unwrap_or(0)
-            .saturating_add(1);
+            .unwrap_or(0);
+        let next = highest.max(state.workspaces.len()).saturating_add(1);
         format!("workspace-{next}")
     }
 
@@ -27606,6 +27609,21 @@ mod tests {
             assert_eq!(state.workspaces[2].name, "workspace-3");
         });
         assert_ne!(second.id, third.id);
+    }
+
+    #[test]
+    fn automatic_workspace_sequence_survives_renaming_the_first_workspace() {
+        let mux = test_mux();
+        let _first = mux.new_workspace(None, None).unwrap();
+        let first_workspace = mux.with_state(|state| state.workspaces[0].id);
+        assert!(mux.rename_workspace(first_workspace, "shell".into()));
+
+        mux.new_workspace(None, None).unwrap();
+
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces[0].name, "shell");
+            assert_eq!(state.workspaces[1].name, "workspace-2");
+        });
     }
 
     #[test]
