@@ -92,7 +92,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         private var contentSignature: [String] = []
         /// Authoritative row identity; the create menu receives a derived value snapshot.
         var selectedNodeID: String?
-        private var isUpdatingProgrammatically = false
+        var isUpdatingProgrammatically = false
+        var pendingSelectionPublication: Task<Void, Never>?
+        var lastPublishedSelection: CloudTreeCreateSelection?
+        var hasPublishedSelection = false
         private var activeDrag: ActiveDrag?
         // NSDraggingItem retains the writer for the live native session. A weak
         // coordinator edge prevents a retained writer/container cycle.
