@@ -261,6 +261,18 @@ struct CloudTreeCreateAffordanceTests {
         }
     }
 
+    @Test("A saved header destination is reconciled against the current tree")
+    func savedHeaderDestinationMustStillExist() throws {
+        let selected = CloudTreeCreateSelection.workspace(machine: machine, workspaceID: "ws_main", workspaceName: "Old name")
+        let main = workspace("ws_main", "Current name", index: 0)
+        let tree = [try #require(rows(workspaces: [main]).first)]
+        #expect(selected.validated(in: tree) == .workspace(machine: machine, workspaceID: main.id, workspaceName: main.name))
+        #expect(selected.validated(in: []) == nil)
+        #expect(selected.validated(in: rows(workspaces: [])) == nil)
+        let foreign = CloudTreeCreateSelection.workspace(machine: .cloud("another-machine"), workspaceID: main.id, workspaceName: main.name)
+        #expect(foreign.validated(in: tree) == nil)
+    }
+
     private func makeCoordinator(
         onSelectionChange: @escaping @MainActor (CloudTreeCreateSelection?) -> Void = { _ in }
     ) -> CloudTreeOutlineView.Coordinator {
