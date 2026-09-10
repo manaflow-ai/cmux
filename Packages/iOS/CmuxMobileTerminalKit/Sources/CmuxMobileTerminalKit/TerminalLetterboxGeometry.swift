@@ -18,9 +18,12 @@ public struct TerminalLetterboxGeometry {
     public static func keyboardAbsorptionAnimationDuration(
         contentMeasurementChanged: Bool,
         scrollInteractionActive: Bool
-    ) -> TimeInterval {
-        guard contentMeasurementChanged, !scrollInteractionActive else { return 0 }
-        return 0.2
+    ) -> CGFloat {
+        // This value is consumed from the display-link path. Animating a
+        // measurement that can change again on the next frame retargets the
+        // same constraint indefinitely when input wraps, producing vertical
+        // oscillation. Keyboard seat transitions own the only animated leg.
+        return 0
     }
 
     /// The bottom occupancy reserved for the keyboard (when up) or the bottom
