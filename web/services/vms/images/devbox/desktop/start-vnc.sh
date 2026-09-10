@@ -188,9 +188,9 @@ if ! mine -f cmux-desktop-resize-watch; then
   ' cmux-desktop-resize-watch >>"$LOG_DIR/resize-watch.log" 2>&1 &
 fi
 
-# noVNC web client + websocket proxy on 6901 (the app's desktop port).
+# noVNC uses a dual-stack listener so either private address can reach the desktop.
 if ! listening 6901; then
-  websockify --web /usr/share/novnc --heartbeat 30 0.0.0.0:6901 127.0.0.1:5901 \
+  websockify --web /usr/share/novnc --heartbeat 30 '[::]:6901' 127.0.0.1:5901 \
     >>"$LOG_DIR/websockify.log" 2>&1 &
 fi
 

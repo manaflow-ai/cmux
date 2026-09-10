@@ -4,10 +4,11 @@ import type { AlertInput } from "../services/observability/alerts";
 
 function recorder() {
   const sent: AlertInput[] = [];
-  const sendAlert = mock(async (input: AlertInput) => {
+  const sendAlert = mock(async (...args: unknown[]) => {
+    const [input] = args as [AlertInput];
     sent.push(input);
     return { sent: true, configured: true };
-  });
+  }) as unknown as (input: AlertInput) => Promise<{ sent: boolean; configured: boolean }>;
   return { sent, sendAlert };
 }
 

@@ -47,6 +47,7 @@ actor CloudMachineLinkManager {
     /// Private routes come from the signed-in machine list. An enrolled client
     /// reconnects with this local fact and does not call the attach endpoint.
     private var privateRoutes: [String: String] = [:]
+    private var privateAddressCandidates: [String: [String]] = [:]
     private var links: [String: CloudMachineLink] = [:]
     private var connecting: [String: Task<CloudMachineLink.Connected, Error>] = [:]
     private var lastFailure: [String: (at: Date, error: String)] = [:]
@@ -97,12 +98,24 @@ actor CloudMachineLinkManager {
     var hasClient: Bool { clientURL != nil }
 
     func setPrivateAddress(_ address: String?, for machineID: String) {
-        guard let address = address?.trimmingCharacters(in: .whitespacesAndNewlines), !address.isEmpty else {
+        setPrivateAddresses(address.map { [$0] } ?? [], for: machineID)
+    }
+
+    func setPrivateAddresses(_ addresses: [String], for machineID: String) {
+        var seen = Set<String>()
+        let addresses = addresses.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+        privateAddressCandidates[machineID] = addresses
+        guard let address = addresses.first else {
             privateRoutes[machineID] = nil
             return
         }
         let host = address.contains(":") ? "[\(address)]" : address
         privateRoutes[machineID] = "ws://\(host):1337/v1/link"
+    }
+
+    func privateAddresses(for machineID: String) -> [String] {
+        privateAddressCandidates[machineID] ?? []
     }
 
     func privateRoute(for machineID: String) -> String? {
@@ -121,7 +134,7 @@ actor CloudMachineLinkManager {
             throw ManagerError.retryLater(failure.error)
         }
         guard let clientURL else { throw ManagerError.clientMissing }
-        guard let privateRoute = privateRoutes[machineID] else {
+        guard privateRoutes[machineID] != nil else {
             throw ManagerError.privateRouteRequired(machineID)
         }
         #if DEBUG
@@ -164,26 +177,22 @@ actor CloudMachineLinkManager {
             guard capabilities.contains(CloudTuiCommandLine.wireGuardHubCapability) else {
                 throw ManagerError.wireGuardHubUnsupported
             }
-            guard Self.usesWireGuardHub(route: privateRoute, clientCapabilities: capabilities, enrolledRoutes: []) else {
-                throw ManagerError.privateRouteRequired(privateRoute)
-            }
             guard let hub else { throw ManagerError.wireGuardHubMissing }
             let claim = try await hub.acquire()
-            guard Self.usesWireGuardHub(
-                route: privateRoute,
-                clientCapabilities: capabilities,
-                enrolledRoutes: claim.ready.routes
-            ) else {
-                await hub.release(claim.lease)
-                throw ManagerError.privateRouteRequired(privateRoute)
-            }
             let releaseLease: @Sendable () async -> Void = { await hub.release(claim.lease) }
+            let reachableRoute: String
+            do {
+                reachableRoute = try await resolvedPrivateRoute(machineID: machineID, through: claim.ready)
+            } catch {
+                await releaseLease()
+                throw error
+            }
             #if DEBUG
             cmuxDebugLog("cloud.link.wireguardHub machine=\(machineID) socket=\(claim.ready.socketPath)")
             #endif
             let connect = Task {
                 try await link.connect(
-                    route: privateRoute,
+                    route: reachableRoute,
                     session: session,
                     carrier: carrier,
                     timeout: connectTimeout,
@@ -275,12 +284,11 @@ actor CloudMachineLinkManager {
         lastFailure.removeAll()
     }
 
-    /// Drops links for machines that no longer exist.
-    func retain(machineIDs: Set<String>) async {
-        for id in links.keys where !machineIDs.contains(id) {
-            await disconnect(machineID: id)
-        }
+    /// Drops stale routing facts immediately. The registry owns and awaits
+    /// each removed machine's asynchronous link/forward teardown separately.
+    func retainAddresses(machineIDs: Set<String>) {
         privateRoutes = privateRoutes.filter { machineIDs.contains($0.key) }
+        privateAddressCandidates = privateAddressCandidates.filter { machineIDs.contains($0.key) }
     }
 
     /// Re-sends this Mac's theme to every connected machine (a Ghostty config reload

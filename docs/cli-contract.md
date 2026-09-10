@@ -90,7 +90,7 @@ Environment:
 | `sessions [list]` | List saved agent session records without requiring a running cmux socket. Filters: `--agent <name>`, `--session <id>`, `--workspace <id>`, `--surface <id>`, `--cwd <text>`. Overrides: `--state-dir <path>`, `--codex-home <path>`. Text output defaults to 100 results; `--limit <n>` takes a positive integer and `--all` removes the limit. Supports `--json`. |
 | `auth` | Manage auth status, login, and logout through the app. |
 | `coderouter`, `cr` | `cmux coderouter <status|machines|claude>` manages the team's coderouter model plane through the app (sign-in state, per-machine usage, the team's Claude upstream accounts). Every other `cmux coderouter ...` verb and all of `cmux cr ...` exec the CodeRouter CLI unchanged with the `CMUX_*`/`CMUXD_*` environment stripped: `coderouter` or `cr` on PATH first, then the official installer's `~/.coderouter/bin/coderouter` (`$CODEROUTER_INSTALL/bin` when set), never with a network call. When neither exists and stdin and stderr are terminals, cmux shows the documented installer `curl -fsSL https://cmux.com/coderouter/install.sh | sh`, says what it does (checksum-verified binary into `~/.coderouter/bin`, PATH line in the shell profile), asks once (`Install CodeRouter now? [y/N]`), and after `y` fetches the script, runs it with `sh`, and execs the new install with the original arguments. Any other outcome (non-interactive, declined, download or installer failure) prints that install command on stderr and exits 127. |
-| `vm`, `cloud` | Manage cloud VMs. `cloud` is an alias for `vm`. |
+| `vm`, `cloud` | Manage cloud VMs and their HTTPS publications. `cloud` is an alias for `vm`. |
 | `remotes`, `remote` | Manage remote Macs in the team device registry so they appear in the iOS app's device list. `remote` is an alias for `remotes`. |
 | `rpc` | Call a raw v2 socket method with optional JSON params. |
 | `identify` | Print server identity and caller context. |
@@ -289,6 +289,12 @@ VM subcommands:
 | Command | Contract |
 | --- | --- |
 | `vm ls`, `vm list` | List VMs. |
+| `cloud domains [list]`, `vm domains [list]` | List the account's VM-port publications (`vm.publication_list`). `--json` returns `{publications: [...]}`. |
+| `cloud domains zones`, `vm domains zones` | List custom domains owned by the account (`vm.domain_list`); `--json` returns `{domains: [...]}`. |
+| `cloud domains verify <domain>`, `vm domains verify <domain>` | Start or complete ownership/certificate verification for a custom zone (`vm.domain_verify`). The first call prints the DNS checklist; add the records and rerun it. A publication hostname resolves to its zone; generated cmux names need no verification. |
+| `cloud domains publish <vm> <port> [--domain <hostname>] [--access personal\|team\|public] [--team <id>]`, `vm domains publish …` | Create one HTTPS publication (`vm.publication_create`). Generated names need no DNS setup. `personal` is owner-only (default), `team` requires the selected team id, and `public` allows anyone with the URL. |
+| `cloud domains access <hostname> <personal\|team\|public> [--team <id>]`, `vm domains access …` | Change an existing publication's viewer policy (`vm.publication_update`); the first argument is a publication hostname or id, not a VM id. |
+| `cloud domains rm <hostname>`, `vm domains rm …` | Remove a publication (`vm.publication_delete`). |
 | `vm tree [<machine>\|local] [--refresh] [--json]` | The surface catalog (`surface.catalog`), rendered Finder-style: **This Mac** first (its terminals grouped by the local workspace showing them, then its browsers), then every cloud machine — Workspaces, Ports, VNC Displays (one row per screen), and a final Terminals section containing every machine-owned terminal. Workspace folders include their terminal, browser, and display layout; a canonical `browser/port:<n>` resource is also listed in the machine's Ports folder. Every line carries an address `vm open` or `surface open` accepts. `--refresh` re-syncs every provider first. `--json` prints the catalog payload with `cloud_states` (`sync_mode`: `journaled` or `snapshot_only`, cursor `(generation, revision)`, freshness, and pending writes) and resources with exact `remote_views: [{tab_id, workspace: {id, name, index, focused}, screen_id?, pane_id?, name?, index?, focused?, screen_index?, pane_index?}]`. A snapshot-only VM remains readable but rejects revision-fenced rename writes until its daemon is upgraded. Same as `surface ls`. |
 | `vm workspace new <machine> [--name <name>] [--json]` | `vm.workspace_new`: creates a cmux-tui workspace on the machine (its ⌘N, with a first terminal) and opens it as a new local workspace. Prints `OK workspace=<local id> remote_workspace=<ws id> machine=<id>`. |
 | `vm workspace open <machine> <workspace> [--here] [--tabs] [--workspace <local>] [--pane <id\|ref> [--left\|--right\|--up\|--down]] [--json]` | `vm.workspace_open`: the machine workspace's terminals, browsers and pinned displays as a new local workspace, one pane each (what clicking the sidebar row does). `<workspace>` is the `ws_…` id or an unambiguous workspace name, resolved exactly like the sidebar row (every view of every terminal counts); the payload's `remote_workspace_id` is the resolved id. An existing workspace with nothing in it opens nothing and answers `Nothing to open: … cmux vm open <machine>/<ws> starts a terminal there`. `--here`/`--tabs`/`--pane`+side instead project the group into an existing local workspace (`here: true` + the `surface open` destination params; one pane at the destination, the rest as tabs) — the sidebar's "Open All Here" / "Open All in New Tabs" / drop on a pane edge. |
@@ -720,6 +726,25 @@ the expected text without connecting to a cmux socket.
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout>`
 - `cmux vm --help` -> `Usage: cmux vm <base|new|ls|domains|tree|status|stats|resize|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info|workspace|terminal|tab> [args...]`
 - `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|domains|tree|status|stats|resize|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info|workspace|terminal|tab> [args...]`
+- `cmux vm ls --help` -> `Usage: cmux vm <base|new|ls|domains|tree|status|stats|resize|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info|workspace|terminal|tab> [args...]`
+- `cmux vm domains --help` -> `cmux cloud domains [list]`
+- `cmux vm run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <4g|8g|16g|24g|32g|64g>] [--timeout <seconds>] -- <command...>`
+- `cmux vm run -h` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <4g|8g|16g|24g|32g|64g>] [--timeout <seconds>] -- <command...>`
+- `cmux cloud run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <4g|8g|16g|24g|32g|64g>] [--timeout <seconds>] -- <command...>`
+- `cmux vm route --help` -> `Usage: cmux vm route [--cwd <dir>] [--new] [--provision] [--size <4g|8g|16g|24g|32g|64g>] [--json]`
+- `cmux vm agent --help` -> `Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--new] [--size <s>] [--json] -- <prompt or args...>`
+- `cmux vm push --help` -> `Usage: cmux vm push <id> <local-path> [remote-path] [--exclude <pattern>]... [--no-default-excludes]`
+- `cmux vm upload --help` -> `Usage: cmux vm push <id> <local-path> [remote-path] [--exclude <pattern>]... [--no-default-excludes]`
+- `cmux vm pull --help` -> `Usage: cmux vm pull <id> <remote-path> [local-path]`
+- `cmux vm download --help` -> `Usage: cmux vm pull <id> <remote-path> [local-path]`
+- `cmux vm wait --help` -> `Usage: cmux vm wait <id> [--timeout <seconds>] [--wake]`
+- `cmux vm open --help` -> `Usage: cmux vm open <target> [--workspace <id|ref|index>] [--focus <true|false>] [--print]`
+- `cmux vm tree --help` -> `Usage: cmux vm tree [<machine>|local] [--refresh] [--json]`
+- `cmux vm workspace --help` -> `cmux vm workspace open <machine> <workspace-id>`
+- `cmux vm terminal --help` -> `cmux vm terminal close <machine> <terminal-id>`
+- `cmux vm prompt --help` -> `cmux vm prompt --open <agent>`
+- `cmux vm base --help` -> `cmux vm base reset [--desktop|--base] [--reason <text>]`
+- `cmux surface --help` -> `Usage: cmux surface ls [<machine>|local] [--refresh] [--json]`
 - `cmux remotes --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux remote --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux coderouter --help` -> `Usage: cmux coderouter <status|machines|claude> [options]`
