@@ -35,6 +35,24 @@ struct DeviceRouteSelectorTests {
         return try? CmxLegacyTailscaleAuthorizationEvidence(macDeviceID: deviceID ?? studio.deviceID, host: host, port: port)
     }
 
+    @Test("Another Mac's advertised loopback never replaces its Tailscale pairing", arguments: [false, true])
+    func remoteMacRequiresTailscalePairing(hasGrant: Bool) throws {
+        let loopback = try route("debug_loopback", kind: .debugLoopback, host: "127.0.0.1", priority: 0)
+        let tailscale = try route("tailscale", kind: .tailscale, host: "100.64.0.4", priority: 10)
+        let selector = DeviceRouteSelector()
+        if hasGrant {
+            let selection = try selector.select(from: [loopback, tailscale], instance: studio) {
+                self.grant(for: $0)
+            }
+            #expect(selection.route == tailscale)
+            #expect(selection.evidence == grant(for: tailscale))
+        } else {
+            #expect(throws: DeviceRouteSelector.SelectionError.needsAuthorization) {
+                try selector.select(from: [loopback, tailscale], instance: studio) { _ in nil }
+            }
+        }
+    }
+
     @Test("A Tailscale route dials only with a device-bound grant for its exact peer")
     func tailscaleNeedsGrant() throws {
         let selector = DeviceRouteSelector(allowsDebugLoopback: false)
