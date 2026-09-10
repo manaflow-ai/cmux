@@ -716,6 +716,7 @@
 		7A0CE1000000000000000304 /* CloudPrivateNetworkUse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000303 /* CloudPrivateNetworkUse.swift */; };
 		0C45DC8D9BE54DDEA2397892 /* CloudPrivateRouteSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E6077A4B6CC441EB3668651 /* CloudPrivateRouteSelectionTests.swift */; };
 		D1AC3F6282A94EAEB79D160B /* CloudProviderRefreshCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A09B853868B54438A5B14F26 /* CloudProviderRefreshCoordinator.swift */; };
+		AC38407F09E94DA38B94F168 /* CloudProviderRefreshCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C2A7143303749BE82E51F69 /* CloudProviderRefreshCoordinatorTests.swift */; };
 		4DB42AF8827945DFADF7C4D4 /* CloudSidebarSurfaceRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3E5958FB85E4B97957D4F73 /* CloudSidebarSurfaceRegressionTests.swift */; };
 		FA0000000000000000000005 /* CloudTerminalPaneClosure.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000006 /* CloudTerminalPaneClosure.swift */; };
 		FA0000000000000000000003 /* CloudTerminalPaneClosureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000004 /* CloudTerminalPaneClosureTests.swift */; };
@@ -4255,6 +4256,7 @@
 		7A0CE1000000000000000303 /* CloudPrivateNetworkUse.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudPrivateNetworkUse.swift; sourceTree = "<group>"; };
 		1E6077A4B6CC441EB3668651 /* CloudPrivateRouteSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPrivateRouteSelectionTests.swift; sourceTree = "<group>"; };
 		A09B853868B54438A5B14F26 /* CloudProviderRefreshCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudProviderRefreshCoordinator.swift"; sourceTree = "<group>"; };
+		5C2A7143303749BE82E51F69 /* CloudProviderRefreshCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudProviderRefreshCoordinatorTests.swift; sourceTree = "<group>"; };
 		F3E5958FB85E4B97957D4F73 /* CloudSidebarSurfaceRegressionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudSidebarSurfaceRegressionTests.swift; sourceTree = "<group>"; };
 		FA0000000000000000000006 /* CloudTerminalPaneClosure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalPaneClosure.swift; sourceTree = "<group>"; };
 		FA0000000000000000000004 /* CloudTerminalPaneClosureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalPaneClosureTests.swift; sourceTree = "<group>"; };
@@ -10071,6 +10073,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				64C68B378B6071B213B4AA57 /* LocalSurfaceProviderTests.swift */,
 				BC427A4C642EBC36E600FA7F /* CmuxTuiSurfaceProviderTests.swift */,
 				64CB7AF7545F56E95A91B154 /* CloudNotificationSyncTests.swift */,
+				5C2A7143303749BE82E51F69 /* CloudProviderRefreshCoordinatorTests.swift */,
 				D01100800000000000000003 /* SurfaceCatalogQueryServiceTests.swift */,
 				D01100800000000000000005 /* CloudCatalogQueryTestProvider.swift */,
 				877BC9A2B697FEF2957397FA /* SurfaceCatalogTests.swift */,
@@ -13765,6 +13768,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				F11347000000000000000003 /* CloudPortOpenRegressionTests.swift in Sources */,
 				7A0CE100000000000000072C /* CloudPortRoutePlanTests.swift in Sources */,
 				0C45DC8D9BE54DDEA2397892 /* CloudPrivateRouteSelectionTests.swift in Sources */,
+				AC38407F09E94DA38B94F168 /* CloudProviderRefreshCoordinatorTests.swift in Sources */,
 				4DB42AF8827945DFADF7C4D4 /* CloudSidebarSurfaceRegressionTests.swift in Sources */,
 				FA0000000000000000000003 /* CloudTerminalPaneClosureTests.swift in Sources */,
 				B5C68F2FAFD21A103AFF429D /* CloudTreeMachineMenuTests.swift in Sources */,
