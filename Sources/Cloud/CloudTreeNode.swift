@@ -57,6 +57,7 @@ final class CloudTreeNode: NSObject {
         case port(SurfaceResource, url: String?, openIn: UUID?)
         /// A single explanatory line (asleep, connecting, link error, empty).
         case placeholder(machine: SurfaceMachineID, CloudTreePlaceholder)
+        case createWorkspace(machine: SurfaceMachineID, machineName: String), createTerminal(machine: SurfaceMachineID, workspaceID: String, workspaceName: String)
     }
 
     let id: String
@@ -94,6 +95,8 @@ final class CloudTreeNode: NSObject {
         case .portsGroup: return "portsGroup"
         case .port: return "port"
         case .placeholder: return "placeholder"
+        case .createWorkspace: return "createWorkspace"
+        case .createTerminal: return "createTerminal"
         }
     }
 
@@ -127,6 +130,7 @@ final class CloudTreeNode: NSObject {
         case .display(let resource, _, _): return resource.machine
         case .port(let resource, _, _): return resource.machine
         case .browser(let row): return row.resource.machine
+        case .createWorkspace(let machine, _), .createTerminal(let machine, _, _): return machine
         }
     }
 
@@ -159,6 +163,8 @@ final class CloudTreeNode: NSObject {
         case .port(let resource, let url, _):
             return url ?? (resource.id.forwardedPort ?? resource.port).map(String.init) ?? resource.title
         case .placeholder(_, let placeholder): return placeholder.text
+        case .createWorkspace: return String(localized: "cloudTree.row.newWorkspace", defaultValue: "New Workspace")
+        case .createTerminal: return String(localized: "cloudTree.row.newTerminal", defaultValue: "New Terminal")
         }
     }
 
@@ -212,7 +218,7 @@ final class CloudTreeNode: NSObject {
         case .terminal(let row): return row.resource
         case .browser(let row): return row.resource
         case .display(let resource, _, _), .port(let resource, _, _): return resource
-        case .machine, .pendingMachine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .placeholder:
+        case .machine, .pendingMachine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .placeholder, .createWorkspace, .createTerminal:
             return nil
         }
     }
@@ -554,6 +560,7 @@ enum CloudTreeNodeBuilder {
         snapshot: SurfaceCatalogSnapshot,
         localWorkspaces: [CloudTreeLocalWorkspace],
         unreadTerminalIDs: [String: Set<String>] = [:],
+        selectedRemoteWorkspace: CloudWorkspaceRemoteIdentity? = nil,
         includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine
     ) -> [CloudTreeNode] {
         let projectionIndex = LocalProjectionIndex(snapshot: snapshot, unreadTerminalIDs: unreadTerminalIDs)
@@ -586,7 +593,7 @@ enum CloudTreeNodeBuilder {
                     machine: .cloud(machine.id),
                     info: info,
                     snapshot: snapshot,
-                    projectionIndex: projectionIndex
+                    projectionIndex: projectionIndex, selectedRemoteWorkspace: selectedRemoteWorkspace
                 )
             ))
         }
@@ -610,7 +617,7 @@ enum CloudTreeNodeBuilder {
                     machine: info.id,
                     info: info,
                     snapshot: snapshot,
-                    projectionIndex: projectionIndex
+                    projectionIndex: projectionIndex, selectedRemoteWorkspace: selectedRemoteWorkspace
                 )
             ))
         }
@@ -640,8 +647,8 @@ enum CloudTreeNodeBuilder {
         "machine:\(machine.rawValue)/terminals/placeholder"
     }
     static func nodeID(workspacesGroup machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/workspaces" }
-    /// The "No workspaces yet" line under an empty machine's Workspaces group.
-    static func nodeID(workspacesPlaceholder machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/workspaces/placeholder" }
+    static func nodeID(createWorkspace machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/workspaces/create" }
+    static func nodeID(createTerminal workspace: String, machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/ws/\(workspace)/create-terminal" }
     static func nodeID(workspace: String, machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/ws/\(workspace)" }
     /// The local workspace that shows a remote workspace: the one holding the most of its
     /// members' panes (at least one). Nil when none of them is open anywhere.
@@ -783,7 +790,7 @@ enum CloudTreeNodeBuilder {
         machine: SurfaceMachineID,
         info: SurfaceMachineInfo?,
         snapshot: SurfaceCatalogSnapshot,
-        projectionIndex: LocalProjectionIndex
+        projectionIndex: LocalProjectionIndex, selectedRemoteWorkspace: CloudWorkspaceRemoteIdentity?
     ) -> [CloudTreeNode] {
         // The catalog has not registered this machine yet: nothing to expand.
         guard let info else {
@@ -811,7 +818,8 @@ enum CloudTreeNodeBuilder {
                 info: info,
                 resources: resources,
                 snapshot: snapshot,
-                projectionIndex: projectionIndex
+                projectionIndex: projectionIndex,
+                selectedRemoteWorkspace: selectedRemoteWorkspace
             ))
         }
         // Ports: one row per listening port, titled as the URL a person would
@@ -890,7 +898,7 @@ enum CloudTreeNodeBuilder {
         info: SurfaceMachineInfo,
         resources: [SurfaceResource],
         snapshot: SurfaceCatalogSnapshot,
-        projectionIndex: LocalProjectionIndex
+        projectionIndex: LocalProjectionIndex, selectedRemoteWorkspace: CloudWorkspaceRemoteIdentity?
     ) -> CloudTreeNode {
         let displays = resources.filter { $0.kind == .display }
         var byWorkspace: [String: RemoteWorkspaceRows] = [:]
@@ -939,8 +947,6 @@ enum CloudTreeNodeBuilder {
                 projectionIndex: projectionIndex,
                 openInLocal: openInLocal
             )
-            // The group keeps its members (a workspace's own placements; the implicit
-            // pool display stays out) but takes the rows' order.
             let realPlacementSet = Set(realPlacements)
             let orderedRealPlacements = layout.placements.map { placement in
                 SurfaceResourcePlacement(
@@ -949,6 +955,8 @@ enum CloudTreeNodeBuilder {
                     remoteWorkspaceID: workspace.id
                 )
             }.filter { realPlacementSet.contains($0) }
+            var workspaceChildren = layout.rows
+            if selectedRemoteWorkspace == CloudWorkspaceRemoteIdentity(machine: machine, workspaceID: workspace.id) { workspaceChildren.append(CloudTreeNode(id: nodeID(createTerminal: workspace.id, machine: machine), kind: .createTerminal(machine: machine, workspaceID: workspace.id, workspaceName: workspace.name))) }
             return CloudTreeNode(
                 id: nodeID(workspace: workspace.id, machine: machine),
                 kind: .workspace(
@@ -958,7 +966,7 @@ enum CloudTreeNodeBuilder {
                     hiddenTabCount: 0,
                     openIn: openInLocal
                 ),
-                children: layout.rows,
+                children: workspaceChildren,
                 dragGroup: SurfaceResourceGroup(
                     title: workspace.name,
                     placements: orderedRealPlacements,
@@ -966,15 +974,7 @@ enum CloudTreeNodeBuilder {
                 )
             )
         }
-        let rows: [CloudTreeNode] = workspaceNodes.isEmpty
-            ? [CloudTreeNode(
-                id: nodeID(workspacesPlaceholder: machine),
-                kind: .placeholder(machine: machine, CloudTreePlaceholder(
-                    text: String(localized: "cloudTree.placeholder.noWorkspaces", defaultValue: "No workspaces yet"),
-                    style: .dimmed
-                ))
-            )]
-            : workspaceNodes
+        let rows: [CloudTreeNode] = workspaceNodes.isEmpty ? [CloudTreeNode(id: nodeID(createWorkspace: machine), kind: .createWorkspace(machine: machine, machineName: info.name))] : workspaceNodes
         return CloudTreeNode(
             id: nodeID(workspacesGroup: machine),
             kind: .workspacesGroup(machine: machine),

@@ -68890,6 +68890,90 @@
         }
       }
     },
+    "machines.menu.newMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Machine…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新規マシン…" } }
+      }
+    },
+    "machines.menu.newWorkspaceOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Workspace on %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ に新規ワークスペース" } }
+      }
+    },
+    "machines.menu.newTerminalIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Terminal in %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ に新規ターミナル" } }
+      }
+    },
+    "machines.newMenu.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新規…" } }
+      }
+    },
+    "machines.newMenu.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新規…" } }
+      }
+    },
+    "cloudTree.row.newTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Terminal" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新規ターミナル" } }
+      }
+    },
+    "cloudTree.row.newWorkspace.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Workspace on %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ に新規ワークスペース" } }
+      }
+    },
+    "cloudTree.row.newTerminal.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Terminal in %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ に新規ターミナル" } }
+      }
+    },
+    "cloudTree.menu.newTerminalOnThisMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Terminal on This Mac" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この Mac に新規ターミナル" } }
+      }
+    },
+    "cloudTree.menu.newTerminalOnMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Terminal on %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ に新規ターミナル" } }
+      }
+    },
+    "cloudTree.menu.newWorkspaceOnMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Workspace on %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ に新規ワークスペース" } }
+      }
+    },
+    "cloudTree.menu.newTerminalInWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Terminal in %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ に新規ターミナル" } }
+      }
+    },
     "cloudTree.menu.copySurfaceID": {
       "extractionState": "manual",
       "localizations": {

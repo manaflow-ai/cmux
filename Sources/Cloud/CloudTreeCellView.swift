@@ -46,7 +46,8 @@ final class CloudTreeCellView: NSTableCellView {
         node: CloudTreeNode,
         machineActions: MachineRowActions,
         nodeActions: CloudTreeNodeActions,
-        style: CloudTreeStyle = CloudTreeStyleStore.current
+        style: CloudTreeStyle = CloudTreeStyleStore.current,
+        machineName: String? = nil
     ) {
         #if DEBUG
         if case .terminal(let row) = node.kind, row.hasUnreadNotification {
@@ -63,7 +64,7 @@ final class CloudTreeCellView: NSTableCellView {
         needsLayout = true
         if CloudTreeRowHoverButtons.hasButtons(for: node.kind) {
             let buttons = buttonsHost ?? makeButtonsHost()
-            buttons.rootView = AnyView(CloudTreeRowHoverButtons(kind: node.kind, machineActions: machineActions, nodeActions: nodeActions))
+            buttons.rootView = AnyView(CloudTreeRowHoverButtons(kind: node.kind, machineName: machineName ?? node.machine.rawValue, machineActions: machineActions, nodeActions: nodeActions))
             buttons.isHidden = false
             buttons.alphaValue = hovered ? 1 : 0
             // Two-line machine cards pin the buttons to the name line; every
@@ -75,7 +76,10 @@ final class CloudTreeCellView: NSTableCellView {
         } else {
             buttonsHost?.isHidden = true
         }
-        if case .machine(let machine, _) = node.kind {
+        let createLabel = CloudTreeCreateRowContent.destinationLabel(for: node.kind)
+        if let createLabel {
+            toolTip = createLabel
+        } else if case .machine(let machine, _) = node.kind {
             toolTip = [machine.displayName, machine.activityLabel, machine.image].joined(separator: "\n")
         } else if case .pendingMachine(let operation) = node.kind {
             // The failure's first line rides along so a red row explains itself on hover.
@@ -85,7 +89,7 @@ final class CloudTreeCellView: NSTableCellView {
         } else {
             toolTip = nil
         }
-        setAccessibilityLabel(node.searchableTitle)
+        setAccessibilityLabel(createLabel ?? node.searchableTitle)
     }
 
     private func makeButtonsHost() -> NSHostingView<AnyView> {
