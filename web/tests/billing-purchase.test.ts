@@ -3312,3 +3312,53 @@ describe("billing user lookup without a user-list scan", () => {
     expect(listUsers.mock.calls.length).toBeLessThanOrEqual(400);
   });
 });
+
+describe("purchase sign-in email delivery", () => {
+  test("sends the magic link when Stack accepts it", async () => {
+    const { deliverPurchaseSignInEmail } = await import("../services/billing/purchase");
+    const sendMagicLinkEmail = mock(async () => undefined);
+    const kind = await deliverPurchaseSignInEmail(
+      { sendMagicLinkEmail, getUser: mock(async () => null) } as never,
+      { email: "buyer@example.com", stackUserId: "u1" },
+    );
+    expect(kind).toBe("magic_link");
+    expect(sendMagicLinkEmail).toHaveBeenCalledWith("buyer@example.com", {
+      callbackUrl: "https://cmux.com/handler/after-sign-in",
+    });
+  });
+
+  test("falls back to the mailbox verification link when Stack refuses a sign-in link for an unverified shell", async () => {
+    const { deliverPurchaseSignInEmail } = await import("../services/billing/purchase");
+    const sendVerificationEmail = mock(async () => undefined);
+    const channel = {
+      id: "ch1",
+      type: "email",
+      value: "Buyer@Example.com",
+      isPrimary: true,
+      isVerified: false,
+      usedForAuth: true,
+      sendVerificationEmail,
+    };
+    const stackApp = {
+      sendMagicLinkEmail: mock(async () => ({ status: "error", error: { code: "USER_EMAIL_ALREADY_EXISTS" } })),
+      getUser: mock(async () => ({ id: "u1", primaryEmail: "buyer@example.com", listContactChannels: async () => [channel] })),
+    };
+    const kind = await deliverPurchaseSignInEmail(stackApp as never, { email: "buyer@example.com", stackUserId: "u1" });
+    expect(kind).toBe("verification");
+    expect(sendVerificationEmail).toHaveBeenCalledWith({
+      callbackUrl: "https://cmux.com/handler/email-verification",
+    });
+  });
+
+  test("a refused sign-in link with no unverified channel is a provider rejection", async () => {
+    const { deliverPurchaseSignInEmail } = await import("../services/billing/purchase");
+    const { PurchaseMagicLinkProviderRejectedError } = await import("../services/billing/emailVerificationDelivery");
+    const stackApp = {
+      sendMagicLinkEmail: mock(async () => ({ status: "error" })),
+      getUser: mock(async () => ({ id: "u1", primaryEmail: "buyer@example.com", listContactChannels: async () => [] })),
+    };
+    await expect(
+      deliverPurchaseSignInEmail(stackApp as never, { email: "buyer@example.com", stackUserId: "u1" }),
+    ).rejects.toBeInstanceOf(PurchaseMagicLinkProviderRejectedError);
+  });
+});
