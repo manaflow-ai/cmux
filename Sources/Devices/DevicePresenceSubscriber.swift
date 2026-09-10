@@ -94,7 +94,16 @@ actor DevicePresenceSubscriber {
                     while !Task.isCancelled {
                         try await clock.sleep(for: .seconds(30))
                         try await withThrowingTaskGroup(of: Void.self) { group in
-                            group.addTask { try await task.sendPing() }
+                            group.addTask {
+                                // Foundation exposes pong delivery through a
+                                // one-shot callback; bridge it at this boundary.
+                                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                                    task.sendPing { error in
+                                        if let error { continuation.resume(throwing: error) }
+                                        else { continuation.resume() }
+                                    }
+                                }
+                            }
                             group.addTask {
                                 try await clock.sleep(for: .seconds(10))
                                 task.cancel(with: .goingAway, reason: nil)
