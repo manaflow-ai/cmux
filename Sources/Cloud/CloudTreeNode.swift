@@ -885,10 +885,11 @@ enum CloudTreeNodeBuilder {
             ))
         }
 
-        // Connected machines expose Displays as a machine-level category, just
-        // like Ports and Terminals. The catalog owns real VNC resources; a
-        // connected empty state is explicit, while a down link stays truthful.
-        if info.linkState == .connected || info.linkState == .notApplicable || !displays.isEmpty {
+        // Cloud machines expose Displays as a machine-level category, just like
+        // Ports and Terminals. Personal Macs do not publish Cloud desktop/VNC
+        // resources, so omit the category entirely instead of rendering an
+        // empty "No displays available" row on every connected device.
+        if !machine.isDevice && (info.linkState == .connected || info.linkState == .notApplicable || !displays.isEmpty) {
             children.append(CloudTreeNode(
                 id: nodeID(displaysPool: machine),
                 kind: .displaysPool(machine: machine, count: displays.count),
