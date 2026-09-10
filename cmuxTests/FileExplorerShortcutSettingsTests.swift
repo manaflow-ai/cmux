@@ -257,8 +257,10 @@ private final class ShortcutNoopFileSearchController: FileSearchControlling {
             #expect(window.firstResponder === tableView)
 
             let commandR = StoredShortcut(key: "r", command: true, shift: false, option: false, control: false)
+            KeyboardShortcutSettings.setShortcut(.unbound, for: .browserReload)
             KeyboardShortcutSettings.setShortcut(commandR, for: .fileExplorerOpenSelection)
             let event = try #require(makeKeyDownEvent(shortcut: commandR, windowNumber: window.windowNumber))
+            try #require(KeyboardShortcutSettings.shortcut(for: .fileExplorerOpenSelection).matches(event: event))
             defer { appDelegate.clearShortcutEventFocusContextCache(for: event) }
 
             #expect(!appDelegate.shortcutWhenClauseAllows(action: .fileExplorerOpenSelection, event: event))
