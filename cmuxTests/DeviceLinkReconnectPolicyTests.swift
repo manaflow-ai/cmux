@@ -41,8 +41,12 @@ struct DeviceLinkReconnectPolicyTests {
         #expect(policy.apply(.waitElapsed) == .connecting(attempt: 3))
         #expect(policy.apply(.connectFailed(retryable: true, reason: "refused")) == .waiting(attempt: 3, delay: .seconds(5)))
         #expect(policy.apply(.waitElapsed) == .connecting(attempt: 4))
-        #expect(policy.apply(.connectSucceeded) == .connected)
-        #expect(policy.apply(.transportLost) == .connecting(attempt: 1), "a recovered link resets the attempt count")
+        let recoveredAt = Date(timeIntervalSince1970: 1_000)
+        #expect(policy.apply(.connectSucceeded, now: recoveredAt) == .connected)
+        #expect(
+            policy.apply(.transportLost, now: recoveredAt.addingTimeInterval(DeviceLinkReconnectPolicy.stableConnectionInterval)) == .connecting(attempt: 1),
+            "a stable recovered link resets the attempt count"
+        )
     }
 
     @Test("Backoff is bounded at thirty seconds")
