@@ -66,7 +66,7 @@ struct HivePairingSecurityTests {
     func pairingLinkRequiresItsNamedDeviceIdentity() throws {
         let route = try CmxAttachRoute(id: "tailscale", kind: .tailscale, endpoint: .hostPort(host: "100.64.0.1", port: 7333))
         let ticket = try CmxAttachTicket(workspaceID: "", terminalID: nil, macDeviceID: "mac-b", macDisplayName: nil, routes: [route])
-        let payload = try CmxAttachTicketCompactCoder().encode(ticket).base64EncodedString()
+        let payload = try CmxAttachTicketCompactCoder().encode(ticket, routeDisclosureMode: .legacyPrivateNetworkCompatibility).base64EncodedString()
             .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
         let link = "cmux-ios://attach?payload=\(payload)"
         let request = try HivePairingRequest(input: link, userID: "owner", email: nil, allowsLoopback: false)
