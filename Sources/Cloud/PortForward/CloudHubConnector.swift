@@ -7,9 +7,15 @@ import Network
 /// every loser before returning, so terminal and browser callers share the policy.
 struct CloudHubConnector: Sendable {
     var timeout: Duration = .seconds(15)
+    /// A cancellable head start for the preferred family, driven by the injected clock.
     var fallbackDelay: Duration = .milliseconds(250)
     var clock: any Clock<Duration> = ContinuousClock()
 
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     func connect(
         endpoint: NWEndpoint,
         target: CloudPortForwardTarget,
@@ -58,6 +64,11 @@ struct CloudHubConnector: Sendable {
         }
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     private func handshake(_ connection: NWConnection, host: String, port: Int, queue: DispatchQueue) async throws {
         try await withTaskCancellationHandler {
             try await withThrowingTaskGroup(of: Void.self) { group in
@@ -66,6 +77,8 @@ struct CloudHubConnector: Sendable {
                     try await CloudPortForwardRelay.connect(connection, to: CloudPortForwardTarget(host: host, port: port))
                 }
                 group.addTask {
+                    // A real handshake deadline; completion cancels this child
+                    // and expiry cancels the socket to unblock Network callbacks.
                     try await clock.sleep(for: timeout)
                     connection.cancel()
                     throw CloudPortForwardRelay.RelayError.handshakeTimedOut(timeout)
