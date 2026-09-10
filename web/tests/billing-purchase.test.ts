@@ -3351,7 +3351,8 @@ describe("purchase sign-in email delivery", () => {
   });
 
   test("a refused sign-in link with no unverified channel is a provider rejection", async () => {
-    const { deliverPurchaseSignInEmail, PurchaseMagicLinkProviderRejectedError } = await import("../services/billing/purchase");
+    const { deliverPurchaseSignInEmail } = await import("../services/billing/purchase");
+    const { PurchaseMagicLinkProviderRejectedError } = await import("../services/billing/emailVerificationDelivery");
     const stackApp = {
       sendMagicLinkEmail: mock(async () => ({ status: "error" })),
       getUser: mock(async () => ({ id: "u1", primaryEmail: "buyer@example.com", listContactChannels: async () => [] })),
