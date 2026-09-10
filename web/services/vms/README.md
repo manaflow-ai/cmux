@@ -120,8 +120,10 @@ Image policy:
 - Clients request a machine **kind** (`kind: "desktop" | "base"` on `POST /api/vm`,
   `POST /api/vm/base/open`, and `POST /api/vm/base/reset`) rather than pinning an image id. With
   no `image`, the resolver serves the manifest entry flagged `kind` + `defaultForKind` at the
-  plan's **size** (a body with neither `image` nor `kind` gets the `base` default) and otherwise
-  fails closed with `vm_image_config_error`. Sizes are Freestyle's ladder (`sm` … `2xl`,
+  plan's **size** (a body with neither `image` nor `kind` gets the **`desktop`** default,
+  `VM_IMAGE_DEFAULT_KIND`: a machine with a screen is the product default and shell-only is
+  always an explicit `kind: "base"`, #12239) and otherwise fails closed with
+  `vm_image_config_error`. Sizes are Freestyle's ladder (`sm` … `2xl`,
   `services/vms/images/sizes.ts`): one snapshot per size, and the smallest whose memory covers
   the plan's `defaultMemoryMbForPlan` is served, so machines boot at their shape and the driver
   never resizes. Create responses and `limits.imageKinds` carry the `size`. `image` still wins when present, but a client-requested `image` must be
@@ -135,15 +137,10 @@ Image policy:
   `expectNoCloudVmImplementationLeaks` in `tests/vm-route-auth.test.ts`).
 - Local development and every deployed runtime serve the same `defaultForKind` entry; there is no
   separate local default and nothing to copy into `.env`.
-- Today's default (both kinds, every size) is the `freestyle-cmux-devbox-11761b` ladder, baked and
-  verified on cmux's Freestyle account from https://github.com/manaflow-ai/cmux/pull/11776
-  (`090e3daddd`, epoch `2026-09-02-r4`: the desktop session with owner-signalled readiness
-  (`Type=notify`), the accessibility bus, clipboard helper and published `DISPLAY`, baked cmux-tui
-  daemon, `freestyle/ubuntu-sm` base): `sm` `sh-60effaffd5404e5ab8dbdb08bd5f5eed`, `md`
-  `sh-1ce6c11f5d6e4f8e98c19454e9a38751`, `lg` `sh-bda89603f1ab41a2902ac5d781e2c6ce`, `xl`
-  `sh-95b526e17c234593a45edfb572e49396`, `2xl` `sh-236a1866dd244082ba0f06829df2358d`. The retired
-  beta entry stays listed for the record and is never a default; earlier public entries (the
-  `11761a`, `20260903b` and `edge1` ladders before it) stay for rollback.
+- The current default ladders and their validation metadata are recorded in the authoritative
+  [`images/manifest.json`](./images/manifest.json). Retired and rollback entries remain in that
+  manifest for auditability; this README intentionally does not duplicate time-sensitive snapshot
+  ids.
 - Snapshots are account-scoped: a manifest id is only bootable by the Freestyle account whose
   `FREESTYLE_API_KEY` the deployment uses; promote under cmux's key.
 - Promotion is `bun run devbox:promote -- freestyle` (bake → verify → manifest write), then a PR
@@ -151,10 +148,16 @@ Image policy:
   `services/vms/images/devbox/README.md`. `tests/vm-image-manifest.test.ts` holds the invariants:
   one `defaultForKind` per provider and kind, unique versions, every default
   `validationStatus: "passed"`.
-- Every devbox default is a **desktop** image (one snapshot serves both kinds): TigerVNC on
-  `:1` with an openbox session, the tint2 dock (Chrome, Files, Ghostty), the CC0 wallpaper, the
-  accessibility bus for computer-use, and noVNC on 6901; the contract lives in
-  `services/vms/images/desktop.ts`. `POST /api/vm/[id]/open-port` (the app's Displays row, `cmux
+- Every devbox default is the **desktop** image and **one snapshot ladder serves both kinds**: the
+  manifest lists each snapshot once as the `desktop` default and once as the `base` default (the
+  `-base` rows point at the same ids), so `kind` never changes what a machine is. Every machine has
+  the shell tooling, the coding agents, TigerVNC on `:1` with an openbox session, the tint2 dock
+  (Chrome, Files, Ghostty), the CC0 wallpaper, the accessibility bus for computer-use, and noVNC on
+  6901, run by the `cmux-desktop` unit; the contract lives in `services/vms/images/desktop.ts`. The
+  app's New Machine sheet asks only for a size, `cmux vm new` accepts `--desktop` / `--base` for
+  older scripts without changing anything, and the Mac app lists a Displays row for every
+  newly created default machine. Historical shell-only machines keep their existing capabilities. A shell-only base ladder can still be baked (`--no-desktop`) but is not promoted.
+  `POST /api/vm/[id]/open-port` (the app's Displays row, `cmux
   vm open <m>:desktop`, port rows) returns the machine's **private VPC address**
   (`http://10.x.x.x:6901/vnc.html?…`), reachable only over the owner's WireGuard tunnel, the same
   path the daemon route takes; the driver (re)starts the `cmux-desktop` unit first when noVNC is
@@ -162,18 +165,24 @@ Image policy:
   before private networking) gets an error rather than a public URL.
 - Baked agent tools are installed at image-build time. They are not auto-updated on VM startup, so
   startup latency stays bounded and the manifest remains the source of truth.
-- To update tool versions, bump the Dockerfile ARG pins and `CMUX_IMAGE_EPOCH`, then promote a new
-  image. `CMUX_CLOUD_IMAGE_<TOOL>_NPM_SPEC` overrides must be exact npm package version pins, for
-  example `@openai/codex@0.130.0`, or `none` to disable a tool. The image builder rejects ranges
-  and tags such as `latest`.
+- To update tool versions, run `bun run devbox:pins:check --write` (web/; it rewrites the Dockerfile
+  ARG pins to the npm registry's current releases and refuses ranges and tags), bump
+  `CMUX_IMAGE_EPOCH`, then promote both ladders. `tests/vm-image-manifest.test.ts` and
+  `devbox:manifest:check` fail while a default is baked at another epoch or from other devbox
+  sources than the checkout (`devboxSourceDriftProblems`), so a pin bump and its promotion land
+  in one PR and never drift apart. `CMUX_CLOUD_IMAGE_<TOOL>_NPM_SPEC` overrides must be exact npm
+  package version pins, for example `@openai/codex@0.130.0`, or `none` to disable a tool. The
+  image builder rejects ranges and tags such as `latest`.
 
 A leftover `FREESTYLE_SANDBOX_SNAPSHOT` in a deployment is ignored; the env audit reports it as
 stale configuration to remove.
 
 Rollback is a manifest change:
 
-1. Revert the promotion PR (or flip `defaultForKind` back to a previous entry with
-   `validationStatus: "passed"`; entries are never removed).
+1. Revert the promotion PR as a whole (entries are never removed). Flipping `defaultForKind` back
+   to a previous `validationStatus: "passed"` entry by hand also means reverting the Dockerfile
+   epoch and pins that entry was baked from, or `devbox:manifest:check` and the manifest test fail
+   on the epoch and source-digest invariants.
 2. Deploy staging, smoke test, then production.
 3. Keep old snapshots until all VMs using them are gone.
 
