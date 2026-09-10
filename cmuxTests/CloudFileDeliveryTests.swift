@@ -72,6 +72,7 @@ import Testing
         #expect(CloudFileDelivery.outcome(fromScreen: "CMUX-FILE-ERR destination not writable: /etc/x") == .failed("destination not writable: /etc/x"))
         #expect(CloudFileDelivery.outcome(fromScreen: "CMUX-FILE-ERR") == .failed("unknown error"))
         #expect(CloudFileDelivery.outcome(fromScreen: "CMUX-FILE-READY\n") == nil)
+        #expect(CloudFileDelivery.outcome(fromScreen: "CMUX-FILE-OK bytes=12 path=/home/cmux/key bytes=900 mode=777 mode=600") == .ok(bytes: 12, path: "/home/cmux/key bytes=900 mode=777", mode: "600"))
         #expect(CloudFileDelivery.outcome(fromScreen: "CMUX-FILE-OK bytes=12 path=/home/cmux/my project/key mode=600") == .ok(bytes: 12, path: "/home/cmux/my project/key", mode: "600"))
     }
 
