@@ -860,13 +860,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Computer Use — Running in Background"
+            "value": "cmux Computer Use: Running in Background"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Computer Use — バックグラウンドで実行中"
+            "value": "cmux Computer Use: バックグラウンドで実行中"
           }
         }
       }
@@ -979,13 +979,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ — %2$@"
+            "value": "%1$@: %2$@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ — %2$@"
+            "value": "%1$@: %2$@"
           }
         }
       }
@@ -1404,7 +1404,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Drag the app card—not this window—into the permission list."
+            "value": "Drag the app card, not this window, into the permission list."
           }
         },
         "ja": {
@@ -1489,13 +1489,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permissions go to the separate cmux Computer Use helper — the cmux terminal itself never receives them."
+            "value": "Permissions belong to a separate Computer Use helper. You can quit or reopen it without closing cmux or your terminal sessions."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "権限は独立したcmux Computer Useヘルパーに付与され、cmuxターミナル本体には付与されません。"
+            "value": "権限は独立したComputer Useヘルパーに付与されます。ヘルパーを終了して再度開いても、cmuxやターミナルセッションは終了しません。"
           }
         }
       }
@@ -1914,7 +1914,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS asks to confirm — allow screen capture"
+            "value": "macOS asks for confirmation. Allow screen capture."
           }
         },
         "ja": {
@@ -68988,6 +68988,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "%2$@ の %1$@"
+          }
+        }
+      }
+    },
+    "cloudPane.layoutSyncFailed.ambiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The pane does not identify a unique machine tab. Reopen it from the machine workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペインに対応するマシンのタブを一意に特定できません。マシンのワークスペースから開き直してください。"
+          }
+        }
+      }
+    },
+    "cloudPane.layoutSyncFailed.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your local pane change was kept, but the machine layout could not be synchronized. Reopen the machine workspace to see its current layout."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルのペインへの変更は保持されましたが、マシンのレイアウトを同期できませんでした。マシンのワークスペースを開き直して、現在のレイアウトを確認してください。"
+          }
+        }
+      }
+    },
+    "cloudPane.layoutSyncFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t update the machine workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンのワークスペースを更新できませんでした"
           }
         }
       }
