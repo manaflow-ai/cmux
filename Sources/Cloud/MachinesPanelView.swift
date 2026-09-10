@@ -23,7 +23,7 @@ enum CloudVMPanelAuthState: Equatable {
 struct MachinesPanelView: View {
     @StateObject var viewModel: MachinesPanelViewModel
     @State private var expansionStore = CloudTreeExpansionStore()
-    @State private var selectedCreateSelection: CloudTreeCreateSelection?
+    @State private(set) var selectedCreateSelection: (accountID: String?, selection: CloudTreeCreateSelection)?
     @State private var tunnelStatus = CloudTunnelStatusModel()
     @State private var devBackend = DevBackendStartup()
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
@@ -42,11 +42,7 @@ struct MachinesPanelView: View {
         self.init(chromeBackgroundColor: chromeBackgroundColor, defaultMachineStore: DefaultCloudMachineStore(defaults: .standard), tabManager: tabManager)
     }
 
-    private var accountFlow: HostAccountFlow? {
-        AppDelegate.shared?.auth?.accountFlow
-    }
-
-    private var authState: CloudVMPanelAuthState {
+    var authState: CloudVMPanelAuthState {
         CloudVMPanelAuthState.resolve(
             isAuthenticated: accountFlow?.isAuthenticated == true,
             isWorkingOnAuth: accountFlow?.isCompletingSignIn == true
@@ -67,6 +63,12 @@ struct MachinesPanelView: View {
         .onAppear { syncPolling(for: authState) }
         .onChange(of: authState) { _, state in
             syncPolling(for: state)
+        }
+        .onChange(of: accountFlow?.currentIdentity?.id) { _, _ in
+            selectedCreateSelection = nil
+            viewModel.stopPolling()
+            viewModel.resetForAuthTransition()
+            syncPolling(for: authState)
         }
         .onChange(of: viewModel.defaultMachineStore?.machineID) { _, id in
             if let id { viewModel.setDefaultMachine(id: id) }
@@ -118,6 +120,7 @@ struct MachinesPanelView: View {
         case .signedIn:
             viewModel.startPolling()
         case .checking, .signedOut:
+            selectedCreateSelection = nil
             viewModel.stopPolling()
             viewModel.resetForAuthTransition()
         }
@@ -185,11 +188,11 @@ struct MachinesPanelView: View {
                 viewModel.refresh(tree: true)
             }
             CloudTreeCreateMenu(
-                selection: selectedCreateSelection,
+                selection: currentCreateSelection,
                 machineName: machineDisplayName,
                 requestNewMachine: requestNewMachine,
-                newWorkspace: { cloudTreeNodeActions.newWorkspace($0) },
-                newTerminal: { machine, workspaceID in cloudTreeNodeActions.newTerminal(machine, workspaceID) }
+                newWorkspace: createWorkspaceForSelection,
+                newTerminal: createTerminalForSelection
             )
         }
         .rightSidebarChromeBar()
@@ -449,6 +452,7 @@ struct MachinesPanelView: View {
     }
     /// Builds the snapshot-bound Cloud tree and binds its row actions.
     private var machinesList: some View {
+        let accountID = accountFlow?.currentIdentity?.id
         var machineActions = MachineRowActions.bound(
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in
@@ -475,10 +479,10 @@ struct MachinesPanelView: View {
             machineActions: machineActions,
             nodeActions: cloudTreeNodeActions,
             expansionStore: expansionStore, organizationStore: SurfaceCatalog.shared.sidebarOrganization, organizationState: SurfaceCatalog.shared.sidebarOrganization.state,
-            selectedRemoteWorkspaceID: selectedCreateSelection?.workspaceID,
+            selectedRemoteWorkspace: currentCreateSelection?.remoteWorkspace,
             style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
             onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) },
-            onSelectionChange: { selection in selectedCreateSelection = selection }
+            onSelectionChange: { selection in selectedCreateSelection = selection.map { (accountID, $0) } }
         )
         .accessibilityIdentifier("CloudMachinesTree")
     }

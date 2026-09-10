@@ -89,7 +89,10 @@ final class CloudTreeCellView: NSTableCellView {
             buttonsHost?.isHidden = true
             buttonsLeadingConstraint?.isActive = false
         }
-        if case .machine(let machine, _) = node.kind {
+        let createLabel = CloudTreeCreateRowContent.destinationLabel(for: node.kind)
+        if let createLabel {
+            toolTip = createLabel
+        } else if case .machine(let machine, _) = node.kind {
             toolTip = CloudTreeMachineRowContent(machine: machine).toolTip
         } else if case .pendingMachine(let operation) = node.kind {
             // The failure's first line rides along so a red row explains itself on hover.
@@ -99,7 +102,9 @@ final class CloudTreeCellView: NSTableCellView {
         } else {
             toolTip = nil
         }
-        if case .machine(let machine, _) = node.kind {
+        if let createLabel {
+            setAccessibilityLabel(createLabel)
+        } else if case .machine(let machine, _) = node.kind {
             setAccessibilityLabel(CloudTreeMachineRowContent(machine: machine).accessibilityLabel)
         } else if case .resource(_, let row) = node.kind {
             setAccessibilityLabel(row.accessibilityLabel)

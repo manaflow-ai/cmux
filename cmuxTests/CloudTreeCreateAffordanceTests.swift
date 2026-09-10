@@ -60,7 +60,7 @@ struct CloudTreeCreateAffordanceTests {
             machines: [fleetRow()],
             snapshot: snapshot,
             localWorkspaces: [],
-            selectedRemoteWorkspaceID: selectedRemoteWorkspaceID,
+            selectedRemoteWorkspace: selectedRemoteWorkspaceID.map { CloudWorkspaceRemoteIdentity(machine: machine, workspaceID: $0) },
             includeLocalMachine: false
         ))
     }
@@ -211,7 +211,7 @@ struct CloudTreeCreateAffordanceTests {
         )
         let nodes = CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(
             machines: [fleetRow()], snapshot: snapshot, localWorkspaces: [],
-            selectedRemoteWorkspaceID: main.id, includeLocalMachine: false
+            selectedRemoteWorkspace: CloudWorkspaceRemoteIdentity(machine: machine, workspaceID: main.id), includeLocalMachine: false
         ))
         let targets = nodes.compactMap { node -> SurfaceMachineID? in
             if case .createTerminal(let machine, _, _) = node.kind { return machine }

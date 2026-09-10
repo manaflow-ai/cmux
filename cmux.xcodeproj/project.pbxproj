@@ -891,6 +891,7 @@
 		D12240000000000000000009 /* CloudTreeCreateAffordanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1224000000000000000000A /* CloudTreeCreateAffordanceTests.swift */; };
 		D12240000000000000000001 /* CloudTreeCreateMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12240000000000000000002 /* CloudTreeCreateMenu.swift */; };
 		D12240000000000000000003 /* CloudTreeCreateRowContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12240000000000000000004 /* CloudTreeCreateRowContent.swift */; };
+		D12240000000000000000011 /* CloudTreeCreateSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12240000000000000000012 /* CloudTreeCreateSelection.swift */; };
 		3BCFA4F10BC6F6673CFA3BFC /* CloudTreeCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47E286761D314959F64AA002 /* CloudTreeCellView.swift */; };
 		9227367FC61F48CB8001E60D /* CloudTreeDragRegistration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A140580BAC9F43B79A607812 /* CloudTreeDragRegistration.swift */; };
 		46C9B49F24011903C31179A7 /* CloudTreeExpansionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B93142FA1472ACA28B993606 /* CloudTreeExpansionStore.swift */; };
@@ -4877,6 +4878,7 @@
 		D1224000000000000000000A /* CloudTreeCreateAffordanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeCreateAffordanceTests.swift; sourceTree = "<group>"; };
 		D12240000000000000000002 /* CloudTreeCreateMenu.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeCreateMenu.swift; sourceTree = "<group>"; };
 		D12240000000000000000004 /* CloudTreeCreateRowContent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeCreateRowContent.swift; sourceTree = "<group>"; };
+		D12240000000000000000012 /* CloudTreeCreateSelection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeCreateSelection.swift; sourceTree = "<group>"; };
 		47E286761D314959F64AA002 /* CloudTreeCellView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeCellView.swift; sourceTree = "<group>"; };
 		A140580BAC9F43B79A607812 /* CloudTreeDragRegistration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTreeDragRegistration.swift"; sourceTree = "<group>"; };
 		B93142FA1472ACA28B993606 /* CloudTreeExpansionStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeExpansionStore.swift; sourceTree = "<group>"; };
@@ -8451,6 +8453,7 @@
 				A4C74749FA907F50D653EF65 /* CloudTreeNSOutlineView.swift */,
 				D12240000000000000000002 /* CloudTreeCreateMenu.swift */,
 				D12240000000000000000004 /* CloudTreeCreateRowContent.swift */,
+				D12240000000000000000012 /* CloudTreeCreateSelection.swift */,
 				D12240000000000000000006 /* CloudTreeRowHoverButtons.swift */,
 				D12240000000000000000008 /* MachinesPanelView+Create.swift */,
 				D1224000000000000000000C /* CloudTreeOutlineSelection.swift */,
@@ -12965,6 +12968,7 @@
 				C986A0080000000000000001 /* CloudTreeActiveDrag.swift in Sources */,
 				D12240000000000000000001 /* CloudTreeCreateMenu.swift in Sources */,
 				D12240000000000000000003 /* CloudTreeCreateRowContent.swift in Sources */,
+				D12240000000000000000011 /* CloudTreeCreateSelection.swift in Sources */,
 				3BCFA4F10BC6F6673CFA3BFC /* CloudTreeCellView.swift in Sources */,
 				9227367FC61F48CB8001E60D /* CloudTreeDragRegistration.swift in Sources */,
 				46C9B49F24011903C31179A7 /* CloudTreeExpansionStore.swift in Sources */,

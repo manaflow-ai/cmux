@@ -20,8 +20,8 @@ struct CloudTreeCreateRowContent: View {
             Spacer(minLength: 0)
         }
         .padding(.trailing, CloudTreeRowGrid.trailingPadding)
-        .help(helpText)
-        .accessibilityLabel(accessibilityLabel)
+        .help(Self.destinationLabel(for: kind) ?? title)
+        .accessibilityLabel(Self.destinationLabel(for: kind) ?? title)
     }
 
     private var title: String {
@@ -35,7 +35,8 @@ struct CloudTreeCreateRowContent: View {
         }
     }
 
-    private var helpText: String {
+    /// Shared by the SwiftUI content and its native pass-through cell.
+    static func destinationLabel(for kind: CloudTreeNode.Kind) -> String? {
         switch kind {
         case .createWorkspace(_, let machineName):
             return String(
@@ -48,11 +49,7 @@ struct CloudTreeCreateRowContent: View {
                 workspaceName
             )
         default:
-            return ""
+            return nil
         }
-    }
-
-    private var accessibilityLabel: String {
-        helpText
     }
 }

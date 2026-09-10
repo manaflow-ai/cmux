@@ -1,15 +1,5 @@
 import SwiftUI
 
-enum CloudTreeCreateSelection: Equatable {
-    case machine(SurfaceMachineID)
-    case workspace(machine: SurfaceMachineID, workspaceID: String, workspaceName: String)
-
-    var workspaceID: String? {
-        if case .workspace(_, let workspaceID, _) = self { return workspaceID }
-        return nil
-    }
-}
-
 /// Header create menu. The icon stays in the existing chrome, while the menu
 /// names the object being created and scopes it to the current selection.
 struct CloudTreeCreateMenu: View {
