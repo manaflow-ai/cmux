@@ -6,6 +6,7 @@ import http.server
 import json
 import os
 from pathlib import Path
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -20,6 +21,30 @@ CACHE_CONTROL = "no-cache, no-store, must-revalidate"
 
 
 class R2UploadRequestsTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        tls = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(tls.cleanup)
+        root = Path(tls.name)
+        cls.cert = root / "localhost.pem"
+        key = root / "localhost.key"
+        config = root / "openssl.cnf"
+        config.write_text(
+            "[req]\nprompt = no\ndistinguished_name = dn\nx509_extensions = ext\n"
+            "[dn]\nCN = 127.0.0.1\n[ext]\nsubjectAltName = IP:127.0.0.1\n"
+            "basicConstraints = critical,CA:TRUE\n"
+            "keyUsage = critical,digitalSignature,keyEncipherment,keyCertSign\n"
+            "extendedKeyUsage = serverAuth\nsubjectKeyIdentifier = hash\n"
+            "authorityKeyIdentifier = keyid:always\n"
+        )
+        subprocess.run(
+            ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-sha256", "-nodes",
+             "-days", "1", "-keyout", str(key), "-out", str(cls.cert), "-config", str(config)],
+            check=True, capture_output=True, timeout=30,
+        )
+        cls.tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        cls.tls_context.load_cert_chain(cls.cert, key)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -32,6 +57,7 @@ class R2UploadRequestsTests(unittest.TestCase):
             CMUX_R2_UPLOAD_AMZ_DATE="20260102T030405Z",
             NO_PROXY="127.0.0.1",
             no_proxy="127.0.0.1",
+            SSL_CERT_FILE=str(self.cert),
         )
 
     def upload(self, name="appcast.xml", *flags, endpoint="https://example.invalid", body=BODY):
@@ -57,13 +83,20 @@ class R2UploadRequestsTests(unittest.TestCase):
         self.assertIn("content-type", signed)
         self.assertEqual(signed, sorted(signed))
 
-    def start_endpoint(self, existing=False):
+    def start_endpoint(self, existing=False, *, tls=True, redirects=None):
         requests = []
 
         class Handler(http.server.BaseHTTPRequestHandler):
             def record(self):
                 body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
                 requests.append((self.command, self.path, dict(self.headers.items()), body))
+                if redirects and self.command in redirects and self.path != "/redirect-target":
+                    code, target = redirects[self.command]
+                    self.send_response(code)
+                    self.send_header("Location", target)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
                 status = 404 if self.command == "HEAD" and not existing else 200
                 response = BODY if self.command == "GET" else b""
                 self.send_response(status)
@@ -77,7 +110,9 @@ class R2UploadRequestsTests(unittest.TestCase):
                 pass
 
         server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        if tls:
+            server.socket = self.tls_context.wrap_socket(server.socket, server_side=True)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
         thread.start()
 
         def stop():
@@ -86,7 +121,39 @@ class R2UploadRequestsTests(unittest.TestCase):
             server.server_close()
 
         self.addCleanup(stop)
-        return f"http://127.0.0.1:{server.server_port}", requests
+        scheme = "https" if tls else "http"
+        return f"{scheme}://127.0.0.1:{server.server_port}", requests
+
+    def test_plaintext_endpoints_are_rejected_before_sending_credentials(self):
+        endpoint, requests = self.start_endpoint(tls=False)
+        self.env["AWS_SESSION_TOKEN"] = "example-session-token"
+        for flags in ((), ("--write-once",), ("--dry-run-json",)):
+            with self.subTest(flags=flags):
+                result = self.upload("appcast.xml", *flags, endpoint=endpoint)
+                self.assertEqual(requests, [], "No signed request may reach a plaintext endpoint")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("HTTPS", result.stderr)
+
+    def test_signed_requests_never_follow_redirects(self):
+        self.env["AWS_SESSION_TOKEN"] = "example-session-token"
+        for target_kind in ("https", "http", "same-origin"):
+            collector, collected = self.start_endpoint(existing=True, tls=target_kind != "http")
+            target = "/redirect-target" if target_kind == "same-origin" else collector + "/redirect-target"
+            for method in ("HEAD", "GET", "PUT"):
+                for code in (301, 302, 303, 307, 308):
+                    with self.subTest(target=target_kind, method=method, code=code):
+                        collected.clear()
+                        endpoint, requests = self.start_endpoint(existing=True, redirects={method: (code, target)})
+                        flags = () if method == "PUT" else ("--write-once",)
+                        result = self.upload("appcast.xml", *flags, endpoint=endpoint)
+                        expected = ["HEAD", "GET"] if method == "GET" else [method]
+                        self.assertEqual(collected, [], "Redirect must not forward signed headers to another origin")
+                        self.assertEqual([r[0] for r in requests], expected)
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn(f"HTTP {code}", result.stderr)
+                        headers = {k.lower(): v for k, v in requests[-1][2].items()}
+                        self.assertIn("authorization", headers)
+                        self.assertEqual(headers["x-amz-security-token"], self.env["AWS_SESSION_TOKEN"])
 
     def test_all_nightly_appcasts_explicit_xml_dry_run(self):
         for name in APPCASTS:
