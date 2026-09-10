@@ -44,15 +44,23 @@ atexit.register(lambda: open(os.environ['CAPTURE_PATH'],'w').write(json.dumps(pa
 }
 
 describe("Freestyle private network readiness", () => {
-  test("create prepares the guest network before publishing its private addresses", async () => {
+  test.each([
+    { operation: "create", hasAddresses: true },
+    { operation: "create", hasAddresses: false },
+    { operation: "restore", hasAddresses: true },
+    { operation: "restore", hasAddresses: false },
+  ])("publishes only after network readiness or rolls back: %j", async ({ operation, hasAddresses }) => {
     const events: string[] = [];
     const data = {
       id: "vm-network-test", state: "running", snapshotId: "sh-fixture",
       resources: { cpu: 64, memory: 131072, storage: 1048576 },
-      vpcs: [{ ipv4: "10.16.0.2", ipv6: "fd00::2" }],
+      vpcs: hasAddresses ? [{ ipv4: "10.16.0.2", ipv6: "fd00::2" }] : [],
     };
     const vm = {
-      exec: async () => { events.push("guest-network"); return { statusCode: 0, stdout: "", stderr: "" }; },
+      exec: async ({ command }: { command: string }) => {
+        events.push(command.startsWith("python3 -c ") ? "guest-network" : "guest-daemon");
+        return { statusCode: 0, stdout: "", stderr: "" };
+      },
       delete: async () => { events.push("delete"); },
     };
     const client = { vms: {
@@ -64,10 +72,18 @@ describe("Freestyle private network readiness", () => {
       resolveDaemonSource: async () => { throw new Error("No daemon install is needed"); },
     });
 
-    await provider.create({ image: "sh-fixture", network: { id: "vpc-fixture" } });
-    events.push("published");
-
-    expect(events).toEqual(["allocated", "guest-network", "published"]);
+    const allocation = operation === "create"
+      ? provider.create({ image: "sh-fixture", network: { id: "vpc-fixture" } })
+      : provider.restore("sh-fixture", { network: { id: "vpc-fixture" } });
+    const preparation = operation === "restore" ? ["allocated", "guest-daemon"] : ["allocated"];
+    if (hasAddresses) {
+      await allocation;
+      events.push("published");
+      expect(events).toEqual([...preparation, "guest-network", "published"]);
+    } else {
+      await expect(allocation).rejects.toThrow("Private network has no valid assigned address");
+      expect(events).toEqual([...preparation, "delete"]);
+    }
   });
 
   test("the guest announces assigned IPv4 and IPv6 without touching other addresses", () => {
