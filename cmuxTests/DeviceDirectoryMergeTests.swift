@@ -159,9 +159,16 @@ struct DeviceDirectoryMergeTests {
         #expect(records[1].routes.map(\.id) == ["stale"], "an offline instance keeps the registry's durable routes")
     }
 
-    @Test("Every directory source shares the viewer's channel or exact dev tag", arguments: ["default", "nightly", "issue-8001"])
-    func matchingBuildInstances(viewerTag: String) throws {
-        let tags = ["default", "nightly", "issue-8001", "unrelated-dev", "rc", "staging"]
+    @Test("Dev directories show only the same tag, nightly and stable across every source", arguments: [
+        ("default", ["default"]),
+        ("nightly", ["nightly"]),
+        ("rc", ["rc"]),
+        ("staging", ["staging"]),
+        ("issue-8001", ["default", "issue-8001", "nightly"]),
+        ("dev", ["default", "dev", "nightly"]),
+    ])
+    func matchingBuildInstances(viewerTag: String, visibleTags: [String]) throws {
+        let tags = ["default", "nightly", "dev", "issue-8001", "unrelated-dev", "rc", "staging"]
         let saved = try route("saved")
         let live = Dictionary(uniqueKeysWithValues: tags.flatMap { tag in
             [presence(studioID, tag: tag, online: true, name: "Mac mini"),
@@ -180,11 +187,11 @@ struct DeviceDirectoryMergeTests {
             selfInstance: SurfaceDeviceInstanceID(deviceID: selfID, tag: viewerTag),
             currentUserID: "user_a"
         ))
-        #expect(records.map(\.instance) == [
-            SurfaceDeviceInstanceID(deviceID: studioID, tag: viewerTag),
-            SurfaceDeviceInstanceID(deviceID: laptopID, tag: viewerTag),
-        ])
-        #expect(records.map(\.deviceName) == ["Mac mini", "Mac mini"], "Distinct Macs with the same name must remain reachable")
+        let expectedInstances = [studioID, laptopID].flatMap { deviceID in
+            visibleTags.map { SurfaceDeviceInstanceID(deviceID: deviceID, tag: $0) }
+        }
+        #expect(records.map(\.instance) == expectedInstances)
+        #expect(records.map(\.deviceName) == Array(repeating: "Mac mini", count: expectedInstances.count), "Distinct Macs with the same name must remain reachable")
         #expect(records.first?.routes == [saved])
 
         let remembered = DeviceDirectoryMerge.merge(.init(
@@ -193,7 +200,7 @@ struct DeviceDirectoryMergeTests {
             currentUserID: "user_a"
         ))
         #expect(Set(remembered.map(\.instance)) == Set(records.map(\.instance)))
-        #expect(remembered.count == 2, "Reconnects cannot resurrect other builds or duplicate a device")
+        #expect(remembered.count == expectedInstances.count, "Reconnects cannot resurrect other builds or duplicate a device")
     }
 
     @Test("Previous records survive presence forgetting them; manual remotes and phones never appear")
