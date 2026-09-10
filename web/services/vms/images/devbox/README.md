@@ -102,8 +102,8 @@ contract, not decoration:
   away, and the verifier proves both that the refusal is gone and that a pane
   the daemon opens really reports `cmux@cmux`.
 
-`vm-devbox-image.test.ts` pins the shared files (`cmux-bashrc`, the guest
-`cmux` adapter, `agent-config.sh`, `seed-history`, `chrome-managed-policy.json`) to their
+`vm-devbox-image.test.ts` pins the shared files (`cmux-bashrc`,
+`agent-config.sh`, `seed-history`, `chrome-managed-policy.json`) to their
 chatmux counterparts, so edit both copies together.
 
 ## Desktop layer (`desktop/`)

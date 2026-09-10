@@ -1,6 +1,6 @@
 # cmux Cloud devbox interactive shell setup (/etc/cmux/bashrc).
-# Sourced from /etc/bash.bashrc, /etc/skel/.bashrc, /root/.bashrc, and the
-# uid-1000 work user's `.bashrc` (currently /home/ubuntu on Freestyle).
+# Sourced from /etc/bash.bashrc, /etc/skel/.bashrc, /root/.bashrc, and
+# /home/cmux/.bashrc.
 # (byte-identical body below the header; vm-devbox-image.test.ts pins it) and
 # chatmux infra/sandbox-images/devshell.bashrc.
 case $- in *i*) ;; *) return ;; esac
@@ -66,20 +66,14 @@ if [ -f /usr/local/share/blesh/ble.sh ] && [ -z "${BLE_VERSION:-}" ]; then
 fi
 
 # half-life palette: purple 135, lime 118, orange 166, hotpink 161. The machine
-# prompt uses the stable cmux product name rather than the provider's transient
-# hostname (for example, freestyle-vm). Override only for deliberate image
-# diagnostics with CMUX_PROMPT_HOST.
+# name stays in the prompt (\h): cloud machines are addressed by name.
 __cmux_git() {
   local b d=""
   b=$(git symbolic-ref --short HEAD 2>/dev/null) || b=$(git rev-parse --short HEAD 2>/dev/null) || return 0
   git diff --quiet --ignore-submodules HEAD 2>/dev/null || d="*"
   printf ' on \001\033[38;5;166m\002%s\001\033[38;5;161m\002%s\001\033[0m\002' "$b" "$d"
 }
-CMUX_PROMPT_HOST="${CMUX_PROMPT_HOST:-cmux}"
-case "$CMUX_PROMPT_HOST" in
-  ''|*[!A-Za-z0-9._-]*) CMUX_PROMPT_HOST=cmux ;;
-esac
-PS1='\[\e[38;5;135m\]\u@${CMUX_PROMPT_HOST}\[\e[0m\] in \[\e[38;5;118m\]\w\[\e[0m\]$(__cmux_git) λ '
+PS1='\[\e[38;5;135m\]\u@\h\[\e[0m\] in \[\e[38;5;118m\]\w\[\e[0m\]$(__cmux_git) λ '
 
 HISTSIZE=50000
 HISTFILESIZE=50000
@@ -89,6 +83,4 @@ alias ls='ls --color=auto'
 alias grep='grep --color=auto'
 alias g=git
 
-# `bash -i` is also used by non-PTY exec probes and provider health checks;
-# ble-attach requires a real terminal and returns non-zero without one.
-[ -n "${BLE_VERSION:-}" ] && [ -t 0 ] && ble-attach || true
+[ -n "${BLE_VERSION:-}" ] && ble-attach

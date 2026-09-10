@@ -57,9 +57,6 @@
  * with a fresh identity, within one supervisor tick of resume. The driver
  * (web/services/vms/drivers/freestyle.ts) therefore runs no install, start, or
  * readiness exec at create; it writes the model-plane env file and returns.
- * The guest-facing `/usr/local/bin/cmux` adapter is baked independently of
- * the daemon binary, so a fresh machine exposes the safe command family
- * before the attach-time heal runs.
  * The unit binds the listener dual-stack (CMUX_TUI_REMOTE_WS_BIND=[::]:1337)
  * because the driver routes attaches to a private VPC address by default and
  * to the stable public IPv6 for legacy public-network machines. The daemon
@@ -86,7 +83,6 @@
 import { Freestyle } from "freestyle";
 import { fileURLToPath } from "node:url";
 import { VM_GUEST_MODEL_PLANE_ENV_PATH, renderVmGuestModelPlaneEnvFile, vmGuestModelPlaneEnv } from "../services/coderouter/vmGuestEnv";
-import { GUEST_CMUX_SHIM_PATH } from "../services/vms/guestCli";
 import {
   CMUX_TUI_LAYOUT_MARKER_PATH,
   CMUX_TUI_SESSION,
@@ -252,7 +248,7 @@ const pins = devboxAgentPins();
  * so nothing it creates is root-owned.
  */
 const interactiveShellProbe = (run: number): string =>
-  `sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L probe${run} new-session -d -s login -x 120 -y 30 && sleep 3 && pane="$(tmux -L probe${run} capture-pane -pt login)"; tmux -L probe${run} kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -iE "ble\\.sh|bleopt|ble-face|denied|not found|WARRANTY${run > 1 ? "|updating tput" : ""}" && { printf "%s\\n" "$pane"; exit 1; }; printf "%s\\n" "$pane" | grep -q "@cmux" || { printf "%s\\n" "$pane"; echo "no cmux prompt"; exit 1; }; printf "%s\\n" "$pane" | grep -q "λ" || { printf "%s\\n" "$pane"; echo "no cmux prompt marker"; exit 1; }'`;
+  `sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L probe${run} new-session -d -s login -x 120 -y 30 && sleep 3 && pane="$(tmux -L probe${run} capture-pane -pt login)"; tmux -L probe${run} kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -iE "ble\\.sh|bleopt|ble-face|denied|not found|WARRANTY${run > 1 ? "|updating tput" : ""}" && { printf "%s\\n" "$pane"; exit 1; }; printf "%s\\n" "$pane" | grep -q "λ" || { printf "%s\\n" "$pane"; echo "no cmux prompt"; exit 1; }'`;
 
 try {
   await step(
@@ -464,17 +460,6 @@ try {
   // bake and the attach-time heal can never disagree about path or digest.
   console.log(`cmux-tui pin: commit ${cmuxTuiSource.commit} sha256 ${cmuxTuiSource.sha256.slice(0, 12)}…`);
   await step("cmux-tui-install", cmuxTuiInstallCommand(cmuxTuiSource));
-  // Bake the guest-facing adapter after cmux-tui is present. The adapter is a
-  // separate POSIX layer: cmux-tui remains the local transport, while auth,
-  // CodeRouter, and agent verbs stay safe and useful inside a VM. Use the
-  // filesystem API rather than a shell-encoded payload so a large generated
-  // script cannot be truncated by an exec command-line limit; the driver
-  // repeats the same atomic install on attach for older snapshots.
-  await put("cmux", GUEST_CMUX_SHIM_PATH, 0o755);
-  await step(
-    "guest-cli",
-    `test -x ${GUEST_CMUX_SHIM_PATH} && sh -n ${GUEST_CMUX_SHIM_PATH} && ${GUEST_CMUX_SHIM_PATH} --help | grep -q 'cmux auth status' && ${GUEST_CMUX_SHIM_PATH} --help | grep -q 'cmux coderouter agent'`,
-  );
   await step(
     "cmux-tui-pin",
     `${cmuxTuiPinCheckCommand(cmuxTuiSource)} && mkdir -p /etc/cmux && printf '%s %s\n' ${cmuxTuiSource.sha256} ${cmuxTuiSource.commit} > /etc/cmux/cmux-tui-pin && cat /etc/cmux/cmux-tui-pin`,

@@ -14,8 +14,8 @@
 # (docs/cloud-cmux-tui-daemon.md). This container image bakes NO binary: a
 # driver installs the pinned files.cmux.com build (sha256-verified) at create
 # time and heals it on attach (web/services/vms/drivers/cmuxTuiDaemon.ts). The
-# image ships the guest-facing /usr/local/bin/cmux adapter plus
-# /usr/local/bin/cmux-devbox-boot, the supervisor that waits for the binary and restarts the daemon, and (without systemd) runs the
+# image ships only /usr/local/bin/cmux-devbox-boot, the supervisor that waits
+# for the binary and restarts the daemon, and (without systemd) runs the
 # desktop supervisor as the work user. The Freestyle public-platform bake
 # (build-devbox-freestyle.ts) runs the same supervisor from a systemd unit but
 # bakes the binary, binds the daemon identity to the instance id, and runs the
@@ -273,7 +273,6 @@ RUN curl -fsSL https://github.com/akinomyoga/ble.sh/releases/download/nightly/bl
   && rm -f /tmp/ble.tar.xz \
   && test -f /usr/local/share/blesh/ble.sh
 COPY cmux-bashrc /etc/cmux/bashrc
-COPY cmux /usr/local/bin/cmux
 COPY seed-history /etc/cmux/seed-history
 COPY cmux-terminfo.sh /etc/profile.d/cmux-terminfo.sh
 # The cmux app's terminfo overlay (Resources/terminfo-overlay as infocmp
@@ -291,8 +290,6 @@ RUN tic -x -o /etc/terminfo /etc/cmux/terminfo.src \
        && [ "$(tput -T$t setaf 8 | od -An -tx1 | tr -d ' \n')" = 1b5b33383b353b386d ] || exit 1; \
      done
 RUN bash -n /etc/cmux/bashrc \
-  && chmod 0755 /usr/local/bin/cmux \
-  && sh -n /usr/local/bin/cmux \
   && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /etc/bash.bashrc \
   && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /etc/skel/.bashrc \
   && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /root/.bashrc \

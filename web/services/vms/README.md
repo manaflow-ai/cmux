@@ -472,8 +472,9 @@ The current port-preview and model-plane paths have different trust boundaries:
 
 ## In-VM cmux CLI and machine-to-machine links
 
-The devbox bake installs `/usr/local/bin/cmux` (`services/vms/guestCli.ts`) and the driver
-reinstalls it atomically at create/attach heal: a POSIX shim over the machine's own cmux-tui
+The driver installs `/usr/local/bin/cmux` (`services/vms/guestCli.ts`) atomically at
+create/attach heal (a devbox bake may later ship it preinstalled; that lands with its
+promotion): a POSIX shim over the machine's own cmux-tui
 binary. Local verbs use cmux-tui's grammar against
 the machine's daemon session; `cmux vm …` verbs talk to peer machines through cmux-remote
 existing grants in `~/.cmux/peers/<dst>.json`. Main replaced the enrollment-based Mac
