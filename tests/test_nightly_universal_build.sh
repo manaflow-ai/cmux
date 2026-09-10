@@ -446,8 +446,8 @@ if ! awk '
   exit 1
 fi
 
-if ! grep -Fq "core.setOutput('should_publish', isMainRef ? 'true' : 'false');" "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly decide step must expose should_publish based on whether the ref is main"
+if ! grep -Fq "core.setOutput('should_publish', isMainRef && !buildOnly ? 'true' : 'false');" "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly decide step must expose should_publish only for main refs that are not measurement runs"
   exit 1
 fi
 
@@ -490,5 +490,76 @@ if ! awk '
   echo "FAIL: main nightly publish must include per-architecture immutable and stable DMGs, their appcasts, and the legacy names"
   exit 1
 fi
+
+# A build-only measurement run is the only safe way to time the nightly build
+# job from a branch: a full branch dispatch still signs and notarizes under the
+# release identity. build_only must stop at the unsigned universal build, so it
+# never reaches the helper, signing, notarization, dSYM upload, or publication,
+# and cold_cache (skip the compilation cache restore) is only honoured there.
+for expected in \
+  'description: Measure the unsigned universal build only. Never builds the helper, signs, notarizes, uploads dSYMs, or publishes.' \
+  'description: Skip the Xcode compilation cache restore so the measurement run is a cache miss. Only honoured with build_only.' \
+  "const buildOnly = process.env.BUILD_ONLY === 'true';" \
+  "const coldCache = buildOnly && process.env.COLD_CACHE === 'true';" \
+  "core.setOutput('build_only', buildOnly ? 'true' : 'false');" \
+  "core.setOutput('cold_cache', coldCache ? 'true' : 'false');" \
+  'build_only: ${{ steps.decide.outputs.build_only }}' \
+  'cold_cache: ${{ steps.decide.outputs.cold_cache }}'; do
+  if ! grep -Fq "$expected" "$WORKFLOW_FILE"; then
+    echo "FAIL: build-only measurement lane is missing: $expected"
+    exit 1
+  fi
+done
+
+if ! awk '
+  /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
+  /^  build-nightly-app:/ { job="app"; next }
+  /^  build-sign-notarize-nightly:/ { job="sign"; next }
+  /^  publish-nightly:/ { job="publish"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job="" }
+  job && /^    if: / {
+    if (/needs\.decide\.outputs\.should_build == '\''true'\''/) build_gate[job]=1
+    if (/needs\.decide\.outputs\.build_only != '\''true'\''/) measure_gate[job]=1
+  }
+  END {
+    exit !(build_gate["helper"] && measure_gate["helper"] &&
+           build_gate["app"] && !measure_gate["app"] &&
+           build_gate["sign"] && measure_gate["sign"] &&
+           build_gate["publish"] && measure_gate["publish"])
+  }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: build_only must skip the helper, signing, and publication jobs while still running the unsigned app build"
+  exit 1
+fi
+
+if ! awk '
+  /^  build-nightly-app:/ { job="app"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job=""; step="" }
+  job == "app" && /^      - name: Restore Xcode compilation cache/ { step="restore"; next }
+  job == "app" && /^      - name: Upload dSYMs to Sentry/ { step="dsym"; next }
+  job == "app" && /^      - name:/ { step="" }
+  step == "restore" && /^        if: needs\.decide\.outputs\.cold_cache != '\''true'\''$/ { saw_cold_gate=1 }
+  step == "dsym" && /^        if: needs\.decide\.outputs\.build_only != '\''true'\''$/ { saw_dsym_gate=1 }
+  END { exit !(saw_cold_gate && saw_dsym_gate) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: a build-only run must be able to skip the compilation cache restore and must never upload dSYMs to Sentry"
+  exit 1
+fi
+
+if ! grep -Fq "github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id)" "$WORKFLOW_FILE"; then
+  echo "FAIL: build-only measurement runs must not share a concurrency group with publishing nightly runs (a newer queued run cancels the pending one)"
+  exit 1
+fi
+
+# An oversize cache silently freezes the nightly cache at the last saved entry:
+# every later build restores that entry, exceeds the bound again, and never
+# saves. Surface the skip as a workflow warning so the freeze is visible.
+for cache_workflow in "$WORKFLOW_FILE" "$CI_WORKFLOW_FILE"; do
+  if grep -Fq 'echo "Xcode compilation cache exceeds 5 GiB; skipping cache save"' "$cache_workflow" \
+    || ! grep -Fq 'echo "::warning::Xcode compilation cache exceeds 5 GiB; skipping cache save"' "$cache_workflow"; then
+    echo "FAIL: $(basename "$cache_workflow") must report an oversize compilation cache as a workflow warning"
+    exit 1
+  fi
+done
 
 echo "PASS: nightly workflow builds once, thins per architecture, and keeps the legacy track migrating"
