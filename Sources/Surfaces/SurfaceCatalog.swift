@@ -89,100 +89,6 @@ final class CloudRenameCoordinator {
     }
 }
 
-/// A provider owns the resources of one machine and knows how to put one on screen.
-/// Providers push resource changes into the catalog (`catalog.replaceResources`) and the
-/// catalog asks them to materialize a projection. They never track projections themselves.
-@MainActor
-protocol SurfaceProvider: AnyObject {
-    var machine: SurfaceMachineID { get }
-    var info: SurfaceMachineInfo { get }
-    /// Whether this provider can materialize a machine port as a browser preview.
-    /// Providers with a direct private-network URL may report true even when no
-    /// control-plane `openPort` call is needed.
-    var supportsPortPreviews: Bool { get }
-    /// Re-sync from the source of truth (machine list, link snapshot, local panels).
-    func refresh() async
-    /// Re-sync this provider, optionally bypassing provider-side caches. The
-    /// default preserves the legacy provider contract; cloud providers use the
-    /// force bit for an explicit `--refresh` request.
-    func refresh(force: Bool) async
-    /// Create the pane that shows `resource` at `destination` and return the panel it created
-    /// (or reused). The catalog records the projection.
-    func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection
-    /// Same operation with an exact remote placement. A terminal can appear in several
-    /// daemon tabs, so callers that came from a workspace pointer pass that tab here.
-    func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection
-    /// Create a new terminal on this machine (remote providers create it in the cmux-tui
-    /// session; the local provider spawns a shell) and return its resource.
-    func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource
-    /// Called when a pane projecting one of this provider's resources goes away. Remote
-    /// providers do nothing (the resource lives on); the local provider drops the resource.
-    func projectionDidEnd(_ projection: SurfaceProjection)
-    /// End a terminal on this machine (the process and its remote tab). Providers that
-    /// cannot (the local machine) throw `SurfaceCatalogError.unsupported`.
-    func closeTerminal(_ id: SurfaceResourceID) async throws
-    /// Create a new, empty workspace on this machine, directly (not as a side effect of
-    /// creating a terminal). Providers without remote workspaces refuse.
-    func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace
-    /// Close a workspace view on this machine. Its terminals detach into the pool
-    /// (`spec/cli.md`: only `terminal close` kills); callers wanting a full delete
-    /// close each terminal first.
-    func closeRemoteWorkspace(id: String) async throws
-    /// Rename a remote workspace.
-    func renameRemoteWorkspace(id: String, name: String) async throws
-    /// Rename one remote tab placement. Tab names are placement-local even when several
-    /// tabs point at the same terminal.
-    func renameRemoteTab(id: String, name: String) async throws
-    /// Compatibility operation that explicitly renames every tab placement of a terminal.
-    /// New UI paths must use `renameRemoteTab` when they have a placement reference.
-    func renameTerminal(_ id: SurfaceResourceID, name: String) async throws
-    /// Close a projection's pane: a materialization that lost a race with an existing
-    /// projection, or a URL-backed pane whose machine was unregistered. The default
-    /// implementation handles providers that use the shared pane factory; providers may
-    /// also clear provider-specific bookkeeping. Return true when the provider preserved
-    /// the projection, as the local provider does for a moved pane.
-    @discardableResult
-    func discardMaterialization(_ projection: SurfaceProjection) -> Bool
-}
-
-extension SurfaceProvider {
-    /// Legacy providers predate the capability bit and are assumed to support
-    /// previews until their concrete implementation says otherwise.
-    var supportsPortPreviews: Bool { true }
-
-    func refresh(force: Bool) async {
-        await refresh()
-    }
-
-    func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
-        try await materialize(resource, at: destination, focus: focus)
-    }
-
-    func closeTerminal(_ id: SurfaceResourceID) async throws {
-        throw SurfaceCatalogError.unsupported("closing terminals on \(machine)")
-    }
-    func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace {
-        throw SurfaceCatalogError.unsupported("workspaces on \(machine)")
-    }
-    func closeRemoteWorkspace(id: String) async throws {
-        throw SurfaceCatalogError.unsupported("closing workspaces on \(machine)")
-    }
-    func renameRemoteWorkspace(id: String, name: String) async throws {
-        throw SurfaceCatalogError.unsupported("workspaces on \(machine)")
-    }
-    func renameRemoteTab(id: String, name: String) async throws {
-        throw SurfaceCatalogError.unsupported("renaming tabs on \(machine)")
-    }
-    func renameTerminal(_ id: SurfaceResourceID, name: String) async throws {
-        throw SurfaceCatalogError.unsupported("renaming terminals on \(machine)")
-    }
-    @discardableResult
-    func discardMaterialization(_ projection: SurfaceProjection) -> Bool {
-        SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
-        return false
-    }
-}
-
 /// The single owner of surface identities and projections on this Mac.
 ///
 /// Rules that hold by construction:
@@ -241,6 +147,8 @@ final class SurfaceCatalog {
     /// Resolves local workspace owners for cloud rename write-through. The app installs
     /// its live environment at the composition root; tests keep the no-op environment.
     private(set) var cloudWorkspaceRenameService: CloudWorkspaceRenameService
+    /// Keeps a mirrored local workspace's panes and its machine workspace's tabs in step.
+    private(set) var cloudPlacementCoordinator: CloudPlacementCoordinator
     /// Materializations are asynchronous, so actor reentrancy can otherwise let two callers
     /// pass the reuse check before either provider has returned a projection.
     private var inFlightProjects: [MaterializationKey: SurfaceProjectionMaterialization] = [:]
@@ -259,6 +167,7 @@ final class SurfaceCatalog {
     private let materializationClock: any Clock<Duration>
     /// Panels whose projection was recorded from a restored session before the provider
     /// re-synced; resolved into `projections` once the resource shows up.
+    private var projectionEndReasons: [UUID: SurfaceProjectionEndReason] = [:]
     private var pendingRestoredProjections: [SurfaceProjectionRecord: UUID] = [:]
 
     /// Focus/select behavior the app uses to bring an existing projection forward.
@@ -270,7 +179,8 @@ final class SurfaceCatalog {
         completedMaterializationRetention: Duration = SurfaceCatalog.defaultCompletedMaterializationRetention,
         maximumTrackedMaterializations: Int = SurfaceCatalog.defaultMaximumTrackedMaterializations,
         materializationClock: any Clock<Duration> = ContinuousClock(),
-        cloudWorkspaceRenameService: CloudWorkspaceRenameService = CloudWorkspaceRenameService()
+        cloudWorkspaceRenameService: CloudWorkspaceRenameService = CloudWorkspaceRenameService(),
+        cloudPlacementCoordinator: CloudPlacementCoordinator? = nil
     ) {
         precondition(abandonedMaterializationTimeout > .zero)
         precondition(retiredMaterializationRetention > .zero)
@@ -282,12 +192,19 @@ final class SurfaceCatalog {
         self.maximumTrackedMaterializations = maximumTrackedMaterializations
         self.materializationClock = materializationClock
         self.cloudWorkspaceRenameService = cloudWorkspaceRenameService
+        self.cloudPlacementCoordinator = cloudPlacementCoordinator ?? CloudPlacementCoordinator()
     }
 
     /// Installs the app-owned cloud rename service once the composition root can provide
     /// workspace and tab-manager lookups. The catalog retains ownership after install.
     func installCloudWorkspaceRenameService(_ service: CloudWorkspaceRenameService) {
         cloudWorkspaceRenameService = service
+        cloudPlacementCoordinator = CloudPlacementCoordinator(
+            binding: { service.environment.workspace($0)?.cloudVMBinding },
+            reportFailure: { projection, error in
+                service.environment.workspace(projection.workspaceID)?.presentCloudPlacementFailure(error)
+            }
+        )
     }
 
     /// Reconciles a local workspace binding from its exact cloud projections.
@@ -332,6 +249,7 @@ final class SurfaceCatalog {
 
     /// Applies an accepted daemon snapshot to all local projections with exact IDs.
     func reconcileCloudRemoteState(machine: SurfaceMachineID, state: CloudVMState) {
+        cloudPlacementCoordinator.reconcileRemoteState(state, catalog: self)
         cloudWorkspaceRenameService.reconcileRemoteState(
             machine: machine,
             state: state,
@@ -868,6 +786,7 @@ final class SurfaceCatalog {
 
         let projection = try await provider.materialize(resource, remoteView: resolvedRemoteView, at: destination, focus: focus)
         record(projection)
+        cloudPlacementCoordinator.projectionDidMove(projection, catalog: self)
         return (projection, false)
     }
 
@@ -1023,13 +942,15 @@ final class SurfaceCatalog {
             cancelCompletedMaterialization(key, waiterID: waiterID)
             throw SurfaceCatalogError.unknownResource(id)
         }
-        guard projections.contains(result.projection) else {
+        guard let projection = self.projection(forPanel: result.projection.panelID),
+              projection.resource == id, projection.workspaceID == result.projection.workspaceID else {
             cancelCompletedMaterialization(key, waiterID: waiterID)
             throw SurfaceCatalogError.unavailable(id, reason: "projection closed while opening")
         }
         acknowledgeMaterialization(key, waiterID: waiterID)
-        if result.reused, focus { focusProjection?(result.projection) }
-        return result
+        if !result.reused { cloudPlacementCoordinator.projectionDidMove(projection, catalog: self) }
+        if result.reused, focus { focusProjection?(projection) }
+        return (projection, result.reused)
     }
 
     private func acknowledgeMaterialization(_ key: MaterializationKey, waiterID: UUID) {
@@ -1261,6 +1182,34 @@ final class SurfaceCatalog {
         notifyChange()
     }
 
+    /// A restored placeholder yields to its native pane without authoring a layout edit.
+    /// Keep the exact saved view, or the receipt of a backing tab just created for it.
+    func replaceProjection(
+        _ previous: SurfaceProjection,
+        withPanel panelID: UUID,
+        in workspaceID: UUID,
+        remotePlacement: SurfaceRemotePlacement?
+    ) {
+        let views = resources[previous.resource]?.remoteViews
+        let exactView = views?.first { $0.tabID == previous.remoteTabID }
+        // A dead saved ID cannot describe the rematerialized terminal. A unique
+        // live view is unambiguous; several live views must remain unresolved.
+        let view = exactView ?? (views?.count == 1 ? views?.first : nil)
+        let savedWorkspace = views == nil ? previous.remoteWorkspaceID : nil
+        let savedTab = views == nil ? previous.remoteTabID : nil
+        if let remotePlacement {
+            cloudPlacementCoordinator.confirmPlacement(remotePlacement, on: previous.resource.machine)
+        }
+        endProjections(panelID: previous.panelID, reason: .replaced)
+        record(SurfaceProjection(
+            resource: previous.resource,
+            workspaceID: workspaceID,
+            panelID: panelID,
+            remoteWorkspaceID: remotePlacement?.workspaceID ?? view?.workspace.id ?? savedWorkspace,
+            remoteTabID: remotePlacement?.tabID ?? view?.tabID ?? savedTab
+        ))
+    }
+
     /// Fills a legacy projection's missing remote coordinates, or replaces a
     /// stale coordinate only when the caller explicitly supplied the same tab.
     /// The set remains the single owner of projection identity.
@@ -1296,12 +1245,29 @@ final class SurfaceCatalog {
         projections.insert(projection)
     }
 
-    /// A pane went away (closed, or its workspace closed). Remote resources live on.
-    func endProjections(panelID: UUID) {
+    /// Carries a transition owner's intent through the synchronous panel-map observer.
+    /// Nested scopes restore the previous reason, and rejected closes leave no marker.
+    func withProjectionEndReason<Result>(
+        for panelIDs: [UUID],
+        reason: SurfaceProjectionEndReason,
+        perform operation: () throws -> Result
+    ) rethrows -> Result {
+        let previous = panelIDs.map { ($0, projectionEndReasons[$0]) }
+        for panelID in panelIDs { projectionEndReasons[panelID] = reason }
+        defer {
+            for (panelID, reason) in previous { projectionEndReasons[panelID] = reason }
+        }
+        return try operation()
+    }
+
+    /// A pane went away. Remote resources live on; a pane closed on purpose inside a
+    /// mirrored workspace also closes its machine tab (`CloudPlacementCoordinator`).
+    func endProjections(panelID: UUID, reason: SurfaceProjectionEndReason = .paneClosed) {
         let ended = projections.filter { $0.panelID == panelID }
         guard !ended.isEmpty else { return }
         projections.subtract(ended)
         for projection in ended {
+            cloudPlacementCoordinator.projectionDidEnd(projection, reason: projectionEndReasons[panelID] ?? reason, catalog: self)
             providers[projection.resource.machine]?.projectionDidEnd(projection)
         }
         notifyChange()
@@ -1309,7 +1275,7 @@ final class SurfaceCatalog {
 
     /// A pane moved to another workspace (tab transfer / drag between windows).
     func moveProjections(panelID: UUID, to workspaceID: UUID) {
-        let moved = projections.filter { $0.panelID == panelID }
+        let moved = projections.filter { $0.panelID == panelID && $0.workspaceID != workspaceID }
         guard !moved.isEmpty else { return }
         projections.subtract(moved)
         for var projection in moved {
@@ -1317,6 +1283,39 @@ final class SurfaceCatalog {
             projections.insert(projection)
         }
         reconcileCloudWorkspaceBinding(localWorkspaceID: workspaceID)
+        for projection in projections where projection.panelID == panelID {
+            cloudPlacementCoordinator.projectionDidMove(projection, catalog: self)
+        }
+        notifyChange()
+    }
+
+    /// Applies one accepted graph's coordinate changes in O(changed projections).
+    func reconcileRemotePlacements(_ replacements: [SurfaceProjection: SurfaceProjection]) {
+        guard !replacements.isEmpty else { return }
+        for (previous, updated) in replacements where projections.contains(previous) {
+            projections.remove(previous)
+            projections.insert(updated)
+        }
+        notifyChange()
+    }
+
+    /// Updates every view of an exact tab together; a late result cannot replace a
+    /// different resource that has since taken over the same local panel.
+    func setRemotePlacement(for source: SurfaceProjection, placement: SurfaceRemotePlacement) {
+        setRemotePlacement(for: source, workspaceID: placement.workspaceID, tabID: placement.tabID)
+    }
+
+    func setRemotePlacement(for source: SurfaceProjection, workspaceID: String?, tabID: String?) {
+        let matching = projections.filter {
+            $0.resource == source.resource && ($0.panelID == source.panelID
+                || (tabID != nil && $0.remoteTabID == tabID))
+        }
+        for var projection in matching {
+            projections.remove(projection)
+            projection.remoteWorkspaceID = workspaceID
+            projection.remoteTabID = tabID
+            projections.insert(projection)
+        }
         notifyChange()
     }
 

@@ -71,7 +71,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Coalesces concurrent first opens of a zero-view terminal. `terminal.project` is a
     /// mutation, so two local panes racing on the same pool row must share one remote view.
     // Internal so the manual-mirror extension can share the provider-owned task map.
-    var remoteTerminalProjectionTasks: [String: Task<Void, Error>] = [:]
+    var remoteTerminalProjectionTasks: [String: Task<SurfaceRemotePlacement, Error>] = [:]
     /// User labels from the last authoritative snapshot, used to compensate a
     /// multi-view rename if a later tab mutation fails.
     private var tabNameByID: [String: String] = [:]
@@ -1036,16 +1036,17 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     /// cmux-tui's `selector.not_found` error body, surfaced by `link.run` as the
     /// command's output text.
-    private static func isSelectorNotFound(_ error: Error) -> Bool {
+    static func isSelectorNotFound(_ error: Error) -> Bool {
         let text = CloudMachineLink.errorText(error)
         return text.contains("selector.not_found") || text.contains("no terminal matches")
     }
 
     /// The resource CLI exposes optimistic-concurrency failures as either the
     /// structured code or its human-readable text, depending on client version.
-    private static func isRevisionConflict(_ error: Error) -> Bool {
+    nonisolated static func isRevisionConflict(_ error: Error) -> Bool {
         let text = CloudMachineLink.errorText(error).lowercased()
         return text.contains("revision conflict") || text.contains("revision.conflict")
+            || text.contains("revision_conflict") || text.contains("stale revision")
     }
 
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
@@ -1059,6 +1060,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         focus: Bool
     ) async throws -> SurfaceProjection {
         let created: (workspaceID: UUID, panelID: UUID)
+        var createdPlacement: SurfaceRemotePlacement?
         switch resource.kind {
         case .terminal:
             let manual = try await materializeManualMirrorTerminal(
@@ -1067,6 +1069,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 focus: focus
             )
             created = (manual.workspaceID, manual.panelID)
+            createdPlacement = manual.remotePlacement
         case .display, .browser:
             // Ports and the desktop are reached through the user-space
             // WireGuard hub on a loopback forward: no system VPN, no
@@ -1074,13 +1077,16 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             created = try await materializeBrowserPane(resource, at: destination, focus: focus)
         }
         materializedPanels.insert(created.panelID)
+        if let createdPlacement {
+            catalog.cloudPlacementCoordinator.confirmPlacement(createdPlacement, on: machine)
+        }
         let selectedView = remoteView ?? Self.defaultRemoteView(for: resource)
         return SurfaceProjection(
             resource: resource.id,
             workspaceID: created.workspaceID,
             panelID: created.panelID,
-            remoteWorkspaceID: selectedView?.workspace.id,
-            remoteTabID: selectedView?.tabID
+            remoteWorkspaceID: createdPlacement?.workspaceID ?? selectedView?.workspace.id,
+            remoteTabID: createdPlacement?.tabID ?? selectedView?.tabID
         )
     }
 
