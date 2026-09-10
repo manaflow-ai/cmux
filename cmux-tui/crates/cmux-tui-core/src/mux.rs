@@ -27614,8 +27614,9 @@ mod tests {
     #[test]
     fn automatic_workspace_sequence_survives_renaming_the_first_workspace() {
         let mux = test_mux();
-        let first = mux.new_workspace(None, None).unwrap();
-        assert!(mux.rename_workspace(first.workspace, "shell".into()));
+        let _first = mux.new_workspace(None, None).unwrap();
+        let first_workspace = mux.with_state(|state| state.workspaces[0].id);
+        assert!(mux.rename_workspace(first_workspace, "shell".into()));
 
         mux.new_workspace(None, None).unwrap();
 
