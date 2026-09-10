@@ -84,8 +84,8 @@ describe("VM image resolver: request by kind", () => {
         resolveVmImage("freestyle", undefined, { ...deployed, FREESTYLE_SANDBOX_SNAPSHOT: stale }, { kind: "desktop" }),
       ).toMatchObject({ image: ladder.sm, imageVersion: `${ladderVersion}-sm`, kind: "desktop" });
       expect(resolveVmImage("freestyle", undefined, { FREESTYLE_SANDBOX_SNAPSHOT: stale })).toMatchObject({
-        image: baseLadder.sm,
-        imageVersion: `${baseLadderVersion}-base-sm`,
+        image: ladder.sm,
+        imageVersion: `${ladderVersion}-sm`,
       });
     }
   });
@@ -101,7 +101,8 @@ describe("VM image resolver: request by kind", () => {
     // The manifest is the only source of truth: the entries flagged
     // defaultForKind are what every runtime serves, deployed or local. With no
     // `memoryMb` the resolver picks the smallest sized default (the documented
-    // rule), and a request with neither image nor kind gets the base one.
+    // rule), and a request with neither image nor kind gets the desktop one:
+    // a machine with a screen is the product default, shell-only is explicit.
     expect(resolveVmImage("freestyle", undefined, deployed, { kind: "base" })).toMatchObject({
       provider: "freestyle",
       image: baseLadder.sm,
@@ -117,14 +118,14 @@ describe("VM image resolver: request by kind", () => {
       size: vmImageSize("sm"),
     });
     expect(resolveVmImage("freestyle", undefined, {})).toMatchObject({
-      image: baseLadder.sm,
-      imageVersion: `${baseLadderVersion}-base-sm`,
-      kind: "base",
+      image: ladder.sm,
+      imageVersion: `${ladderVersion}-sm`,
+      kind: "desktop",
     });
     expect(resolveVmImage("freestyle", undefined, deployed)).toMatchObject({
-      image: baseLadder.sm,
-      imageVersion: `${baseLadderVersion}-base-sm`,
-      kind: "base",
+      image: ladder.sm,
+      imageVersion: `${ladderVersion}-sm`,
+      kind: "desktop",
     });
     expect(listVmImageKinds("freestyle", deployed)).toEqual([
       { kind: "desktop", image: ladder.sm, size: vmImageSize("sm") },
@@ -164,8 +165,8 @@ describe("VM image resolver: request by kind", () => {
         size: vmImageSize(sizeName),
       });
       expect(resolveVmImage("freestyle", undefined, {}, { memoryMb })).toMatchObject({
-        image: baseLadder[sizeName],
-        kind: "base",
+        image: ladder[sizeName],
+        kind: "desktop",
       });
     }
     // Both kinds offer the whole ladder, smallest first.
@@ -296,16 +297,17 @@ describe("VM image resolver: request by kind", () => {
 describe("VM image resolver", () => {
   test("local dev uses the manifest default", () => {
     // `bun dev` boots the same ladder production does, with no env var to
-    // copy around; at the paid plan's memory that is the xl snapshot.
+    // copy around: the desktop ladder unless the client asks for `base`; at
+    // the paid plan's memory that is the lgx snapshot.
     expect(resolveVmImage("freestyle", undefined, {})).toMatchObject({
       provider: "freestyle",
-      image: baseLadder.sm,
-      imageVersion: `${baseLadderVersion}-base-sm`,
+      image: ladder.sm,
+      imageVersion: `${ladderVersion}-sm`,
     });
     expect(resolveVmImage("freestyle", undefined, {}, { memoryMb: 20480 })).toMatchObject({
       provider: "freestyle",
-      image: baseLadder.lgx,
-      imageVersion: `${baseLadderVersion}-base-lgx`,
+      image: ladder.lgx,
+      imageVersion: `${ladderVersion}-lgx`,
     });
   });
 
