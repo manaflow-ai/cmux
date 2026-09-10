@@ -567,7 +567,7 @@ class TabManager: ObservableObject {
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         closeTabWarningDefaults: UserDefaults = .standard,
         fileContentChangeCoordinator: FileContentChangeCoordinator? = nil,
-        chromePalette: ChromePalette = ChromePalette.resolve(theme: .default, colorScheme: .light)
+        chromePalette: ChromePalette = ChromePalette.resolve(theme: .default, colorScheme: .light),
         managedDevicePolicy: ManagedDevicePolicy = ManagedDevicePolicy()
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
