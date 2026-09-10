@@ -1,6 +1,7 @@
 // Read and update account-scoped Iroh relay selection metadata.
 // Custom relay secrets stay in the native client's Keychain and are rejected here.
 
+import { runWithCloudDbQueryTags } from "../../../../db/queryTags";
 import { checkRateLimit } from "@vercel/firewall";
 
 import { readBoundedJsonObject } from "../../../../services/apns/routePolicy";
@@ -133,9 +134,15 @@ export async function handlePutRelayPreference(
 }
 
 export function GET(request: Request): Promise<Response> {
-  return handleGetRelayPreference(request, productionDeps);
+  return runWithCloudDbQueryTags(
+    { source: "app", route: "/api/relay/preferences" },
+    async () => await handleGetRelayPreference(request, productionDeps),
+  );
 }
 
 export function PUT(request: Request): Promise<Response> {
-  return handlePutRelayPreference(request, productionDeps);
+  return runWithCloudDbQueryTags(
+    { source: "app", route: "/api/relay/preferences" },
+    async () => await handlePutRelayPreference(request, productionDeps),
+  );
 }

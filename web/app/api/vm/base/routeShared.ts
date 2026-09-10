@@ -1,7 +1,7 @@
 import type { AuthedUser } from "../../../../services/vms/auth";
 import { defaultMemoryMbForPlan } from "../../../../services/vms/entitlements";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
-import { defaultProviderId, isProviderId, type ProviderId } from "../../../../services/vms/drivers";
+import { defaultProviderId, isProviderId, vmCapabilitiesFor, type ProviderId } from "../../../../services/vms/drivers";
 import {
   isVmCreateDisabledError,
   isVmImageConfigError,
@@ -9,6 +9,7 @@ import {
 import {
   inferVmProviderForImage,
   resolveVmImage,
+  vmImageKindFor,
 } from "../../../../services/vms/images/resolver";
 import {
   reportVmImageConfigError,
@@ -25,6 +26,7 @@ import {
   type VmWorkflowErrorOverrides,
 } from "../../../../services/vms/routeHelpers";
 import { runVmRoute } from "../../../../services/vms/routeWorkflow";
+import { vmModelPlaneGatewayFor } from "../../../../services/vms/modelPlaneGateway";
 import type { VmTimingRecorder } from "../../../../services/vms/timings";
 import {
   openBaseVm,
@@ -101,6 +103,10 @@ export async function runBaseRoute(input: {
     image: imageSelection.image,
     imageVersion: imageSelection.imageVersion,
     baseName: parsed.body.name,
+    modelPlane: vmModelPlaneGatewayFor({
+      teamId: entitlements.billingTeamId,
+      stackUserId: input.user.id,
+    }),
     timing: input.timing,
   };
   const run = await runVmRoute(
@@ -120,9 +126,10 @@ export async function runBaseRoute(input: {
     provider: entry.provider,
     image: entry.image,
     imageVersion: entry.imageVersion,
-    kind: imageSelection.kind,
+    kind: vmImageKindFor(entry.provider, entry.image),
     status: entry.status,
     createdAt: entry.createdAt,
+    capabilities: vmCapabilitiesFor(entry.provider),
     base: {
       id: entry.baseId,
       name: entry.baseName,

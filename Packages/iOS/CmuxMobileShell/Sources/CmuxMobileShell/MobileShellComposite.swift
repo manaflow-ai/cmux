@@ -11648,8 +11648,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func applyMacCompatibilityPolicy(_ policy: MobileMacCompatPolicy) {
         macCompatPolicy = policy
         let tier = policy.tier(forIOSVersion: versionGateIOSAppVersion)
-        let requiredStableMacVersion = tier?.stableMinVersion.description
-        let requiredNightlyMacVersion = tier?.nightly.map {
+        let buildType = versionGateBuildType
+        let requirement: MobileMacCompatPolicy.Requirement? = {
+            guard let tier else { return nil }
+            return tier.buildKinds[buildType.token]
+                ?? MobileMacCompatPolicy.Requirement(
+                    stableMinVersion: tier.stableMinVersion,
+                    nightly: tier.nightly
+                )
+        }()
+        let requiredStableMacVersion = requirement?.stableMinVersion.description
+        let requiredNightlyMacVersion = requirement?.nightly.map {
             "\($0.minBaseVersion)-nightly.\($0.minBuild)"
         }
         MobileMacListAuthState.shared.applyPolicyMinimumSupportedMacVersions(
@@ -11676,6 +11685,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// the empty stamp), which parses to no tier and therefore no gate.
     var versionGateIOSAppVersion: String {
         feedbackStampProvider().appVersion
+    }
+
+    var versionGateBuildType: MobileBuildType {
+        feedbackStampProvider().buildType
     }
 
     /// Replaces a generic classification with the exact version-gate
