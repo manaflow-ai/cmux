@@ -499,7 +499,8 @@ private final class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
             switch externalNavigationHandler.openConfiguredExternallyResult(
                 url,
                 navigationType: navigationAction.navigationType,
-                targetFrameIsMain: navigationAction.targetFrame?.isMainFrame
+                targetFrameIsMain: navigationAction.targetFrame?.isMainFrame,
+                shouldPerformDownload: navigationAction.shouldPerformDownload
             ) {
             case .opened:
                 return nil
@@ -796,6 +797,7 @@ private final class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
             url,
             navigationType: navigationAction.navigationType,
             targetFrameIsMain: navigationAction.targetFrame?.isMainFrame,
+            shouldPerformDownload: navigationAction.shouldPerformDownload,
             onOpened: { [self] in
                 clearAttemptedRequest(discardPendingBypasses: true)
             }
