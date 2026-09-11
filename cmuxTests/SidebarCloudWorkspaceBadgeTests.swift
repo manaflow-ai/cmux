@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import CmuxCore
 import Testing
 @testable import cmux_DEV
@@ -6,6 +7,7 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct SidebarCloudWorkspaceBadgeTests {
+    /// Ensures Cloud identity changes alter only the immutable row projection.
     @Test func cloudBindingChangesSidebarSnapshotWithoutTitleOrPathChanges() {
         let workspace = Workspace(title: "vm:vivid-newt", workingDirectory: "/tmp", initialSurface: .cloudVMLoading)
         let settings = SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults())
@@ -19,6 +21,7 @@ struct SidebarCloudWorkspaceBadgeTests {
         #expect(factory.makeSnapshot() == local)
     }
 
+    /// Ensures context-menu refreshes preserve the Cloud identity.
     @Test func cloudIdentityUpdatesWhileContextMenuIsOpen() {
         let workspace = Workspace(initialSurface: .cloudVMLoading)
         let settings = SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults())
@@ -33,6 +36,7 @@ struct SidebarCloudWorkspaceBadgeTests {
         #expect(decision.workspaceSnapshotStorage?.cloudWorkspaceLabel != nil)
     }
 
+    /// Ensures restored Cloud identity survives every connection presentation state.
     @Test(arguments: [false, true])
     func cloudBadgeSurvivesRestoreAndReconnect(legacyTransport: Bool) throws {
         let workspace = Workspace(title: "Same project", initialSurface: .cloudVMLoading)
@@ -59,6 +63,7 @@ struct SidebarCloudWorkspaceBadgeTests {
         }
     }
 
+    /// Ensures the secondary badge keeps title space at narrow widths.
     @Test(arguments: [false, true], [180.0, 280.0])
     func cloudBadgeIsSecondaryAndKeepsNarrowTitlesVisible(dark: Bool, width: Double) throws {
         let defaults = Self.makeDefaults()
@@ -95,12 +100,15 @@ struct SidebarCloudWorkspaceBadgeTests {
         #expect(cell.layoutContent(model: try #require(cell.currentModelForMeasurement), width: width, apply: false) == height)
     }
 
-    @Test func cloudBindingChangeInvalidatesSidebarThroughAsyncObservation() async {
+    /// Ensures the existing immediate sidebar publisher carries Cloud updates.
+    @Test func cloudBindingChangeImmediatelyInvalidatesSidebar() {
         let workspace = Workspace(initialSurface: .cloudVMLoading)
-        let changes = workspace.sidebarCloudWorkspaceObservation.changes()
+        var publishCount = 0
+        let cancellable = workspace.sidebarImmediateObservationPublisher.sink { publishCount += 1 }
+        defer { cancellable.cancel() }
+        publishCount = 0
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
-        var iterator = changes.makeAsyncIterator()
-        #expect(await iterator.next() != nil)
+        #expect(publishCount == 1)
     }
 
     private static func makeModel(

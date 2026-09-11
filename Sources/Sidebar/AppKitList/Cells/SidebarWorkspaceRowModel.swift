@@ -147,6 +147,11 @@ final class SidebarRowSnapshotCache {
         snapshotsById.removeAll(keepingCapacity: true)
     }
 
+    /// Drops cached row projections so a retained table rebuilds from live workspace state.
+    func invalidateAll() {
+        snapshotsById.removeAll(keepingCapacity: true)
+    }
+
     func value(for id: UUID) -> SidebarWorkspaceSnapshotBuilder.Snapshot? {
         snapshotsById[id]
     }

@@ -11854,9 +11854,6 @@ struct VerticalTabsSidebar: View, Equatable {
             guard isPresented else { return }
             scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
         }
-        .sidebarCloudWorkspaceObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.sidebarCloudWorkspaceObservation)) { workspaceId in
-            if isPresented { scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId) }
-        }
         .sidebarWorkspaceObservations(
             ids: renderContext.workspaceIds,
             workspaces: renderContext.tabs,
@@ -11873,7 +11870,10 @@ struct VerticalTabsSidebar: View, Equatable {
         .onChange(of: isPresented) { _, presented in
             if !presented {
                 workspaceSnapshotRefreshCoalescer.cancel()
-            } else if !featureFlags.isAppKitSidebarListEnabled {
+            } else {
+                if featureFlags.isAppKitSidebarListEnabled {
+                    appKitRowSnapshotCache.invalidateAll()
+                }
                 refreshWorkspaceSnapshots()
             }
         }
