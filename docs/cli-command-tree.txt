@@ -11,6 +11,8 @@ command  __sidebar_footer_icon_balance  aliases=-
   arg  arguments  kind=argument  completion=-
 command  __tmux-compat  aliases=-
   arg  arguments  kind=argument  completion=-
+command  agent  aliases=-
+  arg  arguments  kind=argument  completion=-
 command  agent-hibernation  aliases=-
   arg  arguments  kind=argument  completion=-
 command  ai-accounts  aliases=-
@@ -1000,6 +1002,8 @@ command  ssh-tmux  aliases=-
   arg  --port  kind=option  completion=-
   arg  arguments  kind=argument  completion=-
   arg  destination  kind=argument  completion=-
+command  sudo  aliases=-
+  arg  arguments  kind=argument  completion=-
 command  surface  aliases=-
 command  surface ls  aliases=catalog,list,tree
   arg  --refresh  kind=flag  completion=-
