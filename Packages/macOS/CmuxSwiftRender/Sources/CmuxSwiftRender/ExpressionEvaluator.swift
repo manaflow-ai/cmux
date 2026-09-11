@@ -23,6 +23,9 @@ public struct ExpressionEvaluator: Sendable {
         if let literal = expr.as(BooleanLiteralExprSyntax.self) {
             return .bool(literal.literal.text == "true")
         }
+        if expr.is(NilLiteralExprSyntax.self) {
+            return .null
+        }
         if let literal = expr.as(StringLiteralExprSyntax.self) {
             return .string(evalString(literal, env))
         }
@@ -149,6 +152,25 @@ public struct ExpressionEvaluator: Sendable {
         return result
     }
 
+    /// Resolves a supported optional binding while preserving the distinction
+    /// between an absent value (`.null`) and an expression we cannot evaluate.
+    func resolveOptionalBinding(
+        _ binding: OptionalBindingConditionSyntax,
+        _ env: EvalEnvironment
+    ) -> (name: String?, value: SwiftValue)? {
+        let name = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier.text
+        let resolved: SwiftValue?
+        if let initializer = binding.initializer?.value {
+            resolved = eval(initializer, env)
+        } else if let name {
+            resolved = env.lookup(name)
+        } else {
+            resolved = nil
+        }
+        guard let value = resolved, value != .null else { return nil }
+        return (name, value)
+    }
+
     // MARK: - Operators
 
     private func evalPrefix(_ op: String, _ value: SwiftValue?) -> SwiftValue? {
@@ -162,6 +184,13 @@ public struct ExpressionEvaluator: Sendable {
 
     private func evalInfix(_ node: InfixOperatorExprSyntax, _ env: EvalEnvironment) -> SwiftValue? {
         guard let op = node.operator.as(BinaryOperatorExprSyntax.self)?.operator.text else { return nil }
+
+        if op == "==" || op == "!=" {
+            guard let lhs = evalEqualityOperand(node.leftOperand, env),
+                  let rhs = evalEqualityOperand(node.rightOperand, env) else { return nil }
+            return .bool(op == "==" ? lhs == rhs : lhs != rhs)
+        }
+
         guard let lhs = eval(node.leftOperand, env) else { return nil }
 
         // Short-circuit logical operators on the left operand before forcing the
@@ -184,8 +213,6 @@ public struct ExpressionEvaluator: Sendable {
         case "..<", "...":
             guard case let .int(l) = lhs, case let .int(r) = rhs else { return nil }
             return .range(lower: l, upper: r, inclusive: op == "...")
-        case "==": return .bool(lhs == rhs)
-        case "!=": return .bool(lhs != rhs)
         default: break
         }
 
@@ -219,6 +246,23 @@ public struct ExpressionEvaluator: Sendable {
         case ">=": return .bool(l >= r)
         default: return nil
         }
+    }
+
+    /// Equality is the one context where a missing object field has a value:
+    /// data contexts omit absent optionals, so that lookup compares equal to
+    /// `nil`. Other evaluation failures stay unresolved instead of becoming
+    /// absent values.
+    private func evalEqualityOperand(_ expr: ExprSyntax, _ env: EvalEnvironment) -> SwiftValue? {
+        if let member = expr.as(MemberAccessExprSyntax.self),
+           let baseExpression = member.base {
+            guard let base = evalEqualityOperand(baseExpression, env) else { return nil }
+            if case .null = base { return .null }
+            if case let .object(fields) = base {
+                return fields[member.declName.baseName.text] ?? .null
+            }
+            return base.member(member.declName.baseName.text)
+        }
+        return eval(expr, env)
     }
 
     private func numericPair(_ lhs: SwiftValue, _ rhs: SwiftValue) -> (Double?, Double?, Bool) {
@@ -277,8 +321,8 @@ public struct ExpressionEvaluator: Sendable {
                 }
                 return acc
             case "first":
-                guard let closure else { return values.first }
-                return values.first { evalClosure(closure, $0, env)?.isTruthy ?? false }
+                guard let closure else { return values.first ?? .null }
+                return values.first { evalClosure(closure, $0, env)?.isTruthy ?? false } ?? .null
             case "contains":
                 if let closure { return .bool(values.contains { evalClosure(closure, $0, env)?.isTruthy ?? false }) }
                 guard let firstArg, let needle = eval(firstArg, env) else { return nil }
