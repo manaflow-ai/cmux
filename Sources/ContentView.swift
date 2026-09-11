@@ -15293,28 +15293,28 @@ struct SidebarFooterButtons: View {
     let onSendFeedback: () -> Void
     @State private var extensionBrowserAnchorView: NSView?
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
-    // Reuse the exact Command-hold shortcut-hint signal that drives the per-row
-    // shortcut badges (`showModifierHoldHints && modifierKeyMonitor.isModifierPressed`,
-    // see `resolvedShowsModifierShortcutHints`). Reading `isModifierPressed`
-    // (the monitor is `@Observable`) here localizes the reveal re-render to the
-    // footer instead of the whole sidebar body.
+    // Reuse the exact Command-hold shortcut-hint signal that drives the per-row shortcut badges
+    // (`showModifierHoldHints && modifierKeyMonitor.isModifierPressed`, see `resolvedShowsModifierShortcutHints`).
+    // Reading `isModifierPressed` (the monitor is `@Observable`) localizes the reveal re-render to the footer.
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     /// Owns the discovery popover so it persists after ⌘ is released.
     @State private var isShortcutPopoverPresented = false
+    /// Minimal mode hides most controls; hovering the footer row reveals them.
+    @State private var isFooterHovered = false
 
     private var presentationMode: WorkspacePresentationModeSettings.Mode {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode)
     }
 
     private func shows(_ control: SidebarFooterControl) -> Bool {
-        SidebarFooterPresentationPolicy.isVisible(control, presentationMode: presentationMode)
+        SidebarFooterPresentationPolicy.isVisible(control, presentationMode: presentationMode, isHovered: isFooterHovered)
     }
 
     var body: some View {
         HStack(spacing: 4) {
-            if shows(.account) || shows(.mobileConnect) || shows(.help) {
+            if shows(.account) || shows(.mobileConnect) || shows(.cloud) || shows(.help) {
                 HStack(spacing: 0) {
                     if shows(.account), CmuxFeatureFlags.shared.isSidebarAccountButtonEnabled {
                         SidebarAccountMenuButton()
@@ -15322,22 +15322,20 @@ struct SidebarFooterButtons: View {
                     if shows(.mobileConnect), CmuxFeatureFlags.shared.isMobileConnectButtonEnabled {
                         SidebarMobileConnectButton()
                     }
+                    if shows(.cloud), CloudMachinesFeature.isEnabled { SidebarCloudButton(fileExplorerState: fileExplorerState) }
                     if shows(.help) {
                         SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
                     }
                 }
             }
-            // Command-hold reveal: appears immediately before Upgrade. It stays
-            // mounted while its popover is open so releasing ⌘ does not dismiss it.
-            if shows(.shortcutDiscovery),
-               (showModifierHoldHints && modifierKeyMonitor.isModifierPressed) || isShortcutPopoverPresented {
+            // Command-hold reveal before Upgrade; stays mounted while its popover is open so releasing ⌘ does not dismiss it.
+            if shows(.shortcutDiscovery), (showModifierHoldHints && modifierKeyMonitor.isModifierPressed) || isShortcutPopoverPresented {
                 ShortcutDiscoveryButton(isPopoverPresented: $isShortcutPopoverPresented)
             }
             if shows(.upgrade) {
                 SidebarProBadge()
             }
-            // The puzzle button opens the extensions browser; it only shows
-            // while the experimental Extensions feature is enabled.
+            // The puzzle button opens the extensions browser; it only shows while the experimental Extensions feature is enabled.
             if shows(.extensions), extensionsExperimentalEnabled {
                 Button {
                     _ = AppDelegate.shared?.openSidebarExtensionBrowser(
@@ -15345,8 +15343,7 @@ struct SidebarFooterButtons: View {
                         title: String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
                     )
                 } label: {
-                    CmuxSystemSymbolImage(magnified: "puzzlepiece.extension", pointSize: 12, weight: .medium, tint: Color(nsColor: .secondaryLabelColor))
-                        .frame(width: 22, height: 22, alignment: .center)
+                    CmuxSystemSymbolImage(magnified: "puzzlepiece.extension", pointSize: 12, weight: .medium, tint: Color(nsColor: .secondaryLabelColor)).frame(width: 22, height: 22, alignment: .center)
                 }
                 .buttonStyle(SidebarFooterIconButtonStyle())
                 .frame(width: 22, height: 22, alignment: .center)
@@ -15359,7 +15356,10 @@ struct SidebarFooterButtons: View {
                 UpdatePill(model: updateViewModel, accent: cmuxAccentColor(), actions: updateActionsHost)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: SidebarFooterButtonMetrics.buttonSize, alignment: .leading)
+        .contentShape(Rectangle())
+        .onHover { isFooterHovered = $0 }
+        .animation(.easeOut(duration: 0.12), value: isFooterHovered)
     }
 }
 

@@ -15,10 +15,7 @@ struct SidebarFooterIconButtonStyle: ButtonStyle {
 }
 
 struct SidebarFooterCircularIconStyle: Equatable {
-    static let standard = SidebarFooterCircularIconStyle(
-        pointSize: 14,
-        weight: .regular
-    )
+    static let standard = SidebarFooterCircularIconStyle(pointSize: 14, weight: .regular)
 
     let pointSize: CGFloat
     let weight: Font.Weight
@@ -34,6 +31,7 @@ enum SidebarFooterButtonMetrics {
     static let profilePictureSize = accountAndHelpVisualSize
     static let profileIconSize = accountAndHelpVisualSize
     static let mobileIconSize: CGFloat = 12
+    static let cloudIconSize: CGFloat = 13
     static let helpIconSize = accountAndHelpVisualSize
     static let hoverOpacity = 0.08
 }
@@ -72,6 +70,7 @@ struct SidebarAccountButtonPresentation: Equatable {
 }
 
 enum SidebarFooterControl: CaseIterable, Equatable {
+    case cloud
     case account
     case mobileConnect
     case help
@@ -82,11 +81,9 @@ enum SidebarFooterControl: CaseIterable, Equatable {
 }
 
 enum SidebarFooterPresentationPolicy {
-    static func isVisible(
-        _ control: SidebarFooterControl,
-        presentationMode: WorkspacePresentationModeSettings.Mode
-    ) -> Bool {
-        presentationMode != .minimal || control == .upgrade
+    /// Minimal mode keeps only Upgrade on screen; hovering the footer row brings the other controls back.
+    static func isVisible(_ control: SidebarFooterControl, presentationMode: WorkspacePresentationModeSettings.Mode, isHovered: Bool = false) -> Bool {
+        presentationMode != .minimal || control == .upgrade || isHovered
     }
 }
 

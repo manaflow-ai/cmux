@@ -18,14 +18,16 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     let localWorkspaces: [CloudTreeLocalWorkspace]
     /// Machine id to terminal ids with a notification this Mac has not read.
     var unreadTerminalIDs: [String: Set<String>] = [:]
+    /// Whether This Mac leads the tree, and whether its every sidebar workspace is a row
+    /// (the footer Cloud switcher) or only those with a terminal (the Machines panel).
+    var includesLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine
+    var includesEmptyLocalWorkspaces: Bool = false
     let machineActions: MachineRowActions
     let nodeActions: CloudTreeNodeActions
     let expansionStore: CloudTreeExpansionStore
-    /// The visual preset the rows render in (the debug gallery pins one per
-    /// column; the live panel passes the stored choice).
+    /// The visual preset the rows render in (the debug gallery pins one per column; the live panel passes the stored choice).
     var style: CloudTreeStyle = CloudTreeStyleStore.current
-    /// Fires when a row drag starts (true) and ends (false); the panel freezes catalog
-    /// re-reads while a drag is in flight.
+    /// Fires when a row drag starts (true) and ends (false); the panel freezes catalog re-reads while a drag is in flight.
     var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
     @Environment(\.tabDragTransferRegistry) private var tabDragTransferRegistry
     @Environment(\.colorScheme) private var colorScheme
@@ -45,9 +47,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore,
-            tabDragTransferRegistry: { [tabDragTransferRegistry] in
-                tabDragTransferRegistry ?? AppDelegate.shared?.tabDragTransferRegistry
-            }
+            tabDragTransferRegistry: { [tabDragTransferRegistry] in tabDragTransferRegistry ?? AppDelegate.shared?.tabDragTransferRegistry }
         )
     }
 
@@ -68,7 +68,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             pendingCreates: pendingCreates,
             snapshot: snapshot,
             localWorkspaces: localWorkspaces,
-            unreadTerminalIDs: unreadTerminalIDs
+            unreadTerminalIDs: unreadTerminalIDs,
+            includeLocalMachine: includesLocalMachine,
+            includeEmptyLocalWorkspaces: includesEmptyLocalWorkspaces
         ))
     }
 
@@ -347,9 +349,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             return cell
         }
 
-        func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
-            CloudTreeRowView()
-        }
+        func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? { CloudTreeRowView() }
 
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
             guard let node = item as? CloudTreeNode else { return GlobalFontMagnification.scaledSize(style.rowHeight) }
@@ -366,9 +366,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
         }
 
-        func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
-            true
-        }
+        func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool { true }
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
             guard !isUpdatingProgrammatically, let outlineView else { return }

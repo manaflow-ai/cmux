@@ -554,7 +554,8 @@ enum CloudTreeNodeBuilder {
         snapshot: SurfaceCatalogSnapshot,
         localWorkspaces: [CloudTreeLocalWorkspace],
         unreadTerminalIDs: [String: Set<String>] = [:],
-        includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine
+        includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine,
+        includeEmptyLocalWorkspaces: Bool = false
     ) -> [CloudTreeNode] {
         let projectionIndex = LocalProjectionIndex(snapshot: snapshot, unreadTerminalIDs: unreadTerminalIDs)
         var nodes: [CloudTreeNode] = []
@@ -563,6 +564,7 @@ enum CloudTreeNodeBuilder {
                 info: local,
                 snapshot: snapshot,
                 localWorkspaces: localWorkspaces,
+                includeEmptyLocalWorkspaces: includeEmptyLocalWorkspaces,
                 projectionIndex: projectionIndex
             ))
         }
@@ -636,9 +638,7 @@ enum CloudTreeNodeBuilder {
     static func nodeID(pendingCreate id: UUID) -> String { "pending-machine:\(id.uuidString)" }
     static func nodeID(terminalsPool machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/terminals" }
     static func nodeID(displaysPool machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/displays" }
-    static func nodeID(terminalsPlaceholder machine: SurfaceMachineID) -> String {
-        "machine:\(machine.rawValue)/terminals/placeholder"
-    }
+    static func nodeID(terminalsPlaceholder machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/terminals/placeholder" }
     static func nodeID(workspacesGroup machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/workspaces" }
     /// The "No workspaces yet" line under an empty machine's Workspaces group.
     static func nodeID(workspacesPlaceholder machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/workspaces/placeholder" }
@@ -668,9 +668,7 @@ enum CloudTreeNodeBuilder {
     /// A pointer row: the same resource can sit under several workspaces and tabs (and the
     /// pool), so each row's identity carries its exact placement. Keeping the tab id in the
     /// key prevents expansion, selection, drag, and rename from collapsing onto one row.
-    static func nodeID(resource: SurfaceResourceID, inRemoteWorkspace workspaceID: String) -> String {
-        nodeID(resource: resource, inRemoteWorkspace: workspaceID, remoteTabID: nil)
-    }
+    static func nodeID(resource: SurfaceResourceID, inRemoteWorkspace workspaceID: String) -> String { nodeID(resource: resource, inRemoteWorkspace: workspaceID, remoteTabID: nil) }
 
     static func nodeID(
         resource: SurfaceResourceID,
@@ -691,6 +689,7 @@ enum CloudTreeNodeBuilder {
         info: SurfaceMachineInfo,
         snapshot: SurfaceCatalogSnapshot,
         localWorkspaces: [CloudTreeLocalWorkspace],
+        includeEmptyLocalWorkspaces: Bool,
         projectionIndex: LocalProjectionIndex
     ) -> CloudTreeNode {
         let resources = snapshot.resources(on: .local)
@@ -708,8 +707,9 @@ enum CloudTreeNodeBuilder {
                 unplaced.append(terminal)
             }
         }
-        // Sidebar order first; workspaces the sidebar list did not mention come last.
-        var orderedWorkspaces = localWorkspaces.filter { terminalsByWorkspace[$0.id] != nil }
+        // Sidebar order first; workspaces the sidebar list did not mention come last. A
+        // workspace switcher lists every sidebar workspace, even one with no terminal.
+        var orderedWorkspaces = includeEmptyLocalWorkspaces ? localWorkspaces : localWorkspaces.filter { terminalsByWorkspace[$0.id] != nil }
         let known = Set(orderedWorkspaces.map(\.id))
         for workspaceID in terminalsByWorkspace.keys.sorted(by: { $0.uuidString < $1.uuidString }) where !known.contains(workspaceID) {
             orderedWorkspaces.append(CloudTreeLocalWorkspace(id: workspaceID, title: titles[workspaceID] ?? "", isSelected: false))
