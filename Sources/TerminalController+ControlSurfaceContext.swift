@@ -154,6 +154,7 @@ extension TerminalController: ControlSurfaceContext {
                 surfaceID: summary.surfaceID,
                 typeRawValue: summary.typeRawValue,
                 title: summary.title,
+                filePath: summary.filePath,
                 isFocused: summary.isFocused,
                 paneID: summary.paneID,
                 indexInPane: summary.indexInPane,

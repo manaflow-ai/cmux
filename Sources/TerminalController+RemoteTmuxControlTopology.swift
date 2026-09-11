@@ -354,10 +354,13 @@ extension TerminalController {
             }
             let terminalPanel = panel as? TerminalPanel
             let simulatorPanel = panel as? SimulatorPanel
+            let filePath = (panel as? FilePreviewPanel)?.filePath
+                ?? (panel as? MarkdownPanel)?.filePath
             return [ControlSurfaceSummary(
                 surfaceID: panel.id,
                 typeRawValue: panel.panelType.rawValue,
                 title: workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle,
+                filePath: filePath,
                 isFocused: panel.id == workspace.focusedPanelId,
                 paneID: paneByPanelID[panel.id],
                 indexInPane: indexInPaneByPanelID[panel.id],
