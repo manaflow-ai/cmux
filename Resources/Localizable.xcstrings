@@ -94544,6 +94544,12 @@
             "value": "一番下に移動"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្លាស់ទីទៅបាតបញ្ជី"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",

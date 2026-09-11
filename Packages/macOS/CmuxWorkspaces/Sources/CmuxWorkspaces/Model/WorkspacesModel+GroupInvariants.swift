@@ -198,6 +198,11 @@ extension WorkspacesModel {
     /// Hoist promoted (non-anchor) members to the front of their group's
     /// member run, right after the anchor, preserving each group's position.
     func moveWorkspaceGroupMembersAfterAnchors(workspaceIds: [UUID]) {
+        tabs = workspaceGroupMembersReordered(workspaceIds: workspaceIds, toBottom: false)
+    }
+
+    /// Computes member order without mutating the model; anchors always stay first.
+    func workspaceGroupMembersReordered(workspaceIds: [UUID], toBottom: Bool) -> [Tab] {
         let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
         let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
         var promotedIdsByGroupId: [UUID: [UUID]] = [:]
@@ -210,12 +215,8 @@ extension WorkspacesModel {
             }
             promotedIdsByGroupId[groupId, default: []].append(workspaceId)
         }
-        guard !promotedIdsByGroupId.isEmpty else { return }
+        guard !promotedIdsByGroupId.isEmpty else { return tabs }
 
-        var tabsByGroupId: [UUID: [Tab]] = [:]
-        for tab in tabs {
-            if let groupId = tab.groupId { tabsByGroupId[groupId, default: []].append(tab) }
-        }
         var tabsByGroupId: [UUID: [Tab]] = [:]
         for tab in tabs {
             if let groupId = tab.groupId { tabsByGroupId[groupId, default: []].append(tab) }
@@ -237,9 +238,11 @@ extension WorkspacesModel {
             let remainingMembers = orderedMembers.filter {
                 $0.id != group.anchorWorkspaceId && !promotedIdSet.contains($0.id)
             }
-            replacementMembersByGroupId[groupId] = [anchor] + promotedMembers + remainingMembers
+            replacementMembersByGroupId[groupId] = toBottom
+                ? [anchor] + remainingMembers + promotedMembers
+                : [anchor] + promotedMembers + remainingMembers
         }
-        guard !replacementMembersByGroupId.isEmpty else { return }
+        guard !replacementMembersByGroupId.isEmpty else { return tabs }
 
         var emittedGroupIds = Set<UUID>()
         var reordered: [Tab] = []
@@ -254,7 +257,7 @@ extension WorkspacesModel {
                 reordered.append(tab)
             }
         }
-        tabs = reordered
+        return reordered
     }
 
     /// Applies the detach-path lifecycle for groups anchored by a removed
