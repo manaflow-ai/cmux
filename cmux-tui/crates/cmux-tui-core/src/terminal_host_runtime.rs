@@ -1182,7 +1182,7 @@ mod unix {
             payload: &[u8],
         ) -> Result<InputAckReceipt, ConfirmedInputFailure> {
             // InputAck responses require protocol v4 even when the record advertises support.
-            if !self.record.supports_input_ack || self.protocol_version < 4 {
+            if !self.record.supports_input_ack || self.protocol_version < PROTOCOL_VERSION {
                 return Err(ConfirmedInputFailure::Known(std::io::Error::new(
                     std::io::ErrorKind::Unsupported,
                     "terminal host cannot acknowledge receipted input",
@@ -2292,7 +2292,7 @@ mod unix {
             if record.record_version == 2 && record.supports_terminate_ack {
                 anyhow::bail!("version 2 terminal-host record advertises terminate receipts");
             }
-            if record.record_version < 4 && record.supports_input_ack {
+            if record.record_version < HOST_RECORD_VERSION && record.supports_input_ack {
                 anyhow::bail!("pre-v4 terminal-host record advertises input receipts");
             }
             let nonce = decode_lower_hex_array::<HOST_START_NONCE_LEN>(
