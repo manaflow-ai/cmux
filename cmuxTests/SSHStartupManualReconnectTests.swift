@@ -200,6 +200,8 @@ struct SSHStartupManualReconnectTests {
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
 
         let process = Process()
+        let processExited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in processExited.signal() }
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", "exec " + startupCommand]
         process.environment = environment
@@ -229,8 +231,17 @@ struct SSHStartupManualReconnectTests {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         ))
         grandchildPID = readyGrandchildPID
-        Darwin.kill(process.processIdentifier, SIGINT)
-        try #require(Self.waitForExit(process, timeout: 3))
+        // The policy allows one 2s discovery window plus a bounded force pass.
+        // Its deadline regression bounds total cleanup at 15s; this TERM-resistant
+        // tree exercises that force pass, not a 3s graceful-exit contract.
+        let signaledAt = DispatchTime.now()
+        try #require(Darwin.kill(process.processIdentifier, SIGINT) == 0)
+        let observedExit = processExited.wait(timeout: signaledAt + 15) == .success
+        let elapsed = Double(DispatchTime.now().uptimeNanoseconds - signaledAt.uptimeNanoseconds) / 1_000_000_000
+        try #require(
+            observedExit,
+            "SIGINT completion after \(elapsed)s: root=\(String(describing: Self.processIsRunning(process.processIdentifier))), child=\(String(describing: Self.processIsRunning(readyChildPID))), grandchild=\(String(describing: Self.processIsRunning(readyGrandchildPID))), FoundationRunning=\(process.isRunning)"
+        )
         #expect(process.terminationStatus == 130)
         // A bounded cleanup may escalate to SIGKILL. Verify the processes are
         // gone, rather than requiring a particular signal handler to run.
@@ -683,8 +694,7 @@ struct SSHStartupManualReconnectTests {
     }
 
     @MainActor
-    @Test(arguments: [true, false])
-    func reconnectingConfirmedSurfaceStartsANewLivenessGeneration(targetsSurface: Bool) throws {
+    @Test func reconnectingConfirmedSurfaceStartsANewLivenessGeneration() throws {
         let workspace = Workspace()
         defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
         let configuration = Self.makeRemoteConfiguration()
@@ -703,7 +713,7 @@ struct SSHStartupManualReconnectTests {
         )
         #expect(workspace.hasAuthoritativelyConnectedRemoteTerminal)
 
-        #expect(workspace.reconnectRemoteConnection(surfaceId: targetsSurface ? panelId : nil))
+        #expect(workspace.reconnectRemoteConnection(surfaceId: panelId))
 
         #expect(workspace.remoteConfiguration != nil)
         #expect(workspace.remoteConnectionState == .connected)
@@ -716,6 +726,35 @@ struct SSHStartupManualReconnectTests {
             target: configuration.displayTarget
         )
         #expect(workspace.remoteConnectionState == .reconnecting)
+    }
+
+    @MainActor
+    @Test func workspaceReconnectKeepsHealthyConnectedTerminal() throws {
+        let workspace = Workspace()
+        defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
+        let configuration = Self.makeRemoteConfiguration()
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        workspace.applyRemoteConnectionStateUpdate(
+            .connected,
+            detail: "Connected controller",
+            target: configuration.displayTarget
+        )
+        let panel = try #require(workspace.focusedTerminalPanel)
+        try #require(workspace.markRemoteTerminalSessionConnected(
+            surfaceId: panel.id,
+            relayPort: configuration.relayPort
+        ))
+        let lifecycleID = panel.surface.terminalLifecycleId
+
+        #expect(!workspace.reconnectRemoteConnection())
+
+        #expect(workspace.terminalPanel(for: panel.id) === panel)
+        #expect(panel.surface.terminalLifecycleId == lifecycleID)
+        #expect(workspace.remoteConfiguration != nil)
+        #expect(workspace.activeRemoteTerminalSessionCount == 1)
+        #expect(workspace.remoteTerminalSessionStatesBySurfaceId[panel.id]?.phase == .connected)
+        #expect(workspace.hasAuthoritativelyConnectedRemoteTerminal)
+        #expect(workspace.remoteConnectionState == .connected)
     }
 
     @MainActor

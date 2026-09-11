@@ -131,8 +131,11 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
         XCTAssertTrue(sidebar.staticTexts[shortcuts].firstMatch.exists)
         XCTAssertEqual(sidebar.frame.midX > window.frame.midX, rightToLeft)
 
-        let search = window.textFields[searchLabel].firstMatch
-        XCTAssertTrue(search.exists)
+        let search = requireElement(
+            candidates: [window.searchFields.firstMatch, window.textFields[searchLabel].firstMatch],
+            timeout: 5,
+            description: "localized Settings search field"
+        )
         search.click()
         search.typeText(languageLabel)
         XCTAssertTrue(sidebar.staticTexts[languageLabel].firstMatch.waitForExistence(timeout: 5))
