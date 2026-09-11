@@ -55,7 +55,8 @@ struct CloudOperationDetailsView: View {
                             }
                             .font(.caption)
                         }
-                        .cloudErrorCopyMenu(operation.copyableError)
+                        .cloudErrorCopyMenu(operation.needsAttention || operation.steps.contains(where: { $0.outcome == .failure || $0.outcome == .timeout })
+                            ? operation.copyableError : nil)
                         Divider()
                     }
                 }

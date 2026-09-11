@@ -440,6 +440,7 @@ final class CloudTuiManualMirrorSession {
         surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
         let context = diagnosticContext ?? (error != nil && !(error is CancellationError) ? operations?.begin(.terminal, foreground: false) : nil)
         guard let context else { return }
+        diagnosticReference = "operation=\(context.operationID.uuidString.lowercased()) trace=\(context.traceID)"
         diagnosticContext = nil
         Task { await context.recorder.finish(context, error: error) }
     }

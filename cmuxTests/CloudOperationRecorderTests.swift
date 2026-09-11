@@ -8,6 +8,37 @@ import Testing
 
 @MainActor
 struct CloudOperationRecorderTests {
+    @Test func alertLabelsAndScrollableDetailsOfferCopyError() throws {
+        for text in ["Cloud could not connect.", String(repeating: "Cloud connection failed\n", count: 100)] {
+            let alert = NSAlert()
+            alert.messageText = "Cloud error"
+            CmuxAlertContent.scrollingAll(text).apply(to: alert, visibleFrame: NSRect(x: 0, y: 0, width: 1024, height: 768))
+            CloudErrorCopy.install(in: alert, text: text)
+            defer { alert.window.close() }
+            let root = try #require(alert.window.contentView)
+            var pending = [root]
+            var textViewCount = 0
+            while let view = pending.popLast() {
+                if view is NSTextField || view is NSTextView {
+                    textViewCount += 1
+                    #expect(view.menu?.items.first?.title == CloudErrorCopy.title)
+                }
+                pending.append(contentsOf: view.subviews)
+            }
+            #expect(textViewCount > 0)
+        }
+    }
+
+    @Test func longMultilineErrorsCopyWithoutTruncation() throws {
+        let text = "Cloud error\n" + String(repeating: "診断情報 connection failed\n", count: 300) + "trace=00112233445566778899aabbccddeeff"
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        let menu = CloudErrorCopy.menu(text, pasteboard: pasteboard)
+        let item = try #require(menu.items.first)
+        #expect(NSApp.sendAction(try #require(item.action), to: item.target, from: item))
+        #expect(pasteboard.string(forType: .string) == text)
+    }
+
     @Test func completedOperationsDoNotLeaveActivityChrome() async {
         let recorder = CloudOperationRecorder()
         #expect(recorder.operations.filter(\.isVisibleInMachinesPanel).isEmpty)
