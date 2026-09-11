@@ -888,8 +888,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let firstStroke: ShortcutStroke
         let windowNumber: Int?
     }
+    struct ConfiguredShortcutChordKeyEquivalentState {
+        let event: NSEvent
+        let firstStroke: ShortcutStroke
+    }
     var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
     var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
+    var configuredShortcutChordKeyEquivalentState: ConfiguredShortcutChordKeyEquivalentState?
     var shortcutEventFocusContextCache: ShortcutEventFocusContextCache?
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var globalFontMagnificationObserver: NSObjectProtocol?
@@ -14181,6 +14186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
 #endif
                 if handledByShortcut {
+                    self.clearConfiguredShortcutChordForKeyEquivalent(event: event)
 #if DEBUG
                     cmuxDebugLog("  → consumed by handleCustomShortcut")
 #endif
@@ -14238,6 +14244,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func clearConfiguredShortcutChordState() {
         pendingConfiguredShortcutChord = nil
         activeConfiguredShortcutChordPrefixForCurrentEvent = nil
+        configuredShortcutChordKeyEquivalentState = nil
     }
 
     /// Coalesce shortcut-default changes and refresh on the next runloop turn to
@@ -14473,6 +14480,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleCustomShortcut(event: NSEvent) -> Bool {
+        configuredShortcutChordKeyEquivalentState = nil
         guard event.type == .keyDown else {
             clearConfiguredShortcutChordState()
             return false
@@ -14512,6 +14520,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             activeConfiguredShortcutChordPrefixForCurrentEvent = nil
         }
         pendingConfiguredShortcutChord = nil
+        rememberConfiguredShortcutChordForKeyEquivalent(event: event)
         defer { activeConfiguredShortcutChordPrefixForCurrentEvent = nil; clearShortcutEventFocusContextCache(for: event) }
 
         if let textBoxShortcutTabManager = terminalTextShortcutBypassTabManagerBeforeContextResolution(
@@ -19416,6 +19425,10 @@ private extension NSWindow {
     }
 
     @objc func cmux_performKeyEquivalent(with event: NSEvent) -> Bool {
+        let configuredShortcutChordPrefix = AppDelegate.shared?.configuredShortcutChordPrefixForKeyEquivalent(event: event)
+        defer {
+            AppDelegate.shared?.clearConfiguredShortcutChordForKeyEquivalent(event: event)
+        }
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         defer {
@@ -19484,7 +19497,6 @@ private extension NSWindow {
             }
             return false
         }
-        if cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(event, terminalView: firstResponderGhosttyView, webView: firstResponderWebView, browserWebKitKeyDownReentry: browserWebKitKeyDownReentry) { return true }
         if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event),
            AppDelegate.shared?.shouldRouteRightSidebarModeShortcut(in: self) == true {
             _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
@@ -19797,6 +19809,37 @@ private extension NSWindow {
         if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
 #if DEBUG
             cmuxDebugLog("  → consumed by handleBrowserSurfaceKeyEquivalent")
+#endif
+            return true
+        }
+
+        // Keep the standard Undo/Redo equivalents behind configured cmux
+        // shortcut dispatch. A user remap to Cmd+Z/Cmd+Shift+Z must win before
+        // the terminal/browser safety route below takes ownership.
+        if cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(
+            event,
+            terminalView: firstResponderGhosttyView,
+            webView: firstResponderWebView,
+            browserWebKitKeyDownReentry: browserWebKitKeyDownReentry
+        ) {
+            return true
+        }
+
+        // Standard Edit-menu equivalents must be offered to a focused terminal
+        // before AppKit dispatches Copy/Paste/Cut/Select All from the shared
+        // menu. Ghostty owns the conditional
+        // copy/paste semantics: a selection is copied, while an unselected TUI
+        // receives the command key through its normal input path. Keep this
+        // after configured cmux shortcut handling so user remaps retain priority.
+        if let firstResponderGhosttyView,
+           TerminalCommandEquivalentRouter().route(
+               event: event,
+               terminalView: firstResponderGhosttyView,
+               firstResponder: self.firstResponder,
+               hasActiveShortcutChord: configuredShortcutChordPrefix != nil
+           ) {
+#if DEBUG
+            cmuxDebugLog("  → terminal claimed standard Edit command equivalent before mainMenu")
 #endif
             return true
         }
@@ -20178,93 +20221,6 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
 
     var updateLogPath: String {
         updateLog.logPath()
-    }
-}
-
-// MARK: - Window display placement (`window.display` / `window.displays`)
-
-extension AppDelegate {
-    /// A connected display, surfaced by the `window.displays` control command and
-    /// the `cmux window display --list` CLI so callers can discover screen names.
-    /// Lifted to ``CmuxWindowing/DisplayInfo``; aliased so existing
-    /// `AppDelegate.DisplayInfo` references stay source-identical.
-    typealias DisplayInfo = CmuxWindowing.DisplayInfo
-
-    /// All currently-connected displays, in `NSScreen.screens` order.
-    func availableDisplays() -> [DisplayInfo] {
-        let mainID = NSScreen.main?.cmuxDisplayID
-        return NSScreen.screens.enumerated().map { index, screen in
-            let displayID = screen.cmuxDisplayID
-            return DisplayInfo(
-                name: screen.localizedName,
-                index: index,
-                displayID: displayID,
-                isMain: displayID != nil && displayID == mainID,
-                frame: screen.frame
-            )
-        }
-    }
-
-    /// Resolve a display from a query: case-insensitive exact name, then
-    /// case-insensitive substring, then a zero-based index string. Returns nil
-    /// when nothing matches so callers can report the available names.
-    func screenMatching(_ query: String) -> NSScreen? {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let screens = NSScreen.screens
-        if let exact = screens.first(where: {
-            $0.localizedName.caseInsensitiveCompare(trimmed) == .orderedSame
-        }) {
-            return exact
-        }
-        let lowered = trimmed.lowercased()
-        if let partial = screens.first(where: { $0.localizedName.lowercased().contains(lowered) }) {
-            return partial
-        }
-        if let index = Int(trimmed), index >= 0, index < screens.count {
-            return screens[index]
-        }
-        return nil
-    }
-
-    /// Move a single main window onto the display matched by `query`, preserving
-    /// its size. Returns the resolved display name, or nil when the window or the
-    /// display can't be resolved.
-    @discardableResult
-    func moveMainWindow(windowId: UUID, toDisplayMatching query: String) -> String? {
-        guard let window = windowForMainWindowId(windowId),
-              let screen = screenMatching(query) else { return nil }
-        repositionPreservingSize(window, onto: screen)
-        return screen.localizedName
-    }
-
-    /// Move every main window onto the display matched by `query`, preserving
-    /// sizes. Returns the resolved display name and the moved window ids, or nil
-    /// when the display can't be resolved.
-    func moveAllMainWindows(toDisplayMatching query: String) -> (display: String, windowIds: [UUID])? {
-        guard let screen = screenMatching(query) else { return nil }
-        var moved: [UUID] = []
-        for summary in listMainWindowSummaries() {
-            guard let window = windowForMainWindowId(summary.windowId) else { continue }
-            repositionPreservingSize(window, onto: screen)
-            moved.append(summary.windowId)
-        }
-        return (screen.localizedName, moved)
-    }
-
-    /// Reposition `window` so it sits fully inside `screen`, keeping its current
-    /// size (clamped to the display) and centering it. Deliberately does NOT
-    /// raise, key, or activate the window: `window.display` is not a focus-intent
-    /// command, so it must never steal macOS focus (see `focusIntentV2Methods`).
-    func repositionPreservingSize(_ window: NSWindow, onto screen: NSScreen) {
-        let visible = screen.visibleFrame
-        let width = min(window.frame.width, visible.width)
-        let height = min(window.frame.height, visible.height)
-        var origin = NSPoint(x: visible.midX - width / 2, y: visible.midY - height / 2)
-        origin.x = max(visible.minX, min(origin.x, visible.maxX - width))
-        origin.y = max(visible.minY, min(origin.y, visible.maxY - height))
-        let frame = NSRect(x: origin.x, y: origin.y, width: width, height: height).integral
-        window.setFrame(frame, display: true, animate: false)
     }
 }
 

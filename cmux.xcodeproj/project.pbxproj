@@ -245,6 +245,7 @@
 		A79840020000000000000002 /* AppDelegate+SocketConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79840020000000000000001 /* AppDelegate+SocketConfiguration.swift */; };
 		A10557010000000000000001 /* AppDelegate+TerminalConfigurationApply.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10557010000000000000002 /* AppDelegate+TerminalConfigurationApply.swift */; };
 		D5AAB5856FF095F610EB565C /* AppDelegate+VisibleGlobalSearchShortcutRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5AAB5856FF095F610EB565D /* AppDelegate+VisibleGlobalSearchShortcutRouting.swift */; };
+		D11228000000000000000008 /* AppDelegate+WindowDisplayPlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11228000000000000000007 /* AppDelegate+WindowDisplayPlacement.swift */; };
 		DCDC1000000000000000C030 /* AppDelegate+WindowDock.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000C031 /* AppDelegate+WindowDock.swift */; };
 		4805E1513D104D02B52A9807 /* AppDelegate+WindowFramePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4085E612770476FA272C012 /* AppDelegate+WindowFramePolicy.swift */; };
 		895500000000000000000005 /* AppDelegate+WindowFrameRestoration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 895500000000000000000006 /* AppDelegate+WindowFrameRestoration.swift */; };
@@ -2889,6 +2890,9 @@
 		B8835700000000000000000D /* TerminalClipboardInputSequencerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835700000000000000000E /* TerminalClipboardInputSequencerTests.swift */; };
 		B88357000000000000000013 /* TerminalClipboardRequestSurfaceIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000014 /* TerminalClipboardRequestSurfaceIdentity.swift */; };
 		C2577000A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */; };
+		D11228000000000000000005 /* TerminalCommandEquivalentRouter+Command.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11228000000000000000006 /* TerminalCommandEquivalentRouter+Command.swift */; };
+		D11228000000000000000003 /* TerminalCommandEquivalentRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11228000000000000000004 /* TerminalCommandEquivalentRouting.swift */; };
+		D11228000000000000000001 /* TerminalCommandEquivalentRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11228000000000000000002 /* TerminalCommandEquivalentRoutingTests.swift */; };
 		A10557060000000000000001 /* TerminalConfigurationApplyCompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10557060000000000000002 /* TerminalConfigurationApplyCompletion.swift */; };
 		A10557030000000000000001 /* TerminalConfigurationApplySnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10557030000000000000002 /* TerminalConfigurationApplySnapshot.swift */; };
 		A10557040000000000000001 /* TerminalConfigurationPresentationMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10557040000000000000002 /* TerminalConfigurationPresentationMetrics.swift */; };
@@ -3846,6 +3850,7 @@
 		A79840020000000000000001 /* AppDelegate+SocketConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+SocketConfiguration.swift"; sourceTree = "<group>"; };
 		A10557010000000000000002 /* AppDelegate+TerminalConfigurationApply.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+TerminalConfigurationApply.swift"; sourceTree = "<group>"; };
 		D5AAB5856FF095F610EB565D /* AppDelegate+VisibleGlobalSearchShortcutRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AppDelegate+VisibleGlobalSearchShortcutRouting.swift"; sourceTree = "<group>"; };
+		D11228000000000000000007 /* AppDelegate+WindowDisplayPlacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+WindowDisplayPlacement.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000C031 /* AppDelegate+WindowDock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+WindowDock.swift"; sourceTree = "<group>"; };
 		B4085E612770476FA272C012 /* AppDelegate+WindowFramePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+WindowFramePolicy.swift"; sourceTree = "<group>"; };
 		895500000000000000000006 /* AppDelegate+WindowFrameRestoration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+WindowFrameRestoration.swift"; sourceTree = "<group>"; };
@@ -6367,6 +6372,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		B8835700000000000000000E /* TerminalClipboardInputSequencerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClipboardInputSequencerTests.swift; sourceTree = "<group>"; };
 		B88357000000000000000014 /* TerminalClipboardRequestSurfaceIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClipboardRequestSurfaceIdentity.swift; sourceTree = "<group>"; };
 		C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCmdClickUITests.swift; sourceTree = "<group>"; };
+		D11228000000000000000006 /* TerminalCommandEquivalentRouter+Command.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/TerminalCommandEquivalentRouter+Command.swift"; sourceTree = "<group>"; };
+		D11228000000000000000004 /* TerminalCommandEquivalentRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalCommandEquivalentRouting.swift; sourceTree = "<group>"; };
+		D11228000000000000000002 /* TerminalCommandEquivalentRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCommandEquivalentRoutingTests.swift; sourceTree = "<group>"; };
 		A10557060000000000000002 /* TerminalConfigurationApplyCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalConfigurationApplyCompletion.swift; sourceTree = "<group>"; };
 		A10557030000000000000002 /* TerminalConfigurationApplySnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalConfigurationApplySnapshot.swift; sourceTree = "<group>"; };
 		A10557040000000000000002 /* TerminalConfigurationPresentationMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalConfigurationPresentationMetrics.swift; sourceTree = "<group>"; };
@@ -8325,6 +8333,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5001B01 /* GhosttyTerminalScrollBoost.swift */,
 				D5671202D5671202D5671202 /* GhosttyTerminalScrollSpeed.swift */,
 				C54860070000000000000002 /* GhosttyNSViewSurfaceLinkCopy.swift */,
+				D11228000000000000000004 /* TerminalCommandEquivalentRouting.swift */,
+				D11228000000000000000006 /* TerminalCommandEquivalentRouter+Command.swift */,
+				C7261F010000000000000002 /* TerminalPointerFocusActivationPolicy.swift */,
 				C75100030000000000000002 /* TerminalSelectionTranslationAnchorView.swift */,
 				C75100020000000000000002 /* TerminalSelectionTranslation.swift */,
 				C13519000000000000000006 /* RestorableAgentTypes.swift */,
@@ -8638,6 +8649,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				F4350A130000000000000001 /* AppBundleIconPersistencePolicy.swift */,
 				D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */,
 				A5001090 /* AppDelegate.swift */,
+				D11228000000000000000007 /* AppDelegate+WindowDisplayPlacement.swift */,
 				7A0CE1000000000000000019 /* AppDelegate+CloudTunnel.swift */,
 				C51A740000000000000000A2 /* AppDelegate+SimulatorShortcutRouting.swift */,
 				D35B00000000000000000011 /* TerminalController+BrowserDesignMode.swift */,
@@ -10325,6 +10337,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D1F0A00300000000000000C2 /* PhonePushPresenceGateTests.swift */,
 				D1F0A00400000000000000C2 /* PhonePushSerialDeliveryQueueTests.swift */,
 				B79482F1ECA54E98BE5C8953 /* WindowKeyDownReplayGuardTests.swift */,
+				D11228000000000000000002 /* TerminalCommandEquivalentRoutingTests.swift */,
 				604500100000000000000004 /* WindowTitleTemplateTests.swift */,
 				D1FFC0DE000000000000C001 /* DiffCommentStoreTests.swift */,
 				CC0033E15A1B2C3D4E5F0006 /* CommentsListPayloadTests.swift */,
@@ -11408,6 +11421,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A79840020000000000000002 /* AppDelegate+SocketConfiguration.swift in Sources */,
 				A10557010000000000000001 /* AppDelegate+TerminalConfigurationApply.swift in Sources */,
 				D5AAB5856FF095F610EB565C /* AppDelegate+VisibleGlobalSearchShortcutRouting.swift in Sources */,
+				D11228000000000000000008 /* AppDelegate+WindowDisplayPlacement.swift in Sources */,
 				DCDC1000000000000000C030 /* AppDelegate+WindowDock.swift in Sources */,
 				4805E1513D104D02B52A9807 /* AppDelegate+WindowFramePolicy.swift in Sources */,
 				895500000000000000000005 /* AppDelegate+WindowFrameRestoration.swift in Sources */,
@@ -12975,6 +12989,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B8835A000000000000000001 /* TerminalClipboardInputSequencer+State.swift in Sources */,
 				B88357000000000000000005 /* TerminalClipboardInputSequencer.swift in Sources */,
 				B88357000000000000000013 /* TerminalClipboardRequestSurfaceIdentity.swift in Sources */,
+				D11228000000000000000005 /* TerminalCommandEquivalentRouter+Command.swift in Sources */,
+				D11228000000000000000003 /* TerminalCommandEquivalentRouting.swift in Sources */,
 				A10557060000000000000001 /* TerminalConfigurationApplyCompletion.swift in Sources */,
 				A10557030000000000000001 /* TerminalConfigurationApplySnapshot.swift in Sources */,
 				A10557040000000000000001 /* TerminalConfigurationPresentationMetrics.swift in Sources */,
@@ -14497,6 +14513,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				E4D1768B7041CDE4F9A084A4 /* TerminalClearScreenKeepScrollbackTests.swift in Sources */,
 				B8835A000000000000000003 /* TerminalClipboardInputSequencerTests+Replay.swift in Sources */,
 				B8835700000000000000000D /* TerminalClipboardInputSequencerTests.swift in Sources */,
+				D11228000000000000000001 /* TerminalCommandEquivalentRoutingTests.swift in Sources */,
 				A10557080000000000000001 /* TerminalConfigurationPresentationMetricsTests.swift in Sources */,
 				8C4BBF2DEF6DF93F395A9EE7 /* TerminalControllerSocketSecurityTests.swift in Sources */,
 				9C1BEA3D2E6F49709A71C020 /* TerminalControllerTerminalTextTests.swift in Sources */,
