@@ -1,10 +1,21 @@
 import Foundation
 import os
 
-private struct CmuxTopProcessSnapshotCacheState {
+private struct CmuxTopProcessSnapshotSlot {
     var snapshot: CmuxTopProcessSnapshot?
     var includeProcessDetails = false
     var includeCMUXScope = true
+}
+
+private struct CmuxTopProcessSnapshotCacheState {
+    // One slot per detail level: the pane-memory guardrail's frequent no-details
+    // captures and the agent-index/autosave detailed captures used to share a
+    // single slot and evicted each other, so interleaved consumers each paid a
+    // full libproc enumeration. Detailed snapshots satisfy no-details requests,
+    // so keeping both levels warm collapses the steady state to roughly one
+    // detailed capture per freshness window.
+    var detailed = CmuxTopProcessSnapshotSlot()
+    var basic = CmuxTopProcessSnapshotSlot()
 }
 
 // libproc snapshots are a short-lived platform bridge shared by the CLI, socket,
@@ -20,20 +31,13 @@ extension CmuxTopProcessSnapshot {
         maximumAge: TimeInterval
     ) -> CmuxTopProcessSnapshot {
         let now = Date()
-        if let cached = cmuxTopProcessSnapshotCache.withLock({ state -> CmuxTopProcessSnapshot? in
-            guard let snapshot = state.snapshot,
-                  Self.cachedSnapshotDetailsSatisfy(
-                      state.includeProcessDetails,
-                      requested: includeProcessDetails
-                  ),
-                  Self.cachedSnapshotCMUXScopeSatisfies(
-                      state.includeCMUXScope,
-                      requested: includeCMUXScope
-                  ),
-                  now.timeIntervalSince(snapshot.sampledAt) <= maximumAge else {
-                return nil
-            }
-            return snapshot
+        if let cached = cmuxTopProcessSnapshotCache.withLock({ state in
+            state.satisfyingSnapshot(
+                includeProcessDetails: includeProcessDetails,
+                includeCMUXScope: includeCMUXScope,
+                maximumAge: maximumAge,
+                now: now
+            )
         }) {
             return cached
         }
@@ -43,37 +47,52 @@ extension CmuxTopProcessSnapshot {
             includeCMUXScope: includeCMUXScope
         )
         return cmuxTopProcessSnapshotCache.withLock { state in
-            let storeTime = Date()
-            if let cached = state.snapshot,
-               Self.cachedSnapshotDetailsSatisfy(
-                   state.includeProcessDetails,
-                   requested: includeProcessDetails
-               ),
-               Self.cachedSnapshotCMUXScopeSatisfies(
-                   state.includeCMUXScope,
-                   requested: includeCMUXScope
-               ),
-               storeTime.timeIntervalSince(cached.sampledAt) <= maximumAge {
+            // A concurrent caller may have stored a satisfying snapshot while this
+            // capture ran; keep every caller on that one instead of publishing two.
+            if let cached = state.satisfyingSnapshot(
+                includeProcessDetails: includeProcessDetails,
+                includeCMUXScope: includeCMUXScope,
+                maximumAge: maximumAge,
+                now: Date()
+            ) {
                 return cached
             }
-            state.snapshot = snapshot
-            state.includeProcessDetails = includeProcessDetails
-            state.includeCMUXScope = includeCMUXScope
+            let slot = CmuxTopProcessSnapshotSlot(
+                snapshot: snapshot,
+                includeProcessDetails: includeProcessDetails,
+                includeCMUXScope: includeCMUXScope
+            )
+            if includeProcessDetails {
+                state.detailed = slot
+            } else {
+                state.basic = slot
+            }
             return snapshot
         }
     }
+}
 
-    private static func cachedSnapshotDetailsSatisfy(
-        _ cachedIncludesProcessDetails: Bool,
-        requested: Bool
-    ) -> Bool {
-        cachedIncludesProcessDetails || !requested
-    }
-
-    private static func cachedSnapshotCMUXScopeSatisfies(
-        _ cachedIncludesCMUXScope: Bool,
-        requested: Bool
-    ) -> Bool {
-        cachedIncludesCMUXScope || !requested
+extension CmuxTopProcessSnapshotCacheState {
+    fileprivate func satisfyingSnapshot(
+        includeProcessDetails: Bool,
+        includeCMUXScope: Bool,
+        maximumAge: TimeInterval,
+        now: Date
+    ) -> CmuxTopProcessSnapshot? {
+        let candidates = [detailed, basic]
+        var best: CmuxTopProcessSnapshot?
+        for slot in candidates {
+            guard let snapshot = slot.snapshot,
+                  slot.includeProcessDetails || !includeProcessDetails,
+                  slot.includeCMUXScope || !includeCMUXScope,
+                  now.timeIntervalSince(snapshot.sampledAt) <= maximumAge else {
+                continue
+            }
+            if let current = best, current.sampledAt >= snapshot.sampledAt {
+                continue
+            }
+            best = snapshot
+        }
+        return best
     }
 }
