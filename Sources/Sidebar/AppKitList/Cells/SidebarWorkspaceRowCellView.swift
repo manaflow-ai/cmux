@@ -28,6 +28,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var leadingSpinner: GPUSpinnerNSView?
     private let pinImageView = NSImageView()
     private let muteImageView = NSImageView()
+    private let splitPaneCountView = SidebarRowSplitPaneCountView()
     private let mediaAudioView = NSImageView()
     private let mediaMicView = NSImageView()
     private let mediaCameraView = NSImageView()
@@ -203,6 +204,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         contentContainer.addSubview(pinImageView)
         muteImageView.imageScaling = .scaleProportionallyDown
         contentContainer.addSubview(muteImageView)
+        contentContainer.addSubview(splitPaneCountView)
         for view in [mediaAudioView, mediaMicView, mediaCameraView] {
             view.imageScaling = .scaleProportionallyDown
             contentContainer.addSubview(view)
@@ -432,6 +434,20 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 defaultValue: "Notifications muted for this workspace"
             )
         }
+        let splitPaneCount = snapshot.splitPaneCount
+        let splitPaneHelpText = String.localizedStringWithFormat(
+            String(
+                localized: "sidebar.workspace.splitPaneCount.tooltip",
+                defaultValue: "Split pane count: %lld"
+            ),
+            Int64(splitPaneCount)
+        )
+        splitPaneCountView.configure(
+            count: splitPaneCount,
+            color: palette.secondary(0.78),
+            font: .systemFont(ofSize: model.scaled(9), weight: .semibold),
+            helpText: splitPaneHelpText
+        )
         let media = snapshot.mediaActivity
         mediaAudioView.isHidden = !media.isPlayingAudio
         if media.isPlayingAudio {
@@ -1141,6 +1157,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             let side = model.scaled(9) + 4
             place(muteImageView, size: NSSize(width: side, height: side), centerY: firstLineCenter)
             x += side + titleRowSpacing
+        }
+        if !splitPaneCountView.isHidden {
+            let splitSize = splitPaneCountView.intrinsicContentSize
+            place(splitPaneCountView, size: splitSize, centerY: firstLineCenter)
+            x += splitSize.width + titleRowSpacing
         }
         for view in [mediaAudioView, mediaMicView, mediaCameraView] where !view.isHidden {
             let side = model.scaled(9) + 4

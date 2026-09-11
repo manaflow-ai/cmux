@@ -17,6 +17,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let checklistTotalCount: Int
         let checklistFirstUncheckedText: String?
         let activeCodingAgentCount: Int
+        let splitPaneCount: Int
     }
 
     var contextMenuImmediateFields: ContextMenuImmediateFields {
@@ -35,7 +36,8 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             checklistCompletedCount: checklistCompletedCount,
             checklistTotalCount: checklistTotalCount,
             checklistFirstUncheckedText: checklistFirstUncheckedText,
-            activeCodingAgentCount: activeCodingAgentCount
+            activeCodingAgentCount: activeCodingAgentCount,
+            splitPaneCount: splitPaneCount
         )
     }
 
@@ -68,6 +70,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             branchLinesContainBranch: branchLinesContainBranch,
             pullRequestRows: pullRequestRows,
             listeningPorts: listeningPorts,
+            splitPaneCount: snapshot.splitPaneCount,
             finderDirectoryPath: snapshot.finderDirectoryPath,
             // Media activity drives a leading row glyph, so stale values are
             // visually worse than ordinary telemetry text while the menu is open.

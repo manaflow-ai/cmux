@@ -133,6 +133,23 @@ import Testing
         #expect(decision.pendingWorkspaceSnapshot == nil)
         #expect(!decision.hasDeferredWorkspaceObservationInvalidation)
     }
+
+    @Test func contextMenuSplitPaneCountChangeUpdatesDisplayedFieldsImmediately() {
+        let current = Self.snapshot(splitPaneCount: 1)
+        let next = Self.snapshot(splitPaneCount: 3)
+
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
+            current: current,
+            next: next,
+            force: false,
+            contextMenuVisible: true
+        )
+
+        #expect(decision.workspaceSnapshotStorage == next)
+        #expect(decision.pendingWorkspaceSnapshot == nil)
+        #expect(!decision.hasDeferredWorkspaceObservationInvalidation)
+    }
+
     @Test func contextMenuMediaActivityChangeUpdatesDisplayedGlyphImmediately() {
         let current = Self.snapshot(
             remoteConnectionStatusText: "Connected",
@@ -188,7 +205,8 @@ import Testing
         listeningPorts: [Int] = [],
         finderDirectoryPath: String? = nil,
         mediaActivity: BrowserMediaActivity = BrowserMediaActivity(),
-        activeCodingAgentCount: Int = 0
+        activeCodingAgentCount: Int = 0,
+        splitPaneCount: Int = 1
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey ?? Self.presentationKey(),
@@ -215,6 +233,7 @@ import Testing
             branchLinesContainBranch: false,
             pullRequestRows: [],
             listeningPorts: listeningPorts,
+            splitPaneCount: splitPaneCount,
             finderDirectoryPath: finderDirectoryPath,
             mediaActivity: mediaActivity,
             taskStatus: nil,

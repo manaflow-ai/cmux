@@ -16019,6 +16019,24 @@ struct TabItemView: View, Equatable {
                         .safeHelp(String(localized: "sidebar.mutedWorkspace.tooltip", defaultValue: "Notifications muted for this workspace"))
                 }
 
+                if workspaceSnapshot.splitPaneCount > 1 {
+                    HStack(spacing: 3) {
+                        Image(systemName: "rectangle.split.2x1")
+                            .font(magnifiedFont(scaledFontSize(9), weight: .semibold))
+                        Text(verbatim: "\(workspaceSnapshot.splitPaneCount)")
+                            .font(magnifiedFont(scaledFontSize(9), weight: .semibold))
+                    }
+                    .foregroundColor(activeSecondaryColor(0.78))
+                    .frame(minWidth: 27, minHeight: 15)
+                    .padding(.horizontal, 4)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(activeSecondaryColor(0.12))
+                    )
+                    .safeHelp(splitPaneAffordanceHelpText)
+                    .accessibilityLabel(Text(splitPaneAffordanceHelpText))
+                }
+
                 // Chrome-style media-activity glyphs: a noisy or capturing
                 // background browser pane is surfaced on its workspace row,
                 // styled like the pin indicator. Audio is the must-have signal;
@@ -16465,6 +16483,16 @@ struct TabItemView: View, Equatable {
         renameDraft = workspaceSnapshot.title
         renameBaselineHadUserCustomTitle = snapshot.hasUserCustomTitle
         isEditing = true
+    }
+
+    private var splitPaneAffordanceHelpText: String {
+        String.localizedStringWithFormat(
+            String(
+                localized: "sidebar.workspace.splitPaneCount.tooltip",
+                defaultValue: "Split pane count: %lld"
+            ),
+            Int64(workspaceSnapshot.splitPaneCount)
+        )
     }
 
     private func backgroundColor(

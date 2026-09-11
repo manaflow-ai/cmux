@@ -109,6 +109,7 @@ struct SidebarWorkspaceSnapshotFactory {
                 && branchDirectoryLines.contains { $0.branch != nil },
             pullRequestRows: pullRequestRows,
             listeningPorts: detailVisibility.showsPorts ? workspace.listeningPorts : [],
+            splitPaneCount: max(1, workspace.bonsplitController.allPaneIds.count),
             finderDirectoryPath: WorkspaceFinderDirectoryResolver.path(for: workspace),
             mediaActivity: workspace.browserMediaActivity,
             taskStatus: taskStatusResolution?.effective,

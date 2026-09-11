@@ -3198,6 +3198,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     var restoredPanelTitleBoundariesByPanelId: [UUID: RestoredPanelTitleBoundary] = [:]
     /// Agent runtime maps that affect sidebar status visibility.
     let sidebarAgentRuntimeObservation = WorkspaceSidebarAgentRuntimeObservationModel()
+    /// Pane-topology changes that affect the sidebar split affordance.
+    let sidebarLayoutObservation = WorkspaceSidebarLayoutObservationModel()
     /// Todo lifecycle state: manual status override + persisted checklist (all logic lives in `Workspace+Todos.swift`).
     let todoState = WorkspaceTodoState()
     let sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel
@@ -3251,6 +3253,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         set { restoredAgentLifecycle.invalidatedFingerprintsByPanelId = newValue }
     }
     private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
+    private func publishSidebarLayoutChanged() {
+        sidebarLayoutObservation.layoutDidChange()
+    }
+
     private let sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>
     /// Keeps WebKit out of launch-time topology assembly; deferred browser panels materialize
     /// from ``WorkspaceContentView`` when their pane becomes visible.
@@ -14168,6 +14174,12 @@ extension Workspace: BonsplitDelegate {
         )
 #endif
         applyTabSelection(tabId: tab.id, inPane: destination)
+        if !controller.allPaneIds.contains(source) {
+            // Moving the last tab out of a pane can collapse that pane without a
+            // separate didClosePane callback, so sidebar pane-count badges need
+            // the same layout signal as explicit split/close operations.
+            publishSidebarLayoutChanged()
+        }
 #if DEBUG
         let movedPanelIdAfter = panelIdFromSurfaceId(tab.id)
 #endif
@@ -14215,6 +14227,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
+        publishSidebarLayoutChanged()
         let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
         let closedHistoryEntries = pendingPaneCloseHistoryEntries.removeValue(forKey: paneId.id) ?? []
         let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
@@ -14301,6 +14314,7 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didSplitPane originalPane: PaneID, newPane: PaneID, orientation: SplitOrientation) {
         guard !isRetiredFromOwningTabManager else { return }
+        publishSidebarLayoutChanged()
 #if DEBUG
         let panelKindForTab: (TabID) -> String = { tabId in
             guard let panelId = self.panelIdFromSurfaceId(tabId),

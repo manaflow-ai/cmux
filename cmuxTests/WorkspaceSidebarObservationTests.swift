@@ -298,6 +298,64 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func sidebarLayoutObservationEmitsWhenTabMoveCollapsesPane() throws {
+        let workspace = Workspace()
+        let leftPanelId = try #require(workspace.focusedPanelId)
+        let leftPaneId = try #require(workspace.paneId(forPanelId: leftPanelId))
+        let changeGenerationBeforeSplit = workspace.sidebarLayoutObservation.changeGeneration
+        let rightPanel = try #require(
+            workspace.newTerminalSplit(
+                from: leftPanelId,
+                orientation: .horizontal,
+                focus: false
+            )
+        )
+        let leftTabId = try #require(workspace.surfaceIdFromPanelId(leftPanelId))
+        let leftTab = try #require(workspace.bonsplitController.tab(leftTabId))
+
+        #expect(workspace.bonsplitController.allPaneIds.count == 2)
+        #expect(
+            workspace.sidebarLayoutObservation.changeGeneration > changeGenerationBeforeSplit,
+            "Splitting a pane should refresh sidebar split-pane counts."
+        )
+
+        let changeGenerationBeforeClose = workspace.sidebarLayoutObservation.changeGeneration
+        #expect(
+            workspace.closePanel(rightPanel.id, force: true),
+            "Closing a split pane's only panel should succeed."
+        )
+        #expect(workspace.bonsplitController.allPaneIds.count == 1)
+        #expect(
+            workspace.sidebarLayoutObservation.changeGeneration > changeGenerationBeforeClose,
+            "Closing a pane should refresh sidebar split-pane counts."
+        )
+
+        let recreatedRightPanel = try #require(
+            workspace.newTerminalSplit(
+                from: leftPanelId,
+                orientation: .horizontal,
+                focus: false
+            )
+        )
+        let recreatedRightPaneId = try #require(workspace.paneId(forPanelId: recreatedRightPanel.id))
+
+        let changeGenerationBeforeMove = workspace.sidebarLayoutObservation.changeGeneration
+
+        workspace.splitTabBar(
+            workspace.bonsplitController,
+            didRequestTabContextAction: .moveToRightPane,
+            for: leftTab,
+            inPane: leftPaneId
+        )
+
+        #expect(workspace.paneId(forPanelId: leftPanelId) == recreatedRightPaneId)
+        #expect(workspace.bonsplitController.allPaneIds.count == 1)
+        #expect(
+            workspace.sidebarLayoutObservation.changeGeneration > changeGenerationBeforeMove,
+            "Moving the last tab out of a pane should refresh sidebar split-pane counts."
+        )
+    }
+
     @Test func agentLifecycleChangeBumpsRuntimeObservationGeneration() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)

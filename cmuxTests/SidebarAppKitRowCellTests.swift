@@ -13,6 +13,7 @@ struct SidebarAppKitRowCellTests {
         title: String = "Workspace",
         customDescription: String? = nil,
         isPinned: Bool = false,
+        splitPaneCount: Int = 1,
         metadataEntries: [SidebarStatusEntry] = [],
         metadataBlocks: [SidebarMetadataBlock] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
@@ -44,6 +45,7 @@ struct SidebarAppKitRowCellTests {
             branchLinesContainBranch: false,
             pullRequestRows: [],
             listeningPorts: [],
+            splitPaneCount: splitPaneCount,
             finderDirectoryPath: nil,
             mediaActivity: BrowserMediaActivity(),
             taskStatus: nil,
@@ -60,7 +62,9 @@ struct SidebarAppKitRowCellTests {
         workspaceId: UUID = UUID(),
         isActive: Bool = false,
         isPinned: Bool = false,
+        splitPaneCount: Int = 1,
         canClose: Bool = true,
+        globalFontMagnificationPercent: Int = 100,
         settings: SidebarTabItemSettingsSnapshot? = nil,
         customDescription: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
@@ -76,6 +80,7 @@ struct SidebarAppKitRowCellTests {
             snapshot: makeSnapshot(
                 customDescription: customDescription,
                 isPinned: isPinned,
+                splitPaneCount: splitPaneCount,
                 metadataEntries: metadataEntries,
                 metadataBlocks: metadataBlocks
             ),
@@ -97,7 +102,7 @@ struct SidebarAppKitRowCellTests {
             shortcutHintText: shortcutHintText,
             showsShortcutHints: shortcutHintText != nil,
             colorSchemeIsDark: true,
-            globalFontMagnificationPercent: 100,
+            globalFontMagnificationPercent: globalFontMagnificationPercent,
             isChecklistExpanded: false,
             checklistAddFieldActivationToken: 0,
             isChecklistPopoverPresented: false,
@@ -106,6 +111,85 @@ struct SidebarAppKitRowCellTests {
             isMetadataExpanded: false,
             isMarkdownExpanded: isMarkdownExpanded
         )
+    }
+
+    @Test
+    func splitPaneAffordanceAppearsOnlyForSplitWorkspaces() throws {
+        let cell = SidebarWorkspaceRowTableCellView()
+        let singlePane = Self.makeModel()
+        cell.configure(
+            model: singlePane,
+            actions: Self.makeActions(model: singlePane),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        _ = cell.layoutContent(model: singlePane, width: 300, apply: true)
+        let splitAffordance = try #require(
+            Self.allDescendants(of: cell).compactMap { $0 as? SidebarRowSplitPaneCountView }.first
+        )
+        #expect(splitAffordance.isHidden)
+        #expect(!splitAffordance.isAccessibilityElement())
+        #expect(splitAffordance.intrinsicContentSize == .zero)
+        #expect(splitAffordance.toolTip == nil)
+        #expect(splitAffordance.accessibilityLabel() == nil)
+
+        let splitPane = Self.makeModel(splitPaneCount: 2)
+        cell.configure(
+            model: splitPane,
+            actions: Self.makeActions(model: splitPane),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        _ = cell.layoutContent(model: splitPane, width: 300, apply: true)
+        #expect(!splitAffordance.isHidden)
+        #expect(splitAffordance.isAccessibilityElement())
+        #expect(splitAffordance.accessibilityRole() == .staticText)
+        #expect(splitAffordance.subviews.allSatisfy { !$0.isAccessibilityElement() })
+        #expect(splitAffordance.configuredCount == 2)
+        #expect(splitAffordance.frame.size == splitAffordance.intrinsicContentSize)
+        #expect(splitAffordance.frame.width > 0)
+        #expect(splitAffordance.frame.height > 0)
+        #expect(splitAffordance.toolTip?.isEmpty == false)
+        #expect(splitAffordance.accessibilityLabel() == splitAffordance.toolTip)
+        let normalSize = splitAffordance.frame.size
+
+        let magnifiedPane = Self.makeModel(splitPaneCount: 2, globalFontMagnificationPercent: 200)
+        cell.configure(
+            model: magnifiedPane,
+            actions: Self.makeActions(model: magnifiedPane),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        _ = cell.layoutContent(model: magnifiedPane, width: 300, apply: true)
+        #expect(!splitAffordance.isHidden)
+        #expect(splitAffordance.frame.width > normalSize.width)
+        #expect(splitAffordance.frame.height > normalSize.height)
+        splitAffordance.layoutSubtreeIfNeeded()
+        for subview in splitAffordance.subviews {
+            #expect(splitAffordance.bounds.contains(subview.frame))
+        }
+
+        cell.configure(
+            model: singlePane,
+            actions: Self.makeActions(model: singlePane),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        _ = cell.layoutContent(model: singlePane, width: 300, apply: true)
+        #expect(splitAffordance.isHidden)
+        #expect(splitAffordance.configuredCount == 1)
+        #expect(!splitAffordance.isAccessibilityElement())
+        #expect(splitAffordance.intrinsicContentSize == .zero)
+        #expect(splitAffordance.toolTip == nil)
+        #expect(splitAffordance.accessibilityLabel() == nil)
+    }
+
+    private static func allDescendants(of view: NSView) -> [NSView] {
+        view.subviews + view.subviews.flatMap(allDescendants)
     }
 
     private static func makeSwiftUIRow(

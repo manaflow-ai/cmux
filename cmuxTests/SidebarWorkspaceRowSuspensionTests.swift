@@ -41,6 +41,7 @@ struct SidebarWorkspaceRowSuspensionTests {
             branchLinesContainBranch: false,
             pullRequestRows: [],
             listeningPorts: [],
+            splitPaneCount: 1,
             finderDirectoryPath: nil,
             mediaActivity: BrowserMediaActivity(),
             taskStatus: manualTaskStatus,

@@ -405519,6 +405519,23 @@
         }
       }
     },
+    "sidebar.workspace.splitPaneCount.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Split pane count: %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割ペイン数: %lld"
+          }
+        }
+      }
+    },
     "simulator.accessibility.nextPage": {
       "extractionState": "manual",
       "localizations": {

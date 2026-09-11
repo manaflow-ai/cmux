@@ -54,6 +54,13 @@ extension View {
                             onChange(id)
                         }
                     }
+                    let layoutChanges = workspace.sidebarLayoutObservation.changes()
+                    group.addTask { @MainActor in
+                        for await _ in layoutChanges {
+                            if Task.isCancelled { break }
+                            onChange(id)
+                        }
+                    }
                 }
             }
         }
@@ -301,7 +308,7 @@ extension Workspace {
             $activeRemoteTerminalSessionCount
         )
         let directoryChangeRevision = currentDirectoryChangeRevisionPublisher()
-        return Publishers.CombineLatest4(
+        let stateChanges = Publishers.CombineLatest4(
             workspaceFields,
             metadataFields,
             gitFields,
@@ -342,5 +349,7 @@ extension Workspace {
             .removeDuplicates()
             .map { _ in () }
             .eraseToAnyPublisher()
+
+        return stateChanges
     }
 }
