@@ -20,7 +20,6 @@ const outputDir = path.join(projectRoot, "public", "pagefind");
 const cacheDir = path.join(projectRoot, ".next", "cache", "cmux-docs-search");
 const cacheOutputDir = path.join(cacheDir, "pagefind");
 const cacheManifestPath = path.join(cacheDir, "manifest");
-const pagefindCacheVersion = "pagefind-1.5.2";
 const rawMessagesCache = new Map();
 const mergedMessagesCache = new Map();
 
@@ -90,7 +89,11 @@ async function main() {
   const pages = await docsSearchPages(channel);
   const htmlByPath = new Map(pages.map((page) => [page.path, pageHtml(page)]));
   const fingerprint = createHash("sha256")
-    .update(pagefindCacheVersion)
+    // The lockfile covers the installed Pagefind version. The generator source
+    // also invalidates cached output when Pagefind arguments change.
+    .update(await readFile(path.join(projectRoot, "bun.lock")))
+    .update("\0")
+    .update(await readFile(fileURLToPath(import.meta.url)))
     .update("\0")
     .update(channel)
     .update("\0")
@@ -112,6 +115,8 @@ async function main() {
       );
       await runPagefind();
       await mkdir(cacheDir, { recursive: true });
+      // An interrupted copy must not leave a valid manifest for partial data.
+      await rm(cacheManifestPath, { force: true });
       await rm(cacheOutputDir, { force: true, recursive: true });
       await cp(outputDir, cacheOutputDir, { recursive: true });
       await writeFile(cacheManifestPath, fingerprint, "utf8");
