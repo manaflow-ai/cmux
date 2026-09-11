@@ -866,6 +866,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// discovery has restarted (see `applyManagedCloudPolicy`).
     var managedCloudPolicyTask: Task<Void, Never>?
     private var reloadConfigurationMenuItemRefreshScheduled = false
+    /// Owns app-owned agent-chat sidecar state and cleanup for this delegate.
+    let agentChatActionInFlightGate = AgentChatActionInFlightGate()
+    /// Synchronizes terminal theme updates through the app-owned sidecar gate.
+    lazy var agentChatThemeSync = AgentChatThemeSync(gate: agentChatActionInFlightGate)
     /// Orchestrates per-window cmux config-store reloads + window-title refresh.
     /// Holds `self` weakly through the environment seam to avoid a retain cycle.
     private lazy var configStoreReloadCoordinator: CmuxConfigStoreReloadCoordinator = {
@@ -1400,7 +1404,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         captureSessionLaunchStateIfNeeded()
         Self.shared = self
         mainThreadHangWatchdog.start()
-        AgentChatThemeSync.start()
+        agentChatThemeSync.start()
         // Inverts the surface registry's legacy AppDelegate.shared reach-up:
         // the registry asks this delegate (via MainWindowRouteRetiring) to
         // audit recoverable route lifecycle after a surface unregisters.
@@ -2458,6 +2462,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MobileHostService.shared.stop()
         TerminalController.shared.stopAutomationEngine()
         TerminalController.shared.stop(cleanupDiscoveryState: true)
+        agentChatActionInFlightGate.terminateOwnedServer()
         GhosttyApp.terminalPasteboard.cleanupAllOwnedTemporaryImageFiles()
         VSCodeServeWebController.shared.stop()
         BrowserProfileStore.shared.flushPendingSaves()
