@@ -1,0 +1,20 @@
+name: Unused code
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  periphery:
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    uses: periphery-pro/actions/.github/workflows/scan.yml@v1
+    with:
+      checkout_submodules: true
+      setup: |
+        ./scripts/download-prebuilt-ghosttykit.sh
+        ./scripts/install-zig-ci.sh
+        ./scripts/install-rust-ci.sh
