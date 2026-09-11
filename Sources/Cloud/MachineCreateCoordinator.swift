@@ -303,6 +303,7 @@ final class MachineCreateCoordinator {
             cleanupCancelledMachine(machineID)
         }
         cancelOperation(operation)
+        resumeWorkspaceWaiter(id, workspaceID: nil)
         postDidChange(finished: nil)
     }
 
@@ -342,7 +343,7 @@ final class MachineCreateCoordinator {
             }
         }
         for handle in handles { handle.cancel() }
-        for operationID in workspaceWaiters.keys {
+        for operationID in Array(workspaceWaiters.keys) {
             resumeWorkspaceWaiter(operationID, workspaceID: nil)
         }
         postDidChange(finished: nil)

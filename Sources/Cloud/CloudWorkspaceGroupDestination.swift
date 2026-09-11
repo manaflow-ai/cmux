@@ -11,7 +11,8 @@ struct CloudWorkspaceGroupDestination {
     let initialWorkspaceId: UUID?
 
     func apply(workspaceID: UUID) {
-        guard let tabManager else { return }
+        guard let tabManager,
+              tabManager.tabs.contains(where: { $0.id == workspaceID }) else { return }
         if let groupId {
             tabManager.addWorkspaceToGroup(
                 workspaceId: workspaceID,
@@ -21,9 +22,12 @@ struct CloudWorkspaceGroupDestination {
             )
         }
         guard let initialWorkspaceId,
+              initialWorkspaceId != workspaceID,
               tabManager.tabs.count > 1,
-              let initialWorkspace = tabManager.tabs.first(where: { $0.id == initialWorkspaceId }),
-              tabManager.selectedWorkspace?.id != initialWorkspaceId else { return }
+              let initialWorkspace = tabManager.tabs.first(where: { $0.id == initialWorkspaceId }) else { return }
+        if tabManager.selectedTabId == initialWorkspaceId {
+            tabManager.selectedTabId = workspaceID
+        }
         tabManager.closeWorkspace(initialWorkspace, recordHistory: false)
     }
 }

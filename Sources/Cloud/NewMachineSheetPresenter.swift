@@ -13,6 +13,8 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
     private var sheetWindow: NSWindow?
     private var hostWindow: NSWindow?
     private var model: NewMachineModel?
+    private var pendingSelectionID: UUID?
+    private var pendingSelectionContinuation: CheckedContinuation<MachineCreateRequest?, Never>?
 
     private init() {}
 
@@ -102,50 +104,57 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
     /// Synchronous menu callers own the surrounding Task; the machine coordinator
     /// continues to publish the pending machine row while this method awaits.
     func presentNewMachineFetchingPlan(preferredWindow: NSWindow?) async -> UUID? {
-        guard !isPresenting else {
+        guard !isPresenting, pendingSelectionID == nil else {
             (hostWindow ?? sheetWindow)?.makeKeyAndOrderFront(nil)
             return nil
         }
+        let selectionID = UUID()
+        pendingSelectionID = selectionID
         let coordinator = MachineCreateCoordinator.shared
         var page: VMListPage?
         if let client = VMClient.shared { page = try? await client.listPage() }
+        guard !Task.isCancelled, !isPresenting else {
+            finishSelection(selectionID, request: nil)
+            return nil
+        }
         let plan = MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits)
         guard !(plan?.isAtLimit == true && plan?.isPaidPlan == false) else {
+            finishSelection(selectionID, request: nil)
             ProUpgradePresenter.present(source: .newMachineAtLimit)
             return nil
         }
-        let memoryOptionsMb = page?.limits?.memoryOptionsMb ?? []
-        var requestContinuation: CheckedContinuation<MachineCreateRequest?, Never>?
-        var selectionModel: NewMachineModel?
         let request = await withTaskCancellationHandler(operation: {
             await withCheckedContinuation { (continuation: CheckedContinuation<MachineCreateRequest?, Never>) in
-                requestContinuation = continuation
+                pendingSelectionContinuation = continuation
+                guard !Task.isCancelled else {
+                    finishSelection(selectionID, request: nil)
+                    return
+                }
                 let model = NewMachineModel(
                     mode: .newMachine,
                     plan: plan,
-                    memoryOptionsMb: memoryOptionsMb,
-                    submit: { request in
-                        requestContinuation?.resume(returning: request)
-                        requestContinuation = nil
+                    memoryOptionsMb: page?.limits?.memoryOptionsMb ?? [],
+                    submit: { [weak self] request in
+                        guard let self, self.pendingSelectionID == selectionID else { return false }
+                        self.finishSelection(selectionID, request: request)
                         return true
                     }
                 )
-                model.onFinished = { outcome in
+                model.onFinished = { [weak self] outcome in
                     if case .cancelled = outcome {
-                        requestContinuation?.resume(returning: nil)
-                        requestContinuation = nil
+                        self?.finishSelection(selectionID, request: nil)
                     }
                 }
-                selectionModel = model
                 present(model: model, preferredWindow: preferredWindow)
             }
         }, onCancel: {
             Task { @MainActor [weak self] in
-                selectionModel?.cancel()
-                self?.dismiss()
+                guard let self, self.pendingSelectionID == selectionID else { return }
+                self.model?.cancel()
+                self.finishSelection(selectionID, request: nil)
             }
         })
-        guard let request else { return nil }
+        guard let request, !Task.isCancelled else { return nil }
         return await coordinator.startAndAwaitWorkspaceID(request, cancellableLaunch: { arguments, progress, completion in
             var cancellation: CloudVMActionLauncher.CancellationHandle?
             let didStart = MachineRowActions.openNewMachine(
@@ -156,6 +165,15 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
             )
             return didStart ? cancellation : nil
         })
+    }
+
+    /// Completes only the active sheet selection; late cancellation cannot dismiss a newer sheet.
+    private func finishSelection(_ selectionID: UUID, request: MachineCreateRequest?) {
+        guard pendingSelectionID == selectionID else { return }
+        pendingSelectionID = nil
+        let continuation = pendingSelectionContinuation
+        pendingSelectionContinuation = nil
+        continuation?.resume(returning: request)
     }
 
     private func dismiss() {
