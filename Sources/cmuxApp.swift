@@ -5096,6 +5096,7 @@ enum AppIconSettings {
         let isApplicationFinishedLaunching: () -> Bool
         let imageForMode: (AppIconMode) -> NSImage?
         let setApplicationIconImage: (NSImage) -> Void
+        let resetApplicationIconImage: () -> Void
         let startAppearanceObservation: () -> Void
         let stopAppearanceObservation: () -> Void
         let notifyDockTilePlugin: () -> Void
@@ -5111,6 +5112,11 @@ enum AppIconSettings {
                 },
                 setApplicationIconImage: { icon in
                     NSApplication.shared.applicationIconImage = icon
+                },
+                resetApplicationIconImage: {
+                    // Setting nil restores the bundle's layered AppIcon so macOS
+                    // can apply light/dark/tinted/clear treatments natively.
+                    NSApplication.shared.applicationIconImage = nil
                 },
                 startAppearanceObservation: {
                     AppIconAppearanceObserver.shared.startObserving()
@@ -5148,7 +5154,12 @@ enum AppIconSettings {
 
         switch mode {
         case .automatic:
-            environment.startAppearanceObservation()
+            // Defer to the bundle's layered AppIcon (Icon Composer .icon) so macOS
+            // can apply light/dark/tinted/clear icon treatments natively. Assigning
+            // a runtime NSImage via applicationIconImage replaces the layered icon
+            // with a flat bitmap and silently disables Tinted/Clear on macOS 26.
+            environment.stopAppearanceObservation()
+            environment.resetApplicationIconImage()
         case .light:
             environment.stopAppearanceObservation()
             guard let icon = environment.imageForMode(.light) else { return }
