@@ -240,6 +240,9 @@ jobs:
       - name: Validate app-host test failure classification
         run: python3 tests/test_ci_app_host_test_output.py
 
+      - name: Validate Ubuntu APT HTTPS setup
+        run: python3 tests/test_ci_ubuntu_apt_https.py
+
       - name: Validate app-host user configuration isolation
         run: python3 tests/test_ci_app_host_home_isolation.py
 
