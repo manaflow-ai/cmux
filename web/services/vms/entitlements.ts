@@ -85,15 +85,17 @@ export function resolveVmEntitlements(
     ? configuredDefaultPlan
     : "free";
   const billingPlanId = normalizedPlanId(billing.billingPlanId ?? defaultPlan);
+  const teamPlanId = billing.billingCustomerType === "team" && billingPlanId === MAX_PLAN_ID
+    ? TEAM_PLAN_ID : billingPlanId;
   // Max belongs to the caller. It does not grant Max to other team members
   // or replace the team's seat-based machine allowance.
   const planId = normalizedPlanId(user.userBillingPlanId ?? "") === MAX_PLAN_ID
-    ? MAX_PLAN_ID : billingPlanId;
+    ? MAX_PLAN_ID : teamPlanId;
   return {
     planId,
     billingCustomerType: billing.billingCustomerType,
     billingTeamId: billing.billingTeamId,
-    maxActiveVms: maxActiveVmsForPlan(billingPlanId === TEAM_PLAN_ID ? billingPlanId : planId, env, { seats: billing.billingSeats }),
+    maxActiveVms: maxActiveVmsForPlan(teamPlanId === TEAM_PLAN_ID ? teamPlanId : planId, env, { seats: billing.billingSeats }),
   };
 }
 
