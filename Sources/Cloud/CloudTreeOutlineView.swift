@@ -763,8 +763,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             items.append(.separator())
             if resource.id.isForwardedPort, !isLocal {
-                // The link that works from any app on this Mac is the loopback
-                // forward; the private address needs `cmux vpn up`.
+                // Copying a port URL does not start a forward. The browser's
+                // explicit Ports table owns local forwarding addresses.
                 items.append(item(String(localized: "cloudTree.menu.copyLink", defaultValue: "Copy Link")) { [nodeActions] in nodeActions.copyPortLink(resource.id) })
                 if let portURL {
                     items.append(item(String(localized: "cloudTree.menu.copyPrivateURL", defaultValue: "Copy Private Address URL")) { [nodeActions] in nodeActions.copyToPasteboard(portURL) })

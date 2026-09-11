@@ -11,17 +11,13 @@ a peer unless it later becomes a direct Cloud network client.
 
 | role | traffic | implementation | first user action |
 | --- | --- | --- | --- |
-| terminal | cmux-tui terminal and metadata; Ports and Desktop panes | user-space WireGuard hub | none |
+| terminal | cmux-tui terminal and metadata; explicitly forwarded ports | user-space WireGuard hub | none |
 | browser | a system-wide route for other apps on this Mac (`cmux vpn up`) | Apple Network Extension | allow the cmux network extension |
 
-The terminal role does not create a system interface. It does not run
-`wg-quick`, ask for administrator access, or ask for a password. Ports and
-Desktop rows ride the same hub: the app opens a loopback listener per machine
-port and relays each connection through the hub's SOCKS5 socket, so a pane
-loads `http://127.0.0.1:<local port>` on every build without a VPN. The
-browser role starts only on an explicit `cmux vpn up`; nothing the app opens
-asks macOS to load the extension. There is no public, SSH, or command-line
-tunnel fallback.
+The terminal role does not create a system interface or require macOS VPN
+approval. The browser role starts only when the user connects Cloud VPN.
+Browser and Desktop pages show setup controls when private access is unavailable.
+Port forwarding is available only through the explicit Ports controls.
 
 ## Terminal path
 
@@ -51,21 +47,23 @@ no connection ticket and no Freestyle call.
 
 ## Ports and Desktop path
 
-```text
-cmux browser pane (http://127.0.0.1:<local port>)
-  -> app-owned loopback listener for <machine, port>
-  -> SOCKS5 CONNECT <private address>:<port> over the hub's Unix socket
-  -> the same terminal-role WireGuard hub
-  -> VM service (dev server, noVNC on 6901, ...)
-```
+Browser panes open each machine's private address and original port by default.
+A native connection panel is shown until VPN access is ready and the page loads.
+It includes VPN setup, loading and failure states, and an explicit Ports table.
+Opening a page, copying a link, restoring a pane, and losing VPN access never
+create a local forward or fall back to a public preview.
 
-`CloudHubPortForwarder` keeps one listener per machine port for as long as the
-machine is in the fleet; an idle listener holds no hub lease, and each accepted
-connection claims the hub for exactly its lifetime. The Ports row's "Copy Link"
-hands out the loopback URL, which works in any app on the Mac while cmux runs;
-"Copy Private Address URL" gives the raw `http://<private ip>:<port>` for a Mac
-with its own route (`cmux vpn up`). A machine without a private address falls
-back to the control plane's tokened preview URL.
+**Forward Port** is a deliberate action. It starts an HTTP loopback forward
+through the terminal WireGuard hub. The table shows the machine port, assigned
+local address, status, Copy, and Stop Forwarding. Every browser pane for the same
+machine and port shares its access choice. Active forwards are also listed in
+VPN setup. Stop closes the listener and active connections. Sign-out, machine
+removal, and process exit also end the forwards. HTTPS uses the private VPN
+address because changing the host would invalidate its certificate identity.
+
+Command-click on a Cloud terminal's localhost, 127.0.0.1, or 0.0.0.0 web link
+replaces only its host with the VM's private address. The browser follows the
+same connection flow. Local terminals and external sites keep their own URLs.
 
 ## System-wide route (`cmux vpn up`)
 
