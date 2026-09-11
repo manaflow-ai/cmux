@@ -65,6 +65,7 @@ private struct ComputerVisibilityRow: View {
     let isConnecting: Bool
     var setCaffeine: @MainActor (MacComputerSnapshot, Bool) -> Void = { _, _ in }
     var isCaffeineMutating: Bool = false
+    var gateWarningDeviceIDs: Set<String> = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var isBusy: Bool { isVisibilityMutating }
 
@@ -151,7 +152,8 @@ private struct ComputerVisibilityRow: View {
                 computer: computer,
                 style: style,
                 connect: { _ in connect(computer) },
-                isConnecting: isConnecting
+                isConnecting: isConnecting,
+                hasVersionGateWarning: gateWarningDeviceIDs.contains(computer.deviceId)
             )
         } else if let computer = item.hiddenComputer {
             hiddenLabel(computer)
@@ -221,6 +223,7 @@ struct ComputerVisibilityRows: View {
     var mutatingComputerIDs: Set<String> = []
     var setCaffeine: @MainActor (MacComputerSnapshot, Bool) -> Void = { _, _ in }
     var caffeineMutatingComputerIDs: Set<String> = []
+    var gateWarningDeviceIDs: Set<String> = []
     let hide: @MainActor (MacComputerSnapshot) -> Void
     let unhide: @MainActor (MobileHiddenComputer) -> Void
 
@@ -239,7 +242,8 @@ struct ComputerVisibilityRows: View {
                 connect: connect,
                 isConnecting: connectingComputerID == item.id,
                 setCaffeine: setCaffeine,
-                isCaffeineMutating: caffeineMutatingComputerIDs.contains(item.id)
+                isCaffeineMutating: caffeineMutatingComputerIDs.contains(item.id),
+                gateWarningDeviceIDs: gateWarningDeviceIDs
             )
         }
     }
