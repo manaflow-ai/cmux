@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxAgentChat
 import CmuxIrohTransport
+import CmuxIrxTransport
 import CmuxMobileRPC
 import Darwin
 import Foundation
@@ -46,6 +47,51 @@ extension MobileHostAuthorizationTests {
 
         await transport.finishReceiving()
         await runTask.value
+    }
+
+    @Test func testAdmittedPeerAuthorizationTracksLeaseAndIdentity() {
+        let now = ContinuousClock.now
+        let endpoint = String(repeating: "a", count: 64)
+        let peer = IrxAdmittedPeerInfo(
+            bindingID: "binding-1", deviceID: "device-1", tag: "default",
+            endpointIDHex: endpoint, identityGeneration: 3
+        )
+        func snapshot(
+            _ entry: IrxDeviceListEntry?, ttl: Int = 600, received: ContinuousClock.Instant = now
+        ) -> IrxDeviceListSnapshot {
+            IrxDeviceListSnapshot(
+                entries: entry.map { [endpoint: $0] } ?? [:], rev: 1, issuedAt: Date(),
+                ttlSeconds: ttl, receivedAtWall: Date(), receivedAtMonotonic: received
+            )
+        }
+        func authorized(_ snapshot: IrxDeviceListSnapshot?) -> Bool {
+            MobileHostIrxRuntime.admittedPeerRemainsAuthorized(snapshot: snapshot, peer: peer, now: now)
+        }
+        let listed = IrxDeviceListEntry(
+            deviceID: "device-1", status: "active", revoked: false,
+            bindingID: "binding-1", tag: "default", identityGeneration: 3
+        )
+        #expect(authorized(snapshot(listed)))
+        #expect(authorized(snapshot(IrxDeviceListEntry(status: "active", revoked: false))),
+                "a directory without tuple material cannot contradict the admission")
+        #expect(!authorized(nil), "no lease fails closed")
+        #expect(!authorized(snapshot(nil)), "a delisted peer loses its session")
+        #expect(!authorized(snapshot(listed, received: now - .seconds(601))), "a stale lease expires the session")
+        var revoked = listed
+        revoked.revoked = true
+        #expect(!authorized(snapshot(revoked)))
+        var rebound = listed
+        rebound.deviceID = "device-2"
+        #expect(!authorized(snapshot(rebound)), "device drift is a revocation")
+        var retagged = listed
+        retagged.tag = "nightly"
+        #expect(!authorized(snapshot(retagged)), "tag drift is a revocation")
+        var rebinding = listed
+        rebinding.bindingID = "binding-2"
+        #expect(!authorized(snapshot(rebinding)), "binding drift is a revocation")
+        var regenerated = listed
+        regenerated.identityGeneration = 4
+        #expect(!authorized(snapshot(regenerated)), "generation drift is a revocation")
     }
 
     @Test func testPairingPayloadDefaultsCanDiscloseOnlyIrohIdentity() throws {

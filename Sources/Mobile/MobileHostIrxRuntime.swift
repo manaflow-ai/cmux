@@ -672,10 +672,10 @@ final class MobileHostIrxRuntime {
             ["rev": String(fact.rev), "entries": String(snapshot.entries.count)]
         )
         if let registry {
-            await registry.closeAll(code: .revoked) { endpointIDHex in
-                guard let entry = snapshot.entries[endpointIDHex] else { return true }
-                return entry.revoked
-            }
+            // Each admitted session re-runs its own authorization against the
+            // snapshot just swapped in: revoked, delisted, or identity-drifted
+            // peers are cut now, not at their next request.
+            await registry.closeUnauthorized(code: .revoked)
         }
         return true
     }
