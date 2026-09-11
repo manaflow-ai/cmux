@@ -158,10 +158,11 @@ extension TerminalController {
         var didProjectRenderGrid = false
         if let object = result["render_grid"],
            let frame = try? MobileTerminalRenderGridFrame.decodeJSONObject(object),
-           let projectedObject = try? frame.projectedViewport(
+           let projected = frame.projectedViewport(
                columns: viewport.columns,
                rows: viewport.rows
-           ).jsonObject() {
+           ),
+           let projectedObject = try? projected.jsonObject() {
             result["render_grid"] = projectedObject
             result["columns"] = viewport.columns
             result["rows"] = viewport.rows

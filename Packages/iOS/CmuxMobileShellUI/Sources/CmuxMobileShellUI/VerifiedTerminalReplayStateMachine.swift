@@ -149,9 +149,9 @@ final class VerifiedTerminalReplayStateMachine {
             renderEpoch: frame.renderEpoch,
             renderRevision: frame.renderRevision,
             emissionRevision: frameEmissionRevision,
+            hasExplicitEmissionRevision: frame.emissionRevision > 0,
             stateSeq: frame.stateSeq,
-            expected: expected,
-            hasExplicitEmissionRevision: frame.emissionRevision > 0
+            expected: expected
         )
         activeTransaction = transaction
         phase = .verifying

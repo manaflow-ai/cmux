@@ -10,7 +10,7 @@ import Testing
         text: "abcdefghij\nsecond\nlatest"
     )
 
-    let projected = frame.projectedViewport(columns: 4, rows: 3)
+    let projected = try #require(frame.projectedViewport(columns: 4, rows: 3))
 
     #expect(projected.columns == 4)
     #expect(projected.rows == 3)
@@ -37,7 +37,7 @@ import Testing
         rowSpans: [.init(row: 0, column: 0, styleID: 1, text: "hello")]
     )
 
-    let projected = frame.projectedViewport(columns: 5, rows: 2)
+    let projected = try #require(frame.projectedViewport(columns: 5, rows: 2))
 
     #expect(projected.renderEpoch == "epoch-1")
     #expect(projected.renderRevision == 7)
@@ -77,7 +77,7 @@ import Testing
         ]
     )
 
-    let projected = frame.projectedViewport(columns: 1, rows: 1)
+    let projected = try #require(frame.projectedViewport(columns: 1, rows: 1))
 
     #expect(projected.scrollbackRows == MobileTerminalRenderGridFrame.maximumProjectedScrollbackLines)
     #expect(projected.scrollbackSpans.count == MobileTerminalRenderGridFrame.maximumProjectedScrollbackLines)
@@ -136,7 +136,7 @@ import Testing
         ]
     )
 
-    let projected = frame.projectedViewport(columns: 3, rows: 2)
+    let projected = try #require(frame.projectedViewport(columns: 3, rows: 2))
 
     #expect(projected.plainRows() == ["界a ", "b  "])
     #expect(projected.rowSpans.first?.cellWidth == 3)
@@ -153,7 +153,7 @@ import Testing
         cursor: .init(row: 0, column: 1)
     )
 
-    let projected = frame.projectedViewport(columns: 8, rows: 1)
+    let projected = try #require(frame.projectedViewport(columns: 8, rows: 1))
 
     #expect(projected.plainRows() == ["bottom"])
     #expect(projected.cursor == nil)
@@ -169,7 +169,7 @@ import Testing
         cursor: .init(row: 0, column: 1)
     )
 
-    let projected = frame.projectedViewport(columns: 4, rows: 1)
+    let projected = try #require(frame.projectedViewport(columns: 4, rows: 1))
 
     #expect(projected.plainRows() == ["efgh"])
     #expect(projected.cursor == nil)
@@ -185,7 +185,7 @@ import Testing
         cursor: .init(row: 0, column: 7)
     )
 
-    let projected = frame.projectedViewport(columns: 4, rows: 1)
+    let projected = try #require(frame.projectedViewport(columns: 4, rows: 1))
 
     #expect(projected.plainRows() == ["o"])
     #expect(projected.cursor?.row == 0)

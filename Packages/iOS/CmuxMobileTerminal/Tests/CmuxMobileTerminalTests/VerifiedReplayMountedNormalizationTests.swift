@@ -56,6 +56,7 @@ struct VerifiedReplayMountedNormalizationTests {
             stateSeq: 1,
             renderEpoch: "epoch",
             renderRevision: 1,
+            emissionRevision: 0,
             expectedCursorColor: nil,
             configuredCursorColor: "#98989D",
             anchor: .viewport

@@ -24,21 +24,18 @@ extension MobileTerminalRenderGridFrame {
     /// `rows` projected lines. It never calls a terminal resize operation, so
     /// the PTY, Mac pane, and other connections remain at the native grid.
     /// Style spans, cursor metadata, scrollback, and producer revisions are
-    /// retained in the projected frame. Delta frames are returned unchanged;
-    /// callers should project the full replay that establishes their baseline.
+    /// retained in the projected frame. Delta frames cannot be projected; callers
+    /// must use the full replay that establishes their baseline.
     ///
     /// - Parameters:
     ///   - columns: Client-local column count.
     ///   - rows: Client-local row count.
-    /// - Returns: A full frame at the requested dimensions, or `self` when the
-    ///   dimensions are invalid or already match.
-    public func projectedViewport(columns: Int, rows: Int) -> Self {
-        guard full,
-              columns > 0,
-              rows > 0,
-              columns != self.columns || rows != self.rows else {
-            return self
-        }
+    /// - Returns: A full frame at the requested dimensions, or `nil` when the
+    ///   input is a delta, dimensions are invalid, or the projected frame fails
+    ///   validation. A matching full frame is returned without rebuilding it.
+    public func projectedViewport(columns: Int, rows: Int) -> Self? {
+        guard full, columns > 0, rows > 0 else { return nil }
+        guard columns != self.columns || rows != self.rows else { return self }
 
         let visibleLines = wrappedLines(
             rows: rowSpans,
@@ -119,7 +116,7 @@ extension MobileTerminalRenderGridFrame {
             }
         }
 
-        return (try? Self(
+        return try? Self(
             format: format,
             surfaceID: surfaceID,
             stateSeq: stateSeq,
@@ -145,12 +142,12 @@ extension MobileTerminalRenderGridFrame {
             anchor: anchor,
             historyRows: historyRows,
             rowSpaceRevision: rowSpaceRevision
-        )) ?? self
+        )
     }
 
     /// Returns the projected visible rows as plain text.
     public func projectedViewportText(columns: Int, rows: Int) -> String {
-        projectedViewport(columns: columns, rows: rows)
+        (projectedViewport(columns: columns, rows: rows) ?? self)
             .plainRows()
             .joined(separator: "\n")
     }
