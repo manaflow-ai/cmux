@@ -1064,6 +1064,35 @@ def test_hidden_attach_subcommand_bypasses_hook_injection(failures: list[str]) -
     expect(node_options == "__UNSET__", f"attach passthrough: expected no NODE_OPTIONS injection, got {node_options!r}", failures)
 
 
+def test_background_session_subcommands_bypass_hook_injection(failures: list[str]) -> None:
+    # Claude Code 2.1.x grew a family of background-session subcommands next to
+    # `attach` (stop|kill, logs, rm, respawn) plus `gateway` and `import`. Each
+    # is a real command, so injecting --session-id/--settings ahead of it makes
+    # the CLI treat the command name as the [prompt] positional and start a
+    # fresh interactive session instead of running the command.
+    cases = [
+        ["stop", "abc12345"],
+        ["kill", "abc12345"],
+        ["logs", "abc12345"],
+        ["rm", "abc12345"],
+        ["respawn", "abc12345"],
+        ["respawn", "--all"],
+        ["gateway"],
+        ["import", "codex"],
+    ]
+    for argv in cases:
+        label = " ".join(argv)
+        code, real_argv, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
+            socket_state="live",
+            argv=argv,
+        )
+        expect(code == 0, f"{label} passthrough: wrapper exited {code}: {stderr}", failures)
+        expect(real_argv == argv, f"{label} passthrough: expected raw argv, got {real_argv}", failures)
+        expect("--settings" not in real_argv, f"{label} passthrough: expected no --settings injection, got {real_argv}", failures)
+        expect("--session-id" not in real_argv, f"{label} passthrough: expected no --session-id injection, got {real_argv}", failures)
+        expect(node_options == "__UNSET__", f"{label} passthrough: expected no NODE_OPTIONS injection, got {node_options!r}", failures)
+
+
 def test_passthrough_flags_bypass_hook_injection(failures: list[str]) -> None:
     for flag in ("--help", "--version", "-h", "-v"):
         code, real_argv, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
@@ -2632,6 +2661,7 @@ def main() -> int:
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_hidden_attach_subcommand_bypasses_hook_injection(failures)
+    test_background_session_subcommands_bypass_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
     test_live_socket_attaches_cmux_cua_when_available(failures)
     test_computer_use_wrapper_is_a_pure_proxy(failures)
