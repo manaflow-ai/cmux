@@ -2997,6 +2997,71 @@
     "source": "sudo setup-touch-id",
     "class": "syntax"
   },
+  "settings.terminal.videoBackground.source.placeholder": {
+    "source": "https://www.youtube.com/watch?v=…",
+    "identityLocales": {
+      "de": { "reason": "The URL is a technical placeholder; the locale entry remains required.", "values": ["https://www.youtube.com/watch?v=…"] },
+      "fr": { "reason": "The URL is a technical placeholder; the locale entry remains required.", "values": ["https://www.youtube.com/watch?v=…"] },
+      "ar": { "reason": "The URL is a technical placeholder; the locale entry remains required.", "values": ["https://www.youtube.com/watch?v=…"] },
+      "es": { "reason": "The URL is a technical placeholder; the locale entry remains required.", "values": ["https://www.youtube.com/watch?v=…"] },
+      "zh-Hant": { "reason": "The URL is a technical placeholder; the locale entry remains required.", "values": ["https://www.youtube.com/watch?v=…"] },
+      "zh-Hans": { "reason": "The URL is a technical placeholder; the locale entry remains required.", "values": ["https://www.youtube.com/watch?v=…"] },
+      "ko": { "reason": "The URL is a technical placeholder; the locale entry remains required.", "values": ["https://www.youtube.com/watch?v=…"] },
+      "ja": { "reason": "The URL is a technical placeholder; the locale entry remains required.", "values": ["https://www.youtube.com/watch?v=…"] }
+    }
+  },
+  "settings.terminal.videoBackground.dimOpacity.percent": {
+    "source": "%lld%%",
+    "identityLocales": {
+      "de": { "reason": "The value is a locale-invariant percent format token; the locale entry remains required.", "values": ["%lld%%"] },
+      "fr": { "reason": "The value is a locale-invariant percent format token; the locale entry remains required.", "values": ["%lld%%"] },
+      "ar": { "reason": "The value is a locale-invariant percent format token; the locale entry remains required.", "values": ["%lld%%"] },
+      "es": { "reason": "The value is a locale-invariant percent format token; the locale entry remains required.", "values": ["%lld%%"] },
+      "zh-Hant": { "reason": "The value is a locale-invariant percent format token; the locale entry remains required.", "values": ["%lld%%"] },
+      "zh-Hans": { "reason": "The value is a locale-invariant percent format token; the locale entry remains required.", "values": ["%lld%%"] },
+      "ko": { "reason": "The value is a locale-invariant percent format token; the locale entry remains required.", "values": ["%lld%%"] },
+      "ja": { "reason": "The value is a locale-invariant percent format token; the locale entry remains required.", "values": ["%lld%%"] }
+    }
+  },
+  "settings.terminal.videoBackground.quality.720p": {
+    "source": "720p",
+    "identityLocales": {
+      "de": { "reason": "The stream-quality label is a locale-invariant technical name; the locale entry remains required.", "values": ["720p"] },
+      "fr": { "reason": "The stream-quality label is a locale-invariant technical name; the locale entry remains required.", "values": ["720p"] },
+      "ar": { "reason": "The stream-quality label is a locale-invariant technical name; the locale entry remains required.", "values": ["720p"] },
+      "es": { "reason": "The stream-quality label is a locale-invariant technical name; the locale entry remains required.", "values": ["720p"] },
+      "zh-Hant": { "reason": "The stream-quality label is a locale-invariant technical name; the locale entry remains required.", "values": ["720p"] },
+      "zh-Hans": { "reason": "The stream-quality label is a locale-invariant technical name; the locale entry remains required.", "values": ["720p"] },
+      "ko": { "reason": "The stream-quality label is a locale-invariant technical name; the locale entry remains required.", "values": ["720p"] },
+      "ja": { "reason": "The stream-quality label is a locale-invariant technical name; the locale entry remains required.", "values": ["720p"] }
+    }
+  },
+  "settings.terminal.videoBackground.quality.1440p": {
+    "source": "1440p",
+    "identityLocales": {
+      "de": { "reason": "The stream-quality label is a locale-invariant technical name; the locale entry remains required.", "values": ["1440p"] },
+      "fr": { "reason": "The stream-quality label is a locale-invariant technical name; the locale entry remains required.", "values": ["1440p"] },
+      "ar": { "reason": "The stream-quality label is a locale-invariant technical name; the locale entry remains required.", "values": ["1440p"] },
+      "es": { "reason": "The stream-quality label is a locale-invariant technical name; the locale entry remains required.", "values": ["1440p"] },
+      "zh-Hant": { "reason": "The stream-quality label is a locale-invariant technical name; the locale entry remains required.", "values": ["1440p"] },
+      "zh-Hans": { "reason": "The stream-quality label is a locale-invariant technical name; the locale entry remains required.", "values": ["1440p"] },
+      "ko": { "reason": "The stream-quality label is a locale-invariant technical name; the locale entry remains required.", "values": ["1440p"] },
+      "ja": { "reason": "The stream-quality label is a locale-invariant technical name; the locale entry remains required.", "values": ["1440p"] }
+    }
+  },
+  "settings.terminal.videoBackground.quality.2160p": {
+    "source": "2160p (4K)",
+    "identityLocales": {
+      "de": { "reason": "The stream-quality label is a locale-invariant technical name; the locale entry remains required.", "values": ["2160p (4K)"] },
+      "fr": { "reason": "The stream-quality label is a locale-invariant technical name; the locale entry remains required.", "values": ["2160p (4K)"] },
+      "ar": { "reason": "The stream-quality label is a locale-invariant technical name; the locale entry remains required.", "values": ["2160p (4K)"] },
+      "es": { "reason": "The stream-quality label is a locale-invariant technical name; the locale entry remains required.", "values": ["2160p (4K)"] },
+      "zh-Hant": { "reason": "The stream-quality label is a locale-invariant technical name; the locale entry remains required.", "values": ["2160p (4K)"] },
+      "zh-Hans": { "reason": "The stream-quality label is a locale-invariant technical name; the locale entry remains required.", "values": ["2160p (4K)"] },
+      "ko": { "reason": "The stream-quality label is a locale-invariant technical name; the locale entry remains required.", "values": ["2160p (4K)"] },
+      "ja": { "reason": "The stream-quality label is a locale-invariant technical name; the locale entry remains required.", "values": ["2160p (4K)"] }
+    }
+  },
   "cli.vm.push.secretDelivered": {
     "source": "OK %1$@ (%2$ld bytes, mode %3$@) delivered over the link",
     "identityLocales": {
