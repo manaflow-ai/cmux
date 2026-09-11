@@ -486,7 +486,7 @@ public struct GhosttyConfig {
         return nil
     }
 
-    private static func cmuxDefaultFallbackConfigContents(
+    static func cmuxDefaultFallbackConfigContents(
         preferredColorScheme: ColorSchemePreference
     ) -> String {
         switch preferredColorScheme {
