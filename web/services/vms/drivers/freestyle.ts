@@ -56,7 +56,10 @@ import {
   cmuxTuiAttachBundleCommand,
   cmuxTuiDaemonBuild,
   cmuxTuiDaemonCommand,
+  cmuxTuiAgentHooksInstallCommand,
+  cmuxTuiHooksReadyCommand,
   cmuxTuiInstallCommand,
+  cmuxTuiPinnedManifestUrl,
   cmuxTuiLayoutSelector,
   cmuxTuiPinCheckCommand,
   cmuxTuiRunCommand,
@@ -1373,6 +1376,16 @@ export class FreestyleProvider implements VMProvider {
             await this.ensureCmuxTuiRunning(vm, vmId);
             bundleResult = await this.execResult(vm, cmuxTuiAttachBundleCommand({ deviceFingerprint: fingerprint }));
           }
+          if (!healed && bundleResult?.exitCode === 0) {
+            // The healthy fast path skips the heal, so this is where a machine
+            // that predates hook installation gets its Claude Code and Codex
+            // hooks. Best effort: a hook failure must not cost the attach.
+            try {
+              await this.ensureAgentHooks(vm, vmId);
+            } catch (hookErr) {
+              recordSpanError(span, hookErr);
+            }
+          }
           if (!bundleResult || bundleResult.exitCode !== 0) {
             throw new ProviderError(
               "freestyle",
@@ -1552,7 +1565,10 @@ export class FreestyleProvider implements VMProvider {
     // Keep the shim present even when the baked daemon is already healthy.
     if (installGuestCli) await this.installGuestCli(vm);
     const healthy = await this.execResult(vm, freestyleDaemonSettledCommand(), DAEMON_SETTLE_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS);
-    if (healthy?.exitCode === 0) return;
+    if (healthy?.exitCode === 0) {
+      await this.ensureAgentHooks(vm, vmId);
+      return;
+    }
     const source = await this.deps.resolveDaemonSource("freestyle");
     const pinned = await this.execResult(vm, freestylePinCheckCommand(source));
     if (pinned?.exitCode !== 0) {
@@ -1563,6 +1579,37 @@ export class FreestyleProvider implements VMProvider {
     }
     await this.execOrThrow(vm, vmId, freestyleStartDaemonCommand(), 60_000);
     await waitForCmuxTuiReady(this.cmuxTuiInvoke(vm), "freestyle", vmId);
+  }
+
+  /**
+   * A healthy daemon from a bake or create that predates hook installation
+   * has no Claude Code / Codex hooks, so its agents never post turn-completed
+   * or approval notifications. Install them for the daemon's own commit (the
+   * pin file the bake wrote, else the live pin the create used), the helper
+   * beside the binary so the two never disagree in generation. The daemon
+   * keeps running: it already exports CMUX_TUI_HOOK into every pane, and
+   * agents read hooks at their next launch.
+   */
+  private async ensureAgentHooks(vm: Vm, vmId: string): Promise<void> {
+    const ready = await this.execResult(vm, cmuxTuiHooksReadyCommand());
+    if (ready?.exitCode === 0) return;
+    const pin = await this.execResult(vm, "cut -d' ' -f2 /etc/cmux/cmux-tui-pin 2>/dev/null");
+    const commit = pin?.exitCode === 0 ? pin.stdout.trim() : "";
+    let source: CmuxTuiSource;
+    try {
+      source = /^[0-9a-f]{40}$/.test(commit)
+        ? await this.deps.resolveDaemonSource("freestyle", cmuxTuiPinnedManifestUrl(commit))
+        : await this.deps.resolveDaemonSource("freestyle");
+    } catch (err) {
+      // A pinned build published before the helper shipped: leave the daemon
+      // as it is rather than pair it with a helper from another generation.
+      console.warn(`[freestyle] ${vmId}: agent hooks skipped, no hook helper for daemon ${commit || "(live)"}: ${errorMessage(err)}`);
+      return;
+    }
+    await this.execOrThrow(vm, vmId, cmuxTuiAgentHooksInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS)
+      .catch((err: unknown) => {
+        throw new ProviderError("freestyle", `cmux-tui agent hook install in ${vmId} failed: ${errorMessage(err)}`);
+      });
   }
 
   /**
