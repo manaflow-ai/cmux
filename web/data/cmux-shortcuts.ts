@@ -96,8 +96,8 @@ export const shortcutCategories: ShortcutCategory[] = [
         combos: [["⌘", "Y"]],
         description: { en: "New cloud workspace", ja: "新規クラウドワークスペース" },
         note: {
-          en: "opens the New Machine sheet; Create provisions a cmux Cloud machine and attaches it as a new workspace",
-          ja: "新規マシンシートを開きます。作成すると cmux Cloud マシンをプロビジョニングし、新しいワークスペースとして接続します",
+          en: "creates a workspace on the starred default cmux Cloud machine",
+          ja: "スター付きのデフォルト cmux Cloud マシンにワークスペースを作成します",
         },
       },
       { id: "newCloudMachine", combos: [["⇧", "⌘", "Y"]], description: { en: "New cloud machine", ja: "新規クラウドマシン" } },
