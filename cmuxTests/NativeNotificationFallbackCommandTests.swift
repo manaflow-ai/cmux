@@ -196,7 +196,7 @@ struct NativeNotificationFallbackCommandTests {
             body: "Real message",
             effects: effects,
             runCommand: false
-        ) { title, subtitle, body in
+        ) { title, subtitle, body, _ in
             commands.append(title: title, subtitle: subtitle, body: body)
         }
 
@@ -216,7 +216,7 @@ struct NativeNotificationFallbackCommandTests {
             subtitle: "",
             body: "Real message",
             effects: effects
-        ) { title, subtitle, body in
+        ) { title, subtitle, body, _ in
             commands.append(title: title, subtitle: subtitle, body: body)
         }
 

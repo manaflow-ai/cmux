@@ -6,18 +6,20 @@
 # Folder trust only. codex matches these keys EXACTLY against the cwd or its
 # git root (no ancestor walk, no env short-circuit) and blocks the TUI on a
 # trust screen when neither matches. These entries cover the two HOMEs a
-# session can start in (root for cmux-tui sessions and exec, ubuntu for the
-# desktop and SSH). Any other directory, such as a cloned repo, is trusted per
+# session can start in: the work user's, where the cmux-tui daemon opens every
+# pane and where SSH and the desktop land, and root's, for a machine from an
+# image that predates the non-root work user. Any other directory, such as a cloned repo, is trusted per
 # launch by the codex() wrapper in agent-config.sh. Approval and sandbox
 # policy are left to codex's defaults and the user's flags.
 #
 # check_for_update_on_startup: the binary is image-baked, so the startup
 # update prompt (a blocking picker before the composer, seen live on 0.151.0)
-# can only advertise versions the image cannot install.
+# can only advertise versions the image cannot install. New codex releases
+# ship by rebake (`bun run devbox:pins:check --write` in web/, then promote).
 check_for_update_on_startup = false
 
 [projects."/root"]
 trust_level = "trusted"
 
-[projects."/home/ubuntu"]
+[projects."/home/cmux"]
 trust_level = "trusted"
