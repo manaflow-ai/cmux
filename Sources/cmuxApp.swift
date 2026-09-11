@@ -871,10 +871,10 @@ struct cmuxApp: App {
 
                 if CloudMachinesFeature.isEnabled && AppDelegate.shared?.auth?.accountFlow.isAuthenticated == true {
                     splitCommandButton(title: String(localized: "menu.file.newCloudWorkspace", defaultValue: "New Cloud Workspace"), shortcut: menuShortcut(for: .newCloudWorkspace)) {
-                        _ = AppDelegate.shared?.performNewCloudWorkspaceAction(
-                            tabManager: activeTabManager,
-                            debugSource: "menu.newCloudWorkspace"
-                        )
+                        _ = AppDelegate.shared?.performNewCloudWorkspaceOnDefaultMachineAction(debugSource: "menu.newCloudWorkspace")
+                    }
+                    splitCommandButton(title: String(localized: "menu.file.newCloudMachine", defaultValue: "New Cloud Machine"), shortcut: menuShortcut(for: .newCloudMachine)) {
+                        _ = AppDelegate.shared?.performNewCloudWorkspaceAction(tabManager: activeTabManager, debugSource: "menu.newCloudMachine")
                     }
                 }
 

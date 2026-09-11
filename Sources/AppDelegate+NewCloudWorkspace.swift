@@ -4,6 +4,50 @@ import Foundation
 // MARK: - New Cloud Workspace (Cmd+Y)
 
 extension AppDelegate {
+    /// Creates a workspace on the persisted default machine. This is the fast
+    /// path behind Cmd+Y; it never presents a sheet or provisions a machine.
+    @discardableResult
+    func performNewCloudWorkspaceOnDefaultMachineAction(
+        preferredWindow: NSWindow? = nil,
+        debugSource: String = "newCloudWorkspace"
+    ) -> Bool {
+        guard CloudMachinesFeature.isEnabled,
+              Self.newCloudWorkspaceAuthStateOverride?.allowsAuthenticatedOperation
+                ?? (auth?.accountFlow.isAuthenticated == true) else { return false }
+
+        let snapshots = SurfaceCatalog.shared.snapshot.machines.compactMap { info -> MachineSnapshot? in
+            guard case .cloud(let id) = info.id else { return nil }
+            return MachineSnapshot(
+                id: id,
+                provider: "cloud",
+                image: info.image ?? "",
+                isDesktop: info.hasDesktop,
+                activity: MachineSnapshot.Activity.ready,
+                createdAt: nil,
+                label: info.name
+            )
+        }
+        guard let selected = DefaultCloudMachineStore.shared.resolveMachineID(from: snapshots),
+              let provider = SurfaceCatalog.shared.provider(for: .cloud(selected)) else { return false }
+        let catalog = SurfaceCatalog.shared
+        let context = preferredWindow.flatMap { contextForMainWindow($0) }
+            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
+        let focus = context?.tabManager.selectedTabId != nil
+        Task { @MainActor in
+            do {
+                _ = try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
+                    machine: .cloud(selected), provider: provider, catalog: catalog,
+                    name: nil, focus: focus
+                )
+            } catch {
+#if DEBUG
+                cmuxDebugLog("newCloudWorkspace.failed source=\(debugSource) error=\(error)")
+#endif
+            }
+        }
+        return true
+    }
+
     /// The one path every "New Cloud Workspace" entrypoint goes through:
     /// the `newCloudWorkspace` shortcut, File > New Cloud Workspace, the
     /// plus-menu row, the `cmux.newCloudWorkspace` config action, and the
@@ -12,9 +56,8 @@ extension AppDelegate {
     /// launches `cmux vm new …`, which provisions a machine and attaches it
     /// as a new workspace.
     ///
-    /// Returns false when the feature is off or the person is signed out
-    /// (the sign-in workspace opens instead), so callers can beep or skip
-    /// `onExecuted`.
+    /// Returns false when the feature is off or the person is signed out, so
+    /// callers can leave their key equivalent genuinely inert.
     @discardableResult
     func performNewCloudWorkspaceAction(
         tabManager preferredTabManager: TabManager? = nil,
@@ -26,7 +69,6 @@ extension AppDelegate {
 #if DEBUG
             cmuxDebugLog("newCloudWorkspace.blocked_feature_disabled source=\(debugSource)")
 #endif
-            NSSound.beep()
             return false
         }
         let authState = Self.newCloudWorkspaceAuthStateOverride ?? CloudVMPanelAuthState.resolve(
@@ -37,10 +79,6 @@ extension AppDelegate {
 #if DEBUG
             cmuxDebugLog("newCloudWorkspace.blocked_signed_out source=\(debugSource)")
 #endif
-            _ = performAccountSignInWorkspaceAction(
-                preferredWindow: preferredWindow,
-                debugSource: "\(debugSource).auth"
-            )
             return false
         }
         let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }

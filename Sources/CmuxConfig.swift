@@ -1689,6 +1689,7 @@ final class CmuxConfigStore: ObservableObject {
     static let defaultNewWorkspaceContextMenu: [CmuxConfigContextMenuItem] = [
         .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID)),
         .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newCloudWorkspace.configID)),
+        .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newCloudMachine.configID)),
         .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newTerminal.configID)),
         .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newBrowser.configID)),
     ]

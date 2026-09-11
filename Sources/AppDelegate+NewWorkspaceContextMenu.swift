@@ -102,7 +102,7 @@ extension AppDelegate {
     /// Mirrors the command palette's gates for the same actions.
     static func isBuiltInActionAvailableInNewWorkspaceMenu(_ action: CmuxSurfaceTabBarBuiltInAction) -> Bool {
         switch action {
-        case .newCloudWorkspace, .cloudVM:
+        case .newCloudWorkspace, .newCloudMachine, .cloudVM:
             return CloudMachinesFeature.isEnabled
                 && AppDelegate.shared?.auth?.accountFlow.isAuthenticated == true
         case .newBrowser, .newAgentChat:

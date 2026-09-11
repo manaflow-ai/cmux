@@ -17658,6 +17658,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
                 if didStart { onExecuted?() }
                 return didStart
+            case .newCloudMachine:
+                let didStart = performNewCloudWorkspaceAction(
+                    tabManager: context.tabManager,
+                    preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
+                    debugSource: "configured.cmux.newCloudMachine"
+                )
+                if didStart { onExecuted?() }
+                return didStart
             case .mobileConnect:
                 let workspace = performMobileConnectWorkspaceAction(
                     tabManager: context.tabManager,

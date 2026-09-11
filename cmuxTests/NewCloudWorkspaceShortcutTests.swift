@@ -134,7 +134,9 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
     func testBuiltInActionResolvesFromConfigAndMapsToShortcut() {
         XCTAssertEqual(CmuxSurfaceTabBarBuiltInAction(configID: "cmux.newCloudWorkspace"), .newCloudWorkspace)
         XCTAssertEqual(CmuxSurfaceTabBarBuiltInAction(configID: "newCloudWorkspace"), .newCloudWorkspace)
+        XCTAssertEqual(CmuxSurfaceTabBarBuiltInAction(configID: "cmux.newCloudMachine"), .newCloudMachine)
         XCTAssertEqual(CmuxSurfaceTabBarBuiltInAction.newCloudWorkspace.shortcutAction, .newCloudWorkspace)
+        XCTAssertEqual(CmuxSurfaceTabBarBuiltInAction.newCloudMachine.shortcutAction, .newCloudMachine)
         XCTAssertEqual(CmuxSurfaceTabBarBuiltInAction.newWorkspace.shortcutAction, .newTab)
         XCTAssertEqual(CmuxSurfaceTabBarBuiltInAction.newTerminal.shortcutAction, .newSurface)
         XCTAssertEqual(CmuxSurfaceTabBarBuiltInAction.newBrowser.shortcutAction, .openBrowser)
@@ -189,14 +191,16 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         setCloudMachinesEnabled(true)
         try withDefaultPlusMenu { menu in
             let rows = builtInMenuRows(menu)
-            let leading = rows.prefix(4).map(\.action)
-            XCTAssertEqual(leading, [.newWorkspace, .newCloudWorkspace, .newTerminal, .newBrowser])
+            let leading = rows.prefix(5).map(\.action)
+            XCTAssertEqual(leading, [.newWorkspace, .newCloudWorkspace, .newCloudMachine, .newTerminal, .newBrowser])
 
             let hints = Dictionary(uniqueKeysWithValues: rows.map { ($0.action, $0.item) })
             XCTAssertEqual(hints[.newWorkspace]?.keyEquivalent, "n")
             XCTAssertEqual(hints[.newWorkspace]?.keyEquivalentModifierMask, [.command])
             XCTAssertEqual(hints[.newCloudWorkspace]?.keyEquivalent, "y")
             XCTAssertEqual(hints[.newCloudWorkspace]?.keyEquivalentModifierMask, [.command])
+            XCTAssertEqual(hints[.newCloudMachine]?.keyEquivalent, "y")
+            XCTAssertEqual(hints[.newCloudMachine]?.keyEquivalentModifierMask, [.command, .shift])
             XCTAssertEqual(hints[.newTerminal]?.keyEquivalent, "t")
             XCTAssertEqual(hints[.newTerminal]?.keyEquivalentModifierMask, [.command])
             XCTAssertEqual(hints[.newBrowser]?.keyEquivalent, "l")
