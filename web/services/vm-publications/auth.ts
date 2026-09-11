@@ -95,9 +95,9 @@ export const PublicationAuthRuntime = Layer.merge(
 export function runPublicationAuth<A, E>(
   program: Effect.Effect<A, E, PublicationAuthRepository | PublicationViewerResolver>,
 ): Promise<A> {
-  return publicationDatabaseRuntime().runPromise(
+  return publicationDatabaseRuntime().then(runtime => runtime.runPromise(
     withPublicationAuthEffectContext(program.pipe(Effect.provide(PublicationAuthRuntime), Effect.either)),
-  ).then((result) => {
+  )).then((result) => {
     if (result._tag === "Left") throw result.left;
     return result.right;
   });
