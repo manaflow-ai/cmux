@@ -31,7 +31,6 @@ enum CloudVMPanelAuthState: Equatable {
 struct MachinesPanelView: View {
     @StateObject private var viewModel = MachinesPanelViewModel()
     @State private var devicesModel: DevicesPanelViewModel
-    @State private var showsDeviceControls = false
     @State private var discoveryManaged = ManagedDevicePolicy().isDeviceDiscoveryDisabled
     @State private var incomingAccessManaged = ManagedDevicePolicy().isIncomingDeviceAccessDisabled
     @AppStorage(RightSidebarBetaFeatureSettings.devicesEnabledKey)
@@ -247,16 +246,8 @@ struct MachinesPanelView: View {
             // and the Files header icon.
             .padding(.leading, 4)
             Spacer(minLength: 4)
-            MachinesChromeIconButton(
-                symbolName: "desktopcomputer",
-                accessibilityLabel: String(localized: "devices.manage", defaultValue: "Manage My Devices"),
-                isBusy: false
-            ) {
-                if devicesBetaEnabled { showsDeviceControls.toggle() }
-                else { SettingsWindowPresenter.show(navigationTarget: .computers) }
-            }
-            .popover(isPresented: $showsDeviceControls, arrowEdge: .bottom) {
-                if let preferences = devicesModel.preferences {
+            Menu {
+                if devicesBetaEnabled, let preferences = devicesModel.preferences {
                     DevicesSidebarControls(
                         discoveryEnabled: preferences.discoveryEnabled,
                         incomingAccessEnabled: preferences.incomingAccessEnabled,
@@ -264,13 +255,26 @@ struct MachinesPanelView: View {
                         incomingAccessManaged: incomingAccessManaged,
                         setDiscovery: { enabled in Task { await preferences.setDiscoveryEnabled(enabled) } },
                         setIncomingAccess: { enabled in Task { await preferences.setIncomingAccessEnabled(enabled) } },
-                        openSettings: {
-                            showsDeviceControls = false
-                            SettingsWindowPresenter.show(navigationTarget: .computers)
-                        }
+                        openSettings: { SettingsWindowPresenter.show(navigationTarget: .computers) }
                     )
+                } else {
+                    Button(String(localized: "devices.settings", defaultValue: "Computers Settings…")) {
+                        SettingsWindowPresenter.show(navigationTarget: .computers)
+                    }
                 }
+            } label: {
+                Image(systemName: "desktopcomputer")
+                    .font(.system(size: 11, weight: .medium))
+                    .frame(width: 22, height: 20)
+                    .contentShape(Rectangle())
             }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .frame(width: 22, height: 20)
+            .foregroundStyle(.secondary)
+            .help(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
+            .accessibilityLabel(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
+            .accessibilityIdentifier("DevicesOptionsMenu")
             if includesCloud { cloudAgentMenu }
             MachinesChromeIconButton(
                 symbolName: "arrow.clockwise",
@@ -302,18 +306,17 @@ struct MachinesPanelView: View {
         // no machines, because the catalog's This Mac entry counted as a row
         // the tree never drew.
         if !includesCloud && !includesDevices {
-            VStack(spacing: 12) {
-                Image(systemName: "desktopcomputer").font(.system(size: 28, weight: .light))
+            VStack(alignment: .leading, spacing: 6) {
                 Text(String(localized: "devices.discovery.disabled", defaultValue: "Discovery is off. Turn it on to see your other Macs."))
                     .font(.callout)
-                    .multilineTextAlignment(.center)
-                Button(String(localized: "devices.manage", defaultValue: "Manage My Devices")) {
-                    showsDeviceControls = true
+                Button(String(localized: "devices.settings", defaultValue: "Computers Settings…")) {
+                    SettingsWindowPresenter.show(navigationTarget: .computers)
                 }
+                .buttonStyle(.link)
             }
             .foregroundStyle(.secondary)
-            .padding(24)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } else if CloudTreeNodeBuilder.isEmpty(
             machines: includesCloud ? viewModel.machines : [],
             pendingCreates: includesCloud ? viewModel.pendingCreates : [],

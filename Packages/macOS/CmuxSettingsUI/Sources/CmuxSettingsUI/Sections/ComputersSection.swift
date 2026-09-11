@@ -20,49 +20,6 @@ public struct ComputersSection: View {
                 String(localized: "settings.section.computers", defaultValue: "Computers"),
                 section: .computers
             )
-            SettingsCard {
-                SettingsCardRow(
-                    String(localized: "settings.betaFeatures.devices", defaultValue: "My Devices"),
-                    subtitle: String(localized: "settings.computers.optIn", defaultValue: "Show your other Macs and their workspaces in the sidebar.")
-                ) {
-                    Toggle(String(localized: "settings.betaFeatures.devices", defaultValue: "My Devices"), isOn: Binding(
-                        get: { devices.current && !discoveryManaged },
-                        set: {
-                            guard !discoveryManaged else { return }
-                            devices.set($0)
-                            NotificationCenter.default.post(name: Notification.Name("rightSidebarBetaFeatureDidChange"), object: nil)
-                        }
-                    ))
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                    .disabled(discoveryManaged)
-                    .accessibilityIdentifier("SettingsComputersEnabled")
-                }
-                SettingsCardDivider()
-                preferenceRow(
-                    title: String(localized: "devices.discovery.toggle", defaultValue: "Discover other Macs"),
-                    detail: String(localized: "devices.discovery.menuDetail", defaultValue: "Connect to Macs signed in to your account."),
-                    enabled: snapshot.discoveryEnabled && devices.current,
-                    managed: discoveryManaged,
-                    disabled: !devices.current,
-                    identifier: "SettingsComputersDiscoveryToggle",
-                    set: { enabled in Task { await actions.setDiscoveryEnabled(enabled) } }
-                )
-            }
-            Text(String(localized: "devices.thisMac", defaultValue: "This Mac"))
-                .font(.headline)
-            SettingsCard {
-                preferenceRow(
-                    title: String(localized: "devices.incoming.toggle", defaultValue: "Allow access to this Mac"),
-                    detail: String(localized: "devices.incoming.menuDetail", defaultValue: "Let your other Macs and iPhone connect here."),
-                    enabled: snapshot.incomingAccessEnabled,
-                    managed: incomingAccessManaged,
-                    identifier: "SettingsComputersIncomingAccessToggle",
-                    set: { enabled in Task { await actions.setIncomingAccessEnabled(enabled) } }
-                )
-                SettingsCardNote(String(localized: "devices.incoming.help", defaultValue: "Turning this off removes this Mac from discovery and disconnects incoming sessions. You can still connect to your other Macs."))
-            }
             HStack {
                 Text(String(localized: "devices.yourMacs", defaultValue: "Your Macs"))
                     .font(.headline)
@@ -73,6 +30,7 @@ public struct ComputersSection: View {
                 }
                 .disabled(isRefreshing || !snapshot.isSignedIn || !discoveryEnabled)
                 .accessibilityIdentifier("SettingsComputersRefresh")
+                optionsMenu
             }
             SettingsCard {
                 if !snapshot.isSignedIn {
@@ -95,10 +53,6 @@ public struct ComputersSection: View {
                     }
                 }
             }
-            Text(String(localized: "devices.visibility.help", defaultValue: "Hiding a Mac only removes it from this sidebar. To stop access to a Mac, turn off Allow access to this Mac on that computer."))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
             if let error = snapshot.error {
                 Label(error, systemImage: "exclamationmark.triangle")
                     .font(.callout)
@@ -135,20 +89,38 @@ public struct ComputersSection: View {
         await actions.refresh()
     }
 
-    private func preferenceRow(
-        title: String, detail: String, enabled: Bool, managed: Bool,
-        disabled: Bool = false, identifier: String, set: @escaping (Bool) -> Void
-    ) -> some View {
-        SettingsCardRow(title, subtitle: managed
-            ? String(localized: "devices.managed", defaultValue: "Disabled by your administrator.")
-            : detail
-        ) {
-            Toggle(title, isOn: Binding(get: { enabled && !managed }, set: set))
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .disabled(managed || disabled)
-                .accessibilityIdentifier(identifier)
+    private var optionsMenu: some View {
+        Menu {
+            Toggle(String(localized: "settings.betaFeatures.devices", defaultValue: "My Devices"), isOn: Binding(
+                get: { devices.current && !discoveryManaged },
+                set: {
+                    guard !discoveryManaged else { return }
+                    devices.set($0)
+                    NotificationCenter.default.post(name: Notification.Name("rightSidebarBetaFeatureDidChange"), object: nil)
+                }
+            ))
+            .disabled(discoveryManaged)
+            .help(String(localized: "settings.computers.optIn", defaultValue: "Show your other Macs and their workspaces in the sidebar."))
+            .accessibilityIdentifier("SettingsComputersEnabled")
+            Divider()
+            ComputerAccessMenuItems(
+                discoveryEnabled: snapshot.discoveryEnabled,
+                incomingAccessEnabled: snapshot.incomingAccessEnabled,
+                discoveryManaged: discoveryManaged,
+                incomingAccessManaged: incomingAccessManaged,
+                discoveryAvailable: devices.current,
+                identifierPrefix: "SettingsComputers",
+                setDiscovery: { enabled in Task { await actions.setDiscoveryEnabled(enabled) } },
+                setIncomingAccess: { enabled in Task { await actions.setIncomingAccessEnabled(enabled) } }
+            )
+        } label: {
+            Image(systemName: "ellipsis.circle")
         }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
+        .accessibilityLabel(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
+        .accessibilityIdentifier("SettingsComputersOptions")
     }
 }

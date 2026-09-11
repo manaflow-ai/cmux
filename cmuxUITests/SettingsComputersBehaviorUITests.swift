@@ -13,15 +13,20 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
 
         navigate(window, to: "Computers")
 
-        XCTAssertTrue(window.descendants(matching: .any)["SettingsComputersEnabled"].waitForExistence(timeout: 5))
-        XCTAssertTrue(window.descendants(matching: .any)["SettingsComputersDiscoveryToggle"].exists)
-        XCTAssertTrue(window.descendants(matching: .any)["SettingsComputersIncomingAccessToggle"].exists)
+        let options = window.descendants(matching: .any)["SettingsComputersOptions"].firstMatch
+        XCTAssertTrue(options.waitForExistence(timeout: 5))
         XCTAssertTrue(window.buttons["SettingsComputersRefresh"].exists)
         XCTAssertFalse(window.textFields["SettingsComputersPairingInput"].exists)
 
         let after = XCTAttachment(screenshot: window.screenshot())
-        after.name = "Computers discovery and access controls"
+        after.name = "Computers list with compact options"
         after.lifetime = .keepAlways
         add(after)
+
+        options.click()
+        XCTAssertTrue(app.descendants(matching: .any)["SettingsComputersEnabled"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["SettingsComputersDiscoveryToggle"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["SettingsComputersIncomingAccessToggle"].exists)
+        app.typeKey(.escape, modifierFlags: [])
     }
 }
