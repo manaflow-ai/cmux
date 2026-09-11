@@ -105,6 +105,19 @@ struct TerminalLinkOpenCoordinator {
             )
         }
 
+        if let sourcePanelId = request.sourcePanelId,
+           let cloudTarget = container?.cloudTerminalLinkTarget(
+            url: target.url,
+            sourcePanelId: sourcePanelId
+        ) {
+            return openCloudTerminalLink(
+                originalURL: target.url,
+                privateURL: cloudTarget.url,
+                request: request,
+                container: container
+            )
+        }
+
         guard BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults) else {
             return openExternally(target.url, reason: "cmux browser disabled")
         }
@@ -210,32 +223,70 @@ struct TerminalLinkOpenCoordinator {
         request: TerminalLinkOpenRequest,
         container: (any TerminalLinkOpenContainer)?
     ) -> Bool {
+        deferOperation { [self] in
+            self.openEmbeddedBrowserURLNow(url, request: request, container: container)
+        }
+        return true
+    }
+
+    private func openCloudTerminalLink(
+        originalURL: URL,
+        privateURL: URL,
+        request: TerminalLinkOpenRequest,
+        container: (any TerminalLinkOpenContainer)?
+    ) -> Bool {
+        deferOperation { [self] in
+            Task { @MainActor in
+                let isUp: Bool
+                if let coordinator = AppDelegate.shared?.cloudTunnelCoordinator {
+                    isUp = (await coordinator.status()).state == .up
+                } else {
+                    isUp = false
+                }
+                self.openEmbeddedBrowserURLNow(
+                    isUp ? privateURL : originalURL,
+                    request: request,
+                    container: container
+                )
+            }
+        }
+        return true
+    }
+
+    private func openEmbeddedBrowserURLNow(
+        _ url: URL,
+        request: TerminalLinkOpenRequest,
+        container: (any TerminalLinkOpenContainer)?
+    ) {
         switch externalNavigationHandler.openConfiguredExternallyResult(url) {
         case .opened:
             log(
                 "link.openURL opening externally reason=external pattern " +
                 "opened=1 url=\(url)"
             )
-            return true
+            return
         case .failed:
             log(
                 "link.openURL opening externally reason=external pattern " +
                 "opened=0 url=\(url)"
             )
-            return false
+            return
         case .notConfigured:
             break
         }
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
-            return openExternally(url, reason: "invalid host")
+            _ = openExternally(url, reason: "invalid host")
+            return
         }
         guard BrowserLinkOpenSettings.hostMatchesWhitelist(host, defaults: defaults) else {
-            return openExternally(url, reason: "host whitelist miss")
+            _ = openExternally(url, reason: "host whitelist miss")
+            return
         }
         guard BrowserAvailabilitySettings.isEnabled(defaults: defaults),
               let sourcePanelId = request.sourcePanelId,
               let container else {
-            return openExternally(url, reason: "source container unavailable")
+            _ = openExternally(url, reason: "source container unavailable")
+            return
         }
 
         log(
@@ -243,8 +294,7 @@ struct TerminalLinkOpenCoordinator {
             "container=\(container.terminalLinkContainerDebugName) surfaceId=\(sourcePanelId)"
         )
 
-        deferOperation { [self] in
-            let currentContainer = self.containerResolver(
+        let currentContainer = self.containerResolver(
                 request.sourceWorkspaceId,
                 sourcePanelId
             )
@@ -262,8 +312,6 @@ struct TerminalLinkOpenCoordinator {
             if !self.externalOpen(url) {
                 NSSound.beep()
             }
-        }
-        return true
     }
 
     private func resolvedWorkingDirectory(

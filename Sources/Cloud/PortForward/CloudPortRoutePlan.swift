@@ -5,10 +5,12 @@ import Foundation
 /// machine advertises and nothing else. Pure, so the decision is testable
 /// without panes; ``CmuxTuiSurfaceProvider`` executes the plan.
 ///
-/// A machine with a private address is always reached through the user-space
-/// WireGuard hub (``CloudHubPortForwarder``): no system VPN, no extension
-/// approval, on every build. The signed Network Extension plays no part here.
+/// A machine with a private address uses the user-space WireGuard hub by default.
+/// An already-connected system Cloud VPN may opt into the direct private URL.
 enum CloudPortRoutePlan: Equatable, Sendable {
+    /// Load the machine's private URL directly when the system Cloud VPN is
+    /// already connected.
+    case privateDirect(remoteURL: String)
     /// Forward `target` through the hub and load `remoteURL` rewritten onto
     /// the loopback listener (path, query, and fragment kept).
     case hubForward(target: CloudPortForwardTarget, remoteURL: String)
@@ -19,7 +21,8 @@ enum CloudPortRoutePlan: Equatable, Sendable {
     static func plan(
         resource: SurfaceResource,
         privateAddress: String?,
-        supportsControlPlanePreviews: Bool
+        supportsControlPlanePreviews: Bool,
+        preferDirectPrivateAddress: Bool = false
     ) -> CloudPortRoutePlan {
         let desktop = resource.kind == .display
         guard let port = resource.id.forwardedPort ?? resource.port ?? (desktop ? CmuxTuiSnapshotParser.desktopPort : nil) else {
@@ -34,6 +37,9 @@ enum CloudPortRoutePlan: Equatable, Sendable {
                     ? CmuxTuiSurfaceProvider.privateDesktopURL(privateAddress: privateAddress)
                     : CmuxInternalHostnames.directPortURL(privateAddress: privateAddress, port: port)
             )
+            if preferDirectPrivateAddress {
+                return .privateDirect(remoteURL: remoteURL)
+            }
             return .hubForward(target: CloudPortForwardTarget(host: privateAddress, port: port), remoteURL: remoteURL)
         }
         if supportsControlPlanePreviews {

@@ -15,6 +15,10 @@ extension DockSplitStore: TerminalLinkOpenContainer {
         detachedSurfaceTransfersByPanelId[sourcePanelId]?.isRemoteTerminal == true
     }
 
+    func cloudTerminalLinkTarget(url _: URL, sourcePanelId _: UUID) -> CloudTerminalLinkTarget? {
+        nil
+    }
+
     func deferTerminalFileLinkOpen(
         sourcePanelId _: UUID,
         filePath _: String,

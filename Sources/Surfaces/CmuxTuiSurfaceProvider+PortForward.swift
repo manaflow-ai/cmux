@@ -21,9 +21,18 @@ extension CmuxTuiSurfaceProvider {
         let plan = CloudPortRoutePlan.plan(
             resource: resource,
             privateAddress: info.privateAddress,
-            supportsControlPlanePreviews: capabilities.ports
+            supportsControlPlanePreviews: capabilities.ports,
+            preferDirectPrivateAddress: await Self.systemCloudVPNIsUp()
         )
         switch plan {
+        case .privateDirect(let remoteURL):
+            guard let url = URL(string: remoteURL),
+                  ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+                throw ProviderError.localForwardURLUnavailable
+            }
+            guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { throw CancellationError() }
+            let pane = try Self.makeDirectBrowserPane(url: url, at: destination, focus: focus, reusing: existingPane)
+            return pane
         case .unsupported(let reason):
             throw SurfaceCatalogError.unsupported(reason)
         case .hubForward(let target, let remoteURL):
@@ -85,6 +94,13 @@ extension CmuxTuiSurfaceProvider {
             }
             return pane
         }
+    }
+
+    /// Reads the coordinator's authoritative Network Extension state. A
+    /// missing coordinator means this build cannot use the system route.
+    private static func systemCloudVPNIsUp() async -> Bool {
+        guard let coordinator = AppDelegate.shared?.cloudTunnelCoordinator else { return false }
+        return (await coordinator.status()).state == .up
     }
 
     /// Restored browser tabs retain their identity, but their saved loopback
@@ -158,6 +174,10 @@ extension CmuxTuiSurfaceProvider {
             supportsControlPlanePreviews: capabilities.ports
         )
         switch plan {
+        case .privateDirect:
+            // `localPortURL` is the copyable link that works without the system
+            // VPN. Its route must remain the loopback forward.
+            return nil
         case .hubForward(let target, _):
             return try await hubForward(to: target).localURLString
         case .controlPlanePreview:
@@ -182,6 +202,17 @@ extension CmuxTuiSurfaceProvider {
     ) throws -> (workspaceID: UUID, panelID: UUID) {
         let pane = try existingPane ?? SurfacePaneFactory.makeBrowserPane(url: SurfacePaneFactory.blankURL, at: destination, focus: focus)
         SurfacePaneFactory.showPlaceholder(SurfaceBrowserPlaceholder.connecting(label), panelID: pane.panelID, in: pane.workspaceID)
+        return pane
+    }
+
+    private static func makeDirectBrowserPane(
+        url: URL,
+        at destination: SurfaceDestination,
+        focus: Bool,
+        reusing existingPane: (workspaceID: UUID, panelID: UUID)? = nil
+    ) throws -> (workspaceID: UUID, panelID: UUID) {
+        let pane = try existingPane ?? SurfacePaneFactory.makeBrowserPane(url: url, at: destination, focus: focus)
+        SurfacePaneFactory.navigate(panelID: pane.panelID, in: pane.workspaceID, to: url)
         return pane
     }
 

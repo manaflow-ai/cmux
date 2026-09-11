@@ -21,6 +21,19 @@ struct CloudPortRoutePlanTests {
         #expect(plan == .hubForward(target: CloudPortForwardTarget(host: "10.0.0.7", port: 3000), remoteURL: "http://10.0.0.7:3000"))
     }
 
+    @Test("an active system VPN opens the private URL directly")
+    func activeVPNUsesPrivateURL() {
+        let resource = CmuxTuiSnapshotParser.portBrowser(machine: machine, port: 3000, directURL: "http://10.0.0.7:3000")
+        #expect(
+            CloudPortRoutePlan.plan(
+                resource: resource,
+                privateAddress: "10.0.0.7",
+                supportsControlPlanePreviews: true,
+                preferDirectPrivateAddress: true
+            ) == .privateDirect(remoteURL: "http://10.0.0.7:3000")
+        )
+    }
+
     @Test("the route does not depend on the tunnel backend: an unentitled build plans the same forward")
     func independentOfNetworkExtension() {
         let backend = CloudTunnelBackendSelector(

@@ -1370,6 +1370,10 @@ final class SurfaceCatalog {
         projection(forPanel: panelID).flatMap { resources[$0.resource] }
     }
 
+    func machineInfo(for machine: SurfaceMachineID) -> SurfaceMachineInfo? {
+        machines[machine]
+    }
+
     // MARK: Restore
 
     /// Records persisted projections for panes the session restore recreated. The projection
