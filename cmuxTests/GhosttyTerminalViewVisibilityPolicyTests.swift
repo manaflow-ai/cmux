@@ -498,7 +498,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             window.displayIfNeeded()
             panel.hostedView.layoutSubtreeIfNeeded()
             _ = panel.hostedView.reconcileGeometryNow()
-            try await clock.sleep(for: .milliseconds(10))
+            await flushPortalReconciliationPasses()
         }
         #expect(panel.hostedView.frame.width == 360)
         #expect((try terminalSize()).width < initialTerminalSize.width)
