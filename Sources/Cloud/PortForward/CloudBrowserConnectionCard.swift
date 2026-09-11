@@ -5,7 +5,7 @@ struct CloudBrowserConnectionCard: View {
     let phase: CloudPortAccessModel.Phase
     let message: String?
     let onSetup: () -> Void
-    let onRetry: () -> Void
+    let onRetry: (() -> Void)?
 
     var body: some View {
         ScrollView {
@@ -23,8 +23,10 @@ struct CloudBrowserConnectionCard: View {
                     Button(String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…"), action: onSetup)
                         .buttonStyle(.borderedProminent)
                         .accessibilityIdentifier("CloudBrowserVPNSetupButton")
-                    Button(String(localized: "browser.error.reload", defaultValue: "Reload"), action: onRetry)
-                        .buttonStyle(.bordered)
+                    if let onRetry {
+                        Button(String(localized: "browser.error.reload", defaultValue: "Reload"), action: onRetry)
+                            .buttonStyle(.bordered)
+                    }
                 }
                 if message == nil && (phase == .connecting || phase == .direct || { if case .forwarded = phase { return true }; return false }()) {
                     ProgressView(String(localized: "cloud.ports.loading", defaultValue: "Loading Cloud page…"))

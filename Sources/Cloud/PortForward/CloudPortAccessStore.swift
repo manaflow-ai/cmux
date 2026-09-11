@@ -11,7 +11,7 @@ final class CloudPortAccessStore {
 
     func model(machineID: String, target: CloudPortForwardTarget, make: () -> CloudPortAccessModel) -> CloudPortAccessModel {
         let key = CloudHubPortForwarder.Key(machineID: machineID, port: target.port)
-        if let existing = models[key] {
+        if let existing = models[key], existing.phase != .closed {
             existing.updateTarget(target)
             return existing
         }

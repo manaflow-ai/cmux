@@ -207,9 +207,11 @@ so its TCP maximum segment size stays within the tunnel packet size.
 - `cargo test -p cmux-tui`: hub command and required capability.
 - Web tests: one physical Mac with two role peers, multiple Stack sessions,
   rename, sign-out revoke, remote revoke, and no iOS registry coupling.
-- Tagged Mac build: system VPN off, two VM terminals work through one hub, a
-  Ports row opens `http://127.0.0.1:<port>` through the same hub, no new
-  system interface, and no password prompt.
+- Tagged Mac build: with system VPN off, two VM terminals work through one
+  hub. Opening a Ports row shows native connection controls and creates no
+  listener. Forward Port opens `http://127.0.0.1:<port>` through the same hub;
+  Stop Forwarding closes it. With VPN connected, opening the same row uses
+  the VM private address and original port.
 - `CloudLoopbackPortForwardTests`: a loopback client, the real forward, and a
   fake SOCKS5 hub; bytes relay both ways, a refused CONNECT closes the client,
   the hub lease follows each connection, and one machine port keeps one local

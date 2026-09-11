@@ -8,7 +8,9 @@ struct CloudPortsTable: View {
 
     var body: some View {
         let rows = models.map { model in
-            (id: model.id, remote: "\(model.id.machineID):\(model.id.port)", local: model.localAddress,
+            let host = model.target.host
+            let address = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+            return (id: model.id, remote: "\(address):\(model.id.port)", local: model.localAddress,
              phase: model.phase, prefersForwarding: model.prefersForwarding,
              start: { model.forward() }, stop: { Task { await model.stop() } })
         }

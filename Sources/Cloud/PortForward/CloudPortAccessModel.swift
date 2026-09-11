@@ -109,7 +109,7 @@ final class CloudPortAccessModel: Identifiable {
     }
 
     func stop() async {
-        guard phase != .closed else { return }
+        guard phase != .closed, phase != .stopping else { return }
         generation += 1
         operation?.cancel()
         let pending = operation

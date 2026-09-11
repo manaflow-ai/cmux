@@ -751,7 +751,7 @@ final class SurfaceCatalog {
             if resource.kind != .terminal,
                let provider = providers[id.machine] as? CmuxTuiSurfaceProvider,
                let browser = SurfacePaneFactory.browserPanel(panelID: resolved.panelID, in: resolved.workspaceID),
-               browser.cloudAccess.model == nil,
+               (browser.cloudAccess.model == nil || browser.cloudAccess.model?.phase == .closed),
                let raw = resource.url, let url = URL(string: raw) {
                 provider.configureBrowser(browser, url: url)
             }

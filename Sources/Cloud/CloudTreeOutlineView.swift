@@ -765,11 +765,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             if resource.id.isForwardedPort, !isLocal {
                 // Copying a port URL does not start a forward. The browser's
                 // explicit Ports table owns local forwarding addresses.
-                items.append(item(String(localized: "cloudTree.menu.copyLink", defaultValue: "Copy Link")) { [nodeActions] in nodeActions.copyPortLink(resource.id) })
-                if let portURL {
-                    items.append(item(String(localized: "cloudTree.menu.copyPrivateURL", defaultValue: "Copy Private Address URL")) { [nodeActions] in nodeActions.copyToPasteboard(portURL) })
-                    items.append(item(String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…")) { [machineActions, window = outlineView?.window] in machineActions.setupVPN(window) })
-                }
+                items.append(item(String(localized: "cloudTree.menu.copyPrivateURL", defaultValue: "Copy Private Address URL")) { [nodeActions] in nodeActions.copyPortLink(resource.id) })
+                items.append(item(String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…")) { [machineActions, window = outlineView?.window] in machineActions.setupVPN(window) })
             } else if let portURL {
                 items.append(item(String(localized: "cloudTree.menu.copyLink", defaultValue: "Copy Link")) { [nodeActions] in nodeActions.copyToPasteboard(portURL) })
             } else if let port = resource.port, resource.kind == .browser {

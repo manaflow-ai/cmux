@@ -43,7 +43,7 @@ struct CloudBrowserAccessView<Content: View>: View {
                         CloudBrowserConnectionCard(
                             address: state.remoteURL?.absoluteString ?? "",
                             phase: model.phase,
-                            message: state.error ?? model.failureMessage ?? model.vpn.unavailableMessage,
+                            message: state.error ?? model.failureMessage ?? (model.phase == .needsVPN ? model.vpn.unavailableMessage : nil),
                             onSetup: { showsVPNSetup = true },
                             onRetry: {
                                 state.retry()
@@ -58,7 +58,9 @@ struct CloudBrowserAccessView<Content: View>: View {
                 }
                 .task(id: state.remoteURL) { navigateIfReady() }
             } else if let message = state.unavailable {
-                CloudBrowserConnectionCard(address: "", phase: .failed(message), message: message, onSetup: {}, onRetry: {})
+                CloudBrowserConnectionCard(address: "", phase: .failed(message), message: message, onSetup: {
+                    AppDelegate.shared?.openCloudVPNSetupWorkspace(preferredTabManager: AppDelegate.shared?.tabManagerFor(tabId: panel.workspaceId))
+                }, onRetry: nil)
             } else {
                 content()
             }
