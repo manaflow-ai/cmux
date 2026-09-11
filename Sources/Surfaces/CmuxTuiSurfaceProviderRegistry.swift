@@ -283,18 +283,18 @@ final class CmuxTuiSurfaceProviderRegistry {
         // A fleet page fetched before the delete must not re-register the
         // machine on top of this teardown.
         refreshGeneration &+= 1
-        unregisterMachine(rawID)
+        Task { await unregisterMachine(rawID) }
     }
 
     /// Both an explicit delete and fleet reconciliation use the same owned
     /// teardown. Discovery must not await cleanup of an unrelated machine.
-    private func unregisterMachine(_ rawID: String) {
+    private func unregisterMachine(_ rawID: String) async {
         // Callers may hand over a canonicalized (lowercased) id while the
         // registry keys everything by the control plane's own `summary.id`;
         // resolve to the registered key so no table is left behind.
         let id = registeredMachineID(matching: rawID)
-        portAccess.remove(machineID: id)
-        providers[id]?.stop()
+        await portAccess.remove(machineID: id)
+        await providers[id]?.stop()
         providers[id] = nil
         catalog?.unregister(machine: .cloud(id))
         // Teardowns for one machine run in order: a repeated delete waits for
@@ -345,7 +345,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             .union(catalog.pendingRestoredMachineIDs)
             .subtracting(seen)
         for id in staleIDs {
-            unregisterMachine(id)
+            await unregisterMachine(id)
         }
         await links.retainAddresses(machineIDs: seen)
         guard !isRetired, generation == refreshGeneration else { return nil }
@@ -398,7 +398,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         discoveryInFlight = nil
         refreshInFlight?.cancel()
         refreshInFlight = nil
-        for provider in providers.values { provider.stop() }
+        for provider in providers.values { await provider.stop() }
         for id in providers.keys { catalog?.unregister(machine: .cloud(id)) }
         providers.removeAll()
         let teardowns = Array(machineTeardowns.values)

@@ -26,11 +26,9 @@ extension Workspace: TerminalLinkOpenContainer {
         guard let target = surfaceOwnershipTarget(for: sourcePanelId),
               let resource = SurfaceCatalog.shared.resource(forPanel: target.surfaceID)
                 ?? SurfaceCatalog.shared.resource(forPanel: target.containerPanelID),
-              resource.kind == .terminal, resource.machine.cloudMachineID != nil,
               let address = SurfaceCatalog.shared.machineInfo(for: resource.machine)?.privateAddress,
-              let rewritten = CmuxTuiSurfaceProvider.privateBrowserURL(url.absoluteString, privateAddress: address),
-              let privateURL = URL(string: rewritten) else { return nil }
-        return CloudTerminalLinkTarget(url: privateURL)
+              let target = CmuxTuiSurfaceProvider.cloudTerminalLinkTarget(url: url, resource: resource, privateAddress: address) else { return nil }
+        return target
     }
 
     func deferTerminalFileLinkOpen(

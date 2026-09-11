@@ -125,13 +125,16 @@ final class CloudPortAccessModel: Identifiable {
         if tunnelState == .up { connectDirect() }
     }
 
-    func retire() {
+    func retire() async {
         generation += 1
+        let pending = operation
         phase = .closed
         observation?.cancel()
         observation = nil
         operation?.cancel()
         operation = nil
+        await pending?.value
+        await stopForward()
     }
 
     func url(for remoteURL: URL) -> URL? {

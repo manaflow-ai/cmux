@@ -125,6 +125,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
     func update(summary: VMSummary) {
         guard isRegisteredInCatalog() else { return }
+        let previousPrivateAddress = info.privateAddress
         refreshGeneration &+= 1
         refreshCoordinator.invalidate()
         self.summary = summary
@@ -146,9 +147,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         } else {
             catalog.updateMachine(info, from: self)
         }
+        if previousPrivateAddress != info.privateAddress {
+            refreshCloudBrowserRoutes()
+        }
     }
-    func stop() {
-        portAccessStore.remove(machineID: machineID)
+    func stop() async {
+        await portAccessStore.remove(machineID: machineID)
         lifecycleGeneration &+= 1
         refreshCoordinator.cancel()
         for task in browserPaneTasks.values { task.cancel() }
@@ -1707,6 +1711,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
               let host = parts.host?.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]")),
               ["localhost", "127.0.0.1", "0.0.0.0", "::1"].contains(host) else { return nil }
         return CloudPortRoutePlan.privateURL(raw, address: privateAddress)?.absoluteString
+    }
+
+    /// Shared Cloud terminal-link conversion for Workspace and Dock containers.
+    nonisolated static func cloudTerminalLinkTarget(url: URL, resource: SurfaceResource, privateAddress: String) -> CloudTerminalLinkTarget? {
+        guard resource.kind == .terminal, resource.machine.cloudMachineID != nil,
+              let rewritten = privateBrowserURL(url.absoluteString, privateAddress: privateAddress),
+              let privateURL = URL(string: rewritten) else { return nil }
+        return CloudTerminalLinkTarget(url: privateURL)
     }
 
     /// Add the local URL used when this resource is projected on the Mac.

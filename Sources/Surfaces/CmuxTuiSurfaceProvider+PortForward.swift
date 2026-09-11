@@ -1,6 +1,21 @@
 import Foundation
 
 extension CmuxTuiSurfaceProvider {
+    /// Rebind active browser panes when the VM private address changes.
+    func refreshCloudBrowserRoutes() {
+        for resource in catalog.snapshot.resources(on: machine) where resource.kind != .terminal {
+            for projection in catalog.projections(of: resource.id) {
+                guard let browser = SurfacePaneFactory.browserPanel(panelID: projection.panelID, in: projection.workspaceID) else { continue }
+                switch CloudPortRoutePlan.plan(resource: resource, privateAddress: info.privateAddress) {
+                case .privateDirect(let raw):
+                    if let url = URL(string: raw) { configureBrowser(browser, url: url) }
+                case .unsupported(let message):
+                    browser.cloudAccess.showUnavailable(message)
+                }
+            }
+        }
+    }
+
     /// Create the browser with native connection state before attempting access.
     /// The user chooses forwarding explicitly in that pane.
     func materializeBrowserPane(

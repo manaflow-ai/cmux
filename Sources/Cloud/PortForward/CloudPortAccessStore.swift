@@ -21,9 +21,11 @@ final class CloudPortAccessStore {
         return model
     }
 
-    func remove(machineID: String) {
+    func remove(machineID: String) async {
         for key in models.keys.filter({ $0.machineID == machineID }) {
-            models.removeValue(forKey: key)?.retire()
+            if let model = models.removeValue(forKey: key) {
+                await model.retire()
+            }
         }
     }
 }

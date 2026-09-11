@@ -61,7 +61,7 @@ struct CloudPortRoutePlanTests {
         model.acceptTunnelState(.off)
         #expect(!page.showsPage && page.nextURL() == nil)
         #expect(forwards == 0)
-        model.retire()
+        await model.retire()
     }
 
     @Test("Forwarding is explicit, visible across panes, and can be stopped")
@@ -79,7 +79,7 @@ struct CloudPortRoutePlanTests {
         #expect(second.prefersForwarding)
         await model.stop()
         #expect(stops == 1 && model.localAddress == nil && model.phase == .needsVPN)
-        store.remove(machineID: "vm-1")
+        await store.remove(machineID: "vm-1")
         #expect(model.phase == .closed && store.models.isEmpty)
     }
 
@@ -96,7 +96,7 @@ struct CloudPortRoutePlanTests {
         #expect(!state.showsPage && state.error == "Connection refused")
         state.retry()
         #expect(state.error == nil)
-        model.retire()
+        await model.retire()
     }
 
     @Test("A canceled forward cannot publish a late local address")
@@ -113,7 +113,7 @@ struct CloudPortRoutePlanTests {
         await model.stop()
         resume.resolve(true)
         #expect(model.phase == .needsVPN && model.localAddress == nil)
-        model.retire()
+        await model.retire()
     }
 
     private func makeModel(

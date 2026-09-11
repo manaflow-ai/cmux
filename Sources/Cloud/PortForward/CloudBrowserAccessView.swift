@@ -35,7 +35,8 @@ struct CloudBrowserAccessView<Content: View>: View {
                         CloudVPNSetupPanelView(
                             appearance: PanelAppearance(backgroundColor: backgroundColor, foregroundColor: .labelColor, dividerColor: .secondary, unfocusedOverlayNSColor: .clear, unfocusedOverlayOpacity: 0, usesClearContentBackground: false),
                             onRequestPanelFocus: {},
-                            model: model.vpn
+                            model: model.vpn,
+                            portAccessStore: CmuxTuiSurfaceProviderRegistry.shared.portAccess
                         )
                     } else if state.showsPage {
                         content()
