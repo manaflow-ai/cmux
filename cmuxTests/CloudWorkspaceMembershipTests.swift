@@ -44,8 +44,8 @@ struct CloudWorkspaceMembershipTests {
         try expectMembership(created, in: catalog)
     }
 
-    @Test("Closing a desktop pane removes only its workspace tab after the authoritative delta")
-    func closeDesktopPane() async throws {
+    @Test("Closing a desktop pane removes only its workspace tab after the authoritative delta", arguments: ["display", "screen"])
+    func closeDesktopPane(contentKind: String) async throws {
         let localWorkspace = UUID(), panel = UUID()
         let coordinator = CloudPlacementCoordinator(binding: { id in
             id == localWorkspace
@@ -55,13 +55,14 @@ struct CloudWorkspaceMembershipTests {
         let catalog = SurfaceCatalog(cloudPlacementCoordinator: coordinator)
         let provider = CloudPlacementTestProvider(machine: machine)
         catalog.register(provider)
-        let initial = try state(desktops: ["desk_a": "a", "desk_b": "b"])
+        let initial = try state(desktops: ["desk_a": "a", "desk_b": "b"], contentKind: contentKind)
         publish(initial, to: catalog)
         let display = SurfaceResourceID(machine: machine, kind: .display, key: "display:1")
         catalog.record(SurfaceProjection(
             resource: display, workspaceID: localWorkspace, panelID: panel,
             remoteWorkspaceID: "ws_a", remoteTabID: "desk_a"
         ))
+        publish(initial, to: catalog)
         try expectMembership(initial, in: catalog)
 
         catalog.endProjections(panelID: panel)
@@ -79,6 +80,18 @@ struct CloudWorkspaceMembershipTests {
         try expectMembership(detached, in: catalog)
         #expect(catalog.resources[display] != nil)
         #expect(catalog.resources[display]?.remoteWorkspaces.isEmpty == true)
+    }
+
+    @Test("Opening a machine display does not select or infer an unrelated daemon workspace")
+    func displayPoolOpenHasNoImplicitTab() throws {
+        let current = try state(desktops: ["desk_b": "b"])
+        let display = try #require(resources(current).first { $0.id.key == "display:1" })
+        #expect(CmuxTuiSurfaceProvider.defaultRemoteView(for: display) == nil)
+        let terminal = try #require(resources(current).first { $0.id.key == "term_a" })
+        #expect(CmuxTuiSurfaceProvider.defaultRemoteView(for: terminal)?.tabID == "tab_a")
+        let rename = CloudWorkspaceRenameService()
+        let projection = SurfaceProjection(resource: display.id, workspaceID: UUID(), panelID: UUID())
+        #expect(rename.inferredRemoteWorkspaceTarget(projections: [projection], resources: [display]) == nil)
     }
 
     @Test("Refresh, reconnect and focus changes preserve exact display membership", arguments: ["display", "screen"])
