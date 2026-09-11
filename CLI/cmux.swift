@@ -13,6 +13,7 @@ import LocalAuthentication
 #if canImport(Security)
 import Security
 #endif
+
 struct WindowInfo {
     let index: Int
     let id: String
@@ -20,6 +21,7 @@ struct WindowInfo {
     let selectedWorkspaceId: String?
     let workspaceCount: Int
 }
+
 struct NotificationInfo {
     let id: String
     let workspaceId: String
@@ -31,6 +33,7 @@ struct NotificationInfo {
     let createdAt: String?
     let tabTitle: String?
 }
+
 struct ClaudeHookParsedInput {
     let rawObject: [String: Any]?
     let object: [String: Any]?
@@ -41,12 +44,14 @@ struct ClaudeHookParsedInput {
     let transcriptPath: String?
     let title: String?
 }
+
 enum AgentHookRuntimeStatus: String, Codable {
     case running
     case idle
     case needsInput
     case error
 }
+
 #if DEBUG
 private func agentHookDebugLog(
     _ message: @autoclosure () -> String,
@@ -57,6 +62,7 @@ private func agentHookDebugLog(
     let timestamp = String(format: "%.3f", Date().timeIntervalSince1970)
     let line = "\(timestamp) \(message())\n"
     guard let data = line.data(using: .utf8) else { return }
+
     if let handle = FileHandle(forWritingAtPath: logPath) {
         defer { try? handle.close() }
         guard (try? handle.seekToEnd()) != nil else { return }
@@ -65,10 +71,12 @@ private func agentHookDebugLog(
         FileManager.default.createFile(atPath: logPath, contents: data)
     }
 }
+
 private func agentHookDebugLogPath(socketPath: String?, env: [String: String]) -> String {
     if let explicit = agentHookDebugNonEmpty(env["CMUX_DEBUG_LOG"]) {
         return NSString(string: explicit).expandingTildeInPath
     }
+
     if let socketPath {
         let socketName = URL(fileURLWithPath: socketPath).lastPathComponent
         if socketName.hasPrefix("cmux-debug-"), socketName.hasSuffix(".sock") {
@@ -23695,24 +23703,16 @@ struct CMUXCLI {
     }
 
     private func createClaudeNodeOptionsRestoreModule() throws -> URL {
-        // Keep this resolution policy in sync with ensure_node_options_restore_module.
-        // Persistent storage avoids temp sweeps; the fixed child preserves restore
-        // recognition even when the caller overrides the storage root.
+        // Match ensure_node_options_restore_module: persistent, recognizable, bare-token-safe.
         let environment = ProcessInfo.processInfo.environment
         let homePath = environment["HOME"] ?? NSHomeDirectory()
         let overrideDirectory = environment["CMUX_NODE_OPTIONS_DIR"] ?? ""
         var directory = overrideDirectory.isEmpty ? homePath + "/.cmux" : overrideDirectory
-        if directory.hasPrefix("~/") {
-            directory = homePath + "/" + directory.dropFirst(2)
-        }
-        // Bare NODE_OPTIONS tokens must round-trip through both serializers.
+        if directory.hasPrefix("~/") { directory = homePath + "/" + directory.dropFirst(2) }
         guard directory.hasPrefix("/"),
               directory.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
-              !directory.contains("\""), !directory.contains("\\") else {
-            throw CocoaError(.fileWriteInvalidFileName)
-        }
-        let root = URL(fileURLWithPath: directory, isDirectory: true)
-            .appendingPathComponent("cmux-node-options", isDirectory: true)
+              !directory.contains("\""), !directory.contains("\\") else { throw CocoaError(.fileWriteInvalidFileName) }
+        let root = URL(fileURLWithPath: directory, isDirectory: true).appendingPathComponent("cmux-node-options", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: nil)
         let restoreModuleURL = root.appendingPathComponent("restore-node-options.cjs", isDirectory: false)
         try writeShimIfChanged(Self.claudeNodeOptionsRestoreModule, to: restoreModuleURL)
