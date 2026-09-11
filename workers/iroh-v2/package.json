@@ -1,0 +1,29 @@
+{
+  "name": "@cmux/iroh-v2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test test",
+    "contracts:generate": "bun scripts/generate-contracts.ts",
+    "contracts:check": "bun scripts/generate-contracts.ts --check",
+    "types:generate": "wrangler types",
+    "dev": "wrangler dev --env development",
+    "deploy:staging": "wrangler deploy --env staging",
+    "deploy:production": "wrangler deploy --env production"
+  },
+  "dependencies": {
+    "zod": "4.6.2",
+    "drizzle-orm": "0.45.2",
+    "@planetscale/database": "1.20.1"
+  },
+  "devDependencies": {
+    "wrangler": "4.131.0",
+    "quicktype-core": "26.0.0",
+    "typescript": "7.0.2",
+    "@types/bun": "1.4.2",
+    "@cloudflare/workers-types": "5.20260911.1",
+    "drizzle-kit": "0.31.10",
+    "miniflare": "5.20260910.0-alpha"
+  }
+}
