@@ -426,7 +426,7 @@ describe("devbox image template", () => {
       symlinkSync(path.join(templateDir, "cmux-open-url"), path.join(fakeRoot, "xdg-open"));
       const result = spawnSync(path.join(fakeRoot, "xdg-open"), ["https://github.com/login/device"], {
         encoding: "utf8",
-        env: { PATH: `${fakeRoot}:/usr/bin:/bin` },
+        env: { NODE_ENV: "test", PATH: `${fakeRoot}:/usr/bin:/bin` },
       });
       expect({ status: result.status, stdout: result.stdout }).toEqual({
         status: 0,
