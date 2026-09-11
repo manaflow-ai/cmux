@@ -309,6 +309,7 @@ export function makeIrohTrustBroker(
       now,
       snapshot,
       knownCustomRelayURLs,
+      caller?.platform,
     );
     return request.paginated
       ? {
@@ -337,7 +338,7 @@ export function makeIrohTrustBroker(
         : undefined,
       now,
     });
-    return yield* serializeDiscovery(userId, now, snapshot);
+    return yield* serializeDiscovery(userId, now, snapshot, undefined, caller?.platform);
   });
 
   const discoverScoped = (
@@ -367,6 +368,7 @@ export function makeIrohTrustBroker(
       now,
       snapshot,
       knownCustomRelayURLs,
+      caller?.platform,
     );
   });
 
@@ -379,6 +381,7 @@ export function makeIrohTrustBroker(
       readonly accountRevision: number;
     },
     knownCustomRelayURLs?: ReadonlySet<string>,
+    callerPlatform?: string,
   ): Effect.Effect<Record<string, unknown>, IrohExpectedError> => Effect.gen(function* () {
     const savedCustomRelayURLs = knownCustomRelayURLs
       ?? customRelayURLs(yield* accountRelayPreference(userId));
@@ -395,6 +398,7 @@ export function makeIrohTrustBroker(
         binding,
         now,
         savedCustomRelayURLs,
+        callerPlatform === "ios",
       )),
       relay_fleet: MANAGED_RELAY_URLS,
       lan_rendezvous: {
@@ -492,6 +496,7 @@ export function makeIrohTrustBroker(
           pathHints: accountPrivateIrohPathHints(
             decoded.payload.pathHints,
             savedCustomRelayURLs,
+            decoded.payload.platform === "mac",
           ),
         },
         now,
@@ -772,6 +777,7 @@ function publicBinding(
   binding: IrohBindingRecord,
   now: Date,
   savedCustomRelayURLs: ReadonlySet<string>,
+  includeTailscalePaths = false,
 ): object {
   return {
     binding_id: binding.id,
@@ -799,7 +805,7 @@ function publicBinding(
       } catch {
         return [];
       }
-    }), savedCustomRelayURLs),
+    }), savedCustomRelayURLs, includeTailscalePaths),
     last_seen_at: binding.lastSeenAt.toISOString(),
   };
 }

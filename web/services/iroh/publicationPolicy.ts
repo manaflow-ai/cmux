@@ -46,14 +46,17 @@ export function serverPublishedIrohPathHints<T extends PathHintLike>(
 export function accountPrivateIrohPathHints<T extends PathHintLike>(
   hints: readonly T[],
   savedCustomRelayURLs: ReadonlySet<string>,
+  includeTailscalePaths = false,
 ): T[] {
   return hints.filter((hint) => {
     if (hint.kind === "relay_url") {
       return MANAGED_RELAY_URL_SET.has(hint.value) || savedCustomRelayURLs.has(hint.value);
     }
-    return hint.kind === "direct_address" &&
-      hint.source === "native" &&
-      hint.privacy_scope === "public_internet";
+    if (hint.kind !== "direct_address") return false;
+    if (hint.source === "native" && hint.privacy_scope === "public_internet") return true;
+    return includeTailscalePaths &&
+      hint.source === "tailscale" &&
+      hint.privacy_scope === "private_network";
   });
 }
 

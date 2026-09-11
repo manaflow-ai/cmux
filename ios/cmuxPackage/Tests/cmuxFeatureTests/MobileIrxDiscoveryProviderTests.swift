@@ -1,5 +1,6 @@
 import CmuxIrohTransport
 import CmuxMobileShell
+import CmuxMobileShellModel
 import Foundation
 import Testing
 
@@ -45,7 +46,8 @@ struct MobileIrxDiscoveryProviderTests {
         platform: String,
         tag: String = "default",
         pairingEnabled: Bool = true,
-        endpointFill: Character = "a"
+        endpointFill: Character = "a",
+        pathHints: [[String: Any]] = []
     ) -> [String: Any] {
         [
             "binding_id": bindingID,
@@ -59,7 +61,7 @@ struct MobileIrxDiscoveryProviderTests {
             "identity_generation": 1,
             "pairing_enabled": pairingEnabled,
             "capabilities": ["rpc"],
-            "path_hints": [],
+            "path_hints": pathHints,
             "last_seen_at": ISO8601DateFormatter()
                 .string(from: Date(timeIntervalSince1970: 1_800_000_000)),
         ]
@@ -68,7 +70,8 @@ struct MobileIrxDiscoveryProviderTests {
     static func provider(
         discovery: CmxIrohDiscoveryResponse?,
         accountID: String? = "account-a",
-        onRevoke: (@Sendable (String) -> Void)? = nil
+        onRevoke: (@Sendable (String) -> Void)? = nil,
+        strategy: MobileMacDiscoveryStrategy = .automatic
     ) -> MobileIrxDiscoveryProvider {
         MobileIrxDiscoveryProvider(
             preferredTag: "default",
@@ -76,7 +79,8 @@ struct MobileIrxDiscoveryProviderTests {
             discover: { discovery },
             invalidateSnapshot: {},
             revokeBinding: { onRevoke?($0) },
-            authenticatedAccountID: { accountID }
+            authenticatedAccountID: { accountID },
+            strategy: { strategy }
         )
     }
 
@@ -96,6 +100,42 @@ struct MobileIrxDiscoveryProviderTests {
         #expect(candidates.count == 1)
         #expect(candidates.first?.deviceID == mac)
         #expect(candidates.first?.routes.first?.kind == .iroh)
+    }
+
+    @Test("tailscale strategy admits only bindings with a current Tailscale hint")
+    func tailscaleStrategyFiltersCandidates() async throws {
+        let tailscale = try Self.discovery(bindings: [
+            Self.binding(
+                bindingID: "123e4567-e89b-42d3-a456-426614174001",
+                deviceID: "123e4567-e89b-42d3-a456-426614174011",
+                platform: "mac",
+                pathHints: [[
+                    "kind": "direct_address",
+                    "value": "100.101.10.20:58470",
+                    "source": "tailscale",
+                    "privacy_scope": "private_network",
+                    "observed_at": ISO8601DateFormatter().string(from: Date()),
+                    "expires_at": ISO8601DateFormatter().string(from: Date().addingTimeInterval(300)),
+                    "network_profile": ["source": "tailscale", "profile_id": "42e59eea27473bde00430ca3d4a0f34a372713f0b90d46ee1ab2802c6d668979"],
+                ]]),
+        ])
+        let candidates = await Self.provider(discovery: tailscale, strategy: .tailscale).discoverLiveMacs()
+        #expect(candidates.count == 1)
+        let route = try #require(candidates.first?.routes.first)
+        guard case let .peer(_, pathHints) = route.endpoint else {
+            Issue.record("expected an Iroh peer route")
+            return
+        }
+        #expect(pathHints.first?.source == .tailscale)
+    }
+
+    @Test("QR strategy leaves live discovery empty")
+    func qrStrategyDisablesLiveDiscovery() async throws {
+        let response = try Self.discovery(bindings: [
+            Self.binding(bindingID: "123e4567-e89b-42d3-a456-426614174001", deviceID: "123e4567-e89b-42d3-a456-426614174011", platform: "mac"),
+        ])
+        let candidates = await Self.provider(discovery: response, strategy: .qr).discoverLiveMacs()
+        #expect(candidates.isEmpty)
     }
 
     @Test("discovery outage degrades to zero candidates instead of throwing")

@@ -4,9 +4,11 @@ The broker is scoped to the authenticated Stack `user.id`. Team membership and
 the legacy team device registry never grant Iroh discovery or pairing access.
 
 Registration signatures may carry the native Iroh `watch_addr` shape, but the
-server strips every direct/private address before repository persistence. Direct
-paths stay device-local or move endpoint-to-endpoint after admission. The broker
-persists and publishes only exact managed relay URLs. Endpoint or
+server strips arbitrary direct/private addresses before repository persistence.
+A signed Mac registration may retain short-lived Tailscale peer addresses for
+same-account iOS discovery; unauthenticated and Mac callers never receive them.
+Other direct paths stay device-local or move endpoint-to-endpoint after admission.
+The broker persists and publishes only exact managed relay URLs on public surfaces. Endpoint or
 identity-generation replacement requires explicit revocation and reapproval; a
 signature from only the proposed new key cannot replace an active binding.
 
