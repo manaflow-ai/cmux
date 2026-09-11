@@ -93,6 +93,9 @@ public struct CustomSidebarDataContextBuilder {
             "tabs": .array(workspace.surfaces.map(surfaceValue(_:))),
             "tabCount": .int(workspace.surfaceCount),
         ]
+        if let ref = workspace.ref, !ref.isEmpty {
+            fields["ref"] = .string(ref)
+        }
         if let groupId = workspace.groupId {
             fields["group"] = .string(groupId.uuidString)
         }
