@@ -29959,12 +29959,26 @@ struct CMUXCLI {
         }
 
         var terminalSubagentIDs = Set<String>()
+        var followupCallIDs = Set<String>()
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty,
                   let data = trimmed.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-                  object["type"] as? String == "event_msg",
+                  let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+                continue
+            }
+
+            if object["type"] as? String == "response_item",
+               let payload = object["payload"] as? [String: Any],
+               payload["type"] as? String == "function_call",
+               let functionName = firstString(in: payload, keys: ["name"])?.lowercased(),
+               functionName == "followup_task" || functionName.hasSuffix(".followup_task"),
+               let callID = firstString(in: payload, keys: ["call_id", "callId"]) {
+                followupCallIDs.insert(callID)
+                continue
+            }
+
+            guard object["type"] as? String == "event_msg",
                   let payload = object["payload"] as? [String: Any],
                   payload["type"] as? String == "item_completed",
                   let item = payload["item"] as? [String: Any],
@@ -29980,9 +29994,13 @@ struct CMUXCLI {
             case "started":
                 terminalSubagentIDs.remove(subagentID)
             case "interacted":
-                // Codex treats interaction as liveness-neutral; only a new
-                // start can reactivate a terminal child.
-                break
+                // Generic messages are liveness-neutral. A followup_task is
+                // different: Codex starts another turn on the existing child
+                // without emitting another native SubagentStart callback.
+                if let activityID = firstString(in: item, keys: ["id"]),
+                   followupCallIDs.contains(activityID) {
+                    terminalSubagentIDs.remove(subagentID)
+                }
             default:
                 break
             }
