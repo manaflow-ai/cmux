@@ -62,6 +62,16 @@ never changes the original interpreter file and watches it for changes until
 launch completes. Use an absolute, system- or administrator-installed
 interpreter path when writing scripts; user-local interpreters are rejected at
 launch.
+Shebangs must contain only an absolute interpreter path, such as `#!/bin/sh`.
+Arguments (including flags such as `-e`, `-u`, `-c`, or `-m`) are rejected:
+interpreter-specific arguments can select an external program instead of the
+sealed entrypoint. Configure behavior inside the approved script instead.
+
+シバンには `#!/bin/sh` のようなインタープリターの絶対パスだけを指定してください。
+`-e`、`-u`、`-c`、`-m` などの引数は使用できません。引数によって、保護された
+エントリーポイントではなく外部のプログラムが実行される可能性があるためです。
+必要な動作は、承認されたスクリプト内で設定してください。
+
 Use `TMPDIR` or another application-data location for plugin-generated files.
 Disabling a plugin preserves the reviewed grant but stops its process and event
 stream.
