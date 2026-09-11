@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Darwin
 import Foundation
 import os
@@ -7,16 +8,34 @@ nonisolated private let cliForwardingLogger = Logger(subsystem: "com.cmuxterm.ap
 enum CLIForwardingLaunchRouter {
     private static let guardKey = "CMUX_CLI_FORWARDED"
 
+    /// Classifies a launch of the GUI binary via the pure policy in
+    /// CMUXAgentLaunch; this router keeps only the exec/exit glue.
+    static func forwardingDecision(
+        arguments argv: [String],
+        forwardingGuardIsSet: Bool
+    ) -> CLIForwardingDecision {
+        CLIForwardingLaunchPolicy.decision(arguments: argv, forwardingGuardIsSet: forwardingGuardIsSet)
+    }
+
     /// If `argv` looks like a CLI invocation, exec the bundled CLI at
     /// `Contents/Resources/bin/cmux` and never return. macOS-launch arguments
     /// (`-psn_...`, other `-` flags) and `cmux://` URLs are left to the GUI.
+    /// A CLI invocation that cannot be forwarded (the forwarding guard is
+    /// already set) exits with an error instead of falling through to the GUI.
     static func forwardToBundledCLIIfNeeded(
         arguments argv: [String] = CommandLine.arguments,
         bundle: Bundle = .main,
         fileManager: FileManager = .default
     ) {
-        if getenv(guardKey) != nil { return }
-        guard shouldForwardToBundledCLI(arguments: argv) else { return }
+        switch forwardingDecision(arguments: argv, forwardingGuardIsSet: getenv(guardKey) != nil) {
+        case .launchGUI:
+            return
+        case .failForwardingLoop:
+            writeStderr(localizedForwardingLoopError())
+            Darwin.exit(127)
+        case .forwardToBundledCLI:
+            break
+        }
 
         guard let cliURL = bundledCLIURL(bundle: bundle, fileManager: fileManager) else {
             #if DEBUG
@@ -54,17 +73,9 @@ enum CLIForwardingLaunchRouter {
         Darwin.exit(127)
     }
 
+    /// Delegates the pure argv classification to CMUXAgentLaunch.
     static func shouldForwardToBundledCLI(arguments argv: [String]) -> Bool {
-        guard argv.count > 1 else { return false }
-
-        let first = argv[1]
-        if first.isEmpty || first.hasPrefix("-") { return false }
-        if first.contains("://") { return false }
-
-        let guiLaunchSentinels: Set<String> = ["DEV", "STAGING", "NIGHTLY"]
-        if guiLaunchSentinels.contains(first) { return false }
-
-        return true
+        CLIForwardingLaunchPolicy.shouldForwardToBundledCLI(arguments: argv)
     }
 
     static func bundledCLIURL(
@@ -134,6 +145,15 @@ enum CLIForwardingLaunchRouter {
         String(
             localized: "cli.forwarding.error.execFailed",
             defaultValue: "cmux could not start the command-line tool from the app bundle. Reinstall cmux or run the command from a standard cmux CLI installation."
+        )
+    }
+
+    /// User-facing message for a detected forwarding loop: the bundled CLI
+    /// resolved back to the GUI binary, so the command cannot be handed off.
+    private static func localizedForwardingLoopError() -> String {
+        String(
+            localized: "cli.forwarding.error.forwardingLoop",
+            defaultValue: "cmux could not hand this command to its bundled command-line tool because forwarding resolved back to the app itself. Reinstall cmux or run the command from a standard cmux CLI installation."
         )
     }
 
