@@ -34,8 +34,8 @@ import {
 } from "./model";
 import {
   canIOSBindingForgetMac,
-  canIOSBindingUseMac,
   canBindingRevokeStale,
+  canBindingDiscoverPeer,
 } from "./buildCompatibility";
 import type { IrohDiscoveryScope } from "./discoveryScope";
 
@@ -680,11 +680,7 @@ function makeLiveRepository(): IrohRepositoryShape {
             .limit(scanPageSize);
           for (const binding of rows) {
             const visible = caller
-              ? binding.id === caller.id || (
-                caller.platform === "ios"
-                  ? canIOSBindingUseMac(caller, binding)
-                  : canIOSBindingUseMac(binding, caller)
-              )
+              ? binding.id === caller.id || canBindingDiscoverPeer(caller, binding)
               : clientNamespace === "legacy"
                 || binding.clientNamespace === clientNamespace;
             if (visible) visibleRows.push(binding);
@@ -745,13 +741,9 @@ function makeLiveRepository(): IrohRepositoryShape {
         const state = existingState ?? insertedState;
         if (!state) throw new Error("account security state returned no row");
         const visibility = input.callerBindingId && input.callerPlatform
-          ? or(
-            eq(irohEndpointBindings.id, input.callerBindingId),
-            eq(
-              irohEndpointBindings.platform,
-              input.callerPlatform === "mac" ? "ios" : "mac",
-            ),
-          )
+          ? input.callerPlatform === "mac"
+            ? undefined
+            : or(eq(irohEndpointBindings.id, input.callerBindingId), eq(irohEndpointBindings.platform, "mac"))
           : clientNamespace === "legacy"
             ? undefined
             : eq(irohEndpointBindings.clientNamespace, clientNamespace);
@@ -809,11 +801,7 @@ function makeLiveRepository(): IrohRepositoryShape {
             if (!caller) return [];
             return bindings.filter((binding) =>
               binding.id === caller.id
-              || (
-                caller.platform === "ios"
-                  ? canIOSBindingUseMac(caller, binding)
-                  : canIOSBindingUseMac(binding, caller)
-              ));
+              || canBindingDiscoverPeer(caller, binding));
           })()
           : bindings;
         return {

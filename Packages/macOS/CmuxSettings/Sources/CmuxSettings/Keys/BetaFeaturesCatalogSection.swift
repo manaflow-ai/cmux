@@ -78,9 +78,9 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
 
     /// My Devices in the Cloud right sidebar lists the account's other Macs
     /// with presence and projects their live workspaces alongside cloud machines.
-    /// Enabling it also publishes this Mac's presence and workspace tree even
-    /// when iOS pairing was never set up. Defaults off: it is an explicit
-    /// opt-in to being visible and controllable from the account's other Macs.
+    /// Discovery and incoming access can be switched off independently in the
+    /// sidebar or Computers settings. Hiding a Mac is a presentation preference,
+    /// separate from revoking access. The beta feature itself defaults off.
     public let devices = DefaultsKey<Bool>(
         id: "devices.beta.enabled",
         defaultValue: false,

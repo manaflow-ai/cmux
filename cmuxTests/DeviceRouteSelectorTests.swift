@@ -53,6 +53,24 @@ struct DeviceRouteSelectorTests {
         }
     }
 
+    @Test("Automatic Iroh uses peer admission without creating a Tailscale bearer grant")
+    func automaticIrohPrefersAuthenticatedPeer() throws {
+        let iroh = try CmxAttachRoute(
+            id: "iroh", kind: .iroh,
+            endpoint: .peer(identity: CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64)), pathHints: []),
+            priority: 10
+        )
+        let tailscale = try route("ts", kind: .tailscale, host: "100.64.0.1", priority: 0)
+        let selection = try DeviceRouteSelector(allowsIroh: true).select(
+            from: [tailscale, iroh], instance: studio
+        ) { _ in nil }
+        #expect(selection.route == iroh)
+        #expect(selection.evidence == nil)
+        #expect(throws: DeviceRouteSelector.SelectionError.needsAuthorization) {
+            try DeviceRouteSelector().select(from: [tailscale, iroh], instance: studio) { _ in nil }
+        }
+    }
+
     @Test("A Tailscale route dials only with a device-bound grant for its exact peer")
     func tailscaleNeedsGrant() throws {
         let selector = DeviceRouteSelector(allowsDebugLoopback: false)

@@ -61,12 +61,10 @@ struct DeviceDirectoryRecord: Equatable, Sendable, Identifiable {
         )
     }
 
-    /// Whether the link may dial now: routed, this account's, and either paired
-    /// (presence never suppresses a saved link) or reported online. The host
-    /// rejects any other account, and dialing it would hand our bearer token to
-    /// a peer we cannot attribute.
+    /// Directory permission to attempt a connection, independent of transport choice.
+    /// The route selector and authenticated transport still enforce their own grants.
     var isDialable: Bool {
-        routes.contains { DeviceRouteSelector().supportedKinds.contains($0.kind) }
-            && accountTrust == .sameAccount && (isPaired || isOnline)
+        !routes.isEmpty
+            && accountTrust == .sameAccount && (isPaired || isOnline || routes.contains { $0.kind == .iroh })
     }
 }

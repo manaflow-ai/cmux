@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -624,6 +624,44 @@ describe("Iroh trust broker database behavior", () => {
     expect(mac.bindings.map((row) => row.id).sort()).toEqual(
       [...idByNamespace.values()].sort(),
     );
+  });
+
+  dbTest("Mac discovery returns only this account's opted-in compatible peers", async () => {
+    const repo = requiredRepository();
+    const userId = "user-mac-peer-discovery";
+    const localDevice = randomUUID();
+    const fixtures = [
+      { tag: "feature", device: localDevice, enabled: true, user: userId, visible: true },
+      { tag: "feature", device: randomUUID(), enabled: true, user: userId, visible: true },
+      { tag: "nightly", device: randomUUID(), enabled: true, user: userId, visible: true },
+      { tag: "default", device: randomUUID(), enabled: true, user: userId, visible: true },
+      { tag: "other", device: randomUUID(), enabled: true, user: userId, visible: false },
+      { tag: "feature", device: randomUUID(), enabled: false, user: userId, visible: false },
+      { tag: "default", device: localDevice, enabled: true, user: userId, visible: false },
+      { tag: "feature", device: randomUUID(), enabled: true, user: "another-owner", visible: false },
+    ];
+    const ids: string[] = [];
+    for (const fixture of fixtures) {
+      const [row] = await requiredSql()<Array<{ id: string }>>`
+        insert into iroh_endpoint_bindings (
+          user_id, device_uuid, app_instance_id, client_namespace, tag, platform,
+          endpoint_id, identity_generation, pairing_enabled
+        ) values (
+          ${fixture.user}, ${fixture.device}, ${randomUUID()}, 'mac:com.cmuxterm.app.debug.feature',
+          ${fixture.tag}, 'mac', ${randomBytes(32).toString("hex")}, 1, ${fixture.enabled}
+        ) returning id
+      `;
+      ids.push(row!.id);
+    }
+    const input = {
+      userId, clientNamespace: "mac:com.cmuxterm.app.debug.feature",
+      callerBindingId: ids[0]!, callerPlatform: "mac" as const, now: NOW,
+    };
+    const expected = ids.filter((_, index) => fixtures[index]!.visible).sort();
+    const snapshot = await Effect.runPromise(repo.discoverySnapshot(input));
+    const page = await Effect.runPromise(repo.discoveryPage({ ...input, pageSize: 128 }));
+    expect(snapshot.bindings.map((row) => row.id).sort()).toEqual(expected);
+    expect(page.bindings.map((row) => row.id).sort()).toEqual(expected);
   });
 
   dbTest("persists account-private path hints already filtered by the trust broker", async () => {

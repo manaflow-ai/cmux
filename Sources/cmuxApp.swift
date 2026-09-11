@@ -212,16 +212,12 @@ struct cmuxApp: App {
         // Reconcile saved language preference before any UI loads
         LanguageSettingsStore(defaults: .standard).reconcileLanguageOverrideAtLaunch()
         StartupBreadcrumbLog.append("app.init.language.applied")
-        let devicesRegistry = DeviceSurfaceProviderRegistry()
-        let computersService = HiveComputersService(registry: devicesRegistry, openSidebar: { instance in
-            AppDelegate.shared?.openDevicesSidebarAndReveal(instance: instance, registry: devicesRegistry)
-        })
+        let devices = MacDevicesComposition(defaults: .standard, catalog: settingsCatalog)
+        let devicesRegistry = devices.registry
+        let computersService = devices.computers
         self.settingsRuntime = SettingsRuntime(
             catalog: settingsCatalog,
-            userDefaultsStore: UserDefaultsSettingsStore(
-                defaults: .standard,
-                migrating: settingsCatalog.all
-            ),
+            userDefaultsStore: devices.defaultsStore,
             jsonStore: JSONConfigStore(fileURL: configFileURL),
             secretStore: secretStore,
             errorLog: SettingsErrorLog(),
@@ -229,14 +225,7 @@ struct cmuxApp: App {
             hostActions: HostSettingsActions(
                 configFileURL: configFileURL,
                 computerUseRuntimeService: computerUseRuntimeService,
-                computersActions: ComputersSettingsActions(
-                    updates: { computersService.updates() },
-                    refresh: { await computersService.refresh() },
-                    pair: { await computersService.pair($0) },
-                    open: { await computersService.open($0) },
-                    unpair: { await computersService.unpair($0) },
-                    showPairing: { MobilePairingWindowController.shared.show() }
-                )
+                computersActions: devices.settingsActions
             ),
             shortcutDefaultResolver: Self.makeShortcutDefaultResolver()
         )

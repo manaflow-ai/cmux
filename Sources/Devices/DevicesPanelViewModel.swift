@@ -6,6 +6,7 @@ import Observation
 @MainActor
 @Observable
 final class DevicesPanelViewModel {
+    var preferences: DevicesPreferencesModel? { registry?.preferences }
     private(set) var presenceState: DeviceDirectory.PresenceState = .stopped
     private(set) var revealRequest: CloudTreeRevealRequest?
     private(set) var registryError: String?
@@ -34,8 +35,14 @@ final class DevicesPanelViewModel {
 
     /// Devices the directory knows, whether or not their providers have
     /// published yet; drives the empty state and the control-bar summary.
-    var knownDeviceCount: Int { registry?.directory?.records.count ?? 0 }
-    var onlineDeviceCount: Int { registry?.directory?.records.filter(\.isOnline).count ?? 0 }
+    var knownDeviceCount: Int { visibleRecords.count }
+    var onlineDeviceCount: Int { visibleRecords.filter(\.isOnline).count }
+
+    private var visibleRecords: [DeviceDirectoryRecord] {
+        (registry?.directory?.records ?? []).filter {
+            preferences?.hiddenMacIDs.contains($0.instance.deviceID) != true
+        }
+    }
 
     func start() {
         registry?.evaluate()
@@ -51,7 +58,7 @@ final class DevicesPanelViewModel {
 
     func needsPairing(_ machine: SurfaceMachineID) -> Bool {
         guard let instance = machine.deviceInstance, let provider = registry?.provider(for: instance) else { return false }
-        return !provider.record.isPaired || provider.link.needsAuthorization
+        return provider.link.needsAuthorization
     }
 
     func readDirectory() {

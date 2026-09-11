@@ -35,6 +35,12 @@ enum DevicesFeature {
         guard defaults.object(forKey: key.userDefaultsKey) != nil else { return key.defaultValue }
         return defaults.bool(forKey: key.userDefaultsKey)
     }
+
+    nonisolated static func isDiscoveryEnabled(defaults: UserDefaults = .standard) -> Bool {
+        let key = DevicesCatalogSection().discoveryEnabled
+        let discovery = defaults.object(forKey: key.userDefaultsKey) as? Bool ?? key.defaultValue
+        return isEnabled(defaults: defaults) && discovery
+    }
 }
 
 extension RightSidebarBetaFeatureSettings {

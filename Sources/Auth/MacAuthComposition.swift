@@ -185,12 +185,16 @@ struct MacAuthComposition {
                 // usable remote surface.
                 AppDelegate.shared?.prepareCloudVMAccessForSignOut()
                 browserAppSession.beginAuthTransition()
+                DeviceRegistryClient.shared.beginSignOut()
                 MobileHostIrohRuntime.shared.beginSignOutPreparation()
             },
             localSignOut: {
                 await browserAppSession.clearCmuxWebSession()
             },
             onSignedOut: { accessToken, refreshToken in
+                await DeviceRegistryClient.shared.withdrawForSignOut(
+                    accessToken: accessToken, refreshToken: refreshToken
+                )
                 await VMClient.revokeCloudAccess(
                     deviceID: MobileHostIdentity.deviceID(),
                     accessToken: accessToken,

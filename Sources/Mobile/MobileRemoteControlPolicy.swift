@@ -1,5 +1,6 @@
 import CmuxSettings
 import Foundation
+import Foundation
 
 /// MDM master switch for the Mac acting as a remote view/control host for
 /// the cmux iOS companion app.
@@ -29,4 +30,12 @@ enum MobileRemoteControlPolicy {
 
     /// Convenience inverse of ``isDisabled``.
     static var isEnabled: Bool { !isDisabled }
+
+    /// User availability and managed policy both gate every incoming transport.
+    /// Outgoing device connections use their own discovery preference.
+    static func allowsIncomingAccess(defaults: UserDefaults = .standard) -> Bool {
+        let key = DevicesCatalogSection().incomingAccessEnabled
+        let enabled = defaults.object(forKey: key.userDefaultsKey) as? Bool ?? key.defaultValue
+        return isEnabled && enabled
+    }
 }

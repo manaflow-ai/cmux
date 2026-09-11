@@ -1,4 +1,4 @@
-public import CMUXMobileCore
+internal import CMUXMobileCore
 public import CmuxIrohTransport
 public import Foundation
 
@@ -151,7 +151,15 @@ public actor IrxBrokerService {
     private let trustCache: any IrxJSONCache<IrxTrustSnapshot>
     private let credentialCache: any IrxJSONCache<IrxRelayCredentialSnapshot>
     private let grantCache: any IrxJSONCache<[String: IrxGrantSnapshot]>
-    private var registrationInFlight: Task<IrxBindingSnapshot, any Error>?
+    var registrationInFlight: Task<IrxBindingSnapshot, any Error>?
+    struct RegistrationParameters: Equatable {
+        let pairingEnabled: Bool
+        let relayURLHint: String?
+        let directAddresses: [String]
+        let directPorts: CmxIrohDirectPorts?
+    }
+    var registrationParameters: RegistrationParameters?
+    var registrationOperationID: UUID?
     private var lastHintRegistered: (
         url: String?,
         directAddresses: [String],
@@ -277,31 +285,7 @@ public actor IrxBrokerService {
 
     /// Registers (or refreshes) this endpoint's binding. Single-flight;
     /// pathHints advertise the relay URL so peers can dial relay-first.
-    public func register(
-        pairingEnabled: Bool,
-        relayURLHint: String?,
-        directAddresses: [String] = [],
-        directPorts: CmxIrohDirectPorts? = nil
-    ) async throws -> IrxBindingSnapshot {
-        let epoch = try beginOperation()
-        if let registrationInFlight {
-            return try await registrationInFlight.value
-        }
-        let task = Task<IrxBindingSnapshot, any Error> {
-            try await self.registerOnce(
-                pairingEnabled: pairingEnabled,
-                relayURLHint: relayURLHint,
-                directAddresses: directAddresses,
-                directPorts: directPorts,
-                epoch: epoch
-            )
-        }
-        registrationInFlight = task
-        defer { registrationInFlight = nil }
-        return try await task.value
-    }
-
-    private func registerOnce(
+    func registerOnce(
         pairingEnabled: Bool,
         relayURLHint: String?,
         directAddresses: [String],
@@ -731,6 +715,8 @@ public actor IrxBrokerService {
         deactivated = true
         registrationInFlight?.cancel()
         registrationInFlight = nil
+        registrationParameters = nil
+        registrationOperationID = nil
         lastHintRegistered = nil
         lastDiscovery = nil
         lastDiscoveryAt = nil
@@ -741,12 +727,12 @@ public actor IrxBrokerService {
         journal.record("broker", "deactivated")
     }
 
-    private func beginOperation() throws -> UInt64 {
+    func beginOperation() throws -> UInt64 {
         guard !deactivated else { throw IrxBrokerServiceError.deactivated }
         return lifecycleEpoch
     }
 
-    private func requireCurrent(_ epoch: UInt64) throws {
+    func requireCurrent(_ epoch: UInt64) throws {
         guard !deactivated, lifecycleEpoch == epoch else {
             throw IrxBrokerServiceError.deactivated
         }

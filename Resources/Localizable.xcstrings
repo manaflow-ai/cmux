@@ -1,6 +1,159 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "devices.pairing.advanced": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advanced: manual Tailscale pairing"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細設定：Tailscale で手動ペアリング"
+          }
+        }
+      }
+    },
+    "devices.connected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続済み"
+          }
+        }
+      }
+    },
+    "devices.show": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show in My Devices"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マイデバイスに表示する"
+          }
+        }
+      }
+    },
+    "devices.hide": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide from My Devices"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マイデバイスで非表示にする"
+          }
+        }
+      }
+    },
+    "devices.incoming.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make this Mac available to your other devices. Turning this off stops discovery and disconnects incoming Mac and iPhone sessions."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ほかのデバイスからこの Mac を利用できるようにします。オフにすると検出されなくなり、Mac と iPhone からの接続が切れます。"
+          }
+        }
+      }
+    },
+    "devices.incoming.toggle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow access to this Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac へのアクセスを許可"
+          }
+        }
+      }
+    },
+    "devices.discovery.disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on discovery above to see your other Macs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上の検出スイッチをオンにすると、ほかの Mac が表示されます。"
+          }
+        }
+      }
+    },
+    "devices.discovery.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find and connect to other Macs signed in to your account. Turning this off disconnects their panes without closing their terminals."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じアカウントでサインインしたほかの Mac を検出して接続します。オフにするとペインの接続が切れますが、相手のターミナルは閉じません。"
+          }
+        }
+      }
+    },
+    "devices.discovery.toggle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discover other Macs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ほかの Mac を検出"
+          }
+        }
+      }
+    },
     "devices.host.invalidTitle": {
       "extractionState": "manual",
       "localizations": {
@@ -330,13 +483,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "View and control your other Macs over Tailscale."
+            "value": "Your enabled Macs connect automatically through encrypted Iroh connections. No manual pairing is needed."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 経由でほかの Mac のワークスペースを表示・操作します。"
+            "value": "有効にした Mac は、暗号化された Iroh 接続で自動的につながります。手動のペアリングは不要です。"
           }
         }
       }
@@ -534,13 +687,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in to the same account on both Macs to pair them."
+            "value": "Sign in to the same account on both Macs to discover and connect to them."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペアリングするには、両方の Mac で同じアカウントにサインインしてください。"
+            "value": "両方の Mac で同じアカウントにサインインすると、検出して接続できます。"
           }
         }
       }
@@ -738,13 +891,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The computer operation failed. Check that both Macs are signed in and connected to Tailscale, then try again."
+            "value": "The computer operation failed. Check that both Macs are signed in and online, then try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータの操作に失敗しました。両方のMacがサインイン済みでTailscaleに接続していることを確認し、もう一度お試しください。"
+            "value": "コンピュータの操作に失敗しました。両方の Mac がサインイン済みでオンラインであることを確認して、もう一度お試しください。"
           }
         }
       }
@@ -755,13 +908,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows your paired Macs under My Devices in the Cloud right sidebar and makes this Mac available to other devices signed in to your account."
+            "value": "Manage discovery, incoming access, and hidden Macs in the Cloud right sidebar."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペアリング済みの Mac を Cloud の右サイドバーのマイデバイスに表示し、この Mac を同じアカウントでサインインしているほかのデバイスから利用できるようにします。"
+            "value": "Cloud の右サイドバーで、検出、この Mac へのアクセス、非表示の Mac を管理します。"
           }
         }
       }
@@ -1265,13 +1418,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Mac is only reachable over a transport this build cannot dial (Tailscale is required)."
+            "value": "This Mac has no supported connection route. Update cmux on both Macs and try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac には、このビルドでは接続できないトランスポート経由でしか到達できません（Tailscale が必要です）。"
+            "value": "この Mac に対応する接続経路がありません。両方の Mac で cmux を更新して、もう一度お試しください。"
           }
         }
       }
@@ -1503,13 +1656,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hides My Devices from the Cloud right sidebar. This Mac stays unavailable to your other Macs unless iOS pairing is on."
+            "value": "Hides My Devices from the Cloud sidebar. Incoming access is controlled separately in Computers settings."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud の右サイドバーのマイデバイスを非表示にします。iOS ペアリングがオンでない限り、ほかの Mac からこの Mac を利用できなくなります。"
+            "value": "Cloud サイドバーの「マイデバイス」を非表示にします。この Mac へのアクセスは「コンピュータ」設定で個別に変更できます。"
           }
         }
       }
@@ -1520,13 +1673,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows your other Macs and their live workspaces under My Devices in the Cloud right sidebar. This Mac also becomes available to your other Macs."
+            "value": "Adds My Devices to the Cloud sidebar. Control discovery and access to this Mac separately in Computers settings."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud の右サイドバーにあるマイデバイスに、ほかの Mac とライブワークスペースを表示します。この Mac もほかの Mac から利用できるようになります。"
+            "value": "Cloud サイドバーに「マイデバイス」を追加します。検出とこの Mac へのアクセスは「コンピュータ」設定で個別に変更できます。"
           }
         }
       }

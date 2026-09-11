@@ -11,6 +11,7 @@ import Observation
 /// signing out or turning the beta off tears everything down.
 @MainActor
 final class DeviceSurfaceProviderRegistry {
+    let preferences: DevicesPreferencesModel?
     /// Posted by ``reveal(instance:)``; the mounted Devices panel consumes the
     /// pending request on it (userInfo `instance`: the wire value).
     static let revealDeviceNotification = Notification.Name("cmux.devices.revealDevice")
@@ -38,13 +39,22 @@ final class DeviceSurfaceProviderRegistry {
 
     private let makeDirectory: DirectoryFactory
     private let isFeatureEnabled: @MainActor () -> Bool
+    private let makeAutomaticClient: @MainActor (AuthenticatedSessionIdentity, String?) -> DeviceIrxClient?
+    private let allowsAutomaticConnections: @MainActor () -> Bool
+    private var activeAutomaticConnections = false
 
     init(
+        preferences: DevicesPreferencesModel? = nil,
+        makeAutomaticClient: @escaping @MainActor (AuthenticatedSessionIdentity, String?) -> DeviceIrxClient? = { _, _ in nil },
+        allowsAutomaticConnections: @escaping @MainActor () -> Bool = { false },
         makeDirectory: @escaping DirectoryFactory = { auth, identity, teamID, pairing in
             DeviceDirectory(auth: auth, identity: identity, teamID: teamID, pairing: pairing)
         },
-        isFeatureEnabled: @escaping @MainActor () -> Bool = { DevicesFeature.isEnabled }
+        isFeatureEnabled: @escaping @MainActor () -> Bool = { DevicesFeature.isDiscoveryEnabled() }
     ) {
+        self.preferences = preferences
+        self.makeAutomaticClient = makeAutomaticClient
+        self.allowsAutomaticConnections = allowsAutomaticConnections
         self.makeDirectory = makeDirectory
         self.isFeatureEnabled = isFeatureEnabled
     }
@@ -113,12 +123,14 @@ final class DeviceSurfaceProviderRegistry {
         let identity = auth.authenticatedSessionIdentity
         let teamID = auth.resolvedTeamID
         let shouldRun = isFeatureEnabled() && identity != nil
-        let scopeChanged = identity != self.identity || teamID != self.teamID
+        let automatic = allowsAutomaticConnections()
+        let scopeChanged = identity != self.identity || teamID != self.teamID || automatic != activeAutomaticConnections
         if directory != nil, !shouldRun || scopeChanged {
             if let directoryObserver { NotificationCenter.default.removeObserver(directoryObserver) }
             directoryObserver = nil
             directory?.stop()
             directory = nil
+            if let client = runtime?.automaticClient { Task { await client.stop() } }
             runtime = nil
             for (instance, provider) in providers {
                 provider.stop()
@@ -135,7 +147,11 @@ final class DeviceSurfaceProviderRegistry {
         }
         self.identity = identity
         self.teamID = teamID
-        runtime = DeviceLinkRuntime(tokens: HiveAccountTokenSource(auth: auth, identity: identity, teamID: teamID))
+        activeAutomaticConnections = automatic
+        runtime = DeviceLinkRuntime(
+            tokens: HiveAccountTokenSource(auth: auth, identity: identity, teamID: teamID),
+            automaticClient: automatic ? makeAutomaticClient(identity, teamID) : nil
+        )
         let directory = makeDirectory(auth, identity, teamID, authorization)
         self.directory = directory
         directoryObserver = NotificationCenter.default.addObserver(

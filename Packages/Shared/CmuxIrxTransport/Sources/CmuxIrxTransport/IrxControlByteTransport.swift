@@ -18,6 +18,7 @@ public actor IrxControlByteTransport: CmxByteTransport {
 
     private let establish: Establish
     private let onClose: OnClose?
+    private let permitsIO: @Sendable () async -> Bool
     private var pair: (IrxConnection, IrxLaneStream)?
     private var lastConnection: IrxConnection?
     private var connectInFlight: Task<(IrxConnection, IrxLaneStream), any Error>?
@@ -26,14 +27,18 @@ public actor IrxControlByteTransport: CmxByteTransport {
 
     /// Creates a control-lane transport, optionally releasing its owner claim
     /// when the lane closes.
+    /// `permitsIO` revalidates the caller's account and lease before each write;
+    /// a refusal closes the lane and releases its owner before any bytes are sent.
     public init(
         closeCode: IrxCloseCode,
         establish: @escaping Establish,
-        onClose: OnClose? = nil
+        onClose: OnClose? = nil,
+        permitsIO: @escaping @Sendable () async -> Bool = { true }
     ) {
         _ = closeCode
         self.establish = establish
         self.onClose = onClose
+        self.permitsIO = permitsIO
     }
 
     /// Wraps an already-established pair (host side).
@@ -52,6 +57,10 @@ public actor IrxControlByteTransport: CmxByteTransport {
 
     public func send(_ data: Data) async throws {
         let (_, lane) = try await establishedPair()
+        guard await permitsIO() else {
+            await close()
+            throw IrxConnectionError.closed(nil)
+        }
         try await lane.writer.write(data)
     }
 

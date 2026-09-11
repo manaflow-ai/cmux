@@ -32,47 +32,67 @@ public struct ComputersSection: View {
                 ))
                 .disabled(devicesManagedByPolicy)
                 .accessibilityIdentifier("SettingsComputersEnabled")
-                Text(String(localized: "settings.computers.optIn", defaultValue: "Shows your paired Macs under My Devices in the Cloud right sidebar and makes this Mac available to other devices signed in to your account."))
+                Text(String(localized: "settings.computers.optIn", defaultValue: "Manage discovery, incoming access, and hidden Macs in the Cloud right sidebar."))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Toggle(String(localized: "devices.discovery.toggle", defaultValue: "Discover other Macs"), isOn: Binding(
+                    get: { snapshot.discoveryEnabled },
+                    set: { enabled in Task { await actions.setDiscoveryEnabled(enabled) } }
+                ))
+                .disabled(devicesManagedByPolicy || !devices.current)
+                .accessibilityIdentifier("SettingsComputersDiscoveryToggle")
+                Toggle(String(localized: "devices.incoming.toggle", defaultValue: "Allow access to this Mac"), isOn: Binding(
+                    get: { snapshot.incomingAccessEnabled && !devicesManagedByPolicy },
+                    set: { enabled in Task { await actions.setIncomingAccessEnabled(enabled) } }
+                ))
+                .disabled(devicesManagedByPolicy)
+                .accessibilityIdentifier("SettingsComputersIncomingAccessToggle")
+                Text(String(localized: "devices.incoming.help", defaultValue: "Make this Mac available to your other devices. Turning this off stops discovery and disconnects incoming Mac and iPhone sessions."))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 HStack {
-                    Text(String(localized: "settings.computers.description", defaultValue: "View and control your other Macs over Tailscale."))
+                    Text(String(localized: "settings.computers.description", defaultValue: "Your enabled Macs connect automatically through encrypted Iroh connections. No manual pairing is needed."))
                     Spacer()
                     Button(String(localized: "settings.computers.refresh", defaultValue: "Refresh")) {
                         Task { await actions.refresh() }
                     }
                 }
                 if !snapshot.isSignedIn {
-                    Text(String(localized: "settings.computers.signIn", defaultValue: "Sign in to the same account on both Macs to pair them."))
+                    Text(String(localized: "settings.computers.signIn", defaultValue: "Sign in to the same account on both Macs to discover and connect to them."))
                         .foregroundStyle(.secondary)
                 }
                 ForEach(snapshot.computers) { computer in
-                    ComputersSettingsRow(computer: computer, actions: actions)
+                    ComputersSettingsRow(computer: computer, actions: actions, discoveryEnabled: snapshot.discoveryEnabled)
                 }
                 Divider()
-                Text(String(localized: "settings.computers.pair.help", defaultValue: "On the other Mac, open Tailscale Pairing. Paste its pairing link or enter its numeric IP and port here. Both Macs must be connected to the same tailnet."))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                HStack {
-                    TextField(
-                        String(localized: "settings.computers.pair.placeholder", defaultValue: "Pairing link or Tailscale IP:port"),
-                        text: $pairingInput
-                    )
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityIdentifier("SettingsComputersPairingInput")
-                    .onSubmit { pair() }
-                    Button(String(localized: "settings.computers.pair", defaultValue: "Pair Mac")) { pair() }
-                        .disabled(devicesManagedByPolicy || !devices.current || !snapshot.isSignedIn || isPairing || pairingInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        .accessibilityIdentifier("SettingsComputersPair")
+                DisclosureGroup(String(localized: "devices.pairing.advanced", defaultValue: "Advanced: manual Tailscale pairing")) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(String(localized: "settings.computers.pair.help", defaultValue: "On the other Mac, open Tailscale Pairing. Paste its pairing link or enter its numeric IP and port here. Both Macs must be connected to the same tailnet."))
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        HStack {
+                            TextField(
+                                String(localized: "settings.computers.pair.placeholder", defaultValue: "Pairing link or Tailscale IP:port"),
+                                text: $pairingInput
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .accessibilityIdentifier("SettingsComputersPairingInput")
+                            .onSubmit { pair() }
+                            Button(String(localized: "settings.computers.pair", defaultValue: "Pair Mac")) { pair() }
+                                .disabled(devicesManagedByPolicy || !devices.current || !snapshot.isSignedIn || isPairing || pairingInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                                .accessibilityIdentifier("SettingsComputersPair")
+                        }
+                        if isPairing { ProgressView().controlSize(.small) }
+                        if let error = pairingError ?? snapshot.error {
+                            Text(error).foregroundStyle(.red).textSelection(.enabled)
+                        }
+                        Button(String(localized: "settings.computers.showPairing", defaultValue: "Show This Mac’s Pairing Details")) {
+                            actions.showPairing()
+                        }
+                        .accessibilityIdentifier("SettingsComputersShowPairing")
+                    }
+                    .padding(.top, 8)
                 }
-                if isPairing { ProgressView().controlSize(.small) }
-                if let error = pairingError ?? snapshot.error {
-                    Text(error).foregroundStyle(.red).textSelection(.enabled)
-                }
-                Button(String(localized: "settings.computers.showPairing", defaultValue: "Show This Mac’s Pairing Details")) {
-                    actions.showPairing()
-                }
-                .accessibilityIdentifier("SettingsComputersShowPairing")
             }
             .padding(14)
         }

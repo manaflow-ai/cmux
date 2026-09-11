@@ -57,6 +57,20 @@ final class HiveComputersService {
             Task { @MainActor [weak self] in self?.publish() }
         }
         observeAccount()
+        observePreferences()
+    }
+
+    private func observePreferences() {
+        withObservationTracking {
+            _ = registry.preferences?.discoveryEnabled
+            _ = registry.preferences?.incomingAccessEnabled
+            _ = registry.preferences?.hiddenMacIDs
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.publish()
+                self?.observePreferences()
+            }
+        }
     }
 
     func isPaired(_ instance: SurfaceDeviceInstanceID) -> Bool {
@@ -129,7 +143,9 @@ final class HiveComputersService {
     }
 
     func open(_ id: String) async {
-        guard let instance = SurfaceDeviceInstanceID(wireValue: id), isPaired(instance) else { return }
+        guard let instance = SurfaceDeviceInstanceID(wireValue: id),
+              let provider = registry.provider(for: instance),
+              isPaired(instance) || provider.link.isConnected else { return }
         let scope = identity
         guard DevicesFeature.isEnabled else {
             error = Self.disabledMessage
@@ -139,7 +155,8 @@ final class HiveComputersService {
         if let provider = registry.provider(for: instance) {
             await provider.refresh(force: true)
         }
-        guard identity == scope, isPaired(instance) else { return }
+        guard identity == scope else { return }
+        await registry.preferences?.setHidden(instance, hidden: false)
         guard let result = openSidebar(instance) else { return }
         switch result {
         case .failure(let message):
@@ -218,7 +235,9 @@ final class HiveComputersService {
                 tag: record.instance.isDefaultTag ? nil : record.instance.tag,
                 isPaired: pairedInstances.contains(record.instance),
                 isOnline: registry.provider(for: record.instance)?.link.isConnected == true
-                    ? true : (directory?.presenceState == .live ? record.isOnline : nil)
+                    ? true : (directory?.presenceState == .live ? record.isOnline : nil),
+                isHidden: registry.preferences?.hiddenMacIDs.contains(record.instance.deviceID) == true,
+                isConnected: registry.provider(for: record.instance)?.link.isConnected == true
             )
         }
         let existing = Set(computers.map(\.id))
@@ -227,7 +246,8 @@ final class HiveComputersService {
             guard instance.isVisible(from: selfInstance), !existing.contains(instance.wireValue) else { continue }
             computers.append(.init(
                 id: instance.wireValue, title: paired.displayName, tag: instance.isDefaultTag ? nil : instance.tag,
-                isPaired: true, isOnline: nil
+                isPaired: true, isOnline: nil,
+                isHidden: registry.preferences?.hiddenMacIDs.contains(instance.deviceID) == true
             ))
         }
         return ComputersSettingsSnapshot(
@@ -235,7 +255,9 @@ final class HiveComputersService {
                 let order = $0.title.localizedStandardCompare($1.title)
                 return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
             },
-            isSignedIn: identity != nil, error: error ?? directory?.registryError
+            isSignedIn: identity != nil, error: error ?? directory?.registryError,
+            discoveryEnabled: registry.preferences?.discoveryEnabled ?? true,
+            incomingAccessEnabled: registry.preferences?.incomingAccessEnabled ?? true
         )
     }
 
@@ -252,7 +274,7 @@ final class HiveComputersService {
     }
 
     private static var signInMessage: String {
-        String(localized: "settings.computers.signIn", defaultValue: "Sign in to the same account on both Macs to pair them.")
+        String(localized: "settings.computers.signIn", defaultValue: "Sign in to the same account on both Macs to discover and connect to them.")
     }
 
     private static var disabledMessage: String {
@@ -278,7 +300,7 @@ final class HiveComputersService {
         case .storageFailed:
             String(localized: "settings.computers.storageFailed", defaultValue: "Your paired Macs could not be loaded. Check available disk space and restart cmux.")
         case nil:
-            String(localized: "settings.computers.operationFailed", defaultValue: "The computer operation failed. Check that both Macs are signed in and connected to Tailscale, then try again.")
+            String(localized: "settings.computers.operationFailed", defaultValue: "The computer operation failed. Check that both Macs are signed in and online, then try again.")
         }
     }
 }

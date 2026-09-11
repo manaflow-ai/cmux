@@ -8,6 +8,8 @@ import Foundation
 struct CloudTreeNodeActions {
     /// Whether a device's menu should offer the explicit pairing flow.
     var needsDevicePairing: @MainActor (SurfaceMachineID) -> Bool = { _ in false }
+    /// Hides this physical Mac in the sidebar without revoking its pairing.
+    var hideDevice: @MainActor (SurfaceMachineID) -> Void = { _ in }
     /// Project a resource into the selected local workspace.
     let project: @MainActor (_ resource: SurfaceResourceID, _ placement: SurfacePlacement, _ reuseExisting: Bool) -> Void
     /// Project a resource while retaining the exact daemon tab placement that

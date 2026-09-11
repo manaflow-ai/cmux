@@ -30,6 +30,10 @@ extension CloudTreeOutlineView.Coordinator {
     func deviceMenuItems(machine: SurfaceMachineID, canCreate: Bool) -> [NSMenuItem] {
         let nodeActions = nodeActions
         var items: [NSMenuItem] = []
+        items.append(item(String(localized: "devices.hide", defaultValue: "Hide from My Devices")) {
+            nodeActions.hideDevice(machine)
+        })
+        items.append(.separator())
         // An unpaired Mac never gets a credentialed dial from the tree: the one
         // verb it offers routes to the pairing flow in Settings › Computers.
         let needsPairing = nodeActions.needsDevicePairing(machine)

@@ -3,6 +3,7 @@ import SwiftUI
 struct ComputersSettingsRow: View {
     let computer: ComputersSettingsSnapshot.Computer
     let actions: ComputersSettingsActions
+    var discoveryEnabled = true
     @State private var confirmingUnpair = false
 
     var body: some View {
@@ -14,16 +15,22 @@ struct ComputersSettingsRow: View {
             }
             Spacer()
             Text(status).foregroundStyle(.secondary)
-            if computer.isPaired {
+            Button(computer.isHidden
+                ? String(localized: "devices.show", defaultValue: "Show in My Devices")
+                : String(localized: "devices.hide", defaultValue: "Hide from My Devices")) {
+                Task { await actions.setHidden(computer.id, !computer.isHidden) }
+            }
+            .accessibilityIdentifier("SettingsComputerVisibility.\(computer.id)")
+            if computer.isPaired || computer.isConnected {
                 Button(String(localized: "settings.computers.open", defaultValue: "Open")) {
                     Task { await actions.open(computer.id) }
                 }
+                .disabled(!discoveryEnabled)
+            }
+            if computer.isPaired {
                 Button(String(localized: "settings.computers.unpair", defaultValue: "Unpair"), role: .destructive) {
                     confirmingUnpair = true
                 }
-            } else {
-                Text(String(localized: "settings.computers.notPaired", defaultValue: "Not paired"))
-                    .foregroundStyle(.secondary)
             }
         }
         .confirmationDialog(
@@ -37,7 +44,8 @@ struct ComputersSettingsRow: View {
     }
 
     private var status: String {
-        switch computer.isOnline {
+        if computer.isConnected { return String(localized: "devices.connected", defaultValue: "Connected") }
+        return switch computer.isOnline {
         case true: String(localized: "settings.computers.online", defaultValue: "Online")
         case false: String(localized: "settings.computers.offline", defaultValue: "Offline")
         case nil: String(localized: "settings.computers.unknown", defaultValue: "Presence unknown")

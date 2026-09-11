@@ -65,7 +65,7 @@ struct MachinesPanelView: View {
 
     private var includesDevices: Bool {
         _ = devicesBetaEnabled
-        return DevicesFeature.isEnabled
+        return DevicesFeature.isEnabled && (devicesModel.preferences?.discoveryEnabled ?? true)
     }
 
     private var includesCloud: Bool {
@@ -78,11 +78,10 @@ struct MachinesPanelView: View {
     }
 
     private var treeSnapshot: SurfaceCatalogSnapshot {
-        guard !includesCloud else { return viewModel.catalog }
-        return SurfaceCatalogSnapshot(
-            machines: viewModel.catalog.machines.filter { $0.id.isDevice },
-            resources: viewModel.catalog.resources.filter { $0.machine.isDevice },
-            projections: viewModel.catalog.projections
+        viewModel.catalog.applyingDeviceVisibility(
+            includesCloud: includesCloud,
+            includesDevices: includesDevices,
+            hiddenMacIDs: devicesModel.preferences?.hiddenMacIDs ?? []
         )
     }
 
@@ -104,6 +103,7 @@ struct MachinesPanelView: View {
         }
         .onAppear { syncPolling(for: authState) }
         .onChange(of: devicesBetaEnabled) { _, _ in syncPolling(for: authState) }
+        .onChange(of: devicesModel.preferences?.discoveryEnabled) { _, _ in syncPolling(for: authState) }
         .onChange(of: cloudBetaEnabled) { _, _ in syncPolling(for: authState) }
         .onReceive(NotificationCenter.default.publisher(for: DeviceSurfaceProviderRegistry.revealDeviceNotification)) { _ in
             devicesModel.consumePendingReveal()
@@ -123,6 +123,16 @@ struct MachinesPanelView: View {
     @ViewBuilder
     private var authenticatedContent: some View {
         controlBar
+        if DevicesFeature.isEnabled, let preferences = devicesModel.preferences {
+            DevicesSidebarControls(
+                discoveryEnabled: preferences.discoveryEnabled,
+                incomingAccessEnabled: preferences.incomingAccessEnabled,
+                managed: ManagedDevicePolicy().isEnforced(.disableRemoteControl),
+                setDiscovery: { enabled in Task { await preferences.setDiscoveryEnabled(enabled) } },
+                setIncomingAccess: { enabled in Task { await preferences.setIncomingAccessEnabled(enabled) } }
+            )
+            Divider()
+        }
         if includesCloud, let banner = tunnelStatus.banner {
             MachinesTunnelBanner(banner: banner, backgroundColor: chromeBackgroundColor) {
                 SystemExtensionSettingsLink.open()
@@ -247,7 +257,13 @@ struct MachinesPanelView: View {
         // catalog previously left a blank panel for a signed-in account with
         // no machines, because the catalog's This Mac entry counted as a row
         // the tree never drew.
-        if CloudTreeNodeBuilder.isEmpty(
+        if !includesCloud && !includesDevices {
+            Text(String(localized: "devices.discovery.disabled", defaultValue: "Turn on discovery above to see your other Macs."))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        } else if CloudTreeNodeBuilder.isEmpty(
             machines: includesCloud ? viewModel.machines : [],
             pendingCreates: includesCloud ? viewModel.pendingCreates : [],
             snapshot: treeSnapshot,
@@ -521,6 +537,10 @@ struct MachinesPanelView: View {
         )
         nodeActions.needsDevicePairing = { [weak devicesModel] machine in
             devicesModel?.needsPairing(machine) ?? false
+        }
+        nodeActions.hideDevice = { [weak devicesModel] machine in
+            guard let instance = machine.deviceInstance else { return }
+            Task { await devicesModel?.preferences?.setHidden(instance, hidden: true) }
         }
         return CloudTreeOutlineView(
             machines: includesCloud ? viewModel.machines : [],

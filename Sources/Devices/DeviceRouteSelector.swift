@@ -10,9 +10,9 @@ import Foundation
 /// recorded when the person paired that Mac, checked against the exact peer
 /// address and device id (``CmxLegacyTailscaleAuthorizationEvidence``). Loopback
 /// is an explicit test-rig opt-in: another Mac's advertised 127.0.0.1 endpoint
-/// would dial this Mac instead. The iroh and websocket route
-/// kinds are listed by the registry but not dialed here (the iroh client
-/// transport is milestone M4); they are skipped, never downgraded.
+/// would dial this Mac instead. When the account-scoped Iroh client is present,
+/// its peer-bound transport is preferred and verifies the broker/device-list
+/// tuple before sending application data. WebSocket routes remain unsupported.
 struct DeviceRouteSelector: Sendable {
     struct Selection: Equatable, Sendable {
         let route: CmxAttachRoute
@@ -28,13 +28,15 @@ struct DeviceRouteSelector: Sendable {
     }
 
     let allowsDebugLoopback: Bool
+    let allowsIroh: Bool
 
-    init(allowsDebugLoopback: Bool = false) {
+    init(allowsDebugLoopback: Bool = false, allowsIroh: Bool = false) {
         self.allowsDebugLoopback = allowsDebugLoopback
+        self.allowsIroh = allowsIroh
     }
 
     var supportedKinds: [CmxAttachTransportKind] {
-        allowsDebugLoopback ? [.tailscale, .debugLoopback] : [.tailscale]
+        (allowsIroh ? [.iroh] : []) + (allowsDebugLoopback ? [.tailscale, .debugLoopback] : [.tailscale])
     }
 
     /// Routes in dial order: the host's priority (lowest first), ties by id.
@@ -54,6 +56,12 @@ struct DeviceRouteSelector: Sendable {
     ) throws -> Selection {
         guard !routes.isEmpty else { throw SelectionError.noRoutes }
         let ordered = Self.ordered(routes)
+        if allowsIroh, let route = ordered.first(where: {
+            guard $0.kind == .iroh, case .peer = $0.endpoint else { return false }
+            return (try? $0.validate()) != nil
+        }) {
+            return Selection(route: route, evidence: nil)
+        }
         var sawTailscalePeer = false
         for route in ordered {
             switch (route.kind, route.endpoint) {

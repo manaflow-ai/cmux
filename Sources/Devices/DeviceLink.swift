@@ -85,14 +85,14 @@ final class DeviceLink {
         record: DeviceDirectoryRecord,
         runtime: DeviceLinkRuntime,
         authorization: any DeviceLinkAuthorizationSource,
-        routeSelector: DeviceRouteSelector = DeviceRouteSelector(),
+        routeSelector: DeviceRouteSelector? = nil,
         clock: any Clock<Duration> = ContinuousClock()
     ) {
         instance = record.instance
         self.record = record
         self.runtime = runtime
         self.authorization = authorization
-        self.routeSelector = routeSelector
+        self.routeSelector = routeSelector ?? runtime.routeSelector
         self.clock = clock
     }
 
@@ -287,12 +287,12 @@ final class DeviceLink {
             routes: [selection.route]
         )
         let client = MobileCoreRPCClient(
-            runtime: runtime,
+            runtime: try runtime.forPeer(record.instance),
             route: selection.route,
             ticket: ticket,
             // The account's Stack bearer authenticates the RPC; the pairing
             // grant is what lets it travel over this Tailscale peer at all.
-            allowsStackAuthFallback: true,
+            allowsStackAuthFallback: selection.route.kind != .iroh,
             legacyTailscaleAuthorizationEvidence: selection.evidence,
             sessionPurpose: .backgroundControl
         )
@@ -340,7 +340,7 @@ final class DeviceLink {
             case .needsAuthorization:
                 return (false, String(localized: "devices.link.error.needsAuthorization", defaultValue: "Pair this Mac in Settings \u{203A} Computers to connect."))
             case .noDialableRoute:
-                return (false, String(localized: "devices.link.error.noDialableRoute", defaultValue: "This Mac is only reachable over a transport this build cannot dial (Tailscale is required)."))
+                return (false, String(localized: "devices.link.error.noDialableRoute", defaultValue: "This Mac has no supported connection route. Update cmux on both Macs and try again."))
             }
         }
         if let error = error as? DeviceLinkError {
