@@ -519373,7 +519373,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "在设置 › 计算机中配对此 Mac 以连接。"
+            "value": "في الإعدادات › أجهزة الكمبيوتر، أقرن هذا الـ Mac للاتصال."
           }
         },
         "es": {
@@ -520305,7 +520305,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "將「我的裝置」新增至 Cloud 側邊欄。探索和此 Mac 的存取權限可在「電腦」設定中個別控制。"
+            "value": "Fügt „Meine Geräte“ zur Cloud-Seitenleiste hinzu. Gerätesuche und Zugriff auf diesen Mac werden separat in den Computereinstellungen gesteuert."
           }
         },
         "fr": {
