@@ -17,7 +17,13 @@ extension WorkspaceArtifactsState {
 
     func merge(_ incoming: ArtifactRecord, at date: Date) -> ArtifactRecord {
         if let existing = recordsByIdentity[incoming.identityKey] {
-            let updated = existing.merging(source: incoming.source, lastSeenAt: date, title: incoming.title, metadata: incoming.metadata)
+            let updated = existing.merging(
+                source: incoming.source,
+                lastSeenAt: date,
+                title: incoming.title,
+                metadata: incoming.metadata,
+                userOwned: incoming.isUserOwned
+            )
             recordsByIdentity[incoming.identityKey] = updated
             records = ordered(recordsByIdentity.values)
             return updated
@@ -26,8 +32,9 @@ extension WorkspaceArtifactsState {
         nextOrder &+= 1
         orderByID[incoming.id] = nextOrder
         let orderedRecords = ordered(recordsByIdentity.values)
-        records = Array(orderedRecords.prefix(retentionLimit))
-        for evicted in orderedRecords.dropFirst(retentionLimit) {
+        records = recordsRetainedByLimit(orderedRecords, limit: retentionLimit)
+        let retainedKeys = Set(records.map(\.identityKey))
+        for evicted in orderedRecords where !retainedKeys.contains(evicted.identityKey) {
             recordsByIdentity.removeValue(forKey: evicted.identityKey)
             orderByID.removeValue(forKey: evicted.id)
             titleStateByID.removeValue(forKey: evicted.id)
@@ -75,7 +82,8 @@ extension WorkspaceArtifactsState {
                 lastSeenAt: max(existing.lastSeenAt, record.lastSeenAt),
                 title: record.title,
                 metadata: record.metadata,
-                occurrenceIncrement: max(0, record.occurrenceCount - existing.occurrenceCount)
+                occurrenceIncrement: max(0, record.occurrenceCount - existing.occurrenceCount),
+                userOwned: record.isUserOwned
             )
         } else {
             recordsByIdentity[record.identityKey] = record
@@ -83,7 +91,7 @@ extension WorkspaceArtifactsState {
             orderByID[record.id] = nextOrder
         }
         let orderedRecords = ordered(recordsByIdentity.values)
-        records = Array(orderedRecords.prefix(retentionLimit))
+        records = recordsRetainedByLimit(orderedRecords, limit: retentionLimit)
         recordsByIdentity = Dictionary(uniqueKeysWithValues: records.map { ($0.identityKey, $0) })
         if records.count < orderedRecords.count {
             let liveIDs = Set(records.map(\.id))

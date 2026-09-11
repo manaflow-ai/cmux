@@ -179,6 +179,25 @@ struct WorkspaceLinksTests {
 
     @MainActor
     @Test
+    func liveAutomaticIngestDoesNotEvictPinnedArtifact() async throws {
+        let state = WorkspaceLinksState(retentionLimit: 1)
+        let saved = try #require(await state.capture(.text("saved note"), source: .manual))
+        let config = WorkspaceLinksIngestConfiguration(ignoreHosts: [], retentionLimit: 1)
+
+        state.ingest(
+            url: "https://example.com/automatic",
+            origin: .detected,
+            sourcePanelId: nil,
+            sourceSurfaceTitle: nil,
+            configuration: config
+        )
+
+        #expect(state.artifactRecords.contains(saved))
+        #expect(state.artifactRecords.filter { !$0.isUserOwned }.count == 0)
+    }
+
+    @MainActor
+    @Test
     func titleFetchFailureStateStaysBoundToRetainedEntry() throws {
         let state = WorkspaceLinksState(fetchTitlesEnabled: true)
         let config = WorkspaceLinksIngestConfiguration(ignoreHosts: [])
