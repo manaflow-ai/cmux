@@ -142,4 +142,16 @@ import Testing
             defaults: defaults
         )?.absoluteString == PresenceSettings.productionServiceURL)
     }
+
+    @MainActor
+    @Test func explicitPresenceEnableCannotOverridePairingOptOut() {
+        let suiteName = "presence-pairing-gate-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(true, forKey: PresenceSettings.enabledKey)
+        defaults.set(false, forKey: MobileHostService.listeningEnabledDefaultsKey)
+
+        #expect(!PresenceSettings.isEnabled(defaults: defaults))
+    }
 }

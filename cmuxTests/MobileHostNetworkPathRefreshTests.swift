@@ -192,6 +192,11 @@ import Testing
 struct MobileHostIrohStartupRetryTests {
     @Test
     func bindingRemainsUnavailableUntilMatchingHostRuntimeIsActive() throws {
+        let defaults = UserDefaults.standard
+        let previousPairingValue = defaults.object(
+            forKey: MobileHostService.listeningEnabledDefaultsKey
+        )
+        defaults.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
         let runtime = MobileHostIrohRuntime.shared
         let originalRevision = runtime.lifecycleRevision
         let revision: UInt64 = 4_200
@@ -210,6 +215,14 @@ struct MobileHostIrohStartupRetryTests {
             runtime.lifecycleRevision = originalRevision
             runtime.clearIrohRoutePublication()
             MobileHostPublicStatusCache.removeAll()
+            if let previousPairingValue {
+                defaults.set(
+                    previousPairingValue,
+                    forKey: MobileHostService.listeningEnabledDefaultsKey
+                )
+            } else {
+                defaults.removeObject(forKey: MobileHostService.listeningEnabledDefaultsKey)
+            }
         }
         MobileHostPublicStatusCache.removeAll()
         runtime.lifecycleRevision = revision
@@ -229,6 +242,48 @@ struct MobileHostIrohStartupRetryTests {
 
         #expect(!MobileHostPublicStatusCache.hasIrohRoute())
         #expect(runtime.routePublicationPhase == .starting(revision: revision + 1))
+    }
+
+    @Test
+    func disabledPairingRejectsLateIrohRoutePublication() throws {
+        let defaults = UserDefaults.standard
+        let previousPairingValue = defaults.object(
+            forKey: MobileHostService.listeningEnabledDefaultsKey
+        )
+        defer {
+            if let previousPairingValue {
+                defaults.set(
+                    previousPairingValue,
+                    forKey: MobileHostService.listeningEnabledDefaultsKey
+                )
+            } else {
+                defaults.removeObject(forKey: MobileHostService.listeningEnabledDefaultsKey)
+            }
+            MobileHostIrohRuntime.shared.clearIrohRoutePublication()
+            MobileHostPublicStatusCache.removeAll()
+        }
+        defaults.set(false, forKey: MobileHostService.listeningEnabledDefaultsKey)
+
+        let runtime = MobileHostIrohRuntime.shared
+        let revision = runtime.lifecycleRevision &+ 1
+        runtime.lifecycleRevision = revision
+        runtime.beginIrohRouteActivation(revision: revision)
+
+        let binding = try CmxIrohBrokerBindingMetadata(
+            bindingID: "123e4567-e89b-42d3-a456-426614174020",
+            deviceID: "123e4567-e89b-42d3-a456-426614174021",
+            appInstanceID: "123e4567-e89b-42d3-a456-426614174022",
+            tag: "route-disabled",
+            platform: .mac,
+            endpointID: CmxIrohPeerIdentity(
+                endpointID: String(repeating: "b", count: 64)
+            ),
+            identityGeneration: 1
+        )
+        runtime.stageIrohRoute(binding, pathHints: [], revision: revision)
+
+        #expect(!runtime.publishIrohRouteIfActive(revision: revision))
+        #expect(!MobileHostPublicStatusCache.hasIrohRoute())
     }
 
     @Test
