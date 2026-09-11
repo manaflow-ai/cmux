@@ -117,11 +117,11 @@ enum MobileWhatsNewCatalog {
                     symbol: "lock.shield",
                     title: L10n.string(
                         "mobile.connectionsUpdate.pairingOptIn.title",
-                        defaultValue: "Mac pairing is now opt-in"
+                        defaultValue: "Turn on iOS pairing on Mac"
                     ),
                     detail: L10n.string(
                         "mobile.connectionsUpdate.pairingOptIn.detail",
-                        defaultValue: "To make a Mac visible on iPhone, turn on Enable iOS pairing in cmux Settings > Mobile on the Mac. cmux keeps pairing networking off until you enable it."
+                        defaultValue: "On every cmux Mac app you want to use with iPhone, turn on Enable iOS pairing in Settings > Mobile. Until then, that Mac stays hidden and does not start iOS pairing networking."
                     )
                 ),
             ]),
@@ -175,14 +175,14 @@ enum MobileWhatsNewCatalog {
                     )
                 ),
                 .init(
-                    symbol: "qrcode.viewfinder",
+                    symbol: "lock.shield",
                     title: L10n.string(
-                        "mobile.connectionsUpdate.tailscale.title",
-                        defaultValue: "Tailscale, on your terms"
+                        "mobile.connectionsUpdate.pairingOptIn.title",
+                        defaultValue: "Turn on iOS pairing on Mac"
                     ),
                     detail: L10n.string(
-                        "mobile.connectionsUpdate.tailscale.detail",
-                        defaultValue: "Choosing Tailscale Only shows exactly what's missing and offers the pairing-code scan right there. Nothing opens on its own."
+                        "mobile.connectionsUpdate.pairingOptIn.detail",
+                        defaultValue: "On every cmux Mac app you want to use with iPhone, turn on Enable iOS pairing in Settings > Mobile. Until then, that Mac stays hidden and does not start iOS pairing networking."
                     )
                 ),
             ]),

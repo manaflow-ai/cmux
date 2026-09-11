@@ -65,6 +65,19 @@ import Testing
         #expect(center.unseenPages.map(\.id) == ["pairing-opt-in.v1"])
     }
 
+    @Test func connectionsPageEmphasizesMacPairingToggleInsteadOfTailscale() throws {
+        guard case .features(let features) = MobileWhatsNewCatalog.connectionsUpdate.body else {
+            Issue.record("connections.v1 should render native feature rows")
+            return
+        }
+        let titles = features.map(\.title)
+        #expect(titles.contains("Turn on iOS pairing on Mac"))
+        #expect(!titles.contains("Tailscale, on your terms"))
+        #expect(features.last?.symbol == "lock.shield")
+        #expect(features.last?.detail.contains("Enable iOS pairing") == true)
+        #expect(features.last?.detail.contains("Settings > Mobile") == true)
+    }
+
     @Test func neverFetchedTeamBuildsKeepTheFullCatalog() {
         for buildType in [MobileBuildType.dev, .beta, .internal] {
             let center = makeCenter(buildType: buildType)

@@ -48,7 +48,7 @@ for a different version), so bump the beta version with
 
 ### Internal
 
-- Mac+iOS pairing is now opt-in. Turn on Enable iOS pairing in cmux Settings > Mobile on the Mac before testing discovery.
+- Mac+iOS pairing is now opt-in. Turn on Enable iOS pairing in Settings > Mobile for each cmux Mac app before testing discovery.
 - Version-sync bump: checked-in beta marketing version catches up to `1.0.4`, the version already live to external founders (an earlier upload under that version shipped stale, pre-#7636 code; the CI reship on 2026-07-09 replaced it with current `main`).
 - Fix iOS surface-teardown deadlock behind external-beta watchdog kills (#7666).
 - Add iOS account deletion and legal links (#7645).
@@ -65,7 +65,7 @@ for a different version), so bump the beta version with
 
 ### External
 
-- Mac+iOS pairing now requires Enable iOS pairing in cmux Settings > Mobile on the Mac before the Mac can appear on iPhone.
+- Each cmux Mac app now requires Enable iOS pairing in Settings > Mobile before that Mac can appear on iPhone.
 - Fixed an issue where the app could freeze or crash in the background.
 - Fixed an issue that could sign you out unexpectedly after updating.
 - Terminal connections recover more reliably after switching apps or losing network.
