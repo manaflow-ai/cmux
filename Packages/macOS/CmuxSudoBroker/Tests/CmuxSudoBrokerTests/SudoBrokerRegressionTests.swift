@@ -674,3 +674,4 @@ private struct ImmediateRequesterExitObserver: SudoProcessExitObserving {
         }
     }
 }
+
