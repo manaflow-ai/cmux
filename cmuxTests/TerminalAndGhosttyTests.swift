@@ -4453,7 +4453,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             return
         }
 
-        let surfaceView = AuthoritativeScrollbarSurfaceView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        let surfaceView = ScrollbarPostingSurfaceView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
         surfaceView.cellSize = CGSize(width: 10, height: 10)
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
         hostedView.frame = contentView.bounds
@@ -4479,7 +4479,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01)
 
-        surfaceView.authoritativeScrollbar = makeScrollbar(total: 100, offset: 40, len: 10)
+        surfaceView.nextScrollbar = makeScrollbar(total: 100, offset: 40, len: 10)
 
         guard let cgEvent = CGEvent(
             scrollWheelEvent2Source: nil,
