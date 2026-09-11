@@ -57,6 +57,8 @@ final class CloudTreeNode: NSObject {
         case port(SurfaceResource, url: String?, openIn: UUID?)
         /// A single explanatory line (asleep, connecting, link error, empty).
         case placeholder(machine: SurfaceMachineID, CloudTreePlaceholder)
+        /// Port discovery is demand-driven when the user opens the Ports group.
+        var refreshesOnExpansion: Bool { if case .portsGroup = self { true } else { false } }
     }
 
     let id: String
@@ -96,7 +98,6 @@ final class CloudTreeNode: NSObject {
         case .placeholder: return "placeholder"
         }
     }
-
     /// Copies the values of an equal-structure rebuild into this node (NSOutlineView keeps
     /// the object it was handed; updating it in place keeps rows, expansion and the
     /// selection untouched). Children are adopted pairwise — callers guarantee the
@@ -108,7 +109,6 @@ final class CloudTreeNode: NSObject {
             child.adopt(from: replacement)
         }
     }
-
     var machine: SurfaceMachineID {
         switch kind {
         case .machine(let snapshot, _): return .cloud(snapshot.id)
