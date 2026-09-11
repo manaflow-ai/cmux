@@ -38,7 +38,6 @@ struct MachinesPanelView: View {
     let chromeBackgroundColor: NSColor
     var tabManager: TabManager? = nil
 
-    var tabManager: TabManager? = nil
 
     init(chromeBackgroundColor: NSColor, defaultMachineStore: DefaultCloudMachineStore, tabManager: TabManager? = nil) {
         self.chromeBackgroundColor = chromeBackgroundColor
