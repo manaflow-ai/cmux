@@ -1,7 +1,7 @@
 import Foundation
 
 /// One-based inclusive line range for selected native text.
-public nonisolated struct SurfaceSelectionLineRange: Equatable, Sendable {
+public struct SurfaceSelectionLineRange: Equatable, Sendable {
     /// First selected source line, using one-based indexing.
     public let start: Int
 

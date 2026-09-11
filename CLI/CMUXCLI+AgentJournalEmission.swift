@@ -28,6 +28,8 @@ extension CMUXCLI {
         nativeEvent: String?,
         declaredPhase: AgentLifecyclePhase? = nil,
         detail: String? = nil,
+        attention: AgentAttentionContext? = nil,
+        occurredAtMs: Int64? = nil,
         responseTimeout: TimeInterval? = nil,
         deadline: Date? = nil,
         store: ClaudeHookSessionStore? = nil,
@@ -49,7 +51,7 @@ extension CMUXCLI {
         }
         let draft = AgentJournalEventDraft(
             kind: kind,
-            occurredAtMs: Int64(Date().timeIntervalSince1970 * 1000),
+            occurredAtMs: occurredAtMs ?? Int64(Date().timeIntervalSince1970 * 1000),
             source: source,
             agentKey: agentKey,
             sessionId: sessionId,
@@ -60,7 +62,8 @@ extension CMUXCLI {
             pendingWork: pendingWork,
             nativeEvent: nativeEvent,
             declaredPhase: declaredPhase,
-            detail: detail
+            detail: detail,
+            attention: attention
         )
         if let problem = draft.validationProblem() {
             recordAgentJournalDeliveryFailure(

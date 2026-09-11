@@ -91,6 +91,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "feed.permission.reply",
         "feed.question.reply",
         "feed.exit_plan.reply",
+        // Performs a fresh off-main process scan before one agent exec. Only
+        // the final target revalidation and launch claim hop to MainActor.
+        "agent.restore.admit",
+        // Releases only the tokenized claim owned by a failed restore exec.
+        "agent.restore.release",
         "browser.download.wait",
         "browser.profiles.list",
         "browser.profiles.create",
@@ -299,6 +304,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "notification.create_for_target",
         "notification.create_for_caller",
         "workspace.set_auto_title",
+        "surface.sync_codex_native_title",
         // The v2 resolution reads (tranche D of issue #5757) — the implicit
         // handle-normalization reads nearly every CLI invocation pays 1-3 of.
         // Their nonisolated coordinator bodies

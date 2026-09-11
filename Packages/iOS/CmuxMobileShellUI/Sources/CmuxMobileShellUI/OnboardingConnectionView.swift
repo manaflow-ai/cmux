@@ -27,19 +27,21 @@ struct OnboardingConnectionView: View {
             OnboardingSceneContent(
                 title: title,
                 message: message,
-                visual: visual
+                visual: visual,
+                bodyLineReservation: 3
             )
         }
     }
 
-    /// The method choice stays visible while there is still a decision to act
-    /// on; once connected it disappears (Settings keeps the control).
+    /// Keep the connection choice available for the whole connect page. A
+    /// successful automatic connection is not a commitment to Iroh; people
+    /// may still switch to Tailscale before leaving onboarding.
     private var showsMethodPicker: Bool {
-        phase == .idle || phase == .fallback
+        true
     }
 
-    /// The Keep Mac Awake ask takes the decision slot the picker vacated:
-    /// it exists only once the Mac is connected and its state is known.
+    /// The Keep Mac Awake ask appears once the Mac is connected and its state
+    /// is known, below the always-available method picker.
     private var visibleKeepAwakeOffer: OnboardingKeepAwakeOffer? {
         phase == .ready ? keepAwakeOffer : nil
     }
@@ -53,16 +55,25 @@ struct OnboardingConnectionView: View {
 
     @ViewBuilder
     private func connectionVisual(density: OnboardingConnectionVisualDensity) -> some View {
-        if verticalSizeClass == .compact, showsMethodPicker {
-            HStack(alignment: .center, spacing: density.sectionSpacing) {
-                OnboardingConnectionPreview(phase: phase, density: density)
+        if verticalSizeClass == .compact {
+            VStack(spacing: density.sectionSpacing) {
+                HStack(alignment: .center, spacing: density.sectionSpacing) {
+                    OnboardingConnectionPreview(phase: phase, density: density)
+                        .frame(maxWidth: .infinity)
+                    OnboardingConnectionMethodPicker(
+                        method: connectionMethod,
+                        density: density,
+                        onSelect: onSelectConnectionMethod
+                    )
                     .frame(maxWidth: .infinity)
-                OnboardingConnectionMethodPicker(
-                    method: connectionMethod,
-                    density: density,
-                    onSelect: onSelectConnectionMethod
-                )
-                .frame(maxWidth: .infinity)
+                }
+                if let visibleKeepAwakeOffer {
+                    OnboardingKeepAwakeCard(
+                        offer: visibleKeepAwakeOffer,
+                        density: density,
+                        onSet: onSetKeepAwake
+                    )
+                }
             }
             .fixedSize(horizontal: false, vertical: true)
         } else {

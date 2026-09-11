@@ -23,7 +23,7 @@ enum CloudVMPanelAuthState: Equatable {
 }
 
 /// Right-sidebar Machines tab: the user's cloud machine fleet as a Finder-like
-/// tree (machine → Workspaces → terminals, Ports, VNC Displays, Terminals). Matches the
+/// tree (machine → Workspaces → terminals, Ports, Displays, Terminals). Matches the
 /// Vault/Feed visual language — compact 13pt rows, full-width hover
 /// backgrounds, chrome-pill control bar. Outline rows receive immutable
 /// snapshots plus closure bundles only (snapshot-boundary rule); every mutation
@@ -35,6 +35,7 @@ struct MachinesPanelView: View {
     /// and @AppStorage re-renders the live panel the moment it changes.
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
     let chromeBackgroundColor: NSColor
+    var tabManager: TabManager? = nil
 
     private var accountFlow: HostAccountFlow? {
         AppDelegate.shared?.auth?.accountFlow
@@ -331,7 +332,7 @@ struct MachinesPanelView: View {
         .multilineTextAlignment(.center)
         .padding(.horizontal, 24)
         Button {
-            ProUpgradePresenter.present()
+            ProUpgradePresenter.present(source: .machinesPanelRequiresPro)
         } label: {
             Text(String(localized: "machines.requiresPro.upgrade", defaultValue: "Upgrade to Pro"))
                 .cmuxFont(size: 12)
@@ -404,10 +405,9 @@ struct MachinesPanelView: View {
 
     /// ＋ on a free plan at its ceiling is the upgrade moment: open the Pro flow
     /// instead of launching a create that the backend would only paywall.
-    /// Otherwise the New Machine sheet collects the base-machine size, and its
-    /// Create runs the same `cmux vm new` path the CLI and palette use. The
-    /// create itself shows up here as a pending row (`viewModel.pendingCreates`),
-    /// never as panel chrome tied to this view's lifetime.
+    /// Otherwise the New Machine sheet collects the size; its Create runs the
+    /// same `cmux vm new` path the CLI and palette use, and shows up here as a
+    /// pending row (`viewModel.pendingCreates`), not as panel chrome.
     private func requestNewMachine() {
         NewMachineSheetPresenter.shared.presentNewMachine(
             plan: viewModel.plan,
@@ -436,13 +436,14 @@ struct MachinesPanelView: View {
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
-            refresh: { [weak viewModel] in viewModel?.refresh(tree: true) }
+            refresh: { [weak viewModel] in viewModel?.refresh(tree: true) }, refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) }
         )
         return CloudTreeOutlineView(
             machines: viewModel.machines,
             pendingCreates: viewModel.pendingCreates,
             snapshot: viewModel.catalog,
             localWorkspaces: viewModel.localWorkspaces,
+            unreadTerminalIDs: viewModel.unreadTerminalIDs,
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore,
@@ -497,7 +498,7 @@ struct MachinesPanelView: View {
                     // The upgrade nudge under the create button: same Pro flow
                     // as the meter's at-limit hint and the ＋ at the ceiling.
                     Button {
-                        ProUpgradePresenter.present()
+                        ProUpgradePresenter.present(source: .machinesPanelUpgradeNudge)
                     } label: {
                         Text(upgradeNudgeLabel(plan))
                             .cmuxFont(size: 11)
@@ -623,7 +624,7 @@ private struct MachinesFreeAccessBanner: View {
 
     var body: some View {
         Button {
-            ProUpgradePresenter.present()
+            ProUpgradePresenter.present(source: .machinesPanelTrialBanner)
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: isExpired ? "lock.fill" : "clock")
@@ -699,12 +700,12 @@ struct MachinesChromeIconButton: View {
 /// see the store. All verbs go through `CloudVMActionLauncher` so this panel,
 /// the ＋ menu, the palette, and the CLI share one mutation path.
 struct MachineRowActions {
+    let setupVPN: @MainActor (NSWindow?) -> Void
     let openShell: @MainActor (String) -> Void
     let openDesktop: @MainActor (String) -> Void
     let runCommand: @MainActor (String, [String]) -> Void
     let confirmDelete: @MainActor (String) -> Void
     let promptRename: @MainActor (String, String?) -> Void
-    let resizeDisk: @MainActor (String, Int) -> Void
     /// A locked (free-window-expired) machine routes here instead of a doomed
     /// connect; the backend enforces the same boundary with 402s.
     let promptUpgrade: @MainActor () -> Void
@@ -716,6 +717,7 @@ struct MachineRowActions {
         onDidMutate: @escaping @MainActor () -> Void
     ) -> MachineRowActions {
         MachineRowActions(
+            setupVPN: { window in _ = AppDelegate.shared?.openCloudVPNSetupWorkspace(preferredWindow: window) },
             openShell: { id in
                 onWillMutate(String(format: String(localized: "machines.operation.openShell", defaultValue: "Opening %@\u{2026}"), id))
                 if !launch(arguments: ["vm", "shell", id], onDidMutate: onDidMutate) {
@@ -746,14 +748,8 @@ struct MachineRowActions {
             promptRename: { id, currentLabel in
                 presentRenamePrompt(id: id, currentLabel: currentLabel, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
             },
-            resizeDisk: { id, gib in
-                onWillMutate(String(format: String(localized: "machines.operation.resizeDisk", defaultValue: "Increasing %@ disk to %d GiB…"), id, gib))
-                if !launch(arguments: ["vm", "resize", id, "--disk", "\(gib)G"], onDidMutate: onDidMutate) {
-                    onDidMutate()
-                }
-            },
             promptUpgrade: {
-                ProUpgradePresenter.present()
+                ProUpgradePresenter.present(source: .machinesPanelMachineAction)
             }
         )
     }
@@ -805,7 +801,7 @@ struct MachineRowActions {
         onCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil,
         onCancellationReady: ((CloudVMActionLauncher.CancellationHandle) -> Void)? = nil
     ) -> Bool {
-        // `vm new` mints a fresh machine with its own persistent home and
+        // `vm new` mints a fresh machine with an ephemeral home and
         // attaches it; the base slot stays reachable via the ＋ menu's Open Base.
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
@@ -841,11 +837,12 @@ struct MachineRowActions {
             presentOutputOnSuccess: presentOutputOnSuccess,
             onCancellationReady: onCancellationReady,
             onCompletion: { completion in
-            if completion.terminationStatus == 0 {
-                onSuccess?()
+                if completion.terminationStatus == 0 {
+                    onSuccess?()
+                }
+                onDidMutate()
             }
-            onDidMutate()
-        })
+        )
     }
 
     @MainActor
