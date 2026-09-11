@@ -183,20 +183,6 @@ pinned in `scripts/ghosttykit-checksums.txt`.
   - SHA-256 `6a02a2ec3794de79a02af993083292a89517d2533eb20c746deca377f23456bd`
     is pinned in `scripts/ghosttykit-checksums.txt`.
 
-<<<<<<< HEAD
-The prior fork-main pin `b17f1726f` has a ReleaseFast artifact at:
-
-- https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b17f1726fc53495dd827f7d85c9ec38da3d03814-crashsubdir-cmux-crash-sentry-off-v1
-- SHA-256 `1a790e1363a03f2fbd2c2e0bca13e99efac0ac03ba8d7083ad335e4d39e45a0a`
-  is pinned in `scripts/ghosttykit-checksums.txt`.
-
-The pinned lineage also contains the hard-newline URL boundary fix from
-Ghostty PR #183. Its regression test and width-filled-row guard keep a short
-slash-terminated URL from absorbing unrelated output on the next hard newline,
-while preserving indented continuations and terminal soft wraps.
-
-=======
->>>>>>> origin/main
 ### VT formatter cursor restoration after margins
 
 - Pull request:
