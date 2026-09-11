@@ -690,7 +690,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 delayedCommands.contains {
                     $0.contains(#""method":"feed.push""#)
                         && $0.contains(#""hook_event_name":"#)
-                        && $0.contains(#"#(expectedHookEventName)"#)
+                        && $0.contains(#""hook_event_name":"\#(expectedHookEventName)"#)
                 },
                 "A fenced \(event.name) must not publish completion to Feed"
             )
