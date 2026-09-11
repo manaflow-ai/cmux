@@ -26,7 +26,7 @@ enum DevicesFeature {
         policy: ManagedDevicePolicy? = nil
     ) -> Bool {
         let policy = policy ?? ManagedDevicePolicy(defaults: defaults)
-        guard !policy.isEnforced(.disableRemoteControl) else { return false }
+        guard !policy.isDeviceDiscoveryDisabled else { return false }
         return localOptIn(defaults: defaults)
     }
 
@@ -40,6 +40,17 @@ enum DevicesFeature {
         let key = DevicesCatalogSection().discoveryEnabled
         let discovery = defaults.object(forKey: key.userDefaultsKey) as? Bool ?? key.defaultValue
         return isEnabled(defaults: defaults) && discovery
+    }
+
+    nonisolated static func isDiscoveryManaged(
+        defaults: UserDefaults = .standard,
+        policy: ManagedDevicePolicy? = nil
+    ) -> Bool {
+        (policy ?? ManagedDevicePolicy(defaults: defaults)).isDeviceDiscoveryDisabled
+    }
+
+    nonisolated static func isDiscoveryDisabledByPolicy(defaults: UserDefaults = .standard) -> Bool {
+        isDiscoveryManaged(defaults: defaults)
     }
 }
 

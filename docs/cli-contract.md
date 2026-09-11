@@ -284,7 +284,7 @@ Auth subcommands:
 | `auth login` | Begin sign-in through the app and wait for completion. |
 | `auth logout` | Clear the current session. |
 
-My Devices connects opted-in Macs on the same account through authenticated Iroh sessions. The Cloud sidebar exposes **Discover other Macs** and **Allow access to this Mac** independently. Turning off incoming access disconnects incoming Mac and iPhone sessions; turning off discovery stops this installation’s outgoing device connections. Manual Tailscale pairing remains available under Settings → Computers → Advanced.
+My Devices connects opted-in Macs on the same account through authenticated Iroh sessions. The Cloud sidebar exposes **Discover other Macs** and **Allow access to this Mac** independently. Turning off incoming access disconnects incoming Mac and iPhone sessions; turning off discovery stops this installation’s outgoing device connections. My Devices requires no Tailscale setup, pairing link, or address entry.
 
 The corresponding preferences are `devices.discovery.enabled`, `devices.incomingAccess.enabled`, and `devices.sidebar.hiddenMacIDs`. Hiding a physical Mac affects its sidebar rows across build tags, preserves pairing and existing panes, and can be reversed in Computers settings. Use `surface ls`, `surface open`, and `surface new-terminal` for discovered Mac resources; the cloud-only `vm workspace` commands remain VM operations.
 

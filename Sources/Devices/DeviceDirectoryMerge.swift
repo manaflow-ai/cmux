@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxIrohTransport
 import Foundation
 
 /// The pure merge behind the Devices directory: the pairing store's saved
@@ -9,6 +10,8 @@ import Foundation
 struct DeviceDirectoryMerge {
     struct Input: Sendable {
         var registry: [DeviceRegistryDirectoryClient.Device] = []
+        /// Account-wide bindings from the same authenticated broker used by iOS.
+        var authenticatedMacs: [CmxIrohBrokerBinding] = []
         var presence: [SurfaceDeviceInstanceID: DevicePresenceInstance] = [:]
         /// Whether the presence stream has delivered its snapshot, so a device
         /// absent from `presence` is known offline rather than unknown.
@@ -41,6 +44,9 @@ struct DeviceDirectoryMerge {
             }
         }
         let presenceMacs = input.presence.filter { $0.value.platform.lowercased() == "mac" }
+        let accountMacs = Dictionary(input.authenticatedMacs.filter {
+            $0.platform == .mac && $0.pairingEnabled
+        }.map { (SurfaceDeviceInstanceID(deviceID: $0.deviceID, tag: $0.tag), $0) }, uniquingKeysWith: { first, _ in first })
         let pairedByID = Dictionary(input.paired.map { ($0.instance, $0) }, uniquingKeysWith: { first, _ in first })
         let retainedPrevious = input.previous.filter {
             $0.wasDiscovered || pairedByID[$0.instance] != nil
@@ -48,6 +54,7 @@ struct DeviceDirectoryMerge {
         let previousByID = Dictionary(retainedPrevious.map { ($0.instance, $0) }, uniquingKeysWith: { first, _ in first })
 
         var ids = Set(registryInstances.keys)
+        ids.formUnion(accountMacs.keys)
         ids.formUnion(presenceMacs.keys)
         ids.formUnion(pairedByID.keys)
         ids.formUnion(previousByID.keys)
@@ -57,6 +64,7 @@ struct DeviceDirectoryMerge {
 
         let records = ids.map { id -> DeviceDirectoryRecord in
             let registry = registryInstances[id]
+            let accountMac = accountMacs[id]
             let presence = presenceMacs[id]
             let paired = pairedByID[id]
             let previous = previousByID[id]
@@ -79,6 +87,11 @@ struct DeviceDirectoryMerge {
                     routes.append(route)
                 }
             }
+            if let accountMac, let route = try? CmxAttachRoute(
+                id: "iroh-\(accountMac.bindingID)", kind: .iroh,
+                endpoint: .peer(identity: accountMac.endpointID, pathHints: accountMac.pathHints),
+                priority: 0
+            ) { append([route]) }
             append(paired?.routes ?? [])
             if isOnline { append(presence?.routes ?? []) }
             append(registry?.instance.routes ?? [])
@@ -95,7 +108,7 @@ struct DeviceDirectoryMerge {
                 .max()
             let ownerUserID = input.owners[id.deviceID] ?? (input.ownersKnown ? nil : previous?.ownerUserID)
             let trust: SurfaceDevicePresence.AccountTrust
-            if paired != nil {
+            if accountMac != nil || paired != nil {
                 // Pairing verified the host's authenticated identity under this
                 // account; the store is scoped to it.
                 trust = .sameAccount
@@ -110,7 +123,7 @@ struct DeviceDirectoryMerge {
             } else {
                 trust = previous?.accountTrust ?? .unknown
             }
-            let name = [presence?.displayName, paired?.displayName, registry?.device.displayName, previous?.deviceName]
+            let name = [accountMac?.displayName, presence?.displayName, paired?.displayName, registry?.device.displayName, previous?.deviceName]
                 .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .first { !$0.isEmpty }
                 ?? String(id.deviceID.prefix(8))
@@ -121,7 +134,7 @@ struct DeviceDirectoryMerge {
                 bundleID: presence?.bundleId ?? previous?.bundleID,
                 presenceState: presenceState,
                 isPaired: paired != nil,
-                wasDiscovered: registry != nil || presence != nil || previous?.wasDiscovered == true,
+                wasDiscovered: accountMac != nil || registry != nil || presence != nil || previous?.wasDiscovered == true,
                 lastSeenAt: lastSeenAt,
                 routes: routes,
                 ownerUserID: ownerUserID,

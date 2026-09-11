@@ -16,6 +16,7 @@ final class DeviceSurfaceProvider: SurfaceProvider {
     private(set) var record: DeviceDirectoryRecord
     /// Live projections keyed by the local panel that shows them.
     var sessions: [UUID: DeviceTerminalMirrorSession] = [:]
+    private var restoreTasks: [UUID: Task<Void, Never>] = [:]
 
     var machine: SurfaceMachineID { .device(instance) }
     var supportsPortPreviews: Bool { false }
@@ -42,6 +43,8 @@ final class DeviceSurfaceProvider: SurfaceProvider {
     }
 
     func stop() {
+        for task in restoreTasks.values { task.cancel() }
+        restoreTasks.removeAll()
         for session in sessions.values { session.stop() }
         sessions.removeAll()
         link.stop()
@@ -120,6 +123,39 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         let projection = DeviceWorkspaceProjection(machine: machine, isLive: link.isConnected)
         let resources = projection.resources(link.mirror.workspaces.orderedRecords)
         catalog.replaceResources(resources, on: machine, info: info, from: self)
+        if link.isConnected { reconnectRestoredPanes(resources: resources) }
+    }
+
+    /// Reuses the normal materialization path once a restored remote resource is live.
+    private func reconnectRestoredPanes(resources: [SurfaceResource]) {
+        for resource in resources where resource.kind == .terminal {
+            for projection in catalog.projections(of: resource.id) {
+                guard sessions[projection.panelID] == nil, restoreTasks[projection.panelID] == nil,
+                      let paneID = SurfacePaneFactory.paneID(ofPanel: projection.panelID, in: projection.workspaceID) else { continue }
+                restoreTasks[projection.panelID] = Task { [weak self] in
+                    guard let self else { return }
+                    defer { self.restoreTasks[projection.panelID] = nil }
+                    guard !Task.isCancelled, self.link.isConnected else { return }
+                    do {
+                        let created = try await self.materialize(
+                            resource,
+                            remoteView: resource.remoteViews?.first { $0.tabID == projection.remoteTabID },
+                            at: .tab(workspaceID: projection.workspaceID, paneID: paneID, index: nil),
+                            focus: false
+                        )
+                        guard !Task.isCancelled, self.link.isConnected,
+                              self.catalog.projection(forPanel: projection.panelID) == projection else {
+                            _ = self.discardMaterialization(created)
+                            return
+                        }
+                        self.catalog.replaceProjection(projection, withPanel: created.panelID, in: created.workspaceID, remotePlacement: created.remotePlacement)
+                        SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
+                    } catch {
+                        // The next authoritative catalog update retries an unavailable pane.
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - SurfaceProvider

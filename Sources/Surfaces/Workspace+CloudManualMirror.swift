@@ -12,6 +12,16 @@ import GhosttyKit
 /// ownership to the caller. No local command is installed in the pane.
 @MainActor
 extension Workspace {
+    /// A saved device terminal stays process-free until its provider reconnects.
+    func restoreDeviceDisplayPanel(_ snapshot: SessionPanelSnapshot, in pane: PaneID) -> UUID? {
+        guard let created = try? insertCloudManualMirrorTab(
+            in: pane, focus: false, onInput: { _ in },
+            onResize: { _ in }, onRuntimeReady: {}, onFocus: {}
+        ) else { return nil }
+        applySessionPanelMetadata(snapshot, toPanelId: created.panelID)
+        return created.panelID
+    }
+
     /// Inserts a manual-mirror terminal in `destination` and returns its native surface.
     ///
     /// - Parameters:

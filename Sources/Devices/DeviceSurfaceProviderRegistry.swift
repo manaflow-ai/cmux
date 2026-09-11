@@ -34,7 +34,7 @@ final class DeviceSurfaceProviderRegistry {
     private var accessObserver: NSObjectProtocol?
     private var policyObserver: NSObjectProtocol?
     typealias DirectoryFactory = @MainActor (
-        AuthCoordinator, AuthenticatedSessionIdentity, String?, any DeviceLinkAuthorizationSource
+        AuthCoordinator, AuthenticatedSessionIdentity, String?, any DeviceLinkAuthorizationSource, DeviceIrxClient?
     ) -> DeviceDirectory
 
     private let makeDirectory: DirectoryFactory
@@ -47,8 +47,8 @@ final class DeviceSurfaceProviderRegistry {
         preferences: DevicesPreferencesModel? = nil,
         makeAutomaticClient: @escaping @MainActor (AuthenticatedSessionIdentity, String?) -> DeviceIrxClient? = { _, _ in nil },
         allowsAutomaticConnections: @escaping @MainActor () -> Bool = { false },
-        makeDirectory: @escaping DirectoryFactory = { auth, identity, teamID, pairing in
-            DeviceDirectory(auth: auth, identity: identity, teamID: teamID, pairing: pairing)
+        makeDirectory: @escaping DirectoryFactory = { auth, identity, teamID, pairing, automaticClient in
+            DeviceDirectory(auth: auth, identity: identity, teamID: teamID, pairing: pairing, automaticClient: automaticClient)
         },
         isFeatureEnabled: @escaping @MainActor () -> Bool = { DevicesFeature.isDiscoveryEnabled() }
     ) {
@@ -152,7 +152,7 @@ final class DeviceSurfaceProviderRegistry {
             tokens: HiveAccountTokenSource(auth: auth, identity: identity, teamID: teamID),
             automaticClient: automatic ? makeAutomaticClient(identity, teamID) : nil
         )
-        let directory = makeDirectory(auth, identity, teamID, authorization)
+        let directory = makeDirectory(auth, identity, teamID, authorization, runtime?.automaticClient)
         self.directory = directory
         directoryObserver = NotificationCenter.default.addObserver(
             forName: DeviceDirectory.didChangeNotification,

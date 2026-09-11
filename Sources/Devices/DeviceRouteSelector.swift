@@ -29,14 +29,16 @@ struct DeviceRouteSelector: Sendable {
 
     let allowsDebugLoopback: Bool
     let allowsIroh: Bool
+    let allowsLegacyTailscale: Bool
 
-    init(allowsDebugLoopback: Bool = false, allowsIroh: Bool = false) {
+    init(allowsDebugLoopback: Bool = false, allowsIroh: Bool = false, allowsLegacyTailscale: Bool = true) {
         self.allowsDebugLoopback = allowsDebugLoopback
         self.allowsIroh = allowsIroh
+        self.allowsLegacyTailscale = allowsLegacyTailscale
     }
 
     var supportedKinds: [CmxAttachTransportKind] {
-        (allowsIroh ? [.iroh] : []) + (allowsDebugLoopback ? [.tailscale, .debugLoopback] : [.tailscale])
+        (allowsIroh ? [.iroh] : []) + (allowsLegacyTailscale ? [.tailscale] : []) + (allowsDebugLoopback ? [.debugLoopback] : [])
     }
 
     /// Routes in dial order: the host's priority (lowest first), ties by id.
@@ -66,7 +68,7 @@ struct DeviceRouteSelector: Sendable {
         for route in ordered {
             switch (route.kind, route.endpoint) {
             case (.tailscale, .hostPort(let host, let port)):
-                guard CmxTailscalePeerAddress(host) != nil else { continue }
+                guard allowsLegacyTailscale, CmxTailscalePeerAddress(host) != nil else { continue }
                 sawTailscalePeer = true
                 guard let evidence = grant(route),
                       evidence.authorizes(macDeviceID: instance.deviceID, host: host, port: port) else { continue }

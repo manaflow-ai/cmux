@@ -1,6 +1,210 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "devices.actions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac options"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macのオプション"
+          }
+        }
+      }
+    },
+    "devices.discovery.menuDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect to Macs signed in to your account."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じアカウントでサインインした Mac に接続します。"
+          }
+        }
+      }
+    },
+    "devices.discovery.settingsDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on My Devices and discovery to find your other Macs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ほかのMacを探すには、マイデバイスと検出をオンにしてください。"
+          }
+        }
+      }
+    },
+    "devices.empty.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux on another Mac and turn on Allow access to this Mac in Computers settings."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のMacでcmuxにサインインし、「コンピュータ」設定で「このMacへのアクセスを許可」をオンにしてください。"
+          }
+        }
+      }
+    },
+    "devices.hidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hidden from sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーから非表示"
+          }
+        }
+      }
+    },
+    "devices.incoming.menuDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Let your other Macs and iPhone connect here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他の Mac や iPhone からこの Mac への接続を許可します。"
+          }
+        }
+      }
+    },
+    "devices.managed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disabled by your administrator."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理者により無効にされています。"
+          }
+        }
+      }
+    },
+    "devices.settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computers Settings…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータ設定…"
+          }
+        }
+      }
+    },
+    "devices.show.short": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示"
+          }
+        }
+      }
+    },
+    "devices.thisMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMac"
+          }
+        }
+      }
+    },
+    "devices.visibility.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiding a Mac only removes it from this sidebar. To stop access to a Mac, turn off Allow access to this Mac on that computer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macを非表示にすると、このサイドバーからのみ削除されます。Macへのアクセスを停止するには、そのコンピュータで「このMacへのアクセスを許可」をオフにしてください。"
+          }
+        }
+      }
+    },
+    "devices.yourMacs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Macs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分のMac"
+          }
+        }
+      }
+    },
     "devices.pairing.advanced": {
       "extractionState": "manual",
       "localizations": {
@@ -75,13 +279,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Make this Mac available to your other devices. Turning this off stops discovery and disconnects incoming Mac and iPhone sessions."
+            "value": "Turning this off removes this Mac from discovery and disconnects incoming sessions. You can still connect to your other Macs."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ほかのデバイスからこの Mac を利用できるようにします。オフにすると検出されなくなり、Mac と iPhone からの接続が切れます。"
+            "value": "オフにすると、このMacは検出されなくなり、受信セッションが切断されます。ほかのMacへの接続は引き続き利用できます。"
           }
         }
       }
@@ -109,13 +313,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Turn on discovery above to see your other Macs."
+            "value": "Discovery is off. Turn it on to see your other Macs."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "上の検出スイッチをオンにすると、ほかの Mac が表示されます。"
+            "value": "検出がオフです。ほかのMacを表示するにはオンにしてください。"
           }
         }
       }
@@ -721,13 +925,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Presence unknown"
+            "value": "Waiting for connection"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "接続状態不明"
+            "value": "接続を待機中"
           }
         }
       }
@@ -908,13 +1112,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Manage discovery, incoming access, and hidden Macs in the Cloud right sidebar."
+            "value": "Show your other Macs and their workspaces in the sidebar."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud の右サイドバーで、検出、この Mac へのアクセス、非表示の Mac を管理します。"
+            "value": "ほかのMacとそのワークスペースをサイドバーに表示します。"
           }
         }
       }

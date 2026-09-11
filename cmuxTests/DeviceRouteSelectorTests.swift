@@ -71,6 +71,16 @@ struct DeviceRouteSelectorTests {
         }
     }
 
+    @Test("Automatic connections never fall back to a saved Tailscale bearer route")
+    func automaticTransportDoesNotDowngrade() throws {
+        let selector = DeviceRouteSelector(allowsIroh: true, allowsLegacyTailscale: false)
+        let tailscale = try route("ts", kind: .tailscale, host: "100.64.0.1", priority: 0)
+        #expect(selector.supportedKinds == [.iroh])
+        #expect(throws: DeviceRouteSelector.SelectionError.noDialableRoute(kinds: ["tailscale"])) {
+            try selector.select(from: [tailscale], instance: studio) { self.grant(for: $0) }
+        }
+    }
+
     @Test("A Tailscale route dials only with a device-bound grant for its exact peer")
     func tailscaleNeedsGrant() throws {
         let selector = DeviceRouteSelector(allowsDebugLoopback: false)

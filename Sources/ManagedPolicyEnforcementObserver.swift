@@ -35,12 +35,16 @@ final class ManagedPolicyEnforcementObserver {
     private let isBrowserDisabledByPolicy: () -> Bool
     private let browserURLAllowlistPolicy: () -> BrowserURLAllowlistPolicy
     private let isRemoteControlDisabledByPolicy: () -> Bool
+    private let isDeviceDiscoveryDisabledByPolicy: () -> Bool
+    private let isIncomingAccessDisabledByPolicy: () -> Bool
     private let isCloudDisabledByPolicy: () -> Bool
     private let isIrohDisabledByPolicy: () -> Bool
     private let capabilityPolicy: ManagedDevicePolicy
     private let enforceBrowserPolicy: () -> Void
     private let enforceBrowserURLAllowlistPolicy: () -> Void
     private let enforceRemoteControlPolicy: () -> Void
+    private let enforceDeviceDiscoveryPolicy: () -> Void
+    private let enforceIncomingAccessPolicy: () -> Void
     private let enforceCloudPolicy: () -> Void
     private let enforceRemoteConnectionsPolicy: () -> Void
     private let enforceComputerUsePolicy: () -> Void
@@ -56,6 +60,8 @@ final class ManagedPolicyEnforcementObserver {
     private var browserPolicyActive: Bool
     private var observedBrowserURLAllowlistPolicy: BrowserURLAllowlistPolicy
     private var remoteControlPolicyActive: Bool
+    private var deviceDiscoveryPolicyActive: Bool
+    private var incomingAccessPolicyActive: Bool
     private var cloudPolicyActive: Bool
     private var irohPolicyActive: Bool
     private var remoteConnectionsPolicyActive: Bool
@@ -73,6 +79,12 @@ final class ManagedPolicyEnforcementObserver {
         isRemoteControlDisabledByPolicy: @escaping () -> Bool = {
             MobileRemoteControlPolicy.isDisabled
         },
+        isDeviceDiscoveryDisabledByPolicy: @escaping () -> Bool = {
+            MobileRemoteControlPolicy.isDeviceDiscoveryDisabled()
+        },
+        isIncomingAccessDisabledByPolicy: @escaping () -> Bool = {
+            MobileRemoteControlPolicy.isIncomingAccessDisabled()
+        },
         isCloudDisabledByPolicy: @escaping () -> Bool = {
             ManagedDevicePolicy().isEnforced(.disableCloud)
         },
@@ -81,6 +93,8 @@ final class ManagedPolicyEnforcementObserver {
         enforceBrowserPolicy: @escaping () -> Void,
         enforceBrowserURLAllowlistPolicy: @escaping () -> Void,
         enforceRemoteControlPolicy: @escaping () -> Void,
+        enforceDeviceDiscoveryPolicy: @escaping () -> Void = {},
+        enforceIncomingAccessPolicy: @escaping () -> Void = {},
         enforceCloudPolicy: @escaping () -> Void = {},
         enforceRemoteConnectionsPolicy: @escaping () -> Void = {},
         enforceComputerUsePolicy: @escaping () -> Void = {}
@@ -89,12 +103,16 @@ final class ManagedPolicyEnforcementObserver {
         self.isBrowserDisabledByPolicy = isBrowserDisabledByPolicy
         self.browserURLAllowlistPolicy = browserURLAllowlistPolicy
         self.isRemoteControlDisabledByPolicy = isRemoteControlDisabledByPolicy
+        self.isDeviceDiscoveryDisabledByPolicy = isDeviceDiscoveryDisabledByPolicy
+        self.isIncomingAccessDisabledByPolicy = isIncomingAccessDisabledByPolicy
         self.isCloudDisabledByPolicy = isCloudDisabledByPolicy
         self.isIrohDisabledByPolicy = isIrohDisabledByPolicy
         self.capabilityPolicy = capabilityPolicy
         self.enforceBrowserPolicy = enforceBrowserPolicy
         self.enforceBrowserURLAllowlistPolicy = enforceBrowserURLAllowlistPolicy
         self.enforceRemoteControlPolicy = enforceRemoteControlPolicy
+        self.enforceDeviceDiscoveryPolicy = enforceDeviceDiscoveryPolicy
+        self.enforceIncomingAccessPolicy = enforceIncomingAccessPolicy
         self.enforceCloudPolicy = enforceCloudPolicy
         self.enforceRemoteConnectionsPolicy = enforceRemoteConnectionsPolicy
         self.enforceComputerUsePolicy = enforceComputerUsePolicy
@@ -102,6 +120,8 @@ final class ManagedPolicyEnforcementObserver {
         browserPolicyActive = isBrowserDisabledByPolicy()
         observedBrowserURLAllowlistPolicy = browserURLAllowlistPolicy()
         remoteControlPolicyActive = isRemoteControlDisabledByPolicy()
+        deviceDiscoveryPolicyActive = isDeviceDiscoveryDisabledByPolicy()
+        incomingAccessPolicyActive = isIncomingAccessDisabledByPolicy()
         cloudPolicyActive = isCloudDisabledByPolicy()
         irohPolicyActive = isIrohDisabledByPolicy()
         remoteConnectionsPolicyActive = capabilityPolicy.isEnforced(.disableRemoteConnections)
@@ -183,6 +203,18 @@ final class ManagedPolicyEnforcementObserver {
             anyTransition = true
             // syncToSettings() handles both teardown and re-arming.
             enforceRemoteControlPolicy()
+        }
+        let discoveryNow = isDeviceDiscoveryDisabledByPolicy()
+        if discoveryNow != deviceDiscoveryPolicyActive {
+            deviceDiscoveryPolicyActive = discoveryNow
+            anyTransition = true
+            enforceDeviceDiscoveryPolicy()
+        }
+        let incomingNow = isIncomingAccessDisabledByPolicy()
+        if incomingNow != incomingAccessPolicyActive {
+            incomingAccessPolicyActive = incomingNow
+            anyTransition = true
+            enforceIncomingAccessPolicy()
         }
         let cloudNow = isCloudDisabledByPolicy()
         if cloudNow != cloudPolicyActive {

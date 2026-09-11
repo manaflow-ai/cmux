@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxIrohTransport
 import Foundation
 import Observation
 import OSLog
@@ -54,6 +55,9 @@ final class DeviceDirectory {
     private let tokens: HiveAccountTokenSource
     private let pairing: any DeviceLinkAuthorizationSource
     private let registryClient: DeviceRegistryDirectoryClient
+    private let automaticClient: DeviceIrxClient?
+    private var authenticatedMacs: [CmxIrohBrokerBinding] = []
+    private var directoryChangesTask: Task<Void, Never>?
     private let makeSubscriber: @Sendable (URL, @escaping @Sendable () async throws -> DevicePresenceSubscriber.Credentials?) -> DevicePresenceSubscriber
     private let serviceURL: @MainActor @Sendable () -> URL?
     private let selfInstance: SurfaceDeviceInstanceID
@@ -80,6 +84,7 @@ final class DeviceDirectory {
         teamID: String?,
         pairing: any DeviceLinkAuthorizationSource,
         registryClient: DeviceRegistryDirectoryClient? = nil,
+        automaticClient: DeviceIrxClient? = nil,
         serviceURL: @escaping @MainActor @Sendable () -> URL? = { PresenceHeartbeatClient.resolvedServiceURL() },
         makeSubscriber: @escaping @Sendable (URL, @escaping @Sendable () async throws -> DevicePresenceSubscriber.Credentials?) -> DevicePresenceSubscriber = { url, credentials in
             DevicePresenceSubscriber(serviceBaseURL: url, credentials: credentials)
@@ -93,6 +98,7 @@ final class DeviceDirectory {
         self.identity = identity
         self.teamID = teamID
         self.pairing = pairing
+        self.automaticClient = automaticClient
         let tokens = HiveAccountTokenSource(auth: auth, identity: identity, teamID: teamID)
         self.tokens = tokens
         self.registryClient = registryClient ?? DeviceRegistryDirectoryClient(
@@ -118,6 +124,17 @@ final class DeviceDirectory {
         }
         remerge()
         refreshRegistry()
+        if let automaticClient {
+            directoryChangesTask = Task { [weak self] in
+                for await _ in await automaticClient.directoryChanges() {
+                    guard !Task.isCancelled else { return }
+                    // Await an older refresh before reading a newer pushed revision.
+                    await self?.registryTask?.value
+                    guard !Task.isCancelled else { return }
+                    await self?.refreshRegistry().value
+                }
+            }
+        }
         presenceTask = Task { [weak self] in await self?.runPresenceLoop() }
     }
 
@@ -126,6 +143,9 @@ final class DeviceDirectory {
         pairingObserver = nil
         presenceTask?.cancel()
         presenceTask = nil
+        directoryChangesTask?.cancel()
+        directoryChangesTask = nil
+        authenticatedMacs = []
         registryGeneration &+= 1
         registryTask?.cancel()
         registryTask = nil
@@ -174,6 +194,18 @@ final class DeviceDirectory {
                 guard !Task.isCancelled else { return }
                 self.registryError = String(localized: "devices.registry.failed", defaultValue: "Could not refresh your Macs. Check your connection and try again.")
                 deviceDirectoryLog.error("device registry list failed: \(String(describing: error), privacy: .private)")
+            }
+            if let automaticClient = self.automaticClient {
+                do {
+                    let bindings = try await automaticClient.discoverMacs()
+                    guard !Task.isCancelled else { return }
+                    self.authenticatedMacs = bindings
+                    self.registryError = nil
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    // An outage retains the last rows; per-session leases still
+                    // reject stale or revoked peers before any application I/O.
+                }
             }
             self.hasLoadedRegistry = true
         }
@@ -287,6 +319,7 @@ final class DeviceDirectory {
     private func remerge() {
         let merged = DeviceDirectoryMerge.merge(DeviceDirectoryMerge.Input(
             registry: registryDevices,
+            authenticatedMacs: authenticatedMacs,
             presence: presenceInstances,
             presenceLive: presenceState == .live,
             owners: owners,

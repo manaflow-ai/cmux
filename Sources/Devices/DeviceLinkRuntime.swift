@@ -35,7 +35,7 @@ struct DeviceLinkRuntime: MobileSyncRuntime {
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.automaticClient = automaticClient
-        let routeSelector = routeSelector ?? DeviceRouteSelector(allowsIroh: automaticClient != nil)
+        let routeSelector = routeSelector ?? DeviceRouteSelector(allowsIroh: automaticClient != nil, allowsLegacyTailscale: automaticClient == nil)
         self.routeSelector = routeSelector
         transportFactory = CmxNetworkByteTransportFactory(supportedKinds: routeSelector.supportedKinds.filter { $0 != .iroh })
         independentEventByteStreamProvider = nil
@@ -50,14 +50,12 @@ struct DeviceLinkRuntime: MobileSyncRuntime {
 
     func forPeer(_ instance: SurfaceDeviceInstanceID) throws -> DeviceLinkRuntime {
         guard let automaticClient else { return self }
-        let network = CmxNetworkByteTransportFactory(supportedKinds: [.tailscale])
         let automatic = CmxConnectivityDeferredTransportFactory(
             provider: DeviceIrxPeerTransportProvider(client: automaticClient, instance: instance)
         )
         var result = self
         result.transportFactory = try CmxRouteTransportFactory([
-            CmxRouteTransportFactoryRegistration(kind: .iroh, factory: automatic),
-            CmxRouteTransportFactoryRegistration(kind: .tailscale, factory: network)
+            CmxRouteTransportFactoryRegistration(kind: .iroh, factory: automatic)
         ])
         result.independentEventByteStreamProvider = { request in
             try await automaticClient.events(for: request, instance: instance)

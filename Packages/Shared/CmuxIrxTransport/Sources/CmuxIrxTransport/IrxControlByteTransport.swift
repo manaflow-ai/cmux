@@ -27,8 +27,9 @@ public actor IrxControlByteTransport: CmxByteTransport {
 
     /// Creates a control-lane transport, optionally releasing its owner claim
     /// when the lane closes.
-    /// `permitsIO` revalidates the caller's account and lease before each write;
-    /// a refusal closes the lane and releases its owner before any bytes are sent.
+    /// `permitsIO` revalidates the caller's account and lease before each write
+    /// and before delivering received data. A refusal closes the lane and
+    /// releases its owner without forwarding the bytes.
     public init(
         closeCode: IrxCloseCode,
         establish: @escaping Establish,
@@ -52,16 +53,22 @@ public actor IrxControlByteTransport: CmxByteTransport {
 
     public func receive() async throws -> Data? {
         let (_, lane) = try await establishedPair()
-        return try await lane.reader.readRaw()
+        let data = try await lane.reader.readRaw()
+        try await requireAuthorization()
+        return data
     }
 
     public func send(_ data: Data) async throws {
         let (_, lane) = try await establishedPair()
-        guard await permitsIO() else {
+        try await requireAuthorization()
+        try await lane.writer.write(data)
+    }
+
+    private func requireAuthorization() async throws {
+        guard await permitsIO(), !isClosed else {
             await close()
             throw IrxConnectionError.closed(nil)
         }
-        try await lane.writer.write(data)
     }
 
     public func close() async {

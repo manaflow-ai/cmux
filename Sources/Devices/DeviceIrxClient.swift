@@ -25,10 +25,37 @@ actor DeviceIrxClient {
     private let journal: IrxJournal
     private var sessions: [String: Session] = [:]
     private var stopped = false
+    private var directoryObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
 
     init(context: @escaping ContextProvider, journal: IrxJournal) {
         self.context = context
         self.journal = journal
+    }
+
+    /// Account discovery shares iOS's broker pagination and build compatibility.
+    func discoverMacs() async throws -> [CmxIrohBrokerBinding] {
+        let borrowed = try await context()
+        guard !stopped, await borrowed.isCurrent() else { throw DeviceLinkError.notConnected }
+        let response = try await borrowed.broker.discover(maximumAge: 0)
+        guard !stopped, await borrowed.isCurrent() else { throw DeviceLinkError.notConnected }
+        return response.bindings.filter { $0.platform == .mac && $0.pairingEnabled }
+    }
+
+    /// A pushed account-directory revision triggers a discovery refresh without polling.
+    func directoryChanges() -> AsyncStream<Void> {
+        let id = UUID()
+        let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        guard !stopped else { continuation.finish(); return stream }
+        directoryObservers[id] = continuation
+        continuation.yield(())
+        continuation.onTermination = { [weak self] _ in
+            Task { await self?.removeDirectoryObserver(id) }
+        }
+        return stream
+    }
+
+    private func removeDirectoryObserver(_ id: UUID) {
+        directoryObservers[id] = nil
     }
 
     func transport(
@@ -81,8 +108,10 @@ actor DeviceIrxClient {
               !entry.eventsClaimed else { throw DeviceLinkError.notConnected }
         entry.eventsClaimed = true
         sessions[endpoint] = entry
+        let borrowed = try await context()
         let session = try await entry.engine.ensureSession(trigger: "mac-events")
         guard !stopped, sessions[endpoint]?.owner == entry.owner else { throw DeviceLinkError.notConnected }
+        let owner = entry.owner
         return AsyncThrowingStream { continuation in
             let pump = Task {
                 do {
@@ -90,6 +119,13 @@ actor DeviceIrxClient {
                           descriptor.lane == .events else { throw DeviceLinkError.notConnected }
                     while let chunk = try await reader.readRaw() {
                         try Task.checkCancellation()
+                        guard await borrowed.isCurrent(),
+                              let lease = borrowed.deviceList.current, lease.isFresh(now: .now),
+                              let peer = lease.entries[endpoint], !peer.revoked,
+                              await self.isAuthorized(peer, endpoint: endpoint, owner: owner) else {
+                            await self.release(endpoint: endpoint, owner: owner)
+                            throw DeviceLinkError.notConnected
+                        }
                         continuation.yield(chunk)
                     }
                     continuation.finish()
@@ -103,6 +139,8 @@ actor DeviceIrxClient {
 
     func stop() async {
         stopped = true
+        for observer in directoryObservers.values { observer.finish() }
+        directoryObservers.removeAll()
         let previous = Array(sessions.values)
         sessions.removeAll()
         for session in previous { await session.engine.stop() }
@@ -122,6 +160,7 @@ actor DeviceIrxClient {
             }
         }
         for (endpoint, entry) in revoked { await release(endpoint: endpoint, owner: entry.owner) }
+        for observer in directoryObservers.values { observer.yield(()) }
     }
 
     private func record(binding: CmxIrohBrokerBinding, endpoint: String, owner: UUID) -> Bool {
@@ -209,6 +248,11 @@ actor DeviceIrxClient {
         do {
             guard await context.isCurrent() else { throw DeviceLinkError.notConnected }
             let (admit, control) = try await IrxAdmission.performClient(connection: connection, journal: journal)
+            // Admission suspends; the account lease may have revoked or replaced
+            // this exact binding while the handshake was in flight.
+            _ = try IrxMacPeerAuthorization(
+                deviceID: instance.deviceID, tag: instance.tag, endpointID: endpoint
+            ).resolve(bindings: [target], lease: context.deviceList.current, localDeviceID: context.localBinding.deviceID)
             guard await context.isCurrent(), await recordBinding(target) else { throw DeviceLinkError.notConnected }
             await connection.raiseRemoteStreamCredit(bi: 0, uni: 4)
             if context.allowsDirectPaths { await connection.authorizeDirectPaths() }

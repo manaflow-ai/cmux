@@ -31,6 +31,9 @@ enum CloudVMPanelAuthState: Equatable {
 struct MachinesPanelView: View {
     @StateObject private var viewModel = MachinesPanelViewModel()
     @State private var devicesModel: DevicesPanelViewModel
+    @State private var showsDeviceControls = false
+    @State private var discoveryManaged = ManagedDevicePolicy().isDeviceDiscoveryDisabled
+    @State private var incomingAccessManaged = ManagedDevicePolicy().isIncomingDeviceAccessDisabled
     @AppStorage(RightSidebarBetaFeatureSettings.devicesEnabledKey)
     private var devicesBetaEnabled = RightSidebarBetaFeatureSettings.defaultDevicesEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
@@ -117,22 +120,19 @@ struct MachinesPanelView: View {
         .task {
             await tunnelStatus.observe(AppDelegate.shared?.cloudTunnelCoordinator)
         }
+        .task {
+            for await _ in ManagedDevicePolicy.changeSignals() {
+                let policy = ManagedDevicePolicy()
+                discoveryManaged = policy.isDeviceDiscoveryDisabled
+                incomingAccessManaged = policy.isIncomingDeviceAccessDisabled
+            }
+        }
         .accessibilityIdentifier("CloudMachinesPanel")
     }
 
     @ViewBuilder
     private var authenticatedContent: some View {
         controlBar
-        if DevicesFeature.isEnabled, let preferences = devicesModel.preferences {
-            DevicesSidebarControls(
-                discoveryEnabled: preferences.discoveryEnabled,
-                incomingAccessEnabled: preferences.incomingAccessEnabled,
-                managed: ManagedDevicePolicy().isEnforced(.disableRemoteControl),
-                setDiscovery: { enabled in Task { await preferences.setDiscoveryEnabled(enabled) } },
-                setIncomingAccess: { enabled in Task { await preferences.setIncomingAccessEnabled(enabled) } }
-            )
-            Divider()
-        }
         if includesCloud, let banner = tunnelStatus.banner {
             MachinesTunnelBanner(banner: banner, backgroundColor: chromeBackgroundColor) {
                 SystemExtensionSettingsLink.open()
@@ -225,7 +225,24 @@ struct MachinesPanelView: View {
                 accessibilityLabel: String(localized: "devices.manage", defaultValue: "Manage My Devices"),
                 isBusy: false
             ) {
-                SettingsWindowPresenter.show(navigationTarget: .computers)
+                if devicesBetaEnabled { showsDeviceControls.toggle() }
+                else { SettingsWindowPresenter.show(navigationTarget: .computers) }
+            }
+            .popover(isPresented: $showsDeviceControls, arrowEdge: .bottom) {
+                if let preferences = devicesModel.preferences {
+                    DevicesSidebarControls(
+                        discoveryEnabled: preferences.discoveryEnabled,
+                        incomingAccessEnabled: preferences.incomingAccessEnabled,
+                        discoveryManaged: discoveryManaged,
+                        incomingAccessManaged: incomingAccessManaged,
+                        setDiscovery: { enabled in Task { await preferences.setDiscoveryEnabled(enabled) } },
+                        setIncomingAccess: { enabled in Task { await preferences.setIncomingAccessEnabled(enabled) } },
+                        openSettings: {
+                            showsDeviceControls = false
+                            SettingsWindowPresenter.show(navigationTarget: .computers)
+                        }
+                    )
+                }
             }
             if includesCloud { cloudAgentMenu }
             MachinesChromeIconButton(
@@ -258,11 +275,18 @@ struct MachinesPanelView: View {
         // no machines, because the catalog's This Mac entry counted as a row
         // the tree never drew.
         if !includesCloud && !includesDevices {
-            Text(String(localized: "devices.discovery.disabled", defaultValue: "Turn on discovery above to see your other Macs."))
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .padding()
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            VStack(spacing: 12) {
+                Image(systemName: "desktopcomputer").font(.system(size: 28, weight: .light))
+                Text(String(localized: "devices.discovery.disabled", defaultValue: "Discovery is off. Turn it on to see your other Macs."))
+                    .font(.callout)
+                    .multilineTextAlignment(.center)
+                Button(String(localized: "devices.manage", defaultValue: "Manage My Devices")) {
+                    showsDeviceControls = true
+                }
+            }
+            .foregroundStyle(.secondary)
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if CloudTreeNodeBuilder.isEmpty(
             machines: includesCloud ? viewModel.machines : [],
             pendingCreates: includesCloud ? viewModel.pendingCreates : [],
@@ -563,7 +587,21 @@ struct MachinesPanelView: View {
     private var emptyState: some View {
         VStack(spacing: 10) {
             Spacer()
-            if viewModel.hasLoadedOnce, viewModel.lastErrorDescription != nil {
+            if !includesCloud {
+                Image(systemName: "desktopcomputer")
+                    .font(.system(size: 30, weight: .light))
+                    .foregroundStyle(.secondary)
+                Text(String(localized: "devices.empty.title", defaultValue: "No other Macs yet"))
+                    .font(.callout.weight(.medium))
+                Text(String(localized: "devices.empty.help", defaultValue: "Sign in to cmux on another Mac and turn on Allow access to this Mac in Computers settings."))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+                Button(String(localized: "devices.settings", defaultValue: "Computers Settings…")) {
+                    SettingsWindowPresenter.show(navigationTarget: .computers)
+                }
+            } else if viewModel.hasLoadedOnce, viewModel.lastErrorDescription != nil {
                 // The list failed to load: say the true thing instead of
                 // pretending the fleet is empty. A server-rejected session and
                 // a plan gate each get their real fix; only transient-shaped

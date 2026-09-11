@@ -1263,8 +1263,10 @@ final class SurfaceCatalog {
     /// A pane went away. Remote resources live on; a pane closed on purpose inside a
     /// mirrored workspace also closes its machine tab (`CloudPlacementCoordinator`).
     func endProjections(panelID: UUID, reason: SurfaceProjectionEndReason = .paneClosed) {
+        let pending = pendingRestoredProjections.keys.filter { $0.panelID == panelID }
+        for record in pending { pendingRestoredProjections[record] = nil }
         let ended = projections.filter { $0.panelID == panelID }
-        guard !ended.isEmpty else { return }
+        guard !ended.isEmpty || !pending.isEmpty else { return }
         projections.subtract(ended)
         for projection in ended {
             cloudPlacementCoordinator.projectionDidEnd(projection, reason: projectionEndReasons[panelID] ?? reason, catalog: self)
@@ -1275,8 +1277,10 @@ final class SurfaceCatalog {
 
     /// A pane moved to another workspace (tab transfer / drag between windows).
     func moveProjections(panelID: UUID, to workspaceID: UUID) {
+        let pending = pendingRestoredProjections.keys.filter { $0.panelID == panelID }
+        for record in pending { pendingRestoredProjections[record] = workspaceID }
         let moved = projections.filter { $0.panelID == panelID && $0.workspaceID != workspaceID }
-        guard !moved.isEmpty else { return }
+        guard !moved.isEmpty || !pending.isEmpty else { return }
         projections.subtract(moved)
         for var projection in moved {
             projection.workspaceID = workspaceID
@@ -1395,7 +1399,7 @@ final class SurfaceCatalog {
     }
 
     func projectionRecords(forWorkspace workspaceID: UUID) -> [SurfaceProjectionRecord] {
-        projections
+        let live = projections
             .filter { $0.workspaceID == workspaceID }
             .map {
                 SurfaceProjectionRecord(
@@ -1405,7 +1409,13 @@ final class SurfaceCatalog {
                     remoteTabID: $0.remoteTabID
                 )
             }
-            .sorted { $0.panelID.uuidString < $1.panelID.uuidString }
+        // Pending remote intent wins over the local placeholder until the
+        // provider has reconnected, including a second save while offline.
+        var byPanel = Dictionary(live.map { ($0.panelID, $0) }, uniquingKeysWith: { first, _ in first })
+        for (record, owner) in pendingRestoredProjections where owner == workspaceID {
+            byPanel[record.panelID] = record
+        }
+        return byPanel.values.sorted { $0.panelID.uuidString < $1.panelID.uuidString }
     }
 
     /// Cloud machine IDs referenced by restored panes that are waiting for a

@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxIrohTransport
 import Foundation
 import Testing
 
@@ -13,6 +14,34 @@ import Testing
 /// account's, since the viewer presents its bearer token only to those.
 @Suite("Devices: directory merge")
 struct DeviceDirectoryMergeTests {
+    @Test("Account broker discovery includes enabled Macs outside the selected team", arguments: [true, false])
+    func accountWideDiscovery(enabled: Bool) throws {
+        let data = Data("""
+        {"binding_id":"44444444-4444-4444-8444-444444444444",
+         "device_id":"22222222-2222-2222-2222-222222222222",
+         "app_instance_id":"55555555-5555-4555-8555-555555555555",
+         "client_namespace":"mac:com.cmuxterm.app","tag":"default","platform":"mac",
+         "display_name":"Studio","endpoint_id":"\(String(repeating: "ab", count: 32))",
+         "identity_generation":1,"pairing_enabled":\(enabled),"capabilities":["cmux.irx.v1"],
+         "path_hints":[],"last_seen_at":"2026-09-10T12:00:00Z"}
+        """.utf8)
+        let binding = try JSONDecoder().decode(CmxIrohBrokerBinding.self, from: data)
+        let records = DeviceDirectoryMerge.merge(.init(
+            authenticatedMacs: [binding], ownersKnown: true,
+            selfInstance: selfInstance, currentUserID: "my-account", resolvedTeamID: "work-team"
+        ))
+        if enabled {
+            let record = try #require(records.first)
+            #expect(records.count == 1)
+            #expect(record.deviceName == "Studio")
+            #expect(record.accountTrust == .sameAccount)
+            #expect(record.isDialable)
+            #expect(record.routes.map(\.kind) == [.iroh])
+        } else {
+            #expect(records.isEmpty)
+        }
+    }
+
     private let selfID = "11111111-1111-1111-1111-111111111111"
     private let studioID = "22222222-2222-2222-2222-222222222222"
     private let laptopID = "33333333-3333-3333-3333-333333333333"

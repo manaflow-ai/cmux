@@ -34,16 +34,7 @@ extension CloudTreeOutlineView.Coordinator {
             nodeActions.hideDevice(machine)
         })
         items.append(.separator())
-        // An unpaired Mac never gets a credentialed dial from the tree: the one
-        // verb it offers routes to the pairing flow in Settings › Computers.
-        let needsPairing = nodeActions.needsDevicePairing(machine)
-        if needsPairing {
-            items.append(item(String(localized: "cloudTree.menu.pairInSettings", defaultValue: "Pair in Settings \u{203A} Computers\u{2026}")) {
-                SettingsWindowPresenter.show(navigationTarget: .computers)
-            })
-            items.append(.separator())
-        }
-        if canCreate, !needsPairing {
+        if canCreate {
             items.append(item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { nodeActions.newTerminal(machine, nil) })
             items.append(item(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) { nodeActions.newWorkspace(machine) })
         }
