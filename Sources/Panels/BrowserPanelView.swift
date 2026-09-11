@@ -1313,7 +1313,6 @@ struct BrowserPanelView: View {
         #endif
         return panel.recentDownloads
     }
-
     @ViewBuilder
     private var browserScreenshotCopiedIndicator: some View {
         if screenshotPageCopied {
@@ -1554,6 +1553,7 @@ struct BrowserPanelView: View {
             }
             .disabled(!panel.shouldRenderWebView)
             .accessibilityIdentifier("BrowserScreenshotSectionButton")
+            BrowserLocalFileFinderMenu(fileURL: panel.currentURL)
             if isChromeCompact {
                 Divider()
                 BrowserDesignModeOverflowMenuButton(
