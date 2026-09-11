@@ -379,15 +379,26 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
     func testCommandPaletteNewMachineAdvertisesShortcut() {
         XCTAssertEqual(
             ContentView.commandPaletteShortcutAction(forCommandID: ContentView.commandPaletteCloudNewMachineCommandId),
-            .newCloudWorkspace
+            .newCloudMachine
         )
+    }
+
+    func testIncompleteCatalogDoesNotReplaceStoredDefault() {
+        let name = "DefaultCloudMachineStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defer { defaults.removePersistentDomain(forName: name) }
+        let store = DefaultCloudMachineStore(defaults: defaults)
+        store.machineID = "starred"
+        let partial = [MachineSnapshot(id: "other", provider: "cloud", image: "image", isDesktop: true, activity: .ready, createdAt: nil, label: "Other")]
+        XCTAssertNil(store.resolveMachineID(from: partial))
+        XCTAssertEqual(store.machineID, "starred")
     }
 
     func testDefaultMachineSelectionPrefersDesktopAndPersists() {
         func machine(_ id: String, desktop: Bool, name: String) -> MachineSnapshot {
             MachineSnapshot(id: id, provider: "freestyle", image: "image", isDesktop: desktop, activity: .ready, createdAt: nil, label: name)
         }
-        let machines = [machine("z", desktop: false, name: "alpha"), machine("b", desktop: true, name: "zeta"), machine("a", desktop: true, name: "alpha")]
+        let machines = [machine("z", desktop: false, name: "alpha"), machine("b", desktop: true, name: "alpha"), machine("a", desktop: true, name: "zeta")]
         XCTAssertEqual(DefaultCloudMachineStore.chooseMachine(machines)?.id, "a")
         let suite = UserDefaults(suiteName: "DefaultCloudMachineStoreShortcutTests")!
         suite.removePersistentDomain(forName: "DefaultCloudMachineStoreShortcutTests")
