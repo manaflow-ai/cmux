@@ -177,14 +177,22 @@ struct HivePairingSecurityTests {
     func unpairHoldsThePairingLockUntilItsDeleteFinishes() async throws {
         let fixture = try Fixture()
         defer { fixture.removeFiles() }
-        let controller = fixture.controller(peer: PairingPeer())
+        let gate = PairingGate()
+        let controller = HivePairingController(
+            store: GatedPairingStore(base: fixture.store, gate: gate),
+            runtime: PairingRuntime(transportFactory: PairingFactory(peer: PairingPeer())),
+            userID: "owner", teamID: "team", email: nil,
+            ownDeviceID: "mac-a", ownInstanceTag: "default", allowsLoopback: false
+        )
         let computer = try await controller.pair("100.64.0.1:7333")
         let unpairing = Task { try await controller.unpair(id: computer.id) }
-        // Let the delete reach its store I/O suspension before a pair races it.
-        for _ in 0..<3 { await Task.yield() }
+        // The gate parks the delete inside its store I/O; a pair racing it
+        // must be refused rather than persisting a grant the delete drops.
+        await gate.waitUntilEntered()
         await #expect(throws: HivePairingError.busy) {
             try await controller.pair("100.64.0.1:7444")
         }
+        await gate.open()
         try await unpairing.value
         #expect(controller.computers.isEmpty)
         // The fake peer serves one pairing per controller; a fresh controller
@@ -284,6 +292,152 @@ private struct PairingRuntime: MobileSyncRuntime {
     let pairingRequestTimeoutNanoseconds: UInt64 = 2_000_000_000
     let now: @Sendable () -> Date = { Date() }
     let supportsServerPushEvents = true
+}
+
+/// Parks one store call until the test opens the gate, and tells the test
+/// when the call has arrived.
+private actor PairingGate {
+    private var entered = false
+    private var opened = false
+    private var enteredWaiters: [CheckedContinuation<Void, Never>] = []
+    private var openWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func enter() async {
+        entered = true
+        let waiters = enteredWaiters
+        enteredWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+        if opened { return }
+        await withCheckedContinuation { openWaiters.append($0) }
+    }
+
+    func waitUntilEntered() async {
+        if entered { return }
+        await withCheckedContinuation { enteredWaiters.append($0) }
+    }
+
+    func open() {
+        opened = true
+        let waiters = openWaiters
+        openWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
+}
+
+/// The real SQLite store with `removeExactScope` held on a gate, so a test can
+/// keep an unpair suspended at its store I/O and race another mutation.
+private struct GatedPairingStore: MobilePairedMacPairingStoring {
+    let base: MobilePairedMacStore
+    let gate: PairingGate
+
+    func upsertWithUserTailscaleAuthorization(
+        macDeviceID: String, displayName: String?, routes: [CmxAttachRoute],
+        instanceTag: String?, markActive: Bool, stackUserID: String?, teamID: String?, now: Date
+    ) async throws {
+        try await base.upsertWithUserTailscaleAuthorization(
+            macDeviceID: macDeviceID, displayName: displayName, routes: routes,
+            instanceTag: instanceTag, markActive: markActive, stackUserID: stackUserID, teamID: teamID, now: now
+        )
+    }
+
+    func upsert(
+        macDeviceID: String, displayName: String?, routes: [CmxAttachRoute], instanceTag: String?,
+        markActive: Bool, stackUserID: String?, teamID: String?, now: Date
+    ) async throws {
+        try await base.upsert(
+            macDeviceID: macDeviceID, displayName: displayName, routes: routes, instanceTag: instanceTag,
+            markActive: markActive, stackUserID: stackUserID, teamID: teamID, now: now
+        )
+    }
+
+    func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
+        try await base.loadAll(stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? {
+        try await base.activeMac(stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        try await base.setActive(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func setActive(macDeviceID: String, instanceTag: String?, stackUserID: String?, teamID: String?) async throws {
+        try await base.setActive(macDeviceID: macDeviceID, instanceTag: instanceTag, stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func clearActive(stackUserID: String?, teamID: String?) async throws {
+        try await base.clearActive(stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func setCustomization(
+        macDeviceID: String, customName: String?, customColor: String?, customIcon: String?,
+        stackUserID: String?, teamID: String?, now: Date
+    ) async throws {
+        try await base.setCustomization(
+            macDeviceID: macDeviceID, customName: customName, customColor: customColor, customIcon: customIcon,
+            stackUserID: stackUserID, teamID: teamID, now: now
+        )
+    }
+
+    func setCustomization(
+        macDeviceID: String, instanceTag: String?, customName: String?, customColor: String?, customIcon: String?,
+        stackUserID: String?, teamID: String?, now: Date
+    ) async throws {
+        try await base.setCustomization(
+            macDeviceID: macDeviceID, instanceTag: instanceTag, customName: customName, customColor: customColor,
+            customIcon: customIcon, stackUserID: stackUserID, teamID: teamID, now: now
+        )
+    }
+
+    func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        try await base.remove(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func remove(macDeviceID: String, instanceTag: String?, stackUserID: String?, teamID: String?) async throws {
+        try await base.remove(macDeviceID: macDeviceID, instanceTag: instanceTag, stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func removeExactScope(macDeviceID: String, instanceTag: String?, stackUserID: String?, teamID: String?) async throws {
+        await gate.enter()
+        try await base.removeExactScope(macDeviceID: macDeviceID, instanceTag: instanceTag, stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func loadAllInstances(macDeviceID: String, stackUserID: String?) async throws -> [MobilePairedMac] {
+        try await base.loadAllInstances(macDeviceID: macDeviceID, stackUserID: stackUserID)
+    }
+
+    func removeExactScopes(_ scopes: [MobilePairedMacExactScope]) async throws {
+        try await base.removeExactScopes(scopes)
+    }
+
+    func removeAll() async throws {
+        try await base.removeAll()
+    }
+
+    func setConnectionMethod(
+        macDeviceID: String, instanceTag: String?, rawValue: String?, stackUserID: String?, teamID: String?
+    ) async throws {
+        try await base.setConnectionMethod(
+            macDeviceID: macDeviceID, instanceTag: instanceTag, rawValue: rawValue, stackUserID: stackUserID, teamID: teamID
+        )
+    }
+
+    func setDirectAddresses(
+        macDeviceID: String, instanceTag: String?, rawJSON: String?, stackUserID: String?, teamID: String?
+    ) async throws {
+        try await base.setDirectAddresses(
+            macDeviceID: macDeviceID, instanceTag: instanceTag, rawJSON: rawJSON, stackUserID: stackUserID, teamID: teamID
+        )
+    }
+
+    func authorizeUserTailscaleRoutes(
+        macDeviceID: String, instanceTag: String?, stackUserID: String?, teamID: String?, routes: [CmxAttachRoute]
+    ) async throws {
+        try await base.authorizeUserTailscaleRoutes(
+            macDeviceID: macDeviceID, instanceTag: instanceTag, stackUserID: stackUserID, teamID: teamID, routes: routes
+        )
+    }
 }
 
 private struct PairingFactory: CmxByteTransportFactory {
