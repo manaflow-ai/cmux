@@ -240,9 +240,14 @@ extension SurfaceCatalog {
         machine: SurfaceMachineID
     ) {
         for (key, intents) in cloudWorkspaceRenameIntents where key.machine == machine {
-            let observedName = workspaces.first(where: { $0.id == key.workspaceID })?.name
             let remaining = intents.filter { intent in
                 guard let receipt = intent.receipt else { return true }
+                // A newer cursor only proves the rename once this workspace is present in the
+                // accepted graph. Pending rows can legitimately lag typed state across a cursor
+                // or generation change, so keep the overlay until the workspace is observed.
+                guard let observedName = workspaces.first(where: { $0.id == key.workspaceID })?.name else {
+                    return true
+                }
                 if cursor.generation != receipt.generation { return false }
                 if cursor.revision > receipt.revision { return false }
                 if cursor.revision == receipt.revision && observedName == intent.name { return false }
