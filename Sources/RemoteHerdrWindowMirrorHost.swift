@@ -34,7 +34,9 @@ final class RemoteHerdrWindowMirrorHost {
     @ObservationIgnored var isVisibleForSizing = false
     @ObservationIgnored var isTornDown = false
     @ObservationIgnored var isApplyingRemoteLayout = false
-    @ObservationIgnored private var applyingRemoteLayoutDepth = 0
+    /// Nesting depth of remote layout application. Read and written from the Bonsplit
+    /// extension in `RemoteHerdrWindowMirrorHost+Bonsplit.swift`, so not `private`.
+    @ObservationIgnored var applyingRemoteLayoutDepth = 0
     @ObservationIgnored var isApplyingFocus = false
 
     @ObservationIgnored var panelsByPaneId: [String: TerminalPanel] = [:]
@@ -66,7 +68,9 @@ final class RemoteHerdrWindowMirrorHost {
     @ObservationIgnored var lastClaimedClientGrid: (cols: Int, rows: Int)?
     @ObservationIgnored var dividerResizeSentSinceDragBegan = false
     @ObservationIgnored var pendingDividerDragEnd = false
-    @ObservationIgnored private let sizing = RemoteHerdrSizing()
+    /// Grid/extent math. Used from the sizing extension in
+    /// `RemoteHerdrWindowMirrorHost+Sizing.swift`, so not `private`.
+    @ObservationIgnored let sizing = RemoteHerdrSizing()
 
     var surfaceIDsInLayoutOrder: [UUID] {
         let order = (visibleLayout ?? layout)?.paneIDsInOrder ?? Array(panelsByPaneId.keys)

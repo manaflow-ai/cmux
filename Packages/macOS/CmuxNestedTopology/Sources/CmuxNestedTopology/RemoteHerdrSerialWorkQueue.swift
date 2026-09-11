@@ -13,6 +13,9 @@ public actor RemoteHerdrSerialWorkQueue {
         case send(paneID: String)
     }
 
+    /// Creates an empty queue with no tracked streams.
+    public init() {}
+
     private var tails: [Stream: (id: UUID, task: Task<Void, Never>)] = [:]
 
     /// Runs `work` after any previous work on `stream`.
