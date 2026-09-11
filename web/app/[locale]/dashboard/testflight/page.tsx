@@ -2,21 +2,22 @@ import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 
-import { requireDashboardUser } from "@/app/lib/dashboard-auth";
+import { loadDashboardSection } from "@/app/lib/dashboard-auth";
 import { isStackConfigured } from "@/app/lib/stack";
 import { Link } from "@/i18n/navigation";
 import { isAscConfigured } from "@/services/asc/client";
 import { testerGroupStatus } from "@/services/asc/testflight";
 import { isTestflightEligible } from "@/services/billing/pro";
 import { captureAscError } from "@/services/errors";
+import { DashboardAuthRecovery } from "../components/dashboard-auth-recovery";
 import { TestflightPageHeader } from "../components/dashboard-page-headers";
+import { DashboardSectionSkeleton } from "../components/dashboard-skeleton";
 
-// This route renders the session and page data as one unit. The dashboard nav
-// disables prefetch for this authorization-dependent page.
+const RETURN_PATH = "/dashboard/testflight";
+
+// The header is part of the static shell. Entitlement and enrollment are
+// request-specific and stream in behind the section boundary.
 export const instant = true;
-// Entitlement and enrollment are request-specific. A route-level guard also
-// covers links outside the dashboard shell.
-export const prefetch = "force-disabled";
 
 type SearchParams = {
   testflight?: string | string[];
@@ -39,9 +40,12 @@ export default function DashboardTestflightPage(props: PageProps) {
   }
 
   return (
-    <Suspense fallback={null}>
-      <ResolvedDashboardTestflightContent {...props} />
-    </Suspense>
+    <div className="mx-auto w-full max-w-5xl px-3 py-4">
+      <TestflightPageHeader />
+      <Suspense fallback={<DashboardSectionSkeleton />}>
+        <ResolvedDashboardTestflightContent {...props} />
+      </Suspense>
+    </div>
   );
 }
 
@@ -49,7 +53,6 @@ async function ResolvedDashboardTestflightContent({
   params,
   searchParams,
 }: PageProps) {
-  // Framework promises are not stable cache keys across prerender phases.
   const [{ locale }, query] = await Promise.all([params, searchParams]);
   const testflight = Array.isArray(query?.testflight)
     ? query.testflight[0]
@@ -67,10 +70,13 @@ export async function DashboardTestflightContent({
   locale: string;
   testflight?: string;
 }) {
-  // Resolve the session and entitlement for every request. The page is one
-  // render unit, so a prefetched response cannot outlive the authorization
-  // check or reveal an old enrollment state.
-  const user = await requireDashboardUser(locale, "/dashboard/testflight");
+  // The session comes from the private cache; entitlement and enrollment are
+  // read fresh so a lapsed subscription or a leave action shows at once.
+  const section = await loadDashboardSection(locale, RETURN_PATH);
+  if (section.kind === "unavailable") {
+    return <DashboardAuthRecovery locale={locale} returnPath={RETURN_PATH} />;
+  }
+  const { user } = section;
   const eligible = await isTestflightEligible(user);
   const email = normalizedEmail(user.primaryEmail);
 
@@ -81,27 +87,24 @@ export async function DashboardTestflightContent({
   const banner = testflightBanner(testflight);
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-3 py-4">
-      <TestflightPageHeader />
-      <div>
-        {banner ? (
-          <div className="mb-3 border border-border bg-background p-3 text-sm">
-            {t(`banners.${banner}`)}
-          </div>
-        ) : null}
+    <div>
+      {banner ? (
+        <div className="mb-3 border border-border bg-background p-3 text-sm">
+          {t(`banners.${banner}`)}
+        </div>
+      ) : null}
 
-        {!eligible ? (
-          <NotEligible t={t} />
-        ) : !email ? (
-          <NeedsEmail t={t} />
-        ) : status.unavailable ? (
-          <Unavailable t={t} />
-        ) : status.enrolled ? (
-          <Enrolled t={t} email={email} state={status.state} />
-        ) : (
-          <Join t={t} email={email} />
-        )}
-      </div>
+      {!eligible ? (
+        <NotEligible t={t} />
+      ) : !email ? (
+        <NeedsEmail t={t} />
+      ) : status.unavailable ? (
+        <Unavailable t={t} />
+      ) : status.enrolled ? (
+        <Enrolled t={t} email={email} state={status.state} />
+      ) : (
+        <Join t={t} email={email} />
+      )}
     </div>
   );
 }

@@ -148,7 +148,7 @@ extension GhosttySurfaceView {
 }
 
 /// One generation-bound pointer used only on its serial Ghostty surface queue.
-private nonisolated struct LocalScrollbackSurfaceOperation: @unchecked Sendable {
+private struct LocalScrollbackSurfaceOperation: @unchecked Sendable {
     // Safety: the surface stays owned by GhosttySurfaceView, and every C call
     // using this pointer is enqueued on that generation's serial output queue.
     let surface: ghostty_surface_t

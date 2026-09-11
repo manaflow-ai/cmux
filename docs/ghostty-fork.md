@@ -12,14 +12,14 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `abd40f6e4`, reachable from fork
-`main` after Ghostty PR #211 was merged.
-It carries the renderer/API compatibility pin plus the Fish SSH feature-gating
-fix (`fd13a3fc2`): the embedded Ghostty CLI wrapper is installed whenever
-either `ssh-env` or `ssh-terminfo` is enabled. The pin includes the prior fork
-changes below, including the cmux theme encoder at `987780a132`, tokened iOS
-render dispositions, VT formatter cursor restoration, VT stream-boundary
-visibility, and Hangul canonical font resolution.
+The submodule pinned by this branch is `abd40f6e4`, reachable from fork `main`
+after Ghostty PR #211 was merged. It includes the incremental embedded
+configuration propagation and Fish SSH feature-gating fixes described below,
+plus the renderer/API compatibility pin and the repeated word-selection drag
+anchor fix. Its tree includes the prior fork changes below, including the cmux
+theme encoder at `987780a132`, tokened iOS render dispositions, VT formatter
+cursor restoration, VT stream-boundary visibility, and Hangul canonical font
+resolution.
 
 ### Conditional cmux theme encoding
 
@@ -42,6 +42,78 @@ visibility, and Hangul canonical font resolution.
 - Artifact:
   - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-987780a132a33fd69ab800b09e254b4584537d04-crashsubdir-cmux-crash-sentry-off-v1
   - SHA-256 `6f7a62fbc9ae63e85f12b78e42c0f8a8d7abecb07df13cf6d2a7d0c95dad91fd`
+### Current main-aligned feature pin
+
+- Branch:
+  - https://github.com/manaflow-ai/ghostty/tree/main
+- Commit:
+  - `abd40f6e4` (current fork main after Ghostty PR #211)
+- Summary:
+  - Preserves incremental embedded configuration propagation and Fish SSH
+    feature gating, with the renderer/API compatibility pin and current
+    repeated word-selection drag-anchor behavior.
+- Verification:
+  - Universal ReleaseFast GhosttyKit build with native Sentry disabled.
+  - `tests/test_issue_8093_ghostty_ssh_binary_path.py` with Fish 4.6.0.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-abd40f6e472d57f2d4bb182004bb5f3fac8df961-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+  - SHA-256 `fdb0f7e844fa086a410f0b1df23badf2b0503c084e1c66c297e22930758b6971`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Fish SSH feature gating
+
+- Branch:
+  - https://github.com/manaflow-ai/ghostty/tree/issue-10557-reload-config-stall
+- Commit:
+  - `fd13a3fc2` (shell-integration: fix Fish SSH feature condition)
+- File:
+  - `src/shell-integration/fish/vendor_conf.d/ghostty-shell-integration.fish`
+- Summary:
+  - Groups the `ssh-env` and `ssh-terminfo` alternatives beneath the shared
+    `GHOSTTY_BIN` guard instead of chaining `and`/`or` commands whose final
+    `and` made the `ssh-env`-only case depend on `ssh-terminfo`.
+  - Preserves the existing per-feature forwarding flags and installs the Fish
+    `ssh` wrapper when either feature is enabled.
+- Conflict note:
+  - If upstream rewrites Fish SSH integration, retain behavior coverage for
+    `ssh-env`, `ssh-terminfo`, and the combined feature set.
+- Verification:
+  - `tests/test_issue_8093_ghostty_ssh_binary_path.py` with Fish 4.6.0.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-fd13a3fc20f8aab4136437b5693e2e447b86eafc-crashsubdir-cmux-crash-sentry-off-v1
+  - Historical artifact SHA-256: `4b0ad8668eb50b57a36868c693ab80d5a75e9b0c4900e97f8f95150e0c7d9a35`
+    (not retained in the current `scripts/ghosttykit-checksums.txt` manifest).
+
+### Incremental embedded configuration propagation
+
+- Branch:
+  - https://github.com/manaflow-ai/ghostty/tree/issue-10557-reload-config-stall
+- Commit:
+  - `64b5767a6` (embedded: allow app-only config updates)
+- Files:
+  - `include/ghostty.h`
+  - `src/App.zig`
+  - `src/apprt/embedded.zig`
+- Summary:
+  - Adds `ghostty_app_update_config_without_surface_propagation`, which applies
+    conditional app state and emits the app-scoped config-change action without
+    walking the native surface registry.
+  - Keeps `ghostty_app_update_config` behavior unchanged by factoring its
+    existing surface and app phases into separate internal methods.
+  - Lets cmux prioritize visible surfaces and spread offscreen derivation across
+    main-actor turns while sharing one finalized configuration pointer.
+- Conflict note:
+  - If upstream splits app configuration from surface propagation, replace this
+    fork API with the upstream seam. Until then, keep the legacy full-update API
+    propagating to surfaces and keep the app-only API explicitly host-managed.
+- Verification:
+  - Universal ReleaseFast GhosttyKit build with native Sentry disabled.
+  - Exported symbol verified in macOS universal, iOS device, and iOS simulator
+    archives.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-64b5767a64acac59dad75d9de606e2e06d118e3e-crashsubdir-cmux-crash-sentry-off-v1
+  - Historical artifact SHA-256: `88d0c1af6eaed2db05f327c935ad9c4da4d5cf46b8404f8fd2e14b939a258359`
+    (not retained in the current `scripts/ghosttykit-checksums.txt` manifest).
 
 ### Repeated word-selection drag anchor
 
@@ -111,6 +183,7 @@ pinned in `scripts/ghosttykit-checksums.txt`.
   - SHA-256 `6a02a2ec3794de79a02af993083292a89517d2533eb20c746deca377f23456bd`
     is pinned in `scripts/ghosttykit-checksums.txt`.
 
+<<<<<<< HEAD
 The prior fork-main pin `b17f1726f` has a ReleaseFast artifact at:
 
 - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b17f1726fc53495dd827f7d85c9ec38da3d03814-crashsubdir-cmux-crash-sentry-off-v1
@@ -122,6 +195,8 @@ Ghostty PR #183. Its regression test and width-filled-row guard keep a short
 slash-terminated URL from absorbing unrelated output on the next hard newline,
 while preserving indented continuations and terminal soft wraps.
 
+=======
+>>>>>>> origin/main
 ### VT formatter cursor restoration after margins
 
 - Pull request:

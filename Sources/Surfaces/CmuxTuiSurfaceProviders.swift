@@ -1,66 +1,31 @@
 import CmuxFoundation
 import Foundation
-
 /// One cloud machine's resources: its cmux-tui terminals (over the headless link), its
 /// noVNC screen, and its forwarded ports. Terminals live in the machine's cmux-tui
-/// session, so a local pane closing never touches them (`projectionDidEnd` is a no-op).
+/// session, so a local pane closing never touches them (only local browser preparation is cancelled).
 @MainActor
 final class CmuxTuiSurfaceProvider: SurfaceProvider {
-    enum ProviderError: Error, LocalizedError {
-        case notSignedIn
-        case machineAsleep(String)
-        case noWorkspaceOnMachine(String)
-        case terminalNotCreated(String)
-        case invalidSnapshot(String)
-        case snapshotOnly(String)
-        case stateUnavailable(String)
-        case badURL(String)
-
-        var errorDescription: String? {
-            switch self {
-            case .notSignedIn:
-                return "Cloud VM access requires sign-in. Run `cmux auth login`, then retry."
-            case .machineAsleep(let id):
-                return "\(id) is asleep; open it (`cmux vm shell \(id)`) to wake it before listing its terminals."
-            case .noWorkspaceOnMachine(let id):
-                return "\(id) has no cmux-tui workspace yet."
-            case .terminalNotCreated(let detail):
-                return "cmux-tui did not report the new terminal: \(detail)"
-            case .invalidSnapshot(let id):
-                return "cmux-tui returned an unversioned or malformed session snapshot for \(id)."
-            case .snapshotOnly(let id):
-                return String(
-                    format: String(
-                        localized: "cloudTree.error.snapshotOnly",
-                        defaultValue: "%@ uses an older cmux-tui protocol. Refresh it to enable live sync and rename operations."
-                    ),
-                    id
-                )
-            case .stateUnavailable(let id):
-                return String(
-                    format: String(
-                        localized: "cloudTree.error.renameTerminalUnavailable",
-                        defaultValue: "The current state for %@ is unavailable. Refresh and retry before renaming."
-                    ),
-                    id
-                )
-            case .badURL(let url):
-                return "The control plane returned an unusable URL: \(url)"
-            }
-        }
-    }
-
     let machineID: String
     var machine: SurfaceMachineID { .cloud(machineID) }
     private(set) var info: SurfaceMachineInfo
-
     private var summary: VMSummary
+    /// This machine's notification sync: VM rows in, local notifications and
+    /// `notification.ack` round trips out. Fed after every accepted state.
+    private(set) var notificationSync: CloudNotificationSync?
+    /// A local placement (a pane opening, a workspace binding) is a catalog
+    /// change, not a daemon state; it re-runs the fold so rows that had no
+    /// local target get delivered.
+    private var notificationPlacementObserver: NSObjectProtocol?
     let links: CloudMachineLinkManager
     unowned let catalog: SurfaceCatalog
+    /// Loopback forwards into this machine's private address over the hub; nil
+    /// when the build has no hub. Owned by the registry, shared by every provider.
+    let portForwards: CloudHubPortForwarder?
     /// Invalidates suspended work when this provider is stopped or replaced.
     private var lifecycleGeneration: UInt64 = 0
     /// Invalidates an older refresh before it can publish over a newer one.
     private var refreshGeneration: UInt64 = 0
+    let refreshCoordinator = CloudProviderRefreshCoordinator()
     /// The only installed daemon graph for this machine. The catalog receives the
     /// same immutable value with its derived rows in one transaction.
     private(set) var cloudState: CloudVMState?
@@ -92,6 +57,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Panels this provider created (or replaced) in this process. A projection whose
     /// panel is not here came back from a restored session as a placeholder shell.
     var materializedPanels: Set<UUID> = []
+    /// Setup belongs to the local projection and is cancelled when that pane ends.
+    var browserPaneTasks: [UUID: Task<Void, Never>] = [:]
     /// Native cloud terminals own a manual attachment separate from their
     /// catalog projection. The provider retains it for the life of the pane.
     var manualMirrorSessions: [UUID: CloudTuiManualMirrorSession] = [:]
@@ -105,7 +72,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Coalesces concurrent first opens of a zero-view terminal. `terminal.project` is a
     /// mutation, so two local panes racing on the same pool row must share one remote view.
     // Internal so the manual-mirror extension can share the provider-owned task map.
-    var remoteTerminalProjectionTasks: [String: Task<Void, Error>] = [:]
+    var remoteTerminalProjectionTasks: [String: Task<SurfaceRemotePlacement, Error>] = [:]
     /// User labels from the last authoritative snapshot, used to compensate a
     /// multi-view rename if a later tab mutation fails.
     private var tabNameByID: [String: String] = [:]
@@ -127,38 +94,36 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         case workspace(String)
         case tab(String)
     }
-
     private struct PendingRemoteRename {
         var name: String
         var receipt: CloudVMCursor
     }
-
     private var pendingRemoteRenames: [PendingRemoteRenameKey: PendingRemoteRename] = [:]
-
     init(
         summary: VMSummary,
         links: CloudMachineLinkManager,
-        catalog: SurfaceCatalog
+        catalog: SurfaceCatalog,
+        portForwards: CloudHubPortForwarder? = nil
     ) {
         machineID = summary.id
         self.summary = summary
         self.links = links
         self.catalog = catalog
+        self.portForwards = portForwards
         info = Self.info(from: summary, linkState: summary.status == "running" ? .connecting : .asleep, linkError: nil, stats: nil)
+        installNotificationSync()
     }
-
     var isAwake: Bool { summary.status == "running" }
-
     /// Port rows are openable only when the machine advertises a preview
     /// capability or has the private route used by Freestyle.
     var capabilities: VMCapabilities { summary.capabilities }
     var supportsPortPreviews: Bool {
         capabilities.ports || summary.preferredPrivateAddress != nil
     }
-
     func update(summary: VMSummary) {
         guard isRegisteredInCatalog() else { return }
         refreshGeneration &+= 1
+        refreshCoordinator.invalidate()
         self.summary = summary
         if !supportsPortPreviews {
             portsCache = nil
@@ -179,10 +144,19 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             catalog.updateMachine(info, from: self)
         }
     }
-
     func stop() {
         lifecycleGeneration &+= 1
+        refreshCoordinator.cancel()
+        for task in browserPaneTasks.values { task.cancel() }
+        browserPaneTasks.removeAll()
         refreshGeneration &+= 1
+        CloudNotificationSyncHub.shared.unregister(machineID: machineID)
+        notificationSync?.retire()
+        notificationSync = nil
+        if let notificationPlacementObserver {
+            NotificationCenter.default.removeObserver(notificationPlacementObserver)
+            self.notificationPlacementObserver = nil
+        }
         changeWatcher?.cancel()
         changeWatcher = nil
         watchedLink = nil
@@ -203,34 +177,24 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         pendingRemoteRenames.removeAll()
         acceptedCloudGenerations.removeAll()
     }
-
     /// Whether this provider is still registered for its machine. Suspended
     /// network work must not write through a replacement provider.
     func isRegisteredInCatalog() -> Bool {
         guard let current = catalog.provider(for: machine) else { return false }
         return ObjectIdentifier(current) == ObjectIdentifier(self)
     }
-
     func isCurrentLifecycleGeneration(_ generation: UInt64) -> Bool {
         lifecycleGeneration == generation
     }
-
+    /// The generation to capture before detached work that touches panes.
+    var currentLifecycleGeneration: UInt64 { lifecycleGeneration }
     private func isCurrentRefresh(lifecycle: UInt64, refresh: UInt64) -> Bool {
         lifecycleGeneration == lifecycle
             && refreshGeneration == refresh
             && isRegisteredInCatalog()
     }
-
-    // MARK: - SurfaceProvider
-
-    func refresh() async {
-        await refresh(force: false)
-    }
-
-    /// Re-syncs from the machine. A sleeping machine is never woken to be listed: it keeps
-    /// its screen (opening it wakes the machine) and nothing else.
-    @discardableResult
-    func refresh(force: Bool) async -> Bool {
+    /// One refresh pass. Sleeping machines retain their graph without being woken.
+    func performRefresh(force: Bool) async -> Bool {
         let lifecycle = lifecycleGeneration
         guard isCurrentLifecycleGeneration(lifecycle), isRegisteredInCatalog() else { return false }
         refreshGeneration &+= 1
@@ -295,8 +259,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             return false
         }
         // Publish the display before the terminal link is ready: a slow or hanging
-        // connect must not leave the desktop unopenable. Its private URL still waits
-        // for the browser Network Extension when the user opens it.
+        // connect must not leave the desktop unopenable. Opening it forwards the
+        // private noVNC port over the user-space hub (`materializeBrowserPane`).
         if hasDesktop, catalog.snapshot.resources(on: machine).isEmpty {
             catalog.replaceResources([desktopDisplayResource()], on: machine, info: info, from: self)
         }
@@ -334,8 +298,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                   let incoming = CmuxTuiSnapshotParser.state(fromSnapshot: object, machine: machine)
             else { throw ProviderError.invalidSnapshot(machineID) }
             let installed = installSnapshotIfNewer(incoming, requestVersion: requestVersion)
-            // Equal cursors are a valid no-op refresh only when the accepted
-            // graph is byte-for-byte equivalent. A cursor alone is not proof
+            // Equal cursors are a valid no-op refresh only when the revisioned
+            // graph is equivalent. A cursor alone is not proof
             // that a malformed or misconfigured daemon returned the same graph.
             // A newer event can also win the race while this snapshot is in
             // flight; the final install-version check below covers that case.
@@ -378,11 +342,18 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 )
                 guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
                 var allSurfaceIDsResolved = true
+                var exitedTerminalIDs: Set<String> = []
                 for session in sessions {
                     switch resolutions[session.terminalID] {
                     case let .resolved(surfaceID):
                         session.updateRemoteSurfaceID(surfaceID)
                         reconnectableSessionIDs.insert(ObjectIdentifier(session))
+                    case .exited:
+                        // The remote shell ended. Stop reconnecting; the pane
+                        // closes when this graph is published.
+                        exitedTerminalIDs.insert(session.terminalID)
+                        session.markSurfaceResolutionUnavailable()
+                        reconnectableSessionIDs.remove(ObjectIdentifier(session))
                     case .none, .noPlacement, .unsupported, .failed:
                         session.markSurfaceResolutionUnavailable()
                         reconnectableSessionIDs.remove(ObjectIdentifier(session))
@@ -392,6 +363,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 if allSurfaceIDsResolved {
                     manualMirrorSurfaceIDsSocketPath = connected.socketPath
                 }
+                closePanes(forExitedTerminals: exitedTerminalIDs)
             }
             for session in manualMirrorSessions.values
             where reconnectableSessionIDs.contains(ObjectIdentifier(session)) {
@@ -438,6 +410,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 reconcileTitles: snapshotEstablishedCurrentGraph,
                 observation: observation
             )
+            syncNotifications(from: cloudState)
         } else {
             let resources = resourcesWithPendingCreations(
                 hasDesktop ? [desktopDisplayResource()] : [],
@@ -469,15 +442,16 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             return false
         }
         // A snapshot with the exact installed cursor is a valid no-op only when
-        // its graph and every pending receipt agree. This is important after a
+        // its revisioned graph and every pending receipt agree. This is important after a
         // rename: a delayed equal-cursor predecessor must not look current.
         if let current = cloudState, current.cursor == incoming.cursor {
-            guard current == incoming, incomingPassesPendingRenameFence(incoming) else {
+            guard current.hasSameRevisionedContent(as: incoming), incomingPassesPendingRenameFence(incoming) else {
                 #if DEBUG
                 cmuxDebugLog("cloud.state.snapshotIgnored machine=\(machineID) reason=equal-cursor-conflict")
                 #endif
                 return false
             }
+            cloudState = incoming
             retirePendingRemoteRenames(observed: incoming)
             return true
         }
@@ -623,6 +597,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         if reconcileTitles {
             catalog.reconcileCloudRemoteState(machine: machine, state: state)
         }
+        closePanesForVanishedRemoteTerminals(observation: observation)
     }
 
     /// Applies a contiguous event to the catalog's canonical graph. Row-local changes rebuild
@@ -672,6 +647,58 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         // need a full projection scan for every title event.
         if changed.contains(where: { $0.kind == .terminal && !previousIDs.contains($0) }) {
             reprojectRestoredPanes(generation: lifecycleGeneration)
+        }
+        closePanesForVanishedRemoteTerminals(observation: .current)
+    }
+
+    /// Closes the panes of terminals the resolver reported as exited. The
+    /// graph-driven sweep covers the usual case; this covers a daemon that
+    /// still lists an exited terminal because a stale tab row survives it.
+    private func closePanes(forExitedTerminals terminalIDs: Set<String>) {
+        guard !terminalIDs.isEmpty else { return }
+        for (panelID, session) in manualMirrorSessions where terminalIDs.contains(session.terminalID) {
+            closeManualMirrorPane(panelID: panelID, terminalID: session.terminalID)
+        }
+    }
+
+    private func closeManualMirrorPane(panelID: UUID, terminalID: String) {
+        materializedPanels.remove(panelID)
+        manualMirrorSessions.removeValue(forKey: panelID)?.stop()
+        guard let workspace = AppDelegate.shared?.workspace(containingSurfaceID: panelID) else { return }
+        SurfacePaneFactory.closeExited(panelID: panelID, in: workspace.id)
+    }
+
+    /// Closes attach panes whose remote terminal is gone from the accepted
+    /// graph.
+    ///
+    /// A cloud pane owns no process, so nothing local notices when the remote
+    /// shell ends: after `exit` or Ctrl+D the daemon drops the tab and marks
+    /// the terminal exited, the byte attachment reports `detached`, and the
+    /// session would otherwise keep reconnecting behind a frozen pane. Closing
+    /// it here matches a local pane, which disappears when its shell exits, and
+    /// it goes through the same close path as the menu, the CLI, and the
+    /// keyboard shortcut.
+    ///
+    /// Only a current graph may close a pane: a stale or unavailable read means
+    /// the machine is unreachable, not that the terminal ended.
+    private func closePanesForVanishedRemoteTerminals(observation: CloudVMStateObservation) {
+        guard !manualMirrorSessions.isEmpty else { return }
+        let live = Set(
+            catalog.snapshot.resources(on: machine)
+                .filter { $0.id.kind == .terminal }
+                .map(\.id.key)
+        )
+        let closing = CloudTerminalPaneClosure.panelsToClose(
+            boundTerminals: manualMirrorSessions.mapValues(\.terminalID),
+            liveTerminalKeys: live,
+            freshness: observation.freshness
+        )
+        for panelID in closing {
+            guard let terminalID = manualMirrorSessions[panelID]?.terminalID else { continue }
+#if DEBUG
+            cmuxDebugLog("cloud.pane.closeExited panel=\(panelID) terminal=\(terminalID)")
+#endif
+            closeManualMirrorPane(panelID: panelID, terminalID: terminalID)
         }
     }
 
@@ -971,11 +998,15 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// cmux-tui's selectors, so its tab is closed instead. Either way the resource
     /// leaves the catalog now and the next snapshot confirms.
     func closeTerminal(_ id: SurfaceResourceID) async throws {
+        try await closeTerminal(id, fallbackTabID: nil)
+    }
+
+    func closeTerminal(_ id: SurfaceResourceID, fallbackTabID: String?) async throws {
         pendingRemoteCreations.removeValue(forKey: id)
         do {
             _ = try await runCloseCommand { CloudTuiCommandLine.closeTerminalArguments(socketPath: $0, terminalID: id.key) }
         } catch {
-            guard let tabID = tabByTerminal[id.key], Self.isSelectorNotFound(error) else { throw error }
+            guard let tabID = fallbackTabID ?? tabByTerminal[id.key], Self.isSelectorNotFound(error) else { throw error }
             _ = try await runCloseCommand { CloudTuiCommandLine.closeTabArguments(socketPath: $0, tabID: tabID) }
         }
         closeLocalPanes(showing: [id])
@@ -1007,16 +1038,17 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     /// cmux-tui's `selector.not_found` error body, surfaced by `link.run` as the
     /// command's output text.
-    private static func isSelectorNotFound(_ error: Error) -> Bool {
+    static func isSelectorNotFound(_ error: Error) -> Bool {
         let text = CloudMachineLink.errorText(error)
         return text.contains("selector.not_found") || text.contains("no terminal matches")
     }
 
     /// The resource CLI exposes optimistic-concurrency failures as either the
     /// structured code or its human-readable text, depending on client version.
-    private static func isRevisionConflict(_ error: Error) -> Bool {
+    nonisolated static func isRevisionConflict(_ error: Error) -> Bool {
         let text = CloudMachineLink.errorText(error).lowercased()
         return text.contains("revision conflict") || text.contains("revision.conflict")
+            || text.contains("revision_conflict") || text.contains("stale revision")
     }
 
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
@@ -1030,6 +1062,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         focus: Bool
     ) async throws -> SurfaceProjection {
         let created: (workspaceID: UUID, panelID: UUID)
+        var createdPlacement: SurfaceRemotePlacement?
         switch resource.kind {
         case .terminal:
             let manual = try await materializeManualMirrorTerminal(
@@ -1038,80 +1071,63 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 focus: focus
             )
             created = (manual.workspaceID, manual.panelID)
+            createdPlacement = manual.remotePlacement
         case .display, .browser:
-            let desktop = resource.kind == .display
-            guard let port = resource.id.forwardedPort ?? resource.port ?? (desktop ? CmuxTuiSnapshotParser.desktopPort : nil) else {
-                throw SurfaceCatalogError.unsupported("browser \(resource.id) has no port")
-            }
-            guard let rawURL = resource.url, let directURL = URL(string: rawURL) else {
-                throw SurfaceCatalogError.unsupported("browser \(resource.id) has no private URL")
-            }
-            // Create the pane immediately, but do not navigate to any private
-            // address until the Network Extension is connected. This is the
-            // only action that can cause the one-time macOS approval request.
-            let label = Self.paneLabel(machineID: machineID, port: port, desktop: desktop)
-            let machineWasAwake = isAwake
-            created = try SurfacePaneFactory.makeBrowserPane(url: SurfacePaneFactory.blankURL, at: destination, focus: focus)
-            SurfacePaneFactory.showPlaceholder(SurfaceBrowserPlaceholder.connecting(label), panelID: created.panelID, in: created.workspaceID)
-            let pane = created
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                do {
-                    guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
-                    try await client.requireCloudBrowserAccess(machineID: self.machineID)
-                    if !machineWasAwake {
-                        // Waking a paused machine is an explicit management
-                        // operation. Ignore the returned URL and keep the
-                        // private address captured above.
-                        _ = try await client.openPort(id: self.machineID, port: port)
-                    }
-                    SurfacePaneFactory.navigate(panelID: pane.panelID, in: pane.workspaceID, to: directURL)
-                } catch {
-                    let text = CloudMachineLink.errorText(error)
-                    SurfacePaneFactory.showPlaceholder(SurfaceBrowserPlaceholder.failed(label, error: text), panelID: pane.panelID, in: pane.workspaceID)
-                    #if DEBUG
-                    cmuxDebugLog("cloud.provider.endpointFailed machine=\(self.machineID) port=\(port) error=\(String(reflecting: error))")
-                    #endif
-                }
-            }
+            // Ports and the desktop are reached through the user-space
+            // WireGuard hub on a loopback forward: no system VPN, no
+            // extension approval, on every build (`CloudPortRoutePlan`).
+            created = try await materializeBrowserPane(resource, at: destination, focus: focus)
         }
         materializedPanels.insert(created.panelID)
+        if let createdPlacement {
+            catalog.cloudPlacementCoordinator.confirmPlacement(createdPlacement, on: machine)
+        }
         let selectedView = remoteView ?? Self.defaultRemoteView(for: resource)
         return SurfaceProjection(
             resource: resource.id,
             workspaceID: created.workspaceID,
             panelID: created.panelID,
-            remoteWorkspaceID: selectedView?.workspace.id,
-            remoteTabID: selectedView?.tabID
+            remoteWorkspaceID: createdPlacement?.workspaceID ?? selectedView?.workspace.id,
+            remoteTabID: createdPlacement?.tabID ?? selectedView?.tabID
         )
     }
 
     /// A new terminal in the machine's cmux-tui session (`workspace <ws> run -- argv`).
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
+        try await createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID, onExit: nil)
+    }
+
+    /// The same, choosing the daemon's exit policy: `"keep"` retains the tab and final
+    /// screen after the process exits (a sender that reads the process's last lines as
+    /// its result needs that); nil is the daemon default, `close`.
+    func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, onExit: String?) async throws -> SurfaceResource {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        let workspaceID: String
-        if let remoteWorkspaceID = remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines), !remoteWorkspaceID.isEmpty {
-            workspaceID = remoteWorkspaceID
-        } else if let existing = catalog.snapshot.resources(on: machine).compactMap(\.remoteWorkspace).sorted(by: { ($0.focused ? 0 : 1, $0.index) < ($1.focused ? 0 : 1, $1.index) }).first {
-            workspaceID = existing.id
-        } else {
-            let created = try await link.run(arguments: CloudTuiCommandLine.createWorkspaceArguments(socketPath: connected.socketPath, name: name ?? "main"))
-            guard let object = try JSONSerialization.jsonObject(with: created) as? [String: Any],
-                  let id = CmuxTuiSnapshotParser.createdWorkspace(fromResult: object) else {
-                throw ProviderError.noWorkspaceOnMachine(machineID)
-            }
-            workspaceID = id
-        }
+        // Resolve the active workspace inside the daemon mutation. A stale Mac
+        // catalog must never bootstrap a second workspace during concurrent creates.
+        let requestedWorkspace = remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let workspaceID = requestedWorkspace.flatMap { $0.isEmpty ? nil : $0 } ?? "current"
         let argv = CloudTuiCommandLine.commandStartingIn(
             cwd: cwd,
             command: (command?.isEmpty == false ? command : nil) ?? CloudTuiCommandLine.defaultTerminalCommand
         )
-        let data = try await link.run(arguments: CloudTuiCommandLine.runArguments(socketPath: connected.socketPath, workspaceID: workspaceID, command: argv))
+        let data = try await link.run(arguments: CloudTuiCommandLine.runArguments(socketPath: connected.socketPath, workspaceID: workspaceID, command: argv, onExit: onExit))
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let created = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) else {
             throw ProviderError.terminalNotCreated(String(data: data, encoding: .utf8) ?? "")
         }
+        guard let resolvedWorkspaceID = created.workspaceID ?? (workspaceID == "current" ? nil : workspaceID) else {
+            throw ProviderError.noWorkspaceOnMachine(machineID)
+        }
+        return recordCreatedTerminal(created, workspaceID: resolvedWorkspaceID, name: name, cwd: cwd)
+    }
+
+    private func recordCreatedTerminal(
+        _ created: CmuxTuiSnapshotParser.CreatedTerminalPath,
+        workspaceID: String,
+        name: String?,
+        cwd: String?
+    ) -> SurfaceResource {
         let resolvedWorkspaceID = created.workspaceID ?? workspaceID
         let remoteWorkspace = cloudState?.workspaces.first(where: { $0.id == resolvedWorkspaceID }).map {
             SurfaceRemoteWorkspace(id: $0.id, name: $0.name, index: $0.index, focused: $0.focused)
@@ -1155,27 +1171,66 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         return resource
     }
 
-    /// A new empty workspace in the machine's cmux-tui session (`workspace create`),
+    /// A new workspace in the machine's cmux-tui session (`workspace create`),
     /// called directly — not as a side effect of creating a terminal.
     func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace {
+        try await createRemoteWorkspace(name: name, expectedRevision: nil)
+    }
+
+    /// Uses the daemon's revision fence for the name lookup/create, including
+    /// races with another Mac or a guest CLI, without serializing unrelated I/O.
+    func getOrCreateRemoteWorkspace(name: String) async throws -> (workspace: SurfaceRemoteWorkspace, existing: Bool) {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        let existingCount = info.remoteWorkspaces?.count
-            ?? Set(catalog.snapshot.resources(on: machine).flatMap { $0.remoteWorkspaces.map(\.id) }).count
-        let workspaceName = name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            ? name!.trimmingCharacters(in: .whitespacesAndNewlines)
-            : (existingCount == 0 ? "main" : "workspace-\(existingCount + 1)")
-        let created = try await link.run(arguments: CloudTuiCommandLine.createWorkspaceArguments(socketPath: connected.socketPath, name: workspaceName))
+        for attempt in 0..<8 {
+            try Task.checkCancellation()
+            let data = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: connected.socketPath))
+            guard let snapshot = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let state = CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: machine),
+                  let revision = state.cursor?.revision else { throw ProviderError.invalidSnapshot(machineID) }
+            let matches = CmuxTuiSnapshotParser.workspaces(fromSnapshot: snapshot).filter { $0.name == name }
+            if matches.count > 1 {
+                throw SurfaceCatalogError.destinationNotFound(String(localized: "cloud.workspace.ambiguousName", defaultValue: "Several machine workspaces have that name. Use a workspace ID or choose a unique name."))
+            }
+            if let workspace = matches.first { return (workspace, true) }
+            do {
+                return (try await createRemoteWorkspace(name: name, expectedRevision: revision), false)
+            } catch let error as CloudMachineLink.LinkError {
+                guard attempt < 7, case .exited(_, let output) = error,
+                      let object = try? JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any],
+                      (object["code"] as? String) == "revision.conflict" else { throw error }
+            }
+        }
+        throw ProviderError.invalidSnapshot(machineID)
+    }
+
+    private func createRemoteWorkspace(name: String?, expectedRevision: UInt64?) async throws -> SurfaceRemoteWorkspace {
+        let connected = try await links.connected(machineID: machineID)
+        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
+        let workspaceName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var arguments = CloudTuiCommandLine.createWorkspaceArguments(socketPath: connected.socketPath, name: workspaceName)
+        if let expectedRevision { arguments += ["--expected-revision", String(expectedRevision)] }
+        let created = try await link.run(arguments: arguments)
         guard let object = try JSONSerialization.jsonObject(with: created) as? [String: Any],
               let id = CmuxTuiSnapshotParser.createdWorkspace(fromResult: object) else {
             throw ProviderError.noWorkspaceOnMachine(machineID)
         }
-        let workspace = SurfaceRemoteWorkspace(id: id, name: workspaceName, index: info.remoteWorkspaces?.count ?? 0, focused: false)
-        // Optimistic: show the new (empty) workspace now; the next snapshot re-sync is authoritative.
-        info.remoteWorkspaces = (info.remoteWorkspaces ?? []) + [workspace]
-        catalog.updateMachine(info, from: self)
-        scheduleRefresh()
-        return workspace
+        // Creation already committed. Retain its exact starter receipt while a
+        // delayed snapshot catches up, so the caller cannot create a second one.
+        let committedName = ((object["value"] as? [String: Any]) ?? object)["name"] as? String
+        let provisionalName = workspaceName?.isEmpty == false
+            ? workspaceName!
+            : (committedName ?? String(localized: "cloudTree.workspace.pending", defaultValue: "New workspace"))
+        let provisional = SurfaceRemoteWorkspace(id: id, name: provisionalName, index: info.remoteWorkspaces?.count ?? 0, focused: false)
+        if info.remoteWorkspaces?.contains(where: { $0.id == id }) != true {
+            info.remoteWorkspaces = (info.remoteWorkspaces ?? []) + [provisional]
+            catalog.updateMachine(info, from: self)
+        }
+        if let starter = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) {
+            _ = recordCreatedTerminal(starter, workspaceID: id, name: nil, cwd: nil)
+        }
+        _ = await refreshCurrentGraph(force: true)
+        return info.remoteWorkspaces?.first(where: { $0.id == id }) ?? provisional
     }
 
     func renameRemoteWorkspace(id: String, name: String) async throws {
@@ -1188,7 +1243,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         // Validate against a fresh document. A cached workspace id can refer to
         // a closed or recycled daemon object after another client changes the VM.
-        guard await refresh(force: true),
+        guard await refreshCurrentGraph(force: true),
               let observed = cloudState,
               let previous = observed.workspaces.first(where: { $0.id == id }) else {
             throw SurfaceCatalogError.unsupported(
@@ -1215,7 +1270,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             // when this workspace still has the name we observed. If another
             // client changed it, do not overwrite that intent.
             guard Self.isRevisionConflict(error),
-                  await refresh(force: true),
+                  await refreshCurrentGraph(force: true),
                   let latest = cloudState,
                   let current = latest.workspaces.first(where: { $0.id == id }),
                   let latestCursor = latest.cursor,
@@ -1234,7 +1289,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         // The command response is not the source of truth. Wait for the next
         // accepted snapshot/event so every local projection sees the same name.
         try Task.checkCancellation()
-        _ = await refresh(force: true)
+        _ = await refreshCurrentGraph(force: true)
     }
 
     /// Rename one placement-local daemon tab. This is the canonical path used by a
@@ -1246,7 +1301,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         // Creation and rename can arrive back-to-back. Refresh before validating the
         // target, but use the creation receipt when the accepted snapshot still
         // trails it. The receipt's revision is a CAS fence, not a timing guess.
-        let refreshEstablishedCurrentGraph = await refresh(force: true)
+        let refreshEstablishedCurrentGraph = await refreshCurrentGraph(force: true)
         try Task.checkCancellation()
         let pendingCreation = pendingCreation(forTabID: id)
         let pendingRename = pendingRemoteRename(for: .tab(id))
@@ -1283,7 +1338,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 recordPendingRename(tabID: id, name: normalizedName, revision: validated.revision)
             } catch {
                 guard Self.isRevisionConflict(error),
-                      await refresh(force: true),
+                      await refreshCurrentGraph(force: true),
                       let latest = cloudState,
                       let current = latest.tabs.first(where: { $0.id == id }),
                       let latestCursor = latest.cursor,
@@ -1321,7 +1376,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         // The daemon event normally installs this before the command exits. The
         // explicit read is the barrier for older clients that do not stream deltas.
         try Task.checkCancellation()
-        _ = await refresh(force: true)
+        _ = await refreshCurrentGraph(force: true)
     }
 
     /// Compatibility operation for callers that intentionally mean “all views”.
@@ -1334,7 +1389,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         // tab id, and use the fresh typed state for the old value. A creation
         // receipt supplies the one exact tab while the first snapshot catches
         // up, so an immediate rename cannot lose its target.
-        let refreshEstablishedCurrentGraph = await refresh(force: true)
+        let refreshEstablishedCurrentGraph = await refreshCurrentGraph(force: true)
         try Task.checkCancellation()
         let pending = pendingCreation(for: id)
         let observed = cloudState
@@ -1424,7 +1479,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             // so a concurrent rename between checks cannot be overwritten.
             var compensated = renamedTabs.isEmpty
             if !renamedTabs.isEmpty, !mutationOutcomeUncertain,
-               await refresh(force: true),
+               await refreshCurrentGraph(force: true),
                let latest = cloudState,
                let latestCursor = latest.cursor,
                latestCursor.generation == observedCursor.generation,
@@ -1451,7 +1506,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                     }
                 }
             }
-            _ = await refresh(force: true)
+            _ = await refreshCurrentGraph(force: true)
             if !compensated {
                 throw Self.partialRenameError(
                     id: id,
@@ -1461,7 +1516,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             }
             throw error
         }
-        _ = await refresh(force: true)
+        _ = await refreshCurrentGraph(force: true)
     }
 
     @discardableResult
@@ -1550,12 +1605,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     /// The terminal lives in the machine's session; only the local pane went away.
     func projectionDidEnd(_ projection: SurfaceProjection) {
+        browserPaneTasks.removeValue(forKey: projection.panelID)?.cancel()
         materializedPanels.remove(projection.panelID)
         manualMirrorSessions.removeValue(forKey: projection.panelID)?.stop()
     }
 
     @discardableResult
     func discardMaterialization(_ projection: SurfaceProjection) -> Bool {
+        browserPaneTasks.removeValue(forKey: projection.panelID)?.cancel()
         materializedPanels.remove(projection.panelID)
         manualMirrorSessions.removeValue(forKey: projection.panelID)?.stop()
         SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
@@ -1699,6 +1756,130 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         return ports
     }
 
+    // MARK: Notifications
+
+    private func installNotificationSync() {
+        // The registry never creates a provider while the managed-device
+        // policy disables Cloud, so no policy check is repeated here.
+        let machineID = self.machineID
+        let clientID = CloudTuiClientPaths().notificationClientID()
+        let sync = CloudNotificationSync(
+            machineID: machineID,
+            clientID: clientID,
+            resolveTarget: { [weak self] row in self?.notificationDeliveryTarget(for: row) },
+            deliver: { [weak self] row, target in self?.deliverNotification(row, to: target) ?? false },
+            send: { [weak self] batch in
+                // A vanished provider must not report success: the batch stays
+                // pending in the durable state for the replacement sync.
+                guard let self else { throw ProviderError.machineAsleep(machineID) }
+                let connected = try await self.links.connected(machineID: machineID)
+                guard let link = await self.links.link(machineID: machineID) else {
+                    throw ProviderError.machineAsleep(machineID)
+                }
+                _ = try await link.run(arguments: CloudTuiCommandLine.notificationAckArguments(
+                    socketPath: connected.socketPath,
+                    clientID: clientID,
+                    notificationIDs: batch.ids,
+                    idempotencyKey: batch.key
+                ))
+            },
+            unreadChanged: { terminalIDs in
+                CloudNotificationSyncHub.shared.setUnread(terminalIDs, machineID: machineID)
+            },
+            withdraw: { ids in
+                // `cmux notify --clear` on the machine, or ledger eviction:
+                // the local banners for those rows go with them.
+                guard let store = AppDelegate.shared?.notificationStore else { return }
+                let keys = Set(ids.map { CloudNotificationCorrelation.key(machineID: machineID, notificationID: $0) })
+                for notification in store.notifications where notification.correlationKey.map(keys.contains) == true {
+                    store.remove(id: notification.id)
+                }
+            }
+        )
+        notificationSync = sync
+        CloudNotificationSyncHub.shared.register(sync)
+        notificationPlacementObserver = NotificationCenter.default.addObserver(
+            forName: SurfaceCatalog.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let state = self.cloudState else { return }
+                self.syncNotifications(from: state)
+            }
+        }
+    }
+
+    private func syncNotifications(from state: CloudVMState) {
+        guard let notificationSync else { return }
+        let rows = CloudVMNotificationRow.rows(from: state)
+        notificationSync.apply(rows: rows)
+        #if DEBUG
+        cmuxDebugLog("cloud.notifications.sync machine=\(machineID) revision=\((state.cursor?.revision).map(String.init) ?? "nil") rows=\(rows.count) unreadTerminals=\(notificationSync.unreadTerminalIDs.count) pending=\(notificationSync.state.pendingAcks.count)")
+        #endif
+    }
+
+    /// The pane showing the terminal when one is open on this Mac, else the
+    /// local workspace bound to the terminal's remote workspace, else any
+    /// local workspace bound to the machine. No local placement means the row
+    /// stays undelivered until one exists; the Cloud tree still shows the dot.
+    private func notificationDeliveryTarget(for row: CloudVMNotificationRow) -> CloudNotificationDeliveryTarget? {
+        if let terminalID = row.terminalID {
+            let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)
+            if let projection = catalog.projections(of: resourceID).first {
+                return CloudNotificationDeliveryTarget(workspaceID: projection.workspaceID, panelID: projection.panelID)
+            }
+        }
+        let remoteWorkspaceID = row.terminalID.flatMap { terminalID -> String? in
+            guard let state = cloudState else { return nil }
+            for tab in state.tabs where tab.contentID == terminalID {
+                guard let pane = state.lookupIndex.pane(id: tab.paneID),
+                      let screen = state.lookupIndex.screen(id: pane.screenID) else { continue }
+                return screen.workspaceID
+            }
+            return nil
+        }
+        let bound = (AppDelegate.shared?.tabManager?.tabs ?? []).filter { $0.cloudVMBinding?.vmID == machineID }
+        if let remoteWorkspaceID,
+           let exact = bound.first(where: { $0.cloudVMBinding?.remoteWorkspaceID == remoteWorkspaceID }) {
+            return CloudNotificationDeliveryTarget(workspaceID: exact.id, panelID: nil)
+        }
+        if let any = bound.first {
+            return CloudNotificationDeliveryTarget(workspaceID: any.id, panelID: nil)
+        }
+        return nil
+    }
+
+    private func deliverNotification(_ row: CloudVMNotificationRow, to target: CloudNotificationDeliveryTarget) -> Bool {
+        guard let store = AppDelegate.shared?.notificationStore else { return false }
+        guard CloudNotificationSyncHub.shared.admit(row, machineID: machineID) else { return true }
+        let terminalTitle = row.terminalID.flatMap { cloudState?.lookupIndex.terminal(id: $0)?.title } ?? ""
+        let machineName = summary.preferredName
+        let subtitle: String
+        if let explicit = row.subtitle {
+            // The producer's own subtitle wins, as `cmux notify --subtitle` does locally.
+            subtitle = explicit
+        } else if terminalTitle.isEmpty {
+            subtitle = machineName
+        } else {
+            subtitle = String(
+                format: String(localized: "cloudNotification.subtitle.machine", defaultValue: "%@ on %@"),
+                terminalTitle,
+                machineName
+            )
+        }
+        return store.addNotification(
+            tabId: target.workspaceID,
+            surfaceId: target.panelID,
+            title: row.title,
+            subtitle: subtitle,
+            body: row.body,
+            retargetsToLiveSurfaceOwner: target.panelID != nil,
+            correlationKey: CloudNotificationCorrelation.key(machineID: machineID, notificationID: row.id),
+            origin: .cloudVM(machineID: machineID)
+        ) != nil
+    }
+
     private func watchChanges(link: CloudMachineLink, generation: UInt64) {
         guard generation == lifecycleGeneration else { return }
         if let watchedLink, watchedLink === link, changeWatcher != nil { return }
@@ -1734,6 +1915,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         switch change {
         case .connected:
             if cloudState == nil { scheduleRefresh() }
+            notificationSync?.linkDidConnect()
 
         case .snapshot(let cursor, _, let payload):
             guard let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
@@ -1759,6 +1941,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 info.linkError = nil
                 publish(incoming, ports: portsCache?.ports ?? [])
                 reprojectRestoredPanes(generation: lifecycleGeneration)
+                syncNotifications(from: incoming)
             }
 
         case .delta(let cursor, let previousRevision, let revision, let payload):
@@ -1774,8 +1957,16 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 // A gap is the same synchronization barrier as a malformed event. Route it
                 // through the single bounded recovery owner so a burst of out-of-order events
                 // cannot start one full snapshot request per line.
+                #if DEBUG
+                cmuxDebugLog("cloud.state.deltaGap machine=\(machineID) previous=\(previousRevision) revision=\(revision) current=\((cloudState?.cursor?.revision).map(String.init) ?? "nil")")
+                #endif
                 scheduleStateRecoveryRefresh()
             case .installSnapshot:
+                #if DEBUG
+                if let current = cloudState, cursor.revision != revision {
+                    cmuxDebugLog("cloud.state.deltaRejectReason reason=itemRevision cursor=\(cursor.revision) revision=\(revision) current=\(current.cursor?.revision ?? 0)")
+                }
+                #endif
                 guard let current = cloudState,
                       cursor.revision == revision,
                       let application = CmuxTuiSnapshotParser.applyingWithImpact(
@@ -1784,6 +1975,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                         to: current
                       ),
                       application.state.cursor == cursor else {
+                    #if DEBUG
+                    let kinds = ((try? JSONSerialization.jsonObject(with: payload) as? [String: Any])?["changes"] as? [[String: Any]])?
+                        .compactMap { "\($0["kind"] ?? "?"):\($0["resource"] ?? "?")" }.joined(separator: ",") ?? "?"
+                    cmuxDebugLog("cloud.state.deltaRejected machine=\(machineID) revision=\(revision) changes=\(kinds)")
+                    #endif
                     scheduleStateRecoveryRefresh()
                     return
                 }
@@ -1812,6 +2008,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                     ports: portsCache?.ports ?? [],
                     reconcileTitles: titlesChanged
                 )
+                syncNotifications(from: next)
             }
 
         case .streamEnded(let reason, _):
@@ -1853,7 +2050,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             self.stateRecoveryRefreshTask = nil
             guard self.stateRecoveryRefreshQueued else { return }
             self.stateRecoveryRefreshQueued = false
-            await self.refresh(force: true)
+            await self.refreshCurrentGraph(force: true)
             if self.stateRecoveryRefreshQueued {
                 self.scheduleStateRecoveryRefresh()
             }
@@ -1877,7 +2074,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             guard !Task.isCancelled, let self else { return }
             self.scheduledRefresh = nil
             guard self.lifecycleGeneration == lifecycle, self.isRegisteredInCatalog() else { return }
-            await self.refresh(force: false)
+            await self.refreshCurrentGraph(force: false)
         }
     }
 
@@ -1887,6 +2084,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// the placeholder.
     private func reprojectRestoredPanes(generation: UInt64) {
         guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { return }
+        reprojectRestoredBrowserPanes(generation: generation)
         let terminals = catalog.snapshot.resources(on: machine).filter { $0.kind == .terminal }
         for terminal in terminals {
             for projection in catalog.projections(of: terminal.id) where !materializedPanels.contains(projection.panelID) {

@@ -78,7 +78,8 @@ extension FileExplorerSearchField {
 @MainActor
 extension NSEvent {
     func isFileExplorerOpenSelectionShortcut(in placement: FileExplorerPanelPlacement) -> Bool {
-        isFileExplorerOpenSelectionShortcut(in: placement.openSelectionShortcutContext(for: self))
+        guard type == .keyDown else { return false }
+        return isFileExplorerOpenSelectionShortcut(in: placement.openSelectionShortcutContext(for: self))
     }
 
     func isFileExplorerOpenSelectionShortcut(in context: ShortcutContext) -> Bool {

@@ -22,6 +22,11 @@ final class CodexAppServerSession {
     private var didInitialize = false
     private var threadStartRequestID: Int?
     private var threadID: String?
+    /// Test seam: the session has asked the app server for a thread and is
+    /// waiting for that response.
+    var isAwaitingThreadStart: Bool { threadStartRequestID != nil }
+    /// Test seam: the app server has handed the session a thread.
+    var hasThread: Bool { threadID != nil }
     private var queuedInputs: [CodexAppServerQueuedInput] = []
     private var stdoutBuffer = ""
     private var didFailStartup = false

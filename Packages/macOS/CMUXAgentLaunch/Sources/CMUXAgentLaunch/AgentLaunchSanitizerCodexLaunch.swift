@@ -236,41 +236,45 @@ private func isCmuxInjectedCodexHookConfigValue(
 }
 
 private func isCmuxCodexHookCommand(_ command: String, subcommand: String) -> Bool {
-    guard !command.contains("\\") else { return false }
-    let normalized = command
-    let scriptFilename = cmuxCodexHookScriptFilename(from: normalized)
+    let scriptFilename = cmuxCodexHookScriptFilename(from: command)
     let subcommands = [subcommand] + (codexWrapperInjectedHookSubcommandAliases[subcommand] ?? [])
     for candidate in subcommands {
         if let scriptFilename,
            CodexHookScriptName(filename: scriptFilename)?.subcommand == candidate {
             return true
         }
-        if command.contains("cmux-codex-hook") && command.contains("hooks codex \(candidate)") {
+        // Keep the legacy inline matcher conservative. A quoted script path is
+        // handled structurally above; this fallback is only for old generated
+        // shell snippets and must not treat escaped user commands as cmux-owned.
+        if !command.contains("\\"),
+           command.contains("cmux-codex-hook") && command.contains("hooks codex \(candidate)") {
             return true
         }
     }
     return false
 }
 
-private func cmuxCodexHookScriptFilename(from normalizedCommand: String) -> String? {
-    guard normalizedCommand.hasPrefix("/"),
-          normalizedCommand.unicodeScalars.allSatisfy({
-              !CharacterSet.controlCharacters.contains($0)
-          }),
-          normalizedCommand.rangeOfCharacter(from: codexHookShellMetacharacters) == nil
-    else {
+private func cmuxCodexHookScriptFilename(from command: String) -> String? {
+    guard let scriptPath = CodexHookScriptName.scriptPath(fromShellCommand: command) else {
         return nil
     }
 
-    let url = URL(fileURLWithPath: normalizedCommand, isDirectory: false).standardizedFileURL
-    // A generated command is the complete executable path. Interior spaces in
-    // a path component are valid, while URL normalization changes embedded URL
-    // arguments and token separators leave boundary whitespace on a component.
-    guard url.path == normalizedCommand,
-          url.pathComponents.allSatisfy({
-              $0 == $0.trimmingCharacters(in: .whitespaces)
-          })
-    else {
+    let url = URL(fileURLWithPath: scriptPath, isDirectory: false).standardizedFileURL
+    // A generated command is the complete executable path. Canonical shell
+    // quoting already proves that boundary whitespace belongs to the path; the
+    // legacy bare form still needs conservative validation because it cannot
+    // distinguish a complete path token from a malformed command.
+    guard url.path == scriptPath else { return nil }
+    if !command.hasPrefix("'"),
+       scriptPath.unicodeScalars.contains(where: {
+           CharacterSet.controlCharacters.contains($0)
+       }) {
+        return nil
+    }
+    if !command.hasPrefix("'"),
+       !url.pathComponents.allSatisfy({
+           $0 == $0.trimmingCharacters(in: .whitespaces)
+       }) {
         return nil
     }
     let directoryComponents = url.deletingLastPathComponent().pathComponents
@@ -281,10 +285,6 @@ private func cmuxCodexHookScriptFilename(from normalizedCommand: String) -> Stri
     }
     return url.lastPathComponent
 }
-
-private let codexHookShellMetacharacters = CharacterSet(
-    charactersIn: "'\"`$&;|<>()[\\]{}*?!~#"
-)
 
 private let codexWrapperInjectedHookSubcommandAliases: [String: [String]] = [
     "prompt-submit": ["user-prompt-submit"],
