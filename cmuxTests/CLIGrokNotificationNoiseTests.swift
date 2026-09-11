@@ -31,6 +31,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "clear_notifications --tab=\(context.workspaceId) --panel=\(context.surfaceId) --correlation-key=\(oldKey)",
         ])
 
+        // Prompt submission clears summaries. Seed retained display metadata
+        // explicitly so this fixture still exercises stored-summary recovery.
+        let stateURL = context.root.appendingPathComponent("grok-hook-sessions.json")
+        var retainedStore = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        var retainedSessions = try XCTUnwrap(retainedStore["sessions"] as? [String: Any])
+        var retainedSession = try XCTUnwrap(retainedSessions[context.sessionId] as? [String: Any])
+        retainedSession["lastSubtitle"] = "Permission"
+        retainedSession["lastBody"] = "Grok needs permission to run rm"
+        retainedSession["lastNotificationStatus"] = "needsInput"
+        retainedSessions[context.sessionId] = retainedSession
+        retainedStore["sessions"] = retainedSessions
+        try JSONSerialization.data(withJSONObject: retainedStore).write(to: stateURL, options: .atomic)
+
         let fallbackStart = context.state.snapshot().count
         let unclassified = grokUnclassifiedPayload(context)
         try runGrokNoiseHook(context, "notification", payload: unclassified)
@@ -49,7 +62,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(candidates.allSatisfy { $0.contains(";a=grok") })
         XCTAssertTrue(candidates.allSatisfy { $0.contains(";s=needsInput") })
 
-        let stateURL = context.root.appendingPathComponent("grok-hook-sessions.json")
         let store = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
         let session = try XCTUnwrap((store["sessions"] as? [String: Any])?[context.sessionId] as? [String: Any])
         XCTAssertEqual(session["runtimeStatus"] as? String, "running")

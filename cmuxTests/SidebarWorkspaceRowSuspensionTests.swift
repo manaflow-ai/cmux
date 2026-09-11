@@ -290,9 +290,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         )
 
         cell.suspendPresentation()
-        await AppKitTestEventPump().drain()
-
-        #expect(!popoverWindow.isVisible)
+        #expect(await AppKitTestEventPump().waitUntil { !popoverWindow.isVisible })
     }
 
     @Test
@@ -349,7 +347,7 @@ struct SidebarWorkspaceRowSuspensionTests {
 
     @Test
     func checklistDraftCommitsOnlyOnceWhenFocusEndsBeforeSuspension() async throws {
-        let model = Self.makeModel(checklistAddFieldActivationToken: 1)
+        let model = Self.makeModel(checklistAddFieldActivationToken: 1, checklistStyle: .inline)
         var additions: [String] = []
         var consumptions = 0
         let cell = SidebarWorkspaceRowTableCellView()
@@ -386,11 +384,11 @@ struct SidebarWorkspaceRowSuspensionTests {
         let workspaceId = UUID()
         let firstModel = Self.makeModel(
             checklistItems: [firstItem, secondItem], isChecklistExpanded: true,
-            editingChecklistItemId: firstItem.id, workspaceId: workspaceId
+            editingChecklistItemId: firstItem.id, checklistStyle: .inline, workspaceId: workspaceId
         )
         let secondModel = Self.makeModel(
             checklistItems: [firstItem, secondItem], isChecklistExpanded: true,
-            editingChecklistItemId: secondItem.id, workspaceId: workspaceId
+            editingChecklistItemId: secondItem.id, checklistStyle: .inline, workspaceId: workspaceId
         )
         var edits: [(UUID, String)] = []
         let actions = Self.makeActions(
@@ -432,7 +430,8 @@ struct SidebarWorkspaceRowSuspensionTests {
         let model = Self.makeModel(
             checklistItems: [item],
             isChecklistExpanded: true,
-            editingChecklistItemId: item.id
+            editingChecklistItemId: item.id,
+            checklistStyle: .inline
         )
         var endedItemIds: [UUID] = []
         var edits: [(itemId: UUID, text: String)] = []
@@ -473,7 +472,8 @@ struct SidebarWorkspaceRowSuspensionTests {
         let model = Self.makeModel(
             checklistItems: [item],
             isChecklistExpanded: true,
-            editingChecklistItemId: item.id
+            editingChecklistItemId: item.id,
+            checklistStyle: .inline
         )
         var endedItemIds: [UUID] = []
         var edits: [(UUID, String)] = []

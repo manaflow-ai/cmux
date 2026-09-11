@@ -259,7 +259,7 @@ extension RemoteTmuxWindowMirror {
             let grewPin = panel.surface.setAssignedGrid(columns: node.width, rows: node.height)
             var laggedShort = false
             if !grewPin, !suppressPin,
-               let rendered = lastRenderedGrids[paneId],
+               let rendered = observedRenderedGrid(for: paneId),
                rendered.cols != node.width || rendered.rows != node.height {
                 // The pin value already equals the assignment, but the surface
                 // rendered a DIFFERENT grid: tmux grew the pane after the pin
@@ -284,6 +284,13 @@ extension RemoteTmuxWindowMirror {
         }
     }
 
+    /// Reads live renderer dimensions, using the ledger only before a live sample exists.
+    private func observedRenderedGrid(for paneId: Int) -> (cols: Int, rows: Int)? {
+        panelsByPaneId[paneId]?.surface.rawSizingSample()
+            .map { (cols: $0.columns, rows: $0.rows) }
+            ?? lastRenderedGrids[paneId]
+    }
+
     /// The first renderable pane whose last sampled grid is behind the cells
     /// tmux assigned it. This is the residual the input-only settle proof
     /// cannot see: `renderedLayout` is part of the sizing inputs, but a pin
@@ -301,9 +308,9 @@ extension RemoteTmuxWindowMirror {
             // (TerminalSurface+Sizing), so a pane that quietly drifted off
             // its assignment would read parity-clean from the cache alone.
             // rawSizingSample() is @MainActor and this runs on main.
-            let liveGrid = panelsByPaneId[paneId]?.surface.rawSizingSample()
-                .map { (cols: $0.columns, rows: $0.rows) }
-            guard let rendered = liveGrid ?? lastRenderedGrids[paneId] else { continue }
+            // Detection and repair must read the same observation. A stale
+            // ledger cannot suppress reapplying a pin that the live grid missed.
+            guard let rendered = observedRenderedGrid(for: paneId) else { continue }
             // Either direction is a mismatch: a short pane wraps, and an
             // over-rendered pane holds rows tmux never repaints. The recovery
             // pass re-applies the pin, which clamps both ways.

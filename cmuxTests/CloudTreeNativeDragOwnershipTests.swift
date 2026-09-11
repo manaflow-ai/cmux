@@ -29,33 +29,36 @@ struct CloudTreeNativeDragOwnershipTests {
 
         // The provisional writer must not claim an active native owner before
         // AppKit has called willBeginAt.
-        var writer: (any NSPasteboardWriting)? = coordinator.outlineView(
-            outline,
-            pasteboardWriterForItem: node
-        )
-        let dragID: UUID = try {
-            let writer = try #require(writer as? CloudTreeSurfaceDragPasteboardWriter)
-            let pasteboard = NSPasteboard(
-                name: NSPasteboard.Name("cloud-tree-provisional-payload-\(UUID().uuidString)")
+        let dragID = try autoreleasepool {
+            var writer: (any NSPasteboardWriting)? = coordinator.outlineView(
+                outline,
+                pasteboardWriterForItem: node
             )
-            defer { pasteboard.clearContents() }
-            #expect(pasteboard.writeObjects([writer]))
-            #expect(transferRegistry.resolve(from: pasteboard) != nil)
-            let record = try #require(
-                pasteboard.data(forType: DragOverlayRoutingPolicy.surfaceResourceTransferType)
-                    .flatMap { try? JSONDecoder().decode(SurfaceResourceDragPasteboardRecord.self, from: $0) }
-            )
-            #expect(record.dragID == writer.dragID)
-            let expectedResources = try #require(node.dragGroup?.resources)
-            #expect(record.resourceIDs == expectedResources)
-            return writer.dragID
-        }()
+            let result: UUID = try {
+                let writer = try #require(writer as? CloudTreeSurfaceDragPasteboardWriter)
+                let pasteboard = NSPasteboard(
+                    name: NSPasteboard.Name("cloud-tree-provisional-payload-\(UUID().uuidString)")
+                )
+                defer { pasteboard.clearContents() }
+                #expect(pasteboard.writeObjects([writer]))
+                #expect(transferRegistry.resolve(from: pasteboard) != nil)
+                let record = try #require(
+                    pasteboard.data(forType: DragOverlayRoutingPolicy.surfaceResourceTransferType)
+                        .flatMap { try? JSONDecoder().decode(SurfaceResourceDragPasteboardRecord.self, from: $0) }
+                )
+                #expect(record.dragID == writer.dragID)
+                let expectedResources = try #require(node.dragGroup?.resources)
+                #expect(record.resourceIDs == expectedResources)
+                return writer.dragID
+            }()
+            writer = nil
+            return result
+        }
         #expect(outline.activeNativeDragCoordinator == nil)
         #expect(SurfaceResourceDragRegistry.shared.group(id: dragID) != nil)
 
         // No native session was promoted. Releasing the writer is the exact
         // terminal boundary and must revoke both process-local registries now.
-        writer = nil
         _ = await AppKitTestEventPump().waitUntil {
             SurfaceResourceDragRegistry.shared.group(id: dragID) == nil
         }

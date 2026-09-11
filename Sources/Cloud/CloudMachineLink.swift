@@ -125,6 +125,7 @@ actor CloudMachineLink {
     let machineID: String
     private let clientURL: URL
     private let paths: CloudTuiClientPaths
+    private let deviceName: String?
 
     private(set) var state: SurfaceLinkState = .connecting
     private(set) var lastError: String?
@@ -175,12 +176,14 @@ actor CloudMachineLink {
         machineID: String,
         clientURL: URL,
         paths: CloudTuiClientPaths,
+        deviceName: String? = nil,
         eventsRecoveryClock: any Clock<Duration> = ContinuousClock(),
         eventsRecoveryPolicy: CloudMachineLinkEventsRecoveryPolicy = .standard
     ) {
         self.machineID = machineID
         self.clientURL = clientURL
         self.paths = paths
+        self.deviceName = deviceName
         self.eventsRecoveryClock = eventsRecoveryClock
         self.eventsRecoveryPolicy = eventsRecoveryPolicy
         (changes, changesContinuation) = AsyncStream<Change>.makeStream(bufferingPolicy: .bufferingNewest(1))
@@ -215,7 +218,7 @@ actor CloudMachineLink {
         process.executableURL = clientURL
         process.arguments = CloudTuiCommandLine.linkArguments(
             route: route,
-            deviceName: CloudTuiClientPaths.deviceName(),
+            deviceName: deviceName ?? CloudTuiClientPaths.deviceName(),
             stateDir: paths.stateDir.path,
             carrier: carrier,
             wireguardHubSocket: wireguardHubSocket

@@ -1046,8 +1046,8 @@ final class MachinesPanelModelTests: XCTestCase {
 }
 
 
-/// The Cloud tab shows this Mac by default (cloud-only stays one flip away), and the
-/// outline updates rows in place unless the tree's structure changed.
+/// The Cloud tab shows the cloud fleet by default (this Mac stays one flip away), and
+/// the outline updates rows in place unless the tree's structure changed.
 @MainActor
 final class CloudTreeScopeAndSignatureTests: XCTestCase {
     func testMachineCapabilitiesDecodeWithSupportedDefaults() {
@@ -1075,7 +1075,7 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
     }
 
     func testTreeShowsThisMacByDefaultAndCloudOnlyStaysOneFlipAway() {
-        XCTAssertTrue(CloudTreeNodeBuilder.includesLocalMachine, "every machine — this Mac included — shows the same shape")
+        XCTAssertFalse(CloudTreeNodeBuilder.includesLocalMachine, "the Machines panel defaults to the cloud fleet")
         let local = UUID()
         let snapshot = SurfaceCatalogSnapshot(
             machines: [info(.local), info(.cloud("vivid-newt"))],
@@ -1084,7 +1084,8 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
         )
         let workspaces = [CloudTreeLocalWorkspace(id: local, title: "cmux90", isSelected: true)]
         let byDefault = CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(machines: [machine("vivid-newt")], snapshot: snapshot, localWorkspaces: workspaces))
-        XCTAssertEqual(byDefault.first?.id, "machine:local")
+        XCTAssertEqual(byDefault.first?.id, "machine:vivid-newt")
+        XCTAssertFalse(byDefault.contains { $0.machine.isLocal })
         XCTAssertTrue(byDefault.contains { $0.id == "resource:vivid-newt/terminal/term_1" })
 
         let cloudOnly = CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(machines: [machine("vivid-newt")], snapshot: snapshot, localWorkspaces: workspaces, includeLocalMachine: false))

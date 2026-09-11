@@ -170,13 +170,11 @@ struct FileExplorerNativeDragOwnershipTests {
             "Superseded cleanup must not erase the replacement drag's payload."
         )
 
-        let duplicateSession = SearchResultsDragTestSession(
-            sequence: 2,
-            pasteboard: sharedPasteboard
-        )
+        // A duplicate callback repeats the same native session; sequence
+        // numbers may be reused by genuinely distinct AppKit sessions.
         container.tableView(
             container.searchResultsView,
-            draggingSession: duplicateSession,
+            draggingSession: secondSession,
             willBeginAt: .zero,
             forRowIndexes: IndexSet(integer: 0)
         )

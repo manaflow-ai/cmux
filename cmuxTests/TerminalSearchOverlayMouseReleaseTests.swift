@@ -21,11 +21,15 @@ struct TerminalSearchOverlayMouseReleaseTests {
 
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "needle"))
         #expect(await AppKitTestEventPump().waitUntil {
-            hostedView.debugHasSearchOverlay()
+            hostedView.debugHasSearchOverlay() && surface.surface != nil
         })
 
         let terminalView = try #require(surfaceView(in: hostedView) as? GhosttyNSView)
         let overlay = try #require(hostedView.debugSearchOverlayHostingViewForTesting())
+        // The standalone fixture has no workspace focus coordinator. Mark the
+        // terminal as the intended focus target so its pointer-down follows
+        // the production selection path and owns the release ledger.
+        terminalView.desiredFocus = true
 
         let downLocation = terminalView.convert(NSPoint(x: 24, y: 24), to: nil)
         terminalView.mouseDown(with: makeMouseEvent(type: .leftMouseDown, location: downLocation, window: window))
@@ -58,11 +62,12 @@ struct TerminalSearchOverlayMouseReleaseTests {
 
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "needle"))
         #expect(await AppKitTestEventPump().waitUntil {
-            hostedView.debugHasSearchOverlay()
+            hostedView.debugHasSearchOverlay() && surface.surface != nil
         })
 
         let terminalView = try #require(surfaceView(in: hostedView) as? GhosttyNSView)
         let overlay = try #require(hostedView.debugSearchOverlayHostingViewForTesting())
+        terminalView.desiredFocus = true
 
         let downLocation = terminalView.convert(NSPoint(x: 24, y: 24), to: nil)
         terminalView.mouseDown(with: makeMouseEvent(type: .leftMouseDown, location: downLocation, window: window))

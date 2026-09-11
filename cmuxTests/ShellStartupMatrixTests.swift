@@ -299,7 +299,8 @@ struct ShellStartupMatrixTests {
 
         let script = RemoteInteractiveShellBootstrapBuilder.script(
             remoteRelayPort: 0,
-            shellFeatures: ""
+            shellFeatures: "",
+            protectsFromHangup: true
         )
         let result = runProcess(
             executablePath: "/usr/bin/env",

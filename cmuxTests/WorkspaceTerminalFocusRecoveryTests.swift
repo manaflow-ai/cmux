@@ -19,11 +19,23 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             let appDelegate = originalAppDelegate ?? AppDelegate()
             let manager = TabManager(autoWelcomeIfNeeded: false)
             let originalTabManager = appDelegate.tabManager
-            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            let window = makeWindow()
+            defer { window.orderOut(nil) }
+            let windowId = UUID()
             AppDelegate.shared = appDelegate
+            appDelegate.registerMainWindow(
+                window,
+                windowId: windowId,
+                tabManager: manager,
+                sidebarState: SidebarState(),
+                sidebarSelectionState: SidebarSelectionState(),
+                fileExplorerState: FileExplorerState()
+            )
             appDelegate.tabManager = manager
             defer {
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+                manager.finalizeAllWorkspacesForWindowClose()
                 appDelegate.tabManager = originalTabManager
                 AppDelegate.shared = originalAppDelegate
             }
@@ -31,10 +43,6 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             let workspace = try #require(manager.selectedWorkspace, "Expected initial workspace")
             let panelId = try #require(workspace.focusedPanelId, "Expected initial focused panel")
             let panel = try #require(workspace.terminalPanel(for: panelId), "Expected initial terminal panel")
-            workspace.focusPanel(panelId, trigger: .terminalFirstResponder)
-
-            let window = makeWindow()
-            defer { window.orderOut(nil) }
             let contentView = try #require(window.contentView, "Expected content view")
 
             panel.hostedView.frame = contentView.bounds
@@ -46,6 +54,9 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             window.displayIfNeeded()
             contentView.layoutSubtreeIfNeeded()
             panel.hostedView.layoutSubtreeIfNeeded()
+            await AppKitTestEventPump().startSurface(panel.surface)
+            panel.hostedView.reconcileGeometryNow()
+            try #require(panel.surface.hasLiveSurface)
             await AppKitTestEventPump().drain()
 
             let surfaceView = try #require(findSurfaceView(in: panel.hostedView), "Expected terminal surface view")
@@ -89,11 +100,23 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             let appDelegate = originalAppDelegate ?? AppDelegate()
             let manager = TabManager(autoWelcomeIfNeeded: false)
             let originalTabManager = appDelegate.tabManager
-            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            let window = makeWindow()
+            defer { window.orderOut(nil) }
+            let windowId = UUID()
             AppDelegate.shared = appDelegate
+            appDelegate.registerMainWindow(
+                window,
+                windowId: windowId,
+                tabManager: manager,
+                sidebarState: SidebarState(),
+                sidebarSelectionState: SidebarSelectionState(),
+                fileExplorerState: FileExplorerState()
+            )
             appDelegate.tabManager = manager
             defer {
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+                manager.finalizeAllWorkspacesForWindowClose()
                 appDelegate.tabManager = originalTabManager
                 AppDelegate.shared = originalAppDelegate
             }
@@ -101,10 +124,6 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             let workspace = try #require(manager.selectedWorkspace, "Expected initial workspace")
             let panelId = try #require(workspace.focusedPanelId, "Expected initial focused panel")
             let panel = try #require(workspace.terminalPanel(for: panelId), "Expected initial terminal panel")
-            workspace.focusPanel(panelId, trigger: .terminalFirstResponder)
-
-            let window = makeWindow()
-            defer { window.orderOut(nil) }
             let contentView = try #require(window.contentView, "Expected content view")
 
             panel.hostedView.frame = contentView.bounds
@@ -116,6 +135,9 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             window.displayIfNeeded()
             contentView.layoutSubtreeIfNeeded()
             panel.hostedView.layoutSubtreeIfNeeded()
+            await AppKitTestEventPump().startSurface(panel.surface)
+            panel.hostedView.reconcileGeometryNow()
+            try #require(panel.surface.hasLiveSurface)
             await AppKitTestEventPump().drain()
 
             let surfaceView = try #require(findSurfaceView(in: panel.hostedView), "Expected terminal surface view")
@@ -159,11 +181,23 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             let appDelegate = originalAppDelegate ?? AppDelegate()
             let manager = TabManager(autoWelcomeIfNeeded: false)
             let originalTabManager = appDelegate.tabManager
-            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            let window = makeWindow()
+            defer { window.orderOut(nil) }
+            let windowId = UUID()
             AppDelegate.shared = appDelegate
+            appDelegate.registerMainWindow(
+                window,
+                windowId: windowId,
+                tabManager: manager,
+                sidebarState: SidebarState(),
+                sidebarSelectionState: SidebarSelectionState(),
+                fileExplorerState: FileExplorerState()
+            )
             appDelegate.tabManager = manager
             defer {
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+                manager.finalizeAllWorkspacesForWindowClose()
                 appDelegate.tabManager = originalTabManager
                 AppDelegate.shared = originalAppDelegate
             }
@@ -171,10 +205,6 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             let workspace = try #require(manager.selectedWorkspace, "Expected initial workspace")
             let panelId = try #require(workspace.focusedPanelId, "Expected initial focused panel")
             let panel = try #require(workspace.terminalPanel(for: panelId), "Expected initial terminal panel")
-            workspace.focusPanel(panelId, trigger: .terminalFirstResponder)
-
-            let window = makeWindow()
-            defer { window.orderOut(nil) }
             let contentView = try #require(window.contentView, "Expected content view")
 
             panel.hostedView.frame = contentView.bounds
@@ -186,6 +216,9 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             window.displayIfNeeded()
             contentView.layoutSubtreeIfNeeded()
             panel.hostedView.layoutSubtreeIfNeeded()
+            await AppKitTestEventPump().startSurface(panel.surface)
+            panel.hostedView.reconcileGeometryNow()
+            try #require(panel.surface.hasLiveSurface)
             await AppKitTestEventPump().drain()
 
             let surfaceView = try #require(findSurfaceView(in: panel.hostedView), "Expected terminal surface view")
@@ -224,11 +257,23 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             let appDelegate = originalAppDelegate ?? AppDelegate()
             let manager = TabManager(autoWelcomeIfNeeded: false)
             let originalTabManager = appDelegate.tabManager
-            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            let window = makeWindow()
+            defer { window.orderOut(nil) }
+            let windowId = UUID()
             AppDelegate.shared = appDelegate
+            appDelegate.registerMainWindow(
+                window,
+                windowId: windowId,
+                tabManager: manager,
+                sidebarState: SidebarState(),
+                sidebarSelectionState: SidebarSelectionState(),
+                fileExplorerState: FileExplorerState()
+            )
             appDelegate.tabManager = manager
             defer {
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+                manager.finalizeAllWorkspacesForWindowClose()
                 appDelegate.tabManager = originalTabManager
                 AppDelegate.shared = originalAppDelegate
             }
@@ -236,10 +281,6 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             let workspace = try #require(manager.selectedWorkspace, "Expected initial workspace")
             let panelId = try #require(workspace.focusedPanelId, "Expected initial focused panel")
             let panel = try #require(workspace.terminalPanel(for: panelId), "Expected initial terminal panel")
-            workspace.focusPanel(panelId, trigger: .terminalFirstResponder)
-
-            let window = makeWindow()
-            defer { window.orderOut(nil) }
             let contentView = try #require(window.contentView, "Expected content view")
 
             panel.hostedView.frame = contentView.bounds
@@ -251,6 +292,9 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             window.displayIfNeeded()
             contentView.layoutSubtreeIfNeeded()
             panel.hostedView.layoutSubtreeIfNeeded()
+            await AppKitTestEventPump().startSurface(panel.surface)
+            panel.hostedView.reconcileGeometryNow()
+            try #require(panel.surface.hasLiveSurface)
             await AppKitTestEventPump().drain()
 
             let surfaceView = try #require(findSurfaceView(in: panel.hostedView), "Expected terminal surface view")
@@ -290,11 +334,23 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             let appDelegate = originalAppDelegate ?? AppDelegate()
             let manager = TabManager(autoWelcomeIfNeeded: false)
             let originalTabManager = appDelegate.tabManager
-            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            let window = makeWindow()
+            defer { window.orderOut(nil) }
+            let windowId = UUID()
             AppDelegate.shared = appDelegate
+            appDelegate.registerMainWindow(
+                window,
+                windowId: windowId,
+                tabManager: manager,
+                sidebarState: SidebarState(),
+                sidebarSelectionState: SidebarSelectionState(),
+                fileExplorerState: FileExplorerState()
+            )
             appDelegate.tabManager = manager
             defer {
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+                manager.finalizeAllWorkspacesForWindowClose()
                 appDelegate.tabManager = originalTabManager
                 AppDelegate.shared = originalAppDelegate
             }
@@ -302,10 +358,6 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             let workspace = try #require(manager.selectedWorkspace, "Expected initial workspace")
             let panelId = try #require(workspace.focusedPanelId, "Expected initial focused panel")
             let panel = try #require(workspace.terminalPanel(for: panelId), "Expected initial terminal panel")
-            workspace.focusPanel(panelId, trigger: .terminalFirstResponder)
-
-            let window = makeWindow()
-            defer { window.orderOut(nil) }
             let contentView = try #require(window.contentView, "Expected content view")
 
             panel.hostedView.frame = contentView.bounds
@@ -322,6 +374,9 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             window.displayIfNeeded()
             contentView.layoutSubtreeIfNeeded()
             panel.hostedView.layoutSubtreeIfNeeded()
+            await AppKitTestEventPump().startSurface(panel.surface)
+            panel.hostedView.reconcileGeometryNow()
+            try #require(panel.surface.hasLiveSurface)
             await AppKitTestEventPump().drain()
 
             let surfaceView = try #require(findSurfaceView(in: panel.hostedView), "Expected terminal surface view")
@@ -377,6 +432,9 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             window.displayIfNeeded()
             contentView.layoutSubtreeIfNeeded()
             panel.hostedView.layoutSubtreeIfNeeded()
+            await AppKitTestEventPump().startSurface(panel.surface)
+            panel.hostedView.reconcileGeometryNow()
+            try #require(panel.surface.hasLiveSurface)
             await AppKitTestEventPump().drain()
 
             let surfaceView = try #require(findSurfaceView(in: panel.hostedView), "Expected terminal surface view")

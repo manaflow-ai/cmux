@@ -67,6 +67,10 @@ struct WindowKeyDownReplayGuardTests {
     private final class EditableUndoProbeTextView: NSTextView {
         private(set) var undoCallCount = 0
 
+        override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+            item.action == #selector(undo(_:)) || super.validateUserInterfaceItem(item)
+        }
+
         @objc func undo(_ sender: Any?) {
             undoCallCount += 1
         }

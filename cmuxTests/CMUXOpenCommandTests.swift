@@ -726,13 +726,15 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(html.contains("Review diff"), html)
         XCTAssertTrue(html.contains("<script id=\"cmux-diff-viewer-config\" type=\"application/json\">") && html.contains("background: transparent;"), html)
         XCTAssertTrue(html.contains("<div id=\"root\"></div>"), html)
-        XCTAssertTrue(html.contains("<script type=\"module\" src=\"./assets/cmux-webviews-app/main.mjs\"></script>"), html)
+        let appModuleRequestPath = try diffViewerAppModuleRequestPath(from: html)
+        XCTAssertTrue(appModuleRequestPath.hasPrefix("/assets/cmux-webviews-app-"), appModuleRequestPath)
+        XCTAssertTrue(appModuleRequestPath.hasSuffix("/main.mjs"), appModuleRequestPath)
         let assetDirectory = viewerFileURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
             .appendingPathComponent("pierre-diffs-1.2.7-trees-1.0.0-beta.4", isDirectory: true)
         let appAssetDirectory = viewerFileURL.deletingLastPathComponent()
-            .appendingPathComponent("assets", isDirectory: true)
-            .appendingPathComponent("cmux-webviews-app", isDirectory: true)
+            .appendingPathComponent(String(appModuleRequestPath.dropFirst()))
+            .deletingLastPathComponent()
         XCTAssertFalse(FileManager.default.fileExists(atPath: appAssetDirectory.appendingPathComponent("main.mjs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: appAssetDirectory.appendingPathComponent("main.mjs.deflate").path))
         XCTAssertEqual(viewerAssets["diffsModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/diffs.mjs")
@@ -757,7 +759,7 @@ final class CMUXOpenCommandTests: XCTestCase {
                 file["mime_type"] as? String == "text/x-diff"
         })
         XCTAssertTrue(files.contains { file in
-            file["request_path"] as? String == "/assets/cmux-webviews-app/main.mjs" &&
+            file["request_path"] as? String == appModuleRequestPath &&
                 file["mime_type"] as? String == "text/javascript"
         })
         XCTAssertTrue(files.contains { file in
@@ -870,8 +872,11 @@ final class CMUXOpenCommandTests: XCTestCase {
         let params = try XCTUnwrap(payload["params"] as? [String: Any])
         let rawURL = try XCTUnwrap(params["url"] as? String)
         let files = try diffViewerAllowedFiles(for: rawURL, from: params)
+        let htmlURL = try diffViewerHTMLFileURL(for: rawURL, from: params)
+        let html = try String(contentsOf: htmlURL, encoding: .utf8)
+        let appModuleRequestPath = try diffViewerAppModuleRequestPath(from: html)
         let appEntry = try XCTUnwrap(files.first { file in
-            (file["request_path"] as? String)?.hasSuffix("/assets/cmux-webviews-app/main.mjs") == true
+            file["request_path"] as? String == appModuleRequestPath
         })
         let appFilePath = try XCTUnwrap(appEntry["file_path"] as? String)
         XCTAssertTrue(appFilePath.hasSuffix("main.mjs.deflate"), appFilePath)
@@ -2677,6 +2682,15 @@ final class CMUXOpenCommandTests: XCTestCase {
         let pathParts = requestPath.split(separator: "/", omittingEmptySubsequences: true)
         _ = try XCTUnwrap(pathParts.first)
         return "/" + pathParts.dropFirst().joined(separator: "/")
+    }
+
+    private func diffViewerAppModuleRequestPath(from html: String) throws -> String {
+        let marker = "<script type=\"module\" src=\""
+        let start = try XCTUnwrap(html.range(of: marker)?.upperBound)
+        let tail = html[start...]
+        let end = try XCTUnwrap(tail.firstIndex(of: "\""))
+        let baseURL = try XCTUnwrap(URL(string: "cmux-diff-viewer://fixture/"))
+        return try XCTUnwrap(URL(string: String(tail[..<end]), relativeTo: baseURL)).path
     }
 
     private func diffViewerConfig(from html: String) throws -> [String: Any] {

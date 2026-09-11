@@ -303,7 +303,7 @@ struct SSHDeepSleepReattachTests {
         #expect(restartedSnapshot.remotePTYSessionID == customSessionID)
     }
 
-    @Test(arguments: [(nil, Int32(253), "24", 23), ("2O", Int32(255), "21", 20)])
+    @Test(arguments: [(nil, Int32(255), "21", 20), ("2O", Int32(255), "21", 20)])
     func foregroundAuthenticatedAttachUsesConfiguredRetryBudget(
         reconnectLimit: String?, expectedStatus: Int32, expectedAttempts: String, expectedSleepCount: Int
     ) throws {

@@ -1231,6 +1231,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
 
         window.makeKeyAndOrderFront(nil)
         defer {
+            appDelegate.clearBrowserAddressBarFocus(panelId: panelId, reason: "test.cleanup")
             NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panelId)
             AppDelegate.clearWindowFirstResponderGuardTesting()
             field.removeFromSuperview()
@@ -1245,7 +1246,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             return
         }
 
-        NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panelId)
+        XCTAssertTrue(appDelegate.focusBrowserAddressBar(in: panel))
         window.testFieldEditor.resetKeyDownKeyCodes()
 
         XCTAssertTrue(window.makeFirstResponder(webView))
@@ -1324,6 +1325,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
 
         window.makeKeyAndOrderFront(nil)
         defer {
+            appDelegate.clearBrowserAddressBarFocus(panelId: panelId, reason: "test.cleanup")
             NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panelId)
             AppDelegate.clearWindowFirstResponderGuardTesting()
             field.removeFromSuperview()
@@ -1338,7 +1340,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             return
         }
 
-        NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panelId)
+        XCTAssertTrue(appDelegate.focusBrowserAddressBar(in: panel))
         window.testFieldEditor.resetKeyDownKeyCodes()
         window.testFieldEditor.reportsMarkedText = true
 
@@ -2157,8 +2159,12 @@ final class BrowserInsecureHTTPAlertPresentationTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
-        defer { window.contentView = nil }
+        defer {
+            window.contentView = nil
+            window.orderOut(nil)
+        }
         window.contentView = panel.webView
+        window.orderFront(nil)
         panel.noteWebViewVisibility(true, reason: "test.interactiveHost")
 
         XCTAssertEqual(alertSpy.beginSheetModalCallCount, 1)

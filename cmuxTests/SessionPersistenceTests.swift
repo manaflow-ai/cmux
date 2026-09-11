@@ -6468,8 +6468,17 @@ extension SessionPersistenceTests {
             promptForApproval: false
         ))
 
-        XCTAssertTrue(input.contains("'/opt/homebrew/bin/hermes' config set model.provider"))
-        XCTAssertTrue(input.contains("'/opt/homebrew/bin/hermes' config set model.base_url"))
+        let words = expandedStartupShellWords(input)
+        XCTAssertTrue(words.contains("CMUX_CUSTOM_HERMES_AGENT_PATH=/opt/homebrew/bin/hermes"))
+        for setting in ["model.provider", "model.base_url"] {
+            let settingIndex = try XCTUnwrap(words.firstIndex(of: setting))
+            XCTAssertEqual(Array(words.prefix(settingIndex + 1).suffix(3)), ["config", "set", setting])
+        }
+        let baseURLIndex = try XCTUnwrap(words.firstIndex(of: "model.base_url"))
+        XCTAssertEqual(
+            Array(words.prefix(baseURLIndex + 1).suffix(4)),
+            ["/opt/homebrew/bin/hermes", "config", "set", "model.base_url"]
+        )
     }
 
     func testRemoteHermesAgentHookSurfaceResumeBootstrapStaysInsideCwdGuard() throws {

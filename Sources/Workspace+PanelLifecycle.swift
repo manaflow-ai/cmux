@@ -475,6 +475,9 @@ extension Workspace {
         let shouldPreserveRemoteDisconnectOnClose =
             origin == "tab_close" ||
             origin == "pane_close"
+        // Retire work belonging to the old surface before the last-session
+        // close records a fresh disconnected replacement intent.
+        cancelPendingRemoteDisconnectReplacement(surfaceId: panelId)
         if shouldPreserveRemoteDisconnectOnClose,
            panel is TerminalPanel {
             markRemoteTerminalSessionClosingIfLast(surfaceId: panelId)
@@ -483,7 +486,6 @@ extension Workspace {
             shouldPreserveRemoteDisconnectOnClose &&
             remoteDisconnectPlaceholderPanelIds.remove(panelId) != nil &&
             panels.count == 1
-        cancelPendingRemoteDisconnectReplacement(surfaceId: panelId)
         if shouldRefreshRemoteDisconnectPlaceholder,
            let remoteConfiguration {
             rememberPendingRemoteDisconnectReplacement(

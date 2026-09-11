@@ -216,7 +216,14 @@ struct WorkspaceForkConversationContextMenuTests {
                     capturedAtProvider: { snapshot.sampledAt.timeIntervalSince1970 },
                     processArgumentsProvider: { pid in
                         pid == processId
-                            ? CmuxTopProcessArguments(arguments: [executable, "--session", sessionId], environment: ["PWD": cwd.path])
+                            ? CmuxTopProcessArguments(
+                                arguments: [executable, "--session", sessionId],
+                                environment: [
+                                    "PWD": cwd.path,
+                                    "CMUX_WORKSPACE_ID": liveWorkspaceId.uuidString,
+                                    "CMUX_SURFACE_ID": livePanelId.uuidString,
+                                ]
+                            )
                             : nil
                     },
                     processIdentityProvider: { $0 == processId ? processIdentity : nil }
@@ -4824,7 +4831,24 @@ struct WorkspaceForkConversationContextMenuTests {
                             agentProcessIDs: [7_311],
                             sessionIDSource: .explicit
                         ),
-                    ]
+                    ],
+                    processArgumentsProvider: { pid in
+                        guard pid == 7_311 else { return nil }
+                        return CmuxTopProcessArguments(
+                            arguments: [executable.path, "--session", snapshotWithExecutable.sessionId],
+                            environment: [
+                                "PWD": root.path,
+                                "CMUX_WORKSPACE_ID": panelKey.workspaceId.uuidString,
+                                "CMUX_SURFACE_ID": panelKey.panelId.uuidString,
+                            ]
+                        )
+                    },
+                    processPresenceProvider: { _ in .present },
+                    processIdentityProvider: { pid in
+                        pid == 7_311
+                            ? AgentPIDProcessIdentity(pid: 7_311, startSeconds: 40, startMicroseconds: 0)
+                            : nil
+                    }
                 )
                 return (
                     index: index,
@@ -4891,11 +4915,27 @@ struct WorkspaceForkConversationContextMenuTests {
         errno = 0
         let result = Darwin.kill(pid, 0)
         let processError = errno
-        if result == 0 {
+        var processInfo = proc_bsdinfo()
+        errno = 0
+        let processInfoSize = proc_pidinfo(
+            pid,
+            PROC_PIDTBSDINFO,
+            0,
+            &processInfo,
+            Int32(MemoryLayout<proc_bsdinfo>.size)
+        )
+        let processInfoError = errno
+        // kill(pid, 0) can still succeed after the BSD process has exited while
+        // its kernel task is being torn down. A zombie is also terminated;
+        // orphan reaping belongs to launchd, not to the probe runner.
+        let exited = (result == -1 && processError == ESRCH)
+            || (processInfoSize == 0 && processInfoError == ESRCH)
+            || (processInfoSize == MemoryLayout<proc_bsdinfo>.size && processInfo.pbi_status == UInt32(SZOMB))
+        if !exited {
             _ = Darwin.kill(pid, SIGKILL)
         }
         #expect(
-            result == -1 && processError == ESRCH,
+            exited,
             "The timed-out fork probe must terminate descendant process \(pid)."
         )
     }

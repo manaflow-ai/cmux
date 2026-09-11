@@ -156,6 +156,7 @@ struct WindowDockRoutingSocketTests {
     func hiddenWorkspaceDockSurfaceFocusFailsClosed() throws {
         try withDockEnabled {
             let fileExplorerState = FileExplorerState()
+            fileExplorerState.setVisible(false)
             try withSocketAppContext(fileExplorerState: fileExplorerState) { _, workspace, _ in
                 let mainPanelID = try #require(workspace.focusedPanelId)
                 let workspaceDock = try #require(workspace.dockSplit)
@@ -198,6 +199,7 @@ struct WindowDockRoutingSocketTests {
                 let fallbackManager = TabManager(autoWelcomeIfNeeded: false)
                 let ownerManager = TabManager(autoWelcomeIfNeeded: false)
                 let fallbackSidebarState = FileExplorerState()
+                fallbackSidebarState.setVisible(false)
 
                 AppDelegate.shared = appDelegate
                 appDelegate.tabManager = fallbackManager

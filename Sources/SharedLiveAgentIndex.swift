@@ -1223,16 +1223,24 @@ final class SharedLiveAgentIndex {
         forkAvailabilityRefreshTaskGeneration = generation
         forkAvailabilityRefreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let reloadResult = await self.reloadIfLiveAgentProcessFingerprintChanged()
+            let refreshResult: (didComplete: Bool, panelIdsByWorkspaceId: [UUID: Set<UUID>])
+            let requiresLiveIndex = self.pendingForkValidationRequests.values
+                .contains { requests in requests.contains { $0.fallbackSnapshot == nil } }
+            if requiresLiveIndex {
+                let reloadResult = await self.reloadIfLiveAgentProcessFingerprintChanged()
+                refreshResult = (reloadResult.didReload, reloadResult.panelIdsByWorkspaceId)
+            } else {
+                refreshResult = (true, await self.applyPendingForkValidations())
+            }
             guard self.forkAvailabilityRefreshTaskGeneration == generation else { return }
             self.forkAvailabilityRefreshTask = nil
             self.forkAvailabilityRefreshTaskGeneration = nil
             self.noteOwnershipRefreshCompleted(
                 kind: .fork,
-                success: reloadResult.didReload && !Task.isCancelled
+                success: refreshResult.didComplete && !Task.isCancelled
             )
             self.restartForkAvailabilityRefreshIfPending()
-            self.postSharedLiveAgentIndexDidChange(panelIdsByWorkspaceId: reloadResult.panelIdsByWorkspaceId)
+            self.postSharedLiveAgentIndexDidChange(panelIdsByWorkspaceId: refreshResult.panelIdsByWorkspaceId)
             if self.changePending {
                 self.changePending = false
                 self.handleHookStoreChange()

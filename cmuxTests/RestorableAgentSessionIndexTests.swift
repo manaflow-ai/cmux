@@ -974,7 +974,10 @@ struct RestorableAgentSessionIndexTests {
             panelId: panelId
         )
         let detected = try XCTUnwrap(detectedSnapshots[restoredKey])
-        XCTAssertEqual(detected.snapshot.sessionId, detectedLatestFile.path)
+        XCTAssertEqual(
+            URL(fileURLWithPath: detected.snapshot.sessionId).resolvingSymlinksInPath().path,
+            detectedLatestFile.resolvingSymlinksInPath().path
+        )
 
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: root.path,
@@ -985,7 +988,10 @@ struct RestorableAgentSessionIndexTests {
         )
         let snapshot = try XCTUnwrap(index.snapshot(workspaceId: restoredWorkspaceId, panelId: panelId))
 
-        XCTAssertEqual(snapshot.sessionId, detectedLatestFile.path)
+        XCTAssertEqual(
+            URL(fileURLWithPath: snapshot.sessionId).resolvingSymlinksInPath().path,
+            detectedLatestFile.resolvingSymlinksInPath().path
+        )
     }
 
     @Test

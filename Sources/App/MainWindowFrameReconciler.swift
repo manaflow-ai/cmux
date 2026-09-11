@@ -17,6 +17,7 @@ final class MainWindowFrameReconciler {
         case applicationActivation
         case restorationCheckpoint
 
+        /// Allows ordinary placement changes only for topology changes and restoration.
         var repairsOrdinaryWindows: Bool {
             switch self {
             case .displayTopology(let topologyChanged):
@@ -28,6 +29,7 @@ final class MainWindowFrameReconciler {
             }
         }
 
+        /// Limits native fullscreen repair to a confirmed display-topology change.
         var repairsFullscreenWindows: Bool {
             if case .displayTopology(let topologyChanged) = self {
                 return topologyChanged
@@ -36,6 +38,7 @@ final class MainWindowFrameReconciler {
         }
     }
 
+    /// Uses the shared pure geometry policy to reconcile AppKit window frames.
     init(fitCore: MainWindowVisibleFrameFitCore = MainWindowVisibleFrameFitCore()) {
         self.fitCore = fitCore
     }
@@ -112,6 +115,7 @@ final class MainWindowFrameReconciler {
         return fitCompleted
     }
 
+    /// Formats bounded screen coordinates consistently for repair diagnostics.
     private static func rectDescription(_ rect: CGRect) -> String {
         "\(Int(rect.minX.rounded())),\(Int(rect.minY.rounded())) " +
             "\(Int(rect.width.rounded()))x\(Int(rect.height.rounded()))"

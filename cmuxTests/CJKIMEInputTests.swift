@@ -1039,68 +1039,72 @@ final class CJKIMEShiftSpaceFallbackTests: XCTestCase {
 
 @MainActor
 final class GhosttySpaceReleaseRegressionTests: XCTestCase {
-    func testSyntheticSpaceReleaseCarriesUnshiftedCodepoint() {
-        _ = NSApplication.shared
+    func testSyntheticSpaceReleaseCarriesUnshiftedCodepoint() async {
+        await AppContextSerialGate.withExclusiveAppContext {
+            _ = NSApplication.shared
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        let hostedView = surface.hostedView
+            let surface = TerminalSurface(
+                tabId: UUID(),
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: nil,
+                workingDirectory: nil
+            )
+            let hostedView = surface.hostedView
 
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer {
-            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
-            window.orderOut(nil)
-        }
-
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-        hostedView.frame = contentView.bounds
-        hostedView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostedView)
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.setVisibleInUI(true)
-        hostedView.setActive(true)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        var releaseEvent: ghostty_input_key_s?
-        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
-            if keyEvent.action == GHOSTTY_ACTION_RELEASE, keyEvent.keycode == 49 {
-                releaseEvent = keyEvent
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            defer {
+                GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+                window.orderOut(nil)
             }
+
+            guard let contentView = window.contentView else {
+                XCTFail("Expected content view")
+                return
+            }
+            hostedView.frame = contentView.bounds
+            hostedView.autoresizingMask = [.width, .height]
+            contentView.addSubview(hostedView)
+
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            contentView.layoutSubtreeIfNeeded()
+            hostedView.setVisibleInUI(true)
+            hostedView.setActive(true)
+            await AppKitTestEventPump().startSurface(surface)
+            hostedView.reconcileGeometryNow()
+            XCTAssertNotNil(surface.surface)
+
+            var releaseEvent: ghostty_input_key_s?
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+                if keyEvent.action == GHOSTTY_ACTION_RELEASE, keyEvent.keycode == 49 {
+                    releaseEvent = keyEvent
+                }
+            }
+
+            let sent = hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
+                characters: " ",
+                charactersIgnoringModifiers: " ",
+                keyCode: 49
+            )
+            XCTAssertTrue(sent, "Expected synthetic Space key press/release to be dispatched")
+
+            guard let releaseEvent else {
+                XCTFail("Expected to capture synthetic Space key release event")
+                return
+            }
+
+            XCTAssertEqual(releaseEvent.action, GHOSTTY_ACTION_RELEASE)
+            XCTAssertEqual(releaseEvent.keycode, 49)
+            XCTAssertEqual(releaseEvent.unshifted_codepoint, " ".unicodeScalars.first!.value)
+            XCTAssertEqual(releaseEvent.consumed_mods.rawValue, GHOSTTY_MODS_NONE.rawValue)
+            XCTAssertFalse(releaseEvent.composing)
+            XCTAssertNil(releaseEvent.text)
         }
-
-        let sent = hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
-            characters: " ",
-            charactersIgnoringModifiers: " ",
-            keyCode: 49
-        )
-        XCTAssertTrue(sent, "Expected synthetic Space key press/release to be dispatched")
-
-        guard let releaseEvent else {
-            XCTFail("Expected to capture synthetic Space key release event")
-            return
-        }
-
-        XCTAssertEqual(releaseEvent.action, GHOSTTY_ACTION_RELEASE)
-        XCTAssertEqual(releaseEvent.keycode, 49)
-        XCTAssertEqual(releaseEvent.unshifted_codepoint, " ".unicodeScalars.first!.value)
-        XCTAssertEqual(releaseEvent.consumed_mods.rawValue, GHOSTTY_MODS_NONE.rawValue)
-        XCTAssertFalse(releaseEvent.composing)
-        XCTAssertNil(releaseEvent.text)
     }
 }
 
@@ -1613,51 +1617,6 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
         )
     }
 
-    private func readTerminalText(from terminal: HostedTerminalWindow) throws -> String {
-        let runtimeSurface = try XCTUnwrap(terminal.surface.surface)
-        let topLeft = ghostty_point_s(
-            tag: GHOSTTY_POINT_SURFACE,
-            coord: GHOSTTY_POINT_COORD_TOP_LEFT,
-            x: 0,
-            y: 0
-        )
-        let bottomRight = ghostty_point_s(
-            tag: GHOSTTY_POINT_SURFACE,
-            coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
-            x: 0,
-            y: 0
-        )
-        let selection = ghostty_selection_s(
-            top_left: topLeft,
-            bottom_right: bottomRight,
-            rectangle: false
-        )
-
-        var text = ghostty_text_s()
-        guard ghostty_surface_read_text(runtimeSurface, selection, &text) else {
-            return ""
-        }
-        defer { ghostty_surface_free_text(runtimeSurface, &text) }
-        guard let ptr = text.text, text.text_len > 0 else { return "" }
-        let data = Data(bytes: ptr, count: Int(text.text_len))
-        return String(decoding: data, as: UTF8.self)
-    }
-
-    private func waitForTerminalText(
-        from terminal: HostedTerminalWindow,
-        timeout: TimeInterval = 5,
-        matching predicate: (String) -> Bool
-    ) async throws -> String {
-        let deadline = Date().addingTimeInterval(timeout)
-        var latest = try readTerminalText(from: terminal)
-        while Date() < deadline {
-            if predicate(latest) { return latest }
-            await AppKitTestEventPump().drain()
-            latest = try readTerminalText(from: terminal)
-        }
-        return latest
-    }
-
     private func shellSingleQuoted(_ value: String) -> String {
         "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
@@ -1821,8 +1780,15 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
             let captureMarker = "CMUX_KBD_HEX_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
             let scriptURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-kbd-capture-\(UUID().uuidString).py")
+            let readyURL = scriptURL.appendingPathExtension("ready")
+            let captureURL = scriptURL.appendingPathExtension("capture")
+            defer {
+                try? FileManager.default.removeItem(at: readyURL)
+                try? FileManager.default.removeItem(at: captureURL)
+            }
             let script = """
             import os
+            from pathlib import Path
             import select
             import sys
             import termios
@@ -1835,6 +1801,7 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
                 tty.setraw(fd)
                 sys.stdout.write("\\x1b[>3u\(captureReadyMarker)\\n")
                 sys.stdout.flush()
+                Path(__file__ + ".ready").write_text("ready")
                 data = bytearray()
                 if select.select([sys.stdin], [], [], 2.0)[0]:
                     data.extend(os.read(fd, 1))
@@ -1847,6 +1814,7 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
             finally:
                 termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
+            Path(__file__ + ".capture").write_text(data.hex())
             print("\\r\\n\(captureMarker)=" + data.hex(), flush=True)
             """
             try script.write(to: scriptURL, atomically: true, encoding: .utf8)
@@ -1858,11 +1826,13 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
             let window = hostedTerminal.window
             defer { window.orderOut(nil) }
 
-            let readyText = try await waitForTerminalText(from: hostedTerminal) {
-                $0.contains(captureReadyMarker)
+            // The regression measures PTY input bytes. Observe the child at
+            // that boundary, independent of the renderer's viewport snapshot.
+            let childReady = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+                FileManager.default.fileExists(atPath: readyURL.path)
             }
-            XCTAssertTrue(readyText.contains(captureReadyMarker), "Expected Kitty enable marker before clear-history")
-            await AppKitTestEventPump().drain()
+            XCTAssertTrue(childReady, "Expected the byte-capture child to enable Kitty input and enter raw mode")
+            guard childReady else { return }
 
             let keyboardResetData = try cmuxZshTerminalKeyboardResetSequence()
             XCTAssertEqual(
@@ -1884,16 +1854,12 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
             )
             XCTAssertTrue(sent, "Expected ordinary c keyDown to be dispatched through ghostty_surface_key")
 
-            let captureText = try await waitForTerminalText(from: hostedTerminal, timeout: 5) {
-                $0.contains(captureMarker)
+            let captured = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+                FileManager.default.fileExists(atPath: captureURL.path)
             }
-            guard let markerRange = captureText.range(of: "\(captureMarker)=") else {
-                XCTFail("Expected raw PTY byte capture marker in terminal output: \(captureText)")
-                return
-            }
-            let hexCharacters = Set("0123456789abcdefABCDEF")
-            let capturedHex = captureText[markerRange.upperBound...]
-                .prefix { hexCharacters.contains($0) }
+            XCTAssertTrue(captured, "Expected the PTY child to publish its captured bytes")
+            guard captured else { return }
+            let capturedHex = try String(contentsOf: captureURL, encoding: .utf8)
 
             XCTAssertEqual(
                 String(capturedHex),
@@ -1901,8 +1867,8 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
                 "A plain c at the shell prompt must write one ASCII byte to PTY input, not a Kitty CSI-u sequence"
             )
             XCTAssertFalse(
-                captureText.contains("c9;1:3u") || captureText.contains("99;1:3u"),
-                "CSI-u response bodies must not land in terminal output as printable text"
+                capturedHex.contains("1b5b") || capturedHex.contains("39393b"),
+                "PTY input must not contain a CSI-u escape sequence"
             )
         }
     }

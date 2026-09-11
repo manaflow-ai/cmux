@@ -1,3 +1,4 @@
+import AppKit
 import CMUXMobileCore
 import CmuxIrohTransport
 import CmuxMobileRPC
@@ -132,12 +133,29 @@ extension MobileHostAuthorizationTests {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         _ = manager.addWorkspace(select: true, eagerLoadTerminal: false)
         let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowID,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
         defer {
+            window.delegate = nil
+            window.close()
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
             appDelegate.forgetRecoverableMainWindowRoute(windowId: windowID)
             manager.tabs.forEach { $0.teardownAllPanels() }
             AppDelegate.shared = previousAppDelegate
         }
+        try #require(appDelegate.listMainWindowSummaries().contains { $0.windowId == windowID })
         let service = MobileHostService.shared
         service.debugResetMobileLifecycleStateForTesting()
         let registry = MobileHostConnectionRegistry.shared

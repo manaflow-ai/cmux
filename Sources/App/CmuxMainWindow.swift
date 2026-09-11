@@ -110,10 +110,12 @@ final class CmuxMainWindow: NSWindow {
         zoomIntent.recordUserPlacement()
     }
 
+    /// Applies display repair without discarding the user's remembered zoom intent.
     func setFrameForManagedPlacement(_ frameRect: NSRect, display flag: Bool) {
         setFrame(frameRect, display: flag)
     }
 
+    /// Restores explicit saved geometry and retires any earlier zoom intent.
     func setFrameForRestoredPlacement(_ frameRect: NSRect, display flag: Bool) {
         recordUserPlacement()
         setFrame(frameRect, display: flag)
@@ -161,6 +163,7 @@ final class CmuxMainWindow: NSWindow {
         )
     }
 
+    /// Remembers AppKit's resulting zoom state for later display reconciliation.
     override func zoom(_ sender: Any?) {
         super.zoom(sender)
         zoomIntent.recordZoom(isZoomed: isZoomed)

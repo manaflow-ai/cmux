@@ -209,7 +209,7 @@ final class SidebarLazyLayoutScaleTests {
         window.isReleasedWhenClosed = false
         window.acceptsMouseMovedEvents = true
         window.contentView = NSHostingView(rootView: root)
-        window.orderFront(nil)
+        window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
 
         return Harness(

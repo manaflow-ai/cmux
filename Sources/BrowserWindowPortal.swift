@@ -2960,9 +2960,12 @@ final class WindowBrowserPortal: NSObject {
 
     func updatePaneDropContext(forWebViewId webViewId: ObjectIdentifier, context: BrowserPaneDropContext?) {
         guard var entry = entriesByWebViewId[webViewId] else { return }
-        guard entry.paneDropContext != context else { return }
-        entry.paneDropContext = context
-        entriesByWebViewId[webViewId] = entry
+        if entry.paneDropContext != context {
+            entry.paneDropContext = context
+            entriesByWebViewId[webViewId] = entry
+        }
+        // Reassert the authoritative context even when only the physical slot
+        // was cleared during a portal rebind.
         guard let containerView = entry.containerView else { return }
         if let context {
             containerView.setPaneDropContext(context)

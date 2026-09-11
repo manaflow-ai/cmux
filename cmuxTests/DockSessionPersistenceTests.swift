@@ -1288,6 +1288,17 @@ struct DockSessionPersistenceTests {
         #expect(restoredTerminal.shellActivity.state == .promptIdle)
         #expect(restoredTerminal.displayTitle != runningTitle)
 
+        // The initial prompt discarded the startup title. A new preexec
+        // title belongs to the replacement shell's first user command.
+        #expect(store.applyTerminalTitleChange(GhosttyTitleChange(
+            tabId: workspaceID,
+            surfaceId: restoredPanelID,
+            title: runningTitle,
+            sourceSurfaceIdentifier: ObjectIdentifier(restoredTerminal.surface)
+        )))
+        store.flushPendingTerminalTitleUpdates()
+        #expect(restoredTerminal.displayTitle != runningTitle)
+
         controller.controlSidebarScheduleScopedShellState(
             scope: ControlSidebarPanelScope(
                 workspaceID: workspaceID,

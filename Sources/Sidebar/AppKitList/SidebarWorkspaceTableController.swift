@@ -1269,6 +1269,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             if activeWorkspaceDraggingSession === session {
                 return
             }
+            // AppKit can replace a native source before delivering the old
+            // session's terminal callback. Treat this begin as the same
+            // supersession boundary as a real pointer-down so the external
+            // source registry cannot retain the old generation until an
+            // unrelated future gesture.
+            if let activeSessionId = activeWorkspaceDragSessionId {
+                (activeWorkspaceDragActions ?? actions ?? pendingWorkspaceDragActions)?
+                    .nativeWorkspaceDragLifecycle?
+                    .reclaimSupersededNativeSources(activeSessionId)
+            }
             let supersededSession = activeWorkspaceDraggingSession
             workspaceDragSessionDidEnd(session: supersededSession)
             guard !isWorkspaceDragSourceActive else { return }

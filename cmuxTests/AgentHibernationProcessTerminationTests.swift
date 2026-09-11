@@ -792,7 +792,8 @@ struct AgentHibernationProcessTerminationTests {
         panel.completeAgentHibernationTermination()
 
         #expect(!panel.isAgentHibernationTerminating)
-        #expect(panel.prepareAgentHibernationResume() == .resumed(queuedStartupInput: false))
+        #expect(panel.prepareAgentHibernationResume() == .resumed(queuedStartupInput: true))
+        #expect(panel.surface.debugInitialInputForTesting() == agent.resumeStartupInput())
         #expect(!panel.isAgentHibernated)
     }
 

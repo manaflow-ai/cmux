@@ -276,8 +276,8 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
         }
     }
 
-    private func subscribeToLink() -> AsyncStream<CloudTunnelLinkStatus> {
-        linkBroadcast.subscribe { [weak self] id in
+    private func subscribeToLink(id: UUID = UUID()) -> AsyncStream<CloudTunnelLinkStatus> {
+        linkBroadcast.subscribe(id: id) { [weak self] id in
             Task { await self?.pruneSubscriber(id) }
         }
     }
@@ -424,16 +424,36 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
             // tunnel can already be connected, and `startVPNTunnel` on a live
             // session posts no status change to wait for. Read the current
             // status and adopt a running tunnel instead of restarting it.
+            // Capture the link stream before the status snapshot. A status
+            // callback can arrive while `currentStatus()` is suspended; the
+            // unbounded stream preserves that transition for the waiter.
+            let linkSubscriptionID = UUID()
+            let linkUpdates = subscribeToLink(id: linkSubscriptionID)
+            // An already-connected adoption never iterates the stream. Its
+            // retained continuation still needs explicit release on every exit.
+            defer { linkBroadcast.remove(linkSubscriptionID) }
             let current = await controller.currentStatus()
             linkStatus = current
             switch current {
             case .connected:
                 logger.notice("adopting a tunnel that is already connected")
             case .connecting, .reasserting:
-                try await withDeadline(timing.connectTimeout) { try await self.waitForLink(.connected) }
+                try await withDeadline(timing.connectTimeout) {
+                    try await self.waitForLink(
+                        .connected,
+                        capturedUpdates: linkUpdates,
+                        initialStatus: current
+                    )
+                }
             case .disconnected, .disconnecting, .invalid:
                 try await controller.start()
-                try await withDeadline(timing.connectTimeout) { try await self.waitForLink(.connected) }
+                try await withDeadline(timing.connectTimeout) {
+                    try await self.waitForLink(
+                        .connected,
+                        capturedUpdates: linkUpdates,
+                        initialStatus: current
+                    )
+                }
             }
             setState(.up, generation: generation)
             restartIdleTimer()
@@ -649,15 +669,20 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
         setState(.off)
     }
 
-    private func waitForLink(_ target: CloudTunnelLinkStatus) async throws {
+    private func waitForLink(
+        _ target: CloudTunnelLinkStatus,
+        capturedUpdates: AsyncStream<CloudTunnelLinkStatus>? = nil,
+        initialStatus: CloudTunnelLinkStatus? = nil
+    ) async throws {
         if linkStatus == target { return }
-        let updates = subscribeToLink()
+        let updates = capturedUpdates ?? subscribeToLink()
         // NetworkExtension reports disconnected → connecting → connected (or
         // back to disconnected on failure). Saving the configuration can also
         // post a late `.disconnected` for the reloaded connection, so a drop
         // only counts as failure once this start has been seen connecting —
         // including a link that was already connecting when the wait began.
-        var sawConnecting = linkStatus == .connecting || linkStatus == .reasserting
+        let statusAtWaitStart = initialStatus ?? linkStatus
+        var sawConnecting = statusAtWaitStart == .connecting || statusAtWaitStart == .reasserting
         for await status in updates {
             if status == target { return }
             if target == .connected {

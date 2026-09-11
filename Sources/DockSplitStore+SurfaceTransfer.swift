@@ -633,8 +633,8 @@ extension DockSplitStore {
                     window: NSApp.keyWindow ?? NSApp.mainWindow
                 )
             }
+            scheduleDockPortalReconcile(reason: reconcileReason)
         }
-        scheduleDockPortalReconcile(reason: reconcileReason)
     }
 
     /// Returns the Bonsplit tab kind for a transferred Dock panel.

@@ -30,6 +30,11 @@ struct SidebarFileDropFindRoutingTests {
         let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
         let workspace = try #require(manager.selectedWorkspace)
         let focusController = try #require(appDelegate.keyboardFocusCoordinator(for: window))
+        #expect(appDelegate.applyRightSidebarRemoteCommand(
+            .setMode(.files, focus: false),
+            target: RightSidebarRemoteTarget(windowId: windowId)
+        ) == .ok)
+        await AppKitTestEventPump().drain()
 
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory

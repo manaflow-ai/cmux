@@ -3861,15 +3861,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(completingStart.timedOut, completingStart.stderr)
         XCTAssertEqual(completingStart.status, 0, completingStart.stderr)
 
-        let runningStop = runGrokHook(
-            "stop",
-            input: #"{"sessionId":"\#(runningSessionId)","cwd":"\#(root.path)","hookEventName":"Stop"}"#
+        // Grok emits a native completion Notification. A bare Stop with cwd
+        // but no transcript message deliberately has no completion fallback.
+        let runningCompletion = runGrokHook(
+            "notification",
+            input: #"{"sessionId":"\#(runningSessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"Turn complete in 1.0s."}"#
         )
-        XCTAssertFalse(runningStop.timedOut, runningStop.stderr)
-        XCTAssertEqual(runningStop.status, 0, runningStop.stderr)
+        XCTAssertFalse(runningCompletion.timedOut, runningCompletion.stderr)
+        XCTAssertEqual(runningCompletion.status, 0, runningCompletion.stderr)
 
         let expectedClearKeys = Set(state.admittedNotificationKeysSnapshot())
-        XCTAssertEqual(expectedClearKeys.count, 1, "The prior running-surface Stop must have delivered one completion")
+        XCTAssertEqual(expectedClearKeys.count, 1, "The prior running-surface notification must have delivered one completion")
         let promptCommandStart = state.commands.count
         let runningPrompt = runGrokHook(
             "prompt-submit",

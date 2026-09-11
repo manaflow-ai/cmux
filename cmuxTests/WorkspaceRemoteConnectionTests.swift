@@ -2185,6 +2185,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                         __CMUX_REMOTE_OS__=Linux
                         __CMUX_REMOTE_ARCH__=x86_64
                         __CMUX_REMOTE_EXISTS__=yes
+                        __CMUX_REMOTE_SIZE__=123
                         """,
                         stderr: ""
                     )
@@ -2212,7 +2213,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 // many hellos preceded it is what keeps this test about a *reinstall*: an upload
                 // before any hello would be a first install and would not exercise the
                 // missing-capability path this test is named for.
-                if command.contains("cat > ") || command.contains("cat <&3 > ") {
+                if stdin != nil {
                     lock.withLock {
                         uploadCommand = command
                         uploadPayload = stdin

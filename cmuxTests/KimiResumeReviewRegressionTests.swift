@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import Testing
 @_implementationOnly import XCTest
@@ -186,6 +187,12 @@ struct KimiResumeReviewRegressionTests {
             ),
             panelId: sourcePanelID
         )
+        source.recordAgentPID(
+            key: "kimi.\(sessionID)",
+            pid: getpid(),
+            panelId: sourcePanelID,
+            refreshPorts: false
+        )
         let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
             SurfaceResumeBindingIndex.PanelKey(
                 workspaceId: source.id,
@@ -204,10 +211,12 @@ struct KimiResumeReviewRegressionTests {
 
         let persisted = source.sessionSnapshot(
             includeScrollback: false,
+            restorableAgentIndex: .empty,
             surfaceResumeBindingIndex: bindingIndex
         )
         #expect(persisted.panels.first?.terminal?.agent?.kind == .custom("kimi"))
         #expect(persisted.panels.first?.terminal?.resumeBinding?.kind == "kimi")
+        #expect(persisted.panels.first?.terminal?.wasAgentRunning == true)
 
         let restored = Workspace(agentSessionAutoResumeDefaults: defaults, restorableAgentIndexProvider: { .empty })
         defer { restored.teardownAllPanels() }
@@ -215,15 +224,18 @@ struct KimiResumeReviewRegressionTests {
         let restoredPanelID = try #require(restored.focusedPanelId)
         let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
         #expect(restoredPanel.surface.debugInitialCommand() == nil)
-        let launcherInput = try #require(restoredPanel.surface.debugInitialInputForTesting())
-        let launcherWords = TerminalStartupWorkingDirectoryPrefix
-            .shellWordRanges(launcherInput)
-            .map(\.value)
-        let launcherIndex = try #require(launcherWords.lastIndex(of: "/bin/zsh"))
-        let launcherPath = try #require(launcherWords.dropFirst(launcherIndex + 1).first)
-        let launcher = try String(contentsOfFile: launcherPath, encoding: .utf8)
-        #expect(launcher.contains("'custom-kimi' '--resume' '\(sessionID)'"), "\(launcher)")
-        #expect(!launcher.contains("'kimi' '--resume' '\(sessionID)'"), "\(launcher)")
+        #expect(
+            restoredPanel.surface.debugInitialInputForTesting()
+                == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore kimi \(sessionID)\n"
+        )
+        let restoredAgent = try #require(restored.restoredAgentSnapshotForTesting(panelId: restoredPanelID))
+        #expect(restoredAgent.registration == customRegistration)
+        #expect(restoredAgent.workingDirectory == runtimeWorkingDirectory.path)
+        #expect(restoredAgent.preparedResumeArguments(
+            launchCommand: restoredAgent.launchCommand,
+            workingDirectory: restoredAgent.workingDirectory,
+            observedPermissionMode: restoredAgent.permissionMode
+        ) == ["custom-kimi", "--resume", sessionID])
     }
 }
 

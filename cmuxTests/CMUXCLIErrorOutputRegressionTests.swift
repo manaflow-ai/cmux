@@ -593,7 +593,7 @@ import Testing
                     "working_directory": root.path,
                 ],
             ],
-        ])
+        ], workspaceID: workspaceID, surfaceID: surfaceID)
         let socketPath = "/tmp/cmux-hermes-restore-recovery-\(UUID().uuidString.prefix(8)).sock"
         let responder = try UnixSocketResponder(path: socketPath, response: response)
         defer { responder.stop() }

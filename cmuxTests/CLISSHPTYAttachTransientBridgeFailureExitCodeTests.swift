@@ -452,10 +452,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [socketHandled, bridgeHandled], timeout: 10)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 255, result.stderr)
-        XCTAssertTrue(
-            result.stderr.contains("timed out waiting for bridge status"),
-            result.stderr
-        )
+        XCTAssertEqual(result.stderr, "", "The reconnect wrapper owns retryable error presentation")
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
         XCTAssertTrue(methods.contains("workspace.remote.pty_bridge"), "\(methods)")
         // Wrapper-retryable failures re-run the attach on this same surface;

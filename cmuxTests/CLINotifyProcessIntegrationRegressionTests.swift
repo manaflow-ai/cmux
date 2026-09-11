@@ -1,5 +1,6 @@
 import XCTest
 import Darwin
+import CmuxFoundation
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -5505,7 +5506,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                     && initialCommand.contains("CMUX_SSH_RECONNECT_LIMIT"),
                 initialCommand
             )
-            XCTAssertEqual(initialCommand.components(separatedBy: "/usr/bin/uuidgen").count - 1, 2, initialCommand)
             XCTAssertTrue(initialCommand.contains("ssh-session-end --lifecycle-only"), initialCommand)
             return self.v2Response(
                 id: id,
@@ -5637,7 +5637,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_sessions", "workspace.remote.pty_attach_end"])
     }
 
-    func testSSHPTYAttachRequireExistingSessionNotFoundFailsWithoutWaitRetry() throws {
+    func testSSHPTYAttachMissingSessionRetriesCreationOnceThenCleansUp() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshreqmissing")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -5663,7 +5663,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
                 XCTAssertEqual(params["session_id"] as? String, sessionId)
                 XCTAssertEqual(params["attachment_id"] as? String, surfaceId)
-                XCTAssertEqual(params["require_existing"] as? Bool, true)
+                let bridgeCount = state.snapshot().filter {
+                    self.jsonObject($0)?["method"] as? String == "workspace.remote.pty_bridge"
+                }.count
+                XCTAssertEqual(params["require_existing"] as? Bool, bridgeCount == 1)
+                XCTAssertEqual(params["wait_for_ready"] as? Bool, true)
                 return self.v2Response(
                     id: id,
                     ok: false,
@@ -5672,6 +5676,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                         "message": "persistent PTY session \"\(sessionId)\" is not running",
                     ]
                 )
+            case "workspace.remote.pty_sessions":
+                XCTAssertEqual(params["acknowledge_lifecycle"] as? Bool, true)
+                return self.v2Response(id: id, ok: true, result: ["sessions": []])
             case "workspace.remote.pty_attach_end":
                 XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
                 XCTAssertEqual(params["surface_id"] as? String, surfaceId)
@@ -5715,10 +5722,22 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         wait(for: [socketHandled], timeout: 3)
         XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertEqual(result.status, SSHPTYAttachExitCode.sessionNotFound.rawValue, result.stderr)
+        XCTAssertTrue(result.stderr.contains("remote session was lost; starting a new shell"), result.stderr)
         XCTAssertTrue(result.stderr.contains("persistent SSH PTY session is no longer running"), result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_sessions", "workspace.remote.pty_attach_end"])
+        XCTAssertEqual(methods, [
+            "workspace.remote.pty_bridge", "workspace.remote.pty_bridge",
+            "workspace.remote.pty_sessions", "workspace.remote.pty_attach_end",
+        ])
+        let bridgeParameters = state.snapshot().compactMap { command -> [String: Any]? in
+            guard let request = self.jsonObject(command),
+                  request["method"] as? String == "workspace.remote.pty_bridge" else { return nil }
+            return request["params"] as? [String: Any]
+        }
+        let lifecycleIDs = bridgeParameters.compactMap { $0["lifecycle_id"] as? String }
+        XCTAssertEqual(lifecycleIDs.count, 2)
+        XCTAssertEqual(Set(lifecycleIDs).count, 1, "Recreating a missing session must preserve its logical generation")
     }
 
     func testSSHSessionListAllWorkspacesReportsQueryErrors() throws {
@@ -5776,9 +5795,25 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 1, result.stderr)
         XCTAssertFalse(result.stdout.contains("No persisted SSH PTY sessions"), result.stdout)
-        XCTAssertTrue(result.stderr.contains("ssh-session-list failed for 1 remote workspace"), result.stderr)
-        XCTAssertTrue(result.stderr.contains("workspace:4"), result.stderr)
-        XCTAssertTrue(result.stderr.contains("remote connection is not active"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("Remote PTY session state is unavailable"), result.stderr)
+
+        // Human output uses the safe summary; structured output retains the
+        // exact workspace and query failure for diagnostics.
+        let structured = runProcess(
+            executablePath: cliPath,
+            arguments: ["--json", "ssh-session-list", "--all-workspaces"],
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertFalse(structured.timedOut, structured.stderr)
+        XCTAssertEqual(structured.status, 1, structured.stderr)
+        let payload = try XCTUnwrap(jsonObject(structured.stdout))
+        XCTAssertEqual((payload["sessions"] as? [[String: Any]])?.count, 0)
+        let errors = try XCTUnwrap(payload["errors"] as? [[String: Any]])
+        XCTAssertEqual(errors.count, 1)
+        let error = try XCTUnwrap(errors.first)
+        XCTAssertEqual(error["workspace_ref"] as? String, "workspace:4")
+        XCTAssertEqual(error["error"] as? String, "remote connection is not active")
     }
 
     func testSSHSessionCleanupAllReportsPartialFailures() throws {

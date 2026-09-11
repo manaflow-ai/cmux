@@ -915,7 +915,11 @@ struct RemoteResumeBindingTests {
         let socketPath = reserveRemoteRestoreSocket()
         defer { cleanupRemoteRestoreSocket(socketPath) }
 
-        let restoredWorkspace = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let restoredWorkspace = Workspace(
+            agentSessionAutoResumeDefaults: defaults,
+            restorableAgentIndexProvider: { .empty }
+        )
+        defer { restoredWorkspace.teardownAllPanels() }
         let restoredIDs = restoredWorkspace.restoreSessionSnapshot(fixture.snapshot)
         let restoredSurfaceID = try #require(restoredIDs[fixture.surfaceID])
         let restoredPanel = try #require(restoredWorkspace.terminalPanel(for: restoredSurfaceID))
@@ -984,7 +988,11 @@ struct RemoteResumeBindingTests {
         let socketPath = reserveRemoteRestoreSocket()
         defer { cleanupRemoteRestoreSocket(socketPath) }
 
-        let restoredWorkspace = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let restoredWorkspace = Workspace(
+            agentSessionAutoResumeDefaults: defaults,
+            restorableAgentIndexProvider: { .empty }
+        )
+        defer { restoredWorkspace.teardownAllPanels() }
         let restoredIDs = restoredWorkspace.restoreSessionSnapshot(mismatchedSnapshot)
         let restoredSurfaceID = try #require(restoredIDs[fixture.surfaceID])
         let restoredPanel = try #require(restoredWorkspace.terminalPanel(for: restoredSurfaceID))
@@ -1011,7 +1019,11 @@ struct RemoteResumeBindingTests {
         let socketPath = reserveRemoteRestoreSocket()
         defer { cleanupRemoteRestoreSocket(socketPath) }
 
-        let restoredWorkspace = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let restoredWorkspace = Workspace(
+            agentSessionAutoResumeDefaults: defaults,
+            restorableAgentIndexProvider: { .empty }
+        )
+        defer { restoredWorkspace.teardownAllPanels() }
         let restoredIDs = restoredWorkspace.restoreSessionSnapshot(legacySnapshot)
         let restoredSurfaceID = try #require(restoredIDs[fixture.surfaceID])
         let startupCommand = try #require(

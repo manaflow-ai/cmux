@@ -2770,12 +2770,9 @@ struct ComputerUseUXTests {
             }
         )
         var featureEnabled = false
-        var reportScannedSession = false
-        let scannedSessions = AsyncStream.makeStream(
-            of: String.self,
-            bufferingPolicy: .bufferingNewest(1)
-        )
-        defer { scannedSessions.continuation.finish() }
+        let terminalFocusEvents = AsyncStream<UUID>.makeStream()
+        var terminalFocusIterator = terminalFocusEvents.stream.makeAsyncIterator()
+        defer { terminalFocusEvents.continuation.finish() }
         var activatedProcessIdentifiers: [pid_t] = []
         var focusedTerminalSessions: [(workspaceID: UUID, surfaceID: UUID)] = []
         var cursorVisibilityChanges: [
@@ -2790,18 +2787,14 @@ struct ComputerUseUXTests {
             featureEnabled: { featureEnabled },
             liveDriverSessions: { sessions },
             currentLiveDriverSession: { scannedSession in
-                if reportScannedSession {
-                    scannedSessions.continuation.yield(
-                        scannedSession.logicalSessionID
-                    )
-                }
-                return sessionsBySurfaceID[scannedSession.surfaceID]
+                sessionsBySurfaceID[scannedSession.surfaceID]
             },
             feed: ComputerUseWatchTargetFeed(
                 authenticationKey: Self.stateAuthenticationKey
             ),
             onFocusTerminal: { workspaceID, surfaceID, _ in
                 focusedTerminalSessions.append((workspaceID, surfaceID))
+                terminalFocusEvents.continuation.yield(surfaceID)
             },
             onCursorVisibilityChange: {
                 driverSessionID,
@@ -2830,6 +2823,7 @@ struct ComputerUseUXTests {
             stateWriterIdentity: writerIdentity,
             proxySessionID: backgroundProxySessionID
         ))
+        #expect(await terminalFocusIterator.next() == backgroundSurfaceID)
         await AppKitTestEventPump().drain()
         #expect(cursorVisibilityChanges.isEmpty)
         #expect(focusedTerminalSessions.count == 1)
@@ -2881,18 +2875,21 @@ struct ComputerUseUXTests {
             options: .atomic
         )
 
-        reportScannedSession = true
         featureEnabled = true
         NotificationCenter.default.post(
             name: .cmuxFeatureFlagsDidChange,
             object: nil
         )
-        var scannedIterator = scannedSessions.stream.makeAsyncIterator()
-        let scannedLogicalSessionID = await scannedIterator.next()
-
-        #expect(scannedLogicalSessionID == backgroundLogicalSessionID)
+        #expect(await terminalFocusIterator.next() == backgroundSurfaceID)
+        await AppKitTestEventPump().drain()
         #expect(activatedProcessIdentifiers.isEmpty)
         #expect(focusedTerminalSessions.count == 2)
+
+        #expect(cursorVisibilityChanges.count == 1)
+        #expect(cursorVisibilityChanges.first?.driverSessionID == backgroundDriverSessionID)
+        #expect(cursorVisibilityChanges.first?.proxySessionID == backgroundProxySessionID)
+        #expect(cursorVisibilityChanges.first?.visible == true)
+        let cursorEffectCountBeforeViewing = cursorVisibilityChanges.count
 
         let identity = ComputerUseTargetIdentity(
             processIdentifier: Int(target.processIdentifier),
@@ -2908,7 +2905,7 @@ struct ComputerUseUXTests {
         ))
         await AppKitTestEventPump().drain()
         #expect(activatedProcessIdentifiers == [target.processIdentifier])
-        #expect(cursorVisibilityChanges.isEmpty)
+        #expect(cursorVisibilityChanges.count == cursorEffectCountBeforeViewing)
         #expect(!controller.isRunningInBackground(
             driverSessionID: backgroundDriverSessionID,
             logicalSessionID: backgroundLogicalSessionID

@@ -356,6 +356,8 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
 
     @Test func designModeFullPageOverviewUsesBoundedWebKitOutput() async throws {
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        let window = hostSnapshotWebView(webView)
+        defer { window.close() }
         let (loaded, loadedContinuation) = AsyncStream<Void>.makeStream()
         let navigationDelegate = BrowserDesignModeTestNavigationDelegate {
             loadedContinuation.yield()
@@ -390,6 +392,8 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
 
     @Test func zoomedPageUsesBoundedStitchedOverviewAndSelectionCapture() async throws {
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        let window = hostSnapshotWebView(webView)
+        defer { window.close() }
         let (loaded, loadedContinuation) = AsyncStream<Void>.makeStream()
         let navigationDelegate = BrowserDesignModeTestNavigationDelegate {
             loadedContinuation.yield()
@@ -431,6 +435,8 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
 
     @Test func smoothScrollingPageCapturesRequestedRegionAndRestoresOffset() async throws {
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        let window = hostSnapshotWebView(webView)
+        defer { window.close() }
         let (loaded, loadedContinuation) = AsyncStream<Void>.makeStream()
         let navigationDelegate = BrowserDesignModeTestNavigationDelegate {
             loadedContinuation.yield()
@@ -454,7 +460,8 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         #expect(didLoad, "WebKit never finished loading the test page")
         guard didLoad else { return }
 
-        let image = try await BrowserScreenshotWebViewSnapshotter.captureDocumentRect(
+        let screenshotEvaluator = BrowserDesignModeScreenshotEvaluator(timeout: 10, cleanupTimeout: 2)
+        let image = try await screenshotEvaluator.captureDocumentRect(
             NSRect(x: 0, y: 1_500, width: 640, height: 100),
             from: webView
         )
@@ -634,18 +641,32 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         container.addSubview(webView)
+        let capture: BrowserDesignModeScreenshotEvaluator.AsyncCapture = { capturedWebView in
+            captureCoverStates.append(
+                capturedWebView.superview?.subviews.contains(where: { $0 !== capturedWebView }) == true
+            )
+            return image
+        }
         let controller = BrowserDesignModeController(
             surfaceID: UUID(),
             script: BrowserDesignModeScript(),
             promptFormatter: BrowserDesignModePromptFormatter(),
             artifactStore: artifactStore,
             javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator(),
-            screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(timeout: 1) { capturedWebView, completion in
-                captureCoverStates.append(
-                    capturedWebView.superview?.subviews.contains(where: { $0 !== capturedWebView }) == true
-                )
-                completion(.success(image))
-            },
+            screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(
+                timeout: 1,
+                visibleViewportCapture: { capturedWebView, completion in
+                    captureCoverStates.append(
+                        capturedWebView.superview?.subviews.contains(where: { $0 !== capturedWebView }) == true
+                    )
+                    completion(.success(image))
+                },
+                fullPageCapture: capture,
+                documentRectCapture: { capturedWebView, rect in
+                    #expect(rect.width > 0 && rect.height > 0)
+                    return try await capture(capturedWebView)
+                }
+            ),
             canEnable: { true },
             clipboardWriter: { prompt in
                 copiedPrompt = prompt
@@ -718,6 +739,7 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
             .appendingPathComponent("cmux-design-mode-stack-test-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         var copiedPrompt: String?
+        var selectionCaptureRects: [NSRect] = []
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         let controller = BrowserDesignModeController(
             surfaceID: UUID(),
@@ -725,9 +747,15 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
             promptFormatter: BrowserDesignModePromptFormatter(),
             artifactStore: BrowserDesignModeArtifactStore(directory: directory),
             javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator(),
-            screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(timeout: 1) { _, completion in
-                completion(.success(image))
-            },
+            screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(
+                timeout: 1,
+                visibleViewportCapture: { _, completion in completion(.success(image)) },
+                fullPageCapture: { _ in image },
+                documentRectCapture: { _, rect in
+                    selectionCaptureRects.append(rect)
+                    return image
+                }
+            ),
             canEnable: { true },
             clipboardWriter: { prompt in
                 copiedPrompt = prompt
@@ -794,6 +822,8 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
 
         await controller.copySelection()
 
+        #expect(selectionCaptureRects.count == 2)
+        #expect(selectionCaptureRects.allSatisfy { $0.width > 0 && $0.height > 0 })
         let prompt = try #require(copiedPrompt)
         let initialPayload = try payload(from: prompt)
         let selections = try #require(initialPayload["selections"] as? [[String: Any]])
@@ -809,6 +839,7 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
 
         await controller.copySelection()
 
+        #expect(selectionCaptureRects.count == 3)
         let reducedPrompt = try #require(copiedPrompt)
         let reducedPayload = try payload(from: reducedPrompt)
         let reducedSelections = try #require(reducedPayload["selections"] as? [[String: Any]])
@@ -816,6 +847,21 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         #expect(reducedSelections[0]["selector"] as? String == "#second")
         #expect(reducedPayload["requested_change"] as? String == "Keep the second selection")
         _ = navigationDelegate
+    }
+
+    private func hostSnapshotWebView(_ webView: WKWebView) -> NSWindow {
+        // Stitched capture waits for animation frames after scrolling. WebKit
+        // suspends those frames when its page has no visible window.
+        let window = NSWindow(
+            contentRect: webView.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = webView
+        window.orderFront(nil)
+        return window
     }
 
     private func requestedChange(from prompt: String) throws -> String? {

@@ -202,13 +202,13 @@ struct SurfaceResumeAgentBindingGenerationTests {
             " \(AgentRestoreLaunch.cliStartupExecutableToken) restore grok \(sessionID)\n"
         let sourceBinding = grokBinding(sessionID: sessionID)
         #expect(source.setSurfaceResumeBinding(sourceBinding, panelId: sourcePanelID))
-        source.updatePanelShellActivityState(panelId: sourcePanelID, state: .commandRunning)
         source.recordAgentPID(
             key: "grok.\(sessionID)",
             pid: getpid(),
             panelId: sourcePanelID,
             refreshPorts: false
         )
+        source.updatePanelShellActivityState(panelId: sourcePanelID, state: .commandRunning)
 
         let sourceSnapshot = source.sessionSnapshot(
             includeScrollback: false,
@@ -220,6 +220,7 @@ struct SurfaceResumeAgentBindingGenerationTests {
             )
         )
         #expect(sourceSnapshot.panels.first?.terminal?.wasAgentRunning == true)
+        #expect(sourceSnapshot.panels.first?.terminal?.resumeBinding?.autoResume == true)
 
         let firstRestore = Workspace(agentSessionAutoResumeDefaults: defaults, restorableAgentIndexProvider: { .empty })
         defer { firstRestore.teardownAllPanels() }

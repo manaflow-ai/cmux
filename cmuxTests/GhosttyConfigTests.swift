@@ -1560,7 +1560,11 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 0.5)
+        let hex = Workspace.bonsplitChromeHex(
+            backgroundColor: color,
+            backgroundOpacity: 0.5,
+            chromeBackgroundColor: color.withAlphaComponent(0.5)
+        )
         XCTAssertEqual(hex, "#1122337F")
     }
 
@@ -1587,7 +1591,8 @@ final class WorkspaceChromeColorTests: XCTestCase {
         let hex = Workspace.bonsplitChromeHex(
             backgroundColor: color,
             backgroundOpacity: 0.5,
-            sharesWindowBackdrop: true
+            sharesWindowBackdrop: true,
+            chromeBackgroundColor: color.withAlphaComponent(0.5)
         )
         XCTAssertEqual(hex, "#1122337F")
     }
@@ -1603,7 +1608,8 @@ final class WorkspaceChromeColorTests: XCTestCase {
         let colors = Workspace.bonsplitChromeColors(
             backgroundColor: color,
             backgroundOpacity: 0.5,
-            renderingMode: .windowHostBackdrop
+            renderingMode: .windowHostBackdrop,
+            chromeBackgroundColor: color.withAlphaComponent(0.5)
         )
 
         XCTAssertEqual(colors.backgroundHex, "#1122337F")
@@ -1624,7 +1630,8 @@ final class WorkspaceChromeColorTests: XCTestCase {
             backgroundColor: color,
             backgroundOpacity: 0.5,
             sharesWindowBackdrop: true,
-            renderingMode: .windowHostBackdrop
+            renderingMode: .windowHostBackdrop,
+            chromeBackgroundColor: color.withAlphaComponent(0.5)
         )
 
         XCTAssertEqual(colors.backgroundHex, "#1122337F")
@@ -1645,7 +1652,8 @@ final class WorkspaceChromeColorTests: XCTestCase {
             backgroundColor: color,
             backgroundOpacity: 0.5,
             renderingMode: .windowHostBackdrop,
-            paneBorderColorHex: "#33AAFF"
+            paneBorderColorHex: "#33AAFF",
+            chromeBackgroundColor: color.withAlphaComponent(0.5)
         )
 
         XCTAssertEqual(colors.backgroundHex, "#1122337F")
@@ -1998,7 +2006,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
             defaults.set(7200, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
             XCTAssertEqual(
                 BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults),
-                BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay
+                BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
             )
 
             defaults.set(-1, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
@@ -2160,11 +2168,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         )
         defer { panel.close() }
 
-        let deadline = Date().addingTimeInterval(1.0)
-        while panel.webView.isLoading,
-              RunLoop.main.run(mode: .default, before: deadline),
-              Date() < deadline {}
-        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+        waitForBrowserPanelLoadingToSettle(panel)
 
         panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
         let originalWebView = panel.webView
@@ -2256,11 +2260,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         )
         defer { panel.close() }
 
-        let deadline = Date().addingTimeInterval(1.0)
-        while panel.webView.isLoading,
-              RunLoop.main.run(mode: .default, before: deadline),
-              Date() < deadline {}
-        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+        waitForBrowserPanelLoadingToSettle(panel)
 
         panel.restoreSessionNavigationHistory(
             backHistoryURLStrings: ["https://example.test/back"],
@@ -2284,6 +2284,21 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
 
         XCTAssertFalse(observedStates.contains(.newTab), "Back restore emitted unexpected states: \(observedStates)")
         XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+    }
+
+    private func waitForBrowserPanelLoadingToSettle(
+        _ panel: BrowserPanel,
+        timeout: TimeInterval = 5.0,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while panel.isLoading || panel.webView.isLoading {
+            if Date() >= deadline { break }
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for the page to finish loading", file: file, line: line)
+        XCTAssertFalse(panel.isLoading, "Timed out waiting for the panel loading flag to clear", file: file, line: line)
     }
 }
 
@@ -2498,7 +2513,7 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         let baseURL = try XCTUnwrap(URL(string: "http://cmux-loopback.localtest.me:3000/"))
 
         panel.webView.loadHTMLString(
-            "<!doctype html><html><body>remote loopback bridge</body></html>",
+            "<!doctype html><html><head><base href=\"http://cmux-loopback.localtest.me:3000/\"></head><body>remote loopback bridge</body></html>",
             baseURL: baseURL
         )
         try await waitForBrowserWebViewLoad(panel.webView)

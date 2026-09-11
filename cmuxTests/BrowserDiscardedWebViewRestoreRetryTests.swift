@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -6,6 +7,46 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+/// Reserves an unused loopback port without listening, so WebKit receives a
+/// connection refusal instead of rejecting a restricted port such as port 1.
+private final class BrowserDiscardRestoreRefusedEndpoint {
+    let url: URL
+    private let descriptor: Int32
+
+    init(path: String) throws {
+        let descriptor = socket(AF_INET, SOCK_STREAM, 0)
+        try #require(descriptor >= 0)
+        var initialized = false
+        defer { if !initialized { Darwin.close(descriptor) } }
+
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = 0
+        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        try #require(bindResult == 0)
+
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let nameResult = withUnsafeMutablePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                getsockname(descriptor, $0, &length)
+            }
+        }
+        try #require(nameResult == 0)
+        let port = UInt16(bigEndian: address.sin_port)
+        url = try #require(URL(string: "http://127.0.0.1:\(port)/\(path)"))
+        self.descriptor = descriptor
+        initialized = true
+    }
+
+    deinit { Darwin.close(descriptor) }
+}
 
 @MainActor
 private func withBrowserDiscardRestoreRetryPolicyEnabled(_ body: (UserDefaults) -> Void) {
@@ -73,7 +114,9 @@ struct BrowserDiscardedWebViewRestoreRetryTests {
 
     @Test func browserPanelRetriesDiscardedRestoreAfterConnectionRefused() async throws {
         // RED(#7504): connection-refused restore must leave the pane retryable on the next restore touch.
-        let url = try #require(URL(string: "http://127.0.0.1:1/cmux-issue-7504"))
+        let endpoint = try BrowserDiscardRestoreRefusedEndpoint(path: "cmux-issue-7504")
+        defer { withExtendedLifetime(endpoint) {} }
+        let url = endpoint.url
         let discardedAt = Date(timeIntervalSince1970: 200)
         let panel = BrowserPanel(
             workspaceId: UUID(),
@@ -83,7 +126,8 @@ struct BrowserDiscardedWebViewRestoreRetryTests {
         defer { panel.close() }
 
         try #require(await AppKitTestEventPump().waitUntil(timeout: .seconds(30)) {
-            !panel.webView.isLoading && !panel.isLoading
+            panel.navigationDelegate?.activeErrorPageDisplayURL == url
+                && !panel.webView.isLoading && !panel.isLoading
         })
 
         panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
@@ -95,7 +139,8 @@ struct BrowserDiscardedWebViewRestoreRetryTests {
         #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore1"))
         try #require(await AppKitTestEventPump().waitUntil(timeout: .seconds(20)) {
             let restorePending = panel.webViewLifecycleTopPayload()["restore_pending"] as? Bool ?? false
-            return !restorePending && !panel.webView.isLoading && !panel.isLoading
+            return panel.navigationDelegate?.activeErrorPageDisplayURL == url
+                && !restorePending && !panel.webView.isLoading && !panel.isLoading
         })
 
         #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore2"))
@@ -106,7 +151,9 @@ struct BrowserDiscardedWebViewRestoreRetryTests {
         // never-revealed pane) mirrors a blank web shell, so the phone shows
         // white until a manual reload. Starting a mobile stream must kick the
         // discard-restore navigation exactly like revealing the tab does.
-        let url = try #require(URL(string: "http://127.0.0.1:1/cmux-mobile-stream-discard"))
+        let endpoint = try BrowserDiscardRestoreRefusedEndpoint(path: "cmux-mobile-stream-discard")
+        defer { withExtendedLifetime(endpoint) {} }
+        let url = endpoint.url
         let discardedAt = Date(timeIntervalSince1970: 300)
         let panel = BrowserPanel(
             workspaceId: UUID(),
@@ -116,7 +163,8 @@ struct BrowserDiscardedWebViewRestoreRetryTests {
         defer { panel.close() }
 
         try #require(await AppKitTestEventPump().waitUntil(timeout: .seconds(30)) {
-            !panel.webView.isLoading && !panel.isLoading
+            panel.navigationDelegate?.activeErrorPageDisplayURL == url
+                && !panel.webView.isLoading && !panel.isLoading
         })
 
         panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
@@ -446,7 +494,9 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
     }
 
     @Test func mainFrameDownloadCompletesRestoreAndSuppressesBlankShellHeal() async throws {
-        let url = try #require(URL(string: "http://127.0.0.1:1/cmux-issue-7504-download"))
+        let endpoint = try BrowserDiscardRestoreRefusedEndpoint(path: "cmux-issue-7504-download")
+        defer { withExtendedLifetime(endpoint) {} }
+        let url = endpoint.url
         let discardedAt = Date(timeIntervalSince1970: 700)
         let panel = BrowserPanel(
             workspaceId: UUID(),
@@ -456,7 +506,8 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
         defer { panel.close() }
 
         try #require(await AppKitTestEventPump().waitUntil(timeout: .seconds(30)) {
-            !panel.webView.isLoading && !panel.isLoading
+            panel.navigationDelegate?.activeErrorPageDisplayURL == url
+                && !panel.webView.isLoading && !panel.isLoading
         })
 
         panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
@@ -465,7 +516,8 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
 
         // Simulate WebKit converting the pending restore navigation into a
         // main-frame download before any document commits.
-        panel.navigationDelegate?.didBecomeDownload?(panel.webView, true, panel.currentDiscardRestoreAttemptID)
+        let restoreAttemptID = try #require(panel.currentDiscardRestoreAttemptID)
+        panel.navigationDelegate?.didBecomeDownload?(panel.webView, true, restoreAttemptID)
 
         let payload = panel.webViewLifecycleTopPayload()
         #expect(payload["restore_pending"] as? Bool == false)

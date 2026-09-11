@@ -1241,7 +1241,8 @@ import Testing
         let link = CloudMachineLink(
             machineID: "test-machine",
             clientURL: client,
-            paths: CloudTuiClientPaths(home: root)
+            paths: CloudTuiClientPaths(home: root),
+            deviceName: "cmux-connect-cancellation-test"
         )
         let task = Task {
             try await link.connect(route: "ws://10.0.0.1:1337/v1/link", session: "main")

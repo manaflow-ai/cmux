@@ -3402,7 +3402,10 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
                 return
             }
 
-            _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) { surface.surface != nil }
+            await AppKitTestEventPump().startSurface(surface)
+            hostedView.reconcileGeometryNow()
+            XCTAssertNotNil(surface.surface)
+            XCTAssertTrue(window.makeFirstResponder(nil))
             XCTAssertTrue(window.makeFirstResponder(surfaceView))
             await AppKitTestEventPump().drain()
             XCTAssertTrue(surface.debugDesiredFocusState(), "Focused terminal should start with desired Ghostty focus")
@@ -3682,54 +3685,59 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 #endif
     }
 
-    func testVisibilityRestoreRefreshesSurfaceWhileTerminalIsInactive() throws {
-#if DEBUG
-        let window = makeWindow()
-        defer { window.orderOut(nil) }
+    func testVisibilityRestoreRefreshesSurfaceWhileTerminalIsInactive() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+    #if DEBUG
+            let window = makeWindow()
+            defer { window.orderOut(nil) }
 
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
+            guard let contentView = window.contentView else {
+                XCTFail("Expected content view")
+                return
+            }
+
+            let surface = TerminalSurface(
+                tabId: UUID(),
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: nil,
+                workingDirectory: nil
+            )
+            let hostedView = surface.hostedView
+            hostedView.frame = contentView.bounds
+            hostedView.autoresizingMask = [.width, .height]
+            contentView.addSubview(hostedView)
+
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            hostedView.setVisibleInUI(true)
+            hostedView.setActive(true)
+            await AppKitTestEventPump().startSurface(surface)
+            contentView.layoutSubtreeIfNeeded()
+            hostedView.layoutSubtreeIfNeeded()
+            await AppKitTestEventPump().drain()
+
+            XCTAssertNotNil(
+                surface.surface,
+                "Expected runtime surface before measuring visibility-restore redraws"
+            )
+
+            hostedView.setActive(false)
+            hostedView.setVisibleInUI(false)
+            await AppKitTestEventPump().drain()
+
+            surface.resetDebugForceRefreshCount()
+            hostedView.setVisibleInUI(true)
+            await AppKitTestEventPump().drain()
+
+            XCTAssertEqual(
+                surface.debugForceRefreshCount(),
+                1,
+                "Restoring panel visibility should force a redraw even when focus recovery is inactive"
+            )
+    #else
+            throw XCTSkip("Debug-only regression test")
+    #endif
         }
-
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        let hostedView = surface.hostedView
-        hostedView.frame = contentView.bounds
-        hostedView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostedView)
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        XCTAssertNotNil(
-            surface.surface,
-            "Expected runtime surface before measuring visibility-restore redraws"
-        )
-
-        hostedView.setActive(false)
-        hostedView.setVisibleInUI(false)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        surface.resetDebugForceRefreshCount()
-        hostedView.setVisibleInUI(true)
-        drainMainQueue()
-
-        XCTAssertEqual(
-            surface.debugForceRefreshCount(),
-            1,
-            "Restoring panel visibility should force a redraw even when focus recovery is inactive"
-        )
-#else
-        throw XCTSkip("Debug-only regression test")
-#endif
     }
 
     func testDirectFirstResponderFocusRefreshesCursorStateAfterForeignResponder() async throws {
