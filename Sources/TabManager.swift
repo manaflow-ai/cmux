@@ -795,11 +795,7 @@ class TabManager: ObservableObject {
     // MARK: - Sidebar git/PR forwarders (subsystem extracted to CmuxSidebarGit)
 
     private func sidebarMetadataSettingsDidChange() {
-        sidebarGitMetadataService.sidebarGitMetadataWatchSettingsDidChange()
-        pullRequestProbing.sidebarPullRequestPollingSettingsDidChange()
-        for tab in tabs {
-            tab.refreshSidebarPortVisibilityPolicy()
-        }
+        refreshSidebarMetadataSettings()
         refreshRemotePortScanningEnablement()
     }
 

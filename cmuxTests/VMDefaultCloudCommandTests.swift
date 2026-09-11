@@ -1,12 +1,10 @@
 import XCTest
 import Darwin
-
 /// Counts vm.create round trips across mock-server connections so a handler
 /// can fail the first attempt and succeed the retry.
 private final class VMCreateCallCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var count = 0
-
     func next() -> Int {
         lock.lock()
         defer { lock.unlock() }
@@ -14,7 +12,6 @@ private final class VMCreateCallCounter: @unchecked Sendable {
         return count
     }
 }
-
 extension CLINotifyProcessIntegrationRegressionTests {
     func testVMNewFailsWithAnActionableAuthErrorBeforeProvisioning() throws {
         let cliPath = try bundledCLIPath()

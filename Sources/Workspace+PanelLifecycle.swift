@@ -371,16 +371,6 @@ extension Workspace {
         PortScanner.shared.refreshAgentPorts(workspaceId: id, agentRoots: remainingAgentRoots)
     }
 
-    func recomputeListeningPorts() {
-        let policy = currentSidebarPortVisibilityPolicy()
-        let unique = Set(surfaceListeningPorts.values.flatMap { $0 })
-            .union(agentListeningPorts)
-            .union(remoteDetectedPorts)
-            .union(remoteForwardedPorts)
-        let authoritativePorts = unique.sorted()
-        if listeningPorts != authoritativePorts {
-            listeningPorts = authoritativePorts
-        }
         // Keep authoritative observations independent from the sidebar
         // projection so control APIs and automation never lose hidden badges.
         setSidebarVisibleListeningPorts(policy.visiblePorts(from: authoritativePorts))

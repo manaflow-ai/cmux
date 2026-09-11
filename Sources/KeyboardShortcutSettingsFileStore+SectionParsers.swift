@@ -168,3 +168,15 @@ extension CmuxSettingsFileStore {
         snapshot.managedUserDefaults[key.userDefaultsKey] = .string(value.rawValue)
     }
 }
+
+
+extension CmuxSettingsFileStore {
+    func parseSidebarIgnoredPortsSettings(_ section: [String: Any], sourcePath: String, snapshot: inout ResolvedSettingsSnapshot) {
+        guard section.keys.contains("ignoredPorts") else { return }
+        guard let rules = [SidebarIgnoredPortRule].decodeFromJSON(section["ignoredPorts"]) else {
+            logInvalid("sidebar.ignoredPorts", sourcePath: sourcePath)
+            return
+        }
+        snapshot.managedUserDefaults[SidebarCatalogSection().ignoredPorts.userDefaultsKey] = .stringArray(rules.map(\.canonicalText))
+    }
+}

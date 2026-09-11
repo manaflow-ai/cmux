@@ -12884,17 +12884,6 @@ struct CMUXCLI {
         return parts
     }
 
-    private func sshToolPath() -> String {
-#if DEBUG
-        if let override = ProcessInfo.processInfo.environment["CMUX_TEST_SSH_TOOL_PATH"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !override.isEmpty {
-            return NSString(string: override).expandingTildeInPath
-        }
-#endif
-        return "/usr/bin/ssh"
-    }
-
     private func localXtermGhosttyTerminfoSource() -> String? {
         let result = runProcess(
             executablePath: "/usr/bin/infocmp",

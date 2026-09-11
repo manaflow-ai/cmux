@@ -2,7 +2,6 @@ import CmuxSettings
 import CmuxSidebar
 import CmuxSidebarGit
 import Foundation
-
 typealias RightSidebarWidthSettings = CmuxSettings.RightSidebarWidthSettings
 
 enum SidebarWorkspaceDetailDefaults {
