@@ -119,6 +119,25 @@ enum SurfacePaneFactory {
         return (workspace.id, workspace.focusedPanelId)
     }
 
+    /// Creates a workspace in the caller's main window. Cloud panels are mounted
+    /// once per window, so they must never fall back to whichever window is active.
+    static func createLocalWorkspace(
+        title: String,
+        preferredTabManager: TabManager?
+    ) throws -> (workspaceID: UUID, starterPanelID: UUID?) {
+        guard let preferredTabManager else {
+            return try createLocalWorkspace(title: title)
+        }
+        guard let workspace = preferredTabManager.addWorkspaceIfActive(
+            title: title,
+            select: true,
+            autoWelcomeIfNeeded: false
+        ) else {
+            throw FactoryError.workspaceNotFound(UUID())
+        }
+        return (workspace.id, workspace.focusedPanelId)
+    }
+
     /// The pane (Bonsplit id) that hosts a panel, for re-projecting in place.
     static func paneID(ofPanel panelID: UUID, in workspaceID: UUID) -> String? {
         guard let workspace = workspace(id: workspaceID) else { return nil }

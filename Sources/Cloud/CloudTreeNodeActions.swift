@@ -60,6 +60,7 @@ struct CloudTreeNodeActions {
         catalog: @escaping @MainActor () -> SurfaceCatalog,
         selectedWorkspaceID: @escaping @MainActor () -> UUID?,
         selectLocalWorkspace: @escaping @MainActor (UUID) -> Void,
+        preferredTabManager: TabManager? = nil,
         onWillMutate: @escaping @MainActor (String) -> Void,
         onDidMutate: @escaping @MainActor () -> Void,
         onFailure: @escaping @MainActor (String) -> Void,
@@ -96,6 +97,10 @@ struct CloudTreeNodeActions {
         let startingLabel: (SurfaceMachineID) -> String = { machine in
             String(format: String(localized: "cloudTree.operation.newTerminal", defaultValue: "Starting a terminal on %@\u{2026}"), machineName(machine))
         }
+        let workspaceHost = SurfaceCatalog.NewWorkspaceHost.app(preferredTabManager: preferredTabManager)
+        let owningWorkspaceIDs: () -> Set<UUID>? = {
+            preferredTabManager.map { Set($0.tabs.map(\.id)) }
+        }
         return CloudTreeNodeActions(
             project: { resource, placement, reuseExisting in
                 // Capture the caller's workspace before the async operation starts.
@@ -106,7 +111,8 @@ struct CloudTreeNodeActions {
                 if resource.forwardedPort != nil {
                     capturedPortWorkspaceID = catalog().preferredLocalWorkspaceID(
                         for: resource,
-                        fallback: capturedWorkspaceID
+                        fallback: capturedWorkspaceID,
+                        allowedWorkspaceIDs: owningWorkspaceIDs()
                     )
                 } else {
                     capturedPortWorkspaceID = nil
@@ -253,7 +259,7 @@ struct CloudTreeNodeActions {
                             ),
                             title: Self.localWorkspaceTitle(hostName: machineName(machine), group: group),
                             focus: true,
-                            host: .app
+                            host: workspaceHost
                         )
                         catalog.bindCloudWorkspace(
                             localWorkspaceID: opened.workspaceID, machine: machine,
@@ -275,7 +281,7 @@ struct CloudTreeNodeActions {
                             routedGroup,
                             title: Self.localWorkspaceTitle(hostName: machineName(machine), group: group),
                             focus: true,
-                            host: .app,
+                            host: workspaceHost,
                             layout: layout
                         )
                         catalog.bindCloudWorkspace(
@@ -290,7 +296,14 @@ struct CloudTreeNodeActions {
             newWorkspace: { machine in
                 run(String(format: String(localized: "cloudTree.operation.newWorkspace", defaultValue: "Creating a workspace on %@\u{2026}"), machineName(machine))) { catalog in
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
-                    _ = try await Self.createWorkspaceAndOpenLocally(machine: machine, provider: provider, catalog: catalog, name: nil, focus: true)
+                    _ = try await Self.createWorkspaceAndOpenLocally(
+                        machine: machine,
+                        provider: provider,
+                        catalog: catalog,
+                        name: nil,
+                        focus: true,
+                        preferredTabManager: preferredTabManager
+                    )
                 }
             },
             closeTerminal: { resource in
@@ -397,6 +410,7 @@ struct CloudTreeNodeActions {
         catalog: SurfaceCatalog,
         name: String?,
         focus: Bool,
+        preferredTabManager: TabManager? = nil,
         openLocally: Bool = true,
         existingWorkspace: SurfaceRemoteWorkspace? = nil
     ) async throws -> (
@@ -435,7 +449,7 @@ struct CloudTreeNodeActions {
             group,
             title: localWorkspaceTitle(hostName: resolvedMachineName(machine, snapshot: catalog.snapshot), group: group),
             focus: focus,
-            host: .app
+            host: SurfaceCatalog.NewWorkspaceHost.app(preferredTabManager: preferredTabManager)
         )
         catalog.bindCloudWorkspace(
             localWorkspaceID: opened.workspaceID,

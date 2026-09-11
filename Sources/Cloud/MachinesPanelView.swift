@@ -29,7 +29,8 @@ enum CloudVMPanelAuthState: Equatable {
 /// snapshots plus closure bundles only (snapshot-boundary rule); every mutation
 /// routes through the shared Cloud VM action path or the Cloud tree service.
 struct MachinesPanelView: View {
-    @StateObject private var viewModel = MachinesPanelViewModel()
+    @StateObject private var viewModel: MachinesPanelViewModel
+    @ObservedObject private var tabManager: TabManager
     @State private var expansionStore = CloudTreeExpansionStore()
     /// The explicit Cloud VPN's state (`cmux vpn up`), shown as a banner while
     /// it is starting, waiting for the extension approval, up, or failed.
@@ -38,7 +39,19 @@ struct MachinesPanelView: View {
     /// and @AppStorage re-renders the live panel the moment it changes.
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
     let chromeBackgroundColor: NSColor
-    var tabManager: TabManager? = nil
+
+    init(chromeBackgroundColor: NSColor, tabManager: TabManager) {
+        self.chromeBackgroundColor = chromeBackgroundColor
+        _tabManager = ObservedObject(wrappedValue: tabManager)
+        _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(tabManager: tabManager))
+    }
+
+    private var localWorkspaces: [CloudTreeLocalWorkspace] {
+        let selected = tabManager.selectedTabId
+        return tabManager.tabs.map {
+            CloudTreeLocalWorkspace(id: $0.id, title: $0.title, isSelected: $0.id == selected)
+        }
+    }
 
     private var accountFlow: HostAccountFlow? {
         AppDelegate.shared?.auth?.accountFlow
@@ -446,7 +459,7 @@ struct MachinesPanelView: View {
         NewMachineSheetPresenter.shared.presentNewMachine(
             plan: viewModel.plan,
             memoryOptionsMb: viewModel.memoryOptionsMb,
-            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
+            preferredWindow: tabManager.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
             coordinator: viewModel.createCoordinator
         )
     }
@@ -463,10 +476,12 @@ struct MachinesPanelView: View {
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
         let nodeActions = CloudTreeNodeActions.bound(
             catalog: { SurfaceCatalog.shared },
-            selectedWorkspaceID: { AppDelegate.shared?.tabManager?.selectedTabId },
+            selectedWorkspaceID: { tabManager.selectedTabId },
             selectLocalWorkspace: { workspaceID in
-                AppDelegate.shared?.tabManager?.selectedTabId = workspaceID
+                guard tabManager.tabs.contains(where: { $0.id == workspaceID }) else { return }
+                tabManager.selectedTabId = workspaceID
             },
+            preferredTabManager: tabManager,
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
@@ -476,7 +491,8 @@ struct MachinesPanelView: View {
             machines: viewModel.machines,
             pendingCreates: viewModel.pendingCreates,
             snapshot: viewModel.catalog,
-            localWorkspaces: viewModel.localWorkspaces,
+            localWorkspaces: localWorkspaces,
+            workspaceIDs: Set(localWorkspaces.map(\.id)),
             unreadTerminalIDs: viewModel.unreadTerminalIDs,
             machineActions: machineActions,
             nodeActions: nodeActions,
