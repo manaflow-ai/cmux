@@ -512,7 +512,7 @@ struct MacComputerDetailView: View {
     }
 
     private var listAuthEntry: MobileMacListAuthState.Entry? {
-        MobileMacListAuthState.shared.entry(deviceID: macDeviceID)
+        MobileMacListAuthState.shared.entry(pairingID: MobilePairedMac.pairingID(macDeviceID: macDeviceID, instanceTag: instanceTag))
     }
 
     // MARK: - Connection configuration

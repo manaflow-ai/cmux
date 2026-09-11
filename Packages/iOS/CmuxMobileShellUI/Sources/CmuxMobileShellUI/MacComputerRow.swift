@@ -170,7 +170,7 @@ struct MacComputerRow: View {
     /// records the build version in the durable overlay.
     private var showsListAuthWarning: Bool {
         hasVersionGateWarning
-            || MobileMacListAuthState.shared.entry(deviceID: computer.deviceId)?.isOutdated == true
+            || MobileMacListAuthState.shared.entry(pairingID: computer.id)?.isOutdated == true
             || hasUnverifiedVersionWarning
     }
 
@@ -180,7 +180,7 @@ struct MacComputerRow: View {
     private var hasUnverifiedVersionWarning: Bool {
         guard MobileMacListAuthState.shared.minimumSupportedMacVersion != nil
         else { return false }
-        return MobileMacListAuthState.shared.entry(deviceID: computer.deviceId) == nil
+        return MobileMacListAuthState.shared.entry(pairingID: computer.id) == nil
     }
 
     /// Outdated rows carry a compact warning triangle beside the name; the
@@ -227,7 +227,7 @@ struct MacComputerRow: View {
     }
 
     private var listAuthWarningMessage: String {
-        if let entry = MobileMacListAuthState.shared.entry(deviceID: computer.deviceId),
+        if let entry = MobileMacListAuthState.shared.entry(pairingID: computer.id),
            entry.isOutdated,
            let required = entry.requiredVersionDisplay {
             let requirement = "cmux \(required) or later"

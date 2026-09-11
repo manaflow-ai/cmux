@@ -66,7 +66,7 @@ private struct ComputerVisibilityRow: View {
     let isConnecting: Bool
     var setCaffeine: @MainActor (MacComputerSnapshot, Bool) -> Void = { _, _ in }
     var isCaffeineMutating: Bool = false
-    var gateWarningDeviceIDs: Set<String> = []
+    var gateWarningPairingIDs: Set<String> = []
     @State private var showingHiddenVersionGateWarning = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var isBusy: Bool { isVisibilityMutating }
@@ -155,9 +155,7 @@ private struct ComputerVisibilityRow: View {
                 style: style,
                 connect: { _ in connect(computer) },
                 isConnecting: isConnecting,
-                hasVersionGateWarning: gateWarningDeviceIDs.contains(
-                    cmxCanonicalDeviceID(computer.deviceId)
-                )
+                hasVersionGateWarning: gateWarningPairingIDs.contains(computer.id)
             )
         } else if let computer = item.hiddenComputer {
             hiddenLabel(computer)
@@ -178,7 +176,7 @@ private struct ComputerVisibilityRow: View {
                    ) {
                     ComputerBuildBadge(label: buildLabel)
                 }
-                if gateWarningDeviceIDs.contains(cmxCanonicalDeviceID(computer.macDeviceID)) {
+                if gateWarningPairingIDs.contains(computer.id) {
                     Button {
                         showingHiddenVersionGateWarning = true
                     } label: {
@@ -254,7 +252,7 @@ struct ComputerVisibilityRows: View {
     var mutatingComputerIDs: Set<String> = []
     var setCaffeine: @MainActor (MacComputerSnapshot, Bool) -> Void = { _, _ in }
     var caffeineMutatingComputerIDs: Set<String> = []
-    var gateWarningDeviceIDs: Set<String> = []
+    var gateWarningPairingIDs: Set<String> = []
     let hide: @MainActor (MacComputerSnapshot) -> Void
     let unhide: @MainActor (MobileHiddenComputer) -> Void
 
@@ -274,7 +272,7 @@ struct ComputerVisibilityRows: View {
                 isConnecting: connectingComputerID == item.id,
                 setCaffeine: setCaffeine,
                 isCaffeineMutating: caffeineMutatingComputerIDs.contains(item.id),
-                gateWarningDeviceIDs: gateWarningDeviceIDs
+                gateWarningPairingIDs: gateWarningPairingIDs
             )
         }
     }

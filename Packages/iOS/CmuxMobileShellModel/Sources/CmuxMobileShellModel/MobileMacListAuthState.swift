@@ -95,9 +95,8 @@ public final class MobileMacListAuthState {
 
     /// Entries keyed by the Mac's endpoint ID hex (TLS identity).
     public private(set) var entriesByEndpointID: [String: Entry] = [:]
-    /// The same entries keyed by the Mac's durable device id, the key the
-    /// Computers rows carry.
-    public private(set) var entriesByDeviceID: [String: Entry] = [:]
+    /// The same entries keyed by the complete app pairing and directory endpoint identity.
+    public private(set) var entriesByIdentityKey: [String: Entry] = [:]
     /// Whether ANY device list has been received or restored this session.
     /// False on a fresh install pre-hello (the dial bootstrap window).
     public private(set) var hasSnapshot = false
@@ -122,7 +121,7 @@ public final class MobileMacListAuthState {
     /// higher-priority source for both release lanes.
     public func replace(
         entriesByEndpointID: [String: Entry],
-        entriesByDeviceID: [String: Entry],
+        entriesByIdentityKey: [String: Entry],
         minimumSupportedMacVersion: String? = nil
     ) {
         let effectiveStableMinimum = hasPolicyMinimumSupportedMacVersion
@@ -136,8 +135,8 @@ public final class MobileMacListAuthState {
             stableMinimum: effectiveStableMinimum,
             nightlyMinimum: effectiveNightlyMinimum
         )
-        self.entriesByDeviceID = entriesWithMinimumSupportedVersions(
-            entriesByDeviceID,
+        self.entriesByIdentityKey = entriesWithMinimumSupportedVersions(
+            entriesByIdentityKey,
             stableMinimum: effectiveStableMinimum,
             nightlyMinimum: effectiveNightlyMinimum
         )
@@ -173,8 +172,8 @@ public final class MobileMacListAuthState {
             stableMinimum: stable,
             nightlyMinimum: nightly
         )
-        entriesByDeviceID = entriesWithMinimumSupportedVersions(
-            entriesByDeviceID,
+        entriesByIdentityKey = entriesWithMinimumSupportedVersions(
+            entriesByIdentityKey,
             stableMinimum: stable,
             nightlyMinimum: nightly
         )
@@ -184,7 +183,7 @@ public final class MobileMacListAuthState {
 
     public func clear() {
         entriesByEndpointID = [:]
-        entriesByDeviceID = [:]
+        entriesByIdentityKey = [:]
         minimumSupportedMacVersion = nil
         minimumSupportedNightlyMacVersion = nil
         hasSnapshot = false
@@ -194,15 +193,27 @@ public final class MobileMacListAuthState {
         entriesByEndpointID[endpointIDHex]
     }
 
-    public func entry(deviceID: String) -> Entry? {
-        entriesByDeviceID[deviceID]
+    /// Builds the collision-free key for one app pairing and one directory endpoint.
+    public static func identityKey(pairingID: String, endpointIDHex: String) -> String {
+        "\(pairingID)\u{1F}\(endpointIDHex)"
+    }
+
+    public func entry(pairingID: String) -> Entry? {
+        if let exact = entriesByIdentityKey[pairingID] { return exact }
+        let prefix = "\(pairingID)\u{1F}"
+        let candidates = entriesByIdentityKey.compactMap { key, entry -> Entry? in
+            key.hasPrefix(prefix) ? entry : nil
+        }
+        guard let first = candidates.first,
+              candidates.dropFirst().allSatisfy({ $0 == first }) else { return nil }
+        return first
     }
 
     /// Whether the directory still has a seeded overlay for this Mac. This is
     /// retained for connection admission diagnostics; the user-facing warning
     /// is derived from `isOutdated`, including when the seeded row has no
     /// remembered version yet.
-    public func isSeeded(deviceID: String) -> Bool {
-        entriesByDeviceID[deviceID]?.status == "seeded"
+    public func isSeeded(pairingID: String) -> Bool {
+        entry(pairingID: pairingID)?.status == "seeded"
     }
 }
