@@ -26,6 +26,18 @@ class KeyboardLayout {
         return nil
     }
 
+    /// Return the BCP-47 languages the current keyboard input source is intended
+    /// for. The first element is the primary language (kTISPropertyInputSourceLanguages).
+    static var languages: [String] {
+        if let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+           let languagesPointer = TISGetInputSourceProperty(source, kTISPropertyInputSourceLanguages) {
+            let languages = Unmanaged<CFArray>.fromOpaque(languagesPointer).takeUnretainedValue()
+            return (languages as? [String]) ?? []
+        }
+
+        return []
+    }
+
     /// Translate a physical keyCode to the character AppKit would use for shortcut matching,
     /// preserving command-aware layouts such as "Dvorak - QWERTY Command".
     /// Some CJK input sources lack kTISPropertyUnicodeKeyLayoutData, and others (Korean
