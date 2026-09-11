@@ -2,6 +2,7 @@
 // provider credentials stay behind server-side ownership checks.
 
 import type { Span } from "@opentelemetry/api";
+import { preconnectCloudDb } from "../../../db/client";
 import { preconnectFreestyle } from "../../../services/vms/drivers/freestyle";
 import {
   unauthorized,
@@ -14,6 +15,7 @@ import {
   type ProviderId,
   vmCapabilitiesFor,
 } from "../../../services/vms/drivers";
+import type { VmCapabilities } from "../../../services/vms/drivers/types";
 import { assertVmCreateEnabled } from "../../../services/vms/config";
 import { vmModelPlaneGatewayFor } from "../../../services/vms/modelPlaneGateway";
 import {
@@ -54,6 +56,7 @@ import {
   runAfterResponse,
   type VmWorkflowErrorOverrides,
 } from "../../../services/vms/routeHelpers";
+import { vmRequestLocale, vmUnsupportedCopy } from "../../../services/vms/vmErrorMessages";
 import { runVmRoute } from "../../../services/vms/routeWorkflow";
 import { captureVmProvisionOutcome } from "../../../services/vms/observability";
 import { annotateVmRequestBilling } from "../../../services/vms/requestContext";
@@ -141,8 +144,6 @@ export async function GET(request: Request): Promise<Response> {
         capabilities: vmCapabilitiesFor(entry.provider),
         createdAt: entry.createdAt,
         displayName: entry.displayName,
-        // Generated three-word name; clients show it when no displayName is
-        // set. Null on rows created before names were assigned.
         slug: entry.slug,
         // The machine's address on its owner's private network (reachable over
         // the WireGuard tunnel); null for machines created before private
@@ -180,8 +181,9 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  // Warm the Freestyle connection while the caller is being verified.
+  // Warm the Freestyle and database connections while the caller is being verified.
   preconnectFreestyle();
+  preconnectCloudDb();
   return withAuthedVmApiRoute(
     request,
     "/api/vm",
@@ -223,8 +225,13 @@ export async function POST(request: Request): Promise<Response> {
       if (!selected.ok) return selected.response;
       const { imageSelection } = selected;
       const image = imageSelection.image;
+      const unsupportedOption = await unsupportedCreateOptionResponse(provider, candidate, request);
+      if (unsupportedOption) return unsupportedOption;
+      const optionPolicy = createOptionPolicy(vmCapabilitiesFor(provider), candidate);
+      const homeVolumeRequested = optionPolicy.kind === "accept" && optionPolicy.ignoredFields.length === 0;
       setSpanAttributes(span, {
         "cmux.vm.provider": provider,
+        "cmux.vm.ignored_create_fields": optionPolicy.kind === "accept" ? optionPolicy.ignoredFields.join(",") : "",
         "cmux.vm.image_set": image.length > 0,
         "cmux.vm.image_version": imageSelection.imageVersion,
         "cmux.vm.image_manifest": !!imageSelection.manifestEntry,
@@ -251,8 +258,8 @@ export async function POST(request: Request): Promise<Response> {
         imageVersion: imageSelection.imageVersion,
         provider,
         idempotencyKey,
-        persistentHome: candidate.persistentHome === true,
-        perMachineHome: candidate.perMachineHome === true,
+        persistentHome: homeVolumeRequested && candidate.persistentHome === true,
+        perMachineHome: homeVolumeRequested && candidate.perMachineHome === true,
         memoryMb,
         imageSize: imageSelection.size ?? undefined,
         modelPlane,
@@ -272,11 +279,58 @@ export async function POST(request: Request): Promise<Response> {
         kind: vmImageKindFor(created.provider, created.image),
         ...(imageSelection.size ? { size: imageSelection.size } : {}),
         createdAt: created.createdAt,
+        capabilities: vmCapabilitiesFor(created.provider),
         displayName: created.displayName,
         slug: created.slug,
       });
     },
   );
+}
+
+/**
+ * How a create request's optional flags meet the resolved provider's capabilities.
+ *
+ * `memoryMb` on a provider without sizing is rejected: the caller paid for a size it
+ * would not get. `persistentHome`/`perMachineHome` on a provider without home volumes
+ * are ignored, not rejected: every shipped CLI sends them on the default create (the
+ * "each machine is its own persistent computer" contract, PR 10478), a Freestyle
+ * machine already is durable without a volume, and rejecting them took `cmux vm new`
+ * down for every installed client on 2026-09-10 (8 of 9 creates 400 after PR 11609).
+ * The ignored fields are reported so the span and the response can say so.
+ */
+export function createOptionPolicy(
+  capabilities: Pick<VmCapabilities, "sizing" | "persistentHome">,
+  candidate: Record<string, unknown>,
+):
+  | { readonly kind: "reject"; readonly operation: "sizing"; readonly field: "memoryMb" }
+  | { readonly kind: "accept"; readonly ignoredFields: readonly ("persistentHome" | "perMachineHome")[] } {
+  if (candidate.memoryMb !== undefined && !capabilities.sizing) {
+    return { kind: "reject", operation: "sizing", field: "memoryMb" };
+  }
+  const ignoredFields: ("persistentHome" | "perMachineHome")[] = [];
+  if (!capabilities.persistentHome) {
+    if (candidate.persistentHome === true) ignoredFields.push("persistentHome");
+    if (candidate.perMachineHome === true) ignoredFields.push("perMachineHome");
+  }
+  return { kind: "accept", ignoredFields };
+}
+
+async function unsupportedCreateOptionResponse(
+  provider: ProviderId,
+  candidate: Record<string, unknown>,
+  request: Request,
+): Promise<Response | null> {
+  const policy = createOptionPolicy(vmCapabilitiesFor(provider), candidate);
+  if (policy.kind !== "reject") return null;
+  const unsupported = policy;
+  const copy = await vmUnsupportedCopy(unsupported.operation, vmRequestLocale(request));
+  return vmErrorResponse({
+    error: "vm_operation_unsupported",
+    status: 400,
+    message: copy.message,
+    action: copy.action,
+    details: { provider, field: unsupported.field },
+  });
 }
 
 type CreateBody = {

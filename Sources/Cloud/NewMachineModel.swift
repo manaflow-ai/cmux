@@ -68,7 +68,7 @@ struct MachineSizeOption: Equatable, Sendable {
 final class NewMachineModel {
     /// Which create flow the sheet fronts.
     enum Mode: Equatable {
-        /// `cmux vm new`: a fresh machine with its own persistent home.
+        /// `cmux vm new`: a fresh Freestyle machine with an ephemeral home.
         case newMachine
         /// `cmux vm base open --workspace <id>`: the persistent Base slot's
         /// first provisioning. Base has no size choice (the backend sizes it)

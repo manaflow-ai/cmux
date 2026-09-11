@@ -12,7 +12,8 @@ extension CmuxTuiSurfaceProvider {
     func materializeBrowserPane(
         _ resource: SurfaceResource,
         at destination: SurfaceDestination,
-        focus: Bool
+        focus: Bool,
+        reusing existingPane: (workspaceID: UUID, panelID: UUID)? = nil
     ) async throws -> (workspaceID: UUID, panelID: UUID) {
         let generation = currentLifecycleGeneration
         try Task.checkCancellation()
@@ -33,7 +34,7 @@ extension CmuxTuiSurfaceProvider {
             try Task.checkCancellation()
             guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { throw CancellationError() }
             let label = Self.paneLabel(machineID: machineID, port: target.port, desktop: desktop)
-            let pane = try Self.makeConnectingPane(label: label, at: destination, focus: focus)
+            let pane = try Self.makeConnectingPane(label: label, at: destination, focus: focus, reusing: existingPane)
             let machineWasAwake = isAwake
             // A provider that is stopped or replaced while this runs must not
             // touch the pane its successor now owns.
@@ -66,7 +67,7 @@ extension CmuxTuiSurfaceProvider {
         case .controlPlanePreview(let port):
             guard isRegisteredInCatalog() else { throw CancellationError() }
             let label = Self.paneLabel(machineID: machineID, port: port, desktop: desktop)
-            let pane = try Self.makeConnectingPane(label: label, at: destination, focus: focus)
+            let pane = try Self.makeConnectingPane(label: label, at: destination, focus: focus, reusing: existingPane)
             browserPaneTasks[pane.panelID] = Task { @MainActor [weak self] in
                 guard let self else { return }
                 defer { self.browserPaneTasks[pane.panelID] = nil }
@@ -83,6 +84,44 @@ extension CmuxTuiSurfaceProvider {
                 }
             }
             return pane
+        }
+    }
+
+    /// Restored browser tabs retain their identity, but their saved loopback
+    /// ports belong to the previous process. Reuse the normal route preparation
+    /// path to create a new forward and navigate the existing tab in place.
+    func reprojectRestoredBrowserPanes(generation: UInt64) {
+        for resource in catalog.snapshot.resources(on: machine) where resource.kind != .terminal {
+            for projection in catalog.projections(of: resource.id)
+            where !materializedPanels.contains(projection.panelID) {
+                guard SurfacePaneFactory.browserPanel(panelID: projection.panelID, in: projection.workspaceID) != nil,
+                      let paneID = SurfacePaneFactory.paneID(ofPanel: projection.panelID, in: projection.workspaceID) else { continue }
+                materializedPanels.insert(projection.panelID)
+                let pane = (workspaceID: projection.workspaceID, panelID: projection.panelID)
+                // The old process no longer owns this URL. Retire it before
+                // any route setup can suspend, then reuse the normal preparer.
+                SurfacePaneFactory.navigate(panelID: pane.panelID, in: pane.workspaceID, to: SurfacePaneFactory.blankURL)
+                SurfacePaneFactory.showPlaceholder(SurfaceBrowserPlaceholder.connecting(resource.title), panelID: pane.panelID, in: pane.workspaceID)
+                // This task owns forward creation; materializeBrowserPane hands
+                // the same slot to its navigation task after the forward binds.
+                browserPaneTasks[pane.panelID] = Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    do {
+                        try Task.checkCancellation()
+                        guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { return }
+                        _ = try await self.materializeBrowserPane(
+                            resource,
+                            at: .tab(workspaceID: pane.workspaceID, paneID: paneID, index: nil),
+                            focus: false,
+                            reusing: pane
+                        )
+                    } catch {
+                        self.browserPaneTasks[pane.panelID] = nil
+                        guard !Task.isCancelled, self.isCurrentLifecycleGeneration(generation) else { return }
+                        Self.showFailure(label: resource.title, error: error, pane: pane)
+                    }
+                }
+            }
         }
     }
 
@@ -138,9 +177,10 @@ extension CmuxTuiSurfaceProvider {
     private static func makeConnectingPane(
         label: String,
         at destination: SurfaceDestination,
-        focus: Bool
+        focus: Bool,
+        reusing existingPane: (workspaceID: UUID, panelID: UUID)? = nil
     ) throws -> (workspaceID: UUID, panelID: UUID) {
-        let pane = try SurfacePaneFactory.makeBrowserPane(url: SurfacePaneFactory.blankURL, at: destination, focus: focus)
+        let pane = try existingPane ?? SurfacePaneFactory.makeBrowserPane(url: SurfacePaneFactory.blankURL, at: destination, focus: focus)
         SurfacePaneFactory.showPlaceholder(SurfaceBrowserPlaceholder.connecting(label), panelID: pane.panelID, in: pane.workspaceID)
         return pane
     }
