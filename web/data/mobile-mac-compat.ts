@@ -121,7 +121,10 @@ export const mobileMacCompatList: MobileMacCompatList = {
       nightly: { minBaseVersion: "0.64.22", minBuild: "3345650013202" },
       buildKinds: {
         dev: { stableMinVersion: "0.64.0" },
-        beta: { stableMinVersion: "0.64.23" },
+        beta: {
+          stableMinVersion: "0.64.23",
+          nightly: { minBaseVersion: "0.64.22", minBuild: "3345650013202" },
+        },
         internal: { stableMinVersion: "0.64.23" },
         demo: { stableMinVersion: "0.64.23" },
         prod: {
