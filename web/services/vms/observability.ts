@@ -221,8 +221,8 @@ function requestTelemetryProperties(
  */
 function addMemoryUpgradeProperties(requestProperties: PostHogProperties, errorCode: string | undefined, lastError: VmErrorResponseInput | undefined) {
   if (errorCode === "vm_memory_requires_plan") {
-    requestProperties.requested_memory_mb = typeof lastError?.details?.requestedMemoryMb === "number" ? lastError.details.requestedMemoryMb : null;
-    requestProperties.max_memory_mb = typeof lastError?.details?.maxMemoryMb === "number" ? lastError.details.maxMemoryMb : null;
+    requestProperties.requested_memory_mb = typeof lastError?.details?.requestedMemoryMb === "number" ? lastError.details.requestedMemoryMb : 0;
+    requestProperties.max_memory_mb = typeof lastError?.details?.maxMemoryMb === "number" ? lastError.details.maxMemoryMb : 0;
     requestProperties.upgrade_plan = typeof lastError?.details?.upgradePlanId === "string" ? lastError.details.upgradePlanId : "max";
   }
 }
