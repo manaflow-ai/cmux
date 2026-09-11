@@ -77,8 +77,7 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "cloud.beta.machines.enabled"
     )
 
-    /// My Devices in the Cloud right sidebar lists the account's other Macs
-    /// with presence and projects their live workspaces alongside cloud machines.
+    /// My Devices adds a separate right-sidebar category for the account's other Macs.
     /// Discovery and incoming access can be switched off independently in the
     /// sidebar or Computers settings. Hiding a Mac is a presentation preference,
     /// separate from revoking access. The beta feature itself defaults off.

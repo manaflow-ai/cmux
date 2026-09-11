@@ -520359,55 +520359,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hides My Devices from the Cloud sidebar. Incoming access is controlled separately in Computers settings."
+            "value": "Hides My Devices from the right sidebar. Incoming access is controlled separately in Computers settings."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud サイドバーの「マイデバイス」を非表示にします。この Mac へのアクセスは「コンピュータ」設定で個別に変更できます。"
+            "value": "「マイデバイス」を右サイドバーから非表示にします。着信アクセスは「コンピュータ」設定で個別に制御します。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Blendet „Meine Geräte“ aus der Cloud-Seitenleiste aus. Eingehender Zugriff wird separat in den Computereinstellungen gesteuert."
+            "value": "Blendet „Meine Geräte“ aus der rechten Seitenleiste aus. Eingehender Zugriff wird separat in den Computereinstellungen gesteuert."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Masque Mes appareils de la barre latérale Cloud. L’accès entrant se règle séparément dans Réglages Ordinateurs."
+            "value": "Masque Mes appareils de la barre latérale droite. L’accès entrant se règle séparément dans Réglages Ordinateurs."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يخفي «أجهزتي» من الشريط الجانبي لـ Cloud. يُدار الوصول الوارد بشكل منفصل في إعدادات أجهزة الكمبيوتر."
+            "value": "يخفي «أجهزتي» من الشريط الجانبي الأيمن. يُدار الوصول الوارد بشكل منفصل في إعدادات أجهزة الكمبيوتر."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Oculta Mis dispositivos de la barra lateral de Cloud. El acceso entrante se controla por separado en Ajustes de Ordenadores."
+            "value": "Oculta Mis dispositivos de la barra lateral derecha. El acceso entrante se controla por separado en Ajustes de Ordenadores."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "將「我的裝置」從 Cloud 側邊欄隱藏。傳入存取權限可在「電腦」設定中個別控制。"
+            "value": "將「我的裝置」從右側邊欄隱藏。傳入存取權限可在「電腦」設定中個別控制。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "从 Cloud 侧边栏隐藏“我的设备”。传入访问权限可在“电脑”设置中单独控制。"
+            "value": "从右侧边栏隐藏“我的设备”。传入访问权限可在“电脑”设置中单独控制。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 사이드바에서 내 기기를 숨깁니다. 수신 접근은 컴퓨터 설정에서 별도로 제어됩니다."
+            "value": "오른쪽 사이드바에서 내 기기를 숨깁니다. 수신 접근은 컴퓨터 설정에서 별도로 제어됩니다."
           }
         }
       }
@@ -520418,55 +520418,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adds My Devices to the Cloud sidebar. Control discovery and access to this Mac separately in Computers settings."
+            "value": "Adds My Devices as a separate right-sidebar category. Control discovery and access to this Mac separately in Computers settings."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud サイドバーに「マイデバイス」を追加します。検出とこの Mac へのアクセスは「コンピュータ」設定で個別に変更できます。"
+            "value": "「マイデバイス」を右サイドバーの独立したカテゴリとして追加します。検出とこの Mac へのアクセスは「コンピュータ」設定で個別に制御できます。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fügt „Meine Geräte“ zur Cloud-Seitenleiste hinzu. Gerätesuche und Zugriff auf diesen Mac werden separat in den Computereinstellungen gesteuert."
+            "value": "Fügt „Meine Geräte“ als eigene Kategorie in der rechten Seitenleiste hinzu. Gerätesuche und Zugriff auf diesen Mac werden separat in den Computereinstellungen gesteuert."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajoute Mes appareils à la barre latérale Cloud. La détection et l’accès à ce Mac se règlent séparément dans Réglages Ordinateurs."
+            "value": "Ajoute Mes appareils comme catégorie distincte dans la barre latérale droite. La détection et l’accès à ce Mac se règlent séparément dans Réglages Ordinateurs."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يضيف «أجهزتي» إلى الشريط الجانبي لـ Cloud. يُدار الاكتشاف والوصول إلى هذا الـ Mac بشكل منفصل في إعدادات أجهزة الكمبيوتر."
+            "value": "يضيف «أجهزتي» كفئة منفصلة في الشريط الجانبي الأيمن. يُدار الاكتشاف والوصول إلى هذا الـ Mac بشكل منفصل في إعدادات أجهزة الكمبيوتر."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añade Mis dispositivos a la barra lateral de Cloud. La detección y el acceso a este Mac se controlan por separado en Ajustes de Ordenadores."
+            "value": "Añade Mis dispositivos como categoría independiente en la barra lateral derecha. La detección y el acceso a este Mac se controlan por separado en Ajustes de Ordenadores."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "將「我的裝置」新增至 Cloud 側邊欄。探索和此 Mac 的存取權限可在「電腦」設定中個別控制。"
+            "value": "將「我的裝置」新增為右側邊欄的獨立類別。探索和此 Mac 的存取權限可在「電腦」設定中個別控制。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将“我的设备”添加到 Cloud 侧边栏。发现功能和对此 Mac 的访问权限可在“电脑”设置中单独控制。"
+            "value": "将“我的设备”添加为右侧边栏的独立类别。发现功能和对此 Mac 的访问权限可在“电脑”设置中单独控制。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 사이드바에 내 기기를 추가합니다. 검색 및 이 Mac에 대한 접근은 컴퓨터 설정에서 별도로 제어됩니다."
+            "value": "내 기기를 오른쪽 사이드바의 별도 카테고리로 추가합니다. 검색 및 이 Mac에 대한 접근은 컴퓨터 설정에서 별도로 제어됩니다."
           }
         }
       }
