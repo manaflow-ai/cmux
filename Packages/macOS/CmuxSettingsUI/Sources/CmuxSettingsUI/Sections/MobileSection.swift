@@ -84,6 +84,8 @@ public struct MobileSection: View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.mobile", defaultValue: "Mobile"), section: .mobile)
             SettingsCard {
+                iOSPairingHostRow
+                SettingsCardDivider()
                 if remoteControlManagedByPolicy {
                     SettingsCardNote(String(
                         localized: "settings.mobile.managedByOrganization",
@@ -91,8 +93,6 @@ public struct MobileSection: View {
                     ))
                     SettingsCardDivider()
                 }
-                iOSPairingHostRow
-                SettingsCardDivider()
                 // Phone-push forwarding is outbound-only and explicitly out of
                 // the DisableRemoteControl policy's scope, so its rows stay
                 // editable even while the remote-control rows are managed.
