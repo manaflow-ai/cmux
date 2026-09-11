@@ -1,4 +1,5 @@
 import CmuxAuthRuntime
+import AppKit
 import Foundation
 import Testing
 
@@ -7,6 +8,55 @@ import Testing
 
 @MainActor
 struct CloudOperationRecorderTests {
+    @Test func completedOperationsDoNotLeaveActivityChrome() async {
+        let recorder = CloudOperationRecorder()
+        #expect(recorder.operations.filter(\.isVisibleInMachinesPanel).isEmpty)
+        let root = recorder.begin(.open)
+        #expect(recorder.operations.filter(\.isVisibleInMachinesPanel).count == 1)
+        await recorder.finish(root)
+        #expect(recorder.operations.filter(\.isVisibleInMachinesPanel).isEmpty)
+        let failed = recorder.begin(.connect)
+        await recorder.finish(failed, error: CloudDiagnosticFailure.network)
+        #expect(recorder.operations.filter(\.isVisibleInMachinesPanel).map(\.id) == [failed.operationID])
+    }
+
+    @Test func copyErrorMenuCopiesFullFailureWithTraceAndFailedStep() async throws {
+        let recorder = CloudOperationRecorder()
+        let root = recorder.begin(.open)
+        let child = recorder.beginChild(of: root, phase: .request, attempt: 1)
+        await recorder.finish(child, httpStatus: 503)
+        await recorder.finish(root, error: CloudDiagnosticFailure.server)
+        let operation = try #require(recorder.operations.first)
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        let menu = CloudErrorCopy.menu(operation.copyableError, pasteboard: pasteboard)
+        let item = try #require(menu.items.first)
+        #expect(NSApp.sendAction(try #require(item.action), to: item.target, from: item))
+        let copied = try #require(pasteboard.string(forType: .string))
+        #expect(copied == operation.copyableError)
+        #expect(copied.contains(root.traceID))
+        #expect(copied.contains(child.spanID))
+        #expect(copied.contains(CloudOperationPhase.request.label))
+        #expect(copied.contains(CloudDiagnosticFailure.server.label))
+    }
+
+    @Test func diagnosticsRetainRecoveredErrorsAndBuildIdentity() async throws {
+        let recorder = CloudOperationRecorder()
+        let root = recorder.begin(.open)
+        let child = recorder.beginChild(of: root, phase: .request, attempt: 1)
+        await recorder.finish(child, httpStatus: 503)
+        await recorder.finish(root)
+        let client = CloudTelemetryClient.current(info: ["CFBundleShortVersionString": "1.2.3", "CFBundleVersion": "45", "CMUXCommit": "abcdef123"], flavor: .nightly)
+        let report = CloudDiagnosticReport.text(operations: recorder.operations, client: client)
+        #expect(report.contains("nightly"))
+        #expect(report.contains("abcdef123"))
+        #expect(report.contains("1.2.3"))
+        #expect(report.contains("45"))
+        #expect(report.contains("server"))
+        #expect(report.contains(root.traceID))
+        #expect(recorder.operations.filter(\.isVisibleInMachinesPanel).isEmpty)
+    }
+
     @Test func concurrentOperationsKeepIndependentState() async {
         let recorder = CloudOperationRecorder()
         let first = recorder.begin(.create)
