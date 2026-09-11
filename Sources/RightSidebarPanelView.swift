@@ -522,7 +522,8 @@ struct RightSidebarPanelView: View {
             case .machines:
                 MachinesPanelView(
                     chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
-                    devicesModel: devicesModel
+                    devicesModel: devicesModel,
+                    tabManager: tabManager
                 )
             case .customSidebar:
                 customSidebarPanel

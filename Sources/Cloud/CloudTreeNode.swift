@@ -61,6 +61,8 @@ final class CloudTreeNode: NSObject {
         case device(CloudTreeDeviceRow)
         /// The "Devices" section header when devices share the tree with the fleet.
         case devicesSection(count: Int)
+        /// Port discovery is demand-driven when the user opens the Ports group.
+        var refreshesOnExpansion: Bool { if case .portsGroup = self { true } else { false } }
     }
 
     let id: String
@@ -102,7 +104,6 @@ final class CloudTreeNode: NSObject {
         case .devicesSection: return "devicesSection"
         }
     }
-
     /// Copies the values of an equal-structure rebuild into this node (NSOutlineView keeps
     /// the object it was handed; updating it in place keeps rows, expansion and the
     /// selection untouched). Children are adopted pairwise — callers guarantee the
@@ -114,7 +115,6 @@ final class CloudTreeNode: NSObject {
             child.adopt(from: replacement)
         }
     }
-
     var machine: SurfaceMachineID {
         switch kind {
         case .machine(let snapshot, _): return .cloud(snapshot.id)
@@ -933,7 +933,6 @@ enum CloudTreeNodeBuilder {
         snapshot: SurfaceCatalogSnapshot,
         projectionIndex: LocalProjectionIndex
     ) -> CloudTreeNode {
-        let displays = resources.filter { $0.kind == .display }
         var byWorkspace: [String: RemoteWorkspaceRows] = [:]
         for workspace in info.remoteWorkspaces ?? [] {
             byWorkspace[workspace.id] = RemoteWorkspaceRows(workspace: workspace)
@@ -948,6 +947,11 @@ enum CloudTreeNodeBuilder {
                 }
                 byWorkspace[placement.workspace.id] = rows
             }
+        }
+        for member in SurfaceProjection.localDisplayMembers(resources: resources, projections: snapshot.projections) {
+            guard var rows = byWorkspace[member.workspaceID] else { continue }
+            rows.displays.append(RemoteResourcePlacement(resource: member.resource, workspace: rows.workspace, view: nil))
+            byWorkspace[member.workspaceID] = rows
         }
         let workspaces = byWorkspace.values.sorted { lhs, rhs in
             lhs.workspace.index != rhs.workspace.index ? lhs.workspace.index < rhs.workspace.index : lhs.workspace.id < rhs.workspace.id
@@ -964,15 +968,12 @@ enum CloudTreeNodeBuilder {
                     remoteWorkspaceID: workspace.id
                 )
             }
-            let shownDisplayPlacements: [RemoteResourcePlacement] = displayPlacements.isEmpty
-                ? displays.map { RemoteResourcePlacement(resource: $0, workspace: workspace, view: nil) }
-                : displayPlacements
             let openInLocal = projectionIndex.localWorkspaceShowing(
                 remoteWorkspaceID: workspace.id,
                 placements: realPlacements
             )
             let layout = layoutRows(
-                placements: terminalPlacements + browserPlacements + shownDisplayPlacements,
+                placements: terminalPlacements + browserPlacements + displayPlacements,
                 workspace: workspace,
                 machine: machine,
                 info: info,
@@ -980,16 +981,14 @@ enum CloudTreeNodeBuilder {
                 projectionIndex: projectionIndex,
                 openInLocal: openInLocal
             )
-            // The group keeps its members (a workspace's own placements; the implicit
-            // pool display stays out) but takes the rows' order.
-            let realPlacementSet = Set(realPlacements)
+            // Open and drag use the same actual placements in the rows' order.
             let orderedRealPlacements = layout.placements.map { placement in
                 SurfaceResourcePlacement(
                     resource: placement.resource.id,
                     remoteView: placement.view,
                     remoteWorkspaceID: workspace.id
                 )
-            }.filter { realPlacementSet.contains($0) }
+            }
             return CloudTreeNode(
                 id: nodeID(workspace: workspace.id, machine: machine),
                 kind: .workspace(

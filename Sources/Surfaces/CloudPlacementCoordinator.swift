@@ -52,9 +52,21 @@ final class CloudPlacementCoordinator {
         }
     }
 
+    /// Resolve a local VNC pane before binding inference sees its old workspace.
+    func projectionInCurrentWorkspace(_ projection: SurfaceProjection) -> SurfaceProjection {
+        guard projection.resource.kind == .display, projection.remoteTabID == nil else { return projection }
+        var updated = projection
+        updated.remoteWorkspaceID = boundRemoteWorkspaceID(
+            forLocalWorkspace: projection.workspaceID, on: projection.resource.machine
+        )
+        return updated
+    }
+
     private func placement(of projection: SurfaceProjection, resource: SurfaceResource, catalog: SurfaceCatalog) -> SurfaceRemotePlacement? {
         let receipt = receipts[resource.id]?[projection.panelID]
         let live = catalog.projection(forPanel: projection.panelID).flatMap { $0.resource == resource.id ? $0 : nil }
+        // A local VNC pane must never borrow another viewer's daemon tab on close.
+        if resource.kind == .display, receipt == nil, (live ?? projection).remoteTabID == nil { return nil }
         guard let tabID = receipt?.tabID
             ?? catalog.cloudWorkspaceRenameService.remoteTabID(for: live ?? projection, resource: resource) else { return nil }
         guard let workspaceID = movedTabs[resource.machine]?[tabID]
@@ -66,6 +78,13 @@ final class CloudPlacementCoordinator {
     }
 
     func projectionDidMove(_ projection: SurfaceProjection, catalog: SurfaceCatalog) {
+        if projection.resource.kind == .display, projection.remoteTabID == nil {
+            // Local VNC membership follows the current binding, including removal
+            // when the pane moves into an unbound viewer workspace.
+            let current = projectionInCurrentWorkspace(projection)
+            catalog.setRemotePlacement(for: projection, workspaceID: current.remoteWorkspaceID, tabID: nil)
+            return
+        }
         guard let target = boundRemoteWorkspaceID(forLocalWorkspace: projection.workspaceID, on: projection.resource.machine),
               let provider = catalog.provider(for: projection.resource.machine) as? any SurfacePlacementSyncing else { return }
         enqueue(projection, catalog: catalog) {
@@ -78,9 +97,8 @@ final class CloudPlacementCoordinator {
             } else if resource.kind == .terminal, resource.remoteViews?.isEmpty == true,
                       projection.remoteTabID == nil {
                 result = try await provider.projectTerminal(resource.id, intoRemoteWorkspace: target)
-            } else if resource.kind == .display || (resource.kind == .browser && resource.remoteViews?.isEmpty != false) {
-                // Displays and port previews have no daemon tab; keep their local
-                // workspace association without inventing a remote placement.
+            } else if resource.kind == .browser && resource.remoteViews?.isEmpty != false {
+                // Port previews have no daemon tab; retain their local association.
                 catalog.setRemotePlacement(for: projection, workspaceID: target, tabID: nil)
                 return true
             } else {
@@ -111,8 +129,9 @@ final class CloudPlacementCoordinator {
                 confirmationCursors[state.machine]?[tabID] = nil
             }
             let trackedTab = state.lookupIndex.tab(id: tabID)
+            let contentKind = trackedTab?.contentKind == "screen" ? "display" : trackedTab?.contentKind
             if trackedTab?.contentID != projection.resource.key
-                || trackedTab?.contentKind != projection.resource.kind.rawValue {
+                || contentKind != projection.resource.kind.rawValue {
                 var updated = projection
                 updated.remoteWorkspaceID = nil
                 updated.remoteTabID = nil

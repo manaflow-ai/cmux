@@ -7,13 +7,17 @@
  * `minIOSVersion` <= the app's version wins, and an iOS version below every
  * tier is unconstrained (fail-open: an app whose version the server does not
  * cover gets NO Mac version limit rather than an accidental block-everything).
- * The initial tier starts at 1.0.0 so it covers every current lane — the
- * App Store app ships as 1.0.0 and the beta lane as 1.0.4 — and constrains
- * them to the next stable release (0.64.23; current stable is 0.64.22) and
- * the next nightly (the newest published nightly build at authoring time is
- * 3345650013201, so minBuild 3345650013202 means "any nightly published
- * after this was written"). Binaries built before the gate shipped ignore
- * this list entirely, so covering their versions is harmless.
+ * The first tier starts at 1.0.0 so it covers the App Store lane and older
+ * TestFlight builds. The tiers track the protocol milestones in git history:
+ * Tailscale pairing became usable with 0.64.17, authenticated Iroh with
+ * 0.64.20, and the rebuilt Iroh transport with 0.64.23. The App Store
+ * marketing version remains 1.0.0, so its build kind has to carry the
+ * stricter floor while older TestFlight versions retain the Mac releases they
+ * can actually use. In particular, BETA 1.0.4 build 20260817224846 is the
+ * last build that works with older Macs, while the later INTERNAL 1.0.4 cut
+ * uses the rebuilt transport and needs 0.64.23.
+ * Binaries built before the gate shipped ignore this list entirely, so
+ * covering their versions is harmless.
  *
  * Nightly builds are versioned `<base>-nightly.<run id><attempt>` by
  * .github/workflows/nightly.yml, so build counters are globally monotonic.
@@ -80,14 +84,46 @@ export const mobileMacCompatList: MobileMacCompatList = {
   entries: [
     {
       minIOSVersion: "1.0.0",
-      // Keep these mirrored to prod while older iOS clients are still deployed.
+      maxIOSVersion: "1.0.3",
+      // Legacy fields mirror prod while older iOS clients are still deployed.
       stableMinVersion: "0.64.23",
       nightly: { minBaseVersion: "0.64.22", minBuild: "3345650013202" },
       buildKinds: {
         dev: { stableMinVersion: "0.64.0" },
-        beta: { stableMinVersion: "0.64.22" },
-        internal: { stableMinVersion: "0.64.22" },
-        demo: { stableMinVersion: "0.64.22" },
+        beta: { stableMinVersion: "0.64.17" },
+        internal: { stableMinVersion: "0.64.17" },
+        demo: { stableMinVersion: "0.64.17" },
+        prod: {
+          stableMinVersion: "0.64.23",
+          nightly: { minBaseVersion: "0.64.22", minBuild: "3345650013202" },
+        },
+      },
+    },
+    {
+      minIOSVersion: "1.0.4",
+      maxIOSVersion: "1.0.4",
+      stableMinVersion: "0.64.23",
+      nightly: { minBaseVersion: "0.64.22", minBuild: "3345650013202" },
+      buildKinds: {
+        dev: { stableMinVersion: "0.64.0" },
+        beta: { stableMinVersion: "0.64.20" },
+        internal: { stableMinVersion: "0.64.23" },
+        demo: { stableMinVersion: "0.64.20" },
+        prod: {
+          stableMinVersion: "0.64.23",
+          nightly: { minBaseVersion: "0.64.22", minBuild: "3345650013202" },
+        },
+      },
+    },
+    {
+      minIOSVersion: "1.0.5",
+      stableMinVersion: "0.64.23",
+      nightly: { minBaseVersion: "0.64.22", minBuild: "3345650013202" },
+      buildKinds: {
+        dev: { stableMinVersion: "0.64.0" },
+        beta: { stableMinVersion: "0.64.23" },
+        internal: { stableMinVersion: "0.64.23" },
+        demo: { stableMinVersion: "0.64.23" },
         prod: {
           stableMinVersion: "0.64.23",
           nightly: { minBaseVersion: "0.64.22", minBuild: "3345650013202" },

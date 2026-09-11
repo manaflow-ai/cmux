@@ -467,6 +467,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "vm.list":
                 return self.v2Response(id: id, ok: true, result: ["vms": []])
             case "vm.create":
+                let params = request["params"] as? [String: Any] ?? [:]
+                XCTAssertNil(params["persistent_home"], "Freestyle does not support persistent home volumes")
+                XCTAssertNil(params["per_machine_home"], "Freestyle does not support per-machine home volumes")
                 return self.v2Response(id: id, ok: true, result: ["id": "fresh-1", "provider": "freestyle", "status": "creating", "image": "cmuxd-ws:tooling-20260509f"])
             case "vm.rename":
                 return self.v2Response(id: id, ok: true, result: ["id": "fresh-1", "displayName": "agent-pool"])

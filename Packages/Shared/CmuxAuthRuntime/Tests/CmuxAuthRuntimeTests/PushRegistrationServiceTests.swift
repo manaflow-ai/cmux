@@ -1632,15 +1632,11 @@ actor RetryDelayRecorder {
             await PushRegistrationURLProtocol.script.requests.map(\.httpMethod)
                 == ["DELETE"]
         )
+        // Join the service's disable reconciliation task. Request observation
+        // only proves that DELETE started; the actor may still be committing
+        // the durable tombstone removal when the URL protocol records it.
+        await service.applyEnabledIntent(false, generation: 1)
         let reopenedStore = try PendingUnregisterStore(databaseURL: storeURL)
-        // A request being recorded precedes URLSession completion and the
-        // durable DELETE commit; scheduler turns are not a completion signal.
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(1))
-        while !reopenedStore.batch(accountID: "account-a", limit: 2).isEmpty,
-              clock.now < deadline {
-            try await clock.sleep(for: .milliseconds(1))
-        }
         #expect(reopenedStore.batch(accountID: "account-a", limit: 2).isEmpty)
     }
 

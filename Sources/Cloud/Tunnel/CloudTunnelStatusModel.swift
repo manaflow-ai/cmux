@@ -13,6 +13,10 @@ final class CloudTunnelStatusModel {
         status.flatMap(CloudTunnelBanner.init(status:))
     }
 
+    func refresh(_ coordinator: CloudTunnelCoordinator) async {
+        status = await coordinator.status()
+    }
+
     /// Follows the coordinator's state until the calling task is cancelled
     /// (the panel's `.task` ends when it leaves the screen).
     func observe(_ coordinator: CloudTunnelCoordinator?) async {
