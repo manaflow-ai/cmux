@@ -118,8 +118,9 @@ final class CloudPresenceOverlayView: NSView {
                 case .pin:
                     alpha = 0.28
                 case .laser:
-                    guard age < Self.laserLifetime else { break }
-                    alpha = 0.34 * CGFloat(max(0, 1 - age / Self.laserLifetime))
+                    alpha = age < Self.laserLifetime
+                        ? 0.34 * CGFloat(max(0, 1 - age / Self.laserLifetime))
+                        : 0
                 }
                 if alpha > 0 {
                     drawHighlight(highlight, color: color.withAlphaComponent(alpha))
