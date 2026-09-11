@@ -65,7 +65,7 @@ extension MobileShellComposite {
             return
         }
         let macDeviceID = connectedMacDeviceID ?? activeTicket?.macDeviceID
-        noteMacVersionUpdateRequired(for: macDeviceID ?? "")
+        noteMacVersionUpdateRequired(for: macDeviceID ?? "", instanceTag: activeMacInstanceTag)
         disconnectLiveConnection(preservingOtherMacWorkspaceState: true)
         applyPairingFailure(
             .macAppVersionTooOld(
