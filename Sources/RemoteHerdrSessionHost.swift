@@ -547,9 +547,16 @@ final class RemoteHerdrSessionHost {
     private func applyReplaceSnapshot(_ snapshot: NestedTopologySnapshot) async {
         guard !isTornDown else { return }
         do {
-            let layouts = try await client.snapshotWithLayouts().layouts
-            applySession(snapshot: snapshot, layouts: layouts)
+            // Apply one coherent generation. The second `session.snapshot` supplies both
+            // the topology and its layouts; pairing its layouts with the event's older
+            // topology could create, keep, or focus panes the applied tabs no longer
+            // contain. Layouts alone are not a generation-independent overlay.
+            let (fresh, layouts) = try await client.snapshotWithLayouts()
+            applySession(snapshot: fresh, layouts: layouts)
         } catch {
+            // Fetch failed: the event snapshot is the newest coherent topology we hold.
+            // `lastLayouts` may lag it, and `RemoteHerdrSessionMirror.windows` falls back
+            // to a stacked layout for any tab it does not cover.
             applySession(snapshot: snapshot, layouts: lastLayouts)
         }
     }
@@ -633,8 +640,13 @@ final class RemoteHerdrSessionHost {
     }
 
     private func removeSurfaceMappings(for mirror: RemoteHerdrWindowMirrorHost) {
-        for panel in mirror.panelsByPaneId.values {
+        for (paneID, panel) in mirror.panelsByPaneId {
             surfaceToPane.removeValue(forKey: panel.id)
+            // Also drop the pane → surface route. `syncSurfaceToPane` only binds a pane
+            // whose route is missing, so a retained route would keep pointing at the
+            // retired surface if a later tab reuses the same Herdr pane id — output would
+            // go to the dead surface and the new panels would stay blank.
+            paneRoute.unbind(paneID: paneID)
         }
     }
 
