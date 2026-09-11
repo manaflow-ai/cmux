@@ -516,7 +516,7 @@ export function createVm(input: {
   readonly timing?: VmTimingSink;
 }): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
-    yield* requireMemoryPlan(input.billingPlanId, requestedCreateMemory(input));
+    yield* requireMemoryPlan(input.billingPlanId, requestedCreateMemory(input as { memoryMb?: number; imageSize?: { memoryMb: number }; resourceReservation?: { memoryMb: number } }));
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
