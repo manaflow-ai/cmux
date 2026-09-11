@@ -142,6 +142,59 @@ is_html_extension() {
     return 1
 }
 
+is_markdown_extension() {
+    local value
+    value="$(to_lower_ascii "$(trim "$1")")"
+    case "$value" in
+        *.md|*.markdown)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+# Decode a file:// URL to a local filesystem path (cmux markdown open wants a
+# path, not a URL). Python-first with a Bash fallback; empty output on failure.
+file_url_to_path() {
+    local value="$1"
+    if [[ -n "$PYTHON3_BIN" ]]; then
+        local decoded
+        if decoded="$("$PYTHON3_BIN" - "$value" <<'PY' 2>/dev/null
+import sys
+from urllib.parse import unquote, urlsplit
+
+parts = urlsplit(sys.argv[1].strip())
+path = unquote(parts.path or "")
+if not path:
+    raise SystemExit(1)
+sys.stdout.write(path)
+PY
+        )"; then
+            printf '%s' "$decoded"
+            return 0
+        fi
+    fi
+    # Bash fallback: strip scheme + optional host, percent-decode.
+    local without_fragment="${value%%\#*}"
+    local without_query="${without_fragment%%\?*}"
+    local remainder="${without_query#*://}"
+    local path_part
+    if [[ "$remainder" == /* ]]; then
+        path_part="$remainder"
+    elif [[ "$remainder" == */* ]]; then
+        path_part="/${remainder#*/}"
+    else
+        return 1
+    fi
+    printf '%b' "${path_part//%/\\x}"
+}
+
+file_url_points_to_markdown() {
+    local path
+    path="$(file_url_to_path "$1")" || return 1
+    [[ -n "$path" ]] && is_markdown_extension "$path"
+}
+
 is_explicit_local_path() {
     local value="$1"
     case "$value" in
@@ -389,6 +442,7 @@ fi
 # Also collect non-flag arguments and route eligible browser targets to cmux.
 passthrough=false
 cmux_targets=()
+cmux_markdown_targets=()
 passthrough_args=()
 for arg in "$@"; do
     case "$arg" in
@@ -407,6 +461,12 @@ for arg in "$@"; do
             elif is_file_url "$arg"; then
                 if file_url_points_to_html "$arg"; then
                     cmux_targets+=("$arg")
+                elif file_url_points_to_markdown "$arg"; then
+                    if md_path="$(file_url_to_path "$arg")"; then
+                        cmux_markdown_targets+=("$md_path")
+                    else
+                        passthrough_args+=("$arg")
+                    fi
                 else
                     passthrough_args+=("$arg")
                 fi
@@ -422,6 +482,14 @@ for arg in "$@"; do
                 else
                     passthrough_args+=("$arg")
                 fi
+            elif is_markdown_extension "$arg"; then
+                # Markdown opens in cmux's formatted viewer (live reload), not the
+                # browser. Pass the filesystem path straight to `cmux markdown open`.
+                if is_explicit_local_path "$arg" || [[ -e "$arg" ]]; then
+                    cmux_markdown_targets+=("$arg")
+                else
+                    passthrough_args+=("$arg")
+                fi
             else
                 passthrough_args+=("$arg")
             fi
@@ -429,9 +497,30 @@ for arg in "$@"; do
     esac
 done
 
-if [[ "$passthrough" == true ]] || [[ ${#cmux_targets[@]} -eq 0 ]]; then
+if [[ "$passthrough" == true ]] || { [[ ${#cmux_targets[@]} -eq 0 ]] && [[ ${#cmux_markdown_targets[@]} -eq 0 ]]; }; then
     system_open "$@"
     exit $?
+fi
+
+# Markdown → cmux's formatted viewer (live reload). The viewer is NOT the in-app
+# browser, so this is independent of the browser interception settings below.
+if [[ ${#cmux_markdown_targets[@]} -gt 0 ]]; then
+    md_cli="$(cd "$(dirname "$0")" && pwd)/cmux"
+    if [[ -x "$md_cli" ]]; then
+        for md in "${cmux_markdown_targets[@]}"; do
+            "$md_cli" markdown open "$md" 2>/dev/null || passthrough_args+=("$md")
+        done
+    else
+        passthrough_args+=("${cmux_markdown_targets[@]}")
+    fi
+    # If markdown was the only kind of target, we're done (system-open any leftovers).
+    if [[ ${#cmux_targets[@]} -eq 0 ]]; then
+        if [[ ${#passthrough_args[@]} -gt 0 ]]; then
+            system_open "${passthrough_args[@]}"
+            exit $?
+        fi
+        exit 0
+    fi
 fi
 
 # Respect the same settings used for terminal link clicks.
