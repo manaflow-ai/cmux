@@ -570,6 +570,10 @@ exit 1
             env["FAKE_CODEX_ARGS_LOG"] = str(args_log)
             env["FAKE_MCP_TRACE_LOG"] = str(mcp_trace_log)
             env["FAKE_MCP_HANDSHAKE"] = "1" if mcp_handshake else "0"
+            # Keep the fixture hermetic: a cmux-launched test process may
+            # carry a real Codex override, which would bypass the fake
+            # executable and make the deliberate preload probe run in Node.
+            env.pop("CMUX_CUSTOM_CODEX_PATH", None)
             env["NODE_OPTIONS"] = "--require=/tmp/cmux-mcp-preload-should-not-load.js"
             env["BUN_OPTIONS"] = "--preload=/tmp/cmux-mcp-preload-should-not-load.js"
             env.pop("CMUX_CODEX_HOOKS_DISABLED", None)
