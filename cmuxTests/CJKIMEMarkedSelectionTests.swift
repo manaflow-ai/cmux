@@ -214,6 +214,97 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
+    func testControlJCommitWhileMarkedTextIsActiveSendsOnlyCommittedText() throws {
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let terminalSurface = hostedTerminal.surface
+        let window = hostedTerminal.window
+        let surfaceView = hostedTerminal.surfaceView
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
+            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            window.orderOut(nil)
+            withExtendedLifetime(terminalSurface) {}
+        }
+
+        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese"
+        installCJKIMEInterpretKeyEventsSwizzle()
+        cjkIMEInterpretKeyEventsHook = { candidateView, _ in
+            guard candidateView === surfaceView else { return false }
+            candidateView.insertText("日本", replacementRange: NSRange(location: 0, length: 2))
+            candidateView.setMarkedText(
+                "語",
+                selectedRange: NSRange(location: 1, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: 0)
+            )
+            return true
+        }
+
+        var pressedText: [(text: String, keyCode: UInt32, mods: UInt32)] = []
+        var pressedControlKeyCodes: [UInt32] = []
+        var releasedControlKeyCodes: [UInt32] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            if keyEvent.action == GHOSTTY_ACTION_PRESS, let text = keyEvent.text {
+                pressedText.append((String(cString: text), keyEvent.keycode, keyEvent.mods.rawValue))
+            } else if keyEvent.action == GHOSTTY_ACTION_PRESS,
+                      keyEvent.mods.rawValue & GHOSTTY_MODS_CTRL.rawValue != 0 {
+                pressedControlKeyCodes.append(keyEvent.keycode)
+            } else if keyEvent.action == GHOSTTY_ACTION_RELEASE,
+                      keyEvent.mods.rawValue & GHOSTTY_MODS_CTRL.rawValue != 0 {
+                releasedControlKeyCodes.append(keyEvent.keycode)
+            }
+        }
+
+        surfaceView.setMarkedText(
+            "にほんご",
+            selectedRange: NSRange(location: 0, length: 2),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.control],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\n",
+            charactersIgnoringModifiers: "j",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_J)
+        ))
+        let keyUp = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyUp,
+            location: .zero,
+            modifierFlags: [.control],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\n",
+            charactersIgnoringModifiers: "j",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_J)
+        ))
+
+        window.makeFirstResponder(surfaceView)
+        withExtendedLifetime(terminalSurface) {
+            surfaceView.keyDown(with: event)
+            surfaceView.keyUp(with: keyUp)
+        }
+
+        XCTAssertEqual(pressedText.map(\.text), ["日本"])
+        XCTAssertEqual(pressedText.map(\.keyCode), [0])
+        XCTAssertEqual(pressedText.map(\.mods), [GHOSTTY_MODS_NONE.rawValue])
+        XCTAssertEqual(pressedControlKeyCodes, [])
+        XCTAssertEqual(releasedControlKeyCodes, [])
+        XCTAssertTrue(surfaceView.hasMarkedText(), "Remaining IME segments should stay in preedit")
+        XCTAssertEqual(surfaceView.attributedString().string, "語")
+    }
+
     func testKeyDownForKoreanPostCompositionHorizontalArrowsForwardsToTerminal() throws {
         let hostedTerminal = try makeHostedTerminalWindow()
         let terminalSurface = hostedTerminal.surface
