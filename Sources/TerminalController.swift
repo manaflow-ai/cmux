@@ -1723,8 +1723,8 @@ class TerminalController {
         case "sidebar.custom.open":
             return v2Result(id: request.id, v2CustomSidebarOpen(params: request.params))
 #if DEBUG
-        case "debug.sidebar.simulate_drag":
-            return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
+        case "debug.sidebar.simulate_drag": return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
+        case "debug.sidebar.cloud_popover": return v2Result(id: request.id, v2DebugSidebarCloudPopover(params: request.params))
         case "debug.cloudtree.gallery":
             // `{style?: id, show?: bool}`: optionally select a Cloud tree style
             // preset, then (by default) present the side-by-side gallery window.
@@ -1818,7 +1818,7 @@ class TerminalController {
             if request.method == "debug.sidebar.simulate_drag"
                 || request.method == "debug.window.screenshot"
                 || request.method == "debug.mobile.transport.disconnect"
-                || request.method == "debug.cloudtree.gallery" {
+                || request.method == "debug.cloudtree.gallery" || request.method == "debug.sidebar.cloud_popover" {
                 return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
             }
 #endif

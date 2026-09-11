@@ -15314,8 +15314,9 @@ struct SidebarFooterButtons: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            if shows(.account) || shows(.mobileConnect) || shows(.help) {
+            if shows(.cloud) || shows(.account) || shows(.mobileConnect) || shows(.help) {
                 HStack(spacing: 0) {
+                    if shows(.cloud), CloudMachinesFeature.isEnabled { SidebarCloudWorkspacesButton() }
                     if shows(.account), CmuxFeatureFlags.shared.isSidebarAccountButtonEnabled {
                         SidebarAccountMenuButton()
                     }
@@ -15327,8 +15328,7 @@ struct SidebarFooterButtons: View {
                     }
                 }
             }
-            // Command-hold reveal: appears immediately before Upgrade. It stays
-            // mounted while its popover is open so releasing ⌘ does not dismiss it.
+            // Command-hold reveal: appears immediately before Upgrade. It stays mounted while its popover is open so releasing ⌘ does not dismiss it.
             if shows(.shortcutDiscovery),
                (showModifierHoldHints && modifierKeyMonitor.isModifierPressed) || isShortcutPopoverPresented {
                 ShortcutDiscoveryButton(isPopoverPresented: $isShortcutPopoverPresented)

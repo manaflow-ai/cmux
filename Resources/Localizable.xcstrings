@@ -254544,6 +254544,64 @@
         }
       }
     },
+    "sidebar.cloudWorkspaces.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドワークスペース"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 워크스페이스"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хмарні робочі простори"
+          }
+        }
+      }
+    },
+    "sidebar.cloudWorkspaces.signedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to see your Cloud workspaces."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインするとクラウドワークスペースが表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인하면 클라우드 워크스페이스를 볼 수 있습니다."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увійдіть, щоб побачити свої хмарні робочі простори."
+          }
+        }
+      }
+    },
     "sidebar.custom.error": {
       "extractionState": "manual",
       "localizations": {

@@ -15,10 +15,7 @@ struct SidebarFooterIconButtonStyle: ButtonStyle {
 }
 
 struct SidebarFooterCircularIconStyle: Equatable {
-    static let standard = SidebarFooterCircularIconStyle(
-        pointSize: 14,
-        weight: .regular
-    )
+    static let standard = SidebarFooterCircularIconStyle(pointSize: 14, weight: .regular)
 
     let pointSize: CGFloat
     let weight: Font.Weight
@@ -72,6 +69,7 @@ struct SidebarAccountButtonPresentation: Equatable {
 }
 
 enum SidebarFooterControl: CaseIterable, Equatable {
+    case cloud
     case account
     case mobileConnect
     case help
