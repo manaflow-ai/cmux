@@ -139,8 +139,14 @@ struct CLISSHPTYResizeInputTests {
                 process.terminate()
             }
         }
-        #expect(bridgeReady.wait(timeout: .now() + 5) == .success,
+        try #require(bridgeReady.wait(timeout: .now() + 5) == .success,
             "Bridge did not become ready; requests: \(state.snapshot())")
+        // Bridge-ready precedes the CLI's raw-input transition. Wait for its
+        // initial resize acknowledgement before typing, just as an attached
+        // terminal does, so canonical echo cannot block tcsetattr(TCSAFLUSH).
+        try #require(resizeRequestReceived.wait(timeout: .now() + 5) == .success)
+        #expect(capturedResizeParams.snapshot()?["cols"] as? Int == 80)
+        #expect(capturedResizeParams.snapshot()?["rows"] as? Int == 24)
 
         try setPTYSize(masterFD: masterFD, cols: 120, rows: 40)
         writeAll(fd: masterFD, data: Data("stty size\n".utf8))
