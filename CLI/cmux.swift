@@ -27729,6 +27729,11 @@ struct CMUXCLI {
                 env: ProcessInfo.processInfo.environment,
                 fallbackPID: claudePid
             )
+            let forkParentSessionId = claudeForkSessionParentId(
+                payload: parsedInput.rawObject,
+                env: ProcessInfo.processInfo.environment,
+                fallbackPID: claudePid
+            )
             let isClearSessionStart = isClaudeClearSessionStart(parsedInput)
             let sessionStartSource = parsedInput.object?["source"] as? String
             let canReplaceStoppedSession = shouldReplaceStoppedClaudeSession(
@@ -27740,7 +27745,7 @@ struct CMUXCLI {
             )
             let shouldPromoteActiveSession = !isForkSessionLaunch && (isClearSessionStart || canReplaceStoppedSession)
             let acceptedSessionId: String? = parsedInput.sessionId.flatMap { sessionId in
-                guard !isForkSessionLaunch else { return nil }
+                guard sessionId != forkParentSessionId else { return nil }
                 let accepted = (try? sessionStore.upsertAuthoritativeClaudeSessionStart(
                     sessionId: sessionId,
                     source: sessionStartSource,
