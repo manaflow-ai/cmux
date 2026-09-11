@@ -200,11 +200,14 @@ impl PresenceHub {
     fn snapshot_at(&self, now: Instant) -> Vec<PresenceEntry> {
         let mut slots = self.slots.lock().unwrap();
         slots.retain(|_, slot| {
-            let pinned =
-                slot.entry.highlight.is_some_and(|h| h.mode == PresenceHighlightMode::Pin);
+            let pinned = slot.entry.highlight.is_some_and(|h| h.mode == PresenceHighlightMode::Pin);
             pinned || now.duration_since(slot.last_change) < PRESENCE_POINTER_TTL
         });
-        slots.values().filter(|slot| slot.entry.surface.is_some()).map(|slot| slot.entry.clone()).collect()
+        slots
+            .values()
+            .filter(|slot| slot.entry.surface.is_some())
+            .map(|slot| slot.entry.clone())
+            .collect()
     }
 
     /// Drop every entry that points at a surface that no longer exists.
