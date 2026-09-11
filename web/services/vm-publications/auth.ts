@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import { getStackServerApp } from "../../app/lib/stack";
-import {
+import type {
   type CloudVmPublicationAuthTransaction,
   type CloudVmPublicationTarget,
 } from "./repository";
