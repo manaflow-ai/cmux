@@ -325,10 +325,18 @@ esac
       expect(zero.stdout).not.toContain("day  ");
     });
 
-    test("usage falls back to the raw body when it is not JSON, and rejects unknown options", () => {
+    test("usage passes through bodies it cannot format (not JSON, an error body, a non-numeric field) and rejects unknown options", () => {
       const raw = runShim(["coderouter", "usage"], USAGE_ENV, usageCurl("not json"));
       expect(raw.status).toBe(0);
       expect(raw.stdout).toBe("not json\n");
+      const errorBody = runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(JSON.stringify({ error: "vm_not_found" })));
+      expect(errorBody.status).toBe(0);
+      expect(JSON.parse(errorBody.stdout)).toEqual({ error: "vm_not_found" });
+      const malformed = JSON.parse(USAGE_BODY);
+      malformed.totals.totalTokens = "68612";
+      const badNumber = runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(JSON.stringify(malformed)));
+      expect(badNumber.status).toBe(0);
+      expect(JSON.parse(badNumber.stdout)).toEqual(malformed);
       const bad = runShim(["coderouter", "usage", "--tsv"], USAGE_ENV, usageCurl(USAGE_BODY));
       expect(bad.status).toBe(2);
       expect(bad.stderr).toContain("coderouter usage: unknown option --tsv");

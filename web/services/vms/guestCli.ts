@@ -530,8 +530,18 @@ guest_auth_status() {
 guest_coderouter_usage_render() {
   cmux_cu_file="\$1"
   if ! jq -e . "\$cmux_cu_file" >/dev/null 2>&1; then cat "\$cmux_cu_file"; return 0; fi
-  if ! jq -e '.kind == "ready" and (.totals | type) == "object"' "\$cmux_cu_file" >/dev/null 2>&1; then
+  if jq -e '.kind == "unavailable"' "\$cmux_cu_file" >/dev/null 2>&1; then
     cmux_message usageUnavailable
+    return 0
+  fi
+  # Anything that is not the ready contract (an error body, a future shape,
+  # a non-numeric field) is passed through untouched rather than formatted.
+  if ! jq -e '.kind == "ready" and (.totals | type) == "object"
+      and ([.totals.inputTokens, .totals.cachedInputTokens, .totals.outputTokens, .totals.totalTokens, .totals.apiEquivalentUsd] | all(type == "number"))
+      and ((.days // []) | type) == "array"
+      and ((.days // []) | all((.day | type) == "string" and (.totalTokens | type) == "number" and (.apiEquivalentUsd | type) == "number"))' \\
+      "\$cmux_cu_file" >/dev/null 2>&1; then
+    cat "\$cmux_cu_file"
     return 0
   fi
   eval "\$(jq -r '@sh "cmux_cu_days=\\(.periodDays // 30) cmux_cu_asof=\\((.asOf // "?") | tostring | sub("T"; " ") | sub(":[0-9]{2}(\\\\.[0-9]+)?Z\$"; " UTC")) cmux_cu_total=\\(.totals.totalTokens // 0) cmux_cu_listed=\\((.days // []) | length) cmux_cu_active=\\((.days // []) | map(select((.totalTokens // 0) > 0)) | length)"' "\$cmux_cu_file")"
