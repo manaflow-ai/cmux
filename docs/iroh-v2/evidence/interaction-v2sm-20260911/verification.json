@@ -1,0 +1,49 @@
+{
+  "capturedAtUTC": "2026-09-11T17:32:06.263827+00:00",
+  "role": "interaction/profiling agent",
+  "sourceSHA": "15e745670eba8504889f7a47d526a7564da833e1",
+  "tag": "v2sm",
+  "status": "blocked-before-launch",
+  "macAttempt": {
+    "command": "./scripts/reload-cloud.sh --tag v2sm --direct-backend --launch",
+    "result": "failed",
+    "reason": "cmux-dev-backend-1 DNS resolution failed"
+  },
+  "iOSAttempt": {
+    "command": "/Users/abdulazizalbahar/Dev/Manaflow/cmuxterm-hq/scripts/reload-cloud-ios.sh --tag v2sm --no-ensure-mac --no-launch --wait 1200",
+    "result": "terminated-before-launch",
+    "reason": "script injected legacy Vercel origins; acceptance requires deployed v2 Cloudflare origin",
+    "remoteRunID": "v2sm-71da0fbe7960",
+    "remoteLeaseID": "20260911103014-39188-28118",
+    "fleetHost": "cmux@cmux11s-mac-mini",
+    "simulatorUDID": "91F4EE82-3C2E-452D-A73A-167E54C1605B",
+    "simulatorInstalled": false,
+    "appLaunched": false
+  },
+  "originProbe": {
+    "staging": "https://cmux-iroh-v2-staging.cmux-presence-worker.workers.dev",
+    "development": "https://cmux-iroh-v2-development.cmux-presence-worker.workers.dev",
+    "production": "https://cmux-iroh-v2.cmux-presence-worker.workers.dev",
+    "result": "all responded to GET /v2/health with expected unsupported_method error.v1"
+  },
+  "blockingConfiguration": [
+    "cloud iOS reload does not inject CMUX_IROH_V2_ENVIRONMENT or v2 base URL",
+    "Debug app defaults to development unless explicitly configured",
+    "direct dev backend control host DNS unavailable"
+  ],
+  "artifacts": [
+    "reload-cloud-ios.log",
+    "verification.json"
+  ],
+  "notRun": [
+    "real-client staging smoke",
+    "pairing",
+    "connection",
+    "renewal",
+    "background/resume",
+    "video",
+    "screenshots",
+    "Instruments profile",
+    "one-hour acceptance"
+  ]
+}
