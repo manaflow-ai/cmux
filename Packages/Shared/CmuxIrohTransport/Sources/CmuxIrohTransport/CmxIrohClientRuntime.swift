@@ -47,23 +47,7 @@ public actor CmxIrohClientRuntime {
         let task: Task<CmxIrohLiveDiscoveryRefreshOutcome, Never>
     }
 
-    enum LifecyclePhase: Equatable, Sendable {
-        case inactive
-        case starting
-        case active
-        case stopping
-        case signingOut
-        case quarantined
-        case failed
-
-        var allowsStart: Bool {
-            self == .inactive || self == .failed
-        }
-
-        var ownsNetworkOperation: Bool {
-            self == .starting || self == .active
-        }
-    }
+    typealias LifecyclePhase = CmxIrohRuntimeLifecyclePhase
 
     /// The route-aware factory registered by the iOS app before fallback transports.
     public nonisolated let transportFactory: CmxConnectivityByteTransportFactory

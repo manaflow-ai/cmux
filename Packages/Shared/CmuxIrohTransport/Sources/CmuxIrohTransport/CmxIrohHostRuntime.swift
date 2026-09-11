@@ -46,23 +46,7 @@ public actor CmxIrohHostRuntime {
         let registrationRetryAfterSeconds: Int?
     }
 
-    enum LifecyclePhase: Equatable, Sendable {
-        case inactive
-        case starting
-        case active
-        case stopping
-        case signingOut
-        case quarantined
-        case failed
-
-        var allowsStart: Bool {
-            self == .inactive || self == .failed
-        }
-
-        var ownsNetworkOperation: Bool {
-            self == .starting || self == .active
-        }
-    }
+    typealias LifecyclePhase = CmxIrohRuntimeLifecyclePhase
 
     let factory: any CmxIrohEndpointFactory
     let broker: any CmxIrohHostBrokerServing
