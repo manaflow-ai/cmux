@@ -19,9 +19,10 @@ import Foundation
 /// route change additionally triggers one immediate out-of-cadence beat, so
 /// the presence service can push the fresh port/IP to subscribed phones live.
 ///
-/// Offline is explicit on the server: a clean quit sends a `stopping: true`
-/// goodbye; a crash or sleep is caught by the service's missed-heartbeat alarm
-/// (45s), so this client never needs a watchdog of its own.
+/// Offline is explicit on the server while iOS pairing stays enabled: a clean
+/// quit sends a `stopping: true` goodbye; a crash, sleep, or pairing opt-out is
+/// caught by the service's missed-heartbeat alarm (45s), so disabling iOS
+/// pairing never makes one last backend request.
 @MainActor
 final class PresenceHeartbeatClient {
     static let shared = PresenceHeartbeatClient()
@@ -45,11 +46,10 @@ final class PresenceHeartbeatClient {
     /// once at the composition root, alongside ``DeviceRegistryClient``.
     func configure(auth: AuthCoordinator) {
         self.auth = auth
-        startObservingRoutes()
         if defaultsObserver == nil {
-            // Re-evaluate when the flag or URL flips, so enabling presence in a
-            // running app starts the loop without a relaunch (and disabling
-            // stops it and says goodbye).
+            // Re-evaluate when the pairing flag, presence flag, or URL flips,
+            // so enabling iOS pairing in a running app starts the loop without
+            // a relaunch and disabling it stops all network contact.
             defaultsObserver = NotificationCenter.default.addObserver(
                 forName: UserDefaults.didChangeNotification,
                 object: UserDefaults.standard,
@@ -66,10 +66,10 @@ final class PresenceHeartbeatClient {
     /// Cancel the loop and send a best-effort goodbye. Called from
     /// `applicationWillTerminate`; the process may exit before the request
     /// lands, which is fine: the service's missed-heartbeat timeout covers
-    /// every unclean path, the goodbye only makes clean quits flip offline
-    /// immediately instead of within 45s.
+    /// every unclean path. Pairing opt-out suppresses this goodbye so the
+    /// setting's off state remains network-silent.
     func appWillTerminate() {
-        guard loopTask != nil else { return }
+        guard loopTask != nil, isEnabled else { return }
         stopLoop()
         Task { await self.sendHeartbeat(stopping: true) }
     }
@@ -145,13 +145,17 @@ final class PresenceHeartbeatClient {
 
     private func evaluate() {
         let shouldRun = auth != nil && isEnabled && Self.resolvedServiceURL() != nil
+        if shouldRun, routesObserveTask == nil {
+            startObservingRoutes()
+        } else if !shouldRun {
+            routesObserveTask?.cancel()
+            routesObserveTask = nil
+            currentRoutes = []
+        }
         if shouldRun && loopTask == nil {
             startLoop()
         } else if !shouldRun, loopTask != nil {
             stopLoop()
-            // Flag turned off while running: announce the disappearance instead
-            // of leaving the instance to time out.
-            Task { await self.sendHeartbeat(stopping: true) }
         }
     }
 
@@ -181,7 +185,7 @@ final class PresenceHeartbeatClient {
         // Cadence, route-change, and shutdown triggers share one server-owned
         // floor so an immediate trigger cannot reopen a rate-limited endpoint.
         guard (try? await retryAfterGate.wait()) != nil else { return }
-        guard isEnabled || stopping else { return }
+        guard isEnabled else { return }
         guard let auth, let baseURL = Self.resolvedServiceURL() else { return }
         // Await tokens first, mirroring DeviceRegistryClient: gates on "signed
         // in" and on launch auth bootstrap so the team header resolves from a
@@ -247,8 +251,9 @@ final class PresenceHeartbeatClient {
 
     /// Build the heartbeat JSON body. Routes are always present (the wire
     /// treats an absent field as "unchanged", but this client knows the full
-    /// current set on every beat, so it always states it — an empty array
-    /// accurately means "no routes", e.g. mobile pairing off). Pure and
+    /// current set on every beat, so it always states it. An empty array means
+    /// the enabled host currently has no routes; pairing opt-out suppresses the
+    /// heartbeat entirely. Pure and
     /// nonisolated for tests.
     nonisolated static func heartbeatBody(
         deviceID: String,

@@ -16,10 +16,10 @@ struct OnboardingPairingView: View {
                 title: title,
                 message: L10n.string(
                     "mobile.onboarding.pairing.body",
-                    defaultValue: "cmux keeps iOS pairing off until you choose it. Enable it in cmux Settings > Mobile on your Mac, then use the same cmux account on both devices."
+                    defaultValue: "This step is required before any Mac can appear on your iPhone. In cmux Settings > Mobile on your Mac, turn on Enable iOS pairing. Until you do, cmux keeps the Mac hidden and does not start iOS pairing networking."
                 ),
                 visual: pairingVisual,
-                bodyLineReservation: 4
+                bodyLineReservation: 6
             )
         }
     }
@@ -27,7 +27,7 @@ struct OnboardingPairingView: View {
     private var title: String {
         L10n.string(
             "mobile.onboarding.pairing.title",
-            defaultValue: "Choose which Macs can connect"
+            defaultValue: "Enable iOS pairing on your Mac"
         )
     }
 
@@ -39,6 +39,26 @@ struct OnboardingPairingView: View {
                 .foregroundStyle(.tint)
                 .accessibilityHidden(true)
 
+            Label {
+                Text(
+                    L10n.string(
+                        "mobile.onboarding.pairing.required",
+                        defaultValue: "Required for Mac discovery"
+                    )
+                )
+                .font(.headline)
+            } icon: {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundStyle(.orange)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                Color.orange.opacity(0.12),
+                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+            )
+            .accessibilityIdentifier("MobileOnboardingPairingRequirement")
+
             HStack(alignment: .top, spacing: 16) {
                 pairingStep(
                     systemImage: "macbook",
@@ -48,7 +68,7 @@ struct OnboardingPairingView: View {
                     ),
                     detail: L10n.string(
                         "mobile.onboarding.pairing.macDetail",
-                        defaultValue: "Settings > Mobile > Enable iOS pairing"
+                        defaultValue: "Settings > Mobile > turn on Enable iOS pairing"
                     )
                 )
 

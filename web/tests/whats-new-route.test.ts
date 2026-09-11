@@ -14,7 +14,7 @@ const { GET, validateList } = await import("../app/api/whats-new/route");
  */
 describe("whats-new route channel targeting", () => {
   const base: WhatsNewList = {
-    visibleEntryIds: ["connections.v1"],
+    visibleEntryIds: ["pairing-opt-in.v1", "connections.v1"],
     announcements: [],
   };
   const announcement = {

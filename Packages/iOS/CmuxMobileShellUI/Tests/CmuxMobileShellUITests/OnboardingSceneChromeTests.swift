@@ -34,7 +34,7 @@ import UIKit
         #expect(notifications.secondaryTitle == nil)
 
         #expect(pairing.showsBack)
-        #expect(pairing.showsSkip)
+        #expect(!pairing.showsSkip)
         #expect(pairing.primaryTitle != nil)
         #expect(pairing.secondaryTitle == nil)
     }

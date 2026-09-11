@@ -215,6 +215,18 @@ extension MobileHostIrohRuntime {
         }
     }
 
+    /// Cancels auth-driven wakeups immediately and queues a non-destructive
+    /// runtime stop. Persisted identity and account state stay intact so a
+    /// later opt-in can reuse the same pairing identity.
+    func beginPairingOptOut() {
+        authObservationTask?.cancel()
+        authObservationTask = nil
+        auth = nil
+        observedAccountID = nil
+        desiredActive = false
+        scheduleReconcile(eraseAccountState: false)
+    }
+
     static func shouldReconcileAuthObservation(
         accountID: String?,
         previousAccountID: String?,

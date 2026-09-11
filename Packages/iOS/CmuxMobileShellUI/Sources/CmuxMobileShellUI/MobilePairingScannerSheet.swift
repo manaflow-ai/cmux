@@ -238,6 +238,6 @@ extension MobilePairingScannerSheet {
             To use Auto-Connect instead, open Settings, tap Connection Method, and choose Auto-Connect.
             """
         )
-        return "\(guidance) \(MobilePairingCopy.enableOnMac)"
+        return "\(guidance) \(MobilePairingCopy.emptyWorkspaceMessage)"
     }
 }

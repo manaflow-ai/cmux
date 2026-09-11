@@ -19,12 +19,7 @@ struct MobileWorkspaceListEmptyRow: View {
                 )
                 .font(.title3.weight(.semibold))
                 .multilineTextAlignment(.center)
-                Text(
-                    L10n.string(
-                        "mobile.workspaces.empty.message",
-                        defaultValue: "Enable iOS pairing in cmux Settings > Mobile on your Mac, sign in to the same cmux account on both devices, and keep cmux running. Your Mac and its workspaces will appear here after pairing is enabled."
-                    )
-                )
+                Text(MobilePairingCopy.emptyWorkspaceMessage)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

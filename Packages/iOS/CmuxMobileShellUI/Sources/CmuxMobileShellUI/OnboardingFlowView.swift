@@ -70,7 +70,13 @@ struct OnboardingFlowView: View {
             onSecondary: handleSecondary,
             pageContent: OnboardingPageViewport(
                 stage: stage,
-                onNavigate: { navigate(to: $0) }
+                onNavigate: { navigate(to: $0) },
+                canNavigate: { currentStage, destination in
+                    // The Mac-side opt-in must be acknowledged through the
+                    // page's primary action, so a horizontal swipe cannot
+                    // quietly bypass it on the way to discovery.
+                    currentStage != .pairing || destination == .pairing
+                }
             ) { pageStage in
                 page(for: pageStage)
             }

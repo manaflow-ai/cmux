@@ -74,6 +74,29 @@ struct MobileHostServiceSettingsTests {
         #expect(!disabled.startsLegacyListener)
     }
 
+    @Test func pairingOffPreventsCompositionRootRuntimeSetup() {
+        #expect(!MobileHostService.shouldConfigurePairingRuntime(
+            pairingEnabled: false,
+            remoteControlEnabled: true,
+            runtimeAlreadyConfigured: false
+        ))
+        #expect(MobileHostService.shouldConfigurePairingRuntime(
+            pairingEnabled: true,
+            remoteControlEnabled: true,
+            runtimeAlreadyConfigured: false
+        ))
+        #expect(!MobileHostService.shouldConfigurePairingRuntime(
+            pairingEnabled: true,
+            remoteControlEnabled: false,
+            runtimeAlreadyConfigured: false
+        ))
+        #expect(!MobileHostService.shouldConfigurePairingRuntime(
+            pairingEnabled: true,
+            remoteControlEnabled: true,
+            runtimeAlreadyConfigured: true
+        ))
+    }
+
     @Test func mobileHostListenerPreservesHistoricalExplicitOptIn() throws {
         let suiteName = "MobileHostServiceSettingsTests.Legacy.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

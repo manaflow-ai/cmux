@@ -295,7 +295,7 @@ struct DisconnectedWorkspaceShellView: View {
         return L10n.string(
             "mobile.devices.emptyDescription",
             defaultValue: "For Iroh to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
-        ) + " " + MobilePairingCopy.enableOnMac
+        ) + " " + MobilePairingCopy.emptyWorkspaceMessage
     }
 
     /// Reconnect this row's computer. `switchToMac` promotes a live secondary

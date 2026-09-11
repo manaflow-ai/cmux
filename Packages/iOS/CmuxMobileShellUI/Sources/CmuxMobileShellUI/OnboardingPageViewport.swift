@@ -9,6 +9,7 @@ import SwiftUI
 struct OnboardingPageViewport<PageContent: View>: View {
     let stage: OnboardingStage
     let onNavigate: (OnboardingStage) -> Void
+    let canNavigate: (OnboardingStage, OnboardingStage) -> Bool
     @ViewBuilder let pageContent: (OnboardingStage) -> PageContent
 
     @State private var scrolledStage: OnboardingStage?
@@ -23,10 +24,12 @@ struct OnboardingPageViewport<PageContent: View>: View {
     init(
         stage: OnboardingStage,
         onNavigate: @escaping (OnboardingStage) -> Void,
+        canNavigate: @escaping (OnboardingStage, OnboardingStage) -> Bool = { _, _ in true },
         @ViewBuilder pageContent: @escaping (OnboardingStage) -> PageContent
     ) {
         self.stage = stage
         self.onNavigate = onNavigate
+        self.canNavigate = canNavigate
         self.pageContent = pageContent
         _scrolledStage = State(initialValue: stage)
         let pageIndex = OnboardingStage.allCases.firstIndex(of: stage) ?? 0
@@ -72,6 +75,12 @@ struct OnboardingPageViewport<PageContent: View>: View {
         }
         .onChange(of: scrolledStage) { _, newValue in
             guard let newValue, newValue != stage else { return }
+            guard canNavigate(stage, newValue) else {
+                withAnimation(reduceMotion ? nil : .smooth(duration: 0.22)) {
+                    scrolledStage = stage
+                }
+                return
+            }
             onNavigate(newValue)
         }
         .accessibilityElement(children: .contain)

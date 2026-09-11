@@ -48,8 +48,9 @@ import Testing
     }
 
     @Test func emptyRoutesAreStatedNotOmitted() throws {
-        // Pairing off: the wire must carry [] ("no routes"), never an absent
-        // field (which the service reads as "keep the previous set").
+        // While the host is enabled, the wire must carry [] ("no routes"),
+        // never an absent field (which the service reads as "keep the previous
+        // set"). Pairing off suppresses the heartbeat before this body exists.
         let body = PresenceHeartbeatClient.heartbeatBody(
             deviceID: "11111111-2222-4333-8444-555555555555",
             tag: "default",

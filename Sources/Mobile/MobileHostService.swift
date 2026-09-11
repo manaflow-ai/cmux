@@ -461,6 +461,14 @@ final class MobileHostService {
     /// Injected once via `configure(auth:)` at app startup, before the
     /// listener starts accepting connections.
     private var auth: AuthCoordinator?
+    private enum ConfiguredRuntime: Equatable {
+        case iroh
+        case irx
+    }
+    /// `nil` while iOS pairing is off. Keeping this state separate from the
+    /// persisted setting prevents sign-in and wake callbacks from configuring
+    /// a transport that the user never enabled.
+    private var configuredRuntime: ConfiguredRuntime?
     private var readinessWaiters: [CheckedContinuation<MobileHostServiceStatus, Never>] = []
     private var readinessTimeoutTask: Task<Void, Never>?
     let mobileBrowserStreamCoordinator = MobileBrowserStreamCoordinator()
@@ -471,16 +479,52 @@ final class MobileHostService {
 
     private init() {}
 
-    /// Inject the auth dependency. Call once at the composition root.
-    /// Exactly one iroh host runtime owns the app's broker binding slot:
-    /// the irx rebuild when its DEBUG flag is on, the legacy runtime
-    /// otherwise. Running both would reincarnate the binding in a loop.
+    /// Inject the auth dependency. Call once at the composition root. The
+    /// transport runtime is configured only after the explicit iOS pairing
+    /// setting is on.
     func configure(auth: AuthCoordinator) {
         self.auth = auth
+        configureRuntimeIfNeeded()
+    }
+
+    private func configureRuntimeIfNeeded() {
+        guard Self.shouldConfigurePairingRuntime(
+            pairingEnabled: Self.isListeningEnabled,
+            remoteControlEnabled: MobileRemoteControlPolicy.isEnabled,
+            runtimeAlreadyConfigured: configuredRuntime != nil
+        ),
+        let auth
+        else { return }
+
         if MobileHostIrxRuntime.isEnabled {
+            configuredRuntime = .irx
             MobileHostIrxRuntime.shared.configure(auth: auth)
         } else {
+            configuredRuntime = .iroh
             MobileHostIrohRuntime.shared.configure(auth: auth)
+        }
+    }
+
+    private func setRuntimeDesiredActive(_ active: Bool) {
+        switch configuredRuntime {
+        case .iroh:
+            MobileHostIrohRuntime.shared.setDesiredActive(active)
+        case .irx:
+            MobileHostIrxRuntime.shared.setDesiredActive(active)
+        case nil:
+            break
+        }
+    }
+
+    private func beginRuntimeTeardown() {
+        guard let configuredRuntime else { return }
+        self.configuredRuntime = nil
+        MobileHostPublicStatusCache.update(irohIdentity: nil)
+        switch configuredRuntime {
+        case .iroh:
+            MobileHostIrohRuntime.shared.beginPairingOptOut()
+        case .irx:
+            MobileHostIrxRuntime.shared.beginPairingOptOut()
         }
     }
 
@@ -1018,9 +1062,13 @@ final class MobileHostService {
     }
 
     func start() {
+        let pairingEnabled = Self.isListeningEnabled
+        if pairingEnabled {
+            configureRuntimeIfNeeded()
+        }
         let plan = Self.startupPlan(
             remoteControlDisabledByPolicy: MobileRemoteControlPolicy.isDisabled,
-            pairingEnabled: Self.isListeningEnabled,
+            pairingEnabled: pairingEnabled,
             legacyListenerRunning: listener != nil
         )
         if MobileRemoteControlPolicy.isDisabled {
@@ -1028,20 +1076,15 @@ final class MobileHostService {
         }
         guard plan.startsLegacyListener else {
             if !plan.activatesIroh {
+                beginRuntimeTeardown()
                 if listener != nil {
                     stopLegacyListener(reason: "iOS pairing disabled")
-                }
-                MobileHostIrohRuntime.shared.setDesiredActive(false)
-                if MobileHostIrxRuntime.isEnabled {
-                    Task { @MainActor in
-                        await MobileHostIrxRuntime.shared.stopHost()
-                    }
                 }
                 mobileHostLog.info("iOS pairing disabled; no mobile networking starts")
                 return
             }
             mobileHostLog.info("legacy mobile host listener disabled; starting Iroh only")
-            MobileHostIrohRuntime.shared.setDesiredActive(true)
+            setRuntimeDesiredActive(true)
             return
         }
 
@@ -1052,7 +1095,7 @@ final class MobileHostService {
             },
             scheduleIroh: {
                 guard Self.isListeningEnabled else { return }
-                MobileHostIrohRuntime.shared.setDesiredActive(true)
+                self.setRuntimeDesiredActive(true)
             }
         )
     }
@@ -1114,12 +1157,7 @@ final class MobileHostService {
     }
 
     func stop() {
-        MobileHostIrohRuntime.shared.setDesiredActive(false)
-        if MobileHostIrxRuntime.isEnabled {
-            Task { @MainActor in
-                await MobileHostIrxRuntime.shared.stopHost()
-            }
-        }
+        beginRuntimeTeardown()
         stopLegacyListener(reason: "service stopped")
         for connection in MobileHostConnectionRegistry.shared.removeAll() {
             Task { await connection.close(reason: "service stopped") }
@@ -1261,13 +1299,12 @@ final class MobileHostService {
     /// against the app's real store; `start`/`restart` do the same, so there is
     /// no caller-supplied store to honor here.
     func syncToSettings() {
-        // IRX is the primary transport. Reconcile it on every settings/policy
-        // pass so `DisableIrohNetworking` and `DisableRemoteControl` tear the
-        // live endpoint down immediately, not at the next account poll.
-        if MobileHostIrxRuntime.isEnabled {
-            Task { @MainActor in
-                await MobileHostIrxRuntime.shared.applyManagedNetworkingPolicy()
-            }
+        let defaults = UserDefaults.standard
+        let pairingEnabled = Self.isListeningEnabled(defaults: defaults)
+        if pairingEnabled {
+            configureRuntimeIfNeeded()
+        } else {
+            beginRuntimeTeardown()
         }
         // An MDM-managed remote-control disable overrides every transport:
         // tear down the Iroh runtime, the legacy listener, and every live
@@ -1281,9 +1318,12 @@ final class MobileHostService {
             return
         }
         remoteControlPolicyStopApplied = false
-        let defaults = UserDefaults.standard
-        let pairingEnabled = Self.isListeningEnabled(defaults: defaults)
-        MobileHostIrohRuntime.shared.setDesiredActive(pairingEnabled)
+        setRuntimeDesiredActive(pairingEnabled)
+        if pairingEnabled, configuredRuntime == .irx {
+            Task { @MainActor in
+                await MobileHostIrxRuntime.shared.applyManagedNetworkingPolicy()
+            }
+        }
         // An invalid stored port (`resolvedDesiredPort == nil`, e.g. mid-edit)
         // must not restart a running listener. Treat it as "no change" by
         // reusing the applied port; a fresh start still binds the default via
@@ -2494,6 +2534,16 @@ actor MobileHostConnection {
                 failure: .timedOut
             )
         )
+    }
+
+    /// Pure gate for composition-root runtime setup. A signed-in account or a
+    /// wake event cannot configure the Iroh transport while pairing is off.
+    nonisolated static func shouldConfigurePairingRuntime(
+        pairingEnabled: Bool,
+        remoteControlEnabled: Bool,
+        runtimeAlreadyConfigured: Bool
+    ) -> Bool {
+        pairingEnabled && remoteControlEnabled && !runtimeAlreadyConfigured
     }
 
     private func startIdleTimeout() {

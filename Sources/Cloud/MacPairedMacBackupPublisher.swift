@@ -31,6 +31,7 @@ final class MacPairedMacBackupPublisher {
     private let retryAfterGate = CmxRetryAfterGate()
     private var auth: AuthCoordinator?
     private var observeTask: Task<Void, Never>?
+    private var defaultsObserver: NSObjectProtocol?
     /// The routes most recently published, so an unchanged status update (the
     /// common case) does not re-POST.
     private var lastPublishedRoutes: [CmxAttachRoute] = []
@@ -68,6 +69,27 @@ final class MacPairedMacBackupPublisher {
     func configure(auth: AuthCoordinator) {
         guard Self.isEnabled() else { return }
         self.auth = auth
+        if defaultsObserver == nil {
+            defaultsObserver = NotificationCenter.default.addObserver(
+                forName: UserDefaults.didChangeNotification,
+                object: UserDefaults.standard,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.evaluate()
+                }
+            }
+        }
+        evaluate()
+    }
+
+    private func evaluate() {
+        guard MobileHostService.isListeningEnabled else {
+            observeTask?.cancel()
+            observeTask = nil
+            lastPublishedRoutes = []
+            return
+        }
         startObserving()
     }
 

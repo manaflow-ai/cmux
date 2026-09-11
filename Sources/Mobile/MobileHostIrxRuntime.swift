@@ -108,6 +108,23 @@ final class MobileHostIrxRuntime {
         await enqueueManagedNetworking(.stop)
     }
 
+    /// Cancels auth-driven wakeups immediately and queues a non-destructive
+    /// runtime stop. Persisted identity and account state stay intact so a
+    /// later opt-in can reuse the same pairing identity.
+    func beginPairingOptOut() {
+        authObservationTask?.cancel()
+        authObservationTask = nil
+        auth = nil
+        _ = scheduleManagedNetworking(.stop)
+    }
+
+    /// Reconciles the IRX host with the composition-root pairing decision.
+    /// The IRX runtime derives its active state from pairing and managed policy,
+    /// so it does not need a second mutable desired-state flag.
+    func setDesiredActive(_ requested: Bool) {
+        _ = scheduleManagedNetworking(requested ? .reconcile : .stop)
+    }
+
     /// Applies `DisableIrohNetworking` / `DisableRemoteControl` and the
     /// current signed-in account to the live IRX host. Policy activation
     /// stops the endpoint immediately; lifting it re-arms without a relaunch.
@@ -128,6 +145,14 @@ final class MobileHostIrxRuntime {
     /// work re-reads the policy and the account after the queue drains, so
     /// the last transition to be requested is the one that decides the state.
     private func enqueueManagedNetworking(_ work: ManagedNetworkingWork) async {
+        let task = scheduleManagedNetworking(work)
+        await task.value
+    }
+
+    @discardableResult
+    private func scheduleManagedNetworking(
+        _ work: ManagedNetworkingWork
+    ) -> Task<Void, Never> {
         let previous = managedNetworkingTask
         let task = Task { @MainActor [weak self] in
             await previous?.value
@@ -140,7 +165,7 @@ final class MobileHostIrxRuntime {
             }
         }
         managedNetworkingTask = task
-        await task.value
+        return task
     }
 
     private func performStopHost() async {
