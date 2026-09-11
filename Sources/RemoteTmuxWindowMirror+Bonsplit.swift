@@ -538,7 +538,11 @@ extension RemoteTmuxWindowMirror {
 
     func title(forPane paneId: Int) -> String {
         let index = paneIndexByPaneId[paneId] ?? 0
-        return Self.windowPaneTitle(windowTitle, paneIndex: index)
+        return Self.surfaceTitle(
+            windowTitle: windowTitle,
+            paneIndex: index,
+            paneTitleMetadata: paneTitleMetadataByPane[paneId]
+        )
     }
 
     func combined(children: [RemoteTmuxLayoutNode], orientation: SplitOrientation) -> RemoteTmuxLayoutNode {

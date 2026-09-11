@@ -18,6 +18,7 @@ final class RemoteTmuxConnectionObservers {
     private var paneSeedObservers: [Token: (_ paneId: Int, _ seed: RemoteTmuxPaneSeed) -> Void] = [:]
     private var paneCwdObservers: [Token: (_ paneId: Int, _ path: String) -> Void] = [:]
     private var paneReflowObservers: [Token: (_ paneId: Int, _ noReflow: Bool) -> Void] = [:]
+    private var paneTitleObservers: [Token: (_ paneId: Int) -> Void] = [:]
     private var activePaneObservers: [Token: (_ windowId: Int, _ paneId: Int) -> Void] = [:]
     private var sessionChangedObservers: [Token: (_ oldName: String, _ newName: String) -> Void] = [:]
     private var topologyObservers: [Token: () -> Void] = [:]
@@ -41,6 +42,7 @@ final class RemoteTmuxConnectionObservers {
     ///     suppress reflow on resize, for alt-screen / inline-TUI panes like
     ///     claude; `false` = a plain shell whose primary-screen scrollback may
     ///     reflow), both the initial value and live changes.
+    ///   - onPaneTitleChanged: fires when one pane's deliberate tmux title changes.
     ///   - onActivePaneChanged: fires when a window's active pane changes
     ///     (`%window-pane-changed`), so consumers can re-project per-pane state
     ///     (e.g. the active pane's directory) onto the window's tab.
@@ -61,6 +63,7 @@ final class RemoteTmuxConnectionObservers {
         onPaneSeed: ((_ paneId: Int, _ seed: RemoteTmuxPaneSeed) -> Void)?,
         onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)?,
         onPaneReflow: ((_ paneId: Int, _ noReflow: Bool) -> Void)?,
+        onPaneTitleChanged: ((_ paneId: Int) -> Void)?,
         onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)?,
         onSessionChanged: ((_ oldName: String, _ newName: String) -> Void)?,
         onTopologyChanged: (() -> Void)?,
@@ -73,6 +76,7 @@ final class RemoteTmuxConnectionObservers {
         if let onPaneSeed { paneSeedObservers[token] = onPaneSeed }
         if let onPaneCwd { paneCwdObservers[token] = onPaneCwd }
         if let onPaneReflow { paneReflowObservers[token] = onPaneReflow }
+        if let onPaneTitleChanged { paneTitleObservers[token] = onPaneTitleChanged }
         if let onActivePaneChanged { activePaneObservers[token] = onActivePaneChanged }
         if let onSessionChanged { sessionChangedObservers[token] = onSessionChanged }
         if let onTopologyChanged { topologyObservers[token] = onTopologyChanged }
@@ -88,6 +92,7 @@ final class RemoteTmuxConnectionObservers {
         paneSeedObservers[token] = nil
         paneCwdObservers[token] = nil
         paneReflowObservers[token] = nil
+        paneTitleObservers[token] = nil
         activePaneObservers[token] = nil
         sessionChangedObservers[token] = nil
         topologyObservers[token] = nil
@@ -121,6 +126,11 @@ final class RemoteTmuxConnectionObservers {
     /// Fans a pane's reflow classification out to every reflow observer.
     func emitPaneReflow(_ paneId: Int, _ noReflow: Bool) {
         for callback in Array(paneReflowObservers.values) { callback(paneId, noReflow) }
+    }
+
+    /// Fans one pane's title change out to every title observer.
+    func emitPaneTitleChanged(_ paneId: Int) {
+        for callback in Array(paneTitleObservers.values) { callback(paneId) }
     }
 
     /// Fans a window's new active pane out to every active-pane observer.
