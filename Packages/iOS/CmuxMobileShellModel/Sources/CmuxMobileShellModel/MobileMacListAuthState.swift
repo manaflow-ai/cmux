@@ -14,30 +14,6 @@ private func entriesWithMinimumSupportedVersions(
     }
 }
 
-private func numericMacVersion(_ raw: String) -> [Int]? {
-    let core = raw.split(separator: "+", maxSplits: 1).first.map(String.init) ?? raw
-    let parts = core.split(separator: ".", omittingEmptySubsequences: false)
-    guard !parts.isEmpty,
-          parts.allSatisfy({ !$0.isEmpty && Int($0) != nil }) else { return nil }
-    var values = parts.map { Int($0)! }
-    while values.count < 3 { values.append(0) }
-    return values
-}
-
-private func nightlyMacVersion(_ raw: String) -> (base: [Int], build: UInt64)? {
-    let core = raw.split(separator: "+", maxSplits: 1).first.map(String.init) ?? raw
-    let marker = "-nightly."
-    guard let markerRange = core.range(of: marker),
-          let base = numericMacVersion(String(core[..<markerRange.lowerBound]))
-    else { return nil }
-    let buildText = core[markerRange.upperBound...]
-    guard !buildText.isEmpty,
-          buildText.utf8.allSatisfy({ (48 ... 57).contains($0) }),
-          let build = UInt64(buildText)
-    else { return nil }
-    return (base, build)
-}
-
 /// The phone's view of the account device list (the list-auth admission
 /// authority), projected for UI.
 ///
@@ -95,37 +71,22 @@ public final class MobileMacListAuthState {
         /// reported version cannot establish compatibility, so it is treated
         /// as possibly too old until a valid hello arrives.
         public var isOutdated: Bool {
-            if isNightly {
-                guard let minimumSupportedNightlyVersion,
-                      let required = nightlyMacVersion(minimumSupportedNightlyVersion)
-                else { return false }
-                guard let appVersion,
-                      let installed = nightlyMacVersion(appVersion)
-                else { return true }
-                if installed.base != required.base {
-                    return installed.base.lexicographicallyPrecedes(required.base)
-                }
-                return installed.build < required.build
-            }
-            guard let minimumSupportedVersion,
-                  let required = numericMacVersion(minimumSupportedVersion)
-            else { return false }
-            guard let appVersion else { return true }
-            guard let installed = numericMacVersion(appVersion) else { return true }
-            return installed.lexicographicallyPrecedes(required)
+            return MobileMacVersionCompatibility(
+                appVersion: appVersion,
+                releaseTrack: releaseTrack,
+                stableMinimum: minimumSupportedVersion,
+                nightlyMinimum: minimumSupportedNightlyVersion
+            ).isOutdated
         }
 
         /// The floor to show in the warning for this row's release lane.
         public var requiredVersionDisplay: String? {
-            guard isOutdated else { return nil }
-            return isNightly ? minimumSupportedNightlyVersion : minimumSupportedVersion
-        }
-
-        private var isNightly: Bool {
-            if let releaseTrack {
-                return releaseTrack.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "nightly"
-            }
-            return appVersion?.contains("-nightly.") == true
+            MobileMacVersionCompatibility(
+                appVersion: appVersion,
+                releaseTrack: releaseTrack,
+                stableMinimum: minimumSupportedVersion,
+                nightlyMinimum: minimumSupportedNightlyVersion
+            ).requiredVersionDisplay
         }
 
     }
