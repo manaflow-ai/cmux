@@ -1599,7 +1599,7 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
         XCTAssertEqual(manager.tabs.count, 5, "Expected only one workspace to close after the first accepted confirmation")
     }
 
-    func testCloseWorkspaceEnqueuesTerminalRuntimeTeardownOffMainThread() async {
+    func testCloseWorkspaceEnqueuesTerminalRuntimeTeardownOffMainThread() async throws {
         let manager = TabManager()
         let workspace = manager.addWorkspace()
         manager.selectWorkspace(workspace)
@@ -1643,19 +1643,18 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
         )
         workspace.panels[panelId] = terminalPanel
 
-        let fakeSurface: ghostty_surface_t = UnsafeMutableRawPointer(bitPattern: 0x5282)!
-        // This app-host target links the real GhosttyKit; the synthetic pointer
-        // is only for teardown ownership and must not cross the native ABI.
-        terminalPanel.surface.installRuntimeSurfaceForTesting(
-            fakeSurface,
-            configureNativeCallbacks: false
-        )
+        // Workspace close captures scrollback before teardown. A fabricated
+        // pointer is correctly quarantined by that live-runtime read, so use
+        // a real registered surface to reach the native-free boundary.
+        await AppKitTestEventPump().startSurface(terminalPanel.surface)
+        let runtimeSurface = try XCTUnwrap(terminalPanel.surface.surface)
+        let runtimeSurfaceBits = UInt(bitPattern: runtimeSurface)
         terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
 
         let nativeFreeStarted = expectation(description: "native free started")
         let previousFreeOverride = TerminalSurface.runtimeSurfaceFreeOverrideForTesting
         TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { surface in
-            guard UInt(bitPattern: surface) == 0x5282 else {
+            guard UInt(bitPattern: surface) == runtimeSurfaceBits else {
                 if let previousFreeOverride {
                     previousFreeOverride(surface)
                 } else {
@@ -1665,6 +1664,7 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
             }
             XCTAssertFalse(Thread.isMainThread, "Native surface free must not run on the main thread")
             nativeFreeStarted.fulfill()
+            ghostty_surface_free(surface)
         }
         defer {
             TerminalSurface.runtimeSurfaceFreeOverrideForTesting = previousFreeOverride

@@ -1,5 +1,6 @@
 import CmuxCore
 import CmuxFoundation
+import CmuxRemoteSession
 import Darwin
 import Foundation
 import Testing
@@ -162,6 +163,9 @@ struct SSHStartupManualReconnectTests {
                 #expect(resetRange.lowerBound < closePrompt.lowerBound)
             }
         }
+        try prompt.standardInput.fileHandleForWriting.write(contentsOf: Data([0x0A]))
+        #expect(Self.waitForExit(prompt.process, timeout: 2), Comment(rawValue: transcript))
+        #expect(prompt.process.terminationStatus == 7, Comment(rawValue: transcript))
     }
 
     @Test func directSignalTerminatesPersistentAttachAuthenticationProcessTree() throws {
@@ -699,15 +703,15 @@ struct SSHStartupManualReconnectTests {
         #expect(!workspace.isRemoteTerminalSurface(panel.id))
         #expect(workspace.remoteConnectionState == .connected)
 
-        workspace.reconnectRemoteConnection(surfaceId: panel.id)
+        #expect(!workspace.reconnectRemoteConnection(surfaceId: panel.id))
 
-        #expect(workspace.isRemoteTerminalSurface(panel.id))
-        #expect(!workspace.pendingRemoteTerminalChildExitSurfaceIds.contains(panel.id))
+        #expect(!workspace.isRemoteTerminalSurface(panel.id))
+        #expect(workspace.pendingRemoteTerminalChildExitSurfaceIds.contains(panel.id))
         #expect(workspace.remoteConnectionState == .connected)
     }
 
     @MainActor
-    @Test func reconnectingConfirmedSurfaceStartsANewLivenessGeneration() throws {
+    @Test func reconnectingConfirmedSurfaceStartsANewLivenessGeneration() async throws {
         let workspace = Workspace()
         defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
         let configuration = Self.makeRemoteConfiguration()
@@ -724,6 +728,10 @@ struct SSHStartupManualReconnectTests {
                 relayPort: configuration.relayPort
             )
         )
+        // The injected runner supplies a real coordinator but intentionally
+        // fails its network operation; model the already-ready owner boundary
+        // before exercising generation replacement.
+        workspace.remoteControllerConnectionState = .connected
         #expect(workspace.hasAuthoritativelyConnectedRemoteTerminal)
 
         #expect(workspace.reconnectRemoteConnection(surfaceId: panelId))
@@ -746,7 +754,10 @@ struct SSHStartupManualReconnectTests {
         let workspace = Workspace()
         defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
         let configuration = Self.makeRemoteConfiguration()
-        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        #expect(workspace.configureRemoteConnection(configuration, autoConnect: true))
+        let transition = try #require(workspace.remoteSessionTransitionTask)
+        await transition.value
+        try #require(workspace.remoteSessionController)
         workspace.applyRemoteConnectionStateUpdate(
             .connected,
             detail: "Connected controller",
@@ -782,6 +793,9 @@ struct SSHStartupManualReconnectTests {
             detail: "Reconnecting to cmux-macmini via shared local proxy 127.0.0.1:64007",
             target: "cmux-macmini"
         )
+        // Preserve the controller-ready fact while the published connection
+        // state presents an in-flight reconnect.
+        workspace.remoteControllerConnectionState = .connected
 
         let panel = try #require(workspace.newTerminalSurfaceInFocusedPane(focus: false))
         workspace.untrackRemoteTerminalSurface(panel.id)
@@ -1096,5 +1110,14 @@ struct SSHStartupManualReconnectTests {
 
     static func testError(_ message: String) -> NSError {
         NSError(domain: "cmux.tests", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+}
+
+private struct SSHStartupImmediateFailureRunner: RemoteSessionProcessRunning, Sendable {
+    func run(
+        _: RemoteProcessRequest,
+        operation _: (any RemoteTransferCancelling)?
+    ) throws -> RemoteCommandResult {
+        RemoteCommandResult(status: 1, stdout: "", stderr: "intentional reconnect-test stop")
     }
 }

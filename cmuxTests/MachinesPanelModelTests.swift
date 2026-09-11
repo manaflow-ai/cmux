@@ -450,12 +450,10 @@ final class MachinesPanelModelTests: XCTestCase {
             "machine:vivid-newt/workspaces",
             "machine:vivid-newt/ws/ws_main",
             "machine:vivid-newt/ws/ws_main/resource:vivid-newt/terminal/term_1/tab:tab_1",
-            "machine:vivid-newt/ws/ws_main/resource:vivid-newt/display/display:1",
             "machine:vivid-newt/ws/ws_side",
             "machine:vivid-newt/ws/ws_side/resource:vivid-newt/terminal/term_1/tab:tab_9",
             "machine:vivid-newt/ws/ws_side/resource:vivid-newt/display/display:1/tab:tab_desk",
             "machine:vivid-newt/ws/ws_empty",
-            "machine:vivid-newt/ws/ws_empty/resource:vivid-newt/display/display:1",
             "machine:vivid-newt/ports",
             "resource:vivid-newt/browser/port:3000",
             "machine:vivid-newt/displays",
@@ -771,14 +769,14 @@ final class MachinesPanelModelTests: XCTestCase {
     }
 
     @MainActor
-    func testCatalogWorkspaceGroupUsesLegacyWorkspaceWhenRemoteViewsAreEmpty() throws {
+    func testCatalogWorkspaceGroupUsesLegacyWorkspaceWhenRemoteViewsAreAbsent() throws {
         let machine = SurfaceMachineID.cloud("legacy-group-test")
         let workspace = SurfaceRemoteWorkspace(id: "ws_legacy", name: "legacy", index: 0, focused: true)
         var resource = terminal(machine, "term_legacy", title: "shell")
-        // Older snapshots can include the explicit zero-view marker and still
-        // retain the single-workspace compatibility field.
+        // Older providers omit view metadata and use the single-workspace
+        // compatibility field. An explicit empty list means no workspace views.
         resource.remoteWorkspace = workspace
-        resource.remoteViews = []
+        resource.remoteViews = nil
         let catalog = SurfaceCatalog()
         // The catalog drops writes for a cloud machine with no registered provider.
         let provider = GroupFakeProvider(machine: machine)

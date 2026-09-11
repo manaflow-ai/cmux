@@ -2,6 +2,7 @@ import Darwin
 import Foundation
 import os
 import Testing
+@testable import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -793,7 +794,7 @@ struct AgentHibernationProcessTerminationTests {
 
         #expect(!panel.isAgentHibernationTerminating)
         #expect(panel.prepareAgentHibernationResume() == .resumed(queuedStartupInput: true))
-        #expect(panel.surface.debugInitialInputForTesting() == agent.resumeStartupInput())
+        #expect(panel.surface.nextRuntimeInitialInput == agent.resumeStartupInput())
         #expect(!panel.isAgentHibernated)
     }
 

@@ -2192,30 +2192,34 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
     func testSessionSnapshotPersistsRemoteSurfaceProjectionsAndRestoreRelinksThem() throws {
         let panelId = UUID()
-        let remote = SurfaceResourceID(machine: .cloud("vivid-newt"), kind: .terminal, key: "term_abc")
-        var workspace = Self.localWorkspaceSnapshot(title: "vm:vivid-newt", panelId: panelId)
+        let machineId = "session-projection-\(UUID().uuidString)"
+        let remote = SurfaceResourceID(machine: .cloud(machineId), kind: .terminal, key: "term_abc")
+        let workspaceTitle = "vm:\(machineId)"
+        var workspace = Self.localWorkspaceSnapshot(title: workspaceTitle, panelId: panelId)
         workspace.surfaceProjections = [SurfaceProjectionRecord(panelID: panelId, resource: remote)]
         let snapshot = SessionTabManagerSnapshot(selectedWorkspaceIndex: 0, workspaces: [workspace])
+        let catalog = SurfaceCatalog.shared
+        let provider = try CloudCatalogQueryTestProvider(machine: remote.machine, catalog: catalog)
+        catalog.register(provider)
+        defer { catalog.unregister(machine: remote.machine) }
 
         let restored = TabManager()
         restored.restoreSessionSnapshot(snapshot)
-        let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "vm:vivid-newt" })
+        let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == workspaceTitle })
         let restoredPanelId = try XCTUnwrap(restoredWorkspace.panels.first { $0.value is TerminalPanel }?.key)
-        let catalog = SurfaceCatalog.shared
 
         // Until the machine's provider reports the terminal, the pane is a plain local shell.
         XCTAssertEqual(catalog.projection(forPanel: restoredPanelId)?.resource.machine.isLocal, true)
-        catalog.upsert(SurfaceResource(id: remote, title: "root@vivid-newt", detail: "/root", lifecycle: .running, agent: nil, remoteWorkspace: nil, port: nil, url: nil))
+        catalog.upsert(SurfaceResource(id: remote, title: "root@\(machineId)", detail: "/root", lifecycle: .running, agent: nil, remoteWorkspace: nil, port: nil, url: nil), from: provider)
         XCTAssertEqual(catalog.projection(forPanel: restoredPanelId)?.resource, remote, "the restored pane re-links to the remote terminal")
         XCTAssertEqual(catalog.projection(forPanel: restoredPanelId)?.workspaceID, restoredWorkspace.id)
 
         // The projection round-trips through the next save with the live panel id.
         let resaved = restored.sessionSnapshot(includeScrollback: false)
         XCTAssertEqual(
-            resaved.workspaces.first { $0.customTitle == "vm:vivid-newt" }?.surfaceProjections,
+            resaved.workspaces.first { $0.customTitle == workspaceTitle }?.surfaceProjections,
             [SurfaceProjectionRecord(panelID: restoredPanelId, resource: remote)]
         )
-        catalog.remove(remote)
         restored.closeWorkspace(restoredWorkspace, recordHistory: false)
     }
 
@@ -2516,7 +2520,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
         XCTAssertEqual(
             restoredWorkspace.remoteConfiguration?.terminalStartupCommand,
-            "ssh -p 2222 -o ForwardAgent=yes -tt dev@example.com"
+            "/usr/bin/ssh -p 2222 -o ForwardAgent=yes -tt dev@example.com"
         )
         XCTAssertNil(restoredWorkspace.remoteConfiguration?.agentSocketPath)
         XCTAssertNil(restoredWorkspace.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"])
@@ -2604,7 +2608,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restoredWorkspace.remoteConfiguration?.persistentDaemonSlot, persistentDaemonSlot)
         XCTAssertEqual(restoredWorkspace.remoteConfiguration?.localSocketPath, reservedSocketPath)
         XCTAssertTrue(
-            restoredWorkspace.remoteConfiguration?.sshOptions.contains("ControlPath=/tmp/cmux-ssh-\(getuid())-64003-%C") == true
+            restoredWorkspace.remoteConfiguration?.sshOptions.contains("ControlPath=/tmp/cmux-ssh-\(getuid())-%C") == true
         )
         XCTAssertNotEqual(restoredWorkspace.remoteConfiguration?.relayID, "relay-persist-test")
         XCTAssertNotEqual(restoredWorkspace.remoteConfiguration?.relayToken, String(repeating: "e", count: 64))
@@ -4037,11 +4041,14 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     private static func decodedSSHPTYCommandB64(in command: String) -> String? {
-        let marker = "--command-b64 "
-        guard let markerRange = command.range(of: marker) else { return nil }
-        let suffix = command[markerRange.upperBound...]
-        guard let token = suffix.split(whereSeparator: { $0.isWhitespace }).first else { return nil }
-        let encoded = String(token).trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command).map(\.value)
+        guard let script = words.dropFirst(2).first else { return nil }
+        let scriptWords = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(script).map(\.value)
+        guard let commandIndex = scriptWords.firstIndex(of: "--command-b64"),
+              let token = scriptWords.dropFirst(commandIndex + 1).first else { return nil }
+        // The retry script terminates this invocation with a shell separator,
+        // which the whitespace-oriented word parser retains on the argument.
+        let encoded = token.hasSuffix(";") ? String(token.dropLast()) : token
         guard let data = Data(base64Encoded: encoded) else { return nil }
         return String(data: data, encoding: .utf8)
     }

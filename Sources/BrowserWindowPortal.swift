@@ -216,6 +216,14 @@ final class WindowBrowserHostView: NSView {
         let initialInspectorFrame: NSRect
     }
 
+    private struct SidebarDividerHandoff {
+        let divider: SidebarDividerTrackingView
+        weak var window: NSWindow?
+        let eventNumber: Int
+        let timestamp: TimeInterval
+        let locationInWindow: NSPoint
+    }
+
     private typealias DividerCursorKind = PortalDividerCursorKind
 
     override var isOpaque: Bool { false }
@@ -233,6 +241,7 @@ final class WindowBrowserHostView: NSView {
     private var activeDividerCursorKind: DividerCursorKind?
     private let dividerCursorOcclusion = PortalDividerCursorOcclusion()
     private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
+    private var sidebarDividerHandoff: SidebarDividerHandoff?
     private var lastHostedInspectorLayoutBoundsSize: NSSize?
     private let paneTransferSourceResolver = PaneTransferSourceResolver()
     let paneDropRoutingSession = PaneDropRoutingSession()
@@ -288,6 +297,7 @@ final class WindowBrowserHostView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        sidebarDividerHandoff = nil
         if window == nil {
             clearActiveDividerCursor(restoreArrow: false)
         }
@@ -407,7 +417,24 @@ final class WindowBrowserHostView: NSView {
             return hitView === self ? nil : hitView
         }
 
-        if liveSidebarDivider(at: point) != nil {
+        if let currentEvent, routingContext.eventKind == .pointerDown,
+           retainedSidebarDivider(for: currentEvent) == nil {
+            sidebarDividerHandoff = nil
+        } else if routingContext.eventKind == .pointerUp {
+            sidebarDividerHandoff = nil
+        }
+
+        if let divider = liveSidebarDivider(at: point) {
+            if let currentEvent, currentEvent.type == .leftMouseDown,
+               let window, currentEvent.window === window {
+                sidebarDividerHandoff = SidebarDividerHandoff(
+                    divider: divider,
+                    window: window,
+                    eventNumber: currentEvent.eventNumber,
+                    timestamp: currentEvent.timestamp,
+                    locationInWindow: currentEvent.locationInWindow
+                )
+            }
             assertDividerCursor(.vertical)
             return self
         }
@@ -550,10 +577,27 @@ final class WindowBrowserHostView: NSView {
         return hitView === self ? nil : hitView
     }
 
-    override func mouseDown(with event: NSEvent) {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        guard let event, event.type == .leftMouseDown, event.window === window else {
+            return super.acceptsFirstMouse(for: event)
+        }
+        // AppKit asks this between hit-testing and mouseDown. Reading the
+        // handoff must leave it available if SwiftUI detached the tracker.
+        if retainedSidebarDivider(for: event) != nil {
+            return true
+        }
         let point = convert(event.locationInWindow, from: nil)
-        if let sidebarDivider = liveSidebarDivider(at: point) {
-            sidebarDivider.mouseDown(with: event)
+        return liveSidebarDivider(at: point)?.acceptsFirstMouse(for: event)
+            ?? super.acceptsFirstMouse(for: event)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let retainedDivider = retainedSidebarDivider(for: event)
+        sidebarDividerHandoff = nil
+        let point = convert(event.locationInWindow, from: nil)
+        if let window, event.window === window,
+           let sidebarDivider = retainedDivider ?? liveSidebarDivider(at: point) {
+            sidebarDivider.trackMouseDown(with: event, in: window)
             return
         }
         guard let hostedInspectorHit = hostedInspectorDividerHit(at: point) else {
@@ -651,6 +695,7 @@ final class WindowBrowserHostView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        sidebarDividerHandoff = nil
         if let dragState = hostedInspectorDividerDrag {
             dragState.slotView.isHostedInspectorDividerDragActive = false
 #if DEBUG
@@ -782,6 +827,19 @@ final class WindowBrowserHostView: NSView {
         let trailingGap = bounds.maxX - dividerX
         guard trailingGap > Self.minimumVisibleLeadingContentWidth else { return false }
         return SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: dividerX).contains(point.x)
+    }
+
+    private func retainedSidebarDivider(for event: NSEvent) -> SidebarDividerTrackingView? {
+        guard let handoff = sidebarDividerHandoff,
+              let window,
+              handoff.window === window,
+              handoff.divider.window == nil || handoff.divider.window === window,
+              event.window === window,
+              event.type == .leftMouseDown,
+              handoff.eventNumber == event.eventNumber,
+              handoff.timestamp == event.timestamp,
+              handoff.locationInWindow == event.locationInWindow else { return nil }
+        return handoff.divider
     }
 
     /// Resolves the native tracker even when cached portal slot frames lag a resize.

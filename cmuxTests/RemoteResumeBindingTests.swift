@@ -1341,7 +1341,9 @@ struct RemoteResumeBindingTests {
         let script = try #require(words.dropFirst(2).first)
         let scriptWords = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(script).map(\.value)
         let commandIndex = try #require(scriptWords.firstIndex(of: "--command-b64"))
-        let encoded = try #require(scriptWords.dropFirst(commandIndex + 1).first)
+        let token = try #require(scriptWords.dropFirst(commandIndex + 1).first)
+        // The word parser retains the retry script's command separator.
+        let encoded = token.hasSuffix(";") ? String(token.dropLast()) : token
         let data = try #require(Data(base64Encoded: encoded))
         return try #require(String(data: data, encoding: .utf8))
     }

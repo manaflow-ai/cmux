@@ -1,3 +1,4 @@
+import AppKit
 import Darwin
 import Foundation
 import Testing
@@ -121,9 +122,27 @@ struct BrowserDiscardedWebViewRestoreRetryTests {
         let panel = BrowserPanel(
             workspaceId: UUID(),
             initialURL: url,
+            renderInitialNavigation: false,
             isRemoteWorkspace: false
         )
         defer { panel.close() }
+
+        // This case exercises real WebKit failure callbacks. Give both the
+        // original and replacement views a sized native host before loading.
+        let window = NSWindow(
+            contentRect: NSRect(x: 20, y: 20, width: 640, height: 480),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = panel.webView
+        window.orderBack(nil)
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+        try #require(panel.navigate(to: url) != nil)
 
         try #require(await AppKitTestEventPump().waitUntil(timeout: .seconds(30)) {
             panel.navigationDelegate?.activeErrorPageDisplayURL == url
@@ -135,6 +154,7 @@ struct BrowserDiscardedWebViewRestoreRetryTests {
 
         #expect(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
         #expect(panel.webView !== originalWebView)
+        window.contentView = panel.webView
 
         #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore1"))
         try #require(await AppKitTestEventPump().waitUntil(timeout: .seconds(20)) {
@@ -146,7 +166,7 @@ struct BrowserDiscardedWebViewRestoreRetryTests {
         #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore2"))
     }
 
-    @Test func mobileStreamStartRestoresDiscardedWebView() async throws {
+    @Test func mobileStreamStartRestoresDiscardedWebView() throws {
         // RED: streaming a discarded background tab (a restored session's
         // never-revealed pane) mirrors a blank web shell, so the phone shows
         // white until a manual reload. Starting a mobile stream must kick the
@@ -154,21 +174,25 @@ struct BrowserDiscardedWebViewRestoreRetryTests {
         let endpoint = try BrowserDiscardRestoreRefusedEndpoint(path: "cmux-mobile-stream-discard")
         defer { withExtendedLifetime(endpoint) {} }
         let url = endpoint.url
-        let discardedAt = Date(timeIntervalSince1970: 300)
         let panel = BrowserPanel(
             workspaceId: UUID(),
-            initialURL: url,
+            renderInitialNavigation: false,
             isRemoteWorkspace: false
         )
         defer { panel.close() }
 
-        try #require(await AppKitTestEventPump().waitUntil(timeout: .seconds(30)) {
-            panel.navigationDelegate?.activeErrorPageDisplayURL == url
-                && !panel.webView.isLoading && !panel.isLoading
-        })
-
-        panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
-        #expect(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+        // Session restore is the never-revealed discarded state the stream
+        // must recover; no prior network failure is part of this lifecycle.
+        panel.restoreSessionSnapshot(SessionBrowserPanelSnapshot(
+            urlString: url.absoluteString,
+            profileID: nil,
+            shouldRenderWebView: true,
+            pageZoom: 1.0,
+            developerToolsVisible: false,
+            backHistoryURLStrings: [],
+            forwardHistoryURLStrings: []
+        ))
+        #expect(panel.webViewLifecycleTopPayload()["state"] as? String == "discarded")
 
         let handlerID = UUID()
         panel.addMobileBrowserStreamSignalHandler(id: handlerID) { _ in }
@@ -493,25 +517,27 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
         }
     }
 
-    @Test func mainFrameDownloadCompletesRestoreAndSuppressesBlankShellHeal() async throws {
+    @Test func mainFrameDownloadCompletesRestoreAndSuppressesBlankShellHeal() throws {
         let endpoint = try BrowserDiscardRestoreRefusedEndpoint(path: "cmux-issue-7504-download")
         defer { withExtendedLifetime(endpoint) {} }
         let url = endpoint.url
-        let discardedAt = Date(timeIntervalSince1970: 700)
         let panel = BrowserPanel(
             workspaceId: UUID(),
-            initialURL: url,
+            renderInitialNavigation: false,
             isRemoteWorkspace: false
         )
         defer { panel.close() }
 
-        try #require(await AppKitTestEventPump().waitUntil(timeout: .seconds(30)) {
-            panel.navigationDelegate?.activeErrorPageDisplayURL == url
-                && !panel.webView.isLoading && !panel.isLoading
-        })
-
-        panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
-        #expect(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+        panel.restoreSessionSnapshot(SessionBrowserPanelSnapshot(
+            urlString: url.absoluteString,
+            profileID: nil,
+            shouldRenderWebView: true,
+            pageZoom: 1.0,
+            developerToolsVisible: false,
+            backHistoryURLStrings: [],
+            forwardHistoryURLStrings: []
+        ))
+        #expect(panel.webViewLifecycleTopPayload()["state"] as? String == "discarded")
         #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore"))
 
         // Simulate WebKit converting the pending restore navigation into a

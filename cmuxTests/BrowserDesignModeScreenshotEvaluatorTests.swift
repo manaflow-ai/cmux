@@ -637,14 +637,15 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
             )
         }
         var copiedPrompt: String?
-        var captureCoverStates: [Bool] = []
+        var captureStates: [(kind: String, covered: Bool)] = []
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         container.addSubview(webView)
-        let capture: BrowserDesignModeScreenshotEvaluator.AsyncCapture = { capturedWebView in
-            captureCoverStates.append(
-                capturedWebView.superview?.subviews.contains(where: { $0 !== capturedWebView }) == true
-            )
+        let capture: @MainActor (String, WKWebView) -> NSImage = { kind, capturedWebView in
+            captureStates.append((
+                kind: kind,
+                covered: capturedWebView.superview?.subviews.contains(where: { $0 !== capturedWebView }) == true
+            ))
             return image
         }
         let controller = BrowserDesignModeController(
@@ -656,15 +657,14 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
             screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(
                 timeout: 1,
                 visibleViewportCapture: { capturedWebView, completion in
-                    captureCoverStates.append(
-                        capturedWebView.superview?.subviews.contains(where: { $0 !== capturedWebView }) == true
-                    )
-                    completion(.success(image))
+                    completion(.success(capture("visibleViewport", capturedWebView)))
                 },
-                fullPageCapture: capture,
+                fullPageCapture: { capturedWebView in
+                    capture("fullPage", capturedWebView)
+                },
                 documentRectCapture: { capturedWebView, rect in
                     #expect(rect.width > 0 && rect.height > 0)
-                    return try await capture(capturedWebView)
+                    return capture("documentRect", capturedWebView)
                 }
             ),
             canEnable: { true },
@@ -704,7 +704,10 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
 
         await controller.copySelection()
 
-        #expect(captureCoverStates == [false, true, true])
+        // The page overview and selection crop are separate artifacts. Both
+        // stay covered until the final viewport capture confirms restoration.
+        #expect(captureStates.map(\.kind) == ["visibleViewport", "fullPage", "documentRect", "visibleViewport"])
+        #expect(captureStates.map(\.covered) == [false, true, true, true])
         #expect(container.subviews == [webView])
         let prompt = try #require(copiedPrompt)
         #expect(!prompt.contains("<cmux_design_mode>"))

@@ -3453,59 +3453,65 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         }
     }
 
-    func testKeyDownRecoveryDoesNotRecreateClosedSurface() throws {
-#if DEBUG
-        let window = makeWindow()
-        defer { window.orderOut(nil) }
+    func testKeyDownRecoveryDoesNotRecreateClosedSurface() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+    #if DEBUG
+            let window = makeWindow()
+            defer { window.orderOut(nil) }
 
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
+            guard let contentView = window.contentView else {
+                XCTFail("Expected content view")
+                return
+            }
+
+            let surface = TerminalSurface(
+                tabId: UUID(),
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: nil,
+                workingDirectory: nil
+            )
+            let hostedView = surface.hostedView
+            hostedView.frame = contentView.bounds
+            hostedView.autoresizingMask = [.width, .height]
+            contentView.addSubview(hostedView)
+
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            contentView.layoutSubtreeIfNeeded()
+            hostedView.layoutSubtreeIfNeeded()
+            await AppKitTestEventPump().drain()
+
+            guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
+                XCTFail("Expected terminal surface view")
+                return
+            }
+            hostedView.setVisibleInUI(true)
+            hostedView.setActive(true)
+            await AppKitTestEventPump().startSurface(surface)
+            hostedView.reconcileGeometryNow()
+            XCTAssertNotNil(surface.surface, "Expected runtime surface before simulating close lifecycle teardown")
+
+            surface.beginPortalCloseLifecycle(reason: "test.close")
+            surface.teardownSurface()
+            XCTAssertNil(surface.surface, "Teardown should release the runtime surface")
+            XCTAssertEqual(surface.portalBindingStateLabel(), "closed")
+
+            hostedView.removeFromSuperview()
+            await AppKitTestEventPump().drain()
+            XCTAssertNil(surfaceView.window, "Expected hosted terminal view to be detached from any window")
+
+            let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
+            surfaceView.keyDown(with: event)
+            await AppKitTestEventPump().drain()
+
+            XCTAssertNil(
+                surface.surface,
+                "Missing-surface keyDown should not recreate a Ghostty runtime surface after close lifecycle teardown"
+            )
+    #else
+            throw XCTSkip("Debug-only regression test")
+    #endif
         }
-
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        let hostedView = surface.hostedView
-        hostedView.frame = contentView.bounds
-        hostedView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostedView)
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
-            XCTFail("Expected terminal surface view")
-            return
-        }
-        XCTAssertNotNil(surface.surface, "Expected runtime surface before simulating close lifecycle teardown")
-
-        surface.beginPortalCloseLifecycle(reason: "test.close")
-        surface.teardownSurface()
-        XCTAssertNil(surface.surface, "Teardown should release the runtime surface")
-        XCTAssertEqual(surface.portalBindingStateLabel(), "closed")
-
-        hostedView.removeFromSuperview()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        XCTAssertNil(surfaceView.window, "Expected hosted terminal view to be detached from any window")
-
-        let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
-        surfaceView.keyDown(with: event)
-        drainMainQueue()
-
-        XCTAssertNil(
-            surface.surface,
-            "Missing-surface keyDown should not recreate a Ghostty runtime surface after close lifecycle teardown"
-        )
-#else
-        throw XCTSkip("Debug-only regression test")
-#endif
     }
 
     func testPrintableKeyRepeatDoesNotForceSurfaceRefresh() throws {

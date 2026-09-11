@@ -13,84 +13,114 @@ import CmuxTerminal
 struct TerminalSearchOverlayMouseReleaseTests {
     @Test("Search overlay forwards terminal mouse release during selection drag")
     func searchOverlayForwardsTerminalMouseReleaseDuringSelectionDrag() async throws {
-        let surface = makeTerminalSurface()
-        defer { surface.releaseSurfaceForTesting() }
+        try await withFocusedTerminal { surface, hostedView, window in
+            hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "needle"))
+            #expect(await AppKitTestEventPump().waitUntil {
+                hostedView.debugHasSearchOverlay() && surface.surface != nil
+            })
 
-        let (hostedView, window) = try attachToWindow(surface: surface)
-        defer { window.orderOut(nil) }
+            let terminalView = try #require(surfaceView(in: hostedView) as? GhosttyNSView)
+            let overlay = try #require(hostedView.debugSearchOverlayHostingViewForTesting())
+            // The terminal must already own workspace focus before the press
+            // so this gesture selects text instead of only activating the pane.
+            terminalView.desiredFocus = true
+            try #require(terminalView.terminalPointerShouldForwardActivation())
 
-        hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "needle"))
-        #expect(await AppKitTestEventPump().waitUntil {
-            hostedView.debugHasSearchOverlay() && surface.surface != nil
-        })
+            let downLocation = terminalView.convert(NSPoint(x: 24, y: 24), to: nil)
+            terminalView.mouseDown(with: makeMouseEvent(type: .leftMouseDown, location: downLocation, window: window))
+            #expect(
+                hostedView.debugSurfaceHasPendingLeftMouseReleaseForTesting(),
+                "Terminal selection should own the left-button release after mouseDown"
+            )
 
-        let terminalView = try #require(surfaceView(in: hostedView) as? GhosttyNSView)
-        let overlay = try #require(hostedView.debugSearchOverlayHostingViewForTesting())
-        // The standalone fixture has no workspace focus coordinator. Mark the
-        // terminal as the intended focus target so its pointer-down follows
-        // the production selection path and owns the release ledger.
-        terminalView.desiredFocus = true
+            let overlayLocation = overlay.convert(NSPoint(x: overlay.bounds.midX, y: overlay.bounds.midY), to: nil)
+            overlay.mouseDragged(with: makeMouseEvent(type: .leftMouseDragged, location: overlayLocation, window: window))
+            #expect(
+                hostedView.debugSurfaceHasPendingLeftMouseReleaseForTesting(),
+                "Dragging across the find overlay must keep terminal selection ownership until mouseUp"
+            )
 
-        let downLocation = terminalView.convert(NSPoint(x: 24, y: 24), to: nil)
-        terminalView.mouseDown(with: makeMouseEvent(type: .leftMouseDown, location: downLocation, window: window))
-        #expect(
-            hostedView.debugSurfaceHasPendingLeftMouseReleaseForTesting(),
-            "Terminal selection should own the left-button release after mouseDown"
-        )
-
-        let overlayLocation = overlay.convert(NSPoint(x: overlay.bounds.midX, y: overlay.bounds.midY), to: nil)
-        overlay.mouseDragged(with: makeMouseEvent(type: .leftMouseDragged, location: overlayLocation, window: window))
-        #expect(
-            hostedView.debugSurfaceHasPendingLeftMouseReleaseForTesting(),
-            "Dragging across the find overlay must keep terminal selection ownership until mouseUp"
-        )
-
-        overlay.mouseUp(with: makeMouseEvent(type: .leftMouseUp, location: overlayLocation, window: window))
-        #expect(
-            !hostedView.debugSurfaceHasPendingLeftMouseReleaseForTesting(),
-            "An overlay-captured mouseUp must release the terminal selection"
-        )
+            overlay.mouseUp(with: makeMouseEvent(type: .leftMouseUp, location: overlayLocation, window: window))
+            #expect(
+                !hostedView.debugSurfaceHasPendingLeftMouseReleaseForTesting(),
+                "An overlay-captured mouseUp must release the terminal selection"
+            )
+        }
     }
 
     @Test("Search overlay release clears pending selection after surface release")
     func searchOverlayMouseReleaseClearsSelectionDragAfterSurfaceRelease() async throws {
-        let surface = makeTerminalSurface()
-        defer { surface.releaseSurfaceForTesting() }
+        try await withFocusedTerminal { surface, hostedView, window in
+            hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "needle"))
+            #expect(await AppKitTestEventPump().waitUntil {
+                hostedView.debugHasSearchOverlay() && surface.surface != nil
+            })
 
-        let (hostedView, window) = try attachToWindow(surface: surface)
-        defer { window.orderOut(nil) }
+            let terminalView = try #require(surfaceView(in: hostedView) as? GhosttyNSView)
+            let overlay = try #require(hostedView.debugSearchOverlayHostingViewForTesting())
+            terminalView.desiredFocus = true
+            try #require(terminalView.terminalPointerShouldForwardActivation())
 
-        hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "needle"))
-        #expect(await AppKitTestEventPump().waitUntil {
-            hostedView.debugHasSearchOverlay() && surface.surface != nil
-        })
+            let downLocation = terminalView.convert(NSPoint(x: 24, y: 24), to: nil)
+            terminalView.mouseDown(with: makeMouseEvent(type: .leftMouseDown, location: downLocation, window: window))
+            #expect(hostedView.debugSurfaceHasPendingLeftMouseReleaseForTesting())
 
-        let terminalView = try #require(surfaceView(in: hostedView) as? GhosttyNSView)
-        let overlay = try #require(hostedView.debugSearchOverlayHostingViewForTesting())
-        terminalView.desiredFocus = true
+            surface.releaseSurfaceForTesting()
+            #expect(surface.surface == nil)
 
-        let downLocation = terminalView.convert(NSPoint(x: 24, y: 24), to: nil)
-        terminalView.mouseDown(with: makeMouseEvent(type: .leftMouseDown, location: downLocation, window: window))
-        #expect(hostedView.debugSurfaceHasPendingLeftMouseReleaseForTesting())
-
-        surface.releaseSurfaceForTesting()
-        #expect(surface.surface == nil)
-
-        let overlayLocation = overlay.convert(NSPoint(x: overlay.bounds.midX, y: overlay.bounds.midY), to: nil)
-        overlay.mouseUp(with: makeMouseEvent(type: .leftMouseUp, location: overlayLocation, window: window))
-        #expect(
-            !hostedView.debugSurfaceHasPendingLeftMouseReleaseForTesting(),
-            "The pending terminal release state must clear even if the Ghostty surface is gone"
-        )
+            let overlayLocation = overlay.convert(NSPoint(x: overlay.bounds.midX, y: overlay.bounds.midY), to: nil)
+            overlay.mouseUp(with: makeMouseEvent(type: .leftMouseUp, location: overlayLocation, window: window))
+            #expect(
+                !hostedView.debugSurfaceHasPendingLeftMouseReleaseForTesting(),
+                "The pending terminal release state must clear even if the Ghostty surface is gone"
+            )
+        }
     }
 
-    private func makeTerminalSurface() -> TerminalSurface {
-        TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+    private func withFocusedTerminal(
+        _ body: (TerminalSurface, GhosttySurfaceScrollView, NSWindow) async throws -> Void
+    ) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let appDelegate = AppDelegate()
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = manager
+            defer {
+                manager.tabs.forEach { $0.teardownAllPanels() }
+                TerminalController.shared.setActiveTabManager(previousManager)
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let workspace = try #require(manager.selectedWorkspace)
+            let panel = try #require(workspace.focusedTerminalPanel)
+            let (hostedView, window) = try attachToWindow(surface: panel.surface)
+            let windowID = UUID()
+            window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowID.uuidString)")
+            appDelegate.registerMainWindow(
+                window,
+                windowId: windowID,
+                tabManager: manager,
+                sidebarState: SidebarState(),
+                sidebarSelectionState: SidebarSelectionState()
+            )
+            defer {
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+                window.orderOut(nil)
+                window.close()
+            }
+            hostedView.setVisibleInUI(true)
+            hostedView.setActive(true)
+            await AppKitTestEventPump().startSurface(panel.surface)
+            hostedView.reconcileGeometryNow()
+            _ = try #require(panel.surface.surface)
+            appDelegate.noteMainPanelKeyboardFocusIntent(workspaceId: workspace.id, panelId: panel.id, in: window)
+            workspace.focusPanel(panel.id, focusIntent: .terminal(.surface))
+            #expect(workspace.isFocusedTerminalInputSurface(panel.id))
+
+            try await body(panel.surface, hostedView, window)
+        }
     }
 
     private func attachToWindow(surface: TerminalSurface) throws -> (GhosttySurfaceScrollView, NSWindow) {
@@ -101,6 +131,7 @@ struct TerminalSearchOverlayMouseReleaseTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let contentView = try #require(window.contentView)
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]

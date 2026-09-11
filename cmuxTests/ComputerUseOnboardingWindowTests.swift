@@ -68,13 +68,14 @@ struct ComputerUseOnboardingWindowTests {
         window.orderOut(nil)
         await AppKitTestEventPump().drain()
 
-        let snapshot = ExternalApplicationWindowTracker.windowSnapshot(
+        let snapshot = try #require(ExternalApplicationWindowTracker.windowSnapshot(
             windowID: windowID,
             processIdentifier: ProcessInfo.processInfo.processIdentifier,
             primaryScreenMaxY: NSScreen.screens.first?.frame.maxY ?? 0
-        )
+        ))
 
-        #expect(snapshot?.windowID == windowID)
+        #expect(snapshot.windowID == windowID)
+        #expect(!snapshot.isOnScreen)
     }
 
     @Test @MainActor func unavailableTargetDismissesOnlyItsCompanion() throws {

@@ -4796,8 +4796,20 @@ struct WorkspaceForkConversationContextMenuTests {
             workingDirectory: root.path,
             executablePath: executable.path
         )
-        workspace.setRestoredAgentSnapshotForTesting(snapshotWithExecutable, panelId: panelId)
-        workspace.restoredAgentLifecycle.setResumeState(.completedAgentExit, panelId: panelId)
+        let liveProcessId = Int(ProcessInfo.processInfo.processIdentifier)
+        let liveProcessIdentity = try #require(AgentPIDProcessIdentity(pid: pid_t(liveProcessId)))
+        // Reconciliation revalidates process identity against the OS and requires
+        // the live generation to have started after the completed generation.
+        workspace.restoredAgentLifecycle.seedTransferredState(
+            panelId: panelId,
+            snapshot: snapshotWithExecutable,
+            resumeState: .completedAgentExit,
+            completedGeneration: RestoredAgentCompletedGeneration(
+                completedAt: TimeInterval(liveProcessIdentity.startSeconds) - 1,
+                processIdentities: []
+            ),
+            resumeWorkingDirectory: nil
+        )
         try writeCustomAgentHookStore(
             root: root,
             agentId: "opencode",
@@ -4827,13 +4839,13 @@ struct WorkspaceForkConversationContextMenuTests {
                         panelKey: (
                             snapshot: snapshotWithExecutable,
                             updatedAt: 42,
-                            processIDs: [7_311],
-                            agentProcessIDs: [7_311],
+                            processIDs: [liveProcessId],
+                            agentProcessIDs: [liveProcessId],
                             sessionIDSource: .explicit
                         ),
                     ],
                     processArgumentsProvider: { pid in
-                        guard pid == 7_311 else { return nil }
+                        guard pid == liveProcessId else { return nil }
                         return CmuxTopProcessArguments(
                             arguments: [executable.path, "--session", snapshotWithExecutable.sessionId],
                             environment: [
@@ -4843,11 +4855,9 @@ struct WorkspaceForkConversationContextMenuTests {
                             ]
                         )
                     },
-                    processPresenceProvider: { _ in .present },
+                    processPresenceProvider: { $0 == liveProcessId ? .present : .absent },
                     processIdentityProvider: { pid in
-                        pid == 7_311
-                            ? AgentPIDProcessIdentity(pid: 7_311, startSeconds: 40, startMicroseconds: 0)
-                            : nil
+                        pid == liveProcessId ? liveProcessIdentity : nil
                     }
                 )
                 return (

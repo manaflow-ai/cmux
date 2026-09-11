@@ -1423,14 +1423,20 @@ final class SessionPersistenceTests: XCTestCase {
                 "--print",
             ]
         )
+        // Local restore uses a structured selector even without a rendered
+        // resume command. Save an idle shell so the first command is user input.
+        source.updatePanelShellActivityState(panelId: sourcePanelId, state: .promptIdle)
         let snapshot = source.sessionSnapshot(
             includeScrollback: false,
             restorableAgentIndex: sourceIndex
         )
+        XCTAssertEqual(snapshot.panels.first?.terminal?.wasAgentRunning, false)
 
         let restored = Workspace()
         restored.restoreSessionSnapshot(snapshot)
         let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+        XCTAssertFalse(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
         XCTAssertNil(restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent?.resumeCommand)
 
         restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
@@ -6469,16 +6475,13 @@ extension SessionPersistenceTests {
         ))
 
         let words = expandedStartupShellWords(input)
-        XCTAssertTrue(words.contains("CMUX_CUSTOM_HERMES_AGENT_PATH=/opt/homebrew/bin/hermes"))
         for setting in ["model.provider", "model.base_url"] {
             let settingIndex = try XCTUnwrap(words.firstIndex(of: setting))
-            XCTAssertEqual(Array(words.prefix(settingIndex + 1).suffix(3)), ["config", "set", setting])
+            XCTAssertEqual(
+                Array(words.prefix(settingIndex + 1).suffix(4)),
+                ["/opt/homebrew/bin/hermes", "config", "set", setting]
+            )
         }
-        let baseURLIndex = try XCTUnwrap(words.firstIndex(of: "model.base_url"))
-        XCTAssertEqual(
-            Array(words.prefix(baseURLIndex + 1).suffix(4)),
-            ["/opt/homebrew/bin/hermes", "config", "set", "model.base_url"]
-        )
     }
 
     func testRemoteHermesAgentHookSurfaceResumeBootstrapStaysInsideCwdGuard() throws {
@@ -6506,7 +6509,10 @@ extension SessionPersistenceTests {
         let bootstrapIndex = try XCTUnwrap(words.firstIndex(of: "model.provider"))
         XCTAssertLessThan(cdIndex, bootstrapIndex)
         XCTAssertEqual(Array(words.prefix(bootstrapIndex + 1).suffix(3)), ["config", "set", "model.provider"])
-        XCTAssertTrue(words.contains("CMUX_CUSTOM_HERMES_AGENT_PATH=./hermes"))
+        XCTAssertEqual(
+            Array(words.prefix(bootstrapIndex + 1).suffix(4)),
+            ["./hermes", "config", "set", "model.provider"]
+        )
         XCTAssertTrue(zip(words, words.dropFirst()).contains { $0 == "--provider" && $1 == "custom" })
     }
 
@@ -6678,25 +6684,26 @@ extension SessionPersistenceTests {
             let missingCwd = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-deleted-agent-hook-cwd-\(UUID().uuidString)", isDirectory: true)
                 .appendingPathComponent("repo", isDirectory: true)
-            let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
-                SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
-                    name: "Codex",
-                    kind: "codex",
-                    command: "cd '\(missingCwd.path)' && codex resume session-duplicate-turn --yolo",
-                    cwd: missingCwd.path,
-                    checkpointId: "session-duplicate-turn",
-                    source: "agent-hook",
-                    environment: [
-                        "CLAUDE_CONFIG_DIR": "/tmp/claude-profile"
-                    ],
-                    autoResume: true,
-                    updatedAt: 10
-                ),
-            ])
-            let snapshot = source.sessionSnapshot(
-                includeScrollback: false,
-                surfaceResumeBindingIndex: bindingIndex
+            var snapshot = source.sessionSnapshot(includeScrollback: false)
+            let panelIndex = try XCTUnwrap(snapshot.panels.firstIndex { $0.id == sourcePanelId })
+            var terminalSnapshot = try XCTUnwrap(snapshot.panels[panelIndex].terminal)
+            terminalSnapshot.resumeBinding = SurfaceResumeBindingSnapshot(
+                name: "Codex",
+                kind: "codex",
+                command: "cd '\(missingCwd.path)' && codex resume session-duplicate-turn --yolo",
+                cwd: missingCwd.path,
+                checkpointId: "session-duplicate-turn",
+                source: "agent-hook",
+                environment: [
+                    "CLAUDE_CONFIG_DIR": "/tmp/claude-profile"
+                ],
+                autoResume: true,
+                updatedAt: 10
             )
+            // This restore fixture represents a hook-bound agent that was
+            // running at quit; an unobserved binding alone cannot establish that.
+            terminalSnapshot.wasAgentRunning = true
+            snapshot.panels[panelIndex].terminal = terminalSnapshot
 
             let restored = Workspace(restorableAgentIndexProvider: { .empty })
             restored.restoreSessionSnapshot(snapshot)
@@ -6717,14 +6724,22 @@ extension SessionPersistenceTests {
     func testRestorePreservesUnmountedVolumeCwdBindingsWhenInitialReportsAreScrambled() throws {
         try withAutoResumeAgentSessionsEnabled {
             let manager = TabManager(autoWelcomeIfNeeded: false)
+            defer { manager.tabs.forEach { $0.teardownAllPanels() } }
             let volumeName = "cmux-issue-5278-\(UUID().uuidString)"
             let expectedCwdsByWorkspaceAndPanel = try makeUnmountedVolumeCwdSnapshot(
                 manager: manager,
                 volumeName: volumeName
             )
-            let snapshotData = try JSONEncoder().encode(manager.sessionSnapshot(includeScrollback: false))
+            let sourceSnapshot = manager.sessionSnapshot(includeScrollback: false)
+            for workspace in sourceSnapshot.workspaces {
+                for panel in workspace.panels {
+                    XCTAssertEqual(panel.terminal?.wasAgentRunning, true)
+                }
+            }
+            let snapshotData = try JSONEncoder().encode(sourceSnapshot)
             let decodedSnapshot = try JSONDecoder().decode(SessionTabManagerSnapshot.self, from: snapshotData)
             let restored = TabManager(autoWelcomeIfNeeded: false)
+            defer { restored.tabs.forEach { $0.teardownAllPanels() } }
 
             restored.restoreSessionSnapshot(decodedSnapshot)
             let allExpectedCwds = expectedCwdsByWorkspaceAndPanel
@@ -6805,6 +6820,7 @@ extension SessionPersistenceTests {
             for (panelIndex, panelId) in [firstPanelId, secondPanelId].enumerated() {
                 let panelTitle = "Tab \(workspaceIndex + 1).\(panelIndex + 1)"
                 let cwd = "/Volumes/\(volumeName)/project-\(workspaceIndex + 1)/tab-\(panelIndex + 1)"
+                let sessionId = "session-\(workspaceIndex)-\(panelIndex)"
                 workspace.setPanelCustomTitle(panelId: panelId, title: panelTitle)
                 workspace.updatePanelDirectory(panelId: panelId, directory: cwd)
                 XCTAssertTrue(
@@ -6812,15 +6828,23 @@ extension SessionPersistenceTests {
                         SurfaceResumeBindingSnapshot(
                             name: "Codex",
                             kind: "codex",
-                            command: "cd '\(cwd)' && codex resume session-\(workspaceIndex)-\(panelIndex) --yolo",
+                            command: "cd '\(cwd)' && codex resume \(sessionId) --yolo",
                             cwd: cwd,
-                            checkpointId: "session-\(workspaceIndex)-\(panelIndex)",
+                            checkpointId: sessionId,
                             source: "agent-hook",
                             autoResume: true,
                             updatedAt: 10 + Double(workspaceIndex * 10 + panelIndex)
                         ),
                         panelId: panelId
                     )
+                )
+                // A running hook-bound agent must have exact-session process
+                // evidence before its guarded startup can be saved for restore.
+                workspace.recordAgentPID(
+                    key: "codex.\(sessionId)",
+                    pid: getpid(),
+                    panelId: panelId,
+                    refreshPorts: false
                 )
                 expected[workspaceTitle, default: [:]][panelTitle] = cwd
             }
