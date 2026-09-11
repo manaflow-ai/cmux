@@ -5,16 +5,22 @@ private let cmuxAppIconDidChangeNotification = Notification.Name("com.cmuxterm.a
 private let cmuxAppIconModeKey = "appIconMode"
 
 private enum DockTileAppIconMode: String {
+    case system
     case automatic
     case light
     case dark
 
     init(defaultsValue: String?) {
-        self = Self(rawValue: defaultsValue ?? "") ?? .automatic
+        self = Self(rawValue: defaultsValue ?? "") ?? .system
     }
 
     func imageName(isDarkAppearance: Bool) -> NSImage.Name? {
         switch self {
+        case .system:
+            // Returning nil routes updateDockTile through showDefaultAppIcon(),
+            // which leaves the bundle's layered icon and its appearance
+            // treatment in place.
+            return nil
         case .automatic:
             return isDarkAppearance ? NSImage.Name("AppIconDark") : NSImage.Name("AppIconLight")
         case .light:

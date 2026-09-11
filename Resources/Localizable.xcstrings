@@ -43967,6 +43967,23 @@
         }
       }
     },
+    "appIcon.system": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム"
+          }
+        }
+      }
+    },
     "appearance.auto": {
       "extractionState": "manual",
       "localizations": {
