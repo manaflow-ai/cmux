@@ -6,10 +6,16 @@ import Testing
 /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/7161
 /// and https://github.com/manaflow-ai/cmux/issues/10199.
 ///
-/// cmux's managed default terminal theme ("Apple System Colors") applies only
+/// cmux's managed default terminal theme (Catppuccin Latte/Mocha) applies only
 /// when enabled and the user has no effective Ghostty settings. Any configured
 /// directive preserves Ghostty's own resolved base and user overrides.
 @Suite(.serialized) struct GhosttyConfigManagedDefaultAppearanceTests {
+    @Test("managed defaults match the Codex dark and light palettes")
+    func managedDefaultsMatchCodexThemePair() {
+        #expect(GhosttyConfig.cmuxDefaultLightThemeName == "Catppuccin Latte")
+        #expect(GhosttyConfig.cmuxDefaultDarkThemeName == "Catppuccin Mocha")
+    }
+
     private func withTempConfigDir(
         body: (_ dir: URL) throws -> Void
     ) throws {
@@ -171,7 +177,7 @@ import Testing
 
     // MARK: Managed base + user override precedence
 
-    /// Writes sentinel "Apple System Colors" theme files into a themes root the
+    /// Writes sentinel managed theme files into a themes root the
     /// managed-default resolution finds via `GHOSTTY_RESOURCES_DIR`, keeping the
     /// resolved managed colors deterministic on machines with Ghostty installed.
     private func makeManagedThemesRoot(in dir: URL) throws -> URL {
