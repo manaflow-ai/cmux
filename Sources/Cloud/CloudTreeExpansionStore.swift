@@ -9,12 +9,14 @@ import Foundation
 final class CloudTreeExpansionStore {
     private static let collapsedMachinesKey = "cloudTree.collapsedMachineIDs"
 
+    let organizationStore: CloudTreeOrganizationStore
     private let defaults: UserDefaults
     private var collapsedMachineIDs: Set<String>
     private var collapsedNodeIDs: Set<String> = []
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        organizationStore = CloudTreeOrganizationStore(defaults: defaults)
         collapsedMachineIDs = Set(defaults.stringArray(forKey: Self.collapsedMachinesKey) ?? [])
     }
 

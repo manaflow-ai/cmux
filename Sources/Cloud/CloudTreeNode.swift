@@ -62,6 +62,7 @@ final class CloudTreeNode: NSObject {
     }
 
     let id: String
+    private(set) var isPinned = false
     private(set) var kind: Kind
     private(set) var children: [CloudTreeNode]
     /// For workspace rows: everything the workspace holds, in the order it opens.
@@ -72,6 +73,19 @@ final class CloudTreeNode: NSObject {
         self.kind = kind
         self.children = children
         self.explicitDragGroup = dragGroup
+    }
+
+    var canOrganize: Bool {
+        switch kind {
+        case .pendingMachine, .placeholder: return false
+        default: return true
+        }
+    }
+
+    func organized(children: [CloudTreeNode], isPinned: Bool) -> CloudTreeNode {
+        let node = CloudTreeNode(id: id, kind: kind, children: children, dragGroup: explicitDragGroup)
+        node.isPinned = isPinned
+        return node
     }
 
     var isExpandable: Bool { !children.isEmpty }
@@ -104,6 +118,7 @@ final class CloudTreeNode: NSObject {
     /// structure signature matched first.
     func adopt(from other: CloudTreeNode) {
         kind = other.kind
+        isPinned = other.isPinned
         explicitDragGroup = other.explicitDragGroup
         for (child, replacement) in zip(children, other.children) {
             child.adopt(from: replacement)
