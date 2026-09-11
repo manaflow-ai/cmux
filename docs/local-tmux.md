@@ -112,9 +112,14 @@ tmux -V
 `server_version` comes from the running server; `tmux -V` describes the client
 binary currently on `PATH`. They can differ after a package upgrade. Record the
 server PID and start time as well as the cmux and macOS versions. On macOS,
-`ps`
-and `lsof` can help inspect the selected PID's start time and mapped
-executable.
+substitute the reported server PID in these read-only commands:
+
+```sh
+ps -p <server-pid> -o pid=,ppid=,lstart=,command=
+lsof -a -p <server-pid> -d txt
+```
+
+The `txt` entries show mapped executable and code files.
 If the mapped executable path has been replaced or removed, record that too; it
 is a possible confounding factor, not proof of the permission failure's cause.
 
@@ -125,14 +130,43 @@ does not list every server. For the cmux local-tmux profile,
 may use a different socket.
 Do not infer that a session died from a query against another socket.
 
-Use one harmless, existing file to compare a direct shell and the affected
-pane.
-Record the exact command, time, and exit status without including private file
-contents. If a separate server succeeds, also record its version and launch
-context: that result alone does not isolate server age, TCC state, or cmux as
-the
-cause. If a later retry succeeds without intervention, report the failure as
-currently non-reproducible rather than permanently fixed.
+Compare the original failing operation in the affected pane, a direct cmux
+shell outside tmux, and a direct shell in the other terminal app. Use the same
+absolute path and record which app hosts each shell. For a directory-listing
+failure, run this POSIX-shell snippet in each context, replacing the example
+path with the affected directory:
+
+```sh
+diagnostic_dir="$HOME/Documents/path/to/affected-directory"
+date -u '+%Y-%m-%dT%H:%M:%SZ'
+/bin/ls -a "$diagnostic_dir" > /dev/null
+diagnostic_status=$?
+printf 'directory listing exit=%s\n' "$diagnostic_status"
+```
+
+Standard output is discarded to avoid printing directory entries; standard
+error remains visible so the exact error can be recorded. If the original
+failure used a relative path such as `ls .`, also record the working directory
+and repeat that exact command: a fresh lookup by absolute path may behave
+differently from access through an existing working directory.
+
+For a file-read failure, choose one harmless, existing regular file and use
+this additional check in the same shell contexts:
+
+```sh
+diagnostic_file="$HOME/Documents/path/to/harmless-file"
+date -u '+%Y-%m-%dT%H:%M:%SZ'
+cat "$diagnostic_file" > /dev/null
+diagnostic_status=$?
+printf 'file read exit=%s\n' "$diagnostic_status"
+```
+
+A successful file read does not establish that listing its directory works.
+Record each command, time, exact error, and exit status without including
+private contents. If a separate server succeeds, also record its version and
+launch context: that result alone does not isolate server age, TCC state, or
+cmux as the cause. If a later retry succeeds without intervention, report the
+failure as currently non-reproducible rather than permanently fixed.
 
 When reporting the problem, include:
 
@@ -141,13 +175,11 @@ When reporting the problem, include:
   a marketing version alone may not distinguish a release from a development
   build.
 - The affected server's version/start time and how its socket was selected.
-- The failing operation and the results of the same-file comparison.
+- The failing operation and the results for the same path in each shell context.
 - Any available permission-denial record at the failure time, with private
-  paths
-  and unrelated process details removed.
+  paths and unrelated process details removed.
 
-`EPERM` is not specific to TCC, and a daemon's parent PID alone does not
-identify
+`EPERM` is not specific to TCC, and a daemon's parent PID alone does not identify
 its responsible application. `Operation not permitted` (EPERM) and
 `Permission denied` (EACCES) are different errors; record the exact wording or
 errno rather than treating them as interchangeable. See
