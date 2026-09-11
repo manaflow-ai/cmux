@@ -4269,7 +4269,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّر على سلسلة المفاتيح إكمال العملية (الحالة %d). لم يتم تأكيد التغيير الذي طلبته."
+            "value": "تعذّر على سلسلة المفاتيح إكمال العملية (الحالة ). لم يتم تأكيد التغيير الذي طلبته."
           }
         },
         "bs": {
@@ -4287,7 +4287,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Schlüsselbund konnte den Vorgang nicht abschließen (Status %d). Ihre angeforderte Änderung wurde nicht bestätigt."
+            "value": "Der Schlüsselbund konnte den Vorgang nicht abschließen (Status ). Ihre angeforderte Änderung wurde nicht bestätigt."
           }
         },
         "es": {
@@ -4311,7 +4311,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keychain មិនអាចបញ្ចប់ប្រតិបត្តិការបានទេ (ស្ថានភាព %d)។ ការផ្លាស់ប្ដូរដែលអ្នកបានស្នើមិនត្រូវបានបញ្ជាក់ទេ។"
+            "value": "Keychain មិនអាចបញ្ចប់ប្រតិបត្តិការបានទេ (ស្ថានភាព )។ ការផ្លាស់ប្ដូរដែលអ្នកបានស្នើមិនត្រូវបានបញ្ជាក់ទេ។"
           }
         },
         "ko": {
@@ -4371,7 +4371,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "鑰匙圈無法完成操作（狀態 %d）。無法確認您要求的變更是否已完成。"
+            "value": "鑰匙圈無法完成操作（狀態 ）。無法確認您要求的變更是否已完成。"
           }
         }
       }

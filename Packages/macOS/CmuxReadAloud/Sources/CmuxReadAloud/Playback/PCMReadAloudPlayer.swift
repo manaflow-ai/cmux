@@ -38,7 +38,10 @@ public final class PCMReadAloudPlayer {
             forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard self?.generation == generation else { return }
+                guard let self, self.generation == generation else { return }
+                self.node.stop()
+                self.engine.stop()
+                self.graphConnected = false
                 onFailure(.outputUnavailable)
             }
         }

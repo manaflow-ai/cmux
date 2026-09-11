@@ -39,7 +39,7 @@ public struct ReadAloudConfiguration: Codable, Equatable, Sendable {
             throw ReadAloudPreferencesError.invalidSpeed
         }
         self.model = model
-        self.voiceID = voiceID
+        self.voiceID = voiceID.trimmingCharacters(in: .whitespacesAndNewlines)
         self.speed = speed
     }
 
