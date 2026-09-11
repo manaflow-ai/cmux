@@ -1,3 +1,4 @@
+import { runWithCloudDbQueryTags } from "../../db/queryTags";
 import { createHash } from "node:crypto";
 import * as Effect from "effect/Effect";
 import type * as Layer from "effect/Layer";
@@ -42,6 +43,37 @@ type RouteDependencies = {
     operation: () => Promise<void>,
   ) => void;
 };
+
+/**
+ * Route template for one broker operation, used as the bounded SQLCommenter
+ * `route` tag so PlanetScale Insights can attribute load per operation. Two
+ * operations share the collection route because they differ only by verb.
+ */
+export function irohRouteTemplate(operation: IrohRouteOperation): string {
+  switch (operation) {
+    case "challenge": return "/api/devices/iroh/challenge";
+    case "register": return "/api/devices/iroh/register";
+    case "endpoint_attestation": return "/api/devices/iroh/endpoint-attestations";
+    case "pair_grant": return "/api/devices/iroh/pair-grants";
+    case "relay_token": return "/api/devices/iroh/relay-token";
+    case "discover":
+    case "revoke":
+      return "/api/devices/iroh";
+  }
+}
+
+export function handleTaggedIrohRoute(
+  request: Request,
+  operation: IrohRouteOperation,
+  dependencies: RouteDependencies = {},
+): Promise<Response> {
+  // The broker routes bypass withApiRouteSpan (they verify tokens locally to
+  // stay off Stack's budget), so they set their own Cloud DB query tags here.
+  return runWithCloudDbQueryTags(
+    { source: "app", route: irohRouteTemplate(operation) },
+    async () => await handleIrohRoute(request, operation, dependencies),
+  );
+}
 
 export async function handleIrohRoute(
   request: Request,

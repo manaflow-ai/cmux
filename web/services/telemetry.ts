@@ -1,3 +1,4 @@
+import { runWithCloudDbQueryTags } from "../db/queryTags";
 import {
   context as otelContext,
   SpanStatusCode,
@@ -114,7 +115,10 @@ export async function withApiRouteSpan<T extends Response>(
       ...(options.priority === undefined ? {} : { "cmux.priority": options.priority }),
     },
     async (span) => {
-      const response = await fn(span);
+      const source = route.startsWith("/api/cron/") || route.startsWith("/api/internal/")
+        ? "cron"
+        : "app";
+      const response = await runWithCloudDbQueryTags({ source, route }, () => fn(span));
       span.setAttribute("http.response.status_code", response.status);
       span.setAttribute("cmux.http.response_error", response.status >= 400);
       if (response.status >= 500) {
