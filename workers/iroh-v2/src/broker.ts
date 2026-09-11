@@ -3,6 +3,7 @@ import { encodeResponse, inputOperation, parseControlRequest } from "./boundary"
 import type { DeviceDescriptor, DeviceRecord, Identity } from "./contracts/common";
 import type { ControlRequest, SocketSetup } from "./contracts/requests";
 import type { ControlResponse } from "./contracts/responses";
+import type { DashboardClaims } from "./dashboard-auth";
 import { API_TICKET_SECONDS, CHALLENGE_SECONDS, canonicalJSON, challengeSigningInput, encodeBase64URL, hash, requestSigningInput, verifyDeviceSignature } from "./crypto";
 import { OperationError } from "./errors";
 import type { EndpointOwnership } from "./ownership/planetscale";
@@ -128,6 +129,63 @@ export class TeamBroker {
     const revision = session.expiresAt > now ? this.observeAuthority(session.authority) : null;
     const result = await this.executeRequest(session, request, now);
     return revision === null ? result : { ...result, changed: { revision, ...result.changed } };
+  }
+
+  /** Browser control uses the same team store and user operation limits, without enrollment. */
+  async executeDashboard(session: DashboardClaims, input: unknown): Promise<BrokerResult> {
+    await this.dependencies.charge(session.authority.userId, inputOperation(input));
+    const request = parseControlRequest(input);
+    const now = this.dependencies.now();
+    const authority = session.authority;
+    if (session.expiresAt <= now) throw new OperationError("ticket_expired", 401, true);
+    switch (request.schemaId) {
+      case "directory.request.v1": {
+        const revision = this.dependencies.store.readRevision();
+        if (request.cursor && request.haveRevision !== revision) throw new OperationError("resync_required", 409, true);
+        const records = this.dependencies.store.listDashboardDevices(authority.userId, session.canManageTeam, request.cursor);
+        const devices: DeviceRecord[] = [], managedDeviceIds: string[] = [];
+        const directory = { teamId: authority.teamId, revision, devices, managedDeviceIds,
+          canManageTeam: session.canManageTeam, relayURLs: this.relayURLs(), issuedAt: now, nextCursor: null as string | null };
+        const response = { schemaId: "dashboard.directory.v1" as const, requestId: request.requestId, directory };
+        let bytes = new TextEncoder().encode(JSON.stringify(response)).byteLength;
+        let lastRecordId: string | null = null;
+        for (const record of records) {
+          const size = new TextEncoder().encode(JSON.stringify(record.device)).byteLength + (record.canManage ? record.device.deviceRecordId.length + 3 : 0) + 1;
+          if (bytes + size > 60 * 1024) {
+            if (lastRecordId === null) throw new OperationError("payload_too_large", 413);
+            directory.nextCursor = lastRecordId; break;
+          }
+          devices.push(record.device);
+          if (record.canManage) managedDeviceIds.push(record.device.deviceRecordId);
+          lastRecordId = record.device.deviceRecordId; bytes += size;
+        }
+        if (records.length === 1024 && lastRecordId === records.at(-1)!.device.deviceRecordId) directory.nextCursor = lastRecordId;
+        encodeResponse(response);
+        return { response };
+      }
+      case "device.revoke.v1": {
+        let target = this.dependencies.store.getDeviceByRecordId(request.deviceRecordId);
+        if (!target) throw new OperationError("permission_denied", 403);
+        const locallyAllowed = () => target!.descriptor.identity.userId === authority.userId
+          || this.dependencies.store.getPermission(authority.userId, request.deviceRecordId)?.manage === true;
+        if (!locallyAllowed() && !await this.dependencies.canManageTeam(authority)) throw new OperationError("permission_denied", 403);
+        if (session.expiresAt <= this.dependencies.now()) throw new OperationError("ticket_expired", 401, true);
+        target = this.dependencies.store.getDeviceByRecordId(request.deviceRecordId);
+        if (!target) throw new OperationError("permission_denied", 403);
+        if (target.revoked) return this.completed(request.requestId, target.revision);
+        const revision = this.dependencies.store.revokeDevice(target.deviceRecordId, this.dependencies.now(), authority.userId);
+        return { ...this.completed(request.requestId, revision), changed: { revision, revokedDeviceRecordId: target.deviceRecordId } };
+      }
+      case "preferences.update.v1": {
+        if (!await this.dependencies.canManageTeam(authority)) throw new OperationError("permission_denied", 403);
+        if (session.expiresAt <= this.dependencies.now()) throw new OperationError("ticket_expired", 401, true);
+        if (request.relayURLs.some(url => !this.dependencies.relays.configuration.relayURLs.includes(url))) throw new OperationError("invalid_request", 400);
+        const revision = this.dependencies.store.updateRelayPreferences(request.relayURLs, request.expectedRevision, authority.userId, this.dependencies.now());
+        return { ...this.completed(request.requestId, revision), changed: { revision } };
+      }
+      case "session.goodbye.v1": return { ...this.completed(request.requestId, this.dependencies.store.readRevision()), close: true };
+      default: throw new OperationError("unsupported_method", 400);
+    }
   }
 
   private async executeRequest(session: BrokerSession, request: ControlRequest, now: number): Promise<BrokerResult> {

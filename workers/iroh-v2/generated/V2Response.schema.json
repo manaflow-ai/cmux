@@ -31,6 +31,15 @@
     },
     {
       "$ref": "https://contracts.cmux.invalid/iroh-v2/V2CompletedResponse.json"
+    },
+    {
+      "$ref": "https://contracts.cmux.invalid/iroh-v2/V2DashboardReadyResponse.json"
+    },
+    {
+      "$ref": "https://contracts.cmux.invalid/iroh-v2/V2DashboardConnectedResponse.json"
+    },
+    {
+      "$ref": "https://contracts.cmux.invalid/iroh-v2/V2DashboardDirectoryResponse.json"
     }
   ]
 }

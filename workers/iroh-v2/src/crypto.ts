@@ -53,7 +53,7 @@ export async function identityKey(device: DeviceDescriptor): Promise<string> {
   return hash(canonicalJSON(DeviceDescriptorSchema.parse(device).identity));
 }
 
-async function hmacKey(secret: string, usage: "sign" | "verify"): Promise<CryptoKey> {
+export async function hmacKey(secret: string, usage: "sign" | "verify"): Promise<CryptoKey> {
   const bytes = decodeBase64URL(secret);
   if (bytes.length < 32) throw new Error("API signing key must contain at least 32 random bytes");
   return crypto.subtle.importKey("raw", bytes, { name: "HMAC", hash: "SHA-256" }, false, [usage]);

@@ -42,7 +42,7 @@ export class StackAuthority {
   }
 
   /** Called for issuance, never for an ordinary ticket-authorized operation. */
-  async verify(accessToken: string, identity: Identity, now: number): Promise<VerifiedAuthority> {
+  async verify(accessToken: string, identity: Pick<Identity, "environment" | "projectId" | "teamId" | "userId">, now: number): Promise<VerifiedAuthority> {
     if (!accessToken || accessToken.length > 8192 || /[\r\n]/.test(accessToken)) throw new OperationError("unauthorized", 401);
     if (identity.environment !== this.configuration.environment || identity.projectId !== this.configuration.projectId) {
       throw new OperationError("environment_mismatch", 403);

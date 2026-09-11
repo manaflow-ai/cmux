@@ -10,7 +10,10 @@
   "preview_urls": false,
   "vars": {
     "ENVIRONMENT": "local",
-    "STACK_API_URL": "https://api.stack-auth.com"
+    "STACK_API_URL": "https://api.stack-auth.com",
+    "AXIOM_DATASET": "iroh-v2",
+    "AXIOM_INGEST_URL": "https://api.axiom.co/v1/datasets/iroh-v2/ingest",
+    "SENTRY_ENVIRONMENT": "local"
   },
   "durable_objects": {
     "bindings": [
@@ -34,7 +37,9 @@
       "RELAY_SIGNING_KEY",
       "RELAY_KEY_ID",
       "RELAY_URLS",
-      "PLANETSCALE_DATABASE_URL"
+      "PLANETSCALE_DATABASE_URL",
+      "AXIOM_TOKEN",
+      "SENTRY_DSN"
     ]
   },
   "migrations": [
@@ -60,7 +65,10 @@
       "name": "cmux-iroh-v2-development",
       "vars": {
         "ENVIRONMENT": "development",
-        "STACK_API_URL": "https://api.stack-auth.com"
+        "STACK_API_URL": "https://api.stack-auth.com",
+        "AXIOM_DATASET": "iroh-v2",
+        "AXIOM_INGEST_URL": "https://api.axiom.co/v1/datasets/iroh-v2/ingest",
+        "SENTRY_ENVIRONMENT": "development"
       },
       "durable_objects": {
         "bindings": [
@@ -84,7 +92,9 @@
           "RELAY_SIGNING_KEY",
           "RELAY_KEY_ID",
           "RELAY_URLS",
-          "PLANETSCALE_DATABASE_URL"
+          "PLANETSCALE_DATABASE_URL",
+          "AXIOM_TOKEN",
+          "SENTRY_DSN"
         ]
       }
     },
@@ -92,7 +102,10 @@
       "name": "cmux-iroh-v2-staging",
       "vars": {
         "ENVIRONMENT": "staging",
-        "STACK_API_URL": "https://api.stack-auth.com"
+        "STACK_API_URL": "https://api.stack-auth.com",
+        "AXIOM_DATASET": "iroh-v2",
+        "AXIOM_INGEST_URL": "https://api.axiom.co/v1/datasets/iroh-v2/ingest",
+        "SENTRY_ENVIRONMENT": "staging"
       },
       "durable_objects": {
         "bindings": [
@@ -116,7 +129,9 @@
           "RELAY_SIGNING_KEY",
           "RELAY_KEY_ID",
           "RELAY_URLS",
-          "PLANETSCALE_DATABASE_URL"
+          "PLANETSCALE_DATABASE_URL",
+          "AXIOM_TOKEN",
+          "SENTRY_DSN"
         ]
       }
     },
@@ -124,7 +139,10 @@
       "name": "cmux-iroh-v2",
       "vars": {
         "ENVIRONMENT": "production",
-        "STACK_API_URL": "https://api.stack-auth.com"
+        "STACK_API_URL": "https://api.stack-auth.com",
+        "AXIOM_DATASET": "iroh-v2",
+        "AXIOM_INGEST_URL": "https://api.axiom.co/v1/datasets/iroh-v2/ingest",
+        "SENTRY_ENVIRONMENT": "production"
       },
       "durable_objects": {
         "bindings": [
@@ -148,7 +166,9 @@
           "RELAY_SIGNING_KEY",
           "RELAY_KEY_ID",
           "RELAY_URLS",
-          "PLANETSCALE_DATABASE_URL"
+          "PLANETSCALE_DATABASE_URL",
+          "AXIOM_TOKEN",
+          "SENTRY_DSN"
         ]
       }
     }

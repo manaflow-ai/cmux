@@ -4,7 +4,11 @@ import { identifier, relayURL } from "./contracts/common";
 import { OperationError } from "./errors";
 import { PlanetScaleOwnership } from "./ownership/planetscale";
 import { RELAY_TOKEN_AUDIENCE, RELAY_TOKEN_ISSUER, RelayIssuer } from "./relay";
-export type Environment = Cloudflare.Env;
+export type Environment = Cloudflare.Env & {
+  DASHBOARD_ALLOWED_ORIGINS?: string;
+  AXIOM_TOKEN?: string; AXIOM_DATASET?: string; AXIOM_INGEST_URL?: string;
+  SENTRY_DSN?: string; SENTRY_ENVIRONMENT?: string;
+};
 
 export function environmentScope(env: Environment) {
   return { environment: identifier.parse(env.ENVIRONMENT), projectId: identifier.parse(env.STACK_PROJECT_ID) };
@@ -25,8 +29,13 @@ function createRuntime(env: Environment) {
     const currentKey = keys[currentKeyId];
     if (!currentKey) throw new Error("Missing current key");
     const relayURLs = z.array(relayURL).min(1).max(16).parse(JSON.parse(env.RELAY_URLS));
+    const allowedOrigins = z.array(z.url().max(2048).refine(value => {
+      const url = new URL(value);
+      return url.origin === value && (url.protocol === "https:" || (scope.environment !== "production"
+        && url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname)));
+    })).max(32).parse(JSON.parse(env.DASHBOARD_ALLOWED_ORIGINS ?? '["https://cmux.com","https://www.cmux.com"]'));
     return {
-      ...scope, keys, currentKeyId, currentKey,
+      ...scope, keys, currentKeyId, currentKey, allowedOrigins,
       stack: new StackAuthority({ ...scope, apiURL: env.STACK_API_URL, publishableKey: env.STACK_PUBLISHABLE_KEY, serverKey: env.STACK_SERVER_KEY }),
       ownership: new PlanetScaleOwnership(env.PLANETSCALE_DATABASE_URL, scope.environment, scope.projectId),
       relays: new RelayIssuer({

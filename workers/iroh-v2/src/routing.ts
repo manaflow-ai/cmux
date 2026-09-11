@@ -23,6 +23,7 @@ export interface RoutingDependencies {
   now: () => number;
   chargeOpen: (userId: string) => Promise<void>;
   dispatchTeam: (teamId: string, request: Request) => Promise<Response>;
+  observe?: (event: { event: string; [key: string]: unknown }) => void;
 }
 
 const aliases: Readonly<Record<string, string>> = {
@@ -74,7 +75,7 @@ export async function routeControl(request: Request, dependencies: RoutingDepend
     return await dependencies.dispatchTeam(setup.device.identity.teamId, forwarded);
   } catch (error) {
     const failure = errorResponse(error, requestId).failure;
-    console.log(JSON.stringify({ event: "iroh.control.failure", requestId, code: failure.code, status: failure.status, retryable: failure.retryable }));
+    dependencies.observe?.({ event: "iroh.control.failure", requestId, code: failure.code, status: failure.status, retryable: failure.retryable });
     return httpFailure(error, requestId);
   }
 }

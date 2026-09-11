@@ -13,6 +13,8 @@ import { applyStorageMigrations } from "./storage/migrations";
 import { TeamStore } from "./storage/team-store";
 import type { UsageOperation } from "./storage/user-usage";
 import { unwrap } from "./user-usage-object";
+import { observe } from "./observability";
+import { DashboardControl } from "./dashboard-control";
 
 const SessionSchema = z.strictObject({
   sessionId: identifier, identity: IdentitySchema, endpointId: endpointID, identityGeneration: revision,
@@ -31,14 +33,22 @@ export class TeamControl extends DurableObject<Environment> {
   private opening = new Set<string>();
   private queues = new Map<WebSocket, { tail: Promise<void>; count: number }>();
   private queuedBytes = 0;
+  private dashboard: DashboardControl;
 
   constructor(ctx: DurableObjectState, env: Environment) {
     super(ctx, env);
+    this.dashboard = new DashboardControl(ctx, env, {
+      broker: teamId => this.broker(teamId), user: userId => this.user(userId),
+      reserve: (session, key) => this.reserveSocket(session, key),
+      enqueue: (ws, bytes, action) => this.enqueue(ws, bytes, action),
+      changed: (result, teamId) => this.scheduleChanges(result, teamId), opening: this.opening,
+    });
     ctx.blockConcurrencyWhile(async () => { applyStorageMigrations(ctx.storage); });
     // Native WebSocket ping/pong is handled by Cloudflare without waking us.
   }
 
   async fetch(request: Request): Promise<Response> {
+    if (new URL(request.url).pathname === "/dashboard/socket") return this.dashboard.fetch(request);
     let requestId = "unidentified";
     try {
       const incoming = await readInternalRequest(request);
@@ -48,11 +58,13 @@ export class TeamControl extends DurableObject<Environment> {
         const session = await broker.authorizeHTTP(incoming.setup, incoming.input, incoming.authority, incoming.expiresAt);
         const result = await broker.execute(session, incoming.input);
         this.scheduleChanges(result, session.identity.teamId);
+        observe(this.ctx, this.env, { event: "iroh.team.operation", environment: this.env.ENVIRONMENT, operation: result.response.schemaId, requestId, status: 200 });
         return this.json(result.response);
       }
       const result = await broker.open(incoming.setup, incoming.authority, incoming.expiresAt, incoming.issueTicket);
       if (!result.session) throw new OperationError("internal_error", 500);
       this.scheduleChanges(result, incoming.authority.teamId);
+      observe(this.ctx, this.env, { event: "iroh.team.operation", environment: this.env.ENVIRONMENT, operation: result.response.schemaId, requestId, status: 200 });
       if (incoming.path === "/session") return this.json(result.response);
       if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") throw new OperationError("invalid_request", 400);
       if (this.ctx.getWebSockets().length >= TEAM_SOCKET_LIMIT) throw new OperationError("rate_limited", 429, true, 5000);
@@ -73,12 +85,13 @@ export class TeamControl extends DurableObject<Environment> {
       } finally { this.opening.delete(session.sessionId); }
     } catch (error) {
       const failure = publicError(error);
-      console.log(JSON.stringify({ event: "iroh.team.failure", requestId, code: failure.code, status: failure.status, retryable: failure.retryable }));
+      observe(this.ctx, this.env, { event: "iroh.team.failure", environment: this.env.ENVIRONMENT, requestId, code: failure.code, status: failure.status, retryable: failure.retryable });
       return httpFailure(error, requestId);
     }
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    if (this.dashboard.owns(ws)) return this.dashboard.message(ws, message);
     const size = typeof message === "string" ? new TextEncoder().encode(message).byteLength : message.byteLength;
     try {
       await this.enqueue(ws, size, async () => {
@@ -115,14 +128,20 @@ export class TeamControl extends DurableObject<Environment> {
           try { await this.send(ws, failure.body); } catch { this.close(ws, "slow_consumer"); }
           if (["device_revoked", "team_access_revoked", "identity_mismatch", "key_replacement_required"].includes(code)) this.close(ws, code);
         } finally {
-          console.log(JSON.stringify({ event: "iroh.socket.operation", environment: this.env.ENVIRONMENT, operation: inputOperation(input), status, code, durationMs: Date.now() - started }));
+          observe(this.ctx, this.env, { event: "iroh.socket.operation", environment: this.env.ENVIRONMENT, operation: inputOperation(input), status, code, durationMs: Date.now() - started });
         }
       });
     } catch { this.close(ws, size > 16 * 1024 ? "payload_too_large" : "input_capacity"); }
   }
 
-  async webSocketClose(ws: WebSocket): Promise<void> { await this.releaseClosed(ws); }
-  async webSocketError(ws: WebSocket): Promise<void> { this.close(ws, "transport_error"); await this.releaseClosed(ws); }
+  async webSocketClose(ws: WebSocket): Promise<void> {
+    if (this.dashboard.owns(ws)) return this.dashboard.released(ws);
+    await this.releaseClosed(ws);
+  }
+  async webSocketError(ws: WebSocket): Promise<void> {
+    if (this.dashboard.owns(ws)) { this.dashboard.close(ws, "transport_error"); return this.dashboard.released(ws); }
+    this.close(ws, "transport_error"); await this.releaseClosed(ws);
+  }
 
   /** Used only under quota pressure to recover reservations left by a terminated invocation. */
   liveSessionIds(teamId: string, userId: string, sessionIds: string[]): string[] {
@@ -131,6 +150,11 @@ export class TeamControl extends DurableObject<Environment> {
     const candidates = new Set(sessionIds);
     const live = new Set([...this.opening].filter(id => candidates.has(id)));
     for (const ws of this.ctx.getWebSockets("user:" + identifier.parse(userId))) {
+      if (this.dashboard.owns(ws)) {
+        const id = this.dashboard.isLive(ws, candidates);
+        if (id) live.add(id);
+        continue;
+      }
       const attachment = this.load(ws);
       if (ws.readyState !== WebSocket.CLOSED && candidates.has(attachment.session.sessionId)) live.add(attachment.session.sessionId);
     }
@@ -162,7 +186,7 @@ export class TeamControl extends DurableObject<Environment> {
     return this.env.USER_USAGE.getByName(objectName(this.env.ENVIRONMENT, this.env.STACK_PROJECT_ID, userId));
   }
 
-  private async reserveSocket(session: BrokerSession, deviceKey: string) {
+  private async reserveSocket(session: { sessionId: string; identity: { teamId: string; userId: string } }, deviceKey: string) {
     const user = this.user(session.identity.userId);
     const input = { userId: session.identity.userId, teamId: session.identity.teamId, sessionId: session.sessionId, deviceKey };
     const reservation = await user.reserveSocket(input);
@@ -207,13 +231,15 @@ export class TeamControl extends DurableObject<Environment> {
   }
 
   private scheduleChanges(result: BrokerResult, teamId: string) {
-    if (result.changed) this.ctx.waitUntil(this.broadcast(teamId, result.changed).catch(() => {
-      console.log(JSON.stringify({ event: "iroh.directory.delivery_failed", environment: this.env.ENVIRONMENT }));
+    if (result.changed) this.ctx.waitUntil(Promise.all([
+      this.broadcast(teamId, result.changed), this.dashboard.broadcast(teamId, result.changed.revision),
+    ]).catch(() => {
+      observe(this.ctx, this.env, { event: "iroh.directory.delivery_failed", environment: this.env.ENVIRONMENT });
     }));
   }
 
   private async broadcast(teamId: string, change: NonNullable<BrokerResult["changed"]>) {
-    const sockets = this.ctx.getWebSockets();
+    const sockets = this.ctx.getWebSockets().filter(ws => !this.dashboard.owns(ws));
     for (let start = 0; start < sockets.length; start += 16) {
       await Promise.allSettled(sockets.slice(start, start + 16).map(ws => this.enqueue(ws, 0, async () => {
         const attachment = this.load(ws);
@@ -273,7 +299,7 @@ export class TeamControl extends DurableObject<Environment> {
       this.save(ws, { ...attachment, closed: true });
       unwrap(await this.user(attachment.session.identity.userId).releaseSocket(attachment.session.identity.userId, attachment.session.sessionId));
     } catch (error) {
-      console.log(JSON.stringify({ event: "iroh.socket.release_failed", environment: this.env.ENVIRONMENT, code: publicError(error).code }));
+      observe(this.ctx, this.env, { event: "iroh.socket.release_failed", environment: this.env.ENVIRONMENT, code: publicError(error).code });
     }
   }
   private json(response: ControlResponse) {

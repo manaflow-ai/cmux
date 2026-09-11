@@ -1,3 +1,15 @@
+export interface V2DashboardOpen {
+    clientInstanceId: string;
+    environment:      string;
+    projectId:        string;
+    requestId:        string;
+    schemaId:         V2DashboardOpenSchemaID;
+    teamId:           string;
+    userId:           string;
+}
+
+export type V2DashboardOpenSchemaID = "dashboard.open.v1";
+
 export interface V2AcknowledgementRequest {
     requestId: string;
     schemaId:  V2AcknowledgementRequestSchemaID;
@@ -181,6 +193,59 @@ export interface V2CompletedResponse {
 
 export type V2CompletedResponseSchemaID = "operation.completed.v1";
 
+export interface V2DashboardConnectedResponse {
+    deliveryReceipt?: V2DeliveryReceipt;
+    expiresAt:        number;
+    requestId:        string;
+    schemaId:         V2DashboardConnectedResponseSchemaID;
+    sessionId:        string;
+    teamRevision:     number;
+}
+
+export type V2DashboardConnectedResponseSchemaID = "dashboard.connected.v1";
+
+export interface V2DashboardDirectoryResponse {
+    deliveryReceipt?: V2DeliveryReceipt;
+    directory:        V2DashboardDirectory;
+    requestId:        string;
+    schemaId:         V2DashboardDirectoryResponseSchemaID;
+}
+
+export interface V2DashboardDirectory {
+    canManageTeam:    boolean;
+    devices:          V2DeviceRecord[];
+    issuedAt:         number;
+    managedDeviceIds: string[];
+    nextCursor:       null | string;
+    relayURLs:        string[];
+    revision:         number;
+    teamId:           string;
+}
+
+export interface V2DeviceRecord {
+    descriptor:     V2DeviceDescriptor;
+    deviceRecordId: string;
+    revision:       number;
+    revoked:        boolean;
+}
+
+export type V2DashboardDirectoryResponseSchemaID = "dashboard.directory.v1";
+
+export interface V2DashboardReadyResponse {
+    deliveryReceipt?: V2DeliveryReceipt;
+    requestId:        string;
+    schemaId:         V2DashboardReadyResponseSchemaID;
+    ticket:           V2Ticket;
+}
+
+export type V2DashboardReadyResponseSchemaID = "dashboard.ready.v1";
+
+export interface V2Ticket {
+    expiresAt:    number;
+    refreshAfter: number;
+    token:        string;
+}
+
 export interface V2DirectoryResponse {
     deliveryReceipt?: V2DeliveryReceipt;
     directory:        V2Directory;
@@ -197,13 +262,6 @@ export interface V2Directory {
     relayURLs:           string[];
     revision:            number;
     teamId:              string;
-}
-
-export interface V2DeviceRecord {
-    descriptor:     V2DeviceDescriptor;
-    deviceRecordId: string;
-    revision:       number;
-    revoked:        boolean;
 }
 
 export interface V2InboundPeerPermission {
@@ -238,12 +296,6 @@ export interface V2ReadyResponse {
 }
 
 export type V2ReadyResponseSchemaID = "session.ready.v1";
-
-export interface V2Ticket {
-    expiresAt:    number;
-    refreshAfter: number;
-    token:        string;
-}
 
 export interface V2RegisteredResponse {
     deliveryReceipt?: V2DeliveryReceipt;
@@ -290,4 +342,4 @@ export interface V2TicketResponse {
 export type V2TicketResponseSchemaID = "ticket.result.v1";
 
 export type V2Request = V2AcknowledgementRequest | V2ChallengeRequest | V2DirectoryRequest | V2GoodbyeRequest | V2MetadataRequest | V2PermissionRequest | V2PreferencesRequest | V2RegisterRequest | V2RelayRequest | V2RevokeRequest | V2TicketRequest;
-export type V2Response = V2ChallengeResponse | V2ChangedResponse | V2CompletedResponse | V2DirectoryResponse | V2ErrorResponse | V2ReadyResponse | V2RegisteredResponse | V2RelayResponse | V2RevokedResponse | V2TicketResponse;
+export type V2Response = V2ChallengeResponse | V2ChangedResponse | V2CompletedResponse | V2DashboardConnectedResponse | V2DashboardDirectoryResponse | V2DashboardReadyResponse | V2DirectoryResponse | V2ErrorResponse | V2ReadyResponse | V2RegisteredResponse | V2RelayResponse | V2RevokedResponse | V2TicketResponse;

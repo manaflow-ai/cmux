@@ -174,6 +174,18 @@ export class TeamStore {
   }
 
   /** One ordered page for outbound discovery and permissions to enter this Mac. */
+  listDashboardDevices(userId: string, canManageTeam: boolean, afterRecordId?: string, limit = 1024): { device: DeviceRecord; canManage: boolean }[] {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1024) throw new OperationError("invalid_request", 400);
+    const rows = this.#db.all<DeviceRow & { can_manage: number }>(sql`
+      SELECT d.*, CASE WHEN (${canManageTeam ? 1 : 0} = 1 OR d."user_id" = ${userId} OR p."manage" = 1) THEN 1 ELSE 0 END AS "can_manage"
+      FROM "devices" d LEFT JOIN "permissions" p ON p."device_record_id" = d."device_record_id" AND p."subject_user_id" = ${userId}
+      WHERE (${canManageTeam ? 1 : 0} = 1 OR d."user_id" = ${userId} OR p."connect" = 1 OR p."manage" = 1)
+        AND d."device_record_id" > ${afterRecordId ?? ""}
+      ORDER BY d."device_record_id" LIMIT ${limit}`);
+    return rows.map(row => ({ device: rowToDevice(row), canManage: row.can_manage === 1 }));
+  }
+
+  /** One ordered page for outbound discovery and permissions to enter this Mac. */
   listDirectoryDevices(requester: DeviceRecord, now: number, afterRecordId?: string, limit = 1024): {
     device: DeviceRecord; visible: boolean; inboundPermissionExpiresAt: number | null;
   }[] {

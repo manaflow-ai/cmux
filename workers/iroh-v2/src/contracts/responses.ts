@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ChallengeSchema, DeliveryReceiptSchema, DeviceRecordSchema, DirectorySchema, RelayCredentialSchema, TicketSchema, identifier, revision } from "./common";
+import { ChallengeSchema, DashboardDirectorySchema, DeliveryReceiptSchema, DeviceRecordSchema, DirectorySchema, RelayCredentialSchema, TicketSchema, identifier, revision, timestamp } from "./common";
 
 // Keep the receipt LAST in encoded output. Seeing its random token proves that
 // preceding bytes left the transport queue, even if the receiver is malicious.
@@ -63,10 +63,22 @@ export const CompletedResponseSchema = outgoing({
   schemaId: z.literal("operation.completed.v1"), requestId: identifier, revision,
 });
 
+export const DashboardReadyResponseSchema = outgoing({
+  schemaId: z.literal("dashboard.ready.v1"), requestId: identifier, ticket: TicketSchema,
+});
+export const DashboardConnectedResponseSchema = outgoing({
+  schemaId: z.literal("dashboard.connected.v1"), requestId: identifier, sessionId: identifier,
+  teamRevision: revision, expiresAt: timestamp,
+});
+export const DashboardDirectoryResponseSchema = outgoing({
+  schemaId: z.literal("dashboard.directory.v1"), requestId: identifier, directory: DashboardDirectorySchema,
+});
+
 export const ResponseSchema = z.discriminatedUnion("schemaId", [
   ErrorResponseSchema, ReadyResponseSchema, RegisteredResponseSchema,
   ChallengeResponseSchema, TicketResponseSchema, RelayResponseSchema, DirectoryResponseSchema,
   ChangedResponseSchema, RevokedResponseSchema, CompletedResponseSchema,
+  DashboardReadyResponseSchema, DashboardConnectedResponseSchema, DashboardDirectoryResponseSchema,
 ]);
 export type ControlResponse = z.infer<typeof ResponseSchema>;
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;

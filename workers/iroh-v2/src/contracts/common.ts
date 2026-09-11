@@ -102,6 +102,28 @@ export const DirectorySchema = z.strictObject({
   nextCursor: identifier.nullable(),
 });
 
+/** Browser sessions have no IROH endpoint and never create a device record. */
+export const DashboardOpenSchema = z.strictObject({
+  schemaId: z.literal("dashboard.open.v1"),
+  requestId: identifier,
+  environment: identifier,
+  projectId: identifier,
+  teamId: identifier,
+  userId: identifier,
+  clientInstanceId: identifier,
+});
+
+export const DashboardDirectorySchema = z.strictObject({
+  teamId: identifier,
+  revision,
+  devices: z.array(DeviceRecordSchema).max(1024),
+  relayURLs: z.array(relayURL).max(16),
+  issuedAt: timestamp,
+  nextCursor: identifier.nullable(),
+  canManageTeam: z.boolean(),
+  managedDeviceIds: z.array(identifier).max(1024),
+});
+
 export type Identity = z.infer<typeof IdentitySchema>;
 export type DeviceDescriptor = z.infer<typeof DeviceDescriptorSchema>;
 export type DeviceMetadata = z.infer<typeof DeviceMetadataSchema>;

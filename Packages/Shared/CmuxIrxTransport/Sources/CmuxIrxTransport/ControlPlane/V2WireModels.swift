@@ -2,6 +2,8 @@
 // To parse the JSON, add this file to your project and do:
 //
 //   let v2Challenge = try? JSONDecoder().decode(V2Challenge.self, from: jsonData)
+//   let v2DashboardDirectory = try? JSONDecoder().decode(V2DashboardDirectory.self, from: jsonData)
+//   let v2DashboardOpen = try? JSONDecoder().decode(V2DashboardOpen.self, from: jsonData)
 //   let v2DeliveryReceipt = try? JSONDecoder().decode(V2DeliveryReceipt.self, from: jsonData)
 //   let v2DeviceDescriptor = try? JSONDecoder().decode(V2DeviceDescriptor.self, from: jsonData)
 //   let v2DeviceMetadata = try? JSONDecoder().decode(V2DeviceMetadata.self, from: jsonData)
@@ -28,6 +30,9 @@
 //   let v2ChallengeResponse = try? JSONDecoder().decode(V2ChallengeResponse.self, from: jsonData)
 //   let v2ChangedResponse = try? JSONDecoder().decode(V2ChangedResponse.self, from: jsonData)
 //   let v2CompletedResponse = try? JSONDecoder().decode(V2CompletedResponse.self, from: jsonData)
+//   let v2DashboardConnectedResponse = try? JSONDecoder().decode(V2DashboardConnectedResponse.self, from: jsonData)
+//   let v2DashboardDirectoryResponse = try? JSONDecoder().decode(V2DashboardDirectoryResponse.self, from: jsonData)
+//   let v2DashboardReadyResponse = try? JSONDecoder().decode(V2DashboardReadyResponse.self, from: jsonData)
 //   let v2DirectoryResponse = try? JSONDecoder().decode(V2DirectoryResponse.self, from: jsonData)
 //   let v2ErrorCode = try? JSONDecoder().decode(V2ErrorCode.self, from: jsonData)
 //   let v2ErrorResponse = try? JSONDecoder().decode(V2ErrorResponse.self, from: jsonData)
@@ -45,6 +50,47 @@
 // synthesized for types that have collections (such as arrays or dictionaries).
 
 import Foundation
+
+// MARK: - V2DashboardOpen
+public struct V2DashboardOpen: Codable, Equatable, Sendable {
+    public let clientInstanceID: String
+    public let environment: String
+    public let projectID: String
+    public let requestID: String
+    public let schemaID: V2DashboardOpenSchemaID
+    public let teamID: String
+    public let userID: String
+
+    public enum CodingKeys: String, CodingKey {
+        case clientInstanceID = "clientInstanceId"
+        case environment = "environment"
+        case projectID = "projectId"
+        case requestID = "requestId"
+        case schemaID = "schemaId"
+        case teamID = "teamId"
+        case userID = "userId"
+    }
+
+    public init(clientInstanceID: String, environment: String, projectID: String, requestID: String, schemaID: V2DashboardOpenSchemaID, teamID: String, userID: String) {
+        self.clientInstanceID = clientInstanceID
+        self.environment = environment
+        self.projectID = projectID
+        self.requestID = requestID
+        self.schemaID = schemaID
+        self.teamID = teamID
+        self.userID = userID
+    }
+}
+
+public enum V2DashboardOpenSchemaID: String, Codable, Equatable, Sendable {
+    case dashboardOpenV1 = "dashboard.open.v1"
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
 
 // MARK: - V2AcknowledgementRequest
 public struct V2AcknowledgementRequest: Codable, Equatable, Sendable {
@@ -718,6 +764,201 @@ public enum V2CompletedResponseSchemaID: String, Codable, Equatable, Sendable {
 // for types that require the use of JSONAny, nor will the implementation of Hashable be
 // synthesized for types that have collections (such as arrays or dictionaries).
 
+// MARK: - V2DashboardConnectedResponse
+public struct V2DashboardConnectedResponse: Codable, Equatable, Sendable {
+    public let deliveryReceipt: V2DeliveryReceipt?
+    public let expiresAt: Int
+    public let requestID: String
+    public let schemaID: V2DashboardConnectedResponseSchemaID
+    public let sessionID: String
+    public let teamRevision: Int
+
+    public enum CodingKeys: String, CodingKey {
+        case deliveryReceipt = "deliveryReceipt"
+        case expiresAt = "expiresAt"
+        case requestID = "requestId"
+        case schemaID = "schemaId"
+        case sessionID = "sessionId"
+        case teamRevision = "teamRevision"
+    }
+
+    public init(deliveryReceipt: V2DeliveryReceipt? = nil, expiresAt: Int, requestID: String, schemaID: V2DashboardConnectedResponseSchemaID, sessionID: String, teamRevision: Int) {
+        self.deliveryReceipt = deliveryReceipt
+        self.expiresAt = expiresAt
+        self.requestID = requestID
+        self.schemaID = schemaID
+        self.sessionID = sessionID
+        self.teamRevision = teamRevision
+    }
+}
+
+public enum V2DashboardConnectedResponseSchemaID: String, Codable, Equatable, Sendable {
+    case dashboardConnectedV1 = "dashboard.connected.v1"
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - V2DashboardDirectoryResponse
+public struct V2DashboardDirectoryResponse: Codable, Equatable, Sendable {
+    public let deliveryReceipt: V2DeliveryReceipt?
+    public let directory: V2DashboardDirectory
+    public let requestID: String
+    public let schemaID: V2DashboardDirectoryResponseSchemaID
+
+    public enum CodingKeys: String, CodingKey {
+        case deliveryReceipt = "deliveryReceipt"
+        case directory = "directory"
+        case requestID = "requestId"
+        case schemaID = "schemaId"
+    }
+
+    public init(deliveryReceipt: V2DeliveryReceipt? = nil, directory: V2DashboardDirectory, requestID: String, schemaID: V2DashboardDirectoryResponseSchemaID) {
+        self.deliveryReceipt = deliveryReceipt
+        self.directory = directory
+        self.requestID = requestID
+        self.schemaID = schemaID
+    }
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - V2DashboardDirectory
+public struct V2DashboardDirectory: Codable, Equatable, Sendable {
+    public let canManageTeam: Bool
+    public let devices: [V2DeviceRecord]
+    public let issuedAt: Int
+    public let managedDeviceIDS: [String]
+    public let nextCursor: String?
+    public let relayURLs: [String]
+    public let revision: Int
+    public let teamID: String
+
+    public enum CodingKeys: String, CodingKey {
+        case canManageTeam = "canManageTeam"
+        case devices = "devices"
+        case issuedAt = "issuedAt"
+        case managedDeviceIDS = "managedDeviceIds"
+        case nextCursor = "nextCursor"
+        case relayURLs = "relayURLs"
+        case revision = "revision"
+        case teamID = "teamId"
+    }
+
+    public init(canManageTeam: Bool, devices: [V2DeviceRecord], issuedAt: Int, managedDeviceIDS: [String], nextCursor: String? = nil, relayURLs: [String], revision: Int, teamID: String) {
+        self.canManageTeam = canManageTeam
+        self.devices = devices
+        self.issuedAt = issuedAt
+        self.managedDeviceIDS = managedDeviceIDS
+        self.nextCursor = nextCursor
+        self.relayURLs = relayURLs
+        self.revision = revision
+        self.teamID = teamID
+    }
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - V2DeviceRecord
+public struct V2DeviceRecord: Codable, Equatable, Sendable {
+    public let descriptor: V2DeviceDescriptor
+    public let deviceRecordID: String
+    public let revision: Int
+    public let revoked: Bool
+
+    public enum CodingKeys: String, CodingKey {
+        case descriptor = "descriptor"
+        case deviceRecordID = "deviceRecordId"
+        case revision = "revision"
+        case revoked = "revoked"
+    }
+
+    public init(descriptor: V2DeviceDescriptor, deviceRecordID: String, revision: Int, revoked: Bool) {
+        self.descriptor = descriptor
+        self.deviceRecordID = deviceRecordID
+        self.revision = revision
+        self.revoked = revoked
+    }
+}
+
+public enum V2DashboardDirectoryResponseSchemaID: String, Codable, Equatable, Sendable {
+    case dashboardDirectoryV1 = "dashboard.directory.v1"
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - V2DashboardReadyResponse
+public struct V2DashboardReadyResponse: Codable, Equatable, Sendable {
+    public let deliveryReceipt: V2DeliveryReceipt?
+    public let requestID: String
+    public let schemaID: V2DashboardReadyResponseSchemaID
+    public let ticket: V2Ticket
+
+    public enum CodingKeys: String, CodingKey {
+        case deliveryReceipt = "deliveryReceipt"
+        case requestID = "requestId"
+        case schemaID = "schemaId"
+        case ticket = "ticket"
+    }
+
+    public init(deliveryReceipt: V2DeliveryReceipt? = nil, requestID: String, schemaID: V2DashboardReadyResponseSchemaID, ticket: V2Ticket) {
+        self.deliveryReceipt = deliveryReceipt
+        self.requestID = requestID
+        self.schemaID = schemaID
+        self.ticket = ticket
+    }
+}
+
+public enum V2DashboardReadyResponseSchemaID: String, Codable, Equatable, Sendable {
+    case dashboardReadyV1 = "dashboard.ready.v1"
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - V2Ticket
+public struct V2Ticket: Codable, Equatable, Sendable {
+    public let expiresAt: Int
+    public let refreshAfter: Int
+    public let token: String
+
+    public enum CodingKeys: String, CodingKey {
+        case expiresAt = "expiresAt"
+        case refreshAfter = "refreshAfter"
+        case token = "token"
+    }
+
+    public init(expiresAt: Int, refreshAfter: Int, token: String) {
+        self.expiresAt = expiresAt
+        self.refreshAfter = refreshAfter
+        self.token = token
+    }
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
 // MARK: - V2DirectoryResponse
 public struct V2DirectoryResponse: Codable, Equatable, Sendable {
     public let deliveryReceipt: V2DeliveryReceipt?
@@ -777,34 +1018,6 @@ public struct V2Directory: Codable, Equatable, Sendable {
         self.relayURLs = relayURLs
         self.revision = revision
         self.teamID = teamID
-    }
-}
-
-//
-// Hashable or Equatable:
-// The compiler will not be able to synthesize the implementation of Hashable or Equatable
-// for types that require the use of JSONAny, nor will the implementation of Hashable be
-// synthesized for types that have collections (such as arrays or dictionaries).
-
-// MARK: - V2DeviceRecord
-public struct V2DeviceRecord: Codable, Equatable, Sendable {
-    public let descriptor: V2DeviceDescriptor
-    public let deviceRecordID: String
-    public let revision: Int
-    public let revoked: Bool
-
-    public enum CodingKeys: String, CodingKey {
-        case descriptor = "descriptor"
-        case deviceRecordID = "deviceRecordId"
-        case revision = "revision"
-        case revoked = "revoked"
-    }
-
-    public init(descriptor: V2DeviceDescriptor, deviceRecordID: String, revision: Int, revoked: Bool) {
-        self.descriptor = descriptor
-        self.deviceRecordID = deviceRecordID
-        self.revision = revision
-        self.revoked = revoked
     }
 }
 
@@ -947,31 +1160,6 @@ public struct V2ReadyResponse: Codable, Equatable, Sendable {
 
 public enum V2ReadyResponseSchemaID: String, Codable, Equatable, Sendable {
     case sessionReadyV1 = "session.ready.v1"
-}
-
-//
-// Hashable or Equatable:
-// The compiler will not be able to synthesize the implementation of Hashable or Equatable
-// for types that require the use of JSONAny, nor will the implementation of Hashable be
-// synthesized for types that have collections (such as arrays or dictionaries).
-
-// MARK: - V2Ticket
-public struct V2Ticket: Codable, Equatable, Sendable {
-    public let expiresAt: Int
-    public let refreshAfter: Int
-    public let token: String
-
-    public enum CodingKeys: String, CodingKey {
-        case expiresAt = "expiresAt"
-        case refreshAfter = "refreshAfter"
-        case token = "token"
-    }
-
-    public init(expiresAt: Int, refreshAfter: Int, token: String) {
-        self.expiresAt = expiresAt
-        self.refreshAfter = refreshAfter
-        self.token = token
-    }
 }
 
 //
