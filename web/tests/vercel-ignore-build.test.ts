@@ -156,3 +156,28 @@ test("skips changes that cannot affect the deployed web output", () => {
   const buildToolChange = commit("build tool change");
   expect(ignoreBuild(testChange, buildToolChange)).toBe(1);
 });
+
+test("builds for new production directories and docs deployment configuration", () => {
+  let previous = commit("base");
+  for (const file of ["lib/new-runtime.ts", "vercel.docs-channel.json", "pagefind.yml"]) {
+    const destination = join(repository, "web", file);
+    mkdirSync(join(destination, ".."), { recursive: true });
+    writeFileSync(destination, "changed\n");
+    const current = commit(`add ${file}`);
+    expect(ignoreBuild(previous, current)).toBe(1);
+    previous = current;
+  }
+});
+
+test("skips local scripts but builds when a commit also changes production files", () => {
+  const base = commit("base");
+  mkdirSync(join(repository, "web", "scripts"), { recursive: true });
+  writeFileSync(join(repository, "web", "scripts", "dev-local.sh"), "echo local\n");
+  const localChange = commit("local script change");
+  expect(ignoreBuild(base, localChange)).toBe(0);
+
+  writeFileSync(join(repository, "web", "app", "page.tsx"), "export default 1;\n");
+  const mixedChange = commit("production change");
+  expect(ignoreBuild(base, mixedChange)).toBe(1);
+  expect(ignoreBuild(mixedChange, "missing-current-sha")).toBe(1);
+});
