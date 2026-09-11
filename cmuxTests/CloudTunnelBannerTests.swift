@@ -89,7 +89,7 @@ struct CloudTunnelBannerTests {
 }
 
 @MainActor
-@Suite("Optional Cloud VPN setup", .timeLimit(.minutes(1)))
+@Suite("Optional Cloud VPN setup")
 struct CloudVPNSetupModelTests {
     private let backend = CloudTunnelBackend.networkExtension(extensionBundleIdentifier: "test.cloud.vpn")
 

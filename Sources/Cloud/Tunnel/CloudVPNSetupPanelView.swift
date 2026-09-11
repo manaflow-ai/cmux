@@ -13,7 +13,7 @@ struct CloudVPNSetupPanelView: View {
                 explanation
                 statusCard
                 actions
-                if model.state != .up { approvalSteps }
+                if model.state != .up && model.unavailableMessage == nil { approvalSteps }
                 addressHelp
             }
             .padding(28)
