@@ -114,7 +114,7 @@ const CHECKS: readonly string[] = [
   // installed and current (helper byte-equal to the pinned one, cmux marker
   // in both provider configs, codex trust table), and the daemon user's own
   // status verb reports both providers installed.
-  `${cmuxTuiHooksReadyCommand()} && ${cmuxTuiRunCommand(`agent hook status ${CMUX_TUI_HOOK_PROVIDERS.join(" ")}`)} > /tmp/hook-status.json && node -e 'const r = JSON.parse(require("fs").readFileSync("/tmp/hook-status.json","utf8")); for (const id of ${JSON.stringify([...CMUX_TUI_HOOK_PROVIDERS])}) { const p = (r.providers || []).find((x) => x.provider === id); if (!p || p.state !== "installed") { console.error(id, p); process.exit(1); } }' && rm -f /tmp/hook-status.json && echo agent-hooks-ok`,
+  `${cmuxTuiHooksReadyCommand()} && ${cmuxTuiRunCommand(`--json agent hook status ${CMUX_TUI_HOOK_PROVIDERS.join(" ")}`)} > /tmp/hook-status.json && node -e 'const r = JSON.parse(require("fs").readFileSync("/tmp/hook-status.json","utf8")); for (const id of ${JSON.stringify([...CMUX_TUI_HOOK_PROVIDERS])}) { const p = (r.providers || []).find((x) => x.provider === id); if (!p || p.state !== "installed") { console.error(id, p); process.exit(1); } }' && rm -f /tmp/hook-status.json && echo agent-hooks-ok`,
   // Agent-config generator: a login shell under a throwaway HOME with fake
   // model-plane env (placeholder keys, never a token) materializes the codex
   // custom provider plus the pi openai-codex override (no route-token
