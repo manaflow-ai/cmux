@@ -20,12 +20,14 @@ public struct GhosttyConfig {
     /// terminal view/engine code.
     public typealias ColorSchemePreference = TerminalColorSchemePreference
 
-    /// Native fallback light theme name used for fresh installs before the user
-    /// has chosen terminal colors.
-    public static let cmuxDefaultLightThemeName = "Apple System Colors Light"
-    /// Native fallback dark theme name used for fresh installs before the user
-    /// has chosen terminal colors.
-    public static let cmuxDefaultDarkThemeName = "Apple System Colors"
+    /// Catppuccin's light palette used for fresh installs before the user has
+    /// chosen terminal colors. This keeps the default terminal in sync with
+    /// Codex's default TUI theme.
+    public static let cmuxDefaultLightThemeName = "Catppuccin Latte"
+    /// Catppuccin's dark palette used for fresh installs before the user has
+    /// chosen terminal colors. This keeps the default terminal in sync with
+    /// Codex's default TUI theme.
+    public static let cmuxDefaultDarkThemeName = "Catppuccin Mocha"
 
     private static let loadCacheLock = NSLock()
     // Every read/write of this cache is serialized by `loadCacheLock`; the
