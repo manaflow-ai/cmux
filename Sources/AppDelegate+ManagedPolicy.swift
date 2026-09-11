@@ -23,9 +23,6 @@ extension AppDelegate {
                 // the policy lifts.
                 MobileHostService.shared.syncToSettings()
             },
-            enforceDeviceDiscoveryPolicy: { [weak self] in
-                self?.devicesRegistry?.evaluate()
-            },
             enforceIncomingAccessPolicy: {
                 MobileHostService.shared.syncToSettings()
             },
