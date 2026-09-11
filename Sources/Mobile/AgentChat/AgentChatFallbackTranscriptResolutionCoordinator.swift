@@ -169,16 +169,20 @@ final class AgentChatFallbackTranscriptResolutionCoordinator {
         continuation.resume(returning: nil)
     }
 
-    #if compiler(>=6.2)
-    @concurrent
-    #else
-    @Sendable
-    #endif
+    /// Runs the synchronous filesystem resolver on a utility executor because
+    /// this coordinator owns the caller-facing state on ``MainActor``.
     nonisolated private static func resolveTranscriptPath(
         resolver: AgentChatTranscriptResolver,
         record: AgentChatSessionRecord,
         deadline: ContinuousClock.Instant
     ) async -> String? {
-        resolver.transcriptPath(for: record, deadline: deadline)
+        let scanTask = Task.detached(priority: .utility) {
+            resolver.transcriptPath(for: record, deadline: deadline)
+        }
+        return await withTaskCancellationHandler {
+            await scanTask.value
+        } onCancel: {
+            scanTask.cancel()
+        }
     }
 }

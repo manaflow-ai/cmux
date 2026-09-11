@@ -68,6 +68,12 @@ struct AgentChatTranscriptResolver: Sendable {
         switch record.agentKind {
         case .claude:
             return claudeFallbackPath(record: record)
+                ?? deadline.flatMap {
+                    claudeTranscriptPathInAnyProject(
+                        sessionID: record.hookStoreLookupSessionID,
+                        deadline: $0
+                    )
+                }
         case .codex:
             return codexFallbackPath(sessionID: record.sessionID, deadline: deadline)
         case .other:
@@ -107,6 +113,57 @@ struct AgentChatTranscriptResolver: Sendable {
             .appendingPathComponent("\(record.hookStoreLookupSessionID).jsonl", isDirectory: false)
             .path
         return fileManager.fileExists(atPath: path) ? path : nil
+    }
+
+    /// Finds a Claude transcript by its exact session filename when the
+    /// cwd-derived project directory is stale (the usual `claude --resume`
+    /// case). The caller must provide a deadline; the lookup is intentionally
+    /// reserved for the explicit history fallback path and never the
+    /// main-actor session-list path.
+    private func claudeTranscriptPathInAnyProject(
+        sessionID: String,
+        deadline: ContinuousClock.Instant
+    ) -> String? {
+        guard Self.isSafeSessionFilename(sessionID),
+              !Task.isCancelled,
+              ContinuousClock.now < deadline else {
+            return nil
+        }
+        let fileManager = FileManager.default
+        let projectsRoot = claudeConfigRoot.appendingPathComponent("projects", isDirectory: true)
+        guard let enumerator = fileManager.enumerator(
+            at: projectsRoot,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else {
+            return nil
+        }
+
+        let targetFilename = "\(sessionID).jsonl"
+        var bestPath: String?
+        while let candidate = enumerator.nextObject() as? URL {
+            guard !Task.isCancelled else { return nil }
+            if ContinuousClock.now >= deadline {
+                return nil
+            }
+            guard candidate.lastPathComponent == targetFilename,
+                  (try? candidate.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true,
+                  fileManager.fileExists(atPath: candidate.path) else {
+                continue
+            }
+            if bestPath == nil || candidate.path < bestPath! {
+                bestPath = candidate.path
+            }
+        }
+        return bestPath
+    }
+
+    private static func isSafeSessionFilename(_ sessionID: String) -> Bool {
+        !sessionID.isEmpty
+            && sessionID != "."
+            && sessionID != ".."
+            && !sessionID.contains("/")
+            && !sessionID.contains("\\")
     }
 
     /// Codex rollout files are named `rollout-<timestamp>-<session-uuid>.jsonl`
