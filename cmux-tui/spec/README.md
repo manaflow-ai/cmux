@@ -57,6 +57,7 @@ documented for cmux frontends and compatibility adapters:
 | [`frontends.md`](frontends.md) | Private frontend synchronization |
 | [`programmability.md`](programmability.md) | Implementation inventory and ownership |
 | [`native-frontend.md`](native-frontend.md) | Native TUI integration boundaries |
+| [`presence.md`](presence.md) | Ephemeral collaboration presence: pointers and highlights |
 | [`session-journal.md`](session-journal.md) | Canonical event storage, hooks, agent ownership, and restoration |
 
 The private protocol is not a second public API. High-level SDK packages expose

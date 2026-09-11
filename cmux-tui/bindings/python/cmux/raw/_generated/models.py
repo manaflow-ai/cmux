@@ -85,6 +85,10 @@ class PaneDirection(str, Enum):
     UP = 'up'
     DOWN = 'down'
 
+class PresenceHighlightMode(str, Enum):
+    LASER = 'laser'
+    PIN = 'pin'
+
 class RenderGraphicFormat(str, Enum):
     RGB = 'rgb'
     RGBA = 'rgba'
@@ -497,30 +501,6 @@ class GetCellPixelsResult:
 
 
 @dataclass(frozen=True)
-class GuestUrlAcknowledgeResult:
-    __cmux_schema_path__: ClassVar[str] = 'types/GuestUrlAcknowledgeResult'
-    accepted: bool
-
-
-@dataclass(frozen=True)
-class GuestUrlClaimResult:
-    __cmux_schema_path__: ClassVar[str] = 'types/GuestUrlClaimResult'
-    claimed: bool
-
-
-@dataclass(frozen=True)
-class GuestUrlOpenResult:
-    __cmux_schema_path__: ClassVar[str] = 'types/GuestUrlOpenResult'
-    opened: bool
-
-
-@dataclass(frozen=True)
-class GuestUrlSubscribeResult:
-    __cmux_schema_path__: ClassVar[str] = 'types/GuestUrlSubscribeResult'
-    url_open_ready: bool
-
-
-@dataclass(frozen=True)
 class IdMapping:
     __cmux_schema_path__: ClassVar[str] = 'types/IdMapping'
     id: Id
@@ -725,6 +705,51 @@ class PingResult:
     version: str
     build_commit: Union[str, None, MissingType] = field(default=MISSING)
     ghostty_commit: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class PresenceAnchorCell:
+    __cmux_schema_path__: ClassVar[str] = 'types/PresenceAnchor/variants/cell'
+    col: int
+    kind: Literal['cell']
+    row: int
+    scroll_offset: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class PresenceAnchorPoint:
+    __cmux_schema_path__: ClassVar[str] = 'types/PresenceAnchor/variants/point'
+    kind: Literal['point']
+    x: float
+    y: float
+
+
+@dataclass(frozen=True)
+class PresenceEntry:
+    __cmux_schema_path__: ClassVar[str] = 'types/PresenceEntry'
+    surface: Union[Id, None]
+    client: int
+    color: int
+    generation: int
+    highlight: Union[PresenceHighlight, None]
+    kind: Union[str, None]
+    name: Union[str, None]
+    pointer: Union[PresenceAnchor, None]
+    updated_at_ms: int
+
+
+@dataclass(frozen=True)
+class PresenceHighlight:
+    __cmux_schema_path__: ClassVar[str] = 'types/PresenceHighlight'
+    end: PresenceAnchor
+    mode: PresenceHighlightMode
+    start: PresenceAnchor
+
+
+@dataclass(frozen=True)
+class PresenceListResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/PresenceListResult'
+    entries: List[PresenceEntry]
 
 
 @dataclass(frozen=True)
@@ -1660,13 +1685,6 @@ class MoveTabRequest:
 
 
 @dataclass(frozen=True)
-class MoveTabToWorkspaceRequest:
-    __cmux_schema_path__: ClassVar[str] = 'commands/move-tab-to-workspace/request'
-    surface: Id
-    workspace: Union[Id, None, MissingType] = field(default=MISSING)
-
-
-@dataclass(frozen=True)
 class MoveTerminalRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/move-terminal/request'
     terminal_id: str
@@ -1788,6 +1806,26 @@ class PasteImageResult:
 class PingRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/ping/request'
     pass
+
+
+@dataclass(frozen=True)
+class PresenceClearRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/presence-clear/request'
+    pass
+
+
+@dataclass(frozen=True)
+class PresenceListRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/presence-list/request'
+    pass
+
+
+@dataclass(frozen=True)
+class PresenceUpdateRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/presence-update/request'
+    surface: Id
+    highlight: Union[PresenceHighlight, None, MissingType] = field(default=MISSING)
+    pointer: Union[PresenceAnchor, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2137,32 +2175,6 @@ class UnregisterBrowserProviderRequest:
 
 
 @dataclass(frozen=True)
-class UrlOpenRequest:
-    __cmux_schema_path__: ClassVar[str] = 'commands/url-open/request'
-    terminal_id: str
-    url: str
-
-
-@dataclass(frozen=True)
-class UrlOpenClaimRequest:
-    __cmux_schema_path__: ClassVar[str] = 'commands/url-open-claim/request'
-    request_id: str
-
-
-@dataclass(frozen=True)
-class UrlOpenResultRequest:
-    __cmux_schema_path__: ClassVar[str] = 'commands/url-open-result/request'
-    opened: bool
-    request_id: str
-
-
-@dataclass(frozen=True)
-class UrlOpenSubscribeRequest:
-    __cmux_schema_path__: ClassVar[str] = 'commands/url-open-subscribe/request'
-    terminal_ids: List[str]
-
-
-@dataclass(frozen=True)
 class VtStateRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/vt-state/request'
     surface: Id
@@ -2433,6 +2445,22 @@ class PaneClosedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class PresenceChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/presence-changed/payload'
+    surface: Union[Id, None]
+    client: int
+    color: int
+    event: Literal['presence-changed']
+    generation: int
+    highlight: Union[PresenceHighlight, None]
+    kind: Union[str, None]
+    name: Union[str, None]
+    pointer: Union[PresenceAnchor, None]
+    updated_at_ms: int
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class RenderDeltaEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/render-delta/payload'
     surface: Id
@@ -2636,16 +2664,6 @@ class TreeChangedEvent(EventBase):
 
 
 @dataclass(frozen=True)
-class UrlOpenEvent(EventBase):
-    __cmux_schema_path__: ClassVar[str] = 'events/url-open/payload'
-    terminal_id: str
-    event: Literal['url-open']
-    request_id: str
-    url: str
-    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
-
-
-@dataclass(frozen=True)
 class VtStateEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/vt-state/payload'
     surface: Id
@@ -2736,9 +2754,10 @@ JsonValue = Any
 Layout = Union[LayoutLeaf, LayoutSplit, LayoutStack]
 LayoutUndoResult = Union[LayoutUndoUndone, LayoutUndoConfirmationRequired]
 Pane = Union[LivePane, DeadPane]
+PresenceAnchor = Union[PresenceAnchorCell, PresenceAnchorPoint]
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PresenceChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -2757,6 +2776,7 @@ __all__ = [
     'FrontendFocusTarget',
     'NotificationLevel',
     'PaneDirection',
+    'PresenceHighlightMode',
     'RenderGraphicFormat',
     'RenderUnderline',
     'ServerStatsWriterPhase',
@@ -2794,10 +2814,6 @@ __all__ = [
     'FrontendJournalEventViewport',
     'FrontendProjection',
     'GetCellPixelsResult',
-    'GuestUrlAcknowledgeResult',
-    'GuestUrlClaimResult',
-    'GuestUrlOpenResult',
-    'GuestUrlSubscribeResult',
     'IdMapping',
     'IdentifyResult',
     'IdsResult',
@@ -2820,6 +2836,11 @@ __all__ = [
     'NotifyResult',
     'PaneNeighborResult',
     'PingResult',
+    'PresenceAnchorCell',
+    'PresenceAnchorPoint',
+    'PresenceEntry',
+    'PresenceHighlight',
+    'PresenceListResult',
     'ProcessInfoResult',
     'ProviderWorkspaceMutationResult',
     'ReadScreenResult',
@@ -2920,7 +2941,6 @@ __all__ = [
     'MintTerminalRendererRequest',
     'MintTerminalRendererByTerminalRequest',
     'MoveTabRequest',
-    'MoveTabToWorkspaceRequest',
     'MoveTerminalRequest',
     'MoveWorkspaceRequest',
     'NewBrowserTabRequest',
@@ -2935,6 +2955,9 @@ __all__ = [
     'PasteImageRequest',
     'PasteImageResult',
     'PingRequest',
+    'PresenceClearRequest',
+    'PresenceListRequest',
+    'PresenceUpdateRequest',
     'ProcessInfoRequest',
     'PutFrontendProjectionRequest',
     'ReadScreenRequest',
@@ -2978,10 +3001,6 @@ __all__ = [
     'TerminalEventsRequest',
     'UndoLayoutRequest',
     'UnregisterBrowserProviderRequest',
-    'UrlOpenRequest',
-    'UrlOpenClaimRequest',
-    'UrlOpenResultRequest',
-    'UrlOpenSubscribeRequest',
     'VtStateRequest',
     'WaitForRequest',
     'ZoomPaneRequest',
@@ -3009,6 +3028,7 @@ __all__ = [
     'PairingResolvedEvent',
     'PaneAddedEvent',
     'PaneClosedEvent',
+    'PresenceChangedEvent',
     'RenderDeltaEvent',
     'RenderStateEvent',
     'ResizedEvent',
@@ -3027,7 +3047,6 @@ __all__ = [
     'TerminalRegistryChangedEvent',
     'TitleChangedEvent',
     'TreeChangedEvent',
-    'UrlOpenEvent',
     'VtStateEvent',
     'WindowTitleRequestedEvent',
     'WorkspaceAddedEvent',
@@ -3043,5 +3062,6 @@ __all__ = [
     'Layout',
     'LayoutUndoResult',
     'Pane',
+    'PresenceAnchor',
     'TerminalExitOutcome',
 ]
