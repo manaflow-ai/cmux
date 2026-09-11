@@ -740,7 +740,8 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
 
     func resumeStartupInput(
         useLocalRestoreVerb: Bool = true,
-        restoringWorkingDirectory: String? = nil
+        restoringWorkingDirectory: String? = nil,
+        restoringWorkingDirectorySelection: AgentRestoreWorkingDirectorySelection? = nil
     ) -> String? {
         if useLocalRestoreVerb {
             let executable = AgentRestoreLaunch.cliStartupExecutableToken
@@ -750,17 +751,25 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             }
             return " \(executable) restore \(kind.rawValue) \(sessionId)\n"
         }
-        let effectiveWorkingDirectory = resumeWorkingDirectory(
-            preferred: restoringWorkingDirectory
-        )
+        let selection = restoringWorkingDirectorySelection
+            ?? .recordedFallback(preferred: restoringWorkingDirectory)
         let restoreCommand = resumeCommand(
             includeWorkingDirectoryPrefix: true,
-            restoringWorkingDirectory: effectiveWorkingDirectory
+            workingDirectorySelection: selection
         ).map { command in
             AgentRestoreLaunch(kind: kind.rawValue, sessionID: sessionId)?
                 .applying(toStoredCommand: command) ?? command
         }
         return restoreCommand.map { $0 + "\n" }
+    }
+
+    /// Renders a remote resume without allowing captured local cwd values to
+    /// stand in for an authenticated remote selection.
+    func remoteResumeStartupInput() -> String? {
+        resumeStartupInput(
+            useLocalRestoreVerb: false,
+            restoringWorkingDirectorySelection: restoreWorkingDirectorySelection ?? .unavailable
+        )
     }
 
     /// Input that forks this agent conversation when typed into a shell.

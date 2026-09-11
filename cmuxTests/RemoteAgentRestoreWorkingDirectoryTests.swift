@@ -125,6 +125,23 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
         )
     }
 
+    @Test func remoteResumeWithoutPersistedSelectionRejectsCapturedCwd() {
+        let capturedDirectory = "/Users/alice/captured-cwd"
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "unscoped-remote-resume",
+            workingDirectory: capturedDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "codex",
+                arguments: ["codex", "--cwd", capturedDirectory],
+                workingDirectory: capturedDirectory
+            )
+        )
+
+        #expect(snapshot.remoteResumeStartupInput() == nil)
+    }
+
     @Test func bindingExactSelectionRemainsAuthoritativeOverStaleAgentSelection() throws {
         let capturedDirectory = "/Users/alice/captured-binding-cwd"
         let sessionID = "binding-authority-session"

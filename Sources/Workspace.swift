@@ -1587,7 +1587,7 @@ extension Workspace {
                     return nil
                 }
                 let startupInput = restoresRemoteWorkspaceTerminalSnapshot
-                    ? retainedRestorableAgent.resumeStartupInput(useLocalRestoreVerb: false)
+                    ? retainedRestorableAgent.remoteResumeStartupInput()
                     : retainedRestorableAgent.resumeStartupInput(
                         restoringWorkingDirectory: resumeSessionWorkingDirectory
                     )
@@ -1639,10 +1639,7 @@ extension Workspace {
                 restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
                 if let retainedRestorableAgent {
                     if restoresRemoteWorkspaceTerminalSnapshot {
-                        retainedRestorableAgent.resumeStartupInput(
-                            useLocalRestoreVerb: false,
-                            restoringWorkingDirectory: resumeSessionWorkingDirectory
-                        )
+                        retainedRestorableAgent.remoteResumeStartupInput()
                     } else {
                         retainedRestorableAgent.resumeStartupInput(
                             restoringWorkingDirectory: resumeSessionWorkingDirectory
