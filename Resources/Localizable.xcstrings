@@ -80570,6 +80570,23 @@
         }
       }
     },
+    "cloudTree.workspace.unread.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A terminal in this workspace has a notification you have not read on this Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースのターミナルに、このMacでまだ読んでいない通知があります"
+          }
+        }
+      }
+    },
     "cloudTree.terminal.unread.help": {
       "extractionState": "manual",
       "localizations": {

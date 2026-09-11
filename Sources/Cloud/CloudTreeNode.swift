@@ -74,6 +74,15 @@ final class CloudTreeNode: NSObject {
 
     var isExpandable: Bool { !children.isEmpty }
 
+    /// True when this row, or any row beneath it, is a terminal whose machine
+    /// holds a notification this Mac has not read. Derived from the terminal
+    /// rows on every read, so a workspace or machine row can never show a dot
+    /// its terminals do not: the terminal flag is the only stored state.
+    var hasUnreadNotification: Bool {
+        if case .terminal(let row) = kind { return row.hasUnreadNotification }
+        return children.contains { $0.hasUnreadNotification }
+    }
+
     /// The case of `kind` without its payload: what decides row height, menus,
     /// expandability and drag-ability. Two trees with equal structure signatures
     /// can be updated in place; a content-only change never needs `reloadData`.
