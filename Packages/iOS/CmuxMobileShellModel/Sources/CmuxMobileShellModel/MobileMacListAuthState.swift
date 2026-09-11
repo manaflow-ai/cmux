@@ -1,18 +1,6 @@
+public import CMUXMobileCore
 public import Foundation
 public import Observation
-
-private func entriesWithMinimumSupportedVersions(
-    _ entries: [String: MobileMacListAuthState.Entry],
-    stableMinimum: String?,
-    nightlyMinimum: String?
-) -> [String: MobileMacListAuthState.Entry] {
-    return entries.mapValues { entry in
-        var updated = entry
-        updated.minimumSupportedVersion = stableMinimum
-        updated.minimumSupportedNightlyVersion = nightlyMinimum
-        return updated
-    }
-}
 
 /// The phone's view of the account device list (the list-auth admission
 /// authority), projected for UI.
@@ -91,118 +79,134 @@ public final class MobileMacListAuthState {
 
     }
 
+    /// The complete identity of one account-directory entry. The account scope
+    /// is owned by the runtime, which clears this state at its account boundary.
+    public struct Identity: Hashable, Sendable {
+        public let pairingID: String?
+        public let endpointIDHex: String
+        public let bindingID: String?
+        public let identityGeneration: Int?
+
+        public init(
+            pairingID: String?,
+            endpointIDHex: String,
+            bindingID: String? = nil,
+            identityGeneration: Int? = nil
+        ) {
+            self.pairingID = pairingID
+            self.endpointIDHex = endpointIDHex
+            self.bindingID = bindingID
+            self.identityGeneration = identityGeneration
+        }
+    }
+
     public static let shared = MobileMacListAuthState()
 
-    /// Entries keyed by the Mac's endpoint ID hex (TLS identity).
-    public private(set) var entriesByEndpointID: [String: Entry] = [:]
-    /// The same entries keyed by the Mac's durable device id, the key the
-    /// Computers rows carry.
-    public private(set) var entriesByDeviceID: [String: Entry] = [:]
-    /// Whether ANY device list has been received or restored this session.
-    /// False on a fresh install pre-hello (the dial bootstrap window).
+    /// Every directory entry retains its app, endpoint, binding, and generation.
+    public private(set) var entriesByIdentity: [Identity: Entry] = [:]
     public private(set) var hasSnapshot = false
-    /// Account-level minimum Mac version from the latest directory fact.
     public private(set) var minimumSupportedMacVersion: String?
-    /// Minimum nightly stamp for the current iOS build, when one applies.
     public private(set) var minimumSupportedNightlyMacVersion: String?
-
-    /// The current iOS build's policy floor, when the shell has installed one.
-    /// This takes precedence over the legacy directory fact because the same
-    /// account can be viewed by multiple iOS builds with different floors.
     private var policyMinimumSupportedMacVersion: String?
     private var policyMinimumSupportedNightlyMacVersion: String?
     private var hasPolicyMinimumSupportedMacVersion = false
 
     public init() {}
 
-    /// Replaces the directory projection and its account-level floor.
-    ///
-    /// A missing directory floor is authoritative and clears the prior
-    /// directory value. The current iOS policy, when installed, remains the
-    /// higher-priority source for both release lanes.
+    /// Replaces the directory atomically. A policy installed for the running
+    /// iOS build takes precedence over the legacy directory minimum.
     public func replace(
-        entriesByEndpointID: [String: Entry],
-        entriesByDeviceID: [String: Entry],
+        entriesByIdentity: [Identity: Entry],
         minimumSupportedMacVersion: String? = nil
     ) {
-        let effectiveStableMinimum = hasPolicyMinimumSupportedMacVersion
-            ? policyMinimumSupportedMacVersion
-            : minimumSupportedMacVersion
-        let effectiveNightlyMinimum = hasPolicyMinimumSupportedMacVersion
-            ? policyMinimumSupportedNightlyMacVersion
-            : nil
-        self.entriesByEndpointID = entriesWithMinimumSupportedVersions(
-            entriesByEndpointID,
-            stableMinimum: effectiveStableMinimum,
-            nightlyMinimum: effectiveNightlyMinimum
-        )
-        self.entriesByDeviceID = entriesWithMinimumSupportedVersions(
-            entriesByDeviceID,
-            stableMinimum: effectiveStableMinimum,
-            nightlyMinimum: effectiveNightlyMinimum
-        )
-        self.minimumSupportedMacVersion = effectiveStableMinimum
-        self.minimumSupportedNightlyMacVersion = effectiveNightlyMinimum
+        self.entriesByIdentity = entriesByIdentity
+        self.minimumSupportedMacVersion = hasPolicyMinimumSupportedMacVersion
+            ? policyMinimumSupportedMacVersion : minimumSupportedMacVersion
+        minimumSupportedNightlyMacVersion = hasPolicyMinimumSupportedMacVersion
+            ? policyMinimumSupportedNightlyMacVersion : nil
+        reapplyMinimums()
         hasSnapshot = true
     }
 
-    /// Installs the minimum Mac version for this iOS build and reapplies it to
-    /// already-projected rows. A `nil` value is an intentional fail-open policy
-    /// with no tier for the running iOS version.
     public func applyPolicyMinimumSupportedMacVersion(_ minimum: String?) {
-        let existingNightlyMinimum = hasPolicyMinimumSupportedMacVersion
-            ? policyMinimumSupportedNightlyMacVersion
-            : minimumSupportedNightlyMacVersion
         applyPolicyMinimumSupportedMacVersions(
             stable: minimum,
-            nightly: existingNightlyMinimum
+            nightly: hasPolicyMinimumSupportedMacVersion
+                ? policyMinimumSupportedNightlyMacVersion : minimumSupportedNightlyMacVersion
         )
     }
 
-    /// Installs both release-lane floors for this iOS build and reapplies them
-    /// to already-projected rows.
-    public func applyPolicyMinimumSupportedMacVersions(
-        stable: String?,
-        nightly: String?
-    ) {
+    public func applyPolicyMinimumSupportedMacVersions(stable: String?, nightly: String?) {
         policyMinimumSupportedMacVersion = stable
         policyMinimumSupportedNightlyMacVersion = nightly
         hasPolicyMinimumSupportedMacVersion = true
-        entriesByEndpointID = entriesWithMinimumSupportedVersions(
-            entriesByEndpointID,
-            stableMinimum: stable,
-            nightlyMinimum: nightly
-        )
-        entriesByDeviceID = entriesWithMinimumSupportedVersions(
-            entriesByDeviceID,
-            stableMinimum: stable,
-            nightlyMinimum: nightly
-        )
         minimumSupportedMacVersion = stable
         minimumSupportedNightlyMacVersion = nightly
+        reapplyMinimums()
+    }
+
+    private func reapplyMinimums() {
+        entriesByIdentity = entriesByIdentity.mapValues { entry in
+            var updated = entry
+            updated.minimumSupportedVersion = minimumSupportedMacVersion
+            updated.minimumSupportedNightlyVersion = minimumSupportedNightlyMacVersion
+            return updated
+        }
     }
 
     public func clear() {
-        entriesByEndpointID = [:]
-        entriesByDeviceID = [:]
-        minimumSupportedMacVersion = nil
-        minimumSupportedNightlyMacVersion = nil
+        entriesByIdentity = [:]
+        minimumSupportedMacVersion = hasPolicyMinimumSupportedMacVersion
+            ? policyMinimumSupportedMacVersion : nil
+        minimumSupportedNightlyMacVersion = hasPolicyMinimumSupportedMacVersion
+            ? policyMinimumSupportedNightlyMacVersion : nil
         hasSnapshot = false
     }
 
+    /// Endpoint-only diagnostics refuse an ambiguous directory identity.
     public func entry(endpointIDHex: String) -> Entry? {
-        entriesByEndpointID[endpointIDHex]
+        uniqueEntry { $0.endpointIDHex == endpointIDHex }
     }
 
-    public func entry(deviceID: String) -> Entry? {
-        entriesByDeviceID[deviceID]
+    /// Resolves the row's exact app instance and, when advertised, endpoint.
+    /// A missing endpoint never falls back to another endpoint on the same Mac.
+    /// Multiple candidate bindings/generations stay unverified until resolved.
+    public func entry(pairingID: String, endpointIDHexes: Set<String> = []) -> Entry? {
+        uniqueEntry { identity in
+            if !endpointIDHexes.isEmpty {
+                return endpointIDHexes.contains(identity.endpointIDHex)
+                    && (identity.pairingID == nil || identity.pairingID == pairingID)
+            }
+            return identity.pairingID == pairingID
+        }
     }
 
-    /// Whether the directory still has a seeded overlay for this Mac. This is
-    /// retained for connection admission diagnostics; the user-facing warning
-    /// is derived from `isOutdated`, including when the seeded row has no
-    /// remembered version yet.
-    public func isSeeded(deviceID: String) -> Bool {
-        entriesByDeviceID[deviceID]?.status == "seeded"
+    /// Produces the version evidence for the same app/endpoint the row can dial.
+    /// Missing or ambiguous directory records keep their own lane's minimum.
+    public func compatibilityEntry(pairingID: String, routes: [CmxAttachRoute] = []) -> Entry {
+        let endpointIDs = Set(routes.compactMap { route -> String? in
+            guard case let .peer(identity, _) = route.endpoint else { return nil }
+            return identity.endpointID
+        })
+        var result = entry(pairingID: pairingID, endpointIDHexes: endpointIDs)
+            ?? Entry(status: "unknown", revoked: false, isFresh: false)
+        let instance = CmxMacAppInstanceIdentity(id: pairingID)
+        result.releaseTrack = instance.instanceTag == "nightly" ? "nightly" : "stable"
+        result.minimumSupportedVersion = minimumSupportedMacVersion
+        result.minimumSupportedNightlyVersion = minimumSupportedNightlyMacVersion
+        return result
+    }
+
+    private func uniqueEntry(matching matches: (Identity) -> Bool) -> Entry? {
+        var result: Entry?
+        for (identity, entry) in entriesByIdentity where matches(identity) {
+            guard result == nil else { return nil }
+            result = entry
+        }
+        return result
+    }
+
+    public func isSeeded(pairingID: String) -> Bool {
+        entry(pairingID: pairingID)?.status == "seeded"
     }
 }

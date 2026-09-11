@@ -482,7 +482,7 @@ public actor MobileIrxRuntimeComposition {
     private func projectDeviceListForUI(_ snapshot: IrxDeviceListSnapshot) async {
         let fresh = snapshot.isFresh(now: .now)
         var byEndpoint: [String: MobileMacListAuthState.Entry] = [:]
-        var byDevice: [String: MobileMacListAuthState.Entry] = [:]
+        var byPairing: [String: MobileMacListAuthState.Entry] = [:]
         for (endpointIDHex, entry) in snapshot.entries {
             let projected = MobileMacListAuthState.Entry(
                 status: entry.status,
@@ -494,13 +494,17 @@ public actor MobileIrxRuntimeComposition {
             )
             byEndpoint[endpointIDHex] = projected
             if let deviceID = entry.deviceID {
-                byDevice[deviceID] = projected
+                let pairingID = MobilePairedMac.pairingID(
+                    macDeviceID: deviceID,
+                    instanceTag: entry.tag ?? (entry.releaseTrack == "nightly" ? "nightly" : "default")
+                )
+                byPairing[MobileMacListAuthState.identityKey(pairingID: pairingID, endpointIDHex: endpointIDHex)] = projected
             }
         }
         await MainActor.run {
             MobileMacListAuthState.shared.replace(
                 entriesByEndpointID: byEndpoint,
-                entriesByDeviceID: byDevice,
+                entriesByIdentityKey: byPairing,
                 minimumSupportedMacVersion: snapshot.minimumSupportedMacVersion
             )
         }

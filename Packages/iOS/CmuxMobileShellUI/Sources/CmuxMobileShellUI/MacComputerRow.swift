@@ -168,19 +168,15 @@ struct MacComputerRow: View {
     /// Whether the account device list has a compatibility warning for this
     /// Mac. A row with no remembered version warns until its first hello
     /// records the build version in the durable overlay.
-    private var showsListAuthWarning: Bool {
-        hasVersionGateWarning
-            || MobileMacListAuthState.shared.entry(deviceID: computer.deviceId)?.isOutdated == true
-            || hasUnverifiedVersionWarning
+    private var listAuthEntry: MobileMacListAuthState.Entry {
+        MobileMacListAuthState.shared.compatibilityEntry(
+            pairingID: computer.id,
+            routes: computer.routes
+        )
     }
 
-    /// A paired Mac with no directory entry has not advertised its version in
-    /// this session. Keep the warning visible until a hello establishes that
-    /// the Mac meets the current floor.
-    private var hasUnverifiedVersionWarning: Bool {
-        guard MobileMacListAuthState.shared.minimumSupportedMacVersion != nil
-        else { return false }
-        return MobileMacListAuthState.shared.entry(deviceID: computer.deviceId) == nil
+    private var showsListAuthWarning: Bool {
+        hasVersionGateWarning || listAuthEntry.isOutdated
     }
 
     /// Outdated rows carry a compact warning triangle beside the name; the
@@ -227,9 +223,7 @@ struct MacComputerRow: View {
     }
 
     private var listAuthWarningMessage: String {
-        if let entry = MobileMacListAuthState.shared.entry(deviceID: computer.deviceId),
-           entry.isOutdated,
-           let required = entry.requiredVersionDisplay {
+        if listAuthEntry.isOutdated, let required = listAuthEntry.requiredVersionDisplay {
             let requirement = "cmux \(required) or later"
             return String(
                 format: L10n.string(
@@ -239,7 +233,7 @@ struct MacComputerRow: View {
                 requirement
             )
         }
-        guard hasVersionGateWarning || hasUnverifiedVersionWarning else { return "" }
+        guard showsListAuthWarning else { return "" }
         return L10n.string(
             "mobile.pairing.guidance.macUpdateRequired",
             defaultValue: "Update cmux on this Mac to connect securely."

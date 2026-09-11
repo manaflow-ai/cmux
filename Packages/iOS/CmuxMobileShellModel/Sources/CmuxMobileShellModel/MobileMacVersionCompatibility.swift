@@ -41,14 +41,19 @@ private func mobileMacVersionCompatibility(
     let nightly = releaseTrack?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "nightly"
         || (releaseTrack == nil && normalizedAppVersion?.contains("-nightly.") == true)
     if nightly {
-        guard let nightlyMinimum,
-              let required = parseMobileMacNightlyVersion(nightlyMinimum)
-        else { return MobileMacVersionCompatibility(isOutdated: false, requiredVersionDisplay: nil) }
+        // No applicable iOS policy is the explicit unconstrained state. A
+        // stable-only policy still requires a valid reported Nightly version.
+        guard stableMinimum != nil || nightlyMinimum != nil else {
+            return MobileMacVersionCompatibility(isOutdated: false, requiredVersionDisplay: nil)
+        }
         guard let normalizedAppVersion,
               let installed = parseMobileMacNightlyVersion(normalizedAppVersion)
         else {
             return MobileMacVersionCompatibility(isOutdated: true, requiredVersionDisplay: nightlyMinimum)
         }
+        guard let nightlyMinimum,
+              let required = parseMobileMacNightlyVersion(nightlyMinimum)
+        else { return MobileMacVersionCompatibility(isOutdated: false, requiredVersionDisplay: nil) }
         let outdated = mobileMacVersionPrecedes(installed.base, required.base)
             || (installed.base == required.base && installed.build < required.build)
         return MobileMacVersionCompatibility(isOutdated: outdated, requiredVersionDisplay: outdated ? nightlyMinimum : nil)
@@ -67,7 +72,7 @@ private func mobileMacVersionCompatibility(
 }
 
 private func parseMobileMacNumericVersion(_ raw: String) -> [Int]? {
-    let core = raw.split(separator: "+", maxSplits: 1).first.map(String.init) ?? raw
+    let core = raw.split(separator: "+", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? raw
     let parts = core.split(separator: ".", omittingEmptySubsequences: false)
     guard (1 ... 3).contains(parts.count),
           parts.allSatisfy({
@@ -91,7 +96,7 @@ private func mobileMacVersionPrecedes(_ lhs: [Int], _ rhs: [Int]) -> Bool {
 }
 
 private func parseMobileMacNightlyVersion(_ raw: String) -> (base: [Int], build: UInt64)? {
-    let core = raw.split(separator: "+", maxSplits: 1).first.map(String.init) ?? raw
+    let core = raw.split(separator: "+", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? raw
     let marker = "-nightly."
     guard let range = core.range(of: marker),
           let base = parseMobileMacNumericVersion(String(core[..<range.lowerBound]))
