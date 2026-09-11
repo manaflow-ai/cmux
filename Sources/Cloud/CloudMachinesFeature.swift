@@ -32,4 +32,13 @@ enum CloudMachinesFeature {
         guard defaults.object(forKey: key.userDefaultsKey) != nil else { return key.defaultValue }
         return defaults.bool(forKey: key.userDefaultsKey)
     }
+
+    /// Whether the user has stored an explicit local Cloud Machines choice.
+    /// This is separate from ``localOptIn`` so a Debug default can expose the
+    /// UI without starting background fleet polling until the user opts in.
+    nonisolated static func isExplicitlyEnabled(defaults: UserDefaults) -> Bool {
+        let key = BetaFeaturesCatalogSection().cloudMachines
+        return defaults.object(forKey: key.userDefaultsKey) != nil
+            && defaults.bool(forKey: key.userDefaultsKey)
+    }
 }

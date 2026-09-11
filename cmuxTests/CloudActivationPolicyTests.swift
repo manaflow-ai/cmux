@@ -191,7 +191,11 @@ struct CloudActivationPolicyTests {
 
         #expect(policy.allowsBackgroundCloudWork == false)
         #expect(policy.allowsLaunchTimeTunnelAdoption == false)
+        #if DEBUG
+        #expect(policy.tunnelStartRefusal() == nil)
+        #else
         #expect(policy.tunnelStartRefusal() == .cloudMachinesOff)
+        #endif
 
         harness.turnCloudMachines(on: true)
         #expect(policy.allowsBackgroundCloudWork)

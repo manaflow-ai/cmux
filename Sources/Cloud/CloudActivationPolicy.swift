@@ -30,6 +30,10 @@ struct CloudActivationPolicy: Sendable {
     /// `Settings › Beta Features › Cloud Machines` is on and no managed
     /// profile disables Cloud (``CloudMachinesFeature``).
     let isCloudMachinesEnabled: @Sendable () -> Bool
+    /// Whether the user explicitly enabled Cloud Machines. Dev builds may
+    /// expose Cloud by default without starting background fleet polling.
+    /// Tests and older callers may omit this and fall back to the main gate.
+    let isCloudMachinesExplicitlyEnabled: (@Sendable () -> Bool)?
     /// This Mac has used Cloud before: the cached marker says the account had
     /// a machine, or a tunnel role was enrolled here (which only happens for a
     /// machine). Cleared by sign-out.
@@ -47,10 +51,11 @@ struct CloudActivationPolicy: Sendable {
     /// use that is about to schedule a start, never at launch or for status.
     let resolveCloudMachine: @Sendable () async -> Bool?
 
-    /// Fleet polling and links may run: the user opted in, or this Mac used
-    /// Cloud before (an update must not strand a fleet the user already has).
+    /// Fleet polling and links may run: the user explicitly opted in, or this
+    /// Mac used Cloud before (an update must not strand a fleet the user
+    /// already has). A Debug default alone does not start background work.
     var allowsBackgroundCloudWork: Bool {
-        isCloudMachinesEnabled() || hasUsedCloud()
+        (isCloudMachinesExplicitlyEnabled?() ?? isCloudMachinesEnabled()) || hasUsedCloud()
     }
 
     /// The launch-time tunnel controller may read NetworkExtension preferences
@@ -111,6 +116,9 @@ struct CloudActivationPolicy: Sendable {
         return CloudActivationPolicy(
             isCloudMachinesEnabled: {
                 CloudMachinesFeature.offMainIsEnabled(defaults: toggleDefaults)
+            },
+            isCloudMachinesExplicitlyEnabled: {
+                CloudMachinesFeature.isExplicitlyEnabled(defaults: toggleDefaults)
             },
             hasUsedCloud: {
                 machineCache.hasAnyMachine == true
