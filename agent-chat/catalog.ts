@@ -38,7 +38,7 @@ export interface AgentModelProviderCatalog {
 export interface AgentModelCatalogPayload {
   schemaVersion: 1;
   updatedAt: string;
-  providers: Partial<Record<"claude" | "codex" | "gemini", AgentModelProviderCatalog>>;
+  providers: Partial<Record<"claude" | "codex" | "gemini" | "minimax", AgentModelProviderCatalog>>;
 }
 
 interface PersistedCatalog {
@@ -55,7 +55,7 @@ interface CatalogStoreOptions {
   now?: () => number;
 }
 
-const PROVIDERS = ["claude", "codex", "gemini"] as const;
+const PROVIDERS = ["claude", "codex", "gemini", "minimax"] as const;
 const DEFAULT_URL = "https://cmux.com/api/agent-models";
 const DEFAULT_CACHE = `${homedir()}/.cache/cmux-agent-chat/models.json`;
 export const AGENT_MODEL_CATALOG_TTL_MS = 60 * 60_000;
