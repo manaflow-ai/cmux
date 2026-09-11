@@ -4,6 +4,6 @@ export function initializeAgentPath(env: Record<string, string | undefined>, pla
   if (platform === "win32") return;
   const home = env.HOME ?? "";
   const extra = [`${home}/.local/bin`, `${home}/.bun/bin`, "/opt/homebrew/bin", "/usr/local/bin"];
-  const cur = (env.PATH ?? "").split(":");
+  const cur = env.PATH ? env.PATH.split(":") : [];
   env.PATH = [...extra.filter((p) => !cur.includes(p)), ...cur].join(":");
 }
