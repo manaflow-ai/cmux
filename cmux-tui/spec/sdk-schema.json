@@ -5258,6 +5258,216 @@
     "journal_writer is null for ephemeral sessions without a durable journal.",
     "Counters accumulate since daemon start; reading them never touches SQLite or the journal."
    ]
+  },
+  "PresenceAnchor": {
+   "kind": "tagged_union",
+   "tag": "kind",
+   "variants": {
+    "cell": {
+     "kind": "object",
+     "fields": {
+      "kind": {
+       "type": {
+        "kind": "literal",
+        "value": "cell"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "row": {
+       "type": {
+        "kind": "scalar",
+        "name": "uint32"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "col": {
+       "type": {
+        "kind": "scalar",
+        "name": "uint32"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "scroll_offset": {
+       "type": {
+        "kind": "scalar",
+        "name": "uint64"
+       },
+       "presence": "optional",
+       "nullable": false
+      }
+     },
+     "additional_properties": false
+    },
+    "point": {
+     "kind": "object",
+     "fields": {
+      "kind": {
+       "type": {
+        "kind": "literal",
+        "value": "point"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "x": {
+       "type": {
+        "kind": "scalar",
+        "name": "float64"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "y": {
+       "type": {
+        "kind": "scalar",
+        "name": "float64"
+       },
+       "presence": "required",
+       "nullable": false
+      }
+     },
+     "additional_properties": false
+    }
+   }
+  },
+  "PresenceHighlightMode": {
+   "kind": "enum",
+   "values": [
+    "laser",
+    "pin"
+   ]
+  },
+  "PresenceHighlight": {
+   "kind": "object",
+   "fields": {
+    "start": {
+     "type": {
+      "kind": "ref",
+      "name": "PresenceAnchor"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "end": {
+     "type": {
+      "kind": "ref",
+      "name": "PresenceAnchor"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "mode": {
+     "type": {
+      "kind": "ref",
+      "name": "PresenceHighlightMode"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "PresenceEntry": {
+   "kind": "object",
+   "fields": {
+    "client": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "kind": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "color": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "surface": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "pointer": {
+     "type": {
+      "kind": "ref",
+      "name": "PresenceAnchor"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "highlight": {
+     "type": {
+      "kind": "ref",
+      "name": "PresenceHighlight"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "updated_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "generation": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "surface is null only in presence-changed after a clear, disconnect, or surface exit; presence-list never returns such entries.",
+    "color is a palette slot in 0..8, stable for the connection."
+   ]
+  },
+  "PresenceListResult": {
+   "kind": "object",
+   "fields": {
+    "entries": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "PresenceEntry"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -10358,6 +10568,85 @@
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll."
    ]
+  },
+  "presence-update": {
+   "authority": "control",
+   "since": 12,
+   "capability": "presence-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "pointer": {
+      "type": {
+       "kind": "ref",
+       "name": "PresenceAnchor"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "highlight": {
+      "type": {
+       "kind": "ref",
+       "name": "PresenceHighlight"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Replaces this connection's whole presence state; omitted pointer or highlight means none.",
+    "At most 240 updates per second per connection; more fail with a bad request error.",
+    "Never journaled; a server restart forgets all presence."
+   ]
+  },
+  "presence-clear": {
+   "authority": "control",
+   "since": 12,
+   "capability": "presence-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": []
+  },
+  "presence-list": {
+   "authority": "control",
+   "since": 12,
+   "capability": "presence-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "PresenceListResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Pointers idle for 60 seconds are dropped unless their highlight mode is pin."
+   ]
   }
  },
  "events": {
@@ -13067,6 +13356,100 @@
       },
       "presence": "required",
       "nullable": true
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "presence-changed": {
+   "since": 12,
+   "capability": "presence-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "presence-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "client": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "name": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "kind": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "color": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "pointer": {
+      "type": {
+       "kind": "ref",
+       "name": "PresenceAnchor"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "highlight": {
+      "type": {
+       "kind": "ref",
+       "name": "PresenceHighlight"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "updated_at_ms": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "generation": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
      }
     },
     "additional_properties": false

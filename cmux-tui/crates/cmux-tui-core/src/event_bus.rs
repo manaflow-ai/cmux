@@ -62,6 +62,7 @@ enum CoalescedEventKey {
     Title(SurfaceId),
     SurfaceOutput(SurfaceId),
     Scroll(SurfaceId),
+    Presence(u64),
 }
 
 impl MuxEventBroadcaster {
@@ -160,6 +161,7 @@ impl SurfaceSessionScope {
             | MuxEvent::AgentChanged { surface, .. }
             | MuxEvent::TitleChanged { surface, .. }
             | MuxEvent::ScrollChanged { surface, .. } => *surface == self.surface,
+            MuxEvent::PresenceChanged(entry) => entry.surface.is_none_or(|s| s == self.surface),
             MuxEvent::Notification(notification) => {
                 notification.surface.is_none_or(|surface| surface == self.surface)
             }
@@ -245,6 +247,10 @@ impl MuxEventMailbox {
             }
             event @ MuxEvent::ScrollChanged { surface, .. } => {
                 state.push_coalesced(sequence, CoalescedEventKey::Scroll(surface), event)
+            }
+            MuxEvent::PresenceChanged(entry) => {
+                let key = CoalescedEventKey::Presence(entry.client);
+                state.push_coalesced(sequence, key, MuxEvent::PresenceChanged(entry))
             }
             MuxEvent::ConfigReloadRequested => state.push_coalesced(
                 sequence,
