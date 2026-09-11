@@ -518,7 +518,13 @@ struct RightSidebarPanelView: View {
                 if let store = AppDelegate.shared?.cloudWorkspaceCoordinator?.defaultMachineStore {
                     MachinesPanelView(
                         chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
-                        defaultMachineStore: store
+                        defaultMachineStore: store,
+                        tabManager: tabManager
+                    )
+                } else {
+                    MachinesPanelView(
+                        chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
+                        tabManager: tabManager
                     )
                 }
             case .customSidebar:

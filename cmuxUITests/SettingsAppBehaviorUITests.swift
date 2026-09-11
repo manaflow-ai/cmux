@@ -93,6 +93,59 @@ import XCTest
 ///     and nothing should hit the network from a test. Verify via the
 ///     telemetry client's unit tests instead.
 final class SettingsAppBehaviorUITests: SettingsUITestCase {
+    func testGermanSettingsNavigationAndSearchUseTranslations() {
+        assertLocalizedNavigation(
+            language: "de", account: "Konto", shortcuts: "Tastaturkurzbefehle",
+            searchLabel: "Suchen", languageLabel: "Sprache", rightToLeft: false
+        )
+    }
+
+    func testArabicSettingsNavigationAndSearchUseTranslations() {
+        assertLocalizedNavigation(
+            language: "ar", account: "حساب", shortcuts: "اختصارات لوحة المفاتيح",
+            searchLabel: "بحث", languageLabel: "اللغة", rightToLeft: true
+        )
+    }
+
+    private func assertLocalizedNavigation(
+        language: String, account: String, shortcuts: String,
+        searchLabel: String, languageLabel: String, rightToLeft: Bool
+    ) {
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchArguments += [
+            "-AppleLanguages", "(\(language))", "-appLanguage", "system",
+            "-ApplePersistenceIgnoreState", "YES", "-NSQuitAlwaysKeepsWindows", "NO",
+            "-menuBarOnly", "false",
+            "-AppleTextDirection", rightToLeft ? "YES" : "NO",
+            "-NSForceRightToLeftWritingDirection", rightToLeft ? "YES" : "NO",
+        ]
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        launchAndActivate(app)
+        defer { app.terminate() }
+        // Open Settings after launch activation so the main window cannot
+        // cover its search field during the startup window ordering.
+        app.typeKey(",", modifierFlags: .command)
+        let window = app.windows["cmux.settings"]
+        XCTAssertTrue(window.waitForExistence(timeout: 8))
+        let sidebar = window.outlines.firstMatch
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 5))
+        XCTAssertTrue(sidebar.staticTexts[account].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(sidebar.staticTexts[shortcuts].firstMatch.exists)
+        XCTAssertEqual(sidebar.frame.midX > window.frame.midX, rightToLeft)
+
+        let search = requireElement(
+            candidates: [window.searchFields.firstMatch, window.textFields[searchLabel].firstMatch],
+            timeout: 5,
+            description: "localized Settings search field"
+        )
+        search.click()
+        search.typeText(languageLabel)
+        XCTAssertTrue(sidebar.staticTexts[languageLabel].firstMatch.waitForExistence(timeout: 5))
+        search.typeKey("a", modifierFlags: .command)
+        search.typeText("Language")
+        XCTAssertTrue(sidebar.staticTexts[languageLabel].firstMatch.waitForExistence(timeout: 5))
+    }
+
     // UserDefaults keys (the catalog `userDefaultsKey`s) touched here, so
     // each test starts from the documented default regardless of prior
     // local state.

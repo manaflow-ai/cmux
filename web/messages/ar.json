@@ -152,6 +152,42 @@
     "applyAriaLabel": "التقديم عبر البريد الإلكتروني لوظيفة Founding Engineer",
     "applyEmailSubject": "التقديم لوظيفة Founding Engineer في cmux",
     "applyCta": "إرسال بريد إلكتروني",
+    "foundingChromiumEngineer": {
+      "metaTitle": "وظيفة Founding Chromium Engineer في cmux",
+      "metaDescription": "انضم إلى cmux كمهندس Chromium مؤسس لتتولى نسختنا المشتقة من Chromium وتحضر cmux إلى Windows وLinux باستخدام C++ وRust.",
+      "section": "الوظائف",
+      "eyebrow": "عن الدور",
+      "title": "Founding Chromium Engineer",
+      "tagline": "أحضر cmux إلى Windows وLinux.",
+      "intro": "cmux هو طرفية macOS أصلية مبنية على Ghostty، ومصممة لتشغيل عدة وكلاء برمجة بالذكاء الاصطناعي بالتوازي. يستخدم مئات الآلاف من المطورين cmux لإدارة سير عمل البرمجة بالوكلاء.",
+      "hiring": "نوظّف مهندسًا مؤسسًا يتولى cmux على Windows (وLinux)، مبنيًا على نسختنا الخاصة المشتقة من Chromium.",
+      "whatYoullDo": "ما ستفعله",
+      "whatYoullDoItems": [
+        "تولَّ مسؤولية نسختنا المشتقة من Chromium: تتبّع المشروع الأم، وأعد الدمج (rebase) بشكل نظيف، واحمل تصحيحات cmux (تكامل النوافذ/الإدخال/العرض، واجهة الطرفية، واجهة الوكلاء).",
+        "تولَّ cmux على Windows وLinux من البداية إلى النهاية: C++ والمثبّت والتحديث التلقائي والإبلاغ عن الأعطال.",
+        "انقل نواة الطرفية المبنية على Ghostty وميزات تنسيق الوكلاء (التبويبات العمودية، حلقات الإشعارات، التقسيمات، CLI) إلى Windows.",
+        "اجعل الأداء يبدو أصيلًا: زمن الإقلاع، العرض عبر GPU، وزمن استجابة الإدخال.",
+        "استخدم المنتج بنفسك واختبره وتحقق منه باستمرار."
+      ],
+      "excitedLead": "يسعدنا بشكل خاص أن تكون:",
+      "excitedItems": [
+        "إتقان عميق لـ C++ وخبرة حقيقية في Chromium - ويُفضّل أن تكون قد أدرت نسخة مشتقة: حمل التصحيحات، إعادة الدمج على إصدارات المشروع الأم، التصحيح في content/ أو blink.",
+        "Rust ميزة كبيرة (واجهة TUI وخدمة الشبكات لدينا مكتوبتان بـ Rust).",
+        "لديك خبرة في شحن أو صيانة تطبيق سطح مكتب حقيقي لنظام Windows.",
+        "ميزة إضافية: مساهمات في Chromium الأم، فضول تجاه Swift/AppKit، مشرف على مشاريع مفتوحة المصدر، مؤسس سابق."
+      ],
+      "details": "التفاصيل",
+      "roleTitle": "Founding Chromium Engineer",
+      "compensationLabel": "التعويض",
+      "compensation": "$130k–$170k + حصة 0.5%–1.5%",
+      "benefitsLabel": "المزايا",
+      "benefits": "تأمين صحي وأسنان ونظر",
+      "locationLabel": "الموقع",
+      "location": "سان فرانسيسكو",
+      "applyAriaLabel": "التقديم عبر البريد الإلكتروني لوظيفة Founding Chromium Engineer",
+      "applyEmailSubject": "التقديم لوظيفة Founding Chromium Engineer في cmux",
+      "applyCta": "إرسال بريد إلكتروني"
+    },
     "foundingDesigner": {
       "metaTitle": "وظيفة Founding Designer في cmux",
       "metaDescription": "انضم إلى cmux كمصمم مؤسس وساعد في تصميم مستقبل البرمجة بالذكاء الاصطناعي على macOS وTUI وWindows وLinux وiOS وCloud وcmux.com وchatmux.",

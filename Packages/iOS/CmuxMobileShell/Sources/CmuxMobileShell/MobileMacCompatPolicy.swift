@@ -81,7 +81,7 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
                 nightly: nightly,
                 buildKinds: [
                     MobileBuildType.dev.token: Requirement(stableMinVersion: devMin),
-                    MobileBuildType.beta.token: Requirement(stableMinVersion: stableMin),
+                    MobileBuildType.beta.token: Requirement(stableMinVersion: stableMin, nightly: nightly),
                     MobileBuildType.internal.token: Requirement(stableMinVersion: stableMin),
                     MobileBuildType.demo.token: Requirement(stableMinVersion: stableMin),
                     MobileBuildType.prod.token: Requirement(stableMinVersion: stableMin, nightly: nightly),
@@ -134,28 +134,21 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
             guard let nightly = requirement.nightly else { return nil }
             requirementDisplay = "\(nightly.minBaseVersion)-nightly.\(nightly.minBuild)"
         }
+        let result = MobileMacVersionCompatibility(
+            appVersion: macAppVersion,
+            releaseTrack: channel == .nightly ? "nightly" : "stable",
+            stableMinimum: requirement.stableMinVersion.description,
+            nightlyMinimum: requirement.nightly.map {
+                "\($0.minBaseVersion)-nightly.\($0.minBuild)"
+            }
+        )
+        guard result.isOutdated else { return nil }
         let reported = macAppVersion?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let violation = Violation(
+        return Violation(
             channel: channel,
             macAppVersion: reported?.isEmpty == false ? reported : nil,
-            requiredVersionDisplay: requirementDisplay
+            requiredVersionDisplay: result.requiredVersionDisplay ?? requirementDisplay
         )
-        guard let reported, let stamp = MobileMacBuildVersionStamp(parsing: reported) else {
-            return violation
-        }
-        switch channel {
-        case .stable:
-            // A nightly stamp on the stable channel is a mislabeled build;
-            // fail closed rather than guessing which rule it satisfies.
-            guard stamp.nightlyBuild == nil else { return violation }
-            return stamp.base >= requirement.stableMinVersion ? nil : violation
-        case .nightly:
-            guard let nightly = requirement.nightly else { return nil }
-            guard let build = stamp.nightlyBuild else { return violation }
-            if stamp.base > nightly.minBaseVersion { return nil }
-            if stamp.base < nightly.minBaseVersion { return violation }
-            return build >= nightly.minBuild ? nil : violation
-        }
     }
 
 }
