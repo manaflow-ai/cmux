@@ -29,19 +29,16 @@ enum CloudVMPanelAuthState: Equatable {
 /// snapshots plus closure bundles only (snapshot-boundary rule); every mutation
 /// routes through the shared Cloud VM action path or the Cloud tree service.
 struct MachinesPanelView: View {
-    @StateObject private var viewModel = MachinesPanelViewModel()
+    @StateObject var viewModel = MachinesPanelViewModel()
     @State private var expansionStore = CloudTreeExpansionStore()
+    @State private(set) var selectedCreateSelection: (accountID: String?, selection: CloudTreeCreateSelection)?
     /// The tree's visual preset; the debug gallery's "Use" buttons write this,
     /// and @AppStorage re-renders the live panel the moment it changes.
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
     let chromeBackgroundColor: NSColor
-    var tabManager: TabManager? = nil
+    let tabManager: TabManager
 
-    private var accountFlow: HostAccountFlow? {
-        AppDelegate.shared?.auth?.accountFlow
-    }
-
-    private var authState: CloudVMPanelAuthState {
+    var authState: CloudVMPanelAuthState {
         CloudVMPanelAuthState.resolve(
             isAuthenticated: accountFlow?.isAuthenticated == true,
             // Keep the embedded sign-in screen mounted while the browser is
@@ -66,6 +63,12 @@ struct MachinesPanelView: View {
         .onChange(of: authState) { _, state in
             syncPolling(for: state)
         }
+        .onChange(of: accountFlow?.currentIdentity?.id) { _, _ in
+            selectedCreateSelection = nil
+            viewModel.stopPolling()
+            viewModel.resetForAuthTransition()
+            syncPolling(for: authState)
+        }
         .onDisappear {
             viewModel.stopPolling()
         }
@@ -83,14 +86,24 @@ struct MachinesPanelView: View {
                 backgroundColor: chromeBackgroundColor
             )
         }
+        if let failure = viewModel.operationError.failure {
+            MachinesTreeErrorBanner(failure: failure) {
+                viewModel.dismissTreeError(failure.id)
+            }
+        }
         content
     }
 
     private func syncPolling(for state: CloudVMPanelAuthState) {
         switch state {
         case .signedIn:
+            viewModel.localWorkspacesProvider = { [weak tabManager] in
+                guard let tabManager else { return [] }
+                return tabManager.tabs.map { CloudTreeLocalWorkspace(id: $0.id, title: $0.title, isSelected: $0.id == tabManager.selectedTabId) }
+            }
             viewModel.startPolling()
         case .checking, .signedOut:
+            selectedCreateSelection = nil
             viewModel.stopPolling()
             viewModel.resetForAuthTransition()
         }
@@ -120,20 +133,6 @@ struct MachinesPanelView: View {
                     }
                     .foregroundColor(.orange.opacity(0.9))
                     .help(viewModel.lastErrorDescription ?? "")
-                } else if let treeError = viewModel.treeErrorDescription {
-                    // The message itself, not a generic label: a failed tree verb (New
-                    // Terminal Here, Open Shell, …) otherwise reads as a dead menu item,
-                    // with the only explanation hidden behind a hover tooltip.
-                    HStack(alignment: .firstTextBaseline, spacing: 5) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.system(size: 10, weight: .semibold))
-                        Text(treeError)
-                            .cmuxFont(size: 11)
-                            .lineLimit(2)
-                            .truncationMode(.tail)
-                    }
-                    .foregroundColor(.orange.opacity(0.9))
-                    .help(treeError)
                 } else if let plan = viewModel.plan {
                     MachinePlanMeter(plan: plan)
                 }
@@ -151,13 +150,13 @@ struct MachinesPanelView: View {
             ) {
                 viewModel.refresh(tree: true)
             }
-            MachinesChromeIconButton(
-                symbolName: "plus",
-                accessibilityLabel: String(localized: "machines.new", defaultValue: "New Machine"),
-                isBusy: false
-            ) {
-                requestNewMachine()
-            }
+            CloudTreeCreateMenu(
+                selection: currentCreateSelection,
+                machineName: machineDisplayName,
+                perform: { [accountID = accountFlow?.currentIdentity?.id] in
+                    performCreateMenuAction($0, accountID: accountID, newMachine: requestNewMachine)
+                }
+            )
         }
         .rightSidebarChromeBar()
         .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
@@ -409,10 +408,11 @@ struct MachinesPanelView: View {
     /// same `cmux vm new` path the CLI and palette use, and shows up here as a
     /// pending row (`viewModel.pendingCreates`), not as panel chrome.
     private func requestNewMachine() {
+        guard CloudMachinesFeature.isEnabled, accountFlow?.isAuthenticated == true else { return }
         NewMachineSheetPresenter.shared.presentNewMachine(
             plan: viewModel.plan,
             memoryOptionsMb: viewModel.memoryOptionsMb,
-            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
+            preferredWindow: creationWindow,
             coordinator: viewModel.createCoordinator
         )
     }
@@ -422,22 +422,12 @@ struct MachinesPanelView: View {
     /// underneath. Both closure bundles are bound here, above the outline; rows
     /// never see the store.
     private var machinesList: some View {
+        let accountID = accountFlow?.currentIdentity?.id
         var machineActions = MachineRowActions.bound(
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() }
         )
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
-        let nodeActions = CloudTreeNodeActions.bound(
-            catalog: { SurfaceCatalog.shared },
-            selectedWorkspaceID: { AppDelegate.shared?.tabManager?.selectedTabId },
-            selectLocalWorkspace: { workspaceID in
-                AppDelegate.shared?.tabManager?.selectedTabId = workspaceID
-            },
-            onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
-            onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
-            onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
-            refresh: { [weak viewModel] in viewModel?.refresh(tree: true) }, refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) }
-        )
         return CloudTreeOutlineView(
             machines: viewModel.machines,
             pendingCreates: viewModel.pendingCreates,
@@ -445,12 +435,15 @@ struct MachinesPanelView: View {
             localWorkspaces: viewModel.localWorkspaces,
             unreadTerminalIDs: viewModel.unreadTerminalIDs,
             machineActions: machineActions,
-            nodeActions: nodeActions,
+            nodeActions: cloudTreeNodeActions,
             expansionStore: expansionStore,
+            selectedRemoteWorkspace: currentCreateSelection?.remoteWorkspace,
             style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
-            onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) }
+            onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) },
+            onSelectionChange: { selection in selectedCreateSelection = selection.map { (accountID, $0) } }
         )
         .accessibilityIdentifier("CloudMachinesTree")
+        .onDisappear { selectedCreateSelection = nil }
     }
 
     @ViewBuilder

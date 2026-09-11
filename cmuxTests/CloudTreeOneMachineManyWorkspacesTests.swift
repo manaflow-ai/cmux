@@ -201,7 +201,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "machine:brave-otter",
             "machine:brave-otter/workspaces",
             "machine:brave-otter/ws/ws_main",
-            "machine:brave-otter/ws/ws_main/resource:brave-otter/terminal/term_1/tab:tab_term_1_0",
+            "machine:brave-otter/ws/ws_main/resource:brave-otter/terminal/term_1/tab:tab_term_1_0", "machine:brave-otter/workspaces/create"",
             "machine:brave-otter/ports",
             "machine:brave-otter/ports/status",
             "machine:brave-otter/displays",
@@ -247,7 +247,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "machine:brave-otter/ws/ws_side",
             "machine:brave-otter/ws/ws_side/resource:brave-otter/terminal/term_2/tab:tab_term_2_0",
             "machine:brave-otter/ws/ws_side/resource:brave-otter/terminal/term_shared/tab:tab_term_shared_1",
-            "machine:brave-otter/ws/ws_side/resource:brave-otter/display/display:1/tab:tab_desk_0",
+            "machine:brave-otter/ws/ws_side/resource:brave-otter/display/display:1/tab:tab_desk_0", "machine:brave-otter/workspaces/create"",
             "machine:brave-otter/ports",
             "resource:brave-otter/browser/port:3000",
             "machine:brave-otter/displays",
@@ -296,8 +296,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         let tree = rows(snapshot)
         #expect(tree.map(\.id) == [
             "machine:brave-otter",
-            "machine:brave-otter/workspaces",
-            "machine:brave-otter/workspaces/placeholder",
+            "machine:brave-otter/workspaces", "machine:brave-otter/workspaces/create"",
             "machine:brave-otter/ports",
             "machine:brave-otter/ports/status",
             "machine:brave-otter/displays",
@@ -310,7 +309,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             #expect(CloudTreeRowHoverButtons.hasButtons(for: group.kind), "\(groupID) keeps its hover +")
         }
         let placeholders = tree.filter { $0.structureTag == "placeholder" }
-        #expect(placeholders.map(\.searchableTitle) == ["No workspaces yet", "No reachable ports", "No displays available", "No terminals yet"])
+        #expect(placeholders.map(\.searchableTitle) == ["No reachable ports", "No displays available", "No terminals yet"])
         #expect(placeholders.allSatisfy { $0.machine == machine })
         for row in placeholders {
             guard case .placeholder(_, let placeholder) = row.kind else { Issue.record("expected a placeholder"); continue }
@@ -626,7 +625,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "machine:brave-otter/ws/ws_main",
             "machine:brave-otter/ws/ws_main/resource:brave-otter/terminal/term_1/tab:tab_term_1_0",
             "machine:brave-otter/ws/ws_side",
-            "machine:brave-otter/ws/ws_side/resource:brave-otter/terminal/term_2/tab:tab_term_2_0",
+            "machine:brave-otter/ws/ws_side/resource:brave-otter/terminal/term_2/tab:tab_term_2_0", "machine:brave-otter/workspaces/create"",
             "machine:brave-otter/ports",
             "machine:brave-otter/ports/status",
             "machine:brave-otter/displays",

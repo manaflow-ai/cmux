@@ -414,9 +414,9 @@ final class MachinesPanelViewModel: ObservableObject {
     /// from the per-machine notification syncs.
     @Published private(set) var unreadTerminalIDs: [String: Set<String>] = [:]
     private var unreadObserver: NSObjectProtocol?
-    /// Last failure from a tree verb (open, new terminal, …); shown in the
-    /// control bar's help text, cleared by the next successful refresh.
-    @Published private(set) var treeErrorDescription: String?
+    /// Last failure from a tree verb. It stays visible until explicitly dismissed.
+    let operationError = CloudTreeOperationErrorState()
+    var treeErrorDescription: String? { operationError.failure?.message }
     /// In-flight and failed creates appear above the fleet; the shared
     /// coordinator keeps them visible across panels and panel closure.
     var pendingCreates: [MachineCreateOperation] { createCoordinator.operations }
@@ -435,10 +435,6 @@ final class MachinesPanelViewModel: ObservableObject {
     func endOperation() {
         activeOperation = nil
         refresh()
-    }
-
-    func noteTreeFailure(_ description: String) {
-        treeErrorDescription = description
     }
 
     private var refreshTask: Task<Void, Never>?
@@ -567,7 +563,7 @@ final class MachinesPanelViewModel: ObservableObject {
                 localized: "machines.pending.createdOpenFailed.bar",
                 defaultValue: "%1$@ was created, but opening it failed: %2$@ Open it from the list."
             )
-            treeErrorDescription = String(format: format, machineID, MachineCreateOperation.headline(ofOutput: output) ?? output)
+            noteTreeFailure(String(format: format, machineID, MachineCreateOperation.headline(ofOutput: output) ?? output))
         }
         refresh()
     }
@@ -600,7 +596,6 @@ final class MachinesPanelViewModel: ObservableObject {
             }
             guard !Task.isCancelled, let self else { return }
             self.readCatalog()
-            self.treeErrorDescription = nil
         }
     }
 
@@ -759,7 +754,7 @@ final class MachinesPanelViewModel: ObservableObject {
         usageByMachineID = [:]
         catalog = .empty
         localWorkspaces = []
-        treeErrorDescription = nil
+        operationError.reset()
         plan = nil
         activeOperation = nil
         createCoordinator.cancelAllForAuthTransition()

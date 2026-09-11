@@ -455,7 +455,7 @@ final class MachinesPanelModelTests: XCTestCase {
             "machine:vivid-newt/ws/ws_side/resource:vivid-newt/terminal/term_1/tab:tab_9",
             "machine:vivid-newt/ws/ws_side/resource:vivid-newt/display/display:1/tab:tab_desk",
             "machine:vivid-newt/ws/ws_empty",
-            "machine:vivid-newt/ws/ws_empty/resource:vivid-newt/display/display:1",
+            "machine:vivid-newt/ws/ws_empty/resource:vivid-newt/display/display:1", "machine:vivid-newt/workspaces/create"",
             "machine:vivid-newt/ports",
             "resource:vivid-newt/browser/port:3000",
             "machine:vivid-newt/displays",

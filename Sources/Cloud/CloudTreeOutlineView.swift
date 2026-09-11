@@ -21,12 +21,14 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     let machineActions: MachineRowActions
     let nodeActions: CloudTreeNodeActions
     let expansionStore: CloudTreeExpansionStore
+    var selectedRemoteWorkspace: CloudWorkspaceRemoteIdentity? = nil
     /// The visual preset the rows render in (the debug gallery pins one per
     /// column; the live panel passes the stored choice).
     var style: CloudTreeStyle = CloudTreeStyleStore.current
     /// Fires when a row drag starts (true) and ends (false); the panel freezes catalog
     /// re-reads while a drag is in flight.
     var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
+    var onSelectionChange: @MainActor (CloudTreeCreateSelection?) -> Void = { _ in }
     @Environment(\.tabDragTransferRegistry) private var tabDragTransferRegistry
     @Environment(\.colorScheme) private var colorScheme
 
@@ -45,6 +47,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore,
+            onSelectionChange: onSelectionChange,
             tabDragTransferRegistry: { [tabDragTransferRegistry] in
                 tabDragTransferRegistry ?? AppDelegate.shared?.tabDragTransferRegistry
             }
@@ -62,13 +65,15 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         context.coordinator.machineActions = machineActions
         context.coordinator.nodeActions = nodeActions
         context.coordinator.onDragStateChange = onDragStateChange
+        context.coordinator.onSelectionChange = onSelectionChange
         context.coordinator.apply(style: style)
         context.coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(
             machines: machines,
             pendingCreates: pendingCreates,
             snapshot: snapshot,
             localWorkspaces: localWorkspaces,
-            unreadTerminalIDs: unreadTerminalIDs
+            unreadTerminalIDs: unreadTerminalIDs,
+            selectedRemoteWorkspace: selectedRemoteWorkspace
         ))
     }
 
@@ -82,11 +87,15 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         private(set) var style: CloudTreeStyle = CloudTreeStyleStore.current
         private let tabDragTransferRegistry: @MainActor () -> TabDragTransferRegistry?
         weak var outlineView: CloudTreeNSOutlineView?
-        private var nodes: [CloudTreeNode] = []
+        private(set) var nodes: [CloudTreeNode] = []
         private var structureSignature: [String] = []
         private var contentSignature: [String] = []
-        private var selectedNodeID: String?
-        private var isUpdatingProgrammatically = false
+        /// Authoritative row identity; the create menu receives a derived value snapshot.
+        var selectedNodeID: String?
+        var isUpdatingProgrammatically = false
+        var pendingSelectionPublication: Task<Void, Never>?
+        var lastPublishedSelection: CloudTreeCreateSelection?
+        var hasPublishedSelection = false
         private var activeDrag: ActiveDrag?
         // NSDraggingItem retains the writer for the live native session. A weak
         // coordinator edge prevents a retained writer/container cycle.
@@ -106,16 +115,19 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         private(set) var isDragging = false
         private var deferredNodes: [CloudTreeNode]?
         var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
+        var onSelectionChange: @MainActor (CloudTreeCreateSelection?) -> Void
 
         init(
             machineActions: MachineRowActions,
             nodeActions: CloudTreeNodeActions,
             expansionStore: CloudTreeExpansionStore,
+            onSelectionChange: @escaping @MainActor (CloudTreeCreateSelection?) -> Void = { _ in },
             tabDragTransferRegistry: @escaping @MainActor () -> TabDragTransferRegistry?
         ) {
             self.machineActions = machineActions
             self.nodeActions = nodeActions
             self.expansionStore = expansionStore
+            self.onSelectionChange = onSelectionChange
             self.tabDragTransferRegistry = tabDragTransferRegistry
         }
 
@@ -270,6 +282,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                         forRowIndexes: IndexSet(integersIn: 0..<outlineView.numberOfRows),
                         columnIndexes: IndexSet(integer: 0)
                     )
+                    restoreSelection(in: outlineView)
                 }
                 return
             }
@@ -305,16 +318,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
         }
 
-        private func restoreSelection(in outlineView: NSOutlineView) {
-            guard let selectedNodeID else { return }
-            for row in 0..<outlineView.numberOfRows {
-                if (outlineView.item(atRow: row) as? CloudTreeNode)?.id == selectedNodeID {
-                    outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-                    return
-                }
-            }
-        }
-
         private func withProgrammaticUpdate(_ body: () -> Void) {
             isUpdatingProgrammatically = true
             body()
@@ -343,7 +346,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             guard let node = item as? CloudTreeNode else { return nil }
             let cell = (outlineView.makeView(withIdentifier: CloudTreeCellView.identifier, owner: nil) as? CloudTreeCellView)
                 ?? CloudTreeCellView(frame: .zero)
-            cell.configure(node: node, machineActions: machineActions, nodeActions: nodeActions, style: style)
+            cell.configure(node: node, machineActions: machineActions, nodeActions: nodeActions, style: style, machineName: machineDisplayName(node.machine))
             return cell
         }
 
@@ -361,7 +364,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: hasStats, hasUsage: hasUsage))
             case .localMachine, .pendingMachine:
                 return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
-            case .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup, .workspace, .localWorkspace, .terminal, .display, .browser, .port, .placeholder:
+            case .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup, .workspace, .localWorkspace, .terminal, .display, .browser, .port, .placeholder, .createWorkspace, .createTerminal:
                 return GlobalFontMagnification.scaledSize(style.rowHeight)
             }
         }
@@ -371,14 +374,22 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
         func outlineViewSelectionDidChange(_ notification: Notification) {
             guard !isUpdatingProgrammatically, let outlineView else { return }
-            selectedNodeID = outlineView.selectedRow >= 0
-                ? (outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode)?.id
+            let node = outlineView.selectedRow >= 0
+                ? outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode
                 : nil
+            if let node, case .workspace = node.kind {
+                expansionStore.setExpanded(true, node: node)
+                outlineView.expandItem(node)
+            }
+            updateSelection(from: node)
         }
 
         func outlineViewItemDidExpand(_ notification: Notification) {
-            guard !isUpdatingProgrammatically, let node = notification.userInfo?["NSObject"] as? CloudTreeNode else { return }
+            guard !isUpdatingProgrammatically,
+                  let outlineView,
+                  let node = notification.userInfo?["NSObject"] as? CloudTreeNode else { return }
             expansionStore.setExpanded(true, node: node)
+            restoreSelection(in: outlineView)
             if node.kind.refreshesOnExpansion { nodeActions.refreshMachine(node.machine) }
         }
 
@@ -414,36 +425,19 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             open(node)
         }
 
-        /// One place decides what "open" means per row. Every surface row is
-        /// `SurfaceCatalog.project` (focusing an open pane first); machine and
-        /// group rows toggle. Creation is never an open side effect: the hover
-        /// "+" and the context menu own it (an expired machine still prompts,
-        /// and the asleep placeholder still wakes, because those rows advertise
-        /// exactly that).
         func open(_ node: CloudTreeNode) {
             switch node.kind {
             case .machine(let machine, _):
-                if machine.freeAccess == .expired {
-                    machineActions.promptUpgrade()
-                } else {
-                    toggle(node)
-                }
+                // A machine row is a container: selecting it only changes
+                // selection/expansion. Creation belongs to an explicit verb.
+                toggle(node)
             case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup:
                 toggle(node)
             case .pendingMachine(let operation):
-                // Nothing to open yet. A failed create's click shows why (the
-                // CLI transcript); a running one has nothing to say beyond its row.
                 if !operation.isRunning {
                     machineActions.create.showFailure(operation.id)
                 }
             case .workspace(let machine, let workspace, _, _, let openIn):
-                // Open-or-focus (D13). Already showing in a local workspace -> go there
-                // instead of opening a second copy; a
-                // stray pane showing one of its terminals -> focus that pane.
-                // Otherwise the remote workspace opens as its OWN local workspace —
-                // remote and local workspaces never intermingle. D9: open never
-                // creates — an empty workspace row opens nothing here; its "+" and
-                // menu own creation.
                 if let openIn {
                     nodeActions.selectLocalWorkspace(openIn)
                 } else if let shown = CloudTreeNodeBuilder.flattened(node.children).first(where: { child in
@@ -453,8 +447,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     if let view = openRow.remoteView {
                         nodeActions.projectRemoteView(openRow.resource.id, view, .tab, true)
                     } else {
-                        // A terminal opens as a tab, not a new column: it joins the
-                        // existing layout instead of widening it every time.
                         nodeActions.project(openRow.resource.id, .tab, true)
                     }
                 } else if let group = node.dragGroup, !group.isEmpty {
@@ -466,14 +458,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 if let view = row.remoteView {
                     nodeActions.projectRemoteView(row.resource.id, view, .tab, true)
                 } else {
-                    // A terminal opens as a tab, not a new column: it joins the
-                    // existing layout instead of widening it every time.
                     nodeActions.project(row.resource.id, .tab, true)
                 }
             case .display(let resource, let openIn, let remoteView):
-                // A workspace's Desktop row opens INSIDE the local workspace showing
-                // that remote workspace — never a jump to a VNC pane in a different
-                // workspace. Pool rows (openIn == nil) keep the global open-or-focus.
                 if let openIn {
                     if let remoteView {
                         nodeActions.projectRemoteViewInLocalWorkspace(resource.id, remoteView, openIn)
@@ -498,19 +485,19 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     nodeActions.project(row.resource.id, .split, true)
                 }
             case .placeholder(let machineID, let placeholder):
-                // "Asleep — open to wake": a fresh terminal on the machine is what wakes it.
                 if placeholder.opensMachine, let machine = machine(id: machineID) {
                     openMachine(machine)
                 }
+            case .createWorkspace(let machine, _):
+                nodeActions.newWorkspace(machine)
+            case .createTerminal(let machine, let workspaceID, _):
+                nodeActions.newTerminal(machine, workspaceID)
             }
         }
 
         private func openMachine(_ machine: MachineSnapshot) {
-            if machine.freeAccess == .expired {
-                machineActions.promptUpgrade()
-            } else {
-                nodeActions.newTerminal(.cloud(machine.id), nil)
-            }
+            if machine.freeAccess == .expired { machineActions.promptUpgrade() }
+            else { nodeActions.newTerminal(.cloud(machine.id), nil) }
         }
 
         private func toggle(_ node: CloudTreeNode) {
@@ -530,6 +517,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 if case .machine(let machine, _) = node.kind, .cloud(machine.id) == id { return machine }
             }
             return nil
+        }
+
+        private func machineDisplayName(_ id: SurfaceMachineID) -> String {
+            machine(id: id)?.displayName ?? id.rawValue
         }
 
         // MARK: Keyboard
@@ -604,12 +595,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return pendingMachineMenuItems(operation)
             case .localMachine:
                 return [
-                    item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(.local, nil) },
+                    item(CloudTreeCreateAction.terminal(machine: .local, workspaceID: nil, name: "This Mac").title) { [nodeActions] in nodeActions.newTerminal(.local, nil) },
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
             case .terminalsPool(let machine, _):
                 return [
-                    item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(machine, nil) },
+                    item(CloudTreeCreateAction.terminal(machine: machine, workspaceID: nil, name: machineDisplayName(machine)).title) { [nodeActions] in nodeActions.newTerminal(machine, nil) },
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
             case .displaysPool:
@@ -618,8 +609,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 ]
             case .workspacesGroup(let machine):
                 return [
-                    item(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) { [nodeActions] in nodeActions.newWorkspace(machine) },
-                    item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(machine, nil) },
+                    item(CloudTreeCreateAction.workspace(machine: machine, name: machineDisplayName(machine)).title) { [nodeActions] in nodeActions.newWorkspace(machine) },
+                    item(CloudTreeCreateAction.terminal(machine: machine, workspaceID: nil, name: machineDisplayName(machine)).title) { [nodeActions] in nodeActions.newTerminal(machine, nil) },
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
             case .workspace(let machine, let workspace, _, _, let openIn):
@@ -633,7 +624,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     : String(localized: "cloudTree.menu.selectWorkspace", defaultValue: "Go to Workspace")
                 return [
                     item(openTitle) { [weak self] in self?.open(node) },
-                    item(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) { [nodeActions] in nodeActions.newTerminal(machine, workspace.id) },
+                    item(CloudTreeCreateAction.terminal(machine: machine, workspaceID: workspace.id, name: workspace.name).title) { [nodeActions] in nodeActions.newTerminal(machine, workspace.id) },
                     .separator(),
                     item(String(localized: "cloudTree.menu.renameWorkspace", defaultValue: "Rename\u{2026}")) { [nodeActions] in nodeActions.renameWorkspace(machine, workspace) },
                     item(String(localized: "cloudTree.menu.copyWorkspaceID", defaultValue: "Copy Workspace ID")) { [nodeActions] in nodeActions.copyToPasteboard(workspace.id) },
@@ -711,6 +702,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             case .placeholder(let machineID, _):
                 guard let machine = machine(id: machineID) else { return [] }
                 return machineMenuItems(machine)
+            case .createWorkspace, .createTerminal:
+                return []
             }
         }
 
@@ -787,8 +780,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             if machine.freeAccess == .expired {
                 items.append(item(String(localized: "machines.menu.upgradeToReconnect", defaultValue: "Upgrade to Reconnect\u{2026}")) { actions.promptUpgrade() })
             } else {
+                items.append(item(CloudTreeCreateAction.workspace(machine: .cloud(id), name: machine.displayName).title) { nodeActions.newWorkspace(.cloud(id)) })
                 items.append(item(String(localized: "machines.menu.openShell", defaultValue: "Open Shell")) { nodeActions.newTerminal(.cloud(id), nil) })
-                items.append(item(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) { nodeActions.newWorkspace(.cloud(id)) })
                 if machine.isDesktop {
                     items.append(item(String(localized: "machines.menu.openDesktop", defaultValue: "Open Desktop")) {
                         nodeActions.project(SurfaceResourceID(machine: .cloud(id), kind: .display, key: SurfaceResourceID.desktopDisplayKey), .split, true)
