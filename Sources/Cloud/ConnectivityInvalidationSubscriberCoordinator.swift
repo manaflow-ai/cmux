@@ -105,13 +105,9 @@ final class ConnectivityInvalidationSubscriberCoordinator {
                         #if DEBUG
                         cmuxDebugLog("connectivity.frame revision=\(invalidation.revision)")
                         #endif
-                        mobileHostIrohLog.info(
+                        MobileHostDiagnostics.logger.info(
                             "Connectivity revision invalidated; reconciling authoritative routes"
                         )
-                        MobileHostIrohRuntime.shared
-                            .reconcileConnectivityFromServerSignal(
-                                revision: invalidation.revision
-                            )
                         // The phone reply inbox rides this channel: enqueue
                         // re-broadcasts the invalidation frame (revision 1) as
                         // its nudge, so every frame arrival — whatever the

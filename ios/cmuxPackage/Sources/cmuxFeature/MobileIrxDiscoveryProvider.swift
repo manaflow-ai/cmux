@@ -1,5 +1,6 @@
 public import CMUXMobileCore
 public import CmuxIrohTransport
+public import CmuxIrxTransport
 public import CmuxMobileShell
 import Foundation
 
@@ -11,18 +12,7 @@ public enum MobileIrxForgetError: Error, Equatable {
     case discoveryUnavailable
 }
 
-/// Bridges first-pair Mac discovery and forget onto the ACTIVE irx runtime.
-///
-/// The Computers picker's zero-touch path talks to whatever the scene injects
-/// as `personalIrohDiscovery`. When irx became the primary transport the
-/// scene kept injecting the dormant legacy runtime, which answers every query
-/// with "endpoint unavailable": a freshly installed phone (empty paired-Mac
-/// store) therefore listed ZERO Macs while the live irx engine could see the
-/// whole fleet (08-28 field incident). This provider implements the same two
-/// capabilities on top of irx broker discovery, reusing the legacy route
-/// catalog's binding-to-candidate mapping so pairability filtering, build
-/// compatibility, ordering, and attach-route construction stay identical
-/// between transports.
+/// Projects the active v2 directory for the Computers picker and server-authorized forget.
 @MainActor
 public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
     MobileIrohMacForgetting
@@ -33,20 +23,58 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
 
     private let preferredTag: String
     private let compatibilityPolicy: MobileMacBuildCompatibilityPolicy?
-    private let discover: @Sendable () async -> CmxIrohDiscoveryResponse?
+    private let discover: @Sendable () async -> V2Directory?
     private let invalidateSnapshot: @Sendable () async -> Void
     private let revokeBinding: @Sendable (String) async throws -> Void
     private let authenticatedAccountID: @Sendable () async -> String?
+    private let authenticatedScopeID: @Sendable () async -> String?
     private var scope: UInt64 = 0
+    private var runtimeObservation: Task<Void, Never>?
+    private var observedScope: String?
+    private var observedDirectory: V2Directory?
+    private var observers: [UUID: AsyncStream<Void>.Continuation] = [:]
+
+    deinit { runtimeObservation?.cancel() }
+
+    public func directoryUpdates() -> AsyncStream<Void> {
+        let id = UUID()
+        let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        observers[id] = continuation
+        continuation.yield(())
+        continuation.onTermination = { [weak self] _ in
+            Task { @MainActor in self?.observers.removeValue(forKey: id) }
+        }
+        return stream
+    }
+
+    private func observe(_ irx: MobileIrxRuntimeComposition) {
+        runtimeObservation = Task { [weak self] in
+            for await _ in await irx.changes() {
+                guard let self, !Task.isCancelled else { return }
+                let owner = await irx.directoryScopeID()
+                let directory = await irx.currentDirectory()
+                guard owner == (await irx.directoryScopeID()) else { continue }
+                guard owner != observedScope || directory != observedDirectory else { continue }
+                observedScope = owner
+                observedDirectory = directory
+                scope &+= 1
+                let generation = scope
+                await routeCatalog.activate(scope: generation)
+                if let directory { await routeCatalog.replace(with: directory, scope: generation) }
+                for observer in observers.values { observer.yield(()) }
+            }
+        }
+    }
 
     /// Closure-injected core, so tests can drive it without the actor stack.
     public init(
         preferredTag: String,
         compatibilityPolicy: MobileMacBuildCompatibilityPolicy?,
-        discover: @escaping @Sendable () async -> CmxIrohDiscoveryResponse?,
+        discover: @escaping @Sendable () async -> V2Directory?,
         invalidateSnapshot: @escaping @Sendable () async -> Void,
         revokeBinding: @escaping @Sendable (String) async throws -> Void,
-        authenticatedAccountID: @escaping @Sendable () async -> String?
+        authenticatedAccountID: @escaping @Sendable () async -> String?,
+        authenticatedScopeID: (@Sendable () async -> String?)? = nil
     ) {
         self.preferredTag = preferredTag
         self.compatibilityPolicy = compatibilityPolicy
@@ -54,6 +82,7 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
         self.invalidateSnapshot = invalidateSnapshot
         self.revokeBinding = revokeBinding
         self.authenticatedAccountID = authenticatedAccountID
+        self.authenticatedScopeID = authenticatedScopeID ?? authenticatedAccountID
     }
 
     public convenience init(
@@ -67,23 +96,25 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
             discover: { await irx.freshLiveDiscovery() },
             invalidateSnapshot: { await irx.invalidateDiscoverySnapshot() },
             revokeBinding: { try await irx.revokeBinding($0) },
-            authenticatedAccountID: { await irx.authenticatedAccountID() }
+            authenticatedAccountID: { await irx.authenticatedAccountID() },
+            authenticatedScopeID: { await irx.directoryScopeID() }
         )
+        observe(irx)
     }
 
     // MARK: - MobileIrohMacDiscovering
 
     public func discoverLiveMacs() async -> [MobileDiscoveredIrohMac] {
+        let owner = await authenticatedScopeID()
+        guard let discovery = await discover(), owner == (await authenticatedScopeID()) else { return [] }
         scope &+= 1
         let currentScope = scope
         await routeCatalog.activate(scope: currentScope)
-        guard let discovery = await discover() else { return [] }
-        guard scope == currentScope else { return [] }
         await routeCatalog.replace(with: discovery, scope: currentScope)
         return await routeCatalog.liveMacCandidates(
             preferredTag: preferredTag,
             compatibleWith: compatibilityPolicy,
-            limit: 4
+            limit: nil
         )
     }
 
@@ -105,7 +136,8 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
         guard account == expectedAccountID else {
             throw MobileIrxForgetError.accountMismatch
         }
-        guard let discovery = await discover() else {
+        let owner = await authenticatedScopeID()
+        guard let discovery = await discover(), owner == (await authenticatedScopeID()) else {
             throw MobileIrxForgetError.discoveryUnavailable
         }
         let canonicalDeviceID = cmxCanonicalDeviceID(macDeviceID)
@@ -114,17 +146,17 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
                 macDeviceID: macDeviceID, instanceTag: $0
             ).instanceTag ?? ""
         }
-        let matches = discovery.bindings.filter { binding in
-            cmxCanonicalDeviceID(binding.deviceID) == canonicalDeviceID
-                && (wantedTag == nil || binding.tag == wantedTag)
+        let matches = discovery.devices.filter { binding in
+            cmxCanonicalDeviceID(binding.descriptor.identity.deviceID) == canonicalDeviceID
+                && (wantedTag == nil || binding.descriptor.identity.buildTag == wantedTag)
         }
         for binding in matches {
             // Re-verify before each revoke: an account switch landing
             // mid-operation must never revoke another account's binding.
-            guard await authenticatedAccountID() == expectedAccountID else {
+            guard await authenticatedAccountID() == expectedAccountID, owner == (await authenticatedScopeID()) else {
                 throw MobileIrxForgetError.accountMismatch
             }
-            try await revokeBinding(binding.bindingID)
+            try await revokeBinding(binding.deviceRecordID)
         }
     }
 }

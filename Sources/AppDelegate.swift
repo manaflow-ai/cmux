@@ -1690,10 +1690,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // The tap delivers on the ring's drain task, off the main thread.
             let transportReporter = TransportSentryReporter(
                 role: .macHost,
-                exportRing: { await MobileHostIrohRuntime.hostDiagnosticLog.export() }
+                exportRing: { await MobileHostDiagnostics.log.export() }
             )
             transportSentryReporter = transportReporter
-            MobileHostIrohRuntime.hostDiagnosticLog.setEventTap { event in
+            MobileHostDiagnostics.log.setEventTap { event in
                 transportReporter.ingest(event)
             }
             StartupBreadcrumbLog.append("appDelegate.didFinish.sentry.complete")

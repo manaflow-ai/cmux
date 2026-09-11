@@ -334,7 +334,7 @@ struct IrxLiveQUICTests {
 
         // Foreground recovery must not replace a healthy session merely
         // because it is older than the historical 15-second threshold.
-        await engine.foregroundKick(staleAfter: .seconds(15))
+        await engine.foregroundKick()
         var retained = false
         for _ in 0..<20 {
             try await Task.sleep(for: .milliseconds(50))

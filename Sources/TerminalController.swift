@@ -12190,7 +12190,7 @@ class TerminalController {
             // connection diagnostics exist for). The wait blocks only on the
             // log's own drain actor, and the execution policy keeps this
             // command off the main thread, so the wait cannot self-deadlock.
-            let report = await MobileHostIrohRuntime.hostDiagnosticLog.snapshot()
+            let report = await MobileHostDiagnostics.log.snapshot()
             export = String(decoding: report.humanReadableExport(), as: UTF8.self)
             semaphore.signal()
         }

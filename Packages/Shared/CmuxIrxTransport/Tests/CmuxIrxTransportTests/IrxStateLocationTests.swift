@@ -16,10 +16,10 @@ struct IrxStateLocationTests {
             base: base, bundleIdentifier: "dev.cmux.app.nightly", brokerHost: "cmux.com")
         let devStaging = IrxStateLocation.directory(
             base: base, bundleIdentifier: "dev.cmux.app.debug.irx",
-            brokerHost: "cmux-staging.vercel.app")
+            brokerHost: "cmux-iroh-v2-staging.cmux-presence-worker.workers.dev")
         let nightlyStaging = IrxStateLocation.directory(
             base: base, bundleIdentifier: "dev.cmux.app.nightly",
-            brokerHost: "cmux-staging.vercel.app")
+            brokerHost: "cmux-iroh-v2-staging.cmux-presence-worker.workers.dev")
         #expect(nightlyProd != devStaging)
         #expect(nightlyProd != nightlyStaging)
         #expect(devStaging != nightlyStaging)

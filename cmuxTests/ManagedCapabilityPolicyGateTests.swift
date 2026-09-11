@@ -447,12 +447,12 @@ struct ManagedCapabilityPolicyGateTests {
         ManagedDevicePolicyKey.disableRemoteControl
     ])
     func irohRuntimeStopsWhenACoveringPolicyIsForced(key: ManagedDevicePolicyKey) async {
-        let runtime = MobileHostIrxRuntime(managedDevicePolicy: policy(key, disabled: true))
+        let runtime = MobileHostIrxRuntime(managedDevicePolicy: policy(key, disabled: true), pairingEnabled: { true })
         #expect(!runtime.isNetworkingAllowed)
         runtime.setSettingsPhase(.active)
         await runtime.applyManagedNetworkingPolicy()
         #expect(runtime.settingsPhase == .idle)
-        #expect(runtime.brokerService == nil)
+        #expect(runtime.controlService == nil)
     }
 
     @Test func irohRuntimeAllowsNetworkingWhenNoPolicyIsForced() {
@@ -460,7 +460,7 @@ struct ManagedCapabilityPolicyGateTests {
             managedDevicePolicy: ManagedDevicePolicy(
                 releaseDomainDefaults: nil,
                 forcedObject: { _, _ in nil }
-            )
+            ), pairingEnabled: { true }
         )
         #expect(runtime.isNetworkingAllowed)
     }
@@ -479,7 +479,7 @@ struct ManagedCapabilityPolicyGateTests {
             releaseDomainDefaults: nil,
             forcedObject: { store, key in store.object(forKey: key) }
         )
-        let runtime = MobileHostIrxRuntime(managedDevicePolicy: resolver)
+        let runtime = MobileHostIrxRuntime(managedDevicePolicy: resolver, pairingEnabled: { true })
         let key = ManagedDevicePolicyKey.disableIrohNetworking.rawValue
 
         for iteration in 0..<8 {
@@ -491,7 +491,7 @@ struct ManagedCapabilityPolicyGateTests {
             // No account is signed in, so every settled state is idle. The
             // assertion that matters is that the pair always settles.
             #expect(runtime.settingsPhase == .idle)
-            #expect(runtime.brokerService == nil)
+            #expect(runtime.controlService == nil)
         }
 
         defaults.removeObject(forKey: key)
@@ -507,7 +507,7 @@ struct ManagedCapabilityPolicyGateTests {
             releaseDomainDefaults: nil,
             forcedObject: { store, key in store.object(forKey: key) }
         )
-        let runtime = MobileHostIrxRuntime(managedDevicePolicy: resolver)
+        let runtime = MobileHostIrxRuntime(managedDevicePolicy: resolver, pairingEnabled: { true })
         defaults.set(true, forKey: ManagedDevicePolicyKey.disableIrohNetworking.rawValue)
         runtime.setSettingsPhase(.active)
         await runtime.applyManagedNetworkingPolicy()
@@ -517,7 +517,7 @@ struct ManagedCapabilityPolicyGateTests {
         #expect(runtime.isNetworkingAllowed)
         await runtime.applyManagedNetworkingPolicy()
         #expect(runtime.settingsPhase == .idle)
-        #expect(runtime.brokerService == nil)
+        #expect(runtime.controlService == nil)
     }
 }
 

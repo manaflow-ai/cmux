@@ -17,9 +17,7 @@ public struct IrxClientSession: Sendable {
     public let admit: IrxAdmit
     public let control: IrxLaneStream
     public let establishedAt: Date
-    /// Monotonic counterpart used for liveness decisions. Wall-clock time is
-    /// retained for diagnostics only because clock rollback must not suppress
-    /// a foreground zombie replacement.
+    /// Monotonic admission time for lifetime diagnostics independent of wall-clock changes.
     public let establishedAtMonotonic: ContinuousClock.Instant
 
     public init(
@@ -48,13 +46,22 @@ public actor IrxPeerEngine {
     public struct Config: Sendable {
         public var initialBackoff: Duration
         public var maxBackoff: Duration
+        public var keepaliveInterval: Duration
+        public var keepaliveDeadline: Duration
+        public var foregroundProbeDeadline: Duration
 
         public init(
             initialBackoff: Duration = .milliseconds(400),
-            maxBackoff: Duration = .seconds(5)
+            maxBackoff: Duration = .seconds(5),
+            keepaliveInterval: Duration = IrxProtocol.keepaliveInterval,
+            keepaliveDeadline: Duration = IrxProtocol.keepaliveDeadline,
+            foregroundProbeDeadline: Duration = .milliseconds(400)
         ) {
             self.initialBackoff = initialBackoff
             self.maxBackoff = maxBackoff
+            self.keepaliveInterval = keepaliveInterval
+            self.keepaliveDeadline = keepaliveDeadline
+            self.foregroundProbeDeadline = foregroundProbeDeadline
         }
     }
 
@@ -78,6 +85,10 @@ public actor IrxPeerEngine {
     private var dialGeneration: UInt64 = 0
     private var redialTimer: Task<Void, Never>?
     private var terminationWatcher: Task<Void, Never>?
+    private var foregroundTask: Task<Void, Never>?
+    private var activityGeneration: UInt64 = 0
+    private var applicationActive: Bool
+    private var hasConnectionIntent = false
     private var backoff: Duration
     private var parkedCode: String?
     /// Sequential-dial cooldown: after a failure, automatic callers fail fast
@@ -93,6 +104,7 @@ public actor IrxPeerEngine {
         config: Config = Config(),
         journal: IrxJournal,
         label: String = "",
+        applicationActive: Bool = true,
         clockNow: @escaping @Sendable () -> ContinuousClock.Instant = { .now },
         retrySleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
         dialOnce: @escaping DialOnce
@@ -100,6 +112,7 @@ public actor IrxPeerEngine {
         self.config = config
         self.journal = journal
         self.label = label
+        self.applicationActive = applicationActive
         self.dialOnce = dialOnce
         self.clockNow = clockNow
         self.retrySleep = retrySleep
@@ -141,6 +154,8 @@ public actor IrxPeerEngine {
     /// This is the ONLY dial path; `explicit` overrides a parked denial and
     /// replaces any in-flight attempt.
     public func ensureSession(explicit: Bool = false, trigger: String) async throws -> IrxClientSession {
+        try Task.checkCancellation()
+        hasConnectionIntent = true
         if let session, await !session.connection.isConnectionClosed(), !explicit {
             return session
         }
@@ -252,44 +267,82 @@ public actor IrxPeerEngine {
     /// Proactive warm-up: dial without a caller waiting (app launch, route
     /// learned). Failures follow the normal backoff.
     public func warmUp(trigger: String) {
-        Task { _ = try? await self.ensureSession(trigger: trigger) }
-    }
-
-    /// Foreground resume: retain a session that recently proved liveness, but
-    /// replace a native zombie whose closed flag stayed false during
-    /// suspension. This avoids age-based churn while preserving recovery.
-    public func foregroundKick(staleAfter: Duration = .seconds(15)) {
+        hasConnectionIntent = true
+        guard applicationActive else { return }
         Task {
-            if let session = self.currentSessionForKick(),
-               await !session.connection.isConnectionClosed()
-            {
-                let recentlyAlive: Bool
-                if clockNow() - session.establishedAtMonotonic <= staleAfter {
-                    // A newly admitted session has not necessarily completed
-                    // its first keepalive round yet, but is still within the
-                    // bounded fresh-session grace period.
-                    recentlyAlive = true
-                } else {
-                    recentlyAlive = await session.connection.hasRecentKeepalive(
-                        within: staleAfter)
-                }
-                if recentlyAlive {
-                    self.record(
-                        "foreground-session-retained",
-                        [
-                            "session": session.admit.session,
-                            "stale_after": String(describing: staleAfter),
-                        ]
-                    )
-                    return
-                }
-            }
-            _ = try? await self.ensureSession(explicit: true, trigger: "foreground")
+            guard self.applicationActive, self.hasConnectionIntent else { return }
+            _ = try? await self.ensureSession(trigger: trigger)
         }
     }
 
-    private func currentSessionForKick() -> IrxClientSession? {
-        session
+    /// Stops probe deadlines and automatic retry work while the app is suspended.
+    /// Explicit application requests may still use a granted background execution
+    /// window. Their connection intent survives until foreground recovery.
+    public func setApplicationActive(_ active: Bool) async {
+        guard applicationActive != active else { return }
+        applicationActive = active
+        activityGeneration &+= 1
+        let generation = activityGeneration
+        foregroundTask?.cancel()
+        foregroundTask = nil
+        if !active {
+            redialTimer?.cancel()
+            redialTimer = nil
+        }
+        let connection = session?.connection
+        await connection?.setApplicationActive(active)
+        guard generation == activityGeneration, applicationActive else { return }
+        if hasConnectionIntent { foregroundKick() }
+    }
+
+    /// Retains an open session only after a fresh bounded liveness check. Each
+    /// unsuccessful attempt uses a live stream. Known native closure bypasses
+    /// probing; age of the last pong never forces replacement.
+    public func foregroundKick() {
+        guard applicationActive, foregroundTask == nil, hasConnectionIntent, parkedCode == nil else { return }
+        let generation = activityGeneration
+        foregroundTask = Task {
+            await self.recoverOnForeground(generation: generation)
+            if self.activityGeneration == generation { self.foregroundTask = nil }
+        }
+    }
+
+    private func recoverOnForeground(generation: UInt64) async {
+        let started = clockNow()
+        if let previous = session {
+            for _ in 0..<IrxProtocol.keepaliveStrikeLimit {
+                guard foregroundIsCurrent(generation), session?.admit.session == previous.admit.session else { return }
+                if await previous.connection.isConnectionClosed() { break }
+                let alive = await previous.connection.probeLiveness(deadline: config.foregroundProbeDeadline)
+                guard foregroundIsCurrent(generation), session?.admit.session == previous.admit.session else { return }
+                if alive {
+                    record("foreground-session-retained", ["session": previous.admit.session,
+                        "elapsed": String(describing: started.duration(to: clockNow()))])
+                    return
+                }
+            }
+            guard foregroundIsCurrent(generation), session?.admit.session == previous.admit.session else { return }
+            _ = try? await ensureSession(explicit: true, trigger: "foreground-probe-failed")
+        } else {
+            guard foregroundIsCurrent(generation) else { return }
+            // Foreground can bring a local transport retry forward, while a
+            // backend Retry-After floor remains binding across suspension.
+            if (lastDialError as? any CmxRetryAfterProviding)?.retryAfterSeconds == nil {
+                cooldownUntil = nil
+            }
+            if let cooldownUntil, clockNow() < cooldownUntil {
+                scheduleRemainingCooldown(until: cooldownUntil)
+                return
+            }
+            _ = try? await ensureSession(trigger: "foreground")
+        }
+        guard foregroundIsCurrent(generation) else { return }
+        record("foreground-recovery-finished", ["elapsed": String(describing: started.duration(to: clockNow())),
+            "state": Self.describe(state)])
+    }
+
+    private func foregroundIsCurrent(_ generation: UInt64) -> Bool {
+        applicationActive && activityGeneration == generation && !Task.isCancelled
     }
 
     /// Event-driven relay race: fresh discovery just revealed a different
@@ -316,7 +369,11 @@ public actor IrxPeerEngine {
         redialTimer = nil
         cooldownUntil = nil
         backoff = config.initialBackoff
-        Task { _ = try? await self.ensureSession(trigger: trigger) }
+        guard applicationActive else { return }
+        Task {
+            guard self.applicationActive, self.hasConnectionIntent else { return }
+            _ = try? await self.ensureSession(trigger: trigger)
+        }
     }
 
     public func currentSession() async -> IrxClientSession? {
@@ -328,6 +385,10 @@ public actor IrxPeerEngine {
 
     /// Tears the session down deliberately (sign-out, mode switch).
     public func stop(code: IrxCloseCode = .userRequested) async {
+        hasConnectionIntent = false
+        activityGeneration &+= 1
+        foregroundTask?.cancel()
+        foregroundTask = nil
         redialTimer?.cancel()
         redialTimer = nil
         invalidateDial()
@@ -366,7 +427,12 @@ public actor IrxPeerEngine {
 
     private func startKeepalive(of established: IrxClientSession) {
         Task {
-            try? await established.connection.startClientKeepalive { [weak self] in
+            guard self.session?.admit.session == established.admit.session else { return }
+            await established.connection.setApplicationActive(self.applicationActive)
+            guard self.session?.admit.session == established.admit.session else { return }
+            try? await established.connection.startClientKeepalive(
+                interval: config.keepaliveInterval, deadline: config.keepaliveDeadline
+            ) { [weak self] in
                 await self?.sessionDied(established, viaKeepalive: true)
             }
         }
@@ -410,8 +476,15 @@ public actor IrxPeerEngine {
         }
         // Auto-recovery: the first redial after a death is immediate; only
         // consecutive failures back off.
+        guard applicationActive else {
+            record("auto-redial-deferred", ["reason": "background"])
+            return
+        }
         record("auto-redial", ["code": termination.code])
-        Task { _ = try? await self.ensureSession(trigger: "connection-ended") }
+        Task {
+            guard self.applicationActive, self.hasConnectionIntent else { return }
+            _ = try? await self.ensureSession(trigger: "connection-ended")
+        }
     }
 
     /// Capped, cancellable backoff. The woken redial is an ordinary automatic
@@ -422,20 +495,29 @@ public actor IrxPeerEngine {
         let serverFloor = Duration.seconds(Int64(max(0, retryAfterSeconds ?? 0)))
         let delay = max(backoff, serverFloor)
         backoff = min(backoff * 2, config.maxBackoff)
-        cooldownUntil = clockNow().advanced(by: delay)
-        redialTimer?.cancel()
-        redialTimer = Task { [weak self, retrySleep] in
-            do { try await retrySleep(delay) } catch { return }
-            guard !Task.isCancelled else { return }
-            await self?.clearCooldownAndRedial()
-        }
+        let deadline = clockNow().advanced(by: delay)
+        cooldownUntil = deadline
+        scheduleRemainingCooldown(until: deadline)
         record("redial-scheduled", [
             "delay": String(describing: delay),
             "server_floor_s": retryAfterSeconds.map(String.init) ?? "-",
         ])
     }
 
+    private func scheduleRemainingCooldown(until deadline: ContinuousClock.Instant) {
+        redialTimer?.cancel()
+        redialTimer = nil
+        guard applicationActive, hasConnectionIntent else { return }
+        let delay = max(.zero, clockNow().duration(to: deadline))
+        redialTimer = Task { [weak self, retrySleep] in
+            do { try await retrySleep(delay) } catch { return }
+            guard !Task.isCancelled else { return }
+            await self?.clearCooldownAndRedial()
+        }
+    }
+
     private func clearCooldownAndRedial() async {
+        guard applicationActive, hasConnectionIntent, !Task.isCancelled else { return }
         cooldownUntil = nil
         _ = try? await ensureSession(trigger: "backoff")
     }

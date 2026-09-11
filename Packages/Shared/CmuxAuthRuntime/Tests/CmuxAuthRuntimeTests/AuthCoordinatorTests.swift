@@ -37,6 +37,38 @@ import Testing
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func teamScopeChangesFenceWorkEvenWhenAStreamCoalescesTransitions() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        await client.setTeams([
+            CMUXAuthTeam(id: "team_a", displayName: "Alpha"),
+            CMUXAuthTeam(id: "team_b", displayName: "Beta")
+        ])
+        let (coordinator, _) = makeCoordinator(client: client)
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        var scopes = coordinator.authenticatedTeamScopes().makeAsyncIterator()
+        let initial = try #require(await scopes.next())
+        let captured = try #require(initial)
+        #expect(captured.teamID == "team_a")
+
+        coordinator.selectedTeamID = "team_b"
+        #expect(!coordinator.isAuthenticatedTeamScopeCurrent(captured))
+        coordinator.selectedTeamID = "team_a"
+        #expect(!coordinator.isAuthenticatedTeamScopeCurrent(captured))
+        let latestEvent = try #require(await scopes.next())
+        let latest = try #require(latestEvent)
+        #expect(latest.teamID == "team_a")
+        #expect(latest.generation > captured.generation)
+        #expect(latest.session == captured.session)
+
+        await coordinator.signOut()
+        let signedOut = await scopes.next()
+        #expect(signedOut != nil)
+        #expect(signedOut! == nil)
+        #expect(!coordinator.isAuthenticatedTeamScopeCurrent(latest))
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func sessionIdentityStreamPublishesSignInAndImmediateSignOut() async throws {
         let user = CMUXAuthUser(
             id: "u1",

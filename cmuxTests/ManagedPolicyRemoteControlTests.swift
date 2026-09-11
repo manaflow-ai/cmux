@@ -39,7 +39,7 @@ private actor RecordingManagedPolicyTransport: CmxByteTransport {
 
 /// Behavior tests for the MDM `DisableRemoteControl` policy at the universal
 /// transport-admission funnel: a policy-disabled host must close any
-/// arriving transport (Iroh or legacy TCP) without admitting a session.
+/// arriving IROH transport without admitting a session.
 struct ManagedPolicyRemoteControlTests {
     @Test func admissionRefusesAndClosesTheTransportUnderThePolicy() async throws {
         let registry = MobileHostConnectionRegistry.shared
@@ -48,7 +48,10 @@ struct ManagedPolicyRemoteControlTests {
 
         let exit = await MobileHostService.acceptTransport(
             transport,
-            authorization: .legacyPrivateNetworkListener,
+            authorization: .irohAdmission(CmxIrohAdmittedPeer(peer: CmxIrohGrantPeer(
+                bindingID: "policy-binding", deviceID: "policy-phone", tag: "policy-test", platform: .ios,
+                endpointID: try CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64)),
+                identityGeneration: 1))),
             remoteControlDisabledByPolicy: { true },
             isCurrent: { true }
         )
