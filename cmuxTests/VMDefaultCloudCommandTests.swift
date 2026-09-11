@@ -125,7 +125,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         "route": "ws://10.40.0.10:1337/v1/link",
                         "session": "cloud", "trusted_carrier": true,
                         "wireguard_hub_socket": "/tmp/cmux-wg-test.sock",
-                        "trusted_carrier": true,
                     ]
                 )
             case "workspace.create":
@@ -238,7 +237,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let bindings = requests.filter { $0["method"] as? String == "workspace.cloud_vm_bind" }
         let lastBinding = bindings.last?["params"] as? [String: Any]
         XCTAssertEqual(lastBinding?["remote_workspace_id"] as? String, "ws_cloud")
-        XCTAssertEqual(methods.filter { $0 == "vm.desktop_open" }.count, 1)
+        XCTAssertFalse(methods.contains("vm.desktop_open"), "New workspaces start with only the seeded terminal")
 
         // Exercise consumption of the saved identity in a new CLI process,
         // not just persistence. The mock rejects any unhandled enrollment path.
@@ -260,7 +259,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(secondMethods.contains("vm.create"))
         XCTAssertFalse(secondMethods.contains("surface.new_terminal"))
         XCTAssertEqual(secondMethods.filter { $0 == "surface.project" }.count, 1)
-        XCTAssertEqual(secondMethods.filter { $0 == "vm.desktop_open" }.count, 1)
+        XCTAssertFalse(secondMethods.contains("vm.desktop_open"), "Reopening the shell must not add a VNC split")
     }
 
     func testVMNewExplicitFreestyleProviderCreatesSeparateDetachedVM() throws {
@@ -1087,23 +1086,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     private func decodedSingleEmbeddedStartupScript(_ command: String) -> String {
-        guard let marker = command.range(of: "printf %s ") else {
-            return command
-        }
-        let suffix = command[marker.upperBound...]
-        guard let end = suffix.firstIndex(where: { $0 == " " || $0 == "\n" || $0 == "'" }),
-              end > suffix.startIndex else {
-            return command
-        }
-        let encoded = String(suffix[..<end])
-        guard let data = Data(base64Encoded: encoded),
-              let decoded = String(data: data, encoding: .utf8) else {
-            return command
-        }
-        return decoded
+        SSHStartupCommandTestSupport.decodedScript(in: command) ?? command
     }
 
     private func decodedFirstEmbeddedStartupScript(_ command: String) -> String? {
+        if let script = SSHStartupCommandTestSupport.decodedScript(in: command) {
+            return script
+        }
         for markerText in ["printf %s ", "printf %%s "] {
             guard let marker = command.range(of: markerText) else {
                 continue

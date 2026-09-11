@@ -101,80 +101,6 @@ struct SurfaceResourceGroup: Hashable, Codable, Sendable {
 }
 
 extension SurfaceCatalog {
-    /// Builds the one canonical group for a daemon workspace. A resource is
-    /// repeated once for every tab placement, so opening a workspace cannot
-    /// collapse two tabs that point at the same terminal. Order matches the
-    /// Cloud sidebar: panes in layout order, the shown tab before that pane's
-    /// hidden tabs, then pane-less resources in kind order.
-    func remoteWorkspaceGroup(
-        machine: SurfaceMachineID,
-        workspaceID: String
-    ) throws -> SurfaceResourceGroup {
-        let machineSnapshot = snapshot
-        let machineInfo = machineSnapshot.machines.first { $0.id == machine }
-        var workspace = machineInfo?.remoteWorkspaces?.first { $0.id == workspaceID }
-        let resources = machineSnapshot.resources(on: machine)
-
-        struct Candidate {
-            let placement: SurfaceResourcePlacement
-            let layout: RemoteWorkspacePlacement
-        }
-        let orderedKinds: [SurfaceResourceKind] = [.terminal, .browser, .display]
-        var candidates: [Candidate] = []
-        for kind in orderedKinds {
-            let kindOrder = kind == .terminal ? 0 : (kind == .browser ? 1 : 2)
-            for resource in resources where resource.kind == kind {
-                if let views = resource.remoteViews, !views.isEmpty {
-                    for view in views where view.workspace.id == workspaceID {
-                        workspace = workspace ?? view.workspace
-                        candidates.append(Candidate(
-                            placement: SurfaceResourcePlacement(resource: resource.id, remoteView: view),
-                            layout: RemoteWorkspacePlacement(
-                                screenID: view.screenID,
-                                paneID: view.paneID,
-                                screenIndex: view.screenIndex,
-                                paneIndex: view.paneIndex,
-                                tabIndex: view.index,
-                                focused: view.focused == true,
-                                kindOrder: kindOrder
-                            )
-                        ))
-                    }
-                } else if let resourceWorkspace = resource.remoteWorkspace,
-                          resourceWorkspace.id == workspaceID {
-                    workspace = workspace ?? resourceWorkspace
-                    candidates.append(Candidate(
-                        placement: SurfaceResourcePlacement(
-                            resource: resource.id,
-                            remoteWorkspaceID: workspaceID
-                        ),
-                        layout: RemoteWorkspacePlacement(kindOrder: kindOrder)
-                    ))
-                }
-            }
-        }
-
-        guard let workspace else {
-            throw SurfaceCatalogError.destinationNotFound(
-                "workspace \(workspaceID) on \(machine.rawValue)"
-            )
-        }
-        guard !candidates.isEmpty else {
-            throw SurfaceCatalogError.destinationNotFound(
-                "workspace \(workspaceID) on \(machine.rawValue) has no projectable resources"
-            )
-        }
-        let layout = RemoteWorkspaceLayout(placements: candidates.map(\.layout))
-        let placements = layout.rows.flatMap { row in
-            [candidates[row.shownIndex].placement] + row.hiddenIndices.map { candidates[$0].placement }
-        }
-        return SurfaceResourceGroup(
-            title: workspace.name,
-            placements: placements,
-            remoteWorkspaceID: workspaceID
-        )
-    }
-
     /// Finds the pane hosting a panel, so the rest of a group can join it as tabs.
     typealias PaneLookup = @MainActor (_ panelID: UUID, _ workspaceID: UUID) -> String?
 
@@ -277,6 +203,11 @@ extension SurfaceCatalog {
         }
         let workspaceID = member.remoteWorkspaceID ?? fallbackWorkspaceID
         guard let workspaceID else { return nil }
+        if member.resource.kind == .display, projections.contains(where: {
+            $0.resource == member.resource && $0.remoteTabID == nil && $0.remoteWorkspaceID == workspaceID
+        }) {
+            return nil
+        }
         return try remoteView(for: member.resource, workspaceID: workspaceID)
     }
 
