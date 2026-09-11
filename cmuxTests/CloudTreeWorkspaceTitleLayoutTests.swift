@@ -1,23 +1,26 @@
 import AppKit
-import Testing
+import XCTest
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
 
-@Suite("Cloud tree workspace title layout")
-struct CloudTreeWorkspaceTitleLayoutTests {
-    @Test("the hosted row content reaches the cell trailing edge")
-    func displayHostUsesVisibleCellWidth() throws {
+@MainActor
+final class CloudTreeWorkspaceTitleLayoutTests: XCTestCase {
+    func testDisplayHostUsesVisibleCellWidth() {
         let cell = CloudTreeCellView(frame: NSRect(x: 0, y: 0, width: 700, height: 24))
-        let host = try #require(cell.subviews.compactMap { $0 as? CloudTreePassthroughHostingView }.first)
-        let trailingConstraint = try #require(cell.constraints.first { constraint in
+        guard let host = cell.subviews.compactMap({ $0 as? CloudTreePassthroughHostingView }).first else {
+            return XCTFail("Cloud tree cell should host a pass-through display view")
+        }
+        guard let trailingConstraint = cell.constraints.first(where: { constraint in
             (constraint.firstItem as? NSView) === host
                 && constraint.firstAttribute == .trailing
                 && (constraint.secondItem as? NSView) === cell
-        })
+        }) else {
+            return XCTFail("Cloud tree display host should have a trailing constraint")
+        }
 
-        #expect(trailingConstraint.relation == .equal)
+        XCTAssertEqual(trailingConstraint.relation, .equal)
     }
 }
