@@ -97,6 +97,33 @@ SWIFT
 
 python3 scripts/lint_auxiliary_window_close_shortcuts.py --repo-root "$TMP_DIR"
 
+# A bare identifier assignment is ambiguous without Swift type information.
+# In particular, NSView also inherits an identifier property, so the lint must
+# ignore the bare form instead of treating every view identifier as a window.
+cat > "$TMP_DIR/Sources/cmuxApp.swift" <<'SWIFT'
+private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
+    "cmux.settings",
+]
+SWIFT
+
+cat > "$TMP_DIR/Sources/NewWindow.swift" <<'SWIFT'
+import AppKit
+
+final class IdentifiedView: NSView {
+    init() {
+        super.init(frame: .zero)
+        identifier = NSUserInterfaceItemIdentifier("cmux.viewIdentifier")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+SWIFT
+
+python3 scripts/lint_auxiliary_window_close_shortcuts.py --repo-root "$TMP_DIR"
+
 # Identifier assigned through a named constant (the MobilePairingWindowController
 # pattern) must be resolved and enforced, not silently skipped.
 cat > "$TMP_DIR/Sources/cmuxApp.swift" <<'SWIFT'

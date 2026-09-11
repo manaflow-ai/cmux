@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue 7503 verification</title>
+<style>
+  :root { color-scheme: light dark; font: 15px/1.38 system-ui, sans-serif; }
+  body { margin: 0; background: Canvas; color: CanvasText; }
+  main { max-width: 1050px; margin: 0 auto; padding: 24px; }
+  h1 { margin: 0 0 10px; font-size: 24px; }
+  p { margin: 7px 0; }
+  .claim { padding: 10px 12px; border-left: 4px solid #e58b20; background: color-mix(in srgb, #e58b20 12%, Canvas); }
+  ol { margin: 14px 0 0; padding-left: 24px; display: grid; gap: 10px; }
+  li > strong { display: block; }
+  pre { margin: 5px 0; padding: 8px 10px; overflow-x: auto; border-radius: 6px; background: color-mix(in srgb, CanvasText 8%, Canvas); font: 12px/1.35 ui-monospace, monospace; }
+  .verdict { margin-top: 14px; padding-top: 10px; border-top: 1px solid color-mix(in srgb, CanvasText 20%, Canvas); }
+</style>
+<main>
+  <h1>Human verification for #7503</h1>
+  <p>WebAuthn now reuses one hidden, noninteractive, non-restorable fallback panel instead of returning a fresh default window for every presentation callback. The fallback is retired when authorization finishes, the browser tears down, or its coordinator is destroyed.</p>
+  <p class="claim"><strong>Unverified claim:</strong> after hours or days of real use—including sleep/wake and external-display reconnects—the tagged build no longer accumulates the reporter’s untitled WindowServer entries or level-20 click-intercepting dead zones.</p>
+  <ol>
+    <li>
+      <strong>Build and launch the isolated app; verify its socket.</strong>
+      <pre>if [[ -x ./scripts/reload-cloud.sh ]]; then
+  ./scripts/reload-cloud.sh --tag sym7503
+else
+  ./scripts/reload.sh --tag sym7503
+fi
+open -b com.cmuxterm.app.debug.sym7503
+CMUX_TAG=sym7503 scripts/cmux-debug-cli.sh list-workspaces</pre>
+      Correct: the command lists the tagged app’s workspaces. Bug/blocker: the socket is absent or the command targets a different build.
+    </li>
+    <li>
+      <strong>Capture a quiet WindowServer baseline and save it.</strong>
+      <pre>CMUX_PID="$(pgrep -n -f 'DerivedData/cmux-sym7503.*cmux DEV sym7503.app')"
+xcrun swift -e 'import CoreGraphics; import Foundation; let p=Int32(CommandLine.arguments[1])!; let a=CGWindowListCopyWindowInfo([.optionAll],kCGNullWindowID) as! [[String:Any]]; for w in a where (w[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == p { print("id=\(w[kCGWindowNumber as String] ?? -1) layer=\(w[kCGWindowLayer as String] ?? -1) alpha=\(w[kCGWindowAlpha as String] ?? -1) onscreen=\(w[kCGWindowIsOnscreen as String] ?? false) title=\(w[kCGWindowName as String] ?? "") bounds=\(w[kCGWindowBounds as String] ?? [:])") }' "$CMUX_PID" | tee /tmp/sym7503-windows-before.txt</pre>
+      Correct: only intentional windows appear; record the count. The old bug included hidden untitled 800×600 windows and opaque on-screen untitled level-20 rectangles.
+    </li>
+    <li>
+      <strong>Run real WebAuthn ceremonies before and between every lifecycle cycle.</strong>
+      In a cmux browser pane, open <code>https://webauthn.io</code>, enter a unique username, click <strong>Register</strong>, and complete the macOS passkey sheet. Click <strong>Authenticate</strong> ten times, completing some sheets and canceling others. Repeat those authentications before and after each of these cycles: create/close many browser and terminal panes while hovering sidebar controls, sleep/wake the Mac, and disconnect/reconnect an external display. Close and reopen the WebAuthn browser pane between some runs so browser teardown is exercised. After each quiet period, re-run the step-2 dump to <code>/tmp/sym7503-windows-after-N.txt</code>.
+      Correct: every WebAuthn sheet completes or cancels normally, transient entries disappear, and the quiet count returns to the intentional-window baseline. Bug: a ceremony hangs or untitled entries grow monotonically, especially level 20 at full alpha or hidden 800×600/display-strip windows.
+    </li>
+    <li>
+      <strong>Check click routing, then clean up.</strong>
+      Put another app beneath every suspicious rectangle from the dump and click it.
+      Correct: the underlying app receives the click; cmux does not activate. Bug: a visually empty rectangle intercepts the click and activates cmux.
+      <pre>pkill -f 'DerivedData/cmux-sym7503'</pre>
+    </li>
+  </ol>
+  <p class="verdict"><strong>The fix is disproven by:</strong> any repeatable growth in quiet untitled-window count, any surviving opaque on-screen level-20 rectangle without visible cmux UI, or any such rectangle stealing a click from another app. Attach the before/after dumps and the exact hover/display cycle.</p>
+</main>
+</html>
