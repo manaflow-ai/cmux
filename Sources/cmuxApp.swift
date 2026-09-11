@@ -325,6 +325,8 @@ struct cmuxApp: App {
             sidebarState: sidebarState,
             settingsRuntime: settingsRuntime,
             auth: authComposition,
+            cloudWorkspaceCoordinator: Self.makeCloudWorkspaceCoordinator(auth: authComposition),
+            newMachineSheetPresenter: NewMachineSheetPresenter.shared,
             automationEngine: automationEngine,
             computerUseRuntimeService: computerUseRuntimeService
         )

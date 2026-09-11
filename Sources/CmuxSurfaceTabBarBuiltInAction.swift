@@ -138,18 +138,8 @@ extension CmuxSurfaceTabBarBuiltInAction {
         case .newBrowser: return .openBrowser
         case .splitRight: return .splitRight
         case .splitDown: return .splitDown
-        case .newAgentChat, .cloudVM, .newCloudMachine, .mobileConnect, .newSimulator: return nil
+        case .newAgentChat, .cloudVM, .mobileConnect, .newSimulator: return nil
         }
     }
 
-    /// Actions that launch a `cmux vm …` process and return before the
-    /// workspace exists in `tabs[]`, so callers that need the created
-    /// workspace (workspace-group placement) must observe the tab list.
-    var createsWorkspaceAsynchronously: Bool {
-        switch self {
-        case .cloudVM, .newCloudWorkspace: return true
-        case .newCloudMachine: return false
-        case .newWorkspace, .newAgentChat, .mobileConnect, .newTerminal, .newBrowser, .newSimulator, .splitRight, .splitDown: return false
-        }
-    }
 }

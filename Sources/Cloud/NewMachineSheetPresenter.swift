@@ -7,7 +7,7 @@ import SwiftUI
 /// the request to ``MachineCreateCoordinator`` and the sheet ends at once, so
 /// the window is modal for exactly as long as the person is choosing.
 @MainActor
-final class NewMachineSheetPresenter {
+final class NewMachineSheetPresenter: NewMachineSheetPresenting {
     static let shared = NewMachineSheetPresenter()
 
     private var sheetWindow: NSWindow?

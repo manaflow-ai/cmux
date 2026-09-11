@@ -1,3 +1,4 @@
+import CmuxCloudMachines
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxAuthRuntime
@@ -834,6 +835,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // machine lives in `FocusedNotificationMarker` (behind `FocusedNotificationResolving`).
     /// The auth graph, injected once via `configure(...)` at app startup.
     private(set) var auth: MacAuthComposition?
+    var cloudWorkspaceCoordinator: CloudWorkspaceCoordinator?
+    var newMachineSheetPresenter: (any NewMachineSheetPresenting)?
+    var cloudWorkspaceTasks: [UUID: Task<Void, Never>] = [:]
+    private var cloudWorkspaceAvailabilityObservers: [NSObjectProtocol] = []
     /// Strongly-held observers for every active TabManager. Each observer owns
     /// Combine subscriptions that publish workspace.updated to mobile clients.
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
@@ -2423,6 +2428,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        cancelCloudWorkspaceOperations()
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
         // Backstop for any terminate path that did not route through
         // prepareForConfirmedAppTermination(). Normal confirmed termination has already
@@ -2504,6 +2510,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sidebarState: SidebarState,
         settingsRuntime: SettingsRuntime,
         auth: MacAuthComposition,
+        cloudWorkspaceCoordinator: CloudWorkspaceCoordinator,
+        newMachineSheetPresenter: any NewMachineSheetPresenting,
         automationEngine: AutomationEngine,
         computerUseRuntimeService: ComputerUseRuntimeService
     ) {
@@ -2523,6 +2531,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
         self.auth = auth
+        self.cloudWorkspaceCoordinator = cloudWorkspaceCoordinator
+        self.newMachineSheetPresenter = newMachineSheetPresenter
+        for observer in cloudWorkspaceAvailabilityObservers { NotificationCenter.default.removeObserver(observer) }
+        cloudWorkspaceAvailabilityObservers = [RightSidebarBetaFeatureSettings.didChangeNotification, .cmuxFeatureFlagsDidChange, .cmuxCloudVMAccessDidEnd].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+                MainActor.assumeIsolated {
+                    if notification.name == .cmuxCloudVMAccessDidEnd || self?.cloudWorkspaceCoordinator?.isAvailable != true {
+                        self?.cancelCloudWorkspaceOperations()
+                    }
+                }
+            }
+        }
         self.computerUseRuntimeService = computerUseRuntimeService
         (settingsRuntime.hostActions as? HostSettingsActions)?.setRunComputerUseOnboardingAction { [weak self] startingPoint in
             self?.computerUseUXCoordinator.presentOnboardingFromSettings(startingAt: startingPoint)
@@ -9252,6 +9272,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // entrypoint; remove only Cloud VM records while preserving local tab
         // history for the next account/session.
         ClosedItemHistoryStore.shared.removeManagedCloudVMRecords()
+        cancelCloudWorkspaceOperations()
         cloudTunnelAccessDidEnd()
         NotificationCenter.default.post(name: .cmuxCloudVMAccessDidEnd, object: self)
         _ = saveSessionSnapshotUsingCachedProcessDetectedIndexes(
@@ -9352,7 +9373,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     newlyCreatedId = id
                     break
                 }
-                if newlyCreatedId == nil, case .builtIn(let builtIn) = action.action, builtIn.createsWorkspaceAsynchronously {
+                if newlyCreatedId == nil, case .builtIn(.cloudVM) = action.action {
                     asyncObserverId = ConfiguredGroupActionAsyncWorkspaceObserver.install(
                         tabManager: context.tabManager,
                         groupId: workspaceGroupTarget.groupId,
@@ -9382,7 +9403,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             context: context,
             preferredWindow: window,
             onExecuted: onExecuted,
-            onCloudVMCompletion: onCloudVMCompletion
+            onCloudVMCompletion: onCloudVMCompletion,
+            onCloudWorkspaceCreated: { [weak self, weak context] workspaceID in
+                guard let context else { return }
+                if let target = workspaceGroupTarget {
+                    context.tabManager.addWorkspaceToGroup(
+                        workspaceId: workspaceID, groupId: target.groupId,
+                        placement: target.placement, referenceWorkspaceId: target.referenceWorkspaceId
+                    )
+                }
+                self?.closeInitialWorkspaceIfNeeded(initialWorkspaceId: initialWorkspaceId, in: context)
+            }
         )
     }
 
@@ -17574,7 +17605,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // it, so watch the tab list while the process is running. Process
             // completion also reports the created workspace UUID as an exact
             // fallback.
-            if newlyCreatedId == nil, case .builtIn(let builtIn) = action.action, builtIn.createsWorkspaceAsynchronously {
+            if newlyCreatedId == nil, case .builtIn(.cloudVM) = action.action {
                 asyncObserverId = ConfiguredGroupActionAsyncWorkspaceObserver.install(
                     tabManager: tabManager,
                     groupId: groupId,
@@ -17608,7 +17639,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             context: context,
             preferredWindow: resolvedWindow(for: context),
             onExecuted: onExecuted,
-            onCloudVMCompletion: onCloudVMCompletion
+            onCloudVMCompletion: onCloudVMCompletion,
+            onCloudWorkspaceCreated: { [weak tabManager] workspaceID in
+                tabManager?.addWorkspaceToGroup(
+                    workspaceId: workspaceID, groupId: groupId,
+                    placement: groupPlacement, referenceWorkspaceId: anchorId
+                )
+            }
         )
         // executeConfiguredCmuxAction returns false when the action couldn't
         // start at all (unresolved action ref, missing target terminal, etc.).
@@ -17631,7 +17668,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         context: MainWindowContext,
         preferredWindow: NSWindow? = nil,
         onExecuted: (() -> Void)? = nil,
-        onCloudVMCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil
+        onCloudVMCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil,
+        onCloudWorkspaceCreated: ((UUID) -> Void)? = nil
     ) -> Bool {
         switch action.action {
         case .builtIn(let builtIn):
@@ -17653,7 +17691,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             case .newCloudWorkspace:
                 let didStart = performNewCloudWorkspaceOnDefaultMachineAction(
                     preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
-                    debugSource: "configured.cmux.newCloudWorkspace"
+                    debugSource: "configured.cmux.newCloudWorkspace",
+                    onCreated: onCloudWorkspaceCreated
                 )
                 if didStart { onExecuted?() }
                 return didStart
