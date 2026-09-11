@@ -28,6 +28,12 @@ public struct MobileTerminalRenderGridRevisionTracker: Sendable {
         }
     }
 
+    private enum ObservationComparison: Equatable {
+        case same
+        case different
+        case incomplete
+    }
+
     /// Depth-independent identity used for both observations and emissions.
     /// Scrollback depth is a request option, not a terminal mutation, so the
     /// history payload is compared by its newest-row overlap instead of its
@@ -74,29 +80,33 @@ public struct MobileTerminalRenderGridRevisionTracker: Sendable {
         /// present, aligns rows across captures; legacy frames align them from
         /// the newest row backwards.
         static func == (lhs: Self, rhs: Self) -> Bool {
-            lhs.columns == rhs.columns
-                && lhs.rows == rhs.rows
-                && lhs.activeScreen == rhs.activeScreen
-                && lhs.anchor == rhs.anchor
-                && lhs.rowSignatures == rhs.rowSignatures
-                && lhs.historyRows == rhs.historyRows
-                && lhs.rowSpaceRevision == rhs.rowSpaceRevision
-                && lhs.cursor == rhs.cursor
-                && lhs.terminalForeground == rhs.terminalForeground
-                && lhs.terminalBackground == rhs.terminalBackground
-                && lhs.terminalCursorColor == rhs.terminalCursorColor
-                && lhs.terminalTheme == rhs.terminalTheme
-                && lhs.terminalConfigTheme == rhs.terminalConfigTheme
-                && lhs.historyPayloadMatches(rhs)
+            lhs.comparison(to: rhs) == .same
         }
 
-        private func historyPayloadMatches(_ other: Self) -> Bool {
-            guard scrollbackRows > 0, other.scrollbackRows > 0 else {
-                // A zero-depth capture carries no history payload; it cannot
-                // contradict a deeper capture when the absolute history
-                // identity above is unchanged.
-                return true
+        func comparison(to other: Self) -> ObservationComparison {
+            guard columns == other.columns,
+                  rows == other.rows,
+                  activeScreen == other.activeScreen,
+                  anchor == other.anchor,
+                  rowSignatures == other.rowSignatures,
+                  historyRows == other.historyRows,
+                  rowSpaceRevision == other.rowSpaceRevision,
+                  cursor == other.cursor,
+                  terminalForeground == other.terminalForeground,
+                  terminalBackground == other.terminalBackground,
+                  terminalCursorColor == other.terminalCursorColor,
+                  terminalTheme == other.terminalTheme,
+                  terminalConfigTheme == other.terminalConfigTheme else {
+                return .different
             }
+
+            guard scrollbackRows > 0, other.scrollbackRows > 0 else {
+                // A zero-depth capture carries no history payload. It cannot
+                // prove that a deeper capture is unchanged, so retain the
+                // deeper baseline without advancing the polling revision.
+                return scrollbackRows == other.scrollbackRows ? .same : .incomplete
+            }
+
             let lhsBase = historyBase
             let rhsBase = other.historyBase
             let lower = max(lhsBase, rhsBase)
@@ -104,13 +114,23 @@ public struct MobileTerminalRenderGridRevisionTracker: Sendable {
                 lhsBase + scrollbackRows - 1,
                 rhsBase + other.scrollbackRows - 1
             )
-            guard lower <= upper else { return true }
+            guard lower <= upper else { return .same }
             let lhsRows = rowSignaturesByAbsoluteRow(base: lhsBase)
             let rhsRows = other.rowSignaturesByAbsoluteRow(base: rhsBase)
             for row in lower...upper where lhsRows[row] != rhsRows[row] {
-                return false
+                return .different
             }
-            return true
+            return .same
+        }
+
+        func retainingMoreCompleteHistory(comparedTo other: Self) -> Self {
+            if scrollbackRows != other.scrollbackRows {
+                return scrollbackRows > other.scrollbackRows ? self : other
+            }
+            if scrollbackSignatures.count != other.scrollbackSignatures.count {
+                return scrollbackSignatures.count > other.scrollbackSignatures.count ? self : other
+            }
+            return self
         }
 
         private var historyBase: Int {
@@ -222,12 +242,26 @@ public struct MobileTerminalRenderGridRevisionTracker: Sendable {
     private mutating func updateObservationRevision(
         _ content: ObservationContent
     ) {
-        guard lastObservationContent != content else { return }
+        guard let previous = lastObservationContent else {
+            advanceRenderRevision()
+            lastObservationContent = content
+            return
+        }
+
+        switch previous.comparison(to: content) {
+        case .different:
+            advanceRenderRevision()
+            lastObservationContent = content
+        case .same, .incomplete:
+            lastObservationContent = previous.retainingMoreCompleteHistory(comparedTo: content)
+        }
+    }
+
+    private mutating func advanceRenderRevision() {
         renderRevision &+= 1
         if renderRevision == 0 {
             renderRevision = 1
         }
-        lastObservationContent = content
     }
 
 }
