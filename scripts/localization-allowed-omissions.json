@@ -3035,5 +3035,35 @@
   "cloudTree.device.build.tagged": {
     "source": "%1$@ · %2$@",
     "class": "technical"
+  },
+  "settings.computers.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Established German technical status term; translated entry is required."
+    }
+  },
+  "cloudTree.device.presence.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Established German technical status term; translated entry is required."
+    }
+  },
+  "cloudTree.device.presence.online": {
+    "source": "Online",
+    "identityLocales": {
+      "de": "Established German technical status term; translated entry is required."
+    }
+  },
+  "cloudTree.device.status.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Established German technical status term; translated entry is required."
+    }
+  },
+  "cloudTree.device.status.online": {
+    "source": "Online",
+    "identityLocales": {
+      "de": "Established German technical status term; translated entry is required."
+    }
   }
 }
