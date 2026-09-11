@@ -36077,6 +36077,13 @@ export default CMUXSessionRestore;
             } else {
                 nestedPromptStop = false
             }
+            guard !promptStopRejectedByLifecycleFence else {
+                // The same session now owns a newer prompt. Reject every
+                // completion projection, including the deferred Feed fallback.
+                didSendFeedTelemetry = true
+                print("{}")
+                return
+            }
             // The prompt-depth record is a compatibility ownership signal for
             // legacy same-session nested turns. Do not settle the Codex ledger
             // for that nested callback; otherwise the later parent Stop would
@@ -36818,6 +36825,14 @@ export default CMUXSessionRestore;
                         deadline: cursorShellNeedsApproval ? cursorShellDeadline : nil
                     )
                 }
+            }
+
+            guard !notificationPromptStopRejectedByLifecycleFence else {
+                // A rejected completion is not a fact about the current prompt
+                // in either the journal or Feed, even when its route is valid.
+                didSendFeedTelemetry = true
+                print("{}")
+                return
             }
 
             // Journal the semantic event: the native hook event name maps
