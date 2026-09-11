@@ -1,3 +1,8 @@
+#if canImport(Darwin)
+public import Darwin
+#else
+public import Glibc
+#endif
 public import Foundation
 
 /// Configuration for ``HerdrNestedTopologyClient``.
@@ -28,6 +33,12 @@ public struct HerdrNestedTopologyClientConfiguration: Hashable, Sendable {
     public var reconnectMaxBackoff: Duration
     /// Topology validation limits applied after wire decoding.
     public var topologyLimits: NestedTopologyLimits
+    /// Required UID of the process serving the socket, checked on the connected
+    /// descriptor via peer credentials rather than on the socket path.
+    ///
+    /// Defaults to the process effective UID, matching
+    /// ``NestedUnixSocketEndpointValidator/expectedOwnerUID``.
+    public var expectedPeerUID: uid_t
 
     /// Creates a Herdr client configuration with production defaults.
     public init(
@@ -42,7 +53,8 @@ public struct HerdrNestedTopologyClientConfiguration: Hashable, Sendable {
         maxEventUTF8ByteCount: Int = 256 * 1024,
         reconnectInitialBackoff: Duration = .milliseconds(100),
         reconnectMaxBackoff: Duration = .seconds(5),
-        topologyLimits: NestedTopologyLimits = .default
+        topologyLimits: NestedTopologyLimits = .default,
+        expectedPeerUID: uid_t = geteuid()
     ) {
         self.socketPath = socketPath
         self.attachmentID = attachmentID
@@ -56,5 +68,6 @@ public struct HerdrNestedTopologyClientConfiguration: Hashable, Sendable {
         self.reconnectInitialBackoff = reconnectInitialBackoff
         self.reconnectMaxBackoff = reconnectMaxBackoff
         self.topologyLimits = topologyLimits
+        self.expectedPeerUID = expectedPeerUID
     }
 }

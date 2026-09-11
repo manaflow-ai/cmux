@@ -20,7 +20,17 @@ final class HerdrUnixSocketConnection: @unchecked Sendable {
     }
 
     /// Connects to `path` with a wall-clock deadline.
-    init(path: String, timeout: Duration) throws {
+    ///
+    /// - Parameter expectedPeerUID: When set, the connected peer's credentials are read
+    ///   from the socket descriptor itself (`LOCAL_PEERCRED`) and the connection is
+    ///   rejected unless the peer runs as this UID.
+    ///
+    ///   This is the only identity check that binds to the descriptor actually connected.
+    ///   `lstat` before and after `connect` inspects the *path*, so a swap in that window
+    ///   leaves both checks looking at the original inode while the descriptor talks to
+    ///   the replacement. `fstat` on a connected `AF_UNIX` descriptor cannot close that
+    ///   gap: it reports an anonymous socket inode, never the bound path's inode.
+    init(path: String, timeout: Duration, expectedPeerUID: uid_t? = nil) throws {
         if path.isEmpty || path.utf8.count >= 104 {
             throw NestedTopologyProviderError.transport("invalid unix socket path length")
         }
@@ -111,7 +121,56 @@ final class HerdrUnixSocketConnection: @unchecked Sendable {
             socklen_t(MemoryLayout<Int32>.size)
         )
         #endif
+
+        if let expectedPeerUID {
+            let peerUID: uid_t
+            do {
+                peerUID = try Self.peerUID(of: socketFD)
+            } catch {
+                DarwinClose(socketFD)
+                throw error
+            }
+            guard peerUID == expectedPeerUID else {
+                DarwinClose(socketFD)
+                throw NestedEndpointSecurityError.wrongOwner(
+                    expected: UInt32(expectedPeerUID),
+                    actual: UInt32(peerUID)
+                )
+            }
+        }
+
         self.fd = socketFD
+    }
+
+    /// Effective UID of the process on the other end of a connected Unix-domain socket.
+    ///
+    /// Read from the descriptor, so it describes the peer actually connected rather than
+    /// whatever the socket path happens to point at now.
+    static func peerUID(of descriptor: Int32) throws -> uid_t {
+        #if canImport(Darwin)
+        var credentials = xucred()
+        var length = socklen_t(MemoryLayout<xucred>.size)
+        let result = withUnsafeMutablePointer(to: &credentials) { pointer in
+            getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERCRED, pointer, &length)
+        }
+        guard result == 0 else {
+            throw NestedTopologyProviderError.transport("LOCAL_PEERCRED failed errno=\(errno)")
+        }
+        guard credentials.cr_version == XUCRED_VERSION else {
+            throw NestedTopologyProviderError.transport("unexpected xucred version")
+        }
+        return credentials.cr_uid
+        #else
+        var credentials = ucred()
+        var length = socklen_t(MemoryLayout<ucred>.size)
+        let result = withUnsafeMutablePointer(to: &credentials) { pointer in
+            getsockopt(descriptor, SOL_SOCKET, SO_PEERCRED, pointer, &length)
+        }
+        guard result == 0 else {
+            throw NestedTopologyProviderError.transport("SO_PEERCRED failed errno=\(errno)")
+        }
+        return credentials.uid
+        #endif
     }
 
     deinit {
