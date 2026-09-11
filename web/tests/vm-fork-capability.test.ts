@@ -8,9 +8,9 @@ import { VmBillingGateway, noOpVmBillingGateway } from "../services/vms/billingG
 import { VmDatabaseError, VmOperationUnsupportedError, VmProviderOperationError } from "../services/vms/errors";
 import {
   VmProviderGateway,
-  VmProviderGatewayLive,
   type VmProviderGatewayShape,
 } from "../services/vms/providerGateway";
+import { vmCapabilitiesFor } from "../services/vms/drivers";
 import { VmRepository, type VmRepositoryShape } from "../services/vms/repository";
 import { forkVm } from "../services/vms/workflows";
 
@@ -21,7 +21,7 @@ import { forkVm } from "../services/vms/workflows";
 // the snapshot-based path a few lines below was unreachable.
 describe("forkVm provider capability", () => {
   test("the live gateway reports no native fork for freestyle", () => {
-    expect(VmProviderGatewayLive.capabilities?.("freestyle").fork).toBe(false);
+    expect(vmCapabilitiesFor("freestyle").fork).toBe(false);
   });
 
   test("a provider without native fork takes the snapshot path, never the fork call", async () => {
@@ -53,8 +53,8 @@ describe("forkVm provider capability", () => {
       getStatus: () => Effect.succeed("running" as const),
       resume: () => Effect.fail(new Error("unused") as never),
       // Mirrors VmProviderGatewayLive: the function exists, the driver does not.
-      fork: (providerId: "freestyle", vmId: string) =>
-        Effect.sync(() => calls.push("fork")).pipe(
+      fork: (providerId: "freestyle", _vmId: string) =>
+        Effect.sync(() => { void _vmId; calls.push("fork"); }).pipe(
           Effect.flatMap(() =>
             Effect.fail(new VmProviderOperationError({
               provider: providerId,
