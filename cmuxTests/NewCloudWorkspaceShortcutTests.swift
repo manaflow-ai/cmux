@@ -18,9 +18,10 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
     private final class RecordingSheetPresenter: NewMachineSheetPresenting {
         private(set) var presentCount = 0
         private(set) var lastWindow: NSWindow?
-        func presentNewMachineFetchingPlan(preferredWindow: NSWindow?) {
+        func presentNewMachineFetchingPlan(preferredWindow: NSWindow?) async -> UUID? {
             presentCount += 1
             lastWindow = preferredWindow
+            return nil
         }
     }
 
@@ -34,6 +35,9 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
             createWorkspace: { _, _ in UUID() }
         )
         appDelegate.newMachineSheetPresenter = presenter
+        appDelegate.cloudWorkspaceOperationController = CloudWorkspaceOperationController(
+            isAvailable: { CloudMachinesFeature.isEnabled && signedIn }
+        )
     }
 
     private var originalFileStore: KeyboardShortcutSettingsFileStore?
@@ -281,7 +285,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
 
     // MARK: Shared action path
 
-    func testPlusMenuMachineRowExecutesSharedAction() throws {
+    func testPlusMenuMachineRowExecutesSharedAction() async throws {
         setCloudMachinesEnabled(true)
         let presenter = RecordingSheetPresenter()
 
@@ -295,6 +299,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         let context = try XCTUnwrap(appDelegate.mainWindowContexts.values.first { $0.windowId == windowId })
 
         XCTAssertTrue(appDelegate.executeConfiguredCmuxAction(.builtIn(.newCloudMachine), context: context))
+        await appDelegate.cloudWorkspaceOperationController?.waitForPendingOperations()
         XCTAssertEqual(presenter.presentCount, 1)
     }
 
@@ -338,7 +343,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
             keyCode: 16 // kVK_ANSI_Y
         ))
         XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
-        for task in appDelegate.cloudWorkspaceTasks.values { await task.value }
+        await appDelegate.cloudWorkspaceOperationController?.waitForPendingOperations()
         XCTAssertEqual(presenter.presentCount, 0)
 #else
         throw XCTSkip("Shortcut routing seam is DEBUG-only")
@@ -372,11 +377,11 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
             ))
         }
 
-        _ = appDelegate.debugHandleCustomShortcut(event: try keyEvent("y", [.command], 16))
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: try keyEvent("y", [.command], 16)))
         XCTAssertEqual(presenter.presentCount, 0, "the old ⌘Y binding must not fire after a rebind")
 
         XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: try keyEvent("K", [.command, .shift], 40)))
-        for task in appDelegate.cloudWorkspaceTasks.values { await task.value }
+        await appDelegate.cloudWorkspaceOperationController?.waitForPendingOperations()
         XCTAssertEqual(presenter.presentCount, 0)
 #else
         throw XCTSkip("Shortcut routing seam is DEBUG-only")

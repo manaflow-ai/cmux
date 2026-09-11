@@ -193,6 +193,35 @@ final class MachineCreateCoordinator {
         return true
     }
 
+    /// Starts a create and awaits the local workspace receipt emitted by the launcher.
+    /// The existing coordinator remains the single pending-row mutation path.
+    func startAndAwaitWorkspaceID(
+        _ request: MachineCreateRequest,
+        cancellableLaunch: @escaping CancellableLaunch
+    ) async -> UUID? {
+        await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { continuation in
+                var resumed = false
+                let started = start(request, cancellableLaunch: { arguments, progress, completion in
+                    cancellableLaunch(arguments, progress) { result in
+                        completion(result)
+                        guard !resumed else { return }
+                        resumed = true
+                        continuation.resume(returning: result.succeeded ? result.workspaceId : nil)
+                    }
+                })
+                if !started, !resumed {
+                    resumed = true
+                    continuation.resume(returning: nil)
+                }
+            }
+        }, onCancel: {
+            Task { @MainActor [weak self] in
+                self?.cancelAllForAuthTransition()
+            }
+        })
+    }
+
     /// Re-runs a failed create with its original arguments and launcher.
     /// Only failures that created nothing are retriable; a "created but
     /// opening failed" outcome never comes back here (a second run would mint

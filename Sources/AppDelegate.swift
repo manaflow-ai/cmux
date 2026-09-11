@@ -836,9 +836,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// The auth graph, injected once via `configure(...)` at app startup.
     private(set) var auth: MacAuthComposition?
     var cloudWorkspaceCoordinator: CloudWorkspaceCoordinator?
+    var cloudWorkspaceOperationController: CloudWorkspaceOperationController?
     var newMachineSheetPresenter: (any NewMachineSheetPresenting)?
-    var cloudWorkspaceTasks: [UUID: Task<Void, Never>] = [:]
-    private var cloudWorkspaceAvailabilityObservers: [NSObjectProtocol] = []
     /// Strongly-held observers for every active TabManager. Each observer owns
     /// Combine subscriptions that publish workspace.updated to mobile clients.
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
@@ -2427,7 +2426,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        cancelCloudWorkspaceOperations()
+        cloudWorkspaceOperationController?.cancelAll()
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
         // Backstop for any terminate path that did not route through
         // prepareForConfirmedAppTermination(). Normal confirmed termination has already
@@ -2510,6 +2509,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         settingsRuntime: SettingsRuntime,
         auth: MacAuthComposition,
         cloudWorkspaceCoordinator: CloudWorkspaceCoordinator,
+        cloudWorkspaceOperationController: CloudWorkspaceOperationController,
         newMachineSheetPresenter: any NewMachineSheetPresenting,
         automationEngine: AutomationEngine,
         computerUseRuntimeService: ComputerUseRuntimeService
@@ -2531,17 +2531,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.sidebarState = sidebarState
         self.auth = auth
         self.cloudWorkspaceCoordinator = cloudWorkspaceCoordinator
+        self.cloudWorkspaceOperationController = cloudWorkspaceOperationController
         self.newMachineSheetPresenter = newMachineSheetPresenter
-        for observer in cloudWorkspaceAvailabilityObservers { NotificationCenter.default.removeObserver(observer) }
-        cloudWorkspaceAvailabilityObservers = [RightSidebarBetaFeatureSettings.didChangeNotification, .cmuxFeatureFlagsDidChange, .cmuxCloudVMAccessDidEnd].map { name in
-            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
-                MainActor.assumeIsolated {
-                    if notification.name == .cmuxCloudVMAccessDidEnd || self?.cloudWorkspaceCoordinator?.isAvailable != true {
-                        self?.cancelCloudWorkspaceOperations()
-                    }
-                }
-            }
-        }
         self.computerUseRuntimeService = computerUseRuntimeService
         (settingsRuntime.hostActions as? HostSettingsActions)?.setRunComputerUseOnboardingAction { [weak self] startingPoint in
             self?.computerUseUXCoordinator.presentOnboardingFromSettings(startingAt: startingPoint)
@@ -9271,7 +9262,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // entrypoint; remove only Cloud VM records while preserving local tab
         // history for the next account/session.
         ClosedItemHistoryStore.shared.removeManagedCloudVMRecords()
-        cancelCloudWorkspaceOperations()
+        cloudWorkspaceOperationController?.cancelAll()
         cloudTunnelAccessDidEnd()
         NotificationCenter.default.post(name: .cmuxCloudVMAccessDidEnd, object: self)
         _ = saveSessionSnapshotUsingCachedProcessDetectedIndexes(
@@ -9403,16 +9394,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             preferredWindow: window,
             onExecuted: onExecuted,
             onCloudVMCompletion: onCloudVMCompletion,
-            onCloudWorkspaceCreated: { [weak self, weak context] workspaceID in
-                guard let context else { return }
-                if let target = workspaceGroupTarget {
-                    context.tabManager.addWorkspaceToGroup(
-                        workspaceId: workspaceID, groupId: target.groupId,
-                        placement: target.placement, referenceWorkspaceId: target.referenceWorkspaceId
-                    )
-                }
-                self?.closeInitialWorkspaceIfNeeded(initialWorkspaceId: initialWorkspaceId, in: context)
-            }
+            destination: CloudWorkspaceGroupDestination(
+                tabManager: context.tabManager,
+                groupId: workspaceGroupTarget?.groupId,
+                placement: workspaceGroupTarget?.placement ?? groupPlacement,
+                referenceWorkspaceId: workspaceGroupTarget?.referenceWorkspaceId ?? anchorId,
+                initialWorkspaceId: initialWorkspaceId
+            )
         )
     }
 
@@ -17606,12 +17594,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             preferredWindow: resolvedWindow(for: context),
             onExecuted: onExecuted,
             onCloudVMCompletion: onCloudVMCompletion,
-            onCloudWorkspaceCreated: { [weak tabManager] workspaceID in
-                tabManager?.addWorkspaceToGroup(
-                    workspaceId: workspaceID, groupId: groupId,
-                    placement: groupPlacement, referenceWorkspaceId: anchorId
-                )
-            }
+            destination: CloudWorkspaceGroupDestination(
+                tabManager: tabManager,
+                groupId: groupId,
+                placement: groupPlacement,
+                referenceWorkspaceId: anchorId,
+                initialWorkspaceId: nil
+            )
         )
         // executeConfiguredCmuxAction returns false when the action couldn't
         // start at all (unresolved action ref, missing target terminal, etc.).
@@ -17635,7 +17624,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         preferredWindow: NSWindow? = nil,
         onExecuted: (() -> Void)? = nil,
         onCloudVMCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil,
-        onCloudWorkspaceCreated: ((UUID) -> Void)? = nil
+        destination: CloudWorkspaceGroupDestination? = nil
     ) -> Bool {
         switch action.action {
         case .builtIn(let builtIn):
@@ -17658,7 +17647,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let didStart = performNewCloudWorkspaceOnDefaultMachineAction(
                     preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
                     debugSource: "configured.cmux.newCloudWorkspace",
-                    onCreated: onCloudWorkspaceCreated
+                    destination: destination
                 )
                 if didStart { onExecuted?() }
                 return didStart
@@ -17666,7 +17655,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let didStart = performNewCloudWorkspaceAction(
                     tabManager: context.tabManager,
                     preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
-                    debugSource: "configured.cmux.newCloudMachine"
+                    debugSource: "configured.cmux.newCloudMachine",
+                    destination: destination
                 )
                 if didStart { onExecuted?() }
                 return didStart

@@ -98,22 +98,53 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
         present(model: model, preferredWindow: preferredWindow)
     }
 
-    /// Entrypoints with no panel state on hand (command palette) read the
-    /// fleet page first for the plan meter and sizes. A nil page (signed
-    /// out, unreachable) still opens the sheet; the CLI reports the real error
-    /// through the Machines panel when the person creates.
-    func presentNewMachineFetchingPlan(preferredWindow: NSWindow?) {
-        Task { @MainActor in
-            var page: VMListPage?
-            if let client = VMClient.shared {
-                page = try? await client.listPage()
-            }
-            presentNewMachine(
-                plan: MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits),
-                memoryOptionsMb: page?.limits?.memoryOptionsMb ?? [],
-                preferredWindow: preferredWindow
-            )
+    /// Presents provisioning and awaits the exact local workspace receipt.
+    /// Synchronous menu callers own the surrounding Task; the machine coordinator
+    /// continues to publish the pending machine row while this method awaits.
+    func presentNewMachineFetchingPlan(preferredWindow: NSWindow?) async -> UUID? {
+        guard !isPresenting else {
+            (hostWindow ?? sheetWindow)?.makeKeyAndOrderFront(nil)
+            return nil
         }
+        let coordinator = MachineCreateCoordinator.shared
+        var page: VMListPage?
+        if let client = VMClient.shared { page = try? await client.listPage() }
+        let plan = MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits)
+        let memoryOptionsMb = page?.limits?.memoryOptionsMb ?? []
+        var requestContinuation: CheckedContinuation<MachineCreateRequest?, Never>?
+        let request = await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { (continuation: CheckedContinuation<MachineCreateRequest?, Never>) in
+                requestContinuation = continuation
+                let model = NewMachineModel(
+                    mode: .newMachine,
+                    plan: plan,
+                    memoryOptionsMb: memoryOptionsMb,
+                    submit: { request in
+                        requestContinuation?.resume(returning: request)
+                        requestContinuation = nil
+                        return true
+                    }
+                )
+                present(model: model, preferredWindow: preferredWindow)
+            }
+        }, onCancel: {
+            Task { @MainActor [weak self] in
+                requestContinuation?.resume(returning: nil)
+                requestContinuation = nil
+                self?.dismiss()
+            }
+        })
+        guard let request else { return nil }
+        return await coordinator.startAndAwaitWorkspaceID(request, cancellableLaunch: { arguments, progress, completion in
+            var cancellation: CloudVMActionLauncher.CancellationHandle?
+            let didStart = MachineRowActions.openNewMachine(
+                arguments: arguments,
+                onOutput: progress,
+                onCompletion: { result in completion(result) },
+                onCancellationReady: { cancellation = $0 }
+            )
+            return didStart ? cancellation : nil
+        })
     }
 
     private func dismiss() {
