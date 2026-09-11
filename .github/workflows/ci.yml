@@ -485,6 +485,10 @@ jobs:
       - name: Web tests
         run: bun run test
 
+      - name: Configure Ubuntu APT sources for HTTPS
+        working-directory: ${{ github.workspace }}
+        run: sudo python3 scripts/ci/ubuntu-apt-https.py
+
       - name: Install browser for instant navigation tests
         run: bunx playwright install --with-deps chromium
 
