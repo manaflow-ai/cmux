@@ -23,3 +23,11 @@ for (const platform of ["darwin", "linux"] as const) {
   deepStrictEqual(env, once);
 }
 console.log("PATH environment assertions passed");
+
+for (const platform of ["darwin", "linux"] as const) {
+  for (const inherited of [{ HOME: "/home/test" }, { HOME: "/home/test", PATH: "" }]) {
+    const env: Record<string, string> = { ...inherited };
+    initializeAgentPath(env, platform);
+    strictEqual(env.PATH, "/home/test/.local/bin:/home/test/.bun/bin:/opt/homebrew/bin:/usr/local/bin");
+  }
+}
