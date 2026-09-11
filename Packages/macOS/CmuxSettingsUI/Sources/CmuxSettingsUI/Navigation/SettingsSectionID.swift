@@ -80,6 +80,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .cloudMachines: return "cloud"
         case .networking: return "network"
         case .sidebarAppearance: return "sidebar.left"
+        case .chrome: return "paintpalette.fill"
         case .customSidebars: return "sidebar.squares.left"
         case .betaFeatures: return "exclamationmark.triangle"
         case .automation: return "wand.and.sparkles"
@@ -108,6 +109,11 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .cloudMachines: return "cloud machines vm virtual machine persistent computer plan upgrade fleet sandbox"
         case .networking: return "iroh relay server private network tailscale vpn direct peer custom provider region"
         case .sidebarAppearance: return "sidebar details branches material terminal background"
+        case .chrome:
+            return String(
+                localized: "settings.search.alias.section.chrome",
+                defaultValue: "chrome app chrome theme palette colors accent surfaces text borders agent status catppuccin gruvbox solarized overrides"
+            )
         case .customSidebars: return "custom sidebars vibe swift json interpreted renderer in-process remote worker isolated"
         case .betaFeatures: return "beta experimental unstable feed dock right sidebar"
         case .automation: return "socket integrations hooks ports claude cursor gemini naming auto naming workspace tabs"
