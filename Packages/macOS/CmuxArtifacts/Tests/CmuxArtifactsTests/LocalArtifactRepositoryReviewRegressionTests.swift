@@ -23,6 +23,32 @@ struct LocalArtifactRepositoryReviewRegressionTests {
         )
     }
 
+    @Test("explicit ingest promotes a deduplicated automatic record to user-owned")
+    func explicitIngestPromotesExistingRecord() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repo = LocalArtifactRepository(rootURL: root, configuration: .init(retentionAge: 0))
+        let ownership = ArtifactOwnership(workspaceID: "w")
+
+        let automatic = try await repo.ingest(
+            terminalURL("https://example.com/promote", ownership: ownership),
+            capturedAt: Date(timeIntervalSince1970: 10)
+        )
+        #expect(!automatic.isUserOwned)
+
+        let explicit = try await repo.ingest(
+            .init(
+                input: .url("https://example.com/promote"),
+                ownership: ownership,
+                source: .manual,
+                authorization: .explicitUser
+            ),
+            capturedAt: Date(timeIntervalSince1970: 20)
+        )
+        #expect(explicit.id == automatic.id)
+        #expect(explicit.isUserOwned)
+    }
+
     @Test("ignore-list entries match host:port, wildcard suffixes, and bracketed IPv6 keys")
     func ignoreListMatchesHostPortEntries() async throws {
         let root = try temporaryRoot()

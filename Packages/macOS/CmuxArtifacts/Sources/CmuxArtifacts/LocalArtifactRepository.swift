@@ -96,7 +96,8 @@ public actor LocalArtifactRepository: ArtifactStoring {
                 source: request.source,
                 lastSeenAt: capturedAt,
                 title: request.title,
-                metadata: prepared.metadata
+                metadata: prepared.metadata,
+                userOwned: request.authorization == .explicitUser
             )
             recordsByIdentity[prepared.identityKey] = merged
             try enforceRetention(at: capturedAt)

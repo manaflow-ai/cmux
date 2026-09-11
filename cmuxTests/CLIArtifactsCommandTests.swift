@@ -96,6 +96,79 @@ struct CLIArtifactsCommandTests {
     }
 
     @Test
+    func artifactSearchDoesNotTreatOptionValuesAsPositionalQuery() throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(
+            for: CLIArtifactsCommandBundleMarker.self
+        )
+        let socketPath = "/tmp/cmux-artifacts-cli-\(UUID().uuidString.prefix(8)).sock"
+        let workspaceID = UUID().uuidString
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            responses: [#"{"ok":true,"result":{"artifacts":[]}}"#]
+        )
+        defer { responder.stop() }
+
+        let result = try runCLI(
+            cliPath: cliPath,
+            arguments: [
+                "--socket", socketPath,
+                "artifacts", "search",
+                "--workspace", workspaceID,
+                "--limit", "10",
+                "--json",
+            ],
+            environment: cleanEnvironment()
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+        #expect(result.status == 0, Comment(rawValue: result.diagnostics))
+        let requests = try responder.receivedRequests.map { request in
+            try #require(
+                JSONSerialization.jsonObject(with: Data(request.utf8)) as? [String: Any]
+            )
+        }
+        let searchRequest = try #require(requests.first)
+        let params = try #require(searchRequest["params"] as? [String: Any])
+        #expect(params["query"] as? String == "")
+        #expect(params["limit"] as? Int == 10)
+        #expect(params["workspace_id"] as? String == workspaceID)
+    }
+
+    @Test
+    func artifactAddPrintsCreatedArtifactInHumanOutput() throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(
+            for: CLIArtifactsCommandBundleMarker.self
+        )
+        let socketPath = "/tmp/cmux-artifacts-cli-\(UUID().uuidString.prefix(8)).sock"
+        let workspaceID = UUID().uuidString
+        let artifactID = UUID().uuidString
+        let response = #"{"ok":true,"result":{"artifact":{"id":""#
+            + artifactID
+            + #"","kind":"url","value":"https://example.com/artifact"}}}"#
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            responses: [response]
+        )
+        defer { responder.stop() }
+
+        let result = try runCLI(
+            cliPath: cliPath,
+            arguments: [
+                "--socket", socketPath,
+                "artifacts", "add",
+                "--workspace", workspaceID,
+                "--url", "https://example.com/artifact",
+            ],
+            environment: cleanEnvironment()
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+        #expect(result.status == 0, Comment(rawValue: result.diagnostics))
+        #expect(result.stdout.contains(artifactID), Comment(rawValue: result.diagnostics))
+        #expect(result.stdout.contains("https://example.com/artifact"), Comment(rawValue: result.diagnostics))
+    }
+
+    @Test
     func artifactSearchRejectsProjectScopeWithoutProject() throws {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(
             for: CLIArtifactsCommandBundleMarker.self

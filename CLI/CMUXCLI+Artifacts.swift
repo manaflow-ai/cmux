@@ -33,7 +33,7 @@ extension CMUXCLI {
             payload = try client.sendV2(method: "artifacts.list", params: params)
         case "search":
             let query = optionValue(commandArgs, name: "--query")
-                ?? commandArgs.dropFirst().first(where: { !$0.hasPrefix("--") })
+                ?? artifactsSearchPositionalQuery(commandArgs)
                 ?? ""
             params["query"] = query
             if let limit = optionValue(commandArgs, name: "--limit"), let value = Int(limit) { params["limit"] = value }
@@ -87,6 +87,14 @@ extension CMUXCLI {
                     ?? "-"
                 print("\(kind)\t\(id)\t\(value)")
             }
+        } else if let artifact = payload["artifact"] as? [String: Any] {
+            let id = artifact["id"] as? String ?? "-"
+            let kind = artifact["kind"] as? String ?? "artifact"
+            let value = (artifact["value"] as? String)
+                ?? (artifact["file_name"] as? String)
+                ?? (artifact["content"] as? String)?.split(separator: "\n").first.map(String.init)
+                ?? "-"
+            print("\(kind)\t\(id)\t\(value)")
         } else if let workspaceID = payload["workspace_id"] as? String {
             print(String.localizedStringWithFormat(
                 String(localized: "artifacts.cli.openedWorkspace", defaultValue: "Artifacts opened in workspace %@"),
@@ -94,6 +102,38 @@ extension CMUXCLI {
             ))
         }
         _ = idFormat
+    }
+
+    private func artifactsSearchPositionalQuery(_ commandArgs: [String]) -> String? {
+        let optionsWithValues: Set<String> = [
+            "--workspace",
+            "--project",
+            "--scope",
+            "--window",
+            "--query",
+            "--limit",
+        ]
+        var index = 1
+        var reachedEndOfOptions = false
+        while index < commandArgs.count {
+            let argument = commandArgs[index]
+            if reachedEndOfOptions {
+                return argument
+            }
+            if argument == "--" {
+                reachedEndOfOptions = true
+                index += 1
+                continue
+            }
+            guard argument.hasPrefix("--") else { return argument }
+            let optionName = argument.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? argument
+            if optionsWithValues.contains(optionName), !argument.contains("=") {
+                index += 2
+            } else {
+                index += 1
+            }
+        }
+        return nil
     }
 
     /// Resolves the catalog scope for one artifacts request.

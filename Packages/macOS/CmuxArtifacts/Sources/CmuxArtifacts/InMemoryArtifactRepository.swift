@@ -48,7 +48,13 @@ public actor InMemoryArtifactRepository: ArtifactStoring {
             }
         }()
         if let existing = recordsByIdentity[prepared.1] {
-            let merged = existing.merging(source: request.source, lastSeenAt: capturedAt, title: request.title, metadata: request.metadata)
+            let merged = existing.merging(
+                source: request.source,
+                lastSeenAt: capturedAt,
+                title: request.title,
+                metadata: request.metadata,
+                userOwned: request.authorization == .explicitUser
+            )
             recordsByIdentity[prepared.1] = merged
             enforceRetention(at: capturedAt)
             notify(.records([merged.id]))

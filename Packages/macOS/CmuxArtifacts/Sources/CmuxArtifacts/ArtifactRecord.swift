@@ -117,7 +117,8 @@ public struct ArtifactRecord: Codable, Equatable, Hashable, Sendable, Identifiab
         lastSeenAt: Date,
         title: String?,
         metadata: [String: String],
-        occurrenceIncrement: Int = 1
+        occurrenceIncrement: Int = 1,
+        userOwned: Bool = false
     ) -> ArtifactRecord {
         ArtifactRecord(
             id: id,
@@ -135,7 +136,7 @@ public struct ArtifactRecord: Codable, Equatable, Hashable, Sendable, Identifiab
             title: title ?? self.title,
             metadata: self.metadata.merging(Self.boundedMetadata(metadata)) { current, _ in current },
             representation: representation,
-            isUserOwned: isUserOwned
+            isUserOwned: isUserOwned || userOwned
         )
     }
 
