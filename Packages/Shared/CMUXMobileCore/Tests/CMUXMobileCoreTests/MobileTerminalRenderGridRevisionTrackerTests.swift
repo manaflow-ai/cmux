@@ -187,6 +187,28 @@ private struct RenderGridRevisionFixture {
     #expect(shallow.emissionRevision == 0)
 }
 
+@Test func zeroDepthObservationsRetainHistoryForLaterChanges() throws {
+    func replay(history: String?) throws -> MobileTerminalRenderGridFrame {
+        try MobileTerminalRenderGridFrame(
+            surfaceID: "surface-a",
+            stateSeq: 1,
+            columns: 8,
+            rows: 1,
+            rowSpans: [.init(row: 0, column: 0, text: "visible")],
+            scrollbackRows: history == nil ? 0 : 1,
+            scrollbackSpans: history.map { [.init(row: 0, column: 0, text: $0)] } ?? []
+        )
+    }
+
+    var tracker = MobileTerminalRenderGridRevisionTracker(renderEpoch: "epoch-1")
+    let live = tracker.observe(fullFrame: try replay(history: nil))
+    let firstHistory = tracker.observe(fullFrame: try replay(history: "before"))
+    let changedHistory = tracker.observe(fullFrame: try replay(history: "after"))
+
+    #expect(firstHistory.renderRevision == live.renderRevision)
+    #expect(changedHistory.renderRevision == firstHistory.renderRevision + 1)
+}
+
 @Test func emittedReplaysWithDifferentScrollbackKeepThePollingTokenStable() throws {
     func replay(scrollbackRows: Int) throws -> MobileTerminalRenderGridFrame {
         try MobileTerminalRenderGridFrame(
