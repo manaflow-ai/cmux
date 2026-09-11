@@ -54,6 +54,9 @@ extension TerminalController {
             scrollbackLines: scrollbackLines,
             anchor: anchor
         )?.frame else { return nil }
+        // The phone applies the decorated frame, so record its identity and
+        // adopt its baseline with that same theme/config state. Using the raw
+        // snapshot would turn the next event into another full theme replay.
         frame = MobileTerminalRenderObserver.shared.decorateReplayFrame(
             frame,
             advanceThemeRevision: recordProducerIdentity

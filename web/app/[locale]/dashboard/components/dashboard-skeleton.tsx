@@ -13,7 +13,19 @@ export function DashboardSkeleton({ variant = "cards" }: DashboardSkeletonProps)
         <SkeletonBlock className="mt-2 h-4 w-32" />
         <SkeletonBlock className="mt-2 h-3 w-full max-w-lg" />
       </div>
+      <DashboardSectionSkeleton variant={variant} />
+    </div>
+  );
+}
 
+/**
+ * The placeholder for one private section below a page header that is
+ * already on screen. Pages render this as the Suspense fallback around the
+ * part of the tree that reads the session.
+ */
+export function DashboardSectionSkeleton({ variant = "cards" }: DashboardSkeletonProps) {
+  return (
+    <div aria-hidden="true" data-testid="dashboard-section-skeleton">
       {variant === "rows" ? (
         <div className="border border-border">
           {Array.from({ length: 5 }).map((_, index) => (

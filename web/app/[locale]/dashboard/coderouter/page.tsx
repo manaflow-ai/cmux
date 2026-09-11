@@ -33,16 +33,14 @@ import {
 } from "../components/coderouter-accounts";
 import { listAccounts as listNativeAccounts } from "@/services/coderouter/repository";
 import { CoderouterPageHeader } from "../components/dashboard-page-headers";
+import { DashboardSectionSkeleton } from "../components/dashboard-skeleton";
 import { withPrioritySpan } from "@/services/telemetry";
 import { withStackAuthSpan } from "@/services/auth/stackTelemetry";
 
-// The page resolves as one server render. Keeping the auth and data work in
-// this Suspense boundary prevents a header-only response while the private
-// content is still loading.
+// The header is part of the static shell and is prefetched with it. The
+// session, team grants, and team data stream in behind the section boundary,
+// so nothing private is ever part of a prefetch.
 export const instant = true;
-// The page reads the live browser session and team grants. Do not put a
-// private RSC response in the prefetch cache before the click is authorized.
-export const prefetch = "force-disabled";
 
 type PageProps = {
   params: Promise<{ locale: string }>;
@@ -83,9 +81,11 @@ export default function CoderouterOverviewPage(props: PageProps) {
   }
 
   return (
-    <Suspense fallback={null}>
-      <ResolvedCoderouterOverviewContent {...props} />
-    </Suspense>
+    <CoderouterPageFrame>
+      <Suspense fallback={<DashboardSectionSkeleton />}>
+        <ResolvedCoderouterOverviewContent {...props} />
+      </Suspense>
+    </CoderouterPageFrame>
   );
 }
 
@@ -115,9 +115,9 @@ export async function CoderouterOverviewContent({
   locale: string;
   team?: string;
 }) {
-  // Authorization and the access token are resolved for every request. There
-  // is no private page cache here, so a prefetched response cannot outlive a
-  // team grant or expose management controls after revocation.
+  // Team grants and the access token are resolved for every request, so a
+  // revoked membership stops showing team data on the next render. The
+  // static header above this section is what keeps the navigation instant.
   const requestHeaders = await headers();
   const authorization = await withPrioritySpan(
     "cmux-coderouter-dashboard",
@@ -171,7 +171,7 @@ export async function CoderouterOverviewContent({
   ]);
 
   return (
-    <CoderouterPageFrame>
+    <>
       <TeamMetricsSection
         locale={locale}
         metrics={metrics}
@@ -193,7 +193,7 @@ export async function CoderouterOverviewContent({
         teamName={selectedTeam.name}
         usage={machineUsage}
       />
-    </CoderouterPageFrame>
+    </>
   );
 }
 
@@ -277,11 +277,7 @@ async function resolveCoderouterAuthorization(
 
 async function renderCoderouterLoadError(locale: string) {
   const t = await getTranslations({ locale, namespace: "dashboard.coderouterAccounts" });
-  return (
-    <CoderouterPageFrame>
-      <StatusPanel title={t("pageErrorTitle")} body={t("pageErrorBody")} />
-    </CoderouterPageFrame>
-  );
+  return <StatusPanel title={t("pageErrorTitle")} body={t("pageErrorBody")} />;
 }
 
 function CoderouterPageFrame({ children }: React.PropsWithChildren) {

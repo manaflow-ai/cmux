@@ -3,6 +3,19 @@ import { NextRequest } from "next/server";
 import middleware from "../proxy";
 
 describe("coderouter middleware", () => {
+  test.each(["en", "ja"])("serves the OAuth handoff in %s without a locale rewrite or sign-in", (locale) => {
+    const response = middleware(
+      new NextRequest("https://cmux.com/coderouter/auth/complete", {
+        headers: { host: "cmux.com", "accept-language": locale },
+      }),
+    );
+
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("x-middleware-request-x-next-intl-locale")).toBe(locale);
+  });
+
   test("serves the same dedicated landing page on cmux.com/coderouter", () => {
     const response = middleware(
       new NextRequest("https://cmux.com/coderouter", {
@@ -54,7 +67,12 @@ describe("coderouter middleware", () => {
     const response = middleware(
       new NextRequest(
         "https://cmux.com/ja/dashboard/coderouter?team=team-1",
-        { headers: { "x-cmux-dashboard-return-path": "/pricing" } },
+        {
+          headers: {
+            "x-cmux-dashboard-return-path": "/pricing",
+            cookie: `stack-refresh-${process.env.NEXT_PUBLIC_STACK_PROJECT_ID ?? "test-project"}=refresh-token`,
+          },
+        },
       ),
     );
 
@@ -66,7 +84,10 @@ describe("coderouter middleware", () => {
   test("keeps a dashboard POST body while adding the auth return path", async () => {
     const request = new NextRequest("https://cmux.com/en/dashboard/testflight", {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        cookie: `stack-refresh-${process.env.NEXT_PUBLIC_STACK_PROJECT_ID ?? "test-project"}=refresh-token`,
+      },
       body: "action=join",
     });
     const response = middleware(request);

@@ -125,6 +125,15 @@ public struct ManagedDevicePolicy: Sendable {
         forcedObject(forUserDefaultsKey: key.rawValue) != nil
     }
 
+    /// The effective value of an allow-style key
+    /// (``ManagedDevicePolicyKey/allowStyleKeys``): `false` only when a
+    /// profile forces the Boolean `false`. An absent key, a forced `true`, or
+    /// a forced non-Boolean value all leave the capability allowed, mirroring
+    /// how ``isEnforced(_:)`` treats malformed values for `Disable…` keys.
+    public func isAllowed(_ key: ManagedDevicePolicyKey) -> Bool {
+        forcedBool(for: key) != false
+    }
+
     /// A stream that yields once per ``didChangeNotification`` post. Elements
     /// are `Void`, so SwiftUI `.task` loops can iterate it under strict
     /// concurrency; the underlying observer is removed when the stream's
