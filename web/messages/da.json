@@ -1147,7 +1147,9 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebarAppearance": "Indstillinger for sidepanelets udseende fra Indstillinger > Sidepanelets udseende.",
         "sidebar": {
+          "fontFamily": "Skrifttypefamilie til teksten i det indbyggede sidepanel. Lad feltet være tomt for at bruge systemets skrifttype.",
           "notificationMessageLineLimit": "Det maksimale antal linjer, der vises for den seneste notifikation under hver arbejdsområdetitel.",
           "rightMaxWidth": "Maksimal bredde i punkter for højre sidepanel. Hvis den udelades, bruges den indbyggede dynamiske grænse."
         },

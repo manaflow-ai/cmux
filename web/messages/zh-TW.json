@@ -1147,7 +1147,9 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebarAppearance": "設定 > 側邊欄外觀中的側邊欄外觀設定。",
         "sidebar": {
+          "fontFamily": "內建側邊欄文字使用的字型系列。留空則使用系統字型。",
           "notificationMessageLineLimit": "每個工作區標題下方顯示的最新通知最大行數。",
           "rightMaxWidth": "右側邊欄的最大寬度（點）。省略時使用內建動態上限。"
         },

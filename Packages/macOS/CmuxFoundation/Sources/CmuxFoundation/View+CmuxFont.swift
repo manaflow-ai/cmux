@@ -5,7 +5,7 @@ public extension View {
     /// Injects the global font magnification percent into this view subtree.
     ///
     /// Apply this once near each cmux-owned SwiftUI root. Descendant
-    /// ``cmuxFont(size:weight:design:monospacedDigit:)`` calls then read the
+    /// ``cmuxFont(size:weight:design:family:monospacedDigit:)`` calls then read the
     /// environment value without creating per-label `UserDefaults`
     /// subscriptions.
     ///
@@ -26,6 +26,7 @@ public extension View {
         size: CGFloat,
         weight: Font.Weight = .regular,
         design: Font.Design = .default,
+        family: String? = nil,
         monospacedDigit: Bool = false
     ) -> some View {
         modifier(
@@ -33,6 +34,7 @@ public extension View {
                 baseSize: size,
                 weight: weight,
                 design: design,
+                family: family,
                 monospacedDigit: monospacedDigit
             )
         )
@@ -50,12 +52,14 @@ public extension View {
         _ style: Font.TextStyle,
         weight: Font.Weight? = nil,
         design: Font.Design = .default,
+        family: String? = nil,
         monospacedDigit: Bool = false
     ) -> some View {
         cmuxFont(
             size: CmuxTextStyleMetrics(style: style).baseSize,
             weight: weight ?? CmuxTextStyleMetrics(style: style).baseWeight,
             design: design,
+            family: family,
             monospacedDigit: monospacedDigit
         )
     }

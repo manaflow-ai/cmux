@@ -364322,6 +364322,57 @@
         }
       }
     },
+    "settings.sidebarAppearance.fontFamily": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar Font Family"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのフォントファミリー"
+          }
+        }
+      }
+    },
+    "settings.sidebarAppearance.fontFamily.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System font"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システムフォント"
+          }
+        }
+      }
+    },
+    "settings.sidebarAppearance.fontFamily.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use an installed font family for built-in workspace titles, details, and badges. Leave empty for the system font."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内蔵サイドバーのワークスペースのタイトル、詳細、バッジにインストール済みのフォントファミリーを使います。空のままにするとシステムフォントを使います。"
+          }
+        }
+      }
+    },
     "settings.sidebarAppearance.fontSize": {
       "extractionState": "manual",
       "localizations": {

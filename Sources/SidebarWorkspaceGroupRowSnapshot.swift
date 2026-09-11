@@ -32,6 +32,7 @@ struct SidebarWorkspaceGroupRowSnapshot {
     let shortcutHintXOffset: Double
     let shortcutHintYOffset: Double
     let fontScale: CGFloat
+    let sidebarFontFamily: String?
     let cwdContextMenuItems: [CmuxResolvedConfigContextMenuItem]
     let newWorkspacePlacement: WorkspaceGroupNewPlacement?
     let rowSpacing: CGFloat

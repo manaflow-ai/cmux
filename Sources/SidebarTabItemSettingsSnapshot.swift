@@ -13,6 +13,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let sidebarShortcutHintYOffset: Double
     let alwaysShowShortcutHints: Bool
     let sidebarFontScale: CGFloat
+    let sidebarFontFamily: String?
     let showsGitBranch: Bool
     let branchDirectory: SidebarWorkspaceBranchDirectorySettings
     let details: SidebarWorkspaceDetailSettings
@@ -40,6 +41,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     ) {
         let settings = UserDefaultsSettingsClient(defaults: defaults)
         let sidebar = SidebarCatalogSection()
+        let sidebarAppearance = SidebarAppearanceCatalogSection()
         let workspaceColors = WorkspaceColorsCatalogSection()
         let betaFeatures = BetaFeaturesCatalogSection()
         branchDirectory = SidebarWorkspaceBranchDirectorySettings(defaults: defaults)
@@ -49,6 +51,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
         alwaysShowShortcutHints = ShortcutHintDebugSettings(defaults: defaults).alwaysShowHints
         sidebarFontScale = SidebarTabItemFontScale.scale(for: sidebarFontSize)
+        sidebarFontFamily = CmuxFontFamily.normalizedName(settings.value(for: sidebarAppearance.fontFamily))
         showsGitBranch = Self.bool(defaults: defaults, key: "sidebarShowGitBranch", defaultValue: true)
         showsGitBranchIcon = Self.bool(defaults: defaults, key: "sidebarShowGitBranchIcon", defaultValue: false)
         makesPullRequestsClickable = settings.value(for: sidebar.makePullRequestsClickable)

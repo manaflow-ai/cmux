@@ -2,6 +2,14 @@ import Foundation
 
 /// Settings under the dotted-id prefix `sidebarAppearance.*`.
 public struct SidebarAppearanceCatalogSection: SettingCatalogSection {
+    /// Optional family name used by all built-in sidebar text.
+    /// Empty means the platform's system sidebar font.
+    public let fontFamily = DefaultsKey<String>(
+        id: "sidebarAppearance.fontFamily",
+        defaultValue: "",
+        userDefaultsKey: "sidebarFontFamily"
+    )
+
     public let matchTerminalBackground = DefaultsKey<Bool>(
         id: "sidebarAppearance.matchTerminalBackground",
         defaultValue: false,

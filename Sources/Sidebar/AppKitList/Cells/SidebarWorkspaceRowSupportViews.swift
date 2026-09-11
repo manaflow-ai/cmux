@@ -288,12 +288,12 @@ final class SidebarRowIconTextLine: NSView {
             if icon.hasPrefix("emoji:") {
                 iconLabel.isHidden = false
                 iconLabel.stringValue = String(icon.dropFirst("emoji:".count))
-                iconLabel.font = .systemFont(ofSize: model.scaled(9))
+                iconLabel.font = CmuxFontResolver.appKitFont(family: model.settings.sidebarFontFamily, size: model.scaled(9))
                 iconSize = model.scaled(9) + 3
             } else if icon.hasPrefix("text:") {
                 iconLabel.isHidden = false
                 iconLabel.stringValue = String(icon.dropFirst("text:".count))
-                iconLabel.font = .systemFont(ofSize: model.scaled(8), weight: .semibold)
+                iconLabel.font = CmuxFontResolver.appKitFont(family: model.settings.sidebarFontFamily, size: model.scaled(8), weight: .semibold)
                 iconLabel.textColor = color
                 iconSize = model.scaled(8) + 3
             } else {
@@ -308,7 +308,7 @@ final class SidebarRowIconTextLine: NSView {
                 }
             }
         }
-        let font = NSFont.systemFont(ofSize: model.scaled(10))
+        let font = CmuxFontResolver.appKitFont(family: model.settings.sidebarFontFamily, size: model.scaled(10))
         if entry.format == .markdown {
             markdownTextView.isHidden = false
             markdownTextView.configure(
@@ -380,7 +380,7 @@ final class SidebarRowIconTextLine: NSView {
         iconView.contentTintColor = color
         iconSize = model.scaled(8) + 4
         textView.stringValue = log.message
-        textView.font = .systemFont(ofSize: model.scaled(10))
+        textView.font = CmuxFontResolver.appKitFont(family: model.settings.sidebarFontFamily, size: model.scaled(10))
         textView.textColor = palette.secondary(0.8)
         needsLayout = true
     }
@@ -398,7 +398,7 @@ final class SidebarRowIconTextLine: NSView {
         iconLabel.isHidden = true
         iconSize = 0
         stacked = content.stacked && content.branch != nil && !content.directoryCandidates.isEmpty
-        let font = NSFont.monospacedSystemFont(ofSize: model.scaled(10), weight: .regular)
+        let font = CmuxFontResolver.appKitFont(family: model.settings.sidebarFontFamily, size: model.scaled(10), monospaced: true)
         let color = palette.secondary(0.75)
         pendingCandidates = content.directoryCandidates
         if stacked {
@@ -541,7 +541,7 @@ final class SidebarRowPullRequestLine: NSView {
         onOpen: @escaping () -> Void
     ) {
         let color = palette.secondary(0.75)
-        let font = NSFont.systemFont(ofSize: model.scaled(10), weight: .semibold)
+        let font = CmuxFontResolver.appKitFont(family: model.settings.sidebarFontFamily, size: model.scaled(10), weight: .semibold)
         iconView.configure(status: display.status, color: color, fontScale: model.fontScale)
         iconSize = SidebarRowPullRequestIconView.size(status: display.status, fontScale: model.fontScale)
         let title = "\(display.label) #\(display.number)"

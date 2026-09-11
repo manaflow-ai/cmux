@@ -1147,7 +1147,9 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebarAppearance": "Impostazioni dell’aspetto della barra laterale in Impostazioni > Aspetto della barra laterale.",
         "sidebar": {
+          "fontFamily": "Famiglia di caratteri utilizzata per il testo della barra laterale integrata. Lascia vuoto per usare il carattere di sistema.",
           "notificationMessageLineLimit": "Numero massimo di righe mostrate per la notifica più recente sotto il titolo di ogni area di lavoro.",
           "rightMaxWidth": "Larghezza massima in punti della barra laterale destra. Se omessa, si applica il limite dinamico integrato."
         },

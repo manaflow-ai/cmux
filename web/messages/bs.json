@@ -1147,7 +1147,9 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebarAppearance": "Postavke izgleda bočne trake iz Postavke > Izgled bočne trake.",
         "sidebar": {
+          "fontFamily": "Porodica fontova za tekst ugrađene bočne trake. Ostavite prazno za sistemski font.",
           "notificationMessageLineLimit": "Maksimalan broj redova prikazanih za najnoviju obavijest ispod naslova svakog radnog prostora.",
           "rightMaxWidth": "Maksimalna širina desne bočne trake u tačkama. Ako se izostavi, primjenjuje se ugrađeno dinamičko ograničenje."
         },
