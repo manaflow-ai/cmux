@@ -102,6 +102,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         weak var containerView: FileExplorerContainerView?
         weak var outlineView: NSOutlineView?
         private var lastRootNodeCount: Int = -1
+        private var lastContentRevision: Int = -1
         private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
@@ -200,9 +201,11 @@ struct FileExplorerPanelView: NSViewRepresentable {
             )
 
             let newCount = store.rootNodes.count
+            let newContentRevision = store.contentRevision
             withProgrammaticOutlineUpdate {
-                if newCount != lastRootNodeCount {
+                if newCount != lastRootNodeCount || newContentRevision != lastContentRevision {
                     lastRootNodeCount = newCount
+                    lastContentRevision = newContentRevision
                     let expandedPaths = store.expandedPaths
                     outlineView.reloadData()
                     restoreExpansionState(expandedPaths, in: outlineView)
@@ -214,11 +217,15 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         private func restoreExpansionState(_ expandedPaths: Set<String>, in outlineView: NSOutlineView) {
-            for row in 0..<outlineView.numberOfRows {
-                guard let node = outlineView.item(atRow: row) as? FileExplorerNode else { continue }
-                if expandedPaths.contains(node.path) && outlineView.isExpandable(node) {
+            // Expanding a row can reveal descendants, so re-read the row count each iteration.
+            var row = 0
+            while row < outlineView.numberOfRows {
+                if let node = outlineView.item(atRow: row) as? FileExplorerNode,
+                   expandedPaths.contains(node.path),
+                   outlineView.isExpandable(node) {
                     outlineView.expandItem(node)
                 }
+                row += 1
             }
         }
 
