@@ -71,7 +71,7 @@ public final class MobileMacListAuthState {
         /// reported version cannot establish compatibility, so it is treated
         /// as possibly too old until a valid hello arrives.
         public var isOutdated: Bool {
-            return evaluateMobileMacVersionCompatibility(
+            return MobileMacVersionCompatibility(
                 appVersion: appVersion,
                 releaseTrack: releaseTrack,
                 stableMinimum: minimumSupportedVersion,
@@ -81,7 +81,7 @@ public final class MobileMacListAuthState {
 
         /// The floor to show in the warning for this row's release lane.
         public var requiredVersionDisplay: String? {
-            evaluateMobileMacVersionCompatibility(
+            MobileMacVersionCompatibility(
                 appVersion: appVersion,
                 releaseTrack: releaseTrack,
                 stableMinimum: minimumSupportedVersion,

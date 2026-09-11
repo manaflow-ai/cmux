@@ -8,31 +8,44 @@ public struct MobileMacVersionCompatibility: Equatable, Sendable {
     /// The selected minimum to display when the Mac is outdated.
     public let requiredVersionDisplay: String?
 
-    /// Creates the shared connection and warning result.
-    public init(isOutdated: Bool, requiredVersionDisplay: String?) {
+    /// Compares a reported Mac version with the stable or nightly floor.
+    public init(
+        appVersion: String?,
+        releaseTrack: String?,
+        stableMinimum: String?,
+        nightlyMinimum: String?
+    ) {
+        let result = mobileMacVersionCompatibility(
+            appVersion: appVersion,
+            releaseTrack: releaseTrack,
+            stableMinimum: stableMinimum,
+            nightlyMinimum: nightlyMinimum
+        )
+        isOutdated = result.isOutdated
+        requiredVersionDisplay = result.requiredVersionDisplay
+    }
+
+    fileprivate init(isOutdated: Bool, requiredVersionDisplay: String?) {
         self.isOutdated = isOutdated
         self.requiredVersionDisplay = requiredVersionDisplay
     }
 }
 
-/// Compares a Mac version with the floor for its release track.
-///
-/// Connection admission and UI warning state use this same comparison. Missing
-/// or malformed Mac versions fail closed when a floor exists.
-public func evaluateMobileMacVersionCompatibility(
+private func mobileMacVersionCompatibility(
     appVersion: String?,
     releaseTrack: String?,
     stableMinimum: String?,
     nightlyMinimum: String?
 ) -> MobileMacVersionCompatibility {
+    let normalizedAppVersion = appVersion?.trimmingCharacters(in: .whitespacesAndNewlines)
     let nightly = releaseTrack?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "nightly"
-        || (releaseTrack == nil && appVersion?.contains("-nightly.") == true)
+        || (releaseTrack == nil && normalizedAppVersion?.contains("-nightly.") == true)
     if nightly {
         guard let nightlyMinimum,
               let required = parseMobileMacNightlyVersion(nightlyMinimum)
         else { return MobileMacVersionCompatibility(isOutdated: false, requiredVersionDisplay: nil) }
-        guard let appVersion,
-              let installed = parseMobileMacNightlyVersion(appVersion)
+        guard let normalizedAppVersion,
+              let installed = parseMobileMacNightlyVersion(normalizedAppVersion)
         else {
             return MobileMacVersionCompatibility(isOutdated: true, requiredVersionDisplay: nightlyMinimum)
         }
@@ -43,9 +56,9 @@ public func evaluateMobileMacVersionCompatibility(
     guard let stableMinimum,
           let required = parseMobileMacNumericVersion(stableMinimum)
     else { return MobileMacVersionCompatibility(isOutdated: false, requiredVersionDisplay: nil) }
-    guard let appVersion,
-          let installed = parseMobileMacNumericVersion(appVersion),
-          !appVersion.contains("-nightly.")
+    guard let normalizedAppVersion,
+          let installed = parseMobileMacNumericVersion(normalizedAppVersion),
+          !normalizedAppVersion.contains("-nightly.")
     else {
         return MobileMacVersionCompatibility(isOutdated: true, requiredVersionDisplay: stableMinimum)
     }
