@@ -305,8 +305,15 @@ import Testing
         }
         #expect(firstRouteReached)
 
+        // An automatic re-entry would join the in-flight attempt; only an
+        // explicit replacement (manual retry, connection-method change)
+        // claims a fresh generation, which is what must abort the first
+        // attempt's route iteration mid-dial.
         let second = Task { @MainActor in
-            await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+            await store.reconnectActiveMacIfAvailable(
+                stackUserID: "user-1",
+                replacesInFlightAttempt: true
+            )
         }
         let secondConnected = await second.value
         factory.releaseHeldConnect()

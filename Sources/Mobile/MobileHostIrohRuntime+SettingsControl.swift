@@ -335,7 +335,8 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                     let expired = await service.restore(
                         accountID: accountID,
                         trustRoot: trustRoot,
-                        now: wakeDate
+                        now: wakeDate,
+                        staleGrace: Self.relayPolicyOutageStaleGrace
                     )
                     try? await self.applyRelayPolicy(expired)
                     relayAuthorityExpired = true
@@ -371,7 +372,8 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                         let expired = await service.restore(
                             accountID: accountID,
                             trustRoot: trustRoot,
-                            now: failureDate
+                            now: failureDate,
+                            staleGrace: Self.relayPolicyOutageStaleGrace
                         )
                         try? await self.applyRelayPolicy(expired)
                         relayAuthorityExpired = true
@@ -412,6 +414,16 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         }
         return now.addingTimeInterval(30)
     }
+
+    /// Bounded staleness for the verified relay policy while the policy
+    /// endpoint is unreachable, mirroring the iOS composition's grace
+    /// (https://github.com/manaflow-ai/cmux/issues/10375). Without it the
+    /// host drops off the relay when its policy lapses during an endpoint
+    /// outage, and every phone dialing this Mac via relay times out even
+    /// though both devices are online. Any successful refresh replaces the
+    /// graced policy immediately; the relay credential's own expiry remains
+    /// the hard authorization floor.
+    nonisolated static let relayPolicyOutageStaleGrace: TimeInterval = 24 * 60 * 60
 
     nonisolated static func shouldDeactivateRelayPolicy(
         policyExpiresAt: Date?,

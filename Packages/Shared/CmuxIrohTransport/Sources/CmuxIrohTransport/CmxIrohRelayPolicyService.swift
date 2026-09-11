@@ -139,12 +139,18 @@ public actor CmxIrohRelayPolicyService {
     }
 
     /// Restores the last-known-good signed policy and account preference.
+    ///
+    /// - Parameter staleGrace: Bounded staleness allowance forwarded to the
+    ///   policy cache so a policy that expired while the policy endpoint is
+    ///   unreachable keeps relay authority instead of emptying every dial
+    ///   plan. `0` preserves strict expiry.
     @discardableResult
     public func restore(
         accountID: String,
         trustRoot: CmxIrohRelayPolicyTrustRoot,
         relayCredential: CmxIrohRelayTokenResponse? = nil,
-        now: Date = Date()
+        now: Date = Date(),
+        staleGrace: TimeInterval = 0
     ) async -> CmxIrohEffectiveRelayPolicy {
         let operation = beginOperation()
         let persisted: CmxIrohPersistedRelayPreference
@@ -175,7 +181,11 @@ public actor CmxIrohRelayPolicyService {
             credentialStore: credentialStore
         )
         if persisted.requested.mode == .custom {
-            let policy = try? await policyCache.load(trustRoot: trustRoot, now: now)
+            let policy = try? await policyCache.load(
+                trustRoot: trustRoot,
+                now: now,
+                staleGrace: staleGrace
+            )
             let resolution = await Resolver.resolve(
                 configuration: persisted.requested,
                 revision: persisted.revision,
@@ -196,7 +206,11 @@ public actor CmxIrohRelayPolicyService {
         }
 
         do {
-            guard let policy = try await policyCache.load(trustRoot: trustRoot, now: now) else {
+            guard let policy = try await policyCache.load(
+                trustRoot: trustRoot,
+                now: now,
+                staleGrace: staleGrace
+            ) else {
                 return publishUnavailable(
                     configuration: persisted.requested,
                     revision: persisted.revision,
