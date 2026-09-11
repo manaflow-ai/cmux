@@ -12984,6 +12984,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     ) -> String? {
         Self.firstNonEmptyPath([
             snapshot.workingDirectory,
+            snapshot.launchCommand?.workingDirectory,
             panelDirectories[panelId],
             terminalPanel(for: panelId)?.requestedWorkingDirectory,
             currentDirectory
