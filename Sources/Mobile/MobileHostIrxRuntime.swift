@@ -5,7 +5,16 @@ import CmuxIrohTransport
 import CmuxIrxTransport
 import CmuxSettings
 import Foundation
+import IrohLib
 import OSLog
+
+private final class MobileHostV2RelayAddressCallback: AddrChangeCallback, Sendable {
+    private let handler: @Sendable () async -> Void
+
+    init(handler: @escaping @Sendable () async -> Void) { self.handler = handler }
+
+    func onChange(addr: EndpointAddr) async throws { await handler() }
+}
 
 /// The sole Mac IROH owner for a selected Stack team and opted-in installation.
 @MainActor
@@ -50,6 +59,9 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     private var activationTask: Task<Void, Never>?
     private var controlTask: Task<Void, Never>?
     private var endpointTask: Task<Void, Never>?
+    private var endpointRefreshPending = false
+    private var relayAddressWatch: WatchHandle?
+    private var relayAddressWatchGeneration: Int?
     private var permissionExpiryTask: Task<Void, Never>?
     private var acceptLoop: Task<Void, Never>?
     private var admission: V2InboundAdmissionAuthority?
@@ -200,9 +212,12 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         let oldControl = controlService
         let oldEndpoint = endpointSupervisor
         let oldRegistry = registry
+        let oldRelayWatch = relayAddressWatch
         activationTask?.cancel(); activationTask = nil
         controlTask?.cancel(); controlTask = nil
         endpointTask?.cancel(); endpointTask = nil
+        endpointRefreshPending = false
+        relayAddressWatch = nil; relayAddressWatchGeneration = nil
         permissionExpiryTask?.cancel(); permissionExpiryTask = nil
         acceptLoop?.cancel(); acceptLoop = nil
         admission = nil; registry = nil; identity = nil
@@ -211,6 +226,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         setSettingsPhase(.idle)
         if publishesPublicHostStatus { MobileHostPublicStatusCache.update(irohIdentity: nil) }
         await oldControl?.stop()
+        await oldRelayWatch?.stop()
         await oldRegistry?.closeAll(code: .hostShutdown)
         await oldEndpoint?.deactivate()
         guard generationToken == token, let scope, isCurrent(token) else { return }
@@ -264,7 +280,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             identityGeneration: restored?.device?.descriptor.identityGeneration ?? 1,
             metadata: V2DeviceMetadata(appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0",
                 capabilities: ["irx-v2"], displayName: Host.current().localizedName ?? "Mac",
-                pairingEnabled: true, platform: .mac, relayURLs: []))
+                pairingEnabled: true, platform: .mac,
+                relayURLs: restored?.device?.descriptor.metadata.relayURLs ?? []))
         let identity = IrxIdentity(privateKeyData: key.secretKey, deviceID: deviceID, appInstanceID: key.endpointID)
         let preferredPort = MobileHostService.configuredPort()
         let supervisor = IrxEndpointSupervisor(configuration: .init(identity: identity, pathMode: Self.pathMode,
@@ -326,7 +343,11 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         if snapshot.cache.authorityRevoked {
             admission.invalidate()
             endpointTask?.cancel(); endpointTask = nil
+            endpointRefreshPending = false
+            let oldRelayWatch = relayAddressWatch
+            relayAddressWatch = nil; relayAddressWatchGeneration = nil
             permissionExpiryTask?.cancel(); permissionExpiryTask = nil
+            await oldRelayWatch?.stop()
             await registry?.closeAll(code: .revoked)
             await endpointSupervisor?.deactivate()
             guard isCurrent(token) else { return }
@@ -353,24 +374,42 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     }
 
     private func requestEndpointReady(token: UUID) {
-        guard isCurrent(token), endpointTask == nil, let supervisor = endpointSupervisor,
+        guard isCurrent(token) else { return }
+        guard endpointTask == nil else { endpointRefreshPending = true; return }
+        guard let supervisor = endpointSupervisor,
               let cache = cachedState, !cache.authorityRevoked,
               Self.pathMode == .directOnly || Self.credentials(cache).contains(where: { $0.isUsable(at: Date()) }) else { return }
         endpointTask = Task { @MainActor [weak self] in
-            defer { if self?.generationToken == token { self?.endpointTask = nil } }
+            defer {
+                if let self, self.generationToken == token {
+                    self.endpointTask = nil
+                    if self.endpointRefreshPending {
+                        self.endpointRefreshPending = false
+                        self.requestEndpointReady(token: token)
+                    }
+                }
+            }
             var failures = 0
             while !Task.isCancelled {
                 guard let self, self.isCurrent(token), let cache = self.cachedState, !cache.authorityRevoked else { return }
                 do {
-                    _ = try await supervisor.readyEndpoint(credentials: Self.credentials(cache))
+                    let endpoint = try await supervisor.readyEndpoint(credentials: Self.credentials(cache))
                     guard self.isCurrent(token), !Task.isCancelled else { return }
+                    let endpointGeneration = await supervisor.currentGeneration
+                    if self.relayAddressWatchGeneration != endpointGeneration {
+                        await self.relayAddressWatch?.stop()
+                        guard self.isCurrent(token), !Task.isCancelled else { return }
+                        self.relayAddressWatchGeneration = endpointGeneration
+                        self.relayAddressWatch = endpoint.watchAddr(callback: MobileHostV2RelayAddressCallback { [weak self] in
+                            await self?.requestEndpointReady(token: token)
+                        })
+                    }
                     await self.refreshListenerState(token: token)
-                    guard self.isCurrent(token), !Task.isCancelled else { return }
-                    await self.publishHomeRelayHintIfNeeded()
                     guard self.isCurrent(token), !Task.isCancelled else { return }
                     self.startAcceptLoop(token: token)
                     self.setSettingsPhase(.active)
                     Self.journal.record("v2-host", "endpoint-ready", ["generation": String(await supervisor.currentGeneration)])
+                    await self.publishHomeRelayHintIfNeeded(token: token)
                     return
                 } catch {
                     guard self.isCurrent(token), !Task.isCancelled else { return }
@@ -387,8 +426,10 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
 
     /// Publish only the public relay location needed by peers to address this
     /// endpoint. Direct addresses stay local to the two clients.
-    private func publishHomeRelayHintIfNeeded() async {
-        guard let relay = await endpointSupervisor?.homeRelayURL(),
+    private func publishHomeRelayHintIfNeeded(token: UUID) async {
+        guard isCurrent(token), let supervisor = endpointSupervisor else { return }
+        let relay = await supervisor.homeRelayURL()
+        guard isCurrent(token), let relay,
               let metadata = cachedState?.device?.descriptor.metadata,
               metadata.relayURLs != [relay],
               let service = controlService else { return }
@@ -402,8 +443,10 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         )
         do {
             try await service.updateMetadata(next)
+            guard isCurrent(token) else { return }
             Self.journal.record("v2-host", "home-relay-published", ["relay": relay])
         } catch {
+            guard isCurrent(token) else { return }
             Self.journal.record("v2-host", "home-relay-publish-failed", ["error": String(describing: type(of: error))])
         }
     }

@@ -129,6 +129,9 @@ extension MobileIrxRuntimeComposition {
         // The service publishes its empty initial state before reading the same cache.
         guard snapshot.cache.device != nil || cache?.device == nil || snapshot.cache.authorityRevoked else { return }
         let previousCredentials = cache?.relayCredentials
+        let previousRelays = Dictionary((cache?.directory?.devices ?? []).map {
+            ($0.descriptor.endpointID, $0.descriptor.metadata.relayURLs)
+        }, uniquingKeysWith: { _, latest in latest })
         cache = snapshot.cache
         lastFailure = snapshot.failure.map { String(describing: $0) }
         publish()
@@ -149,6 +152,12 @@ extension MobileIrxRuntimeComposition {
             let permitted = Set(directory.devices.filter { !$0.revoked }.map { $0.descriptor.endpointID })
             for (peer, engine) in enginesByPeer where !permitted.contains(peer) {
                 await engine.stop(code: .revoked)
+            }
+            for record in directory.devices where !record.revoked {
+                let peer = record.descriptor.endpointID
+                if previousRelays[peer] != record.descriptor.metadata.relayURLs {
+                    await enginesByPeer[peer]?.relayHintChanged(trigger: "v2-directory-relay")
+                }
             }
             guard (try? await assertScope(scope, epoch: currentEpoch)) != nil else { return }
             journal.record("v2-directory", "installed", ["count": String(directory.devices.count),
