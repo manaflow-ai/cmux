@@ -996,6 +996,7 @@
 		CC0033E15A1B2C3D4E5F0020 /* CMUXCLI+VMTui.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0033E15A1B2C3D4E5F0021 /* CMUXCLI+VMTui.swift */; };
 		C8923639133F158AF1B6A0FB /* CMUXCLI+VPN.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA475616EA96D1D0624FC0A1 /* CMUXCLI+VPN.swift */; };
 		7A0CE1000000000000000102 /* CMUXCLI+VPNAppManaged.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000101 /* CMUXCLI+VPNAppManaged.swift */; };
+		C0DEFE020000000000000001 /* CMUXCLI+WindowFocusPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFE020000000000000002 /* CMUXCLI+WindowFocusPolicy.swift */; };
 		C0DEFE010000000000000001 /* CMUXCLI+WorkspaceFontSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFE010000000000000002 /* CMUXCLI+WorkspaceFontSize.swift */; };
 		06CC2F6C1340C7424D1C7E0A /* CMUXCLI+WorkspaceTodo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5D35CC62B0F252F9EC2AD1 /* CMUXCLI+WorkspaceTodo.swift */; };
 		C0DE31390000000000000105 /* CMUXCLIErrorOutputRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000106 /* CMUXCLIErrorOutputRegressionTests.swift */; };
@@ -2950,6 +2951,7 @@
 		93300003A1B2C3D4E5F60718 /* TerminalController+ControlTerminalBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93300004A1B2C3D4E5F60718 /* TerminalController+ControlTerminalBinding.swift */; };
 		C0DE00000000000000000C62 /* TerminalController+ControlWorkspaceContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C61 /* TerminalController+ControlWorkspaceContext.swift */; };
 		C0DE00000000000000000C54 /* TerminalController+ControlWorkspaceGroupContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C53 /* TerminalController+ControlWorkspaceGroupContext.swift */; };
+		C0DEFE030000000000000001 /* TerminalController+ControlWorkspaceSizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFE030000000000000002 /* TerminalController+ControlWorkspaceSizing.swift */; };
 		7371B0010000000000000001 /* TerminalController+ControlWorkspaceStrings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7371B0010000000000000002 /* TerminalController+ControlWorkspaceStrings.swift */; };
 		66B951C8D7A92BABC4A6FFB8 /* TerminalController+ControlWorkspaceTodoContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 466DEB47603469A59697D418 /* TerminalController+ControlWorkspaceTodoContext.swift */; };
 		C57B00040000000000000001 /* TerminalController+CustomSidebarCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00040000000000000002 /* TerminalController+CustomSidebarCommands.swift */; };
@@ -3022,6 +3024,7 @@
 		F8792000000000000000000B /* TerminalFontConfigurationReloadWorkNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8792000000000000000000C /* TerminalFontConfigurationReloadWorkNode.swift */; };
 		F87910150000000000000001 /* TerminalFontSizeChangeInheritanceContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87910150000000000000002 /* TerminalFontSizeChangeInheritanceContext.swift */; };
 		F87910160000000000000001 /* TerminalFontSizeLineageSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87910160000000000000002 /* TerminalFontSizeLineageSelection.swift */; };
+		C0DEFE040000000000000001 /* TerminalFontZoomSessionPersistenceTests+WorkspaceFontSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFE040000000000000002 /* TerminalFontZoomSessionPersistenceTests+WorkspaceFontSize.swift */; };
 		851500000000000000000001 /* TerminalFontZoomSessionPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 851500000000000000000002 /* TerminalFontZoomSessionPersistenceTests.swift */; };
 		A5FB1303 /* TerminalForegroundCommandCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1304 /* TerminalForegroundCommandCapture.swift */; };
 		C86270000000000000000001 /* TerminalHTMLFileBrowserAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = C86270000000000000000002 /* TerminalHTMLFileBrowserAction.swift */; };
@@ -4577,6 +4580,7 @@
 		CC0033E15A1B2C3D4E5F0021 /* CMUXCLI+VMTui.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMTui.swift"; sourceTree = "<group>"; };
 		EA475616EA96D1D0624FC0A1 /* CMUXCLI+VPN.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VPN.swift"; sourceTree = "<group>"; };
 		7A0CE1000000000000000101 /* CMUXCLI+VPNAppManaged.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VPNAppManaged.swift"; sourceTree = "<group>"; };
+		C0DEFE020000000000000002 /* CMUXCLI+WindowFocusPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+WindowFocusPolicy.swift"; sourceTree = "<group>"; };
 		C0DEFE010000000000000002 /* CMUXCLI+WorkspaceFontSize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+WorkspaceFontSize.swift"; sourceTree = "<group>"; };
 		7E5D35CC62B0F252F9EC2AD1 /* CMUXCLI+WorkspaceTodo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+WorkspaceTodo.swift"; sourceTree = "<group>"; };
 		C0DE31390000000000000106 /* CMUXCLIErrorOutputRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXCLIErrorOutputRegressionTests.swift; sourceTree = "<group>"; };
@@ -6437,6 +6441,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		93300004A1B2C3D4E5F60718 /* TerminalController+ControlTerminalBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlTerminalBinding.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C61 /* TerminalController+ControlWorkspaceContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlWorkspaceContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C53 /* TerminalController+ControlWorkspaceGroupContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlWorkspaceGroupContext.swift"; sourceTree = "<group>"; };
+		C0DEFE030000000000000002 /* TerminalController+ControlWorkspaceSizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlWorkspaceSizing.swift"; sourceTree = "<group>"; };
 		7371B0010000000000000002 /* TerminalController+ControlWorkspaceStrings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlWorkspaceStrings.swift"; sourceTree = "<group>"; };
 		466DEB47603469A59697D418 /* TerminalController+ControlWorkspaceTodoContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlWorkspaceTodoContext.swift"; sourceTree = "<group>"; };
 		C57B00040000000000000002 /* TerminalController+CustomSidebarCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+CustomSidebarCommands.swift"; sourceTree = "<group>"; };
@@ -6509,6 +6514,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		F8792000000000000000000C /* TerminalFontConfigurationReloadWorkNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalFontConfigurationReloadWorkNode.swift; sourceTree = "<group>"; };
 		F87910150000000000000002 /* TerminalFontSizeChangeInheritanceContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalFontSizeChangeInheritanceContext.swift; sourceTree = "<group>"; };
 		F87910160000000000000002 /* TerminalFontSizeLineageSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalFontSizeLineageSelection.swift; sourceTree = "<group>"; };
+		C0DEFE040000000000000002 /* TerminalFontZoomSessionPersistenceTests+WorkspaceFontSize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalFontZoomSessionPersistenceTests+WorkspaceFontSize.swift"; sourceTree = "<group>"; };
 		851500000000000000000002 /* TerminalFontZoomSessionPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalFontZoomSessionPersistenceTests.swift; sourceTree = "<group>"; };
 		A5FB1304 /* TerminalForegroundCommandCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalForegroundCommandCapture.swift; sourceTree = "<group>"; };
 		C86270000000000000000002 /* TerminalHTMLFileBrowserAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalHTMLFileBrowserAction.swift; sourceTree = "<group>"; };
@@ -8485,6 +8491,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0DE00000000000000000C45 /* TerminalController+ControlNotificationContext.swift */,
 				C0DE1A040000000000000002 /* TerminalController+ControlLayoutContext.swift */,
 				C0DE00000000000000000C61 /* TerminalController+ControlWorkspaceContext.swift */,
+				C0DEFE030000000000000002 /* TerminalController+ControlWorkspaceSizing.swift */,
 				81260000000000000000000A /* TerminalController+RemoteTerminalTransportErrors.swift */,
 				7371B0010000000000000002 /* TerminalController+ControlWorkspaceStrings.swift */,
 				D7AB00000000000000B000 /* TerminalController+MobileNotificationSync.swift */,
@@ -9572,6 +9579,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B9000051A1B2C3D4E5F60719 /* CMUXCLI+Config.swift */,
 				7E5D35CC62B0F252F9EC2AD1 /* CMUXCLI+WorkspaceTodo.swift */,
 				C0DEFE010000000000000002 /* CMUXCLI+WorkspaceFontSize.swift */,
+				C0DEFE020000000000000002 /* CMUXCLI+WindowFocusPolicy.swift */,
 				C0DE10651000000000000011 /* LocalTmuxSessionRegistry.swift */,
 				C0DE10651000000000000012 /* LocalTmuxCommandBuilder.swift */,
 				C0DE10651000000000000013 /* LocalTmuxProcessRunner.swift */,
@@ -9768,6 +9776,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 					F6572043A1B2C3D4E5F60718 /* RestoredAgentShellActivityLivenessTests.swift */,
 					F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */,
 					851500000000000000000002 /* TerminalFontZoomSessionPersistenceTests.swift */,
+					C0DEFE040000000000000002 /* TerminalFontZoomSessionPersistenceTests+WorkspaceFontSize.swift */,
 				A10557080000000000000002 /* TerminalConfigurationPresentationMetricsTests.swift */,
 					806600000000000000000001 /* SessionRestorableAgentSnapshotPermissionModeTests.swift */,
 					F17F00000000000000000002 /* FullWidthTabPersistenceTests.swift */,
@@ -13056,6 +13065,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				93300003A1B2C3D4E5F60718 /* TerminalController+ControlTerminalBinding.swift in Sources */,
 				C0DE00000000000000000C62 /* TerminalController+ControlWorkspaceContext.swift in Sources */,
 				C0DE00000000000000000C54 /* TerminalController+ControlWorkspaceGroupContext.swift in Sources */,
+				C0DEFE030000000000000001 /* TerminalController+ControlWorkspaceSizing.swift in Sources */,
 				7371B0010000000000000001 /* TerminalController+ControlWorkspaceStrings.swift in Sources */,
 				66B951C8D7A92BABC4A6FFB8 /* TerminalController+ControlWorkspaceTodoContext.swift in Sources */,
 				C57B00040000000000000001 /* TerminalController+CustomSidebarCommands.swift in Sources */,
@@ -13633,6 +13643,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				CC0033E15A1B2C3D4E5F0020 /* CMUXCLI+VMTui.swift in Sources */,
 				C8923639133F158AF1B6A0FB /* CMUXCLI+VPN.swift in Sources */,
 				7A0CE1000000000000000102 /* CMUXCLI+VPNAppManaged.swift in Sources */,
+				C0DEFE020000000000000001 /* CMUXCLI+WindowFocusPolicy.swift in Sources */,
 				C0DEFE010000000000000001 /* CMUXCLI+WorkspaceFontSize.swift in Sources */,
 				06CC2F6C1340C7424D1C7E0A /* CMUXCLI+WorkspaceTodo.swift in Sources */,
 				D9F800000000000000000003 /* CmuxTuiRemoteRouting.swift in Sources */,
@@ -14538,6 +14549,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				9C1BEA3D2E6F49709A71C020 /* TerminalControllerTerminalTextTests.swift in Sources */,
 				A5C41105A1B2C3D4E5F60718 /* TerminalControllingTTYWaiter.swift in Sources */,
 				6190C0126190C0126190C012 /* TerminalCopyOnSelectManagedConfigLayeringTests.swift in Sources */,
+				C0DEFE040000000000000001 /* TerminalFontZoomSessionPersistenceTests+WorkspaceFontSize.swift in Sources */,
 				851500000000000000000001 /* TerminalFontZoomSessionPersistenceTests.swift in Sources */,
 				B8835A000000000000000005 /* TerminalImageTransferConcurrencyTests+Timeouts.swift in Sources */,
 				B88350000000000000000001 /* TerminalImageTransferConcurrencyTests.swift in Sources */,
