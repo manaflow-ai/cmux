@@ -69,6 +69,17 @@ back to the control plane's tokened preview URL.
 
 ## System-wide route (`cmux vpn up`)
 
+The Machines panel has an optional **Set Up cmux VPN…** entry. The same action
+is available in the workspace plus-button menu, the command palette, and the
+context menus for Cloud machines and private port URLs. Each opens the same
+native setup pane, like iPhone pairing. Opening it only reads connection status;
+**Connect Cloud VPN** explicitly starts and pins the existing tunnel coordinator.
+The pane explains extension approval and VPN configuration permission, follows
+approval automatically, reports errors, and supports cancellation and disconnect.
+It reports builds without a signed extension as unavailable without prompting.
+Automation can open it through `workspace.action {action: "cloud_vpn_setup"}`.
+
+
 `cmux vpn up` creates a separate browser peer through `POST /api/vm/tunnel`,
 saves its configuration in the Apple VPN manager, and requests activation of
 the bundled packet tunnel system extension. macOS can require one user

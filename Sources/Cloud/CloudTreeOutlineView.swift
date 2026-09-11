@@ -768,6 +768,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 items.append(item(String(localized: "cloudTree.menu.copyLink", defaultValue: "Copy Link")) { [nodeActions] in nodeActions.copyPortLink(resource.id) })
                 if let portURL {
                     items.append(item(String(localized: "cloudTree.menu.copyPrivateURL", defaultValue: "Copy Private Address URL")) { [nodeActions] in nodeActions.copyToPasteboard(portURL) })
+                    items.append(item(String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…")) { [machineActions, window = outlineView?.window] in machineActions.setupVPN(window) })
                 }
             } else if let portURL {
                 items.append(item(String(localized: "cloudTree.menu.copyLink", defaultValue: "Copy Link")) { [nodeActions] in nodeActions.copyToPasteboard(portURL) })
@@ -801,6 +802,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             if let address = machine.privateAddress {
                 items.append(item(String(localized: "machines.menu.copyIPAddress", defaultValue: "Copy IP Address")) { [nodeActions] in nodeActions.copyToPasteboard(address) })
             }
+            items.append(item(String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…")) { [window = outlineView?.window] in actions.setupVPN(window) })
             items.append(item(String(localized: "machines.menu.status", defaultValue: "Status")) { actions.runCommand(id, ["vm", "status"]) })
             // Only verbs this provider can honor: a Checkpoint that answers 502 is not a verb.
             if machine.capabilities.snapshot {
