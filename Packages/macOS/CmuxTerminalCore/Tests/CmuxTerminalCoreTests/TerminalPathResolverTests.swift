@@ -168,13 +168,16 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
     @Test func textWithURLSchemeIsNeverTreatedAsFilePath() {
         #expect(
             TerminalPathResolver(fileExists: { _ in true }).resolveOpenURLFilePath(
-                "file:///tmp/test.md",
+                "mailto:test@example.com",
                 cwd: "/tmp"
             ) == nil
         )
+    }
+
+    @Test func rejectsNonFileSchemeEvenWithNumericLocationSuffix() {
         #expect(
-            TerminalPathResolver(fileExists: { _ in true }).resolveOpenURLFilePath(
-                "mailto:test@example.com",
+            TerminalPathResolver(fileExists: { _ in true }).resolveOpenURLFileReference(
+                "https://example.com:8080/page:5",
                 cwd: "/tmp"
             ) == nil
         )
@@ -188,6 +191,58 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
                 cwd: "/Users/dev/project"
             ) == relative
         )
+    }
+
+    @Test func resolvesPathWithLineAndColumn() throws {
+        let existingFile = "/Users/dev/project/src/main.swift"
+        let reference = try #require(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveOpenURLFileReference(
+                "src/main.swift:42:5",
+                cwd: "/Users/dev/project"
+            )
+        )
+        #expect(reference.path == existingFile)
+        #expect(reference.line == 42)
+        #expect(reference.column == 5)
+    }
+
+    @Test func resolvesLocalFileURL() throws {
+        let existingFile = "/Users/dev/project/src/main.swift"
+        let reference = try #require(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveOpenURLFileReference(
+                "file:///Users/dev/project/src/main.swift:42",
+                cwd: "/Users/dev/project"
+            )
+        )
+        #expect(reference.path == existingFile)
+        #expect(reference.line == 42)
+        #expect(reference.column == nil)
+    }
+
+    @Test func prefersLiteralPathBeforeInterpretingLocationSuffix() throws {
+        let literalPath = "/tmp/report:42"
+        let reference = try #require(
+            TerminalPathResolver(fileExists: existsIn([literalPath, "/tmp/report"])).resolveOpenURLFileReference(
+                "report:42",
+                cwd: "/tmp"
+            )
+        )
+        #expect(reference.path == literalPath)
+        #expect(reference.line == nil)
+        #expect(reference.column == nil)
+    }
+
+    @Test func resolvesRelativeLiteralColonPathWhenBasePathIsMissing() throws {
+        let literalPath = "/tmp/report:42"
+        let reference = try #require(
+            TerminalPathResolver(fileExists: existsIn([literalPath])).resolveOpenURLFileReference(
+                "report:42",
+                cwd: "/tmp"
+            )
+        )
+        #expect(reference.path == literalPath)
+        #expect(reference.line == nil)
+        #expect(reference.column == nil)
     }
 }
 
