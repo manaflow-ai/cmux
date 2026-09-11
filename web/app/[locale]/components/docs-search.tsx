@@ -2,14 +2,13 @@
 
 import { useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import { useRouter } from "../../../i18n/navigation";
+import { Link, useRouter } from "../../../i18n/navigation";
 import {
   nextDocsSearchIndex,
   normalizeDocsSearchResult,
   type DocsSearchResult,
   type PagefindResultData,
 } from "./docs-search-utils";
-import { DocsLink } from "./docs-link";
 import { useDocsChannel } from "./docs-channel-context";
 import {
   docsChannelUrl,
@@ -265,10 +264,10 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
                 {t("resultsCount", { count: results.length })}
               </div>
               {results.map((result, index) => (
-                <DocsLink
+                <Link
                   id={`docs-search-result-${index}`}
                   key={`${result.href}-${index}`}
-                  href={result.href}
+                  href={docsChannelUrl(channel, result.href)}
                   role="option"
                   aria-selected={index === activeIndex}
                   onClick={clearAndNavigate}
@@ -291,7 +290,7 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
                   <div className="mt-1 truncate text-[11px] text-muted/45">
                     {result.href.replace(/^\/[a-z]{2}(?:-[A-Z]{2})?\//, "/")}
                   </div>
-                </DocsLink>
+                </Link>
               ))}
             </div>
           )}

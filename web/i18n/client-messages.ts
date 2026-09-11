@@ -1,3 +1,6 @@
+import { loadMessages } from "./messages";
+import type { Locale } from "./routing";
+
 type MessageTree = Record<string, unknown>;
 
 function isMessageTree(value: unknown): value is MessageTree {
@@ -43,6 +46,10 @@ export function pruneClientMessages(messages: MessageTree): MessageTree {
   }
 
   return pruned;
+}
+
+export async function loadLocalizedClientMessages(locale: Locale): Promise<MessageTree> {
+  return pruneClientMessages(await loadMessages(locale));
 }
 
 /** The shared catalog without the subtree-only namespaces. */

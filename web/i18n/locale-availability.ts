@@ -3,6 +3,13 @@ import { locales, type Locale } from "./routing";
 export const featureWorkflowContentLocales = [
   "en",
   "ja",
+  "zh-CN",
+  "zh-TW",
+  "ko",
+  "de",
+  "es",
+  "fr",
+  "ar",
 ] as const satisfies readonly Locale[];
 
 export const featureWorkflowDocPaths = [
@@ -13,17 +20,50 @@ export const featureWorkflowDocPaths = [
 export const remoteTmuxDocsLocales = [
   "en",
   "ja",
+  "zh-CN",
+  "zh-TW",
+  "ko",
+  "de",
+  "es",
+  "fr",
+  "ar",
 ] as const satisfies readonly Locale[];
 
 export const managedPoliciesDocsLocales = [
   "en",
   "ja",
+  "zh-CN",
+  "zh-TW",
+  "ko",
+  "de",
+  "es",
+  "fr",
+  "ar",
+] as const satisfies readonly Locale[];
+
+export const baseDocsLocales = [
+  "en",
+  "ja",
+  "zh-CN",
+  "zh-TW",
+  "ko",
+  "de",
+  "es",
+  "fr",
+  "ar",
 ] as const satisfies readonly Locale[];
 
 // Routes in this registry intentionally expose only their authored locales.
 export const fallbackContentLocales = [
   "en",
   "ja",
+  "zh-CN",
+  "zh-TW",
+  "ko",
+  "de",
+  "es",
+  "fr",
+  "ar",
 ] as const satisfies readonly Locale[];
 
 // Jobs copy is authored for every locale configured by the site.

@@ -8,12 +8,12 @@ const BROWSER_OG_IMAGE_PATH = "/browser-opengraph-image";
 const shortDescriptionSuffixes: Record<string, string> = {
   en: "Built for AI coding agents and multitasking on macOS.",
   ja: "macOS の AI コーディングエージェント向けです。",
-  "zh-CN": "面向 macOS 上的 AI 编码代理。",
-  "zh-TW": "面向 macOS 上的 AI 程式碼代理。",
+  "zh-CN": "面向 macOS 上的 AI 编码代理，支持多任务工作流与终端协作。",
+  "zh-TW": "專為 macOS 上的 AI 程式碼代理與多工工作流程打造，支援終端協作。",
   ko: "macOS의 AI 코딩 에이전트를 위해 설계되었습니다.",
-  de: "Für KI-Coding-Agenten auf macOS entwickelt.",
-  es: "Creado para agentes de codificación con IA y flujos de trabajo paralelos y multitarea en macOS.",
-  fr: "Conçu pour les agents de codage IA et les workflows multitâches sur macOS.",
+  de: "Für KI-Coding-Agenten auf macOS entwickelt und für Multitasking optimiert.",
+  es: "Creado para agentes de codificación con IA en macOS.",
+  fr: "Conçu pour les agents de codage IA sur macOS et le multitâche.",
   it: "Creato per agenti di codifica IA su macOS.",
   da: "Bygget til AI-kodeagenter på macOS.",
   pl: "Stworzone dla agentów kodowania AI i wielozadaniowych przepływów pracy na macOS.",
@@ -165,6 +165,10 @@ export function detailedSeoDescriptionCandidate(locale: string) {
 
 export function shortSeoDescriptionCandidate(locale: string) {
   return shortDescriptionSuffixes[locale] ?? shortDescriptionSuffixes.en;
+}
+
+export function conciseSeoDescriptionCandidate(locale: string) {
+  return conciseDescriptionSuffixes[locale] ?? conciseDescriptionSuffixes.en;
 }
 
 export function joinMetadataSentences(

@@ -33,6 +33,6 @@ export default defineConfig({
       `bunx next start -p ${port}`,
     port,
     reuseExistingServer: false,
-    timeout: 180_000,
+    timeout: 600_000,
   },
 });

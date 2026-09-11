@@ -33,6 +33,7 @@ export async function CodeBlock({
           </div>
         )}
         <div
+          dir="ltr"
           className={`[&_pre]:m-0 [&_pre]:bg-code-bg [&_pre]:border [&_pre]:border-border [&_pre]:px-4 [&_pre]:py-3 [&_pre]:overflow-x-auto [&_pre]:text-[13px] ${shikiLineHeightClass} [&_pre]:font-mono ${
             title
               ? "[&_pre]:rounded-b-lg [&_pre]:border-t-0"
@@ -52,6 +53,7 @@ export async function CodeBlock({
         </div>
       )}
       <pre
+        dir="ltr"
         className={`bg-code-bg border border-border px-4 py-3 overflow-x-auto text-[13px] ${plainLineHeightClass} ${
           variant === "ascii" ? "" : "font-mono "
         }${title ? "rounded-b-lg" : "rounded-lg"}`}

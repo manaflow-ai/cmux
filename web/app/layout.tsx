@@ -31,6 +31,15 @@ function directionForLocale(locale: Locale): "ltr" | "rtl" {
   return locale === "ar" ? "rtl" : "ltr";
 }
 
+function fontClassForLocale(locale: Locale): string {
+  if (locale === "ar") return "font-script-arabic";
+  if (locale === "ja") return "font-script-japanese";
+  if (locale === "ko") return "font-script-korean";
+  if (locale === "zh-CN") return "font-script-simplified-chinese";
+  if (locale === "zh-TW") return "font-script-traditional-chinese";
+  return "";
+}
+
 export default async function RootLayout({
   children,
 }: {
@@ -55,7 +64,7 @@ export default async function RootLayout({
         />
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} ${fontClassForLocale(locale)} font-sans antialiased`}
       >
         {children}
       </body>

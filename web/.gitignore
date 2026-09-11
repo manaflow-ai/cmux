@@ -48,3 +48,6 @@ next-env.d.ts
 
 # Playwright output
 test-results/
+
+# Localization export batches
+/localization-batches/

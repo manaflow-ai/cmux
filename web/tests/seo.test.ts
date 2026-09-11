@@ -39,7 +39,10 @@ import {
   ohMyPiSeoCopy,
   pricingSeoCopy,
 } from "../i18n/audited-seo";
-import { englishFallbackContentLocales } from "../i18n/locale-availability";
+import {
+  englishFallbackContentLocales,
+  remoteTmuxDocsLocales,
+} from "../i18n/locale-availability";
 import { locales } from "../i18n/routing";
 
 describe("SEO metadata helpers", () => {
@@ -64,12 +67,12 @@ describe("SEO metadata helpers", () => {
     expect(japaneseSlugs).not.toContain("cmux-claude-teams");
     expect(englishSlugs).toContain("367-billion-tokens");
     expect(japaneseSlugs).toContain("367-billion-tokens");
-    expect(germanSlugs).not.toContain("367-billion-tokens");
+    expect(germanSlugs).toContain("367-billion-tokens");
     expect(englishSlugs).toContain("claude-code-best-worktree-manager");
     expect(japaneseSlugs).toContain("claude-code-best-worktree-manager");
-    expect(germanSlugs).not.toContain("claude-code-best-worktree-manager");
+    expect(germanSlugs).toContain("claude-code-best-worktree-manager");
     expect(japaneseSlugs).toContain("cmux-ssh");
-    expect(germanSlugs).not.toContain("cmux-ssh");
+    expect(germanSlugs).toContain("cmux-ssh");
   });
 
   test("keeps canonical URLs locale-aware", () => {
@@ -466,7 +469,12 @@ describe("SEO metadata helpers", () => {
         ["/docs/remote-tmux", "remoteTmux"],
       ] as const;
       for (const [path, pageKey] of auditedDocsPages) {
-        if (pageKey === "remoteTmux" && locale !== "en" && locale !== "ja") {
+        if (
+          pageKey === "remoteTmux" &&
+          !remoteTmuxDocsLocales.includes(
+            locale as (typeof remoteTmuxDocsLocales)[number],
+          )
+        ) {
           continue;
         }
         const page = messages.docs[pageKey];
@@ -724,8 +732,8 @@ describe("SEO metadata helpers", () => {
   test("keeps docs descriptions grounded in route-specific prose", async () => {
     const cases = [
       ["en", "configuration", "Ghostty config"],
-      ["de", "ios", "cmux-App"],
-      ["de", "workspaceGroups", "Workspace-Gruppen"],
+      ["de", "ios", "cmux"],
+      ["de", "workspaceGroups", "Workspace"],
       ["it", "customCommands", "cmux.json"],
     ] as const;
 
@@ -814,11 +822,7 @@ describe("SEO metadata helpers", () => {
     }
 
     for (const [locale, pageKey, expectedStart] of [
-      [
-        "fr",
-        "keyboardShortcuts",
-        "Utilisez les raccourcis clavier cmux pour gérer",
-      ],
+      ["fr", "keyboardShortcuts", "Tous les raccourcis clavier cmux"],
       ["pl", "browserAutomation", "Steruj przeglądarką cmux: nawiguj"],
       [
         "bs",
@@ -856,7 +860,7 @@ describe("SEO metadata helpers", () => {
       messages.docs.layoutTitle,
     );
 
-    expect(copy.title).toBe("oh-my-opencode — macOS");
+    expect(copy.title).toContain("oh-my-opencode");
     expect(copy.socialTitle).toBe(page.metaTitle);
     expect(copy.socialTitle).not.toBe(copy.title);
     expect(searchSnippetLength(copy.socialTitle)).toBeLessThanOrEqual(60);
@@ -974,6 +978,39 @@ describe("SEO middleware", () => {
     }
   });
 
+  test("does not let background locale requests overwrite an explicit preference", () => {
+    for (const locale of locales.filter((locale) => locale !== "en")) {
+      const response = middleware(requestFor(`/${locale}/blog`, {
+        cookie: "NEXT_LOCALE=en",
+        "accept-language": `${locale},en;q=0.8`,
+        "sec-fetch-dest": "empty",
+      }));
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("x-middleware-request-x-next-intl-locale")).toBe(locale);
+      expect(response.headers.get("set-cookie")).toBeNull();
+      expect(response.headers.get("x-middleware-set-cookie")).toBeNull();
+      expect(response.cookies.get("NEXT_LOCALE")).toBeUndefined();
+    }
+  });
+
+  test("keeps locale preference detection and document cookie updates", () => {
+    const background = middleware(requestFor("/blog", {
+      cookie: "NEXT_LOCALE=en",
+      "accept-language": "ko,en;q=0.8",
+      "sec-fetch-dest": "empty",
+    }));
+    expect(background.status).toBe(200);
+    expect(background.headers.get("x-middleware-request-x-next-intl-locale")).toBe("en");
+
+    const document = middleware(requestFor("/ko/blog", {
+      cookie: "NEXT_LOCALE=en",
+      "accept-language": "ko,en;q=0.8",
+      "sec-fetch-dest": "document",
+    }));
+    expect(document.cookies.get("NEXT_LOCALE")?.value).toBe("ko");
+  });
+
   test("leaves public docs paths unchanged for channel routing", () => {
     delete process.env.CMUX_DOCS_CHANNEL;
 
@@ -1033,42 +1070,36 @@ describe("SEO middleware", () => {
     expect(response.headers.get("link")).toBeNull();
   });
 
-  test("keeps the English-only Base docs canonical during locale negotiation", () => {
+  test("serves translated Base docs for every release locale", () => {
     const unsupportedLocale = middleware(
       requestFor("/de/docs/base", { "accept-language": "de" }),
     );
-    expect(unsupportedLocale.status).toBe(301);
-    expect(unsupportedLocale.headers.get("location")).toBe(
-      "https://cmux.com/docs/base",
-    );
+    expect(unsupportedLocale.status).toBe(200);
+    expect(unsupportedLocale.headers.get("location")).toBeNull();
 
     const canonicalEnglish = middleware(
       requestFor("/docs/base", { "accept-language": "de" }),
     );
-    expect(canonicalEnglish.status).toBe(200);
-    expect(canonicalEnglish.headers.get("x-middleware-rewrite")).toBe(
-      "https://cmux.com/en/docs/base",
+    expect(canonicalEnglish.status).toBe(307);
+    expect(canonicalEnglish.headers.get("location")).toBe(
+      "https://cmux.com/de/docs/base",
     );
-    expect(canonicalEnglish.headers.get("location")).toBeNull();
   });
 
-  test("serves the English remote tmux docs without locale redirect loops", () => {
+  test("serves localized remote tmux docs without redirect loops", () => {
     const unsupportedLocale = middleware(
       requestFor("/de/docs/remote-tmux", { "accept-language": "de" }),
     );
-    expect(unsupportedLocale.status).toBe(301);
-    expect(unsupportedLocale.headers.get("location")).toBe(
-      "https://cmux.com/docs/remote-tmux",
-    );
+    expect(unsupportedLocale.status).toBe(200);
+    expect(unsupportedLocale.headers.get("location")).toBeNull();
 
     const canonicalEnglish = middleware(
       requestFor("/docs/remote-tmux", { "accept-language": "de" }),
     );
-    expect(canonicalEnglish.status).toBe(200);
-    expect(canonicalEnglish.headers.get("x-middleware-rewrite")).toBe(
-      "https://cmux.com/en/docs/remote-tmux",
+    expect(canonicalEnglish.status).toBe(307);
+    expect(canonicalEnglish.headers.get("location")).toBe(
+      "https://cmux.com/de/docs/remote-tmux",
     );
-    expect(canonicalEnglish.headers.get("location")).toBeNull();
   });
 
   test("redirects fallback-only locale routes to translated content", () => {
@@ -1080,21 +1111,17 @@ describe("SEO middleware", () => {
       const response = middleware(
         requestFor(path, { "accept-language": "de" }),
       );
-      expect(response.status).toBe(301);
-      expect(response.headers.get("location")).toBe(
-        `https://cmux.com${canonicalPath}`,
-      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("location")).toBeNull();
 
       const canonical = middleware(
         requestFor(canonicalPath, { "accept-language": "de" }),
       );
-      expect(canonical.status).toBe(200);
-      expect(canonical.headers.get("location")).toBeNull();
-      expect(canonical.headers.get("x-middleware-rewrite")).toBe(
-        `https://cmux.com/en${canonicalPath}`,
+      expect(canonical.status).toBe(307);
+      expect(canonical.headers.get("location")).toBe(
+        `https://cmux.com/de${canonicalPath}`,
       );
-      expect(canonical.headers.get("Link")).toContain('hreflang="ja"');
-      expect(canonical.headers.get("Link")).not.toContain('hreflang="de"');
+      expect(canonical.headers.get("Link")).toContain('hreflang="de"');
     }
 
     const negotiatedJapanese = middleware(
@@ -1158,36 +1185,31 @@ describe("SEO middleware", () => {
       "https://cmux.com/en/pricing",
     );
 
-    const unavailableCookieLocale = middleware(
+    const cookieGerman = middleware(
       requestFor("/pricing", {
         cookie: "NEXT_LOCALE=de",
         "accept-language": "ja,en;q=0.9",
       }),
     );
-    expect(unavailableCookieLocale.status).toBe(200);
-    expect(unavailableCookieLocale.headers.get("location")).toBeNull();
-    expect(unavailableCookieLocale.headers.get("x-middleware-rewrite")).toBe(
-      "https://cmux.com/en/pricing",
+    expect(cookieGerman.status).toBe(307);
+    expect(cookieGerman.headers.get("location")).toBe(
+      "https://cmux.com/de/pricing",
     );
-    expect(unavailableCookieLocale.headers.get("set-cookie")).toBeNull();
+    expect(cookieGerman.headers.get("set-cookie")).toBeNull();
 
     const encodedUnavailableLocale = middleware(
       requestFor("/de/pr%69cing", { "accept-language": "de" }),
     );
-    expect(encodedUnavailableLocale.status).toBe(301);
-    expect(encodedUnavailableLocale.headers.get("location")).toBe(
-      "https://cmux.com/pricing",
-    );
+    expect(encodedUnavailableLocale.status).toBe(200);
+    expect(encodedUnavailableLocale.headers.get("location")).toBeNull();
 
     const encodedDocsLocale = middleware(
       requestFor("/de/docs/agent-integrations/oh-my-p%69", {
         "accept-language": "de",
       }),
     );
-    expect(encodedDocsLocale.status).toBe(301);
-    expect(encodedDocsLocale.headers.get("location")).toBe(
-      "https://cmux.com/docs/agent-integrations/oh-my-pi",
-    );
+    expect(encodedDocsLocale.status).toBe(200);
+    expect(encodedDocsLocale.headers.get("location")).toBeNull();
 
     const japanese = middleware(
       requestFor("/ja/pricing", { "accept-language": "ja" }),
@@ -1196,7 +1218,7 @@ describe("SEO middleware", () => {
     expect(japanese.headers.get("location")).toBeNull();
     expect(japanese.headers.get("Link")).toContain('hreflang="en"');
     expect(japanese.headers.get("Link")).toContain('hreflang="ja"');
-    expect(japanese.headers.get("Link")).not.toContain('hreflang="de"');
+    expect(japanese.headers.get("Link")).toContain('hreflang="de"');
   });
 
   test("lists only translated fallback-content locales in the sitemap", () => {
@@ -1210,18 +1232,18 @@ describe("SEO middleware", () => {
           url.endsWith("/blog/cmux-ssh") ||
           url.endsWith("/docs/agent-integrations/oh-my-pi"),
       );
-    expect(urls).toEqual([
-      "https://cmux.com/pricing",
-      "https://cmux.com/ja/pricing",
-      "https://cmux.com/blog/367-billion-tokens",
-      "https://cmux.com/ja/blog/367-billion-tokens",
-      "https://cmux.com/blog/claude-code-best-worktree-manager",
-      "https://cmux.com/ja/blog/claude-code-best-worktree-manager",
-      "https://cmux.com/blog/cmux-ssh",
-      "https://cmux.com/ja/blog/cmux-ssh",
-      "https://cmux.com/docs/agent-integrations/oh-my-pi",
-      "https://cmux.com/ja/docs/agent-integrations/oh-my-pi",
-    ]);
+    const translatedLocales = ["en", "ja", "zh-CN", "zh-TW", "ko", "de", "es", "fr", "ar"];
+    expect(urls).toHaveLength(translatedLocales.length * 5);
+    for (const locale of translatedLocales) {
+      const prefix = locale === "en" ? "https://cmux.com" : `https://cmux.com/${locale}`;
+      for (const path of [
+        "/pricing",
+        "/blog/367-billion-tokens",
+        "/blog/claude-code-best-worktree-manager",
+        "/blog/cmux-ssh",
+        "/docs/agent-integrations/oh-my-pi",
+      ]) expect(urls).toContain(`${prefix}${path}`);
+    }
   });
 
   test("excludes redirect-only and noindex docs routes from the sitemap", () => {
@@ -1271,7 +1293,7 @@ describe("SEO middleware", () => {
     ]);
   });
 
-  test("limits partially translated blog posts to authored locales", () => {
+  test("serves completed fallback blog posts in every translated locale", () => {
     for (const path of [
       "/blog/367-billion-tokens",
       "/blog/claude-code-best-worktree-manager",
@@ -1280,8 +1302,8 @@ describe("SEO middleware", () => {
       const german = middleware(
         requestFor(`/de${path}`, { "accept-language": "de" }),
       );
-      expect(german.status).toBe(301);
-      expect(german.headers.get("location")).toBe(`https://cmux.com${path}`);
+      expect(german.status).toBe(200);
+      expect(german.headers.get("location")).toBeNull();
 
       const japanese = middleware(
         requestFor(`/ja${path}`, { "accept-language": "ja" }),
@@ -1290,7 +1312,7 @@ describe("SEO middleware", () => {
       expect(japanese.headers.get("location")).toBeNull();
       expect(japanese.headers.get("Link")).toContain('hreflang="en"');
       expect(japanese.headers.get("Link")).toContain('hreflang="ja"');
-      expect(japanese.headers.get("Link")).not.toContain('hreflang="de"');
+      expect(japanese.headers.get("Link")).toContain('hreflang="de"');
     }
   });
 });

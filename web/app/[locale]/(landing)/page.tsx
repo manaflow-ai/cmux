@@ -87,7 +87,7 @@ function HomeContent() {
           </span>
         </p>
         <p
-          className="text-base text-muted text-balance lg:-mr-32 xl:-mr-48"
+          className="text-base text-muted text-balance lg:-me-32 xl:-me-48"
           data-dev="subtitle"
           style={{ lineHeight: 1.5 }}
         >
@@ -182,14 +182,9 @@ function HomeContent() {
           </ul>
         </section>
 
-        {/* Screenshot: bleeds wider than the text column but stays bounded to
-            the viewport so it always fits on screen with a left/right gutter.
-            The width tracks the viewport minus a 1.5rem gutter on each side and
-            is capped at 90rem; left-1/2 + -translate-x-1/2 keeps it centered
-            over the narrower text column. */}
         <div
           data-dev="screenshot"
-          className="mt-12 mb-12 relative left-1/2 -translate-x-1/2 w-[min(90rem,100vw_-_3rem)]"
+          className="mt-12 mb-12 relative start-1/2 -translate-x-1/2 rtl:translate-x-1/2 w-[min(90rem,100vw_-_3rem)]"
         >
           <HeroScreenshot />
         </div>

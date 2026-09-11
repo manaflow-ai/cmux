@@ -6,6 +6,7 @@ import {
 import {
   fallbackContentLocales,
   featureWorkflowContentLocales,
+  baseDocsLocales,
   managedPoliciesDocsLocales,
   remoteTmuxDocsLocales,
 } from "../../../i18n/locale-availability";
@@ -19,7 +20,7 @@ export type NavLink = {
 export type NavSection = { sectionKey: string; children: NavLink[] };
 export type NavEntry = NavLink | NavSection;
 
-export const baseDocsLocales = ["en"] as const satisfies readonly Locale[];
+export { baseDocsLocales } from "../../../i18n/locale-availability";
 
 export function isSection(entry: NavEntry): entry is NavSection {
   return "sectionKey" in entry;

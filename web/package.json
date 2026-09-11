@@ -100,6 +100,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@formatjs/icu-messageformat-parser": "3.5.12",
     "@next/playwright": "16.3.4",
     "@opentelemetry/context-async-hooks": "^2.7.1",
     "@playwright/test": "1.62.1",

@@ -98,7 +98,7 @@ export function DashboardShell({
       data-testid="dashboard-shell"
       className="min-h-screen bg-background text-sm text-foreground sm:grid sm:grid-cols-[13rem_minmax(0,1fr)]"
     >
-      <aside className="sticky top-0 hidden h-screen flex-col border-r border-border bg-background sm:flex">
+      <aside className="sticky top-0 hidden h-screen flex-col border-e border-border bg-background sm:flex">
         <div className="flex h-11 shrink-0 items-center border-b border-border px-3">
           <Link
             href="/dashboard"
@@ -114,7 +114,7 @@ export function DashboardShell({
       </aside>
 
       <div className="min-w-0">
-        <header className="sticky top-0 z-30 border-b border-border bg-background sm:fixed sm:inset-x-auto sm:bottom-0 sm:left-0 sm:top-auto sm:w-[13rem] sm:border-b-0 sm:border-r sm:border-t">
+        <header className="sticky top-0 z-30 border-b border-border bg-background sm:fixed sm:inset-x-auto sm:bottom-0 sm:start-0 sm:top-auto sm:w-[13rem] sm:border-b-0 sm:border-e sm:border-t">
           <div className="flex min-h-11 items-center justify-between px-3 py-1.5 sm:px-2">
             <Link
               href="/dashboard"

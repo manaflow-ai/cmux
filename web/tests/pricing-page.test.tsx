@@ -95,8 +95,18 @@ mock.module("../db/client", () => ({
 const { default: PricingPage } = await import("../app/[locale]/pricing/page");
 
 describe("localized pricing page", () => {
-  test("publishes pricing only in its fully authored English and Japanese catalogs", () => {
-    expect(fallbackContentLocales).toEqual(["en", "ja"]);
+  test("publishes pricing in all nine release locale catalogs", () => {
+    expect(fallbackContentLocales).toEqual([
+      "en",
+      "ja",
+      "zh-CN",
+      "zh-TW",
+      "ko",
+      "de",
+      "es",
+      "fr",
+      "ar",
+    ]);
   });
 
   test("keeps paid-plan copy flat: no metering, trials, or CodeRouter", () => {

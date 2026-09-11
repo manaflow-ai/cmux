@@ -10,9 +10,9 @@ Use this skill for any user-facing string change.
 ## Hard rules
 
 - Every user-facing string is localized. Never a bare string literal in SwiftUI `Text()`, `Button()`, alert titles, tooltips, menus, or dialogs.
-- Swift/AppKit/SwiftUI: `String(localized: "key.name", defaultValue: "English text")`, with keys in `Resources/Localizable.xcstrings`. Every feature PR includes translated entries for all supported macOS languages (`en`, `de`, `fr`, `ar`, `es`, `zh-Hant`, `zh-Hans`, `ko`, `ja`), subject to the exact omission records below. English and Japanese entries are always required.
-- `defaultValue`, English fallback text, schema descriptions, and copied English strings do not count as localization. Record deliberate invariant literals in `scripts/localization-allowed-omissions.json`, with the exact source and omission class. A correct translation that shares the English spelling needs a documented `identityLocales` exception for that key and locale; the translated entry remains required.
-- Localized web/docs content updates every supported message catalog (currently `web/messages/en.json` and `web/messages/ja.json`) plus any localized data structures carrying inline translations.
+- Swift/AppKit/SwiftUI: `String(localized: "key.name", defaultValue: "English text")`, with keys in `Resources/Localizable.xcstrings`. Feature PRs add the key and English source value; translations for every supported language are completed in the release PR.
+- `defaultValue`, English fallback text, schema descriptions, and copied English strings do not count as localization. They are acceptable in feature PRs only when the release workflow tracks the key for translation.
+- Localized web/docs content updates the supported message catalogs under `web/messages/` (`en`, `ja`, `zh-CN`, `zh-TW`, `ko`, `de`, `es`, `fr`, `it`, `da`, `pl`, `ru`, `bs`, `ar`, `no`, `pt-BR`, `th`, `tr`, `km`, and `uk`) plus any localized data structures carrying inline translations. The strict release-language parity guard currently covers `en`, `ja`, `zh-CN`, `zh-TW`, `ko`, `de`, `es`, `fr`, and `ar`; it does not reduce the site's supported locale set.
 - A localization audit is required for every user-facing change.
 
 ## Audit checklist

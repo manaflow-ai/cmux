@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { routing } from "../i18n/routing";
+import {
+  fallbackContentLocales,
+  featureWorkflowContentLocales,
+} from "../i18n/locale-availability";
 import { docsSearchPages, docsSearchRoutes } from "../tools/build-docs-search.mjs";
 
 type DocsSearchPage = {
@@ -42,32 +46,24 @@ describe("docs search index", () => {
       ).toBe(true);
     }
 
-    expect(
-      pages.some((page) => page.locale === "de" && page.href === "/docs/vault"),
-    ).toBe(false);
-    expect(
-      pages.some((page) => page.locale === "de" && page.href === "/docs/task-manager"),
-    ).toBe(false);
-    expect(
-      pages.some((page) => page.locale === "ja" && page.href === "/docs/vault"),
-    ).toBe(true);
-    expect(
-      pages.some((page) => page.locale === "ja" && page.href === "/docs/task-manager"),
-    ).toBe(true);
-    expect(
-      pages.some(
+    for (const locale of routing.locales) {
+      const hasVault = pages.some(
+        (page) => page.locale === locale && page.href === "/docs/vault",
+      );
+      const hasTaskManager = pages.some(
+        (page) => page.locale === locale && page.href === "/docs/task-manager",
+      );
+      const hasOhMyPi = pages.some(
         (page) =>
-          page.locale === "de" &&
+          page.locale === locale &&
           page.href === "/docs/agent-integrations/oh-my-pi",
-      ),
-    ).toBe(false);
-    expect(
-      pages.some(
-        (page) =>
-          page.locale === "ja" &&
-          page.href === "/docs/agent-integrations/oh-my-pi",
-      ),
-    ).toBe(true);
+      );
+      expect(hasVault).toBe(featureWorkflowContentLocales.includes(locale as never));
+      expect(hasTaskManager).toBe(
+        featureWorkflowContentLocales.includes(locale as never),
+      );
+      expect(hasOhMyPi).toBe(fallbackContentLocales.includes(locale as never));
+    }
   });
 
   test("indexes Base only for the nightly channel", () => {

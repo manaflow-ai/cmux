@@ -1,5 +1,6 @@
 import {
   completeMetadataSentence,
+  conciseSeoDescriptionCandidate,
   openGraphImageAlt,
   openGraphImageTagline,
   detailedSeoDescriptionCandidate,
@@ -209,6 +210,7 @@ function selectDescription(
   } = {},
 ) {
   const short = shortSeoDescriptionCandidate(locale);
+  const concise = conciseSeoDescriptionCandidate(locale);
   const detailed = detailedSeoDescriptionCandidate(locale);
   const completeCandidates = (options.completeCandidates ?? [])
     .filter((candidate) => !/[:：៖]\s*$/u.test(candidate))
@@ -220,6 +222,9 @@ function selectDescription(
     ...completeCandidates,
     ...completeCandidates.map((candidate) =>
       joinMetadataSentences(locale, candidate, short),
+    ),
+    ...completeCandidates.map((candidate) =>
+      joinMetadataSentences(locale, candidate, concise),
     ),
     ...completeCandidates.map((candidate) =>
       joinMetadataSentences(locale, candidate, detailed),

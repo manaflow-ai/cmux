@@ -1,6 +1,7 @@
 import { NextIntlClientProvider } from "next-intl";
-import { getMessages, getTranslations } from "next-intl/server";
-import { pruneClientMessages } from "@/i18n/client-messages";
+import { getTranslations } from "next-intl/server";
+import { loadLocalizedClientMessages } from "@/i18n/client-messages";
+import type { Locale } from "@/i18n/routing";
 import { buildAlternates, openGraphDefaults } from "@/i18n/seo";
 import { DocsNav } from "./docs-nav";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
@@ -29,13 +30,16 @@ export async function generateMetadata({
 
 export default async function DocsLayout({
   children,
+  params,
 }: {
   children: React.ReactNode;
+  params: Promise<{ locale: string }>;
 }) {
+  const { locale } = await params;
   const channel = docsChannel();
   // Docs client components read the `docs` namespace, which the shared
   // catalog omits. A nested provider replaces the catalog for this subtree.
-  const messages = pruneClientMessages(await getMessages());
+  const messages = await loadLocalizedClientMessages(locale as Locale);
   return (
     <NextIntlClientProvider messages={messages}>
       <div className="min-h-screen">
