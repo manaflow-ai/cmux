@@ -54,6 +54,7 @@ import UIKit
 public final class GhosttySurfaceHostView: UIView {
     public let surfaceView: GhosttySurfaceView
     private let keyboardFrameTracker: MobileKeyboardFrameTracker
+    private let keyboardAbsorptionAnimation = TerminalKeyboardAbsorptionAnimation()
     private var isHandlingKeyboardTransition = false
     /// Safe-area value captured outside the SwiftUI terminal subtree. The
     /// surface can be intentionally underlapped, so its UIKit leaf may report
@@ -573,10 +574,7 @@ public final class GhosttySurfaceHostView: UIView {
         // animated constraint would continually retarget itself and move the
         // terminal up and down forever. Apply the cap in the same layout pass;
         // keyboard seat transitions remain animated by `beginKeyboardLeg`.
-        let duration = TerminalLetterboxGeometry.keyboardAbsorptionAnimationDuration(
-            contentMeasurementChanged: true,
-            scrollInteractionActive: false
-        )
+        let duration = keyboardAbsorptionAnimation.duration
         if duration > 0 {
             UIView.animate(
                 withDuration: duration,

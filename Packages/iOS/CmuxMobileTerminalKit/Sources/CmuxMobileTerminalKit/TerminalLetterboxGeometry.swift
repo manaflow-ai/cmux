@@ -12,20 +12,6 @@ import Foundation
 public struct TerminalLetterboxGeometry {
     private init() {}
 
-    /// Content measurements are sampled from the live terminal while the
-    /// keyboard is visible. They may change on every wrapped input character.
-    /// The host uses this policy to decide whether a measurement may animate.
-    public static func keyboardAbsorptionAnimationDuration(
-        contentMeasurementChanged: Bool,
-        scrollInteractionActive: Bool
-    ) -> CGFloat {
-        // This value is consumed from the display-link path. Animating a
-        // measurement that can change again on the next frame retargets the
-        // same constraint indefinitely when input wraps, producing vertical
-        // oscillation. Keyboard seat transitions own the only animated leg.
-        return 0
-    }
-
     /// The bottom occupancy reserved for the keyboard (when up) or the bottom
     /// safe area (when the keyboard is down so the always-visible toolbar clears
     /// the home indicator).
