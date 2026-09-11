@@ -78,7 +78,10 @@ extension MobileIrxRuntimeComposition {
         var direct: [String]
         switch intent {
         case .automatic:
-            relay = record.descriptor.metadata.relayURLs.first
+            // The directory's managed relay set is authoritative for the
+            // current server generation. Device metadata may omit it because
+            // the host does not persist connection hints on each device.
+            relay = directory.relayURLs.first ?? record.descriptor.metadata.relayURLs.first
             direct = []
             if !forceRelayOnly {
                 let paths = (try? await localPaths.load(identity: cache.identity)) ?? []
