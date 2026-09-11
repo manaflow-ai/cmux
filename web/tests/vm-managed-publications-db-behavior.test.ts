@@ -19,7 +19,7 @@ const owners: string[] = [];
 beforeAll(async () => {
   if (process.env.CMUX_DB_TEST !== "1") return;
   db = postgres(process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL!, { max: 6 });
-  repository = { ...await Effect.runPromise(CloudVmPublicationRepository.pipe(Effect.provide(CloudVmPublicationRepositoryLive))), ...await publicationDatabaseRuntime().runPromise(makePublicationAuthRepository) };
+  repository = { ...await Effect.runPromise(CloudVmPublicationRepository.pipe(Effect.provide(CloudVmPublicationRepositoryLive))), ...await (await publicationDatabaseRuntime()).runPromise(makePublicationAuthRepository) };
 });
 afterAll(async () => {
   if (!db) return;

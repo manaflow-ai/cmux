@@ -144,7 +144,7 @@ beforeAll(async () => {
       return yield* CloudVmPublicationRepository;
     }).pipe(Effect.provide(CloudVmPublicationRepositoryLive)),
   );
-  repository = { ...repository, ...await publicationDatabaseRuntime().runPromise(makePublicationAuthRepository) };
+  repository = { ...repository, ...await (await publicationDatabaseRuntime()).runPromise(makePublicationAuthRepository) };
 });
 
 beforeEach(async () => {

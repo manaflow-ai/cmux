@@ -160,6 +160,20 @@ issueAuthCode: (input) => repositoryEffect("issueAuthCode", () => Effect.gen(fun
         {
             yield* assertAccountDeletionUserMutationAllowed(tx, input.userId);
         }
+        const [transactionHint] = yield* tx
+            .select()
+            .from(cloudVmPublicationAuthTransactions)
+            .where(eq(cloudVmPublicationAuthTransactions.transactionHash, input.transactionHash))
+            .limit(1);
+        if (!transactionHint) {
+            return yield* Effect.fail(new PublicationAuthArtifactError({ reason: "transaction_invalid" }));
+        }
+        const [lockedPublication] = yield* tx
+            .select()
+            .from(cloudVmPublications)
+            .where(eq(cloudVmPublications.id, transactionHint.publicationId))
+            .for("update")
+            .limit(1);
         const [transaction] = yield* tx
             .select()
             .from(cloudVmPublicationAuthTransactions)
@@ -186,12 +200,7 @@ issueAuthCode: (input) => repositoryEffect("issueAuthCode", () => Effect.gen(fun
                 reason: "transaction_state_mismatch",
             }));
         }
-        const [publication] = yield* tx
-            .select()
-            .from(cloudVmPublications)
-            .where(eq(cloudVmPublications.id, transaction.publicationId))
-            .for("update")
-            .limit(1);
+        const publication = lockedPublication;
         if (!publication ||
             publication.state !== "active" ||
             publication.disabledAt ||
