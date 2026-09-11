@@ -13,8 +13,10 @@ import { captureBillingError } from "../../../../services/errors";
 import { resolveProPlanStatus } from "../../../../services/billing/pro";
 import {
   isStripeBillingConfigured,
+  resolvePersonalPlanSwitchPortalConfiguration,
   stripe,
 } from "../../../../services/billing/stripe";
+import { MAX_PLAN_ID, PRO_PLAN_ID, stripeBillingStatusForUser } from "../../../../services/billing/pro";
 import { resolveBillingTeam } from "../../../../services/billing/teamResolution";
 
 
@@ -70,12 +72,17 @@ export async function GET(request: NextRequest) {
       return pricingRedirect(request, "unavailable");
     }
 
+    const returnUrl = new URL("/dashboard/billing", requestOrigin(request)).toString();
+    // `flow=switch_plan&plan=max|pro` opens Stripe's plan-change flow on the
+    // caller's active personal subscription, with the dedicated configuration
+    // that lists Pro and Max. Any state that cannot switch (no active personal
+    // subscription, team scope, or a flow the catalog has not provisioned)
+    // falls back to the plain portal so the person can still manage billing.
+    const planSwitch = !team ? await personalPlanSwitchFlow(request, user.id) : null;
     const session = await stripe().billingPortal.sessions.create({
       customer: customerId,
-      return_url: new URL(
-        "/dashboard/billing",
-        requestOrigin(request),
-      ).toString(),
+      return_url: returnUrl,
+      ...(planSwitch ?? {}),
     });
     if (!session.url) {
       throw new Error("Stripe Billing Portal Session did not include a URL");
@@ -120,6 +127,50 @@ async function stripeCustomerIdForStackTeam(stackTeamId: string): Promise<string
     .where(eq(stripeCustomers.stackTeamId, stackTeamId))
     .limit(1);
   return rows[0]?.id ?? null;
+}
+
+type PortalPlanSwitchParams = {
+  readonly configuration: string;
+  readonly flow_data: {
+    readonly type: "subscription_update";
+    readonly subscription_update: { readonly subscription: string };
+  };
+};
+
+async function personalPlanSwitchFlow(
+  request: NextRequest,
+  stackUserId: string,
+): Promise<PortalPlanSwitchParams | null> {
+  const params = request.nextUrl.searchParams;
+  if (params.get("flow") !== "switch_plan") return null;
+  const target = params.get("plan")?.trim().toLowerCase();
+  if (target !== MAX_PLAN_ID && target !== PRO_PLAN_ID) return null;
+  const status = await stripeBillingStatusForUser(stackUserId);
+  if (
+    !status.hasActiveSubscription ||
+    !status.subscriptionId ||
+    status.activePlanId === null ||
+    status.activePlanId === target
+  ) {
+    return null;
+  }
+  try {
+    const configuration = await resolvePersonalPlanSwitchPortalConfiguration();
+    return {
+      configuration,
+      flow_data: {
+        type: "subscription_update",
+        subscription_update: { subscription: status.subscriptionId },
+      },
+    };
+  } catch (error) {
+    captureBillingError(error, {
+      route: "/api/billing/portal",
+      stackUserId,
+      planSwitchTarget: target,
+    });
+    return null;
+  }
 }
 
 function billingPortalScope(raw: string | null): "user" | "team" {

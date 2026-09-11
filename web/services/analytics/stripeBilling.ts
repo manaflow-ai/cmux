@@ -53,7 +53,7 @@ export async function captureBillingCheckoutStarted(
   input: {
     readonly sessionId: string;
     readonly subject: StripeBillingAnalyticsSubject;
-    readonly plan: "pro" | "team";
+    readonly plan: "pro" | "max" | "team";
     readonly billingInterval: "month" | "year";
     /** Where the checkout link was opened from (page, app button, channel). */
     readonly attribution: CheckoutAttribution;

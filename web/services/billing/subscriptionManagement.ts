@@ -8,7 +8,7 @@ import { cloudDb } from "../../db/client";
 import { stripeSubscriptions } from "../../db/schema";
 import {
   ACTIVE_STRIPE_PRO_STATUSES,
-  PRO_PLAN_ID,
+  PERSONAL_PLAN_IDS,
   TEAM_PLAN_ID,
 } from "./pro";
 import { stripe } from "./stripe";
@@ -29,7 +29,7 @@ export async function activeStripeSubscriptionForStackUser(stackUserId: string) 
       and(
         eq(stripeSubscriptions.stackUserId, stackUserId),
         eq(stripeSubscriptions.scope, "user"),
-        eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+        inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
         inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
       ),
     )
