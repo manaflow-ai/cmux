@@ -55,7 +55,7 @@ struct CloudActivationPolicy: Sendable {
     /// Mac used Cloud before (an update must not strand a fleet the user
     /// already has). A Debug default alone does not start background work.
     var allowsBackgroundCloudWork: Bool {
-        (isCloudMachinesExplicitlyEnabled?() ?? isCloudMachinesEnabled()) || hasUsedCloud()
+        (isCloudMachinesEnabled() && (isCloudMachinesExplicitlyEnabled?() ?? true)) || hasUsedCloud()
     }
 
     /// The launch-time tunnel controller may read NetworkExtension preferences
