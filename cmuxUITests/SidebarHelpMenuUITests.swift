@@ -335,19 +335,64 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         )
         XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control socket at \(socketPath)")
 
+        let mainWindow = app.windows.element(boundBy: 0)
         let mainWindowId = try XCTUnwrap(
             socketCommand("current_window")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        let primaryWorkspaceId = try XCTUnwrap(
+            currentWorkspaceId(),
+            "Expected a current workspace ID before opening the command palette"
+        )
+        let secondaryWorkspaceId = try XCTUnwrap(
+            okUUID(from: socketCommand("new_workspace")),
+            "Expected to create a secondary workspace for switcher coverage"
+        )
+
+        let primaryWorkspaceTitle = "backspace-switcher-primary"
+        let secondaryWorkspaceTitle = "backspace-switcher-secondary"
+        XCTAssertTrue(
+            renameWorkspace(primaryWorkspaceId, title: primaryWorkspaceTitle),
+            "Expected to rename the primary workspace for deterministic switcher rows"
+        )
+        XCTAssertTrue(
+            renameWorkspace(secondaryWorkspaceId, title: secondaryWorkspaceTitle),
+            "Expected to rename the secondary workspace for deterministic switcher rows"
+        )
+        XCTAssertTrue(
+            selectWorkspace(primaryWorkspaceId),
+            "Expected to restore the primary workspace before opening the command palette"
         )
 
         openCommandPaletteCommands(app: app)
 
-        _ = try XCTUnwrap(
+        let commandSnapshot = try XCTUnwrap(
             waitForCommandPaletteSnapshot(windowId: mainWindowId, mode: "commands", query: "", timeout: 5.0) { snapshot in
                 self.commandPaletteResultRows(from: snapshot).contains { row in
                     let commandId = row["command_id"] as? String ?? ""
-                    return !commandId.hasPrefix("switcher.")
+                    let title = row["title"] as? String ?? ""
+                    return commandId.hasPrefix("palette.") && !title.isEmpty
                 }
             }
+        )
+        let commandRows = commandPaletteResultRows(from: commandSnapshot)
+        let firstCommandRow = try XCTUnwrap(
+            commandRows.first(where: { row in
+                let commandId = row["command_id"] as? String ?? ""
+                let title = row["title"] as? String ?? ""
+                return commandId.hasPrefix("palette.") && !title.isEmpty
+            }),
+            "Expected a visible command row before deleting the command prefix. snapshot=\(commandSnapshot)"
+        )
+        let commandTitle = try XCTUnwrap(
+            firstCommandRow["title"] as? String,
+            "Expected the visible command row to include a title. snapshot=\(commandSnapshot)"
+        )
+        let commandLabel = mainWindow.staticTexts[commandTitle].firstMatch
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 2.0) {
+                commandLabel.exists && commandLabel.isHittable
+            },
+            "Expected the commands-mode row to be visibly rendered before deleting the command prefix. title=\(commandTitle) snapshot=\(commandSnapshot)"
         )
 
         app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
@@ -356,7 +401,9 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             waitForCommandPaletteSnapshot(windowId: mainWindowId, mode: "switcher", query: "", timeout: 5.0) { snapshot in
                 self.commandPaletteResultRows(from: snapshot).contains { row in
                     let commandId = row["command_id"] as? String ?? ""
+                    let title = row["title"] as? String ?? ""
                     return commandId.hasPrefix("switcher.workspace.")
+                        && [primaryWorkspaceTitle, secondaryWorkspaceTitle].contains(title)
                 }
             }
         )
@@ -379,7 +426,9 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         let firstWorkspaceRow = try XCTUnwrap(
             rows.first(where: { row in
                 let commandId = row["command_id"] as? String ?? ""
+                let title = row["title"] as? String ?? ""
                 return commandId.hasPrefix("switcher.workspace.")
+                    && [primaryWorkspaceTitle, secondaryWorkspaceTitle].contains(title)
             }),
             "Expected a workspace row in the restored switcher results. snapshot=\(switcherSnapshot)"
         )
@@ -387,7 +436,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             firstWorkspaceRow["title"] as? String,
             "Expected the restored workspace row to include a title. snapshot=\(switcherSnapshot)"
         )
-        let workspaceLabel = app.staticTexts[workspaceTitle].firstMatch
+        let workspaceLabel = mainWindow.staticTexts[workspaceTitle].firstMatch
         XCTAssertTrue(
             sidebarHelpPollUntil(timeout: 2.0) {
                 workspaceLabel.exists && workspaceLabel.isHittable
@@ -395,12 +444,11 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             "Expected the restored workspace row to be visibly rendered. title=\(workspaceTitle) snapshot=\(switcherSnapshot)"
         )
 
-        let staleCommandLabel = app.staticTexts["Close Other Workspaces"].firstMatch
         XCTAssertTrue(
             sidebarHelpPollUntil(timeout: 2.0) {
-                !staleCommandLabel.exists || !staleCommandLabel.isHittable
+                !commandLabel.exists || !commandLabel.isHittable
             },
-            "Expected the stale command row to disappear after deleting the command prefix. snapshot=\(switcherSnapshot)"
+            "Expected the stale commands-mode row to disappear after deleting the command prefix. title=\(commandTitle) snapshot=\(switcherSnapshot)"
         )
     }
 
@@ -1010,6 +1058,36 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         guard let response, response.hasPrefix("OK ") else { return nil }
         let value = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
         return UUID(uuidString: value) != nil ? value : nil
+    }
+
+    private func currentWorkspaceId() -> String? {
+        let envelope = socketJSON(method: "workspace.current", params: [:])
+        guard let ok = envelope?["ok"] as? Bool, ok,
+              let result = envelope?["result"] as? [String: Any] else {
+            return nil
+        }
+        return result["workspace_id"] as? String
+    }
+
+    private func renameWorkspace(_ workspaceId: String, title: String) -> Bool {
+        let envelope = socketJSON(
+            method: "workspace.rename",
+            params: [
+                "workspace_id": workspaceId,
+                "title": title,
+            ]
+        )
+        return (envelope?["ok"] as? Bool) == true
+    }
+
+    private func selectWorkspace(_ workspaceId: String) -> Bool {
+        let envelope = socketJSON(
+            method: "workspace.select",
+            params: [
+                "workspace_id": workspaceId,
+            ]
+        )
+        return (envelope?["ok"] as? Bool) == true
     }
 
     private func debugTypeText(_ text: String) throws {
