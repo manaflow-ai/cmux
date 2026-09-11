@@ -5,7 +5,7 @@ import { Signer } from "@aws-sdk/rds-signer";
 import { awsCredentialsProvider } from "@vercel/oidc-aws-credentials-provider";
 
 const globals = globalThis as typeof globalThis & {
-  __cmuxPublicationEffectDatabase?: { key: string; runtime: ReturnType<typeof makeDatabaseRuntime> };
+  __cmuxPublicationEffectDatabase?: { key: string; runtime: ReturnType<typeof makeDatabaseRuntime>; expiresAt: number };
 };
 
 /** One Effect-owned database pool per server instance, separate from background traffic. */
@@ -17,7 +17,7 @@ export async function publicationDatabaseRuntime() {
   }
   const key = `${cloudDbConfigKey(config)}:publication-auth:${configuredMax}`;
   const current = globals.__cmuxPublicationEffectDatabase;
-  if (current?.key === key) return current.runtime;
+  if (current?.key === key && current.expiresAt > Date.now()) return current.runtime;
   const connection = config.driver === "url"
     ? { url: Redacted.make(config.url) }
     : {
@@ -33,7 +33,10 @@ export async function publicationDatabaseRuntime() {
     maxConnections: Number(configuredMax),
     applicationName: "cmux-publication-auth",
   });
-  globals.__cmuxPublicationEffectDatabase = { key, runtime };
+  // PlanetScale passwords remain valid for the lifetime of the application.
+  // RDS IAM passwords are short-lived, so refresh the Effect layer before the
+  // token reaches its expiry instead of reusing a dead credential.
+  globals.__cmuxPublicationEffectDatabase = { key, runtime, expiresAt: config.driver === "url" ? Number.POSITIVE_INFINITY : Date.now() + 10 * 60_000 };
   if (current) void current.runtime.dispose();
   return runtime;
 }

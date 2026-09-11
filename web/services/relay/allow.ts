@@ -206,21 +206,17 @@ function admissionClient(): AdmissionClientState {
     state = {
       key,
       lookup: async (endpointId) => {
-        const query = sql.unsafe<AdmissionRow[]>(ADMISSION_SQL, [endpointId]);
-        // cancel() rejects the query whether still queued or executing, so
-        // the operation settles even through a pool or network stall.
-        const settleBound = setTimeout(() => {
-          try {
-            query.cancel();
-          } catch {
-            // Cancellation is best-effort; the statement timeout remains.
-          }
-        }, RELAY_ALLOW_LOOKUP_SETTLE_MS);
+        // PgBouncer rejects statement_timeout as a startup parameter. Set it
+        // locally inside a transaction instead, so the server cancels an
+        // executing query even if the client-side cancellation cannot connect.
         try {
-          const rows = await query;
+          const rows = await sql.begin(async (tx) => {
+            await tx.unsafe(`set local statement_timeout = ${RELAY_ALLOW_STATEMENT_TIMEOUT_MS}`);
+            return await tx.unsafe<AdmissionRow[]>(ADMISSION_SQL, [endpointId]);
+          });
           return rows[0] ?? null;
-        } finally {
-          clearTimeout(settleBound);
+        } catch {
+          return null;
         }
       },
       close: () => sql.end(),
