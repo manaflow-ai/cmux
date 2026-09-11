@@ -17,13 +17,18 @@ extension CMUXCLI {
               cmux cloud domains [list]
               cmux cloud domains zones
               cmux cloud domains verify <domain>
-              cmux cloud domains publish <vm> <port> [--domain <hostname>] [--access personal|team|public] [--team <id>]
-              cmux cloud domains access <hostname> <personal|team|public> [--team <id>]
+              cmux cloud domains publish <vm> <port> [--domain <hostname>] [--access personal|team|public] [--team <id>] [--org-slug <slug>] [--yes]
+              cmux cloud domains access <hostname> <personal|team|public> [--team <id>] [--yes]
+              cmux cloud domains grant <hostname> <email> [--expires <ISO-date>]
+              cmux cloud domains ungrant <hostname> <email>
+              cmux cloud domains grants <hostname>
               cmux cloud domains rm <hostname>
 
             Verify a domain you own first: `verify` prints the DNS records to add, then run it
             again to complete. `publish --domain` then accepts that domain or any one-label child.
-            Generated names need no verification. Add `--json` to any command for stable JSON output.
+            Generated names use <vm>--<organization>--<port>.cmux.sh and need no verification.
+            Access defaults to the owning team or personal owner. Email grants apply to one port only.
+            Public access requires confirmation; --yes confirms it for scripts. Add --json for JSON output.
             """
     )
 
@@ -77,7 +82,9 @@ extension CMUXCLI {
             }
 
         case "publish":
-            let (domain, restAfterDomain) = parseOption(arguments, name: "--domain")
+            let confirmed = arguments.contains("--yes")
+            let (orgSlug, restAfterOrg) = parseOption(arguments.filter { $0 != "--yes" }, name: "--org-slug")
+            let (domain, restAfterDomain) = parseOption(restAfterOrg, name: "--domain")
             let (accessRaw, restAfterAccess) = parseOption(restAfterDomain, name: "--access")
             let (teamID, remaining) = parseOption(restAfterAccess, name: "--team")
             guard remaining.count == 2,
@@ -92,15 +99,27 @@ extension CMUXCLI {
             var params: [String: Any] = [
                 "vmId": remaining[0],
                 "port": port,
-                "accessMode": access.mode.rawValue,
             ]
+            if accessRaw != nil && access.mode != .public { params["accessMode"] = access.mode.rawValue }
+            if let orgSlug { params["organizationSlug"] = orgSlug }
             if let domain = Self.nonempty(domain) { params["hostname"] = domain }
             if let teamID = access.teamID { params["teamId"] = teamID }
-            let response = try client.sendV2(
+            var response = try client.sendV2(
                 method: "vm.publication_create",
                 params: params,
                 responseTimeout: 120
             )
+            if access.mode == .public {
+                guard let publication = response["publication"] as? [String: Any],
+                      let publicationID = Self.nonempty(publication["id"] as? String) else {
+                    throw CLIError(message: String(
+                        localized: "cli.cloud.domains.malformedResponse",
+                        defaultValue: "The cmux app returned a publication response this CLI could not read."
+                    ))
+                }
+                try Self.confirmPublicPublication(publication, confirmed: confirmed)
+                response = try client.sendV2(method: "vm.publication_update", params: ["id": publicationID, "accessMode": "public", "confirmPublic": true], responseTimeout: 120)
+            }
             try printPublicationMutation(response, jsonOutput: jsonOutput)
 
         case "verify":
@@ -127,7 +146,8 @@ extension CMUXCLI {
             }
 
         case "access":
-            let (teamID, remaining) = parseOption(arguments, name: "--team")
+            let confirmed = arguments.contains("--yes")
+            let (teamID, remaining) = parseOption(arguments.filter { $0 != "--yes" }, name: "--team")
             guard remaining.count == 2,
                   !remaining.contains(where: { $0.hasPrefix("-") }),
                   let publicationID = Self.nonempty(remaining[0]) else {
@@ -139,12 +159,33 @@ extension CMUXCLI {
                 "accessMode": access.mode.rawValue,
             ]
             if let teamID = access.teamID { params["teamId"] = teamID }
+            if access.mode == .public {
+                let listed = try client.sendV2(method: "vm.publication_list", responseTimeout: 60)
+                guard let publication = Self.publicationObjects(listed).first(where: {
+                    ($0["id"] as? String) == publicationID || ($0["hostname"] as? String) == publicationID
+                }) else { throw CLIError(message: Self.cloudDomainsUsage) }
+                try Self.confirmPublicPublication(publication, confirmed: confirmed)
+                params["id"] = publication["id"]
+                params["confirmPublic"] = true
+            }
             let response = try client.sendV2(
                 method: "vm.publication_update",
                 params: params,
                 responseTimeout: 120
             )
             try printPublicationMutation(response, jsonOutput: jsonOutput)
+
+        case "grant", "ungrant", "grants":
+            let (expiresAt, remaining) = parseOption(arguments, name: "--expires")
+            let expectedCount = subcommand == "grants" ? 1 : 2
+            guard remaining.count == expectedCount,
+                  !remaining.contains(where: { $0.hasPrefix("-") }),
+                  expiresAt == nil || subcommand == "grant" else { throw CLIError(message: Self.cloudDomainsUsage) }
+            var params: [String: Any] = ["id": remaining[0]]
+            if expectedCount == 2 { params["email"] = remaining[1] }
+            if let expiresAt { params["expiresAt"] = expiresAt }
+            let response = try client.sendV2(method: "vm.publication_\(subcommand)", params: params, responseTimeout: 60)
+            print(jsonString(response))
 
         case "rm", "remove", "delete":
             guard arguments.count == 1, let publicationID = Self.nonempty(arguments[0]) else {
@@ -170,6 +211,15 @@ extension CMUXCLI {
 
         default:
             throw CLIError(message: Self.cloudDomainsUsage)
+        }
+    }
+
+    private static func confirmPublicPublication(_ publication: [String: Any], confirmed: Bool) throws {
+        let format = String(localized: "cli.cloud.domains.confirmPublic", defaultValue: "Public access lets anyone open %@ (VM %@, port %@). Continue? [y/N]")
+        let warning = String(format: format, publication["hostname"] as? String ?? "?", publication["vmId"] as? String ?? "?", String(Self.intValue(publication["port"]) ?? 0))
+        FileHandle.standardError.write(Data((warning + "\n").utf8))
+        if !confirmed && readLine()?.lowercased() != "y" {
+            throw CLIError(message: String(localized: "cli.cloud.domains.publicCancelled", defaultValue: "Public access was not enabled."))
         }
     }
 

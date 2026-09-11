@@ -1,5 +1,5 @@
 #[cfg(test)]
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
@@ -58,11 +58,22 @@ const HERMES_COMMAND_OUTPUT_BYTES: u64 = 4 * 1024 * 1024;
 #[cfg(test)]
 std::thread_local! {
     static FORCE_HERMES_REAPER_SPAWN_FAILURE: Cell<bool> = const { Cell::new(false) };
+    static HERMES_TEST_CHILD_SENDER: RefCell<Option<std::sync::mpsc::Sender<u32>>> =
+        const { RefCell::new(None) };
 }
 
 #[cfg(test)]
 fn hermes_reaper_spawn_should_fail() -> bool {
     FORCE_HERMES_REAPER_SPAWN_FAILURE.with(Cell::get)
+}
+
+#[cfg(test)]
+fn publish_hermes_test_child(child_id: u32) {
+    HERMES_TEST_CHILD_SENDER.with(|sender| {
+        if let Some(sender) = sender.borrow().as_ref() {
+            let _ = sender.send(child_id);
+        }
+    });
 }
 
 #[cfg(not(test))]
@@ -844,6 +855,8 @@ fn run_hermes_command_with_timeout(
     #[cfg(unix)]
     tree.configure(&mut command);
     let mut child = command.spawn().with_context(|| format!("run {}", binary.display()))?;
+    #[cfg(test)]
+    publish_hermes_test_child(child.id());
     #[cfg(unix)]
     if let Err(error) = tree.bind(child.id()) {
         tree.terminate_until(deadline);
@@ -2248,8 +2261,8 @@ mod tests {
     fn hermes_command_obeys_its_execution_deadline() {
         let started = Instant::now();
         let error = run_hermes_command_with_timeout(
-            Path::new("/bin/sh"),
-            &["-c", "sleep 30"],
+            Path::new("/bin/sleep"),
+            &["30"],
             Duration::from_millis(100),
         )
         .unwrap_err();
@@ -2260,38 +2273,26 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn hermes_command_reaps_child_when_reaper_spawn_fails() {
-        let root = tempfile::tempdir().unwrap();
-        let pid_path = root.path().join("hermes.pid");
-        let continue_path = root.path().join("hermes.continue");
-        let script = format!(
-            "printf '%s' $$ > {}; while [ ! -f {} ]; do sleep 0.01; done; sleep 30",
-            shell_quote(pid_path.to_string_lossy().as_ref()),
-            shell_quote(continue_path.to_string_lossy().as_ref())
-        );
-
+        let (pid_sender, pid_receiver) = std::sync::mpsc::channel();
         let (result_sender, result_receiver) = std::sync::mpsc::sync_channel(1);
         let started = Instant::now();
         let worker = std::thread::spawn(move || {
             FORCE_HERMES_REAPER_SPAWN_FAILURE.with(|failure| failure.set(true));
+            HERMES_TEST_CHILD_SENDER.with(|sender| sender.replace(Some(pid_sender)));
             let result = run_hermes_command_with_timeout(
-                Path::new("/bin/sh"),
-                &["-c", &script],
+                Path::new("/bin/sleep"),
+                &["30"],
                 Duration::from_secs(2),
             );
             result_sender.send(result).unwrap();
         });
 
-        let startup_deadline = Instant::now() + Duration::from_secs(1);
-        let pid = loop {
-            if let Ok(contents) = fs::read_to_string(&pid_path)
-                && let Ok(pid) = contents.trim().parse::<libc::pid_t>()
-            {
-                break pid;
-            }
-            assert!(Instant::now() < startup_deadline, "Hermes child did not complete startup");
-            std::thread::sleep(Duration::from_millis(5));
-        };
-        fs::write(&continue_path, b"continue\n").unwrap();
+        let pid = libc::pid_t::try_from(
+            pid_receiver
+                .recv_timeout(Duration::from_secs(1))
+                .expect("Hermes child did not complete startup"),
+        )
+        .unwrap();
 
         let error = result_receiver
             .recv_timeout(Duration::from_secs(4))
@@ -2353,7 +2354,7 @@ mod tests {
             }
         }
 
-        let child = std::process::Command::new("/bin/sh").args(["-c", "sleep 30"]).spawn().unwrap();
+        let child = std::process::Command::new("/bin/sleep").arg("30").spawn().unwrap();
         let pid = libc::pid_t::try_from(child.id()).unwrap();
         let _child_guard = ChildGuard(pid);
         let child_exit = UnixChildExitSignal::observe(child.id()).unwrap();

@@ -1,6 +1,5 @@
 import AppKit
 import Bonsplit
-import CmuxBrowser
 import CmuxControlSocket
 import Foundation
 
@@ -124,6 +123,7 @@ extension TerminalController {
                 insertFirst: direction.insertFirst,
                 workingDirectory: inputs.workingDirectory,
                 initialCommand: inputs.initialCommand,
+                initialInput: inputs.initialInput,
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
                 initialDividerPosition: inputs.initialDividerPosition,
@@ -153,7 +153,6 @@ extension TerminalController {
                 focus: focus,
                 creationPolicy: .automationPreload,
                 bypassRemoteProxy: useLocalContext,
-                engine: inputs.engine,
                 initialDividerPosition: dividerPosition
             )?.id
         } else if panelType == .simulator {
@@ -172,6 +171,7 @@ extension TerminalController {
                 focus: focus,
                 workingDirectory: inputs.workingDirectory,
                 initialCommand: inputs.initialCommand,
+                initialInput: inputs.initialInput,
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
                 initialDividerPosition: dividerPosition,
@@ -257,20 +257,49 @@ extension TerminalController {
             return .surfaceNotTerminal(surfaceId)
         }
 
+        let remoteRespawnRouting = ws.remotePTYRespawnRouting(panelId: surfaceId)
+        if remoteRespawnRouting == .unsupportedRemote {
+            // A remote-owned pane must never fall through to a local Ghostty
+            // exec when its transport cannot provide the persistent PTY bridge.
+            return .respawnFailed(surfaceId)
+        }
+
         v2MaybeFocusWindow(for: tabManager)
         v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
         let focus: Bool? = inputs.hasFocusParam
             ? v2FocusAllowed(requested: inputs.requestedFocus)
             : nil
-        guard let replacementPanel = ws.respawnTerminalSurface(
-            panelId: surfaceId,
-            command: inputs.command,
-            workingDirectory: inputs.workingDirectory,
-            tmuxStartCommand: inputs.tmuxStartCommand,
-            focus: focus,
-            allowTextBoxFocusDefault: focus == true
-        ) else {
+        let replacementPanel: TerminalPanel?
+        switch remoteRespawnRouting {
+        case .persistentSSH:
+            guard let plan = ws.remotePTYRespawnPlan(
+                panelId: surfaceId,
+                rawCommand: inputs.command,
+                remoteWorkingDirectory: inputs.workingDirectory
+            ) else {
+                return .respawnFailed(surfaceId)
+            }
+            replacementPanel = ws.respawnRemotePTYSurface(
+                panelId: surfaceId,
+                plan: plan,
+                rawStartCommand: inputs.tmuxStartCommand,
+                focus: focus,
+                allowTextBoxFocusDefault: focus == true
+            )
+        case .local:
+            replacementPanel = ws.respawnTerminalSurface(
+                panelId: surfaceId,
+                command: inputs.command,
+                workingDirectory: inputs.workingDirectory,
+                tmuxStartCommand: inputs.tmuxStartCommand,
+                focus: focus,
+                allowTextBoxFocusDefault: focus == true
+            )
+        case .unsupportedRemote:
+            return .respawnFailed(surfaceId)
+        }
+        guard let replacementPanel else {
             return .respawnFailed(surfaceId)
         }
         return .respawned(
@@ -366,6 +395,7 @@ extension TerminalController {
             let unsupported = mirrorRoutedUnsupportedOptions(
                 workingDirectory: inputs.workingDirectory,
                 initialCommand: inputs.initialCommand,
+                initialInput: inputs.initialInput,
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
                 remotePTYSessionID: inputs.remotePTYSessionID
@@ -384,8 +414,7 @@ extension TerminalController {
                 url: url,
                 focus: focus,
                 creationPolicy: .automationPreload,
-                bypassRemoteProxy: useLocalContext,
-                engine: inputs.engine
+                bypassRemoteProxy: useLocalContext
             )?.id
         } else if panelType == .simulator {
             newPanelId = ws.newSimulatorSurface(
@@ -407,6 +436,7 @@ extension TerminalController {
                 workingDirectory: inputs.workingDirectory,
                 initialCommand: inputs.initialCommand,
                 tmuxStartCommand: inputs.tmuxStartCommand,
+                initialInput: inputs.initialInput,
                 startupEnvironment: inputs.startupEnvironment,
                 remotePTYSessionID: inputs.remotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: useLocalContext,

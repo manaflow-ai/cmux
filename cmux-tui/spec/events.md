@@ -8,7 +8,7 @@ Event lines are JSON objects with an `event` string and no response envelope.
 
 The schema notation and `Id`, `Workspace`, `Screen`, `Pane`, and `Tab` types come from [`commands.md`](commands.md#notation). `Cursor`, `Row`, and `Run` come from [`render.md`](render.md#shared-render-types).
 
-Implemented event lines can appear on two stream types:
+Implemented event lines can appear on subscribe, attach, or control lifecycle streams:
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
@@ -17,6 +17,7 @@ Implemented event lines can appear on two stream types:
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
 | Browser attach v6 | `attach-surface` command on a browser | `browser-state`, `frame`, `notification`, `scroll-changed`, `detached`, `overflow` |
+| Control lifecycle notice | No command; sent after a successful `shutdown-daemon` or `session.shutdown` acknowledgment | `daemon-shutdown` |
 
 Events and command responses share one full-duplex connection. Each event or response is a complete transport message: a JSON line on Unix or a text frame on WebSocket. Clients must route messages by checking for `event`. If `event` is absent, the message is a command response and should be matched by `id`.
 
@@ -25,6 +26,8 @@ Events and command responses share one full-duplex connection. Each event or res
 Every entity-scoped event carries its subject id in the field named below. Tree deltas also carry every parent id needed to place the entity. Legacy session-wide events have no numeric entity subject; the table marks them `session` rather than inventing an id and changing their v5/v6 payloads.
 
 Subscribe events belong to the `subscribe` registration. Tree lifecycle deltas belong only to a subscription that selected `tree_events:"deltas"`; `tree-changed` belongs to the default `"coarse"` subscription and may also appear on a delta subscription as a resync fallback. The tree-event selection does not affect other subscribe events. Attach events belong to the attachment selected by `attach-surface`; their `surface` field permits multiple attachments on one connection. `notification` and `scroll-changed` can appear on subscribe and selected attach streams. Consumers must tolerate those duplicated routes. Protocol v10 has no public stream id or cancellation command, so a connection must use at most one subscription and one attachment per surface when event origin must be unambiguous.
+
+Control lifecycle notices are sent on the authenticated control queue. They do not require a `subscribe` registration and are ordered after the command response that caused them.
 
 | Event | Stream | Subject field | Since/compatibility |
 | --- | --- | --- | --- |
@@ -50,6 +53,7 @@ Subscribe events belong to the `subscribe` registration. Tree lifecycle deltas b
 | `bell` | subscribe | `surface` | protocol 5 |
 | `notification` | subscribe, byte attach, browser attach | `notification` | protocol 6; optional related `surface` |
 | `config-reload-requested` | subscribe | session | protocol 6 |
+| `daemon-shutdown` | control | session | protocol 12; sent after the successful `shutdown-daemon` or `session.shutdown` response |
 | `window-title-requested` | subscribe | session | protocol 6 |
 | `machine-usage-changed` | subscribe | session | protocol 12 additive extension; capability `machine-usage-v1` |
 | `client-attached` | subscribe | `client` | protocol 6 |
@@ -794,6 +798,33 @@ Example:
 
 ```json
 {"event":"empty"}
+```
+
+## Control Events
+
+### daemon-shutdown
+
+| Field | Value |
+| --- | --- |
+| event | `daemon-shutdown` |
+| status | implemented control lifecycle event |
+| since | protocol 12 |
+
+Payload:
+
+```text
+object{event:"daemon-shutdown"}
+```
+
+Meaning: Sent on the control queue to every live control client after the
+`shutdown-daemon` or `session.shutdown` success response is flushed. It is sent even when the
+requesting client did not open a subscription. Clients should classify the
+following EOF and pending requests as expected daemon shutdown.
+
+Example:
+
+```json
+{"event":"daemon-shutdown"}
 ```
 
 ## Attach Events

@@ -44,6 +44,7 @@ MIN_SPINDUMP_FREE_BYTES = 2 * 1024 * 1024 * 1024
 
 
 TOP_LEVEL_COMMANDS = {
+    "agent",
     "welcome",
     "docs",
     "settings",
@@ -53,6 +54,7 @@ TOP_LEVEL_COMMANDS = {
     "enable-browser",
     "browser-status",
     "restore",
+    "fork",
     "restore-session",
     "open",
     "feedback",
@@ -869,6 +871,7 @@ def build_cli_cases(ctx: StressContext) -> list[CliCase]:
         CliCase("help-flag", argv("--help"), no_socket=True, covered_command="help"),
         CliCase("help-command", argv("help"), no_socket=True, covered_command="help"),
         CliCase("welcome", argv("welcome"), no_socket=True, covered_command="welcome"),
+        CliCase("agent-help", argv("agent", "--help"), no_socket=True, covered_command="agent"),
         CliCase("docs", argv("docs"), no_socket=True, covered_command="docs"),
         CliCase("docs-settings", argv("docs", "settings"), no_socket=True, covered_command="docs"),
         CliCase("settings-path", argv("settings", "path"), no_socket=True, covered_command="settings"),
@@ -880,6 +883,7 @@ def build_cli_cases(ctx: StressContext) -> list[CliCase]:
         CliCase("enable-browser-help", argv("enable-browser", "--help"), no_socket=True, covered_command="enable-browser"),
         CliCase("browser-status", argv("browser-status", "--json"), no_socket=True, covered_command="browser-status", env_factory=lambda c: c.no_socket_env()),
         CliCase("restore-help", argv("restore", "--help"), no_socket=True, covered_command="restore"),
+        CliCase("fork-help", argv("fork", "--help"), no_socket=True, covered_command="fork"),
         CliCase("restore-session-help", argv("restore-session", "--help"), no_socket=True, covered_command="restore-session"),
         CliCase("feedback-help", argv("feedback", "--help"), no_socket=True, covered_command="feedback"),
         CliCase("feed-help", argv("feed", "--help"), no_socket=True, covered_command="feed"),

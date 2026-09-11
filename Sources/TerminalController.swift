@@ -119,6 +119,15 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
 @MainActor
 class TerminalController {
     static let shared = TerminalController()
+    private enum ReloadConfigurationWaitResult: Sendable {
+        case committed
+        case failed
+        case busy
+    }
+    /// The app-managed Cloud tunnel, set by the AppDelegate composition root
+    /// next to `VMClient.bootstrap`. Nil only before startup finishes; the
+    /// `vm.tunnel_*` socket verbs report browser access as unavailable until then.
+    var cloudTunnel: CloudTunnelCoordinator?
 #if DEBUG
     nonisolated let windowScreenshotCaptureCoordinator =
         WindowScreenshotCaptureCoordinator()
@@ -381,10 +390,7 @@ class TerminalController {
         let responder: (_ accept: Bool, _ text: String?) -> Void
     }
 
-    /// Marker used when a browser evaluation returns JavaScript `undefined`.
-    /// Chromium's CDP bridge uses the same marker as the WebKit path so all
-    /// command entrypoints preserve the existing wire semantics.
-    final class V2BrowserUndefinedSentinel: Sendable {}
+    private final class V2BrowserUndefinedSentinel: Sendable {}
 
     private nonisolated static let v2BrowserEvalEnvelopeTypeKey = "__cmux_t"
     private nonisolated static let v2BrowserEvalEnvelopeValueKey = "__cmux_v"
@@ -398,7 +404,7 @@ class TerminalController {
     private var v2BrowserDownloadEventsBySurface: [UUID: [[String: Any]]] = [:]
     private var v2ConsumedBrowserDownloadKeysBySurface: [UUID: [String]] = [:]
     private var v2BrowserUnsupportedNetworkRequestsBySurface: [UUID: [[String: Any]]] = [:]
-    nonisolated let v2BrowserUndefinedSentinel = V2BrowserUndefinedSentinel()
+    private nonisolated let v2BrowserUndefinedSentinel = V2BrowserUndefinedSentinel()
     /// Stateless browser-control logic (JS builders, value normalization,
     /// diagnostics, failure classification) extracted to `CmuxBrowser`.
     /// The per-surface mutable state and WebKit evaluation seam stay here.
@@ -1228,6 +1234,16 @@ class TerminalController {
             if let workspaceParamError = v2UnsupportedWorkspaceAliasError(method: request.method, params: request.params) {
                 return v2Result(id: request.id, workspaceParamError)
             }
+            if request.method == "surface.sync_codex_native_title" {
+                return v2Error(
+                    id: request.id,
+                    code: "invalid_dispatch",
+                    message: String(
+                        localized: "socket.surfaceSyncCodexNativeTitle.asyncDispatchRequired",
+                        defaultValue: "surface.sync_codex_native_title requires asynchronous socket dispatch"
+                    )
+                )
+            }
             if Self.socketWorkerCoordinatorHopMethods.contains(request.method) {
                 // Mirror processParsedV2Command's tail: one main hop for the
                 // command body, encode after the hop on this worker thread.
@@ -1460,28 +1476,39 @@ class TerminalController {
                 reloadConfigurationWaiterAdmission.claim() else {
             return "ERROR: reload_config busy"
         }
-        let reloadDidComplete: Bool? = socketAwaitCallback(
+        let reloadResult: ReloadConfigurationWaitResult? = socketAwaitCallback(
             timeout: 30
         ) { completion in
             Task { @MainActor in
                 let completionWasAdmitted =
-                    self.controlSidebarReloadConfigWithAdmission {
-                        completion(true)
-                        waiterLease.retire()
-                    }
+                    self.controlSidebarReloadConfigWithAdmission(
+                        commitCompletion: { committed in
+                            completion(
+                                committed ? .committed : .failed
+                            )
+                            waiterLease.retire()
+                        }
+                    )
                 if !completionWasAdmitted {
-                    completion(false)
+                    // The reload request is still queued even when this
+                    // caller's optional commit callback could not be retained.
+                    // Report backpressure, not a false configuration failure.
+                    completion(.busy)
                     waiterLease.retire()
                 }
             }
         }
-        guard let reloadDidComplete else {
+        guard let reloadResult else {
             return "ERROR: reload_config timed out"
         }
-        guard reloadDidComplete else {
+        switch reloadResult {
+        case .committed:
+            return "OK Reloaded config"
+        case .failed:
+            return "ERROR: reload_config failed"
+        case .busy:
             return "ERROR: reload_config busy"
         }
-        return "OK Reloaded config"
     }
 
     private nonisolated static func feedPushWaitTimeoutSeconds(params: [String: Any]) -> TimeInterval? {
@@ -1585,8 +1612,7 @@ class TerminalController {
              "browser.storage.get", "browser.storage.set", "browser.storage.clear",
              "browser.console.list", "browser.console.clear", "browser.errors.list",
              "browser.state.save", "browser.state.load",
-             "browser.addinitscript", "browser.addscript", "browser.addstyle",
-             "browser.viewport.set":
+             "browser.addinitscript", "browser.addscript", "browser.addstyle":
             // Keep ref payloads fresh like the main-actor dispatch path does.
             v2MainSync { self.v2RefreshKnownRefs() }
             return v2Result(id: request.id, v2BrowserAutomationCommandOnSocketWorker(method: request.method, params: request.params))
@@ -2297,6 +2323,25 @@ class TerminalController {
             }
 
             let policy = Self.executionPolicy(forV2Method: request.method)
+            if let action = browserKeyboardAction(for: request.method),
+               let rawKey = request.params["key"]?.foundationObject as? String,
+               let event = BrowserKeyboardEvent(rawKey: rawKey),
+               event.nativeKey != nil {
+                guard !Thread.isMainThread else {
+                    return v2Error(
+                        id: request.id.map(\.foundationObject),
+                        code: "invalid_dispatch",
+                        message: "\(request.method) must run off the main thread"
+                    )
+                }
+                return CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
+                    v2BrowserKeyboardNativeResponseSync(
+                        request: request,
+                        event: event,
+                        action: action
+                    )
+                }
+            }
             if Thread.isMainThread, policy == .socketWorker(mainThreadCallable: false) {
                 return v2Error(
                     id: request.id.map(\.foundationObject),
@@ -2753,6 +2798,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceCloudVMBind(params: params))
         case "workspace.set_auto_title":
             return v2Result(id: id, self.v2WorkspaceSetAutoTitle(params: params))
+        case "surface.sync_codex_native_title":
+            return v2Result(id: id, self.v2SurfaceSyncCodexNativeTitle(params: params))
 
         // Settings/session/feedback: session.restore_previous, settings.open, and
         // feedback.open handled by ControlCommandCoordinator.
@@ -2778,6 +2825,7 @@ class TerminalController {
         case "notification.create_for_caller":
             return v2Result(id: id, self.v2NotificationCreateForCaller(params: params))
         case "agent.resolve_delivery_target": return v2Result(id: id, self.v2AgentResolveDeliveryTarget(params: params))
+        case "agent.hibernation.session_end": return v2Result(id: id, self.v2AgentHibernationSessionEnd(params: params))
         #if DEBUG
         case "debug.notification.status":
             return v2Ok(id: id, result: notificationDebugStatus())
@@ -3003,6 +3051,9 @@ class TerminalController {
             "vm.publication_verify",
             "vm.publication_update",
             "vm.publication_delete",
+            "vm.publication_grants",
+            "vm.publication_grant",
+            "vm.publication_ungrant",
             "vm.domain_list",
             "vm.domain_verify",
             "vm.create",
@@ -3010,7 +3061,6 @@ class TerminalController {
             "vm.base_reset",
             "vm.status",
             "vm.stats",
-            "vm.resize",
             "vm.rename",
             "vm.snapshot",
             "vm.fork",
@@ -3020,13 +3070,14 @@ class TerminalController {
             "vm.open_port",
             "vm.attach_info",
             "vm.cmux_remote_info",
-            "vm.cmux_remote_approve",
             "vm.ssh_info",
             "vm.sessions",
             "vm.session_attach_info",
             "vm.tree",
             "vm.terminal_open",
             "vm.terminal_new",
+            "vm.terminal_rename",
+            "vm.tab_rename",
             "vm.workspace_new",
             "vm.workspace_open",
             "vm.workspace_close",
@@ -3041,6 +3092,12 @@ class TerminalController {
             "vm.link_socket",
             "vm.cloud_agent_open",
             "vm.cloud_prompt",
+            "vm.tunnel_config",
+            "vm.tunnel_status",
+            "vm.tunnel_revoke",
+            "vm.tunnel_up",
+            "vm.tunnel_down",
+            "vm.tunnel_wait",
             "surface.catalog",
             "surface.project",
             "surface.new_terminal",
@@ -3076,6 +3133,7 @@ class TerminalController {
             "workspace.prompt_submit",
             "workspace.rename",
             "workspace.set_auto_title",
+            "surface.sync_codex_native_title",
             "workspace.group.list",
             "workspace.group.create",
             "workspace.group.ungroup",
@@ -3137,6 +3195,8 @@ class TerminalController {
             "surface.resume.set",
             "surface.resume.get",
             "surface.resume.clear",
+            "agent.restore.admit",
+            "agent.restore.release",
             "debug.terminals",
             "surface.send_text",
             "surface.send_key",
@@ -3160,7 +3220,7 @@ class TerminalController {
             "pane.join",
             "pane.last",
             "notification.create",
-            "notification.create_for_caller", "agent.resolve_delivery_target",
+            "notification.create_for_caller", "agent.resolve_delivery_target", "agent.hibernation.session_end",
             "notification.create_for_surface",
             "notification.create_for_target",
             "notification.list",
@@ -4048,6 +4108,7 @@ class TerminalController {
     nonisolated func v2VmCall(
         id: Any?,
         timeoutSeconds: TimeInterval = 17 * 60,
+        transportUnsupportedMachineID: String? = nil,
         _ work: @escaping () async throws -> [String: Any]
     ) -> String {
         let semaphore = DispatchSemaphore(value: 0)
@@ -4072,6 +4133,34 @@ class TerminalController {
         case .success(let payload):
             return v2Ok(id: id, result: payload)
         case .failure(let error):
+            if case VMClientError.disabledByManagedPolicy = error {
+                return v2Error(id: id, code: "cloud_disabled", message: String(describing: error))
+            }
+            if let deliveryError = error as? CloudFileDelivery.DeliveryError {
+                return v2Error(id: id, code: "vm_file_delivery_failed", message: deliveryError.localizedDescription)
+            }
+            if let combinedError = error as? CloudFileDelivery.OperationAndCleanupError {
+                return v2Error(id: id, code: "vm_file_delivery_failed", message: combinedError.localizedDescription)
+            }
+            if case VMClientError.lifecycleUnsupported = error {
+                return v2Error(id: id, code: "vm_operation_unsupported", message: String(describing: error))
+            }
+            if let deliveryError = error as? CloudEnvDelivery.DeliveryError {
+                return v2Error(id: id, code: "vm_env_delivery_failed", message: deliveryError.localizedDescription)
+            }
+            if let combinedError = error as? CloudEnvDelivery.OperationAndCleanupError {
+                return v2Error(id: id, code: "vm_env_delivery_failed", message: combinedError.localizedDescription)
+            }
+            if let catalogError = error as? SurfaceCatalogError {
+                switch catalogError {
+                case .nothingToOpen:
+                    return v2Error(id: id, code: "not_ready", message: catalogError.localizedDescription)
+                case .destinationNotFound:
+                    return v2Error(id: id, code: "not_found", message: catalogError.localizedDescription)
+                default:
+                    break
+                }
+            }
             if let vmError = error as? VMClientError,
                Self.isCloudVMAuthenticationError(vmError) {
                 // Keep the auth boundary explicit for every VM verb. The CLI
@@ -4098,10 +4187,44 @@ class TerminalController {
                     message: message
                 )
             }
+            if let vmError = error as? VMClientError,
+               let machineID = transportUnsupportedMachineID,
+               Self.isCloudVMTransportUnsupportedError(vmError) {
+                // `vm.cmux_remote_info` is the shared attach path for `vm shell`,
+                // `vm open`, `vm tui`, and the sidebar, so the message names the
+                // machine and the missing transport rather than guessing the
+                // caller, and points at commands that do not need that transport.
+                let alternative = String(
+                    format: String(
+                        localized: "socket.cloudVM.transportUnsupported.useExec",
+                        defaultValue: "Use `cmux vm exec %1$@ -- <command>`; `cmux vm ssh %1$@` works where the provider offers SSH."
+                    ),
+                    machineID,
+                    machineID
+                )
+                let message = String(
+                    format: String(
+                        localized: "socket.cloudVM.transportUnsupported",
+                        defaultValue: "%1$@ offers no `%2$@` transport (its provider has no cmux-tui daemon route), so cmux cannot attach a terminal to it. %3$@"
+                    ),
+                    machineID,
+                    "cmux-remote",
+                    alternative
+                )
+                return v2Error(
+                    id: id,
+                    code: "transport_unsupported",
+                    message: message,
+                    data: Self.cloudVMBackendErrorData(error)
+                )
+            }
             return v2Error(
                 id: id,
                 code: "vm_error",
-                message: String(describing: error),
+                message: String(
+                    localized: "socket.cloudVM.requestFailed",
+                    defaultValue: "The Cloud VM request failed. Retry, or check the machine's status with `cmux vm ls`."
+                ),
                 data: Self.cloudVMBackendErrorData(error)
             )
         case nil:
@@ -4113,22 +4236,22 @@ class TerminalController {
         }
     }
 
-    /// Backend error code passthrough (`error.data.backend_code`) so the CLI
-    /// can make idempotency decisions structurally instead of parsing the
-    /// formatted display text.
+    /// Backend error metadata passthrough so the CLI can make compatibility
+    /// decisions structurally instead of parsing formatted display text.
     private nonisolated static func cloudVMBackendErrorData(_ error: Error) -> [String: Any]? {
-        guard case let VMClientError.httpStatus(status, body) = error,
-              let data = body.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-              let code = object["error"] as? String,
-              !code.isEmpty else {
+        guard case let VMClientError.httpStatus(status, body) = error else {
             return nil
         }
-        var payload: [String: Any] = ["backend_code": code, "http_status": status]
+        var payload: [String: Any] = ["http_status": status]
+        let object = body.data(using: .utf8)
+            .flatMap { try? JSONSerialization.jsonObject(with: $0, options: []) as? [String: Any] }
+        if let code = object?["error"] as? String, !code.isEmpty {
+            payload["backend_code"] = code
+        }
         // The server trace id (support reference) travels with the structured
         // error so the CLI and scripts can log it without parsing display text.
-        if let traceId = object["traceId"] as? String, !traceId.isEmpty {
-            payload["trace_id"] = traceId
+        if let traceID = object?["traceId"] as? String, !traceID.isEmpty {
+            payload["trace_id"] = traceID
         }
         return payload
     }
@@ -4139,9 +4262,20 @@ class TerminalController {
             return true
         case .httpStatus(let status, _):
             return status == 401
-        case .sessionRefreshFailed, .backendUnreachable, .malformedResponse:
+        case .sessionRefreshFailed, .backendUnreachable, .malformedResponse, .lifecycleUnsupported, .disabledByManagedPolicy:
             return false
         }
+    }
+
+    private nonisolated static func isCloudVMTransportUnsupportedError(_ error: VMClientError) -> Bool {
+        guard case let .httpStatus(status, body) = error, status == 501 else {
+            return false
+        }
+        guard let data = body.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+            return false
+        }
+        return object["error"] as? String == "vm_attach_transport_unsupported"
     }
 
     nonisolated func v2AsyncResultCall(
@@ -4395,6 +4529,87 @@ class TerminalController {
 
     private func v2ResolveWorkspaceOwner(_ workspaceId: UUID) -> TabManager? {
         v2MainSync { AppDelegate.shared?.tabManagerFor(tabId: workspaceId) }
+    }
+
+    /// `surface.sync_codex_native_title`: applies Codex's already-resolved
+    /// native thread title to the panel's raw title tier, the same tier used
+    /// by OSC terminal-title updates. The detached CLI hook owns the database
+    /// read; this app-side handler only resolves the panel and mutates
+    /// in-memory workspace state.
+    /// Applies the title on the main actor for the asynchronous socket bridge.
+    func v2SurfaceSyncCodexNativeTitle(params: [String: Any]) -> V2CallResult {
+        guard let title = v2String(params, "title")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !title.isEmpty else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.surfaceSyncCodexNativeTitle.invalidTitle",
+                    defaultValue: "Missing or invalid title"
+                ),
+                data: nil
+            )
+        }
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(
+                code: "unavailable",
+                message: String(
+                    localized: "socket.surfaceSyncCodexNativeTitle.tabManagerUnavailable",
+                    defaultValue: "TabManager not available"
+                ),
+                data: nil
+            )
+        }
+        guard let workspaceId = v2UUID(params, "workspace_id") else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.surfaceSyncCodexNativeTitle.workspaceIdInvalid",
+                    defaultValue: "Missing or invalid workspace_id"
+                ),
+                data: nil
+            )
+        }
+        guard let panelId = v2UUID(params, "panel_id") else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.surfaceSyncCodexNativeTitle.panelIdInvalid",
+                    defaultValue: "Missing or invalid panel_id"
+                ),
+                data: nil
+            )
+        }
+
+        var found = false
+        var applied = false
+        v2MainSync {
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+            let resolvedPanelId = workspace.panels[panelId] != nil
+                ? panelId
+                : workspace.panelIdFromSurfaceId(TabID(uuid: panelId))
+            guard let resolvedPanelId else { return }
+            found = true
+            applied = tabManager.updatePanelTitle(
+                tabId: workspaceId,
+                panelId: resolvedPanelId,
+                title: title
+            )
+        }
+
+        guard found else {
+            return .err(
+                code: "not_found",
+                message: String(
+                    localized: "socket.surfaceSyncCodexNativeTitle.panelNotFound",
+                    defaultValue: "Panel not found"
+                ),
+                data: [
+                    "workspace_id": workspaceId.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId)
+                ]
+            )
+        }
+        return .ok(["applied": applied])
     }
 
     // MARK: - V2 Workspace Methods
@@ -6651,8 +6866,6 @@ class TerminalController {
                 "title": panel.displayTitle,
                 "url": panel.currentURL?.absoluteString ?? "",
                 "focused": panel.id == focusedPanelId,
-                "engine": panel.engineKind.rawValue,
-                "cdp_endpoint": v2OrNull(panel.chromiumCDPEndpoint?.connectOverCDPURL?.absoluteString),
                 "pane_id": v2OrNull(paneId?.id.uuidString),
                 "pane_ref": v2Ref(kind: .pane, uuid: paneId?.id)
             ]
@@ -6692,11 +6905,11 @@ class TerminalController {
         return (workspace.focusedPanelId, nil)
     }
 
-    nonisolated func v2JSONLiteral(_ value: Any) -> String {
+    private nonisolated func v2JSONLiteral(_ value: Any) -> String {
         v2BrowserControl.jsonLiteral(value)
     }
 
-    nonisolated func v2NormalizeJSValue(_ value: Any?) -> Any {
+    private nonisolated func v2NormalizeJSValue(_ value: Any?) -> Any {
         v2BrowserControl.normalizeJSValue(value) { $0 is V2BrowserUndefinedSentinel }
     }
 
@@ -6930,43 +7143,30 @@ class TerminalController {
     /// URL-less browser surface never mounts its webview either (no render, no host window),
     /// so a raw webView.load() would not progress. Kick such surfaces through the panel's
     /// normal navigation path, then wait for that exact WebView instance's navigation-delegate
-    /// commit before any automation JavaScript runs against it.
+    /// commit before any automation JavaScript or native input runs against it.
     private nonisolated func v2EnsureBrowserDocumentLoaded(
         _ webView: WKWebView,
         browserPanel: BrowserPanel,
         surfaceId: UUID,
-        timeout: TimeInterval = 3.0
+        timeout: TimeInterval = 3.0,
+        reason: String = "automation-js"
     ) -> Bool {
         let expectedWebViewIdentifier = ObjectIdentifier(webView)
         var readinessTask: Task<Void, Never>?
         let outcome: BrowserAutomationDocumentReadinessOutcome? = v2AwaitCallback(timeout: timeout) { finish in
             readinessTask = Task { @MainActor in
-                guard ObjectIdentifier(browserPanel.webView) == expectedWebViewIdentifier,
-                      let blankURL = URL(string: "about:blank") else {
-#if DEBUG
-                    cmuxDebugLog("browser.jsCommit.locateFailed surface=\(surfaceId.uuidString.prefix(5))")
-#endif
+                switch await browserPanel.ensureAutomationDocumentReady(
+                    expectedWebViewIdentifier: expectedWebViewIdentifier,
+                    timeout: .seconds(timeout),
+                    reason: reason
+                ) {
+                case .committed:
+                    finish(.committed)
+                case .superseded:
                     finish(.superseded)
-                    return
+                case .cancelled, .timedOut:
+                    finish(.cancelled)
                 }
-                let currentWebView = browserPanel.webView
-
-                if currentWebView.url == nil,
-                   !currentWebView.isLoading,
-                   currentWebView.backForwardList.currentItem == nil {
-                    // Discarded tabs preserve the user's page intent. Restore it before
-                    // falling back to a real about:blank document for an empty new tab.
-                    let restored = browserPanel.restoreDiscardedWebViewIfNeeded(reason: "automation-js")
-                    if !restored, let preserved = browserPanel.currentURL {
-                        browserPanel.navigate(to: preserved)
-                    } else if !restored || BrowserPanel.isAboutBlankURL(browserPanel.currentURL) {
-                        browserPanel.navigate(to: blankURL)
-                    }
-                }
-
-                finish(await browserPanel.waitForAutomationDocumentCommit(
-                    expectedWebViewIdentifier: expectedWebViewIdentifier
-                ))
             }
         }
         if outcome == nil {
@@ -6981,7 +7181,7 @@ class TerminalController {
         return outcome == .committed
     }
 
-    nonisolated func v2RunBrowserJavaScript(
+    private nonisolated func v2RunBrowserJavaScript(
         _ webView: WKWebView,
         browserPanel: BrowserPanel,
         surfaceId: UUID,
@@ -6991,81 +7191,27 @@ class TerminalController {
         requiresPageWorld: Bool = false,
         onIsolatedWorldFallback: (() -> Void)? = nil
     ) -> V2JavaScriptResult {
-        if !v2MainSync({ browserPanel.isChromiumBacked }) {
-            guard v2EnsureBrowserDocumentLoaded(
-                webView,
+        guard v2EnsureBrowserDocumentLoaded(
+            webView,
+            browserPanel: browserPanel,
+            surfaceId: surfaceId
+        ) else {
+            return .failure(v2BrowserAutomationMessageAfterLivenessCheck(
+                originalMessage: String(
+                    localized: "browser.automation.error.documentReadinessTimedOut",
+                    defaultValue: "Timed out waiting for the browser document to become ready"
+                ),
                 browserPanel: browserPanel,
-                surfaceId: surfaceId
-            ) else {
-                return .failure(v2BrowserAutomationMessageAfterLivenessCheck(
-                    originalMessage: String(
-                        localized: "browser.automation.error.documentReadinessTimedOut",
-                        defaultValue: "Timed out waiting for the browser document to become ready"
-                    ),
-                    browserPanel: browserPanel,
-                    surfaceId: surfaceId,
-                    expectedWebViewIdentifier: ObjectIdentifier(webView),
-                    channel: .javaScript
-                ))
-            }
+                surfaceId: surfaceId,
+                expectedWebViewIdentifier: ObjectIdentifier(webView),
+                channel: .javaScript
+            ))
         }
-        let scriptLiteral = v2JSONLiteral(script)
-        let framePrelude: String
-        if let frameSelector = v2BrowserCurrentFrameSelector(surfaceId: surfaceId) {
-            let selectorLiteral = v2JSONLiteral(frameSelector)
-            framePrelude = """
-            let __cmuxDoc = document;
-            try {
-              const __cmuxFrame = document.querySelector(\(selectorLiteral));
-              if (__cmuxFrame && __cmuxFrame.contentDocument) {
-                __cmuxDoc = __cmuxFrame.contentDocument;
-              }
-            } catch (_) {}
-            """
-        } else {
-            framePrelude = "const __cmuxDoc = document;"
-        }
-
-        let executionBlock: String
-        if useEval {
-            executionBlock = "const __r = eval(\(scriptLiteral));"
-        } else {
-            executionBlock = "const __r = \(script);"
-        }
-
-        let asyncFunctionBody = """
-        \(framePrelude)
-
-        const __cmuxMaybeAwait = async (__r) => {
-          if (__r !== null && (typeof __r === 'object' || typeof __r === 'function') && typeof __r.then === 'function') {
-            return await __r;
-          }
-          return __r;
-        };
-
-        const __cmuxEvalInFrame = async function() {
-          const document = __cmuxDoc;
-          \(executionBlock)
-          const __value = await __cmuxMaybeAwait(__r);
-          return {
-            __cmux_t: (typeof __value === 'undefined') ? 'undefined' : 'value',
-            __cmux_v: __value
-          };
-        };
-
-        return await __cmuxEvalInFrame();
-        """
-
-        // Chromium uses the same action envelope through Runtime.evaluate;
-        // this branch is deliberately after script construction so frame
-        // selectors and non-eval callers retain the shared semantics.
-        if v2MainSync({ browserPanel.isChromiumBacked }) {
-            return v2RunChromiumJavaScript(
-                browserPanel: browserPanel,
-                script: asyncFunctionBody,
-                timeout: timeout
-            )
-        }
+        let asyncFunctionBody = v2BrowserControl.evaluationScript(
+            script: script,
+            useEval: useEval,
+            frameSelector: v2BrowserCurrentFrameSelector(surfaceId: surfaceId)
+        )
 
         var rawResult: BrowserJavaScriptEvaluationResult
         if #available(macOS 11.0, *) {
@@ -7352,26 +7498,6 @@ class TerminalController {
         return resolveBrowserNavigableURL(trimmed) ?? URL(string: trimmed)
     }
 
-    /// Parses the optional browser-engine selector shared by browser creation
-    /// entrypoints, preserving one validation and error contract.
-    private nonisolated func v2RequestedBrowserEngine(
-        params: [String: Any]
-    ) -> (engine: BrowserEngineKind?, error: V2CallResult?) {
-        guard v2HasNonNullParam(params, "engine") else { return (nil, nil) }
-        guard let rawEngine = v2String(params, "engine"),
-              let parsedEngine = BrowserEngineKind.parse(rawEngine) else {
-            return (
-                nil,
-                .err(
-                    code: "invalid_params",
-                    message: BrowserEngineKind.invalidOptionMessage,
-                    data: ["engine": params["engine"] ?? NSNull()]
-                )
-            )
-        }
-        return (parsedEngine, nil)
-    }
-
     // Internal (not private): `CloudTreeService.openDesktop/openPort` open the same browser
     // split the socket verb does, so the sidebar, `cmux vm desktop`, and `cmux vm open` share
     // one path.
@@ -7389,9 +7515,6 @@ class TerminalController {
             return error
         }
         let urlStr = v2String(params, "url")
-        let requestedEngineResult = v2RequestedBrowserEngine(params: params)
-        if let error = requestedEngineResult.error { return error }
-        let requestedEngine = requestedEngineResult.engine
         // Resolve with the same smart logic as browser.navigate (URL, then search fallback)
         // so an unparseable raw string fails loudly instead of silently opening about:blank.
         let url: URL?
@@ -7630,8 +7753,7 @@ class TerminalController {
                     omnibarVisible: omnibarVisible
                 ),
                 transparentBackground: transparentBackground,
-                bypassRemoteProxy: bypassRemoteProxy,
-                engine: requestedEngine
+                bypassRemoteProxy: bypassRemoteProxy
             )
             guard let placement = container.openBrowserToRight(
                 of: sourceSurfaceId,
@@ -7682,8 +7804,6 @@ class TerminalController {
                     "show_omnibar": placement.panel.isOmnibarVisible,
                     "transparent_background": transparentBackground,
                     "bypass_remote_proxy": bypassRemoteProxy,
-                    "engine": placement.panel.engineKind.rawValue,
-                    "cdp_endpoint": v2OrNull(placement.panel.chromiumCDPEndpoint?.connectOverCDPURL?.absoluteString),
                 ]
             )
             if focus,
@@ -7961,7 +8081,7 @@ class TerminalController {
         return .err(code: "not_found", message: message, data: data)
     }
 
-    private nonisolated func v2BrowserAppendPostSnapshot(
+    nonisolated func v2BrowserAppendPostSnapshot(
         params: [String: Any],
         surfaceId: UUID,
         payload: inout [String: Any]
@@ -8038,10 +8158,14 @@ class TerminalController {
                     if let dict = value as? [String: Any],
                        let ok = dict["ok"] as? Bool,
                        ok {
-                        var payload = v2BrowserPanelFields(ctx, adding: [
+                        var payload: [String: Any] = [
+                            "workspace_id": ctx.workspaceId.uuidString,
+                            "surface_id": surfaceId.uuidString,
                             "action": actionName,
                             "attempts": attempt
-                        ])
+                        ]
+                        payload["workspace_ref"] = v2Ref(kind: .workspace, uuid: ctx.workspaceId)
+                        payload["surface_ref"] = v2Ref(kind: .surface, uuid: surfaceId)
                         if let resultValue = dict["value"] {
                             payload["value"] = v2NormalizeJSValue(resultValue)
                         }
@@ -8110,9 +8234,13 @@ class TerminalController {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
-                var payload = v2BrowserPanelFields(ctx, adding: [
+                var payload: [String: Any] = [
+                    "workspace_id": ctx.workspaceId.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
+                    "surface_id": ctx.surfaceId.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId),
                     "value": v2NormalizeJSValue(value)
-                ])
+                ]
                 if usedIsolatedWorld {
                     // Page-world eval was blocked (typically CSP without 'unsafe-eval'); this value
                     // came from the isolated content world. It shares the DOM but cannot read
@@ -8382,7 +8510,11 @@ class TerminalController {
                 }
                 let snapshotText = snapshotLines.joined(separator: "\n")
 
-                var payload = v2BrowserPanelFields(ctx, adding: [
+                var payload: [String: Any] = [
+                    "workspace_id": ctx.workspaceId.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
+                    "surface_id": surfaceId.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
                     "snapshot": snapshotText,
                     "title": title,
                     "url": url,
@@ -8394,7 +8526,7 @@ class TerminalController {
                         "text": text,
                         "html": html
                     ]
-                ])
+                ]
                 if !refs.isEmpty {
                     payload["refs"] = refs
                 }
@@ -8440,8 +8572,6 @@ class TerminalController {
         var surfaceIdOut: UUID?
         var browserPanel: BrowserPanel?
         var webView: WKWebView?
-        var engineRaw = BrowserEngineKind.webkit.rawValue
-        var cdpEndpoint: String?
 
         v2MainSync {
             guard let tabManager = self.v2ResolveTabManager(params: params) else {
@@ -8461,8 +8591,6 @@ class TerminalController {
             surfaceIdOut = context.surfaceId
             browserPanel = context.browserPanel
             webView = context.webView
-            engineRaw = context.browserPanel.engineKind.rawValue
-            cdpEndpoint = context.browserPanel.chromiumCDPEndpoint?.connectOverCDPURL?.absoluteString
         }
 
         if let setupResult {
@@ -8496,8 +8624,6 @@ class TerminalController {
                 "workspace_ref": self.v2Ref(kind: .workspace, uuid: workspaceId),
                 "surface_id": surfaceIdOut.uuidString,
                 "surface_ref": self.v2Ref(kind: .surface, uuid: surfaceIdOut),
-                "engine": engineRaw,
-                "cdp_endpoint": v2OrNull(cdpEndpoint),
                 "waited": true
             ])
         case .timedOut:
@@ -8508,11 +8634,7 @@ class TerminalController {
                 message: "Wait condition could not be evaluated: \(message)",
                 data: [
                     "timeout_ms": timeoutMs,
-                    "url": v2MainSync {
-                        browserPanel.isChromiumBacked
-                            ? (browserPanel.currentURL?.absoluteString ?? "about:blank")
-                            : (webView.url?.absoluteString ?? "about:blank")
-                    },
+                    "url": v2MainSync { webView.url?.absoluteString ?? "about:blank" },
                     "hint": "Verify the page loaded with 'cmux browser <surface> get url' before waiting"
                 ]
             )
@@ -8742,6 +8864,8 @@ class TerminalController {
         v2BrowserKeyboardAction(params: params, action: .keyUp)
     }
 
+    /// Handles one browser keyboard RPC, using native WebKit input for mapped
+    /// keys and retaining the DOM compatibility path for opaque values.
     private nonisolated func v2BrowserKeyboardAction(
         params: [String: Any],
         action: BrowserKeyboardAction
@@ -8749,14 +8873,77 @@ class TerminalController {
         guard let event = BrowserKeyboardEvent(rawKey: v2RawString(params, "key")) else {
             return .err(code: "invalid_params", message: "Missing key", data: nil)
         }
-        let script = v2BrowserControl.keyboardScript(action: action, event: event)
+
+        // A native descriptor is the only path that can provide trusted WebKit
+        // defaults. Socket traffic uses the asynchronous readiness path in
+        // `ControlSocketAsync`; this synchronous adapter is retained only for
+        // in-process callers that are already on the main thread.
+        if event.nativeKey != nil {
+            guard Thread.isMainThread else {
+                return .err(
+                    code: "invalid_dispatch",
+                    message: String(
+                        localized: "cli.browser.error.operationFailed",
+                        defaultValue: "Browser operation failed"
+                    ),
+                    data: nil
+                )
+            }
+            return v2BrowserWithPanelContext(params: params) { ctx in
+                MainActor.assumeIsolated {
+                    guard ctx.browserPanel.hasCommittedDocumentSinceWebViewReplacement ||
+                            ctx.webView.backForwardList.currentItem != nil else {
+                        return .err(
+                            code: "timeout",
+                            message: String(
+                                localized: "browser.automation.error.documentReadinessTimedOut",
+                                defaultValue: "Timed out waiting for the browser document to become ready"
+                            ),
+                            data: ["surface_id": ctx.surfaceId.uuidString]
+                        )
+                    }
+
+                    switch ctx.webView.replayBrowserKeyboardEvent(event, action: action) {
+                    case .delivered:
+                        let payload: [String: Any] = [
+                            "workspace_id": ctx.workspaceId.uuidString,
+                            "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
+                            "surface_id": ctx.surfaceId.uuidString,
+                            "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId)
+                        ]
+                        return .ok(payload)
+                    case .unsupported, .eventCreationFailed:
+                        // The descriptor was resolved before entering this branch;
+                        // a failed native delivery must not silently become an
+                        // untrusted page-world KeyboardEvent.
+                        return .err(
+                            code: "internal_error",
+                            message: String(
+                                localized: "cli.browser.error.operationFailed",
+                                defaultValue: "Browser operation failed"
+                            ),
+                            data: ["surface_id": ctx.surfaceId.uuidString]
+                        )
+                    }
+                }
+            }
+        }
+
+        // Preserve the historical compatibility path for opaque key tokens
+        // that have no macOS virtual-key representation.
         return v2BrowserWithPanelContext(params: params) { ctx in
             let surfaceId = ctx.surfaceId
+            let script = v2BrowserControl.keyboardScript(action: action, event: event)
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success:
-                var payload = v2BrowserPanelFields(ctx)
+                var payload: [String: Any] = [
+                    "workspace_id": ctx.workspaceId.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
+                    "surface_id": surfaceId.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
+                ]
                 v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
                 return .ok(payload)
             }
@@ -8856,7 +9043,12 @@ class TerminalController {
                     }
                     return .err(code: "not_found", message: "Element not found", data: ["selector": selector ?? ""])
                 }
-                var payload = v2BrowserPanelFields(ctx)
+                var payload: [String: Any] = [
+                    "workspace_id": ctx.workspaceId.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
+                    "surface_id": surfaceId.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
+                ]
                 v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
                 return .ok(payload)
             }
@@ -8904,29 +9096,6 @@ class TerminalController {
         }
 
         let timingBudget = BrowserScreenshotTimingBudget()
-        if v2MainSync({ browserPanel.isChromiumBacked }) {
-            let imageData: Data
-            switch v2CaptureChromiumScreenshot(
-                browserPanel: browserPanel,
-                timeout: timingBudget.socketResponseTimeout
-            ) {
-            case .success(let data):
-                imageData = data
-            case .failure(let error):
-                return .err(
-                    code: "capture_failed",
-                    message: v2ChromiumFailureMessage(operation: "screenshot", error: error),
-                    data: nil
-                )
-            }
-            return v2BrowserScreenshotPayload(
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                imageData: imageData,
-                browserPanel: browserPanel
-            )
-        }
-
         guard let snapshotAttempt = v2CaptureBrowserAutomationSnapshot(
             browserPanel,
             timeout: timingBudget.socketResponseTimeout
@@ -8951,20 +9120,6 @@ class TerminalController {
             return .err(code: "timeout", message: message, data: nil)
         }
 
-        return v2BrowserScreenshotPayload(
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            imageData: imageData,
-            browserPanel: browserPanel
-        )
-    }
-
-    private nonisolated func v2BrowserScreenshotPayload(
-        workspaceId: UUID,
-        surfaceId: UUID,
-        imageData: Data,
-        browserPanel: BrowserPanel? = nil
-    ) -> V2CallResult {
         var result: [String: Any] = [
             "workspace_id": workspaceId.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
@@ -8972,16 +9127,6 @@ class TerminalController {
             "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
             "png_base64": imageData.base64EncodedString()
         ]
-        if let browserPanel {
-            let engineAndEndpoint = v2MainSync {
-                (
-                    browserPanel.engineKind.rawValue,
-                    browserPanel.chromiumCDPEndpoint?.connectOverCDPURL?.absoluteString
-                )
-            }
-            result["engine"] = engineAndEndpoint.0
-            result["cdp_endpoint"] = v2OrNull(engineAndEndpoint.1)
-        }
 
         // Best effort: keep screenshot data available even when temp-file writes fail.
         let screenshotsDirectory = FileManager.default.temporaryDirectory
@@ -9057,22 +9202,13 @@ class TerminalController {
 
     private func v2BrowserGetTitle(params: [String: Any]) -> V2CallResult {
         v2BrowserWithPanel(params: params) { workspaceId, surfaceId, browserPanel in
-            var payload: [String: Any] = [
+            .ok([
                 "workspace_id": workspaceId.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
                 "surface_id": surfaceId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
                 "title": browserPanel.pageTitle
-            ]
-            let engineAndEndpoint = self.v2MainSync {
-                (
-                    browserPanel.engineKind.rawValue,
-                    browserPanel.chromiumCDPEndpoint?.connectOverCDPURL?.absoluteString
-                )
-            }
-            payload["engine"] = engineAndEndpoint.0
-            payload["cdp_endpoint"] = v2OrNull(engineAndEndpoint.1)
-            return .ok(payload)
+            ])
         }
     }
 
@@ -9092,7 +9228,13 @@ class TerminalController {
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
                 let count = (value as? NSNumber)?.intValue ?? 0
-                return .ok(v2BrowserPanelFields(ctx, adding: ["count": count]))
+                return .ok([
+                    "workspace_id": ctx.workspaceId.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
+                    "surface_id": surfaceId.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                    "count": count
+                ])
             }
         }
     }
@@ -9194,7 +9336,6 @@ class TerminalController {
 
         var setupError: V2CallResult?
         var basePayload: [String: Any]?
-        var chromiumPanel: BrowserPanel?
         v2MainSync {
             let resolvedContext = v2ResolveBrowserPanelContext(params: params, tabManager: tabManager)
             if let error = resolvedContext.error {
@@ -9203,19 +9344,15 @@ class TerminalController {
             }
             guard let context = resolvedContext.context,
                   context.surfaceId == surfaceId else { return }
-            if context.browserPanel.isChromiumBacked {
-                chromiumPanel = context.browserPanel
-            } else {
-                switch action {
-                case "back":
-                    context.browserPanel.goBack()
-                case "forward":
-                    context.browserPanel.goForward()
-                case "reload":
-                    context.browserPanel.reload()
-                default:
-                    break
-                }
+            switch action {
+            case "back":
+                context.browserPanel.goBack()
+            case "forward":
+                context.browserPanel.goForward()
+            case "reload":
+                context.browserPanel.reload()
+            default:
+                break
             }
             basePayload = v2BrowserActionPayload(
                 context,
@@ -9227,33 +9364,6 @@ class TerminalController {
         }
         guard var payload = basePayload else {
             return .err(code: "not_found", message: "Surface not found or not a browser", data: ["surface_id": surfaceId.uuidString])
-        }
-        if let chromiumPanel {
-            let chromiumOperation: ChromiumNavigationOperation
-            switch action {
-            case "back": chromiumOperation = .back
-            case "forward": chromiumOperation = .forward
-            case "reload": chromiumOperation = .reload
-            default:
-                return .err(
-                    code: "invalid_params",
-                    message: String(
-                        localized: "browser.navigation.error.unsupportedAction",
-                        defaultValue: "Unsupported browser navigation action"
-                    ),
-                    data: ["action": action]
-                )
-            }
-            if case .failure(let error) = v2RunChromiumNavigation(
-                browserPanel: chromiumPanel,
-                operation: chromiumOperation
-            ) {
-                return .err(
-                    code: "navigation_failed",
-                    message: v2ChromiumFailureMessage(operation: "navigation", error: error),
-                    data: nil
-                )
-            }
         }
         // Run --snapshot-after off the main thread (see v2BrowserNavigate): the
         // accessibility-tree walk must not block SwiftUI on a fresh surface.
@@ -9294,7 +9404,6 @@ class TerminalController {
         workspaceId: UUID,
         surfaceId: UUID,
         tabManager: TabManager,
-        browserPanel: BrowserPanel? = nil,
         extra: [String: Any] = [:]
     ) -> [String: Any] {
         let windowId = v2ResolveWindowId(tabManager: tabManager)
@@ -9304,9 +9413,7 @@ class TerminalController {
             "surface_id": surfaceId.uuidString,
             "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
             "window_id": v2OrNull(windowId?.uuidString),
-            "window_ref": v2Ref(kind: .window, uuid: windowId),
-            "engine": v2OrNull(browserPanel?.engineKind.rawValue),
-            "cdp_endpoint": v2OrNull(browserPanel?.chromiumCDPEndpoint?.connectOverCDPURL?.absoluteString)
+            "window_ref": v2Ref(kind: .window, uuid: windowId)
         ]
         for (key, value) in extra { payload[key] = value }
         return payload
@@ -9323,7 +9430,6 @@ class TerminalController {
             workspaceId: workspace.id,
             surfaceId: surfaceId,
             tabManager: tabManager,
-            browserPanel: workspace.browserPanel(for: surfaceId),
             extra: extra
         )
     }
@@ -9715,22 +9821,6 @@ class TerminalController {
             // Prevent omnibar auto-focus from immediately stealing first responder back.
             browserPanel.suppressOmnibarAutofocus(for: 1.0)
 
-            if browserPanel.isChromiumBacked {
-                guard browserPanel.requestExplicitWebViewFocus() else {
-                    result = .err(
-                        code: "invalid_state",
-                        message: String(
-                            localized: "browser.focus.error.chromiumHostUnavailable",
-                            defaultValue: "Chromium browser host is not in a visible window"
-                        ),
-                        data: nil
-                    )
-                    return
-                }
-                result = .ok(["focused": true])
-                return
-            }
-
             let webView = browserPanel.webView
             guard let window = webView.window else {
                 result = .err(code: "invalid_state", message: "WebView is not in a window", data: nil)
@@ -9765,10 +9855,6 @@ class TerminalController {
             guard let context = resolvedContext.context,
                   context.surfaceId == surfaceId else { return }
             let browserPanel = context.browserPanel
-            if browserPanel.isChromiumBacked {
-                focused = browserPanel.isChromiumContentFocused()
-                return
-            }
             let webView = browserPanel.webView
             guard let window = webView.window,
                   let fr = window.firstResponder as? NSView else {
@@ -10113,42 +10199,8 @@ class TerminalController {
         }
     }
 
-    /// Installs a page hook in both the current document and Chromium's
-    /// document-start registry when the panel uses the Chromium engine.
-    private nonisolated func v2InstallChromiumBrowserHook(
-        browserPanel: BrowserPanel,
-        surfaceId: UUID,
-        webView: WKWebView,
-        source: String
-    ) -> Bool {
-        guard v2MainSync({ browserPanel.isChromiumBacked }) else { return false }
-        _ = v2RegisterChromiumDocumentScript(
-            browserPanel: browserPanel,
-            source: source,
-            isStyle: false
-        )
-        _ = v2RunBrowserJavaScript(
-            webView,
-            browserPanel: browserPanel,
-            surfaceId: surfaceId,
-            script: source,
-            timeout: 5.0,
-            useEval: false,
-            requiresPageWorld: true
-        )
-        return true
-    }
-
     private nonisolated func v2BrowserEnsureTelemetryHooks(browserPanel: BrowserPanel, surfaceId: UUID, webView: WKWebView) {
         let source = v2MainSync { BrowserPanel.telemetryHookBootstrapScriptSource }
-        if v2InstallChromiumBrowserHook(
-            browserPanel: browserPanel,
-            surfaceId: surfaceId,
-            webView: webView,
-            source: source
-        ) {
-            return
-        }
         _ = v2RunBrowserJavaScript(
             webView,
             browserPanel: browserPanel,
@@ -10162,14 +10214,6 @@ class TerminalController {
 
     private nonisolated func v2BrowserEnsureDialogHooks(browserPanel: BrowserPanel, surfaceId: UUID, webView: WKWebView) {
         let source = v2MainSync { BrowserPanel.dialogTelemetryHookBootstrapScriptSource }
-        if v2InstallChromiumBrowserHook(
-            browserPanel: browserPanel,
-            surfaceId: surfaceId,
-            webView: webView,
-            source: source
-        ) {
-            return
-        }
         _ = v2RunBrowserJavaScript(
             webView,
             browserPanel: browserPanel,
@@ -10318,7 +10362,6 @@ class TerminalController {
         case "browser.addinitscript": return v2BrowserAddInitScript(params: params)
         case "browser.addscript": return v2BrowserAddScript(params: params)
         case "browser.addstyle": return v2BrowserAddStyle(params: params)
-        case "browser.viewport.set": return v2BrowserViewportSet(params: params)
         default:
             return .err(code: "invalid_dispatch", message: "Unhandled socket-worker browser method \(method)", data: nil)
         }
@@ -10710,6 +10753,303 @@ class TerminalController {
         ])
     }
 
+    private nonisolated func v2BrowserCookieDict(_ cookie: HTTPCookie) -> [String: Any] {
+        var out: [String: Any] = [
+            "name": cookie.name,
+            "value": cookie.value,
+            "domain": cookie.domain,
+            // Foundation represents host-only cookies without a leading dot;
+            // retain that distinction so state/load does not widen their scope.
+            "hostOnly": !cookie.domain.hasPrefix("."),
+            "path": cookie.path,
+            "secure": cookie.isSecure,
+            "httpOnly": cookie.isHTTPOnly,
+            "session_only": cookie.isSessionOnly
+        ]
+        if let expiresDate = cookie.expiresDate {
+            out["expires"] = Int(expiresDate.timeIntervalSince1970)
+        } else {
+            out["expires"] = NSNull()
+        }
+        return out
+    }
+
+    private nonisolated func v2BrowserCookieStoreAll(_ store: WKHTTPCookieStore, timeout: TimeInterval = 3.0) -> [HTTPCookie]? {
+        v2AwaitCallback(timeout: timeout) { finish in
+            v2MainSync {
+                store.getAllCookies { items in
+                    finish(items)
+                }
+            }
+        }
+    }
+
+    private nonisolated func v2BrowserCookieStoreSet(_ store: WKHTTPCookieStore, cookie: HTTPCookie, timeout: TimeInterval = 3.0) -> Bool {
+        v2AwaitCallback(timeout: timeout) { finish in
+            v2MainSync {
+                store.setCookie(cookie) {
+                    finish(true)
+                }
+            }
+        } ?? false
+    }
+
+    private nonisolated func v2BrowserCookieStoreDelete(_ store: WKHTTPCookieStore, cookie: HTTPCookie, timeout: TimeInterval = 3.0) -> Bool {
+        v2AwaitCallback(timeout: timeout) { finish in
+            v2MainSync {
+                store.delete(cookie) {
+                    finish(true)
+                }
+            }
+        } ?? false
+    }
+
+    private nonisolated func v2BrowserCookieFromObject(_ raw: [String: Any], fallbackURL: URL?) -> HTTPCookie? {
+        guard let name = raw["name"] as? String,
+              let value = raw["value"] as? String else {
+            return nil
+        }
+
+        let secure = v2Bool(raw, "secure") ?? false
+        let serializedDomain = raw["domain"] as? String
+        let hostOnly = v2Bool(raw, "hostOnly") == true
+        let originURL: URL?
+        if let urlString = raw["url"] as? String, let url = URL(string: urlString) {
+            originURL = url
+        } else if let serializedDomain {
+            originURL = BrowserCookieBuilder().originURL(forHost: serializedDomain, secure: secure)
+        } else {
+            originURL = fallbackURL
+        }
+        let domain = hostOnly ? nil : serializedDomain
+        let path = (raw["path"] as? String) ?? "/"
+        let expires: Date?
+        if let expiresValue = raw["expires"] as? TimeInterval {
+            expires = Date(timeIntervalSince1970: expiresValue)
+        } else if let expiresIntValue = raw["expires"] as? Int {
+            expires = Date(timeIntervalSince1970: TimeInterval(expiresIntValue))
+        } else {
+            expires = nil
+        }
+
+        return BrowserCookieBuilder().makeCookie(
+            name: name,
+            value: value,
+            originURL: originURL,
+            domain: domain,
+            path: path,
+            secure: secure,
+            expires: expires,
+            httpOnly: v2Bool(raw, "httpOnly") ?? false
+        )
+    }
+
+    private nonisolated func v2BrowserCookiesGet(params: [String: Any]) -> V2CallResult {
+        return v2BrowserWithPanelContext(params: params) { ctx in
+            let store = v2MainSync {
+                ctx.webView.configuration.websiteDataStore.httpCookieStore
+            }
+            guard let cookies = v2BrowserCookieStoreAll(store) else {
+                return .err(code: "timeout", message: "Timed out reading cookies", data: nil)
+            }
+
+            let name = v2String(params, "name")
+            let domain = v2String(params, "domain")
+            let path = v2String(params, "path")
+            let httpOnly = v2Bool(params, "httpOnly")
+            let filteredCookies = cookies.filter { cookie in
+                if let name, cookie.name != name { return false }
+                if let domain, !cookie.domain.contains(domain) { return false }
+                if let path, cookie.path != path { return false }
+                if let httpOnly, cookie.isHTTPOnly != httpOnly { return false }
+                return true
+            }
+
+            return .ok(v2BrowserPanelFields(ctx, adding: ["cookies": filteredCookies.map(v2BrowserCookieDict)]))
+        }
+    }
+
+    private nonisolated func v2BrowserCookiesSet(params: [String: Any]) -> V2CallResult {
+        return v2BrowserWithPanelContext(params: params) { ctx in
+            let cookieContext = v2MainSync {
+                (
+                    store: ctx.webView.configuration.websiteDataStore.httpCookieStore,
+                    fallbackURL: ctx.browserPanel.currentURL
+                )
+            }
+
+            var cookieObjects: [[String: Any]] = []
+            if let rows = params["cookies"] as? [[String: Any]] {
+                cookieObjects = rows
+            } else {
+                var single: [String: Any] = [:]
+                if let name = v2String(params, "name") { single["name"] = name }
+                if let value = v2String(params, "value") { single["value"] = value }
+                if let url = v2String(params, "url") { single["url"] = url }
+                if let domain = v2String(params, "domain") { single["domain"] = domain }
+                if let path = v2String(params, "path") { single["path"] = path }
+                if let secure = v2Bool(params, "secure") { single["secure"] = secure }
+                if let httpOnly = v2Bool(params, "httpOnly") { single["httpOnly"] = httpOnly }
+                if let expires = v2Int(params, "expires") { single["expires"] = expires }
+                if !single.isEmpty {
+                    cookieObjects = [single]
+                }
+            }
+
+            guard !cookieObjects.isEmpty else {
+                return .err(code: "invalid_params", message: "Missing cookies payload", data: nil)
+            }
+
+            var setCount = 0
+            for raw in cookieObjects {
+                guard let cookie = v2BrowserCookieFromObject(raw, fallbackURL: cookieContext.fallbackURL) else {
+                    return .err(code: "invalid_params", message: "Invalid cookie payload", data: nil)
+                }
+                if v2BrowserCookieStoreSet(cookieContext.store, cookie: cookie) {
+                    setCount += 1
+                } else {
+                    return .err(code: "timeout", message: "Timed out setting cookie", data: nil)
+                }
+            }
+
+            return .ok(v2BrowserPanelFields(ctx, adding: ["set": setCount]))
+        }
+    }
+
+    private nonisolated func v2BrowserCookiesClear(params: [String: Any]) -> V2CallResult {
+        return v2BrowserWithPanelContext(params: params) { ctx in
+            let store = v2MainSync {
+                ctx.webView.configuration.websiteDataStore.httpCookieStore
+            }
+            let clearRequiresScopeMessage = String(
+                localized: "cli.browser.cookies.clearRequiresScope",
+                defaultValue: "browser cookies clear requires exactly one of --all or a cookie scope"
+            )
+            let invalidFilterMessage = String(
+                localized: "cli.browser.cookies.invalidFilter",
+                defaultValue: "browser cookies clear received an invalid cookie filter"
+            )
+            let invalidURLMessage = String(
+                localized: "cli.browser.cookies.invalidURL",
+                defaultValue: "browser cookies clear --url requires a valid URL with a host"
+            )
+            let invalidExpiresMessage = String(
+                localized: "cli.browser.cookies.invalidExpires",
+                defaultValue: "browser cookies clear --expires must be an integer Unix timestamp"
+            )
+            let name = v2String(params, "name")
+            let value = v2String(params, "value")
+            let urlString = v2String(params, "url")
+            let domain = v2String(params, "domain")
+            let path = v2String(params, "path")
+
+            for key in ["name", "value", "domain", "path"] where
+                v2HasNonNullParam(params, key) && v2String(params, key) == nil {
+                return .err(code: "invalid_params", message: invalidFilterMessage, data: ["param": key])
+            }
+
+            if v2HasNonNullParam(params, "url"), urlString == nil {
+                return .err(
+                    code: "invalid_params",
+                    message: invalidURLMessage,
+                    data: ["param": "url"]
+                )
+            }
+            let url: URL?
+            if let urlString {
+                guard let parsedURL = URL(string: urlString), parsedURL.host != nil else {
+                    return .err(
+                        code: "invalid_params",
+                        message: invalidURLMessage,
+                        data: ["param": "url"]
+                    )
+                }
+                url = parsedURL
+            } else {
+                url = nil
+            }
+
+            let expires: Int?
+            if v2HasNonNullParam(params, "expires") {
+                guard let parsedExpires = v2Int(params, "expires") else {
+                    return .err(
+                        code: "invalid_params",
+                        message: invalidExpiresMessage,
+                        data: ["param": "expires"]
+                    )
+                }
+                expires = parsedExpires
+            } else {
+                expires = nil
+            }
+
+            let secure: Bool?
+            if v2HasNonNullParam(params, "secure") {
+                guard let parsedSecure = v2Bool(params, "secure") else {
+                    return .err(code: "invalid_params", message: invalidFilterMessage, data: ["param": "secure"])
+                }
+                secure = parsedSecure
+            } else {
+                secure = nil
+            }
+
+            let all: Bool
+            if v2HasNonNullParam(params, "all") {
+                guard let parsedAll = v2Bool(params, "all") else {
+                    return .err(code: "invalid_params", message: invalidFilterMessage, data: ["param": "all"])
+                }
+                all = parsedAll
+            } else {
+                all = false
+            }
+
+            let hasFilter = name != nil || value != nil || url != nil || domain != nil || path != nil ||
+                expires != nil || secure != nil
+            guard all || hasFilter else {
+                return .err(
+                    code: "invalid_params",
+                    message: clearRequiresScopeMessage,
+                    data: ["param": "scope"]
+                )
+            }
+            guard !(all && hasFilter) else {
+                return .err(
+                    code: "invalid_params",
+                    message: clearRequiresScopeMessage,
+                    data: ["param": "scope"]
+                )
+            }
+
+            guard let cookies = v2BrowserCookieStoreAll(store) else {
+                return .err(code: "timeout", message: "Timed out reading cookies", data: nil)
+            }
+
+            let targets = cookies.filter { cookie in
+                if all { return true }
+                if let name, cookie.name != name { return false }
+                if let value, cookie.value != value { return false }
+                if let url, !CmuxWebView.cookieMatchesURL(cookie, url: url) { return false }
+                if let domain, !CmuxWebView.cookieDomainMatchesFilter(cookie.domain, filter: domain) { return false }
+                if let path, cookie.path != path { return false }
+                if let expires,
+                   cookie.expiresDate.map({ Int($0.timeIntervalSince1970) }) != expires {
+                    return false
+                }
+                if let secure, cookie.isSecure != secure { return false }
+                return true
+            }
+
+            var removed = 0
+            for cookie in targets {
+                if v2BrowserCookieStoreDelete(store, cookie: cookie) {
+                    removed += 1
+                }
+            }
+
+            return .ok(v2BrowserPanelFields(ctx, adding: ["cleared": removed]))
+        }
+    }
+
     private nonisolated func v2BrowserStorageType(_ params: [String: Any]) -> String {
         v2BrowserControl.storageType(params: params)
     }
@@ -10828,10 +11168,6 @@ class TerminalController {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
-        let requestedEngineResult = v2RequestedBrowserEngine(params: params)
-        if let error = requestedEngineResult.error { return error }
-        let requestedEngine = requestedEngineResult.engine
-
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap(Self.browserAutomationURL(from:))
         guard BrowserAvailabilitySettings.isEnabled() else {
@@ -10869,18 +11205,19 @@ class TerminalController {
                     return
                 }
 
+                dock.noteKeyboardFocusIntent(window: nil)
                 guard let panelId = dock.newSurface(
                     kind: .browser,
                     inPane: pane,
                     url: url,
-                    focus: true,
-                    preloadInitialNavigationInBackground: true,
-                    engine: requestedEngine
+                    focus: false,
+                    preloadInitialNavigationInBackground: true
                 ),
                     let panel = dock.browserPanel(for: panelId) else {
                     result = .err(code: "internal_error", message: "Failed to create browser tab", data: nil)
                     return
                 }
+                dock.focusPanelFromDockInteraction(panelId, window: nil)
                 result = .ok([
                     "workspace_id": dock.workspaceId.uuidString,
                     "workspace_ref": v2Ref(kind: .workspace, uuid: dock.workspaceId),
@@ -10888,9 +11225,7 @@ class TerminalController {
                     "pane_ref": v2Ref(kind: .pane, uuid: pane.id),
                     "surface_id": panel.id.uuidString,
                     "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
-                    "url": panel.currentURL?.absoluteString ?? "",
-                    "engine": panel.engineKind.rawValue,
-                    "cdp_endpoint": panel.chromiumCDPEndpoint?.connectOverCDPURL?.absoluteString ?? NSNull()
+                    "url": panel.currentURL?.absoluteString ?? ""
                 ])
                 return
             }
@@ -10914,8 +11249,7 @@ class TerminalController {
                 inPane: pane,
                 url: url,
                 focus: true,
-                creationPolicy: .automationPreload,
-                engine: requestedEngine
+                creationPolicy: .automationPreload
             ) else {
                 result = .err(code: "internal_error", message: "Failed to create browser tab", data: nil)
                 return
@@ -10927,9 +11261,7 @@ class TerminalController {
                 "pane_ref": v2Ref(kind: .pane, uuid: pane.id),
                 "surface_id": panel.id.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
-                "url": panel.currentURL?.absoluteString ?? "",
-                "engine": panel.engineKind.rawValue,
-                "cdp_endpoint": panel.chromiumCDPEndpoint?.connectOverCDPURL?.absoluteString ?? NSNull()
+                "url": panel.currentURL?.absoluteString ?? ""
             ])
         }
         return result
@@ -10980,7 +11312,7 @@ class TerminalController {
                         )
                     )
                 } else {
-                    dock.focusPanel(targetId)
+                    dock.focusPanelFromDockInteraction(targetId, window: nil)
                 }
                 result = .ok([
                     "workspace_id": dock.workspaceId.uuidString,
@@ -11276,24 +11608,10 @@ class TerminalController {
                 storageValue = v2NormalizeJSValue(value)
             }
 
-            let cookies: [[String: Any]]
-            if v2MainSync({ ctx.browserPanel.isChromiumBacked }) {
-                switch v2GetChromiumCookies(browserPanel: ctx.browserPanel, timeout: 10.0) {
-                case .success(let chromiumCookies):
-                    cookies = chromiumCookies
-                case .failure(let error):
-                    return .err(
-                        code: "cdp_error",
-                        message: v2ChromiumFailureMessage(operation: "cookie_read", error: error),
-                        data: nil
-                    )
-                }
-            } else {
-                let store = v2MainSync {
-                    ctx.webView.configuration.websiteDataStore.httpCookieStore
-                }
-                cookies = (v2BrowserCookieStoreAll(store) ?? []).map(v2BrowserCookieDict)
+            let store = v2MainSync {
+                ctx.webView.configuration.websiteDataStore.httpCookieStore
             }
+            let cookies = (v2BrowserCookieStoreAll(store) ?? []).map(v2BrowserCookieDict)
             let stateSnapshot = v2MainSync {
                 (
                     url: ctx.browserPanel.currentURL?.absoluteString ?? "",
@@ -11355,32 +11673,13 @@ class TerminalController {
 
                 return (
                     store: ctx.webView.configuration.websiteDataStore.httpCookieStore,
-                    fallbackURL: ctx.browserPanel.currentURL,
-                    isChromium: ctx.browserPanel.isChromiumBacked
+                    fallbackURL: ctx.browserPanel.currentURL
                 )
             }
             if let cookieRows = raw["cookies"] as? [[String: Any]] {
-                if cookieContext.isChromium {
-                    switch v2SetChromiumCookies(
-                        browserPanel: ctx.browserPanel,
-                        cookieObjects: cookieRows,
-                        fallbackURL: cookieContext.fallbackURL,
-                        timeout: 10.0
-                    ) {
-                    case .success:
-                        break
-                    case .failure(let error):
-                        return .err(
-                            code: "cdp_error",
-                            message: v2ChromiumFailureMessage(operation: "cookie_write", error: error),
-                            data: nil
-                        )
-                    }
-                } else {
-                    for row in cookieRows {
-                        if let cookie = v2BrowserCookieFromObject(row, fallbackURL: cookieContext.fallbackURL) {
-                            _ = v2BrowserCookieStoreSet(cookieContext.store, cookie: cookie)
-                        }
+                for row in cookieRows {
+                    if let cookie = v2BrowserCookieFromObject(row, fallbackURL: cookieContext.fallbackURL) {
+                        _ = v2BrowserCookieStoreSet(cookieContext.store, cookie: cookie)
                     }
                 }
             }
@@ -11410,6 +11709,64 @@ class TerminalController {
                 "loaded": true
             ]))
         }
+    }
+
+    private nonisolated func v2BrowserAddInitScript(params: [String: Any]) -> V2CallResult {
+        guard let script = v2String(params, "script") ?? v2String(params, "content") else {
+            return .err(code: "invalid_params", message: "Missing script", data: nil)
+        }
+        return v2BrowserWithPanelContext(params: params) { ctx in
+            let scriptsCount = v2MainSync {
+                let userScript = WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+                return ctx.browserPanel.registerBrowserAutomationInitScript(userScript)
+            }
+            _ = v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: script, timeout: 10.0)
+
+            return .ok(v2BrowserPanelFields(ctx, adding: ["scripts": scriptsCount]))
+        }
+    }
+
+    private nonisolated func v2BrowserAddScript(params: [String: Any]) -> V2CallResult {
+        guard let script = v2String(params, "script") ?? v2String(params, "content") else {
+            return .err(code: "invalid_params", message: "Missing script", data: nil)
+        }
+        return v2BrowserWithPanelContext(params: params) { ctx in
+            switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: script, timeout: 10.0) {
+            case .failure(let message):
+                return .err(code: "js_error", message: message, data: nil)
+            case .success(let value):
+                return .ok(v2BrowserPanelFields(ctx, adding: ["value": v2NormalizeJSValue(value)]))
+            }
+        }
+    }
+
+    private nonisolated func v2BrowserAddStyle(params: [String: Any]) -> V2CallResult {
+        guard let css = v2String(params, "css") ?? v2String(params, "style") ?? v2String(params, "content") else {
+            return .err(code: "invalid_params", message: "Missing css/style content", data: nil)
+        }
+        return v2BrowserWithPanelContext(params: params) { ctx in
+            let cssLiteral = v2JSONLiteral(css)
+            let source = """
+            (() => {
+              const el = document.createElement('style');
+              el.textContent = String(\(cssLiteral));
+              (document.head || document.documentElement || document.body).appendChild(el);
+              return true;
+            })()
+            """
+
+            let stylesCount = v2MainSync {
+                let userScript = WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+                return ctx.browserPanel.registerBrowserAutomationStyleScript(userScript)
+            }
+            _ = v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: source, timeout: 10.0)
+
+            return .ok(v2BrowserPanelFields(ctx, adding: ["styles": stylesCount]))
+        }
+    }
+
+    private func v2BrowserViewportSet(params: [String: Any]) -> V2CallResult {
+        v2BrowserViewportSetWKWebView(params: params)
     }
 
     private func v2BrowserGeolocationSet(params _: [String: Any]) -> V2CallResult {
@@ -12567,11 +12924,17 @@ class TerminalController {
     /// shadowing pane-local Bonsplit drop targets.
     private func dragHitChain(_ args: String) -> String {
         let parts = args.split(separator: " ").map(String.init)
-        guard parts.count == 2,
+        guard parts.count == 2 || parts.count == 3,
               let nx = Double(parts[0]), let ny = Double(parts[1]),
-              (0...1).contains(nx), (0...1).contains(ny) else {
-            return "ERROR: Usage: drag_hit_chain <x 0-1> <y 0-1>"
+              (0...1).contains(nx), (0...1).contains(ny),
+              parts.count == 2 || parts[2] == "content" || parts[2] == "theme" else {
+            return "ERROR: Usage: drag_hit_chain <x 0-1> <y 0-1> [theme|content]"
         }
+        // `content` reproduces the traversal Bonsplit's tab-drag veto and the
+        // sidebar-divider diagnostic use (`contentView.hitTest` with a point
+        // converted into the content view), and reports the geometry that
+        // decides whether that traversal agrees with the theme-frame one.
+        let traversesContentView = parts.count == 3 && parts[2] == "content"
 
         var result = "ERROR: No window"
         v2MainSync {
@@ -12593,8 +12956,19 @@ class TerminalController {
             if let overlay { overlay.isHidden = true }
             defer { overlay?.isHidden = false }
 
-            guard let hit = themeFrame.hitTest(pointInTheme) else {
-                result = "none"
+            let geometry = "geometry contentFrame=\(NSStringFromRect(contentView.frame)) " +
+                "contentBounds=\(NSStringFromRect(contentView.bounds)) " +
+                "contentFlipped=\(contentView.isFlipped) themeFlipped=\(themeFrame.isFlipped) " +
+                "currentEvent=\(NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil")"
+            let resolvedHit: NSView?
+            if traversesContentView {
+                let windowPoint = themeFrame.convert(pointInTheme, to: nil)
+                resolvedHit = contentView.hitTest(contentView.convert(windowPoint, from: nil))
+            } else {
+                resolvedHit = themeFrame.hitTest(pointInTheme)
+            }
+            guard let hit = resolvedHit else {
+                result = "none " + geometry
                 return
             }
 
@@ -12606,7 +12980,7 @@ class TerminalController {
                 current = view.superview
                 depth += 1
             }
-            result = chain.joined(separator: "->")
+            result = chain.joined(separator: "->") + " " + geometry
         }
         return result
     }
@@ -15775,7 +16149,12 @@ class TerminalController {
         let sendResult = terminalTarget.sendInputResult(text)
         switch sendResult {
         case .sent:
-            terminalTarget.forceRefresh(reason: "mobileHost.terminalInput")
+            // PTY output is already observed by MobileTerminalByteTee, which
+            // schedules the post-parser render-grid tick. Forcing a refresh
+            // here emits a full frame before the echoed bytes arrive, sending
+            // screen-anchored iOS clients through the verified replay path on
+            // every keystroke.
+            break
         case .queued:
             break
         case .inputQueueFull:

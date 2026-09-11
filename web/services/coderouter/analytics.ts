@@ -418,6 +418,7 @@ function accountProvider(value: unknown): string | null {
     "openai-apikey",
     "anthropic-apikey",
     "opencode-go",
+    "openrouter-apikey",
   ]);
 }
 
@@ -440,6 +441,7 @@ function authSurface(value: unknown): string | null {
     "opencode_proxy",
     "session_validation",
     "vm_usage",
+    "vm_reflection",
   ]);
 }
 

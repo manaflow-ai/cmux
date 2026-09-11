@@ -233,13 +233,6 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             : ownerWorkspaceID?.uuidString.lowercased() ?? ""
     }
 
-    private func ownerWorkspaceMatchesForPersistentPTY(_ other: WorkspaceRemoteConfiguration) -> Bool {
-        if usesManagedCloudPersistentPTYIdentity && other.usesManagedCloudPersistentPTYIdentity {
-            return true
-        }
-        return ownerWorkspaceID == other.ownerWorkspaceID
-    }
-
     /// The stable key the proxy broker uses to share one daemon tunnel across
     /// workspaces that target the same transport identity.
     public var proxyBrokerTransportKey: String {
@@ -272,6 +265,13 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             .joined(separator: "\u{1e}")
     }
 
+    private func ownerWorkspaceMatchesForPersistentPTY(_ other: WorkspaceRemoteConfiguration) -> Bool {
+        if usesManagedCloudPersistentPTYIdentity && other.usesManagedCloudPersistentPTYIdentity {
+            return true
+        }
+        return ownerWorkspaceID == other.ownerWorkspaceID
+    }
+
     private static func proxyBrokerSSHOptions(_ options: [String]) -> [String] {
         durableSSHOptions(options)
     }
@@ -298,6 +298,46 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
                 == Self.normalizedIdentityPath(other.identityFile)
             && Self.proxyBrokerSSHOptions(sshOptions) == Self.proxyBrokerSSHOptions(other.sshOptions)
             && daemonWebSocketEndpoint?.proxyBrokerKeyComponent == other.daemonWebSocketEndpoint?.proxyBrokerKeyComponent
+    }
+
+    /// Returns one or two stable lookup keys for this configuration's persistent PTY.
+    ///
+    /// The exact key includes the owner workspace. Managed Cloud VM identities
+    /// also receive a wildcard key because those identities intentionally
+    /// ignore the local owner when compared with another managed VM. Callers
+    /// should still verify a candidate with
+    /// ``hasSamePersistentPTYIdentity(as:)`` after the dictionary lookup.
+    /// An empty array means this configuration cannot own a persistent PTY.
+    public var persistentPTYIdentityLookupKeys: [String] {
+        guard preserveAfterTerminalExit, let persistentDaemonSlot else {
+            return []
+        }
+        let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPort = port.map(String.init) ?? ""
+        let normalizedRelayPort = relayPort.map(String.init) ?? ""
+        let normalizedManagedCloudVMID = managedCloudVMID ?? ""
+        let normalizedIdentity = Self.normalizedIdentityPath(identityFile) ?? ""
+        let normalizedSSHOptions = Self.proxyBrokerSSHOptions(sshOptions)
+            .joined(separator: "\u{1f}")
+        let normalizedWebSocketEndpoint = daemonWebSocketEndpoint?.proxyBrokerKeyComponent ?? ""
+        let components: [String] = [
+            transport.rawValue,
+            skipDaemonBootstrap ? "1" : "0",
+            normalizedDestination,
+            normalizedPort,
+            normalizedRelayPort,
+            normalizedManagedCloudVMID,
+            normalizedIdentity,
+            normalizedSSHOptions,
+            normalizedWebSocketEndpoint,
+            persistentDaemonSlot,
+        ]
+        let base = components.joined(separator: "\u{1e}")
+        let exact = base + "\u{1e}" + (ownerWorkspaceID?.uuidString.lowercased() ?? "")
+        if usesManagedCloudPersistentPTYIdentity {
+            return [exact, base + "\u{1e}*"]
+        }
+        return [exact]
     }
 
     /// True when `other` addresses the same remote CLI relay metadata namespace.

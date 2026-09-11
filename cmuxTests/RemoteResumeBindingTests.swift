@@ -279,7 +279,7 @@ struct RemoteResumeBindingTests {
     }
 
     @Test
-    func reportedTTYDeliveryTargetPassesRelayAuthorizationWithoutSurfaceSelector() throws {
+    func reportedTTYDeliveryTargetPassesRelayAuthorizationWithoutSurfaceSelector() async throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -334,7 +334,7 @@ struct RemoteResumeBindingTests {
             return
         }
 
-        let authorization = TerminalController.shared.authorizeRemoteRelayRequest(parsed)
+        let authorization = await TerminalController.shared.authorizeRemoteRelayRequestAsync(parsed)
         #expect(authorization.errorResponse == nil)
         #expect(authorization.request.method == "agent.resolve_delivery_target")
         #expect(authorization.request.params["_cmux_remote_relay_request_authentication_code"] == nil)

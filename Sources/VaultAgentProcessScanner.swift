@@ -808,6 +808,10 @@ private extension CmuxVaultAgentSessionIDSource {
                 sessionId: explicitSessionID,
                 source: .explicit
             )
+        case .cmuxHookStore:
+            // The hook store owns the thread identity. Process argv is only
+            // liveness evidence and must never invent a replacement id.
+            return nil
         }
     }
 }

@@ -4739,6 +4739,24 @@
     "api_equivalent_usd is the list-price equivalent of the machine's model traffic in that window."
    ]
   },
+  "MachineListeningTcpResult": {
+   "kind": "object",
+   "fields": {
+    "stdout": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "The daemon runs only a fixed socket-listing command; callers cannot supply command text.",
+    "The output is limited to 524288 bytes."
+   ]
+  },
   "MachineUsageResult": {
    "kind": "object",
    "fields": {
@@ -10250,6 +10268,24 @@
     "Call only after the external provider durably accepts the rename."
    ]
   },
+  "machine-listening-tcp": {
+   "authority": "control",
+   "since": 12,
+   "capability": "machine-listening-tcp-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "MachineListeningTcpResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Routine Cloud port inventory uses this command over the authenticated private cmux-tui link."
+   ]
+  },
   "machine-usage": {
    "authority": "control",
    "since": 12,
@@ -10745,6 +10781,28 @@
       "type": {
        "kind": "literal",
        "value": "config-reload-requested"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "daemon-shutdown": {
+   "since": 12,
+   "capability": null,
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "daemon-shutdown"
       },
       "presence": "required",
       "nullable": false

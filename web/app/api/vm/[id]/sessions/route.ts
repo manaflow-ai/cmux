@@ -1,15 +1,11 @@
 import {
   jsonResponse,
   resolveVmRouteAccountScope,
-  vmResourceErrorResponse,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
-import {
-  listVmSessions,
-  openVmSession,
-  runVmWorkflow,
-} from "../../../../../services/vms/workflows";
+import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
+import { listVmSessions, openVmSession } from "../../../../../services/vms/workflows";
 import type { CloudVmSessionRow } from "../../../../../services/vms/repository";
 import {
   optionalClientIdentifier,
@@ -31,20 +27,15 @@ export async function GET(
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
-      try {
-        const sessions = await runVmWorkflow(listVmSessions({
-          userId: user.id,
-          billingTeamId: account.entitlements.billingTeamId,
-          callerPlanId: account.entitlements.planId,
-          teamIds: user.teamIds,
-          providerVmId: id,
-        }));
-        return jsonResponse({ sessions: sessions.map(sessionPayload) });
-      } catch (err) {
-        const response = vmResourceErrorResponse(err, id);
-        if (response) return response;
-        throw err;
-      }
+      const run = await runVmRoute(listVmSessions({
+        userId: user.id,
+        billingTeamId: account.entitlements.billingTeamId,
+        callerPlanId: account.entitlements.planId,
+        teamIds: user.teamIds,
+        providerVmId: id,
+      }), { request });
+      if (!run.ok) return run.response;
+      return jsonResponse({ sessions: run.value.map(sessionPayload) });
     },
   );
 }
@@ -77,26 +68,23 @@ export async function POST(
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
       if (sessionId) setSpanAttributes(span, { "cmux.vm.session.id": sessionId });
-      try {
-        const result = await runVmWorkflow(openVmSession({
-          userId: user.id,
-          billingTeamId: account.entitlements.billingTeamId,
-          callerPlanId: account.entitlements.planId,
-          teamIds: user.teamIds,
-          providerVmId: id,
-          sessionId,
-          attachmentId,
-          title,
-        }));
-        return jsonResponse({
-          endpoint: result.endpoint,
-          session: result.session ? sessionPayload(result.session) : null,
-        });
-      } catch (err) {
-        const response = vmResourceErrorResponse(err, id);
-        if (response) return response;
-        throw err;
-      }
+      const run = await runVmRoute(openVmSession({
+        userId: user.id,
+        billingTeamId: account.entitlements.billingTeamId,
+        maxActiveVms: account.entitlements.maxActiveVms,
+        callerPlanId: account.entitlements.planId,
+        teamIds: user.teamIds,
+        providerVmId: id,
+        sessionId,
+        attachmentId,
+        title,
+      }), { request });
+      if (!run.ok) return run.response;
+      const result = run.value;
+      return jsonResponse({
+        endpoint: result.endpoint,
+        session: result.session ? sessionPayload(result.session) : null,
+      });
     },
   );
 }

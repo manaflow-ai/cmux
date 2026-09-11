@@ -115,6 +115,58 @@ private final class ReplyRelayFake: ReplyRelaying, @unchecked Sendable {
     }
 }
 
+private final class RateLimitedReplyURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    private static var storedRequestCount = 0
+
+    static var requestCount: Int { lock.withLock { storedRequestCount } }
+
+    static func reset() {
+        lock.withLock { storedRequestCount = 0 }
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.lock.withLock { Self.storedRequestCount += 1 }
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 429,
+            httpVersion: nil,
+            headerFields: ["Retry-After": "120"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+@Test func replyRelayDoesNotRepeatRequestInsideServerCooldown() async {
+    RateLimitedReplyURLProtocol.reset()
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [RateLimitedReplyURLProtocol.self]
+    let client = SystemReplyRelayClient(
+        serviceBaseURL: URL(string: "https://presence.test"),
+        accessToken: { "token" },
+        session: URLSession(configuration: configuration)
+    )
+    let reply = RelayedReply(
+        replyId: "reply-1",
+        macDeviceId: "mac-1",
+        workspaceId: "workspace-1",
+        surfaceId: "surface-1",
+        text: "hello"
+    )
+
+    let first = await client.relay(reply)
+    let second = await client.relay(reply)
+    #expect(!first)
+    #expect(!second)
+    #expect(RateLimitedReplyURLProtocol.requestCount == 1)
+}
+
 @MainActor
 private func makeReplyLaneCoordinator(
     runtime: ReplyRuntimeFake,
@@ -280,12 +332,37 @@ private func makeReplyLaneCoordinator(
     #expect(relay.requests.count == 1)
     #expect(relay.requests.first?.macDeviceId == "mac-1")
     #expect(relay.requests.first?.surfaceId == "surface-1")
+    #expect(relay.requests.first?.retargetsToLiveSurfaceOwner == true)
     #expect(relay.requests.first?.text == "looks good, merge it")
     #expect(relay.requests.first.map { !$0.replyId.isEmpty } == true)
     // Accepted: the reply is the server's now — assertion released, notice
     // cancelled, nothing left parked.
     #expect(runtime.endCount == 1)
     #expect(notifier.cancelCount == 1)
+}
+
+@MainActor
+@Test func confinedRelayPreservesSurfaceRetargetPolicy() async {
+    let runtime = ReplyRuntimeFake()
+    let notifier = ReplyNoticeFake()
+    let relay = ReplyRelayFake(outcomes: [true])
+    let coordinator = makeReplyLaneCoordinator(
+        runtime: runtime,
+        notifier: notifier,
+        nowBox: NowBox(),
+        relay: relay
+    )
+
+    await coordinator.handleReply(
+        text: "stay in this workspace",
+        workspaceId: "workspace-1",
+        surfaceId: "surface-1",
+        macDeviceId: "mac-1",
+        retargetsToLiveSurfaceOwner: false
+    )
+
+    #expect(relay.requests.count == 1)
+    #expect(relay.requests.first?.retargetsToLiveSurfaceOwner == false)
 }
 
 @MainActor
@@ -311,6 +388,30 @@ private func makeReplyLaneCoordinator(
     #expect(relay.requests.count == 1)
     #expect(runtime.endCount == 0)
     #expect(notifier.cancelCount == 0)
+}
+
+@MainActor
+@Test func confinedRelayPreservesSurfaceRetargetPolicy() async {
+    let runtime = ReplyRuntimeFake()
+    let notifier = ReplyNoticeFake()
+    let relay = ReplyRelayFake(outcomes: [true])
+    let coordinator = makeReplyLaneCoordinator(
+        runtime: runtime,
+        notifier: notifier,
+        nowBox: NowBox(),
+        relay: relay
+    )
+
+    await coordinator.handleReply(
+        text: "stay in this workspace",
+        workspaceId: "workspace-1",
+        surfaceId: "surface-1",
+        macDeviceId: "mac-1",
+        retargetsToLiveSurfaceOwner: false
+    )
+
+    #expect(relay.requests.count == 1)
+    #expect(relay.requests.first?.retargetsToLiveSurfaceOwner == false)
 }
 
 @MainActor

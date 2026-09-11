@@ -85,7 +85,7 @@ private struct FixedConsent: AnalyticsConsentProviding {
         #expect(options.enableAutoBreadcrumbTracking == false)
         #expect(options.tracePropagationTargets.isEmpty)
         #expect(options.enableAutoSessionTracking == false)
-        #expect(options.enableLogs == true)
+        #expect(options.enableLogs == false)
         #expect(options.beforeBreadcrumb != nil)
         #if canImport(MetricKit) && !os(tvOS) && !os(visionOS)
         #expect(options.enableMetricKit == true)

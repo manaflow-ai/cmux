@@ -159,6 +159,13 @@ struct VMClientTelemetryTests {
     func referenceLine() {
         #expect(cloudVMReferenceLine(traceId: "abc123").contains("abc123"))
     }
+
+    @Test("VM retries never shorten Retry-After")
+    func vmRetryAfterIsAuthoritative() {
+        #expect(VMClient.retryDelaySeconds(statusCode: 429, retryAfterHeader: "45") == 45)
+        #expect(VMClient.retryDelaySeconds(statusCode: 429, retryAfterHeader: nil) == 60)
+        #expect(VMClient.retryDelaySeconds(statusCode: 503, retryAfterHeader: "45") == nil)
+    }
 }
 
 private final class ManualClock: @unchecked Sendable {

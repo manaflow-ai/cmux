@@ -1,5 +1,4 @@
 public import Foundation
-public import CmuxBrowser
 
 /// The pre-parsed primitive inputs `pane.create` carries, as
 /// ``ControlCommandCoordinator`` hands them to ``ControlPaneContext``.
@@ -21,8 +20,6 @@ public struct ControlPaneCreateInputs: Sendable, Equatable {
     /// The trimmed browser profile selector from `profile`, `profile_id`, or
     /// `profile_name`, if present.
     public let profileRaw: String?
-    /// The explicit browser engine override, or `nil` to inherit settings.
-    public let engine: BrowserEngineKind?
     /// Whether any non-null browser profile selector had a non-string or empty
     /// value and must be rejected instead of treated as an omitted selector.
     public let hasInvalidProfileParam: Bool
@@ -34,6 +31,8 @@ public struct ControlPaneCreateInputs: Sendable, Equatable {
     public let workingDirectory: String?
     /// The trimmed-non-empty `initial_command`, if any.
     public let initialCommand: String?
+    /// The nonblank raw `initial_input`, preserving surrounding whitespace.
+    public let initialInput: String?
     /// The trimmed-non-empty `tmux_start_command`, if any.
     public let tmuxStartCommand: String?
     /// The startup environment map (legacy `v2TrimmedStringMap` over
@@ -67,6 +66,7 @@ public struct ControlPaneCreateInputs: Sendable, Equatable {
     ///   - hasMultipleProfileParams: Whether multiple selector aliases were supplied.
     ///   - workingDirectory: The trimmed-non-empty working directory, if any.
     ///   - initialCommand: The trimmed-non-empty initial command, if any.
+    ///   - initialInput: The nonblank raw initial input, if any.
     ///   - tmuxStartCommand: The trimmed-non-empty tmux start command, if any.
     ///   - startupEnvironment: The startup environment map.
     ///   - requestedSourceSurfaceID: The requested source surface id, if any.
@@ -79,11 +79,11 @@ public struct ControlPaneCreateInputs: Sendable, Equatable {
         typeRaw: String?,
         urlRaw: String?,
         profileRaw: String? = nil,
-        engine: BrowserEngineKind? = nil,
         hasInvalidProfileParam: Bool = false,
         hasMultipleProfileParams: Bool = false,
         workingDirectory: String?,
         initialCommand: String?,
+        initialInput: String? = nil,
         tmuxStartCommand: String?,
         startupEnvironment: [String: String],
         requestedSourceSurfaceID: UUID?,
@@ -96,11 +96,11 @@ public struct ControlPaneCreateInputs: Sendable, Equatable {
         self.typeRaw = typeRaw
         self.urlRaw = urlRaw
         self.profileRaw = profileRaw
-        self.engine = engine
         self.hasInvalidProfileParam = hasInvalidProfileParam
         self.hasMultipleProfileParams = hasMultipleProfileParams
         self.workingDirectory = workingDirectory
         self.initialCommand = initialCommand
+        self.initialInput = initialInput
         self.tmuxStartCommand = tmuxStartCommand
         self.startupEnvironment = startupEnvironment
         self.requestedSourceSurfaceID = requestedSourceSurfaceID

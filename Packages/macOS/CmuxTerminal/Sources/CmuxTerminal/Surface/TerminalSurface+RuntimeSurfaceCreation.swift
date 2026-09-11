@@ -1,6 +1,7 @@
 internal import AppKit
 internal import Foundation
 internal import GhosttyKit
+internal import CmuxFoundation
 internal import CmuxTerminalCore
 internal import CMUXAgentLaunch
 internal import Darwin
@@ -91,6 +92,18 @@ extension TerminalSurface {
             protectedStartupEnvironmentKeys.insert(key)
         }
 
+        func currentManagedPath() -> String {
+            let inheritedPath = env["PATH"]
+                ?? ProcessInfo.processInfo.environment["PATH"]
+                ?? ""
+            return CmuxPathEnvironment.components(from: inheritedPath).joined(separator: ":")
+        }
+
+        let sanitizedPath = currentManagedPath()
+        if env["PATH"] != nil || !sanitizedPath.isEmpty {
+            setManagedEnvironmentValue("PATH", sanitizedPath)
+        }
+
         if let resolvedUserShell = engine.resolvedUserShell {
             setManagedEnvironmentValue("SHELL", resolvedUserShell)
         }
@@ -174,10 +187,7 @@ extension TerminalSurface {
             if FileManager.default.isExecutableFile(atPath: ghosttyCLIPath) {
                 setManagedEnvironmentValue("GHOSTTY_BIN", ghosttyCLIPath)
             }
-            let currentPath = env["PATH"]
-                ?? getenv("PATH").map { String(cString: $0) }
-                ?? ProcessInfo.processInfo.environment["PATH"]
-                ?? ""
+            let currentPath = currentManagedPath()
             if !currentPath.split(separator: ":").contains(Substring(cliBinPath)) {
                 setManagedEnvironmentValue(
                     "PATH",
@@ -192,10 +202,7 @@ extension TerminalSurface {
                 setManagedEnvironmentValue(shim.wrapperShimEnvironmentKey, shim.executablePath)
                 setManagedEnvironmentValue(shim.wrapperShimRootEnvironmentKey, shim.directoryPath)
             }
-            let currentPath = env["PATH"]
-                ?? getenv("PATH").map { String(cString: $0) }
-                ?? ProcessInfo.processInfo.environment["PATH"]
-                ?? ""
+            let currentPath = currentManagedPath()
             setManagedEnvironmentValue(
                 "PATH",
                 Self.pathByPrependingUniqueDirectory(agentCommandShims.directoryPath, to: currentPath)

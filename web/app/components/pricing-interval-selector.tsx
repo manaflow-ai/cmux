@@ -18,6 +18,10 @@ import {
   type BillingInterval,
 } from "../../services/billing/plans";
 import { CheckoutButton } from "./checkout-navigation";
+import {
+  CHECKOUT_PLACEMENT_PARAM,
+  withCheckoutAttribution,
+} from "../../services/analytics/checkoutAttribution";
 import type { PricingActionSize } from "./pricing-shared";
 
 type PricingSurface = "public_pricing" | "app_pricing" | "dashboard_billing";
@@ -189,9 +193,15 @@ export function PricingCheckoutButton({
     ? PRO_PRICING_USD[interval]
     : TEAM_PRICING_USD[interval];
 
+  // The button position rides to the server as `cmux_placement`, so the
+  // Stripe session and the paid webhook events know which CTA converted.
+  const href = withCheckoutAttribution(hrefs[interval], {
+    [CHECKOUT_PLACEMENT_PARAM]: location,
+  });
+
   return (
     <CheckoutButton
-      href={hrefs[interval]}
+      href={href}
       size={size}
       analytics={{
         event:

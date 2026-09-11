@@ -32,7 +32,7 @@ const proxyCodexModels = createCodexModelsProxy({
   select: async () => {
     const id = selectedAccounts.shift();
     return id
-      ? { id, vaultRevision: 1, credentialExpiresAt: new Date() }
+      ? { id, provider: "codex" as const, vaultRevision: 1, credentialExpiresAt: new Date() }
       : null;
   },
   credential: async ({ accountId }) => {

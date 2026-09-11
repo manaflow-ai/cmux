@@ -108,6 +108,26 @@ public struct CmxIrohCustomPrivatePathBootstrap: Equatable, Sendable {
         self.address = address
         self.networkProfile = networkProfile
     }
+
+    /// Joins user-configured IPs to the authenticated Mac's current Iroh UDP
+    /// ports. Missing address families fail closed, and duplicate coordinates
+    /// are removed before they reach the Iroh connection pool.
+    public static func dialAddresses(
+        _ paths: [CmxIrohCustomPrivatePathBootstrap],
+        directPorts: CmxIrohDirectPorts?
+    ) -> [String] {
+        var seen = Set<String>()
+        return paths.compactMap { path in
+            let port = switch path.address.family {
+            case .ipv4: directPorts?.ipv4
+            case .ipv6: directPorts?.ipv6
+            }
+            guard let port, port != 0 else { return nil }
+            let value = path.address.socketAddress(port: port)
+            guard seen.insert(value).inserted else { return nil }
+            return value
+        }
+    }
 }
 
 /// Device-only, account-isolated persistence for explicit private addresses.

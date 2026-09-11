@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8";
+inline constexpr std::string_view kProtocolIrSha256 = "8ff10c20fef75f9aaa1498eaf5e1107f084bdcf3febdcf8806fb4e7fc1c90b86";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -64,6 +64,7 @@ struct LayoutUndoUndone;
 struct ListAgentsResult;
 struct ListTerminalsResult;
 struct LivePane;
+struct MachineListeningTcpResult;
 struct MachineUsage;
 struct MachineUsageResult;
 struct MintTerminalRendererResult;
@@ -175,6 +176,7 @@ struct ListClientsRequest;
 struct ListClientsResult;
 struct ListTerminalsRequest;
 struct ListWorkspacesRequest;
+struct MachineListeningTcpRequest;
 struct MachineUsageRequest;
 struct MarkWorkspacesProviderManagedRequest;
 struct MintTerminalRendererRequest;
@@ -247,6 +249,7 @@ struct ClientDetachedEvent;
 struct ClientListInvalidatedEvent;
 struct ColorsChangedEvent;
 struct ConfigReloadRequestedEvent;
+struct DaemonShutdownEvent;
 struct DetachedEvent;
 struct EmptyEvent;
 struct FrameEvent;
@@ -1032,6 +1035,10 @@ struct CreateWorkspaceRequest {
     friend bool operator==(const CreateWorkspaceRequest&, const CreateWorkspaceRequest&) = default;
 };
 
+struct DaemonShutdownEvent {
+    friend bool operator==(const DaemonShutdownEvent&, const DaemonShutdownEvent&) = default;
+};
+
 struct DeadPane {
     Id id{};
     friend bool operator==(const DeadPane&, const DeadPane&) = default;
@@ -1500,6 +1507,15 @@ struct LivePane {
     std::optional<std::string> short_id{};
     std::vector<Tab> tabs{};
     friend bool operator==(const LivePane&, const LivePane&) = default;
+};
+
+struct MachineListeningTcpRequest {
+    friend bool operator==(const MachineListeningTcpRequest&, const MachineListeningTcpRequest&) = default;
+};
+
+struct MachineListeningTcpResult {
+    std::string stdout{};
+    friend bool operator==(const MachineListeningTcpResult&, const MachineListeningTcpResult&) = default;
 };
 
 struct MachineUsage {
@@ -2958,6 +2974,12 @@ struct Codec<LivePane> {
 };
 
 template <>
+struct Codec<MachineListeningTcpResult> {
+    static Result<Json> encode(const MachineListeningTcpResult& value);
+    static Result<MachineListeningTcpResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<MachineUsage> {
     static Result<Json> encode(const MachineUsage& value);
     static Result<MachineUsage> decode(const Json& value);
@@ -3624,6 +3646,12 @@ struct Codec<ListWorkspacesRequest> {
 };
 
 template <>
+struct Codec<MachineListeningTcpRequest> {
+    static Result<Json> encode(const MachineListeningTcpRequest& value);
+    static Result<MachineListeningTcpRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<MachineUsageRequest> {
     static Result<Json> encode(const MachineUsageRequest& value);
     static Result<MachineUsageRequest> decode(const Json& value);
@@ -4053,6 +4081,12 @@ template <>
 struct Codec<ConfigReloadRequestedEvent> {
     static Result<Json> encode(const ConfigReloadRequestedEvent& value);
     static Result<ConfigReloadRequestedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<DaemonShutdownEvent> {
+    static Result<Json> encode(const DaemonShutdownEvent& value);
+    static Result<DaemonShutdownEvent> decode(const Json& value);
 };
 
 template <>

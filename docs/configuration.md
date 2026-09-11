@@ -2,6 +2,15 @@
 
 Global app preferences live in `~/.config/cmux/cmux.json`.
 
+## Automation socket trust boundary
+
+`cmuxOnly` allows the cmux CLI and programs started from cmux terminals. This
+uses the process ancestry of the caller, so a program launched inside a cmux
+terminal is trusted even when it later starts another process or leaves the
+terminal's original process group. Use `password` or `cmuxOnly` when untrusted
+code may run inside a cmux terminal. `allowAll` also grants
+access to other local macOS users and is unsafe on a shared Mac.
+
 ## `mobile.artifactFolderAccess`
 
 Controls which files and folders cmux on iOS may browse after a chat references a directory or a directory path appears in a terminal.

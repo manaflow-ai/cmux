@@ -1,12 +1,12 @@
 import {
   jsonResponse,
   resolveVmRouteAccountScope,
-  vmResourceErrorResponse,
   vmErrorResponse,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
-import { execVm, runVmWorkflow } from "../../../../../services/vms/workflows";
+import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
+import { execVm } from "../../../../../services/vms/workflows";
 
 
 // Exec accepts client timeouts up to 15 minutes (MAX_EXEC_TIMEOUT_MS below).
@@ -72,23 +72,20 @@ export async function POST(
         "cmux.command_length": command.length,
         "cmux.timeout_ms": timeoutMs,
       });
-      try {
-        const result = await runVmWorkflow(execVm({
-          userId: user.id,
-          billingTeamId: account.entitlements.billingTeamId,
-          callerPlanId: account.entitlements.planId,
-          teamIds: user.teamIds,
-          providerVmId: id,
-          command,
-          timeoutMs,
-        }));
-        setSpanAttributes(span, { "cmux.exec.exit_code": result.exitCode });
-        return jsonResponse(result);
-      } catch (err) {
-        const response = vmResourceErrorResponse(err, id);
-        if (response) return response;
-        throw err;
-      }
+      const run = await runVmRoute(execVm({
+        userId: user.id,
+        billingTeamId: account.entitlements.billingTeamId,
+        maxActiveVms: account.entitlements.maxActiveVms,
+        callerPlanId: account.entitlements.planId,
+        teamIds: user.teamIds,
+        providerVmId: id,
+        command,
+        timeoutMs,
+      }), { request });
+      if (!run.ok) return run.response;
+      const result = run.value;
+      setSpanAttributes(span, { "cmux.exec.exit_code": result.exitCode });
+      return jsonResponse(result);
     },
   );
 }

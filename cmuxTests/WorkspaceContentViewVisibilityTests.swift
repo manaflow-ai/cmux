@@ -540,36 +540,6 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
-    func testNonSelectedNonRetiringWorkspaceIsFullyHidden() {
-        #expect(
-            MountedWorkspacePresentation.resolve(
-                isSelectedWorkspace: false,
-                isRetiringWorkspace: false
-            ) ==
-            MountedWorkspacePresentation(
-                isRenderedVisible: false,
-                isPanelVisible: false,
-                renderOpacity: 0
-            )
-        )
-    }
-
-    @Test
-    func testRetiringWorkspaceStaysPanelVisibleDuringHandoff() {
-        #expect(
-            MountedWorkspacePresentation.resolve(
-                isSelectedWorkspace: false,
-                isRetiringWorkspace: true
-            ) ==
-            MountedWorkspacePresentation(
-                isRenderedVisible: true,
-                isPanelVisible: true,
-                renderOpacity: 1
-            )
-        )
-    }
-
-    @Test
     func testPanelVisibleInUIReturnsFalseWhenWorkspaceHidden() {
         #expect(
             !WorkspaceContentView.panelVisibleInUI(

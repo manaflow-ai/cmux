@@ -622,6 +622,12 @@ class LivePane:
 
 
 @dataclass(frozen=True)
+class MachineListeningTcpResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/MachineListeningTcpResult'
+    stdout: str
+
+
+@dataclass(frozen=True)
 class MachineUsage:
     __cmux_schema_path__: ClassVar[str] = 'types/MachineUsage'
     api_equivalent_usd: float
@@ -1579,6 +1585,12 @@ class ListWorkspacesRequest:
 
 
 @dataclass(frozen=True)
+class MachineListeningTcpRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/machine-listening-tcp/request'
+    pass
+
+
+@dataclass(frozen=True)
 class MachineUsageRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/machine-usage/request'
     pass
@@ -2179,6 +2191,13 @@ class ConfigReloadRequestedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class DaemonShutdownEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/daemon-shutdown/payload'
+    event: Literal['daemon-shutdown']
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class DetachedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/detached/payload'
     surface: Id
@@ -2620,7 +2639,7 @@ LayoutUndoResult = Union[LayoutUndoUndone, LayoutUndoConfirmationRequired]
 Pane = Union[LivePane, DeadPane]
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -2689,6 +2708,7 @@ __all__ = [
     'ListAgentsResult',
     'ListTerminalsResult',
     'LivePane',
+    'MachineListeningTcpResult',
     'MachineUsage',
     'MachineUsageResult',
     'MintTerminalRendererResult',
@@ -2790,6 +2810,7 @@ __all__ = [
     'ListClientsRequest',
     'ListTerminalsRequest',
     'ListWorkspacesRequest',
+    'MachineListeningTcpRequest',
     'MachineUsageRequest',
     'MarkWorkspacesProviderManagedRequest',
     'MintTerminalRendererRequest',
@@ -2862,6 +2883,7 @@ __all__ = [
     'ClientListInvalidatedEvent',
     'ColorsChangedEvent',
     'ConfigReloadRequestedEvent',
+    'DaemonShutdownEvent',
     'DetachedEvent',
     'EmptyEvent',
     'FrameEvent',

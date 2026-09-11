@@ -1,5 +1,5 @@
 import {
-  deletePublication,
+  PublicationInputError,  deletePublication,
   updatePublicationAccess,
 } from "../../../../../services/vm-publications/workflows";
 import { parseRequiredObjectBody, stringField } from "../../../../../services/vms/routeInput";
@@ -49,6 +49,9 @@ export async function handlePublicationUpdate(
       action: "Choose personal, team, or public; include teamId only with team.",
       details: { field: "accessMode" },
     }, 400);
+  }
+  if (accessMode === "public" && body?.confirmPublic !== true) {
+    throw new PublicationInputError({ reason: "public_confirmation_required", field: "accessMode" });
   }
   const publication = await context.run(updatePublicationAccess({
     principal: context.principal,

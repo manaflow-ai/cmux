@@ -286,6 +286,17 @@ describe("confirm-on-hello", () => {
     const snapshot = mac.frame("directory") as { rev: number; payload: { bindings: Record<string, unknown>[] } };
     expect(snapshot.rev).toBe(43);
     expect(snapshot.payload.bindings[0]).toMatchObject({ status: "active" });
+
+    // A later hello replaces the durable remembered build, so a new Mac
+    // release clears any client-side minimum-version warning on the next list.
+    const macRefresh = await harness.connect("mac-refresh");
+    await harness.hello(macRefresh, {
+      endpointId: ENDPOINT_A,
+      haveRev: 43,
+      wantPasses: false,
+      appVersion: "1.2.4",
+    });
+    expect(harness.overlay(ENDPOINT_A)?.appVersion).toBe("1.2.4");
   });
 
   it("skips the confirmation (not the hello) on oversized client info", async () => {

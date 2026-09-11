@@ -404,7 +404,7 @@ struct TerminalComposerView: View {
                 }
             }
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, MobileComposerLayout().horizontalInset)
         // Tighter above the field than below (the user reported too much top
         // padding); the band height is still driven by content + this padding,
         // so the host's re-measure stays correct.

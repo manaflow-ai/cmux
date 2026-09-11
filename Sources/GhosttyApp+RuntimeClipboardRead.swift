@@ -260,7 +260,7 @@ extension GhosttyApp {
                             }
                             completeClipboardRequest(with: text)
                         },
-                        onFailure: { _ in
+                        onFailure: { error in
                             let shouldPresentFailure = MainActor.assumeIsolated {
                                 indicatorView.endImageTransferIndicator(
                                     for: operation
@@ -269,7 +269,9 @@ extension GhosttyApp {
                                     requestTerminalSurface
                                 )
                             }
-                            if shouldPresentFailure {
+                            if shouldPresentFailure, ManagedFileTransferPolicy.isRefusal(error) {
+                                ManagedFileTransferPolicy.presentRefusal()
+                            } else if shouldPresentFailure {
                                 NSSound.beep()
 #if DEBUG
                                 cmuxDebugLog(

@@ -20,6 +20,7 @@ public final class Events {
     public static final EventMetadata CLIENT_LIST_INVALIDATED = new EventMetadata("client-list-invalidated", 9, null, List.of("subscribe"), false);
     public static final EventMetadata COLORS_CHANGED = new EventMetadata("colors-changed", 6, null, List.of("attach-byte"), true);
     public static final EventMetadata CONFIG_RELOAD_REQUESTED = new EventMetadata("config-reload-requested", 6, null, List.of("subscribe"), true);
+    public static final EventMetadata DAEMON_SHUTDOWN = new EventMetadata("daemon-shutdown", 12, null, List.of("control"), true);
     public static final EventMetadata DETACHED = new EventMetadata("detached", 5, null, List.of("attach-byte", "attach-render", "attach-browser"), true);
     public static final EventMetadata EMPTY = new EventMetadata("empty", 5, null, List.of("subscribe"), true);
     public static final EventMetadata FRAME = new EventMetadata("frame", 6, null, List.of("attach-browser"), true);
@@ -71,6 +72,7 @@ public final class Events {
         values.put("client-list-invalidated", CLIENT_LIST_INVALIDATED);
         values.put("colors-changed", COLORS_CHANGED);
         values.put("config-reload-requested", CONFIG_RELOAD_REQUESTED);
+        values.put("daemon-shutdown", DAEMON_SHUTDOWN);
         values.put("detached", DETACHED);
         values.put("empty", EMPTY);
         values.put("frame", FRAME);

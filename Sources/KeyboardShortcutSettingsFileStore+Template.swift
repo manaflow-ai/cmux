@@ -48,6 +48,7 @@ extension CmuxSettingsFileStore {
     }
 
     private static func defaultTemplateSections() -> [[String: Any]] {
+        let fileEditorSettings = FilePreviewEditorSettings(defaults: .standard)
         let shortcutsBindings = Dictionary(
             uniqueKeysWithValues: KeyboardShortcutSettings.publicShortcutActions.map { action in
                 (action.rawValue, shortcutTemplateValue(action.defaultShortcut, usesNumberedDigits: action.usesNumberedDigitMatching))
@@ -200,9 +201,6 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "browser": [
-                    "defaultEngine": SettingCatalog().browser.defaultEngine.defaultValue.rawValue,
-                    "chromiumExtensionDirectories": SettingCatalog().browser.chromiumExtensionDirectories.defaultValue,
-                    "remoteDebuggingPort": SettingCatalog().browser.remoteDebuggingPort.defaultValue,
                     "defaultSearchEngine": BrowserSearchSettingsStore.defaultSearchEngine.rawValue,
                     "defaultZoomLevel": BrowserZoomSettings.defaultLevel,
                     "customSearchEngineName": BrowserSearchSettingsStore.defaultCustomSearchEngineName,
@@ -237,6 +235,11 @@ extension CmuxSettingsFileStore {
             [
                 "fileEditor": [
                     "wordWrap": FilePreviewWordWrapSettings.defaultEnabled,
+                    "syntaxHighlighting": fileEditorSettings.catalog.syntaxHighlighting.defaultValue,
+                    "lineNumbers": fileEditorSettings.catalog.lineNumbers.defaultValue,
+                    "indentGuides": fileEditorSettings.catalog.indentGuides.defaultValue,
+                    "currentLineHighlight": fileEditorSettings.catalog.currentLineHighlight.defaultValue,
+                    "tabWidth": fileEditorSettings.catalog.tabWidth.defaultValue,
                 ],
             ],
             [

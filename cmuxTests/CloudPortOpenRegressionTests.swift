@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxWorkspaces
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -271,6 +272,23 @@ struct CloudPortOpenRegressionTests {
         #expect(port.remoteViews?.map(\.tabID) == ["tab_port_8000", "tab_port_second"])
     }
 
+    @Test("SSH and display transport listeners are not advertised as web previews")
+    func infrastructureListenersAreNotWebPorts() {
+        let bindings = """
+        State Recv-Q Send-Q Local Address:Port Peer Address:Port
+        LISTEN 0 128 0.0.0.0:22 0.0.0.0:*
+        LISTEN 0 128 [::]:22 [::]:*
+        LISTEN 0 128 0.0.0.0:1337 0.0.0.0:*
+        LISTEN 0 128 127.0.0.1:5901 0.0.0.0:*
+        LISTEN 0 128 0.0.0.0:6901 0.0.0.0:*
+        LISTEN 0 128 0.0.0.0:3000 0.0.0.0:*
+        """
+        #expect(CmuxTuiSurfaceProvider.ports(
+            from: VMExecResult(exitCode: 0, stdout: bindings, stderr: ""),
+            privateAddress: "10.16.179.6"
+        ) == [3000])
+    }
+
     @Test("Unavailable scans retain ports while an authoritative empty scan retires them")
     func portScanCompletenessControlsRefresh() throws {
         #expect(CmuxTuiSurfaceProvider.ports(from: VMExecResult(exitCode: 127, stdout: "", stderr: "ss unavailable")) == nil)
@@ -306,6 +324,14 @@ struct CloudPortOpenRegressionTests {
         )
         #expect(retained.map(\.id) == [previous[0].id])
         #expect(retained.first?.url == "http://10.0.0.7:8000")
+        let staleSSH = discoveredPort(22)
+        let retainedWithStaleSSH = CmuxTuiSurfaceProvider.portResources(
+            machine: machine,
+            scannedPorts: nil,
+            previousResources: [staleSSH, previous[0]],
+            privateAddress: "10.0.0.7"
+        )
+        #expect(retainedWithStaleSSH.map(\.id) == [previous[0].id], "an unavailable refresh must not resurrect a cached SSH listener")
         #expect(CmuxTuiSurfaceProvider.portResources(
             machine: machine,
             scannedPorts: [],
@@ -335,6 +361,18 @@ struct CloudPortOpenRegressionTests {
             previousResources: refreshed,
             privateAddress: nil
         ).first?.url == nil, "an address withdrawal cannot leave a stale browser URL")
+    }
+
+    @Test("Port discovery uses the private cmux-tui link")
+    func portDiscoveryUsesPrivateMachineLink() throws {
+        let arguments = try #require(
+            CloudTuiCommandLine.listeningPortsArguments(socketPath: "/tmp/cmux-cloud.sock")
+        )
+        #expect(arguments == [
+            "--socket", "/tmp/cmux-cloud.sock",
+            "--json", "raw", "command",
+            "--request-json", #"{"cmd":"machine-listening-tcp","id":1}"#,
+        ])
     }
 
     @Test("Sidebar and repeated opens use the machine-owned local workspace and one catalog identity")
