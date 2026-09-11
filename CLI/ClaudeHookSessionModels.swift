@@ -145,6 +145,9 @@ struct ClaudeHookSessionRecord: Codable {
     var transcriptPath: String?
     var pid: Int?
     /// Exact process-generation identity captured when the hook recorded `pid`.
+    /// Recent generations retained so a delayed SessionEnd can be matched after
+    /// a same-session resume updates the current PID.
+    var priorProcessGenerations: [ClaudeHookProcessGeneration]? = nil
     var pidStartSeconds: Int64? = nil
     var pidStartMicroseconds: Int64? = nil
     var launchCommand: AgentHookLaunchCommandRecord?

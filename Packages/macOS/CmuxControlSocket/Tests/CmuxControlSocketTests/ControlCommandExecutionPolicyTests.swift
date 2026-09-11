@@ -291,6 +291,13 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "notification.clear") == .mainActor)
     }
 
+    @Test func codexNativeTitleSyncRunsAsyncOnTheWorker() {
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: "surface.sync_codex_native_title")
+                == .socketWorker(mainThreadCallable: false)
+        )
+    }
+
     @Test func v1CommandsDefaultToTheMainActor() {
         for command in [
             "right_sidebar", "focus_surface",
