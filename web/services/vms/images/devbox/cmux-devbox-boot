@@ -50,6 +50,18 @@
 # The Freestyle public-platform bake runs this script from the cmux-tui-daemon
 # systemd unit.
 #
+# Private-network announce. The provider's VPC fabric forwards to a machine
+# only after it has seen a frame FROM that machine's VPC interface, and a
+# memory-snapshot clone resumes with the interface already configured, so
+# nothing transmits on it by itself: the owner's Mac then dials a listening
+# daemon and every SYN vanishes (web/services/vms/images/network.ts has the
+# measurement). announce_network sends a gratuitous ARP burst from every
+# global IPv4 address; it runs detached when a clone is detected and every
+# 30 s for the life of the supervisor so an idle machine never ages out of
+# the fabric's table. The command line is devboxNetworkAnnounceCommand() in
+# network.ts; vm-devbox-identity.test.ts pins the equality. The attach path
+# announces on its own (freestyleNetworkAnnouncement.ts).
+#
 # CMUX_TUI_REMOTE_WS_BIND overrides the listener bind. Default: the IPv4
 # wildcard. Freestyle sets [::]:1337 (its systemd unit / a driver drop-in)
 # because private Freestyle networks can assign either address family; a
@@ -133,6 +145,14 @@ rekey_ssh_host() {
   return 0
 }
 
+announce_network() {
+  command -v arping >/dev/null 2>&1 && ip -o -4 addr show scope global 2>/dev/null | { while read -r _ dev _ cidr _; do case "$dev" in lo|docker*|veth*|br-*|virbr*) continue;; esac; case "$cidr" in 169.254.*) continue;; esac; arping -U -c 2 -w 2 -I "$dev" "${cidr%/*}" >/dev/null 2>&1 & done; wait; }; true
+}
+
+announce_loop() {
+  while true; do announce_network; sleep 30; done
+}
+
 stop_daemon() {
   [ -n "$daemon_pid" ] || return 0
   kill "$daemon_pid" 2>/dev/null
@@ -142,6 +162,8 @@ stop_daemon() {
   wait "$daemon_pid" 2>/dev/null
   daemon_pid=""
 }
+
+announce_loop &
 
 while true; do
   start_desktop
@@ -157,6 +179,7 @@ while true; do
         stop_daemon
         rm -rf "$REMOTE_STATE_DIR"
         ( rekey_ssh_host & )
+        ( announce_network & )
         mkdir -p /etc/cmux && printf '%s\n' "$id" > "$BOUND_INSTANCE_FILE"
       fi
       if [ -z "$daemon_pid" ] || ! kill -0 "$daemon_pid" 2>/dev/null; then
