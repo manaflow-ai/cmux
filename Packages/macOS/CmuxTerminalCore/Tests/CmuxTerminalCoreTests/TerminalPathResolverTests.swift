@@ -219,6 +219,44 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         #expect(reference.column == nil)
     }
 
+    @Test func resolvesEncodedSpacesAndDocumentFragmentsInLocalFileURL() throws {
+        let existingFile = "/Users/dev/project/reports/weekly notes.html"
+        let reference = try #require(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveOpenURLFileReference(
+                "file:///Users/dev/project/reports/weekly%20notes.html#summary",
+                cwd: "/Users/dev/project"
+            )
+        )
+        #expect(reference.path == existingFile)
+        #expect(reference.line == nil)
+        #expect(reference.column == nil)
+    }
+
+    @Test(arguments: [
+        "file:/Users/dev/project/src/main.swift",
+        "file:///Users/dev/project/src/main.swift",
+        "file://localhost/Users/dev/project/src/main.swift",
+    ])
+    func acceptsHostlessAndLocalhostFileURLs(_ rawURL: String) throws {
+        let existingFile = "/Users/dev/project/src/main.swift"
+        let reference = try #require(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveOpenURLFileReference(
+                rawURL,
+                cwd: "/Users/dev/project"
+            )
+        )
+        #expect(reference.path == existingFile)
+    }
+
+    @Test func rejectsRemoteFileURLHosts() {
+        #expect(
+            TerminalPathResolver(fileExists: { _ in true }).resolveOpenURLFileReference(
+                "file://build-server/Users/dev/project/main.swift:4",
+                cwd: "/Users/dev/project"
+            ) == nil
+        )
+    }
+
     @Test func prefersLiteralPathBeforeInterpretingLocationSuffix() throws {
         let literalPath = "/tmp/report:42"
         let reference = try #require(

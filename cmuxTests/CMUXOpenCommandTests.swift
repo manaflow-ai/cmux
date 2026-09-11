@@ -10,7 +10,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         let timedOut: Bool
     }
 
-    private final class MockSocketServerState: @unchecked Sendable {
+    final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock()
         private(set) var commands: [String] = []
 
@@ -421,55 +421,6 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "OK files=1 surface=surface-id pane=pane-id\n")
-    }
-
-    func testOpenCommandNormalizesPathLocationAndLocalFileURL() throws {
-        let cliPath = try bundledCLIPath()
-        let socketPath = makeSocketPath("open-location")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let rootURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let sourceURL = rootURL.appendingPathComponent("src", isDirectory: true)
-        let locationFileURL = sourceURL.appendingPathComponent("main.swift")
-        let fileURL = rootURL.appendingPathComponent("notes.txt")
-        try FileManager.default.createDirectory(at: sourceURL, withIntermediateDirectories: true)
-        try "print(\"hello\")\n".write(to: locationFileURL, atomically: true, encoding: .utf8)
-        try "notes\n".write(to: fileURL, atomically: true, encoding: .utf8)
-        let state = MockSocketServerState()
-
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
-            try? FileManager.default.removeItem(at: rootURL)
-        }
-
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            guard let payload = Self.v2Payload(from: line),
-                  let id = payload["id"] as? String,
-                  payload["method"] as? String == "file.open" else {
-                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
-            }
-            let params = payload["params"] as? [String: Any] ?? [:]
-            guard params["paths"] as? [String] == [locationFileURL.path, fileURL.path] else {
-                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-file-paths"])
-            }
-            return Self.v2Response(id: id, ok: true, result: [
-                "surface_id": "surface-id",
-                "pane_id": "pane-id",
-            ])
-        }
-
-        let result = runCLI(
-            cliPath: cliPath,
-            socketPath: socketPath,
-            arguments: ["open", "src/main.swift:42", fileURL.absoluteString],
-            currentDirectoryURL: rootURL
-        )
-
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK files=2 surface=surface-id pane=pane-id\n")
     }
 
     func testOpenCommandProcessesMixedTargetsInInputOrder() throws {
@@ -2534,7 +2485,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         ])
     }
 
-    private func runCLI(
+    func runCLI(
         cliPath: String,
         socketPath: String,
         arguments: [String],
@@ -2890,7 +2841,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         try data.write(to: stateDirectoryURL.appendingPathComponent("agent-turn-diff-baselines.json"), options: .atomic)
     }
 
-    private func bundledCLIPath() throws -> String {
+    func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: Self.self)
     }
 
@@ -3067,7 +3018,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         return condition()
     }
 
-    private func bindUnixSocket(at path: String) throws -> Int32 {
+    func bindUnixSocket(at path: String) throws -> Int32 {
         unlink(path)
 
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -3099,14 +3050,14 @@ final class CMUXOpenCommandTests: XCTestCase {
         return fd
     }
 
-    private func makeSocketPath(_ name: String) -> String {
+    func makeSocketPath(_ name: String) -> String {
         let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
         return URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cli-\(name.prefix(6))-\(shortID).sock")
             .path
     }
 
-    private func startMockServer(
+    func startMockServer(
         listenerFD: Int32,
         state: MockSocketServerState,
         handler: @escaping @Sendable (String) -> String
@@ -3208,12 +3159,12 @@ final class CMUXOpenCommandTests: XCTestCase {
         output.split(separator: "\n").map(String.init)
     }
 
-    private static func v2Payload(from line: String) -> [String: Any]? {
+    static func v2Payload(from line: String) -> [String: Any]? {
         guard let data = line.data(using: .utf8) else { return nil }
         return try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
     }
 
-    private static func v2Response(
+    static func v2Response(
         id: String,
         ok: Bool,
         result: [String: Any]? = nil,
