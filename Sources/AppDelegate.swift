@@ -552,6 +552,7 @@ final class CmuxMainThreadTurnProfiler {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate, CmuxConfigStoreReloadEnvironment {
     nonisolated(unsafe) static var shared: AppDelegate?
+    static let nativeDragCoordinator = NativeDragCoordinator()
     /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
     nonisolated let socketTransport = SocketTransport()
     /// Owns the About Titlebar Debug subsystem (CmuxAppKitSupportUI); composition-root
@@ -573,15 +574,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         WorkspaceTerminalFontSizeArbiter()
     /// Owns the one process-local Vault drag capability registry.
     let sessionDragRegistry = SessionDragRegistry()
-    /// Owns pane-transfer capabilities shared by every window, workspace, and Dock.
-    private var tabDragTransferRegistryStorage: TabDragTransferRegistry?
+    /// Owns process-local native drag capabilities and pane-target cleanup.
+    let nativeDragCoordinator = AppDelegate.nativeDragCoordinator
     var tabDragTransferRegistry: TabDragTransferRegistry {
-        if let tabDragTransferRegistryStorage {
-            return tabDragTransferRegistryStorage
-        }
-        let registry = TabDragTransferRegistry()
-        tabDragTransferRegistryStorage = registry
-        return registry
+        nativeDragCoordinator.tabDragTransferRegistry
+    }
+    var paneDropTargetRegistry: PaneDropTargetRegistry {
+        nativeDragCoordinator.paneDropTargetRegistry
     }
     /// Caches live pane-transfer resolution for pointer hit-testing paths.
     lazy var liveTabDragCapabilityResolver = LiveTabDragCapabilityResolver(
@@ -2507,14 +2506,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         computerUseRuntimeService: ComputerUseRuntimeService
     ) {
         captureSessionLaunchStateIfNeeded()
-        self.tabManager = tabManager
-        if let tabDragTransferRegistryStorage {
-            precondition(
-                tabDragTransferRegistryStorage === tabManager.tabDragTransferRegistry,
-                "AppDelegate pane-transfer registry must match the initial TabManager"
-            )
+        guard nativeDragCoordinator.adopt(tabDragTransferRegistry: tabManager.tabDragTransferRegistry) else {
+            return
         }
-        tabDragTransferRegistryStorage = tabManager.tabDragTransferRegistry
+        self.tabManager = tabManager
         // SwiftUI constructs the initial TabManager before this delegate is
         // available; adopt its coordinators so every later window shares them.
         pullRequestProbeService = tabManager.pullRequestProbeService
@@ -10294,6 +10289,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environmentObject(cmuxConfigStore)
             .environment(\.sessionDragRegistry, sessionDragRegistry)
             .environment(\.tabDragTransferRegistry, tabDragTransferRegistry)
+            .environment(\.paneDropTargetRegistry, paneDropTargetRegistry)
             // AppKit hosts this ContentView in its own NSHostingView, which does
             // not inherit the App scene's SwiftUI environment. Inject the
             // settings runtime so `@LiveSetting` can resolve the stores it

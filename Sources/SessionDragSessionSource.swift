@@ -69,7 +69,7 @@ final class SessionDragSessionSource: NSObject, NSDraggingSource {
     func finishDrag() {
         guard case .active = phase else { return }
         phase = .finished
-        transferRegistry.end(transferRegistration)
+        transferRegistry.endNativeDrag(transferRegistration)
         registry.discard(id: dragID)
         onFinish(dragID)
         sourceView = nil

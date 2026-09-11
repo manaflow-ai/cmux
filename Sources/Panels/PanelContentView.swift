@@ -29,6 +29,7 @@ struct PanelContentView: View {
     /// surface-resolved scheme for its rendered panel subtree. Browser WebKit
     /// system theming may observe this value; browser chrome must not.
     @Environment(\.colorScheme) private var inheritedColorScheme
+    @Environment(\.paneDropTargetRegistry) private var paneDropTargetRegistry
     /// Explicit browser pane-ownership signal for hosts whose panels live outside
     /// the main `Workspace` tree (the Dock). `nil` keeps the main-area behavior.
     var paneOwnershipOverride: Bool? = nil
@@ -242,12 +243,12 @@ struct PanelContentView: View {
 
     @ViewBuilder
     private var paneDropTargetOverlay: some View {
-        if shouldInstallPaneDropTarget {
+        if shouldInstallPaneDropTarget, let paneDropTargetRegistry {
             PaneDropTargetRepresentable(dropContext: PaneDropContext(
                 workspaceId: workspaceId,
                 panelId: panel.id,
                 paneId: paneId
-            ))
+            ), paneDropTargetRegistry: paneDropTargetRegistry)
         }
     }
 

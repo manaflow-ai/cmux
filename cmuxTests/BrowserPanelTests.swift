@@ -2945,6 +2945,8 @@ final class WindowBrowserHostViewTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelHostContainerViewTests: XCTestCase {
+    private let paneDropTargetRegistry = PaneDropTargetRegistry()
+
     private final class PrimaryPageProbeView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? {
             bounds.contains(point) ? self : nil
@@ -3263,7 +3265,9 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
         host.autoresizingMask = [.minXMargin, .height]
         contentView.addSubview(host)
 
-        let slotView = host.ensureLocalInlineSlotView()
+        let slotView = host.ensureLocalInlineSlotView(
+            paneDropTargetRegistry: paneDropTargetRegistry
+        )
         let pageView = WKWebView(frame: NSRect(x: 0, y: 0, width: 92, height: host.bounds.height + 180))
         let inspectorView = WKWebView(
             frame: NSRect(x: 92, y: 0, width: slotView.bounds.width - 92, height: host.bounds.height)
@@ -3314,7 +3318,9 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
         host.autoresizingMask = [.minXMargin, .height]
         contentView.addSubview(host)
 
-        let slotView = host.ensureLocalInlineSlotView()
+        let slotView = host.ensureLocalInlineSlotView(
+            paneDropTargetRegistry: paneDropTargetRegistry
+        )
         let pageView = WKWebView(frame: NSRect(x: 0, y: 0, width: 92, height: host.bounds.height))
         let inspectorView = WKWebView(
             frame: NSRect(x: 92, y: 0, width: slotView.bounds.width - 92, height: host.bounds.height)
@@ -3374,7 +3380,9 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
         host.autoresizingMask = [.minXMargin, .height]
         contentView.addSubview(host)
 
-        let slotView = host.ensureLocalInlineSlotView()
+        let slotView = host.ensureLocalInlineSlotView(
+            paneDropTargetRegistry: paneDropTargetRegistry
+        )
         let pageView = WKWebView(frame: NSRect(x: 0, y: 0, width: 132, height: host.bounds.height))
         let inspectorView = WKWebView(
             frame: NSRect(x: 132, y: 0, width: slotView.bounds.width - 132, height: host.bounds.height)
@@ -3423,7 +3431,9 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
         host.autoresizingMask = [.minXMargin, .height]
         contentView.addSubview(host)
 
-        let slotView = host.ensureLocalInlineSlotView()
+        let slotView = host.ensureLocalInlineSlotView(
+            paneDropTargetRegistry: paneDropTargetRegistry
+        )
         let pageView = WKWebView(frame: NSRect(x: 0, y: 0, width: 120, height: host.bounds.height))
         let inspectorView = TrackingInspectorFrontendWebView(
             frame: NSRect(x: 120, y: 0, width: slotView.bounds.width - 120, height: host.bounds.height)
@@ -3468,7 +3478,9 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
         host.autoresizingMask = [.minXMargin, .height]
         contentView.addSubview(host)
 
-        let slotView = host.ensureLocalInlineSlotView()
+        let slotView = host.ensureLocalInlineSlotView(
+            paneDropTargetRegistry: paneDropTargetRegistry
+        )
         let pageView = WKWebView(frame: NSRect(x: 0, y: 0, width: 92, height: host.bounds.height))
         let inspectorView = WKWebView(
             frame: NSRect(x: 92, y: 0, width: slotView.bounds.width - 92, height: host.bounds.height)

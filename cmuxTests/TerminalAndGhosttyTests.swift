@@ -2847,6 +2847,7 @@ final class PanelAppearanceBackgroundTests: XCTestCase {
 }
 
 
+@MainActor
 final class GhosttyResponderResolutionTests: XCTestCase {
     private final class FocusProbeView: NSView {
         override var acceptsFirstResponder: Bool { true }

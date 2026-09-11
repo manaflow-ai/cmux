@@ -52,6 +52,10 @@ private struct TabDragTransferRegistryEnvironmentKey: EnvironmentKey {
     static let defaultValue: TabDragTransferRegistry? = nil
 }
 
+private struct PaneDropTargetRegistryEnvironmentKey: EnvironmentKey {
+    static let defaultValue: PaneDropTargetRegistry? = nil
+}
+
 extension EnvironmentValues {
     /// The composition-root-owned registry for process-local Vault drags.
     var sessionDragRegistry: SessionDragRegistry? {
@@ -63,5 +67,11 @@ extension EnvironmentValues {
     var tabDragTransferRegistry: TabDragTransferRegistry? {
         get { self[TabDragTransferRegistryEnvironmentKey.self] }
         set { self[TabDragTransferRegistryEnvironmentKey.self] = newValue }
+    }
+
+    /// The composition-root-owned registry for pane-target drag cleanup.
+    var paneDropTargetRegistry: PaneDropTargetRegistry? {
+        get { self[PaneDropTargetRegistryEnvironmentKey.self] }
+        set { self[PaneDropTargetRegistryEnvironmentKey.self] = newValue }
     }
 }

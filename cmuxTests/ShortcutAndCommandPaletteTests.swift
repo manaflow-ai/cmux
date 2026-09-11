@@ -697,6 +697,7 @@ final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
         XCTAssertTrue(surfaceView.isCommandPaletteFocusStealingTerminalOrBrowser)
     }
 
+    @MainActor
     func testTreatsTextFieldInsideTerminalHostedViewAsFocusStealer() {
         let hostedView = GhosttySurfaceScrollView(
             surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
@@ -727,6 +728,7 @@ final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testTreatsTextViewInsideTerminalHostedViewAsFocusStealerWhenDelegateIsNotAView() {
         let hostedView = GhosttySurfaceScrollView(
             surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
@@ -742,6 +744,7 @@ final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testTreatsTextViewInsideTerminalHostedViewAsFocusStealerWhenDelegateViewIsUnrelated() {
         let hostedView = GhosttySurfaceScrollView(
             surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))

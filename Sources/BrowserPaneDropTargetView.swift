@@ -19,18 +19,23 @@ final class BrowserPaneDropTargetView: NSView {
     weak var preparedFileDropWebView: NSView?
     weak var performedFileDropWebView: NSView?
     var didRequestWebViewRestoreForDrag = false
+    private let paneDropTargetRegistry: PaneDropTargetRegistry
 #if DEBUG
     private var lastHitTestSignature: String?
 #endif
 
     override var acceptsFirstResponder: Bool { false }
 
-    override init(frame frameRect: NSRect) {
+    init(frame frameRect: NSRect, paneDropTargetRegistry: PaneDropTargetRegistry) {
+        self.paneDropTargetRegistry = paneDropTargetRegistry
         super.init(frame: frameRect)
         registerForDraggedTypes(Array(Set([
             DragOverlayRoutingPolicy.filePreviewTransferType,
             DragOverlayRoutingPolicy.bonsplitTabTransferType,
         ]).union(PasteboardFileURLReader.fileURLPasteboardTypes)))
+        paneDropTargetRegistry.register(self) { [weak self] in
+            self?.resetAfterNativeDragEnd()
+        }
     }
 
     @available(*, unavailable)
@@ -147,6 +152,18 @@ final class BrowserPaneDropTargetView: NSView {
         exitActiveFileDropWebView(sender)
         didRequestWebViewRestoreForDrag = false
         clearDragState(phase: "ended")
+        transferDropRouter.clear()
+    }
+
+    func resetAfterNativeDragEnd() {
+        dropRoutingRegistration.clear()
+        exitActiveFileDropWebView(nil)
+        activeFileDropWebView = nil
+        preparedFileDropWebView = nil
+        performedFileDropWebView = nil
+        didRequestWebViewRestoreForDrag = false
+        activeZone = nil
+        slotView?.setPortalDragDropZone(nil)
         transferDropRouter.clear()
     }
 

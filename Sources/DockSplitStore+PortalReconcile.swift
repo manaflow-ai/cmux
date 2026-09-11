@@ -323,12 +323,16 @@ extension DockSplitStore {
         let wasReady = dockBrowserPortalReady(browser)
         if !wasReady &&
             (snapshot == nil || !BrowserWindowPortalRegistry.isWebView(webView, boundTo: anchorView)) {
+            guard let paneDropTargetRegistry = AppDelegate.shared?.paneDropTargetRegistry else {
+                return true
+            }
             BrowserWindowPortalRegistry.bind(
                 webView: webView,
                 to: anchorView,
                 visibleInUI: true,
                 zPriority: 1,
-                paneDropContext: paneDropContext
+                paneDropContext: paneDropContext,
+                paneDropTargetRegistry: paneDropTargetRegistry
             )
         }
         // Reconciliation is also responsible for clearing an obsolete active

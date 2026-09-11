@@ -386,7 +386,8 @@ extension TerminalClipboardInputSequencerTests {
             failureSignal: { _ in }
         )
         let factory = TerminalSurfaceViewFactory(
-            imageTransferPreparation: preparationService
+            imageTransferPreparation: preparationService,
+            paneDropTargetRegistryProvider: { PaneDropTargetRegistry() }
         )
         let firstView = try #require(
             factory.makeSurfaceViews(initialFrame: .zero).surfaceView

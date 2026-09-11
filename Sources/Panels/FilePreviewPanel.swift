@@ -767,7 +767,7 @@ final class FilePreviewDragPasteboardWriter: NSPasteboardItem {
             return url.standardizedFileURL.absoluteString
         }
         if canEndTransfer {
-            transferRegistry?.end(from: pasteboard)
+            transferRegistry?.endNativeDrag(from: pasteboard)
             AppDelegate.shared?.liveTabDragCapabilityResolver.invalidate()
         }
         if let previewFileURL {

@@ -233,7 +233,9 @@ struct BrowserPortalFirstRevealScrollTests {
         defer { fixture.window.orderOut(nil) }
         let host = WebViewRepresentable.HostContainerView(frame: fixture.anchor.frame)
         fixture.window.contentView?.addSubview(host)
-        let slot = host.ensureLocalInlineSlotView()
+        let slot = host.ensureLocalInlineSlotView(
+            paneDropTargetRegistry: TestPaneDropTargetRegistryStore.registry(for: fixture.window)
+        )
         host.layoutSubtreeIfNeeded()
 
         let webView = RecordingWebView(frame: .zero, configuration: WKWebViewConfiguration())
@@ -267,7 +269,9 @@ struct BrowserPortalFirstRevealScrollTests {
         defer { fixture.window.orderOut(nil) }
         let host = WebViewRepresentable.HostContainerView(frame: fixture.anchor.frame)
         fixture.window.contentView?.addSubview(host)
-        let slot = host.ensureLocalInlineSlotView()
+        let slot = host.ensureLocalInlineSlotView(
+            paneDropTargetRegistry: TestPaneDropTargetRegistryStore.registry(for: fixture.window)
+        )
         host.layoutSubtreeIfNeeded()
 
         let webView = RecordingWebView(frame: .zero, configuration: WKWebViewConfiguration())
@@ -309,7 +313,9 @@ struct BrowserPortalFirstRevealScrollTests {
         defer { fixture.window.orderOut(nil) }
         let host = WebViewRepresentable.HostContainerView(frame: fixture.anchor.frame)
         fixture.window.contentView?.addSubview(host)
-        let slot = host.ensureLocalInlineSlotView()
+        let slot = host.ensureLocalInlineSlotView(
+            paneDropTargetRegistry: TestPaneDropTargetRegistryStore.registry(for: fixture.window)
+        )
         host.layoutSubtreeIfNeeded()
 
         let webView = RecordingWebView(frame: slot.bounds, configuration: WKWebViewConfiguration())
