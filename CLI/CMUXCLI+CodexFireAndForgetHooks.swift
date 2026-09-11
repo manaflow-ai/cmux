@@ -4,7 +4,8 @@ import Foundation
 extension CMUXCLI {
     private static let codexSettledStopMaximumRetries = 3
 
-    /// Schedules the normal Codex Stop path after the final child exits.
+    /// Schedules the normal Codex Stop path after the final child exits or
+    /// while its terminal transcript record is still being flushed.
     ///
     /// Native child hooks must acknowledge the lifecycle write quickly, so the
     /// larger notification/store projection runs in a detached CLI process.
@@ -14,14 +15,18 @@ extension CMUXCLI {
         payload: String,
         environment: [String: String],
         telemetry: CLISocketSentryTelemetry,
-        turnID: String? = nil
+        turnID: String? = nil,
+        minimumDelay: TimeInterval = 0
     ) {
         let retryCount = max(0, Int(environment["CMUX_CODEX_SETTLED_STOP_RETRY_COUNT"] ?? "0") ?? 0)
         guard retryCount < Self.codexSettledStopMaximumRetries else {
             telemetry.breadcrumb("codex-hook.settled-stop.retry-limit-reached")
             return
         }
-        let retryDelay = [0.0, 0.5, 1.0][min(retryCount, 2)]
+        let retryDelay = max(
+            [0.0, 0.5, 1.0][min(retryCount, 2)],
+            minimumDelay
+        )
         let selfPath: String = {
             if let first = ProcessInfo.processInfo.arguments.first,
                first.hasPrefix("/"),
