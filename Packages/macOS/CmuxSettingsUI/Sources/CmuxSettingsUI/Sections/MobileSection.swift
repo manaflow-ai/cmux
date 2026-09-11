@@ -91,6 +91,8 @@ public struct MobileSection: View {
                     ))
                     SettingsCardDivider()
                 }
+                iOSPairingHostRow
+                SettingsCardDivider()
                 // Phone-push forwarding is outbound-only and explicitly out of
                 // the DisableRemoteControl policy's scope, so its rows stay
                 // editable even while the remote-control rows are managed.
@@ -102,8 +104,6 @@ public struct MobileSection: View {
                 SettingsCardDivider()
                 Group {
                     pairDeviceRow
-                    SettingsCardDivider()
-                    iOSPairingHostRow
                     SettingsCardDivider()
                     portRow
                     boundPortStatusRow
