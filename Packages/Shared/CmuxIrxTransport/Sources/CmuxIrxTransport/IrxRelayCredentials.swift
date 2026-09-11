@@ -38,15 +38,25 @@ public enum IrxRelayCredentialPolicy {
         return base.addingTimeInterval(-max(0, min(jitter, 10)))
     }
 
-    /// On mint failure, retry at half the remaining validity (floor 1s), so
-    /// retries accelerate as expiry approaches instead of backing off past it.
+    /// On mint failure, use bounded exponential backoff independent of token
+    /// expiry. A validated server Retry-After value remains an authoritative
+    /// floor.
     public static func retryDelay(
         expiresAt: Date,
-        now: Date
+        now: Date,
+        retryAfterSeconds: Int? = nil,
+        failureCount: Int = 0,
+        jitterUnitInterval: Double = 0
     ) -> Duration {
-        let remaining = expiresAt.timeIntervalSince(now)
-        guard remaining > 2 else { return .seconds(1) }
-        return .seconds(remaining / 2)
+        let attempt = min(max(failureCount, 0), 10)
+        let localDelay = min(120, 5 << attempt)
+        let floor = max(localDelay, retryAfterSeconds ?? 0)
+        let jitter = jitterUnitInterval.isFinite ? min(1, max(0, jitterUnitInterval)) : 0
+        // Jitter remains additive even at the cap or above a server floor.
+        // Keep the potentially huge server duration out of Double/Int64
+        // millisecond conversions, which can overflow or round it down.
+        let jitterMilliseconds = Double(min(floor, 120)) * 250 * jitter
+        return .seconds(floor) + .milliseconds(Int64(jitterMilliseconds))
     }
 }
 

@@ -4,7 +4,7 @@ import { getProvider, vmCapabilitiesFor } from "../services/vms/drivers";
 import { VmOperationUnsupportedError, VmProviderOperationError } from "../services/vms/errors";
 import { isOperatorFaultVmError } from "../services/vms/observability";
 import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
-import { vmRequestLocale } from "../services/vms/vmErrorMessages";
+import { vmRequestLocale, vmUnsupportedCopy } from "../services/vms/vmErrorMessages";
 import { locales } from "../i18n/routing";
 
 // A driver that cannot perform an operation raises VmOperationUnsupportedError.
@@ -77,6 +77,27 @@ describe("unsupported provider operations", () => {
     expect(String(payload.action)).toContain("cmux vm exec");
   });
 
+  test("pause and resume on a provider without the verb answer verb-specific 501 copy", async () => {
+    // `cmux vm pause` / `cmux vm resume` (POST /api/vm/[id]/pause|resume) raise
+    // the unsupported error directly from the workflow; the CLI keys off 501.
+    const pause = await vmWorkflowErrorResponse(new VmOperationUnsupportedError({ provider: "freestyle", operation: "pause" }));
+    expect(pause!.status).toBe(501);
+    const pausePayload = await pause!.json() as Record<string, unknown>;
+    expect(pausePayload).toMatchObject({
+      error: "vm_operation_unsupported",
+      retryable: false,
+      details: { operation: "pause", retryable: false },
+    });
+    expect(String(pausePayload.message)).toContain("cannot be paused");
+    expect(String(pausePayload.action)).toContain("cmux vm rm");
+
+    const resume = await vmWorkflowErrorResponse(new VmOperationUnsupportedError({ provider: "freestyle", operation: "resume" }));
+    expect(resume!.status).toBe(501);
+    const resumePayload = await resume!.json() as Record<string, unknown>;
+    expect(resumePayload).toMatchObject({ error: "vm_operation_unsupported", phase: "resume", details: { operation: "resume" } });
+    expect(String(resumePayload.message)).toContain("cannot be resumed");
+  });
+
   test("a provider message containing the capability phrase stays retryable", async () => {
     const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
       provider: "freestyle",
@@ -146,37 +167,19 @@ describe("unsupported provider operations", () => {
     expect(payload.ui).toMatchObject({ title: "Cloud VM 操作を利用できません" });
   });
 
-  test("ships the unsupported-operation message shape in every locale catalog", async () => {
+  test("renders operation-specific unsupported copy in every supported locale", async () => {
     for (const locale of locales) {
-      const messages = (await import(`../messages/${locale}.json`)).default as {
-        vmErrors?: {
-          unsupported?: {
-            title?: string;
-            reason?: string;
-            message?: Record<string, string>;
-            action?: Record<string, string>;
-          };
-        };
-      };
-      const unsupported = messages.vmErrors?.unsupported;
-      expect(unsupported?.title).toBeString();
-      expect(unsupported?.reason).toBeString();
-      expect(Object.keys(unsupported?.message ?? {}).sort()).toEqual([
-        "default",
-        "fork",
-        "openPort",
-        "restore",
-        "snapshot",
-      ]);
-      expect(Object.keys(unsupported?.action ?? {}).sort()).toEqual([
-        "default",
-        "fork",
-        "openPort",
-        "restore",
-        "snapshot",
-      ]);
-      expect(unsupported?.message?.openPort).toBeString();
-      expect(unsupported?.action?.openPort).toBeString();
+      for (const phase of ["default", "fork", "openPort", "restore", "snapshot", "sizing", "persistentHome", "pause", "resume"] as const) {
+        const copy = await vmUnsupportedCopy(phase, locale);
+        expect(copy.title.length).toBeGreaterThan(0);
+        expect(copy.reason.length).toBeGreaterThan(0);
+        expect(copy.message.length).toBeGreaterThan(0);
+        expect(copy.action.length).toBeGreaterThan(0);
+        expect(JSON.stringify(copy)).not.toContain("vmErrors.unsupported");
+        if (phase === "sizing") expect(copy.action).toContain("`memoryMb`");
+        if (phase === "persistentHome") expect(copy.action).toContain("`persistentHome`");
+        if (locale === "ja") expect(copy.message).toMatch(/[\u3040-\u30ff]/);
+      }
     }
   });
 
