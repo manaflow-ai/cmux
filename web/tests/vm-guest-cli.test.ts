@@ -42,19 +42,27 @@ const TERMINAL_ID = "term_0123456789abcdef0123456789abcdef";
 // The in-VM `cmux` shim is shipped as driver-written bytes; a syntax error
 // would surface only inside a live machine, so validate it here.
 describe("in-VM cmux shim", () => {
-  test("open submits a URL to the daemon browser resource and succeeds only when it is retained", () => {
+  test("open submits a URL to the host request stream when a native mirror is attached", () => {
     const dir = mkdtempSync(join(tmpdir(), "cmux-guest-open-"));
     const shim = join(dir, "cmux");
     const tui = join(dir, "cmux-tui");
     const snapshot = join(dir, "snapshot.json");
     writeFileSync(shim, GUEST_CMUX_SHIM);
     chmodSync(shim, 0o755);
-    writeFileSync(snapshot, JSON.stringify({ browsers: [{ id: "browser_1" }] }));
+    writeFileSync(
+      snapshot,
+      JSON.stringify({
+        clients: [{ client_kind: "native-mirror", attached_terminal_ids: [TERMINAL_ID] }],
+        tabs: [{ content_kind: "terminal", content_id: TERMINAL_ID, pane_id: "pane_1" }],
+        browsers: [{ id: "browser_1" }],
+      }),
+    );
     writeFileSync(
       tui,
       `#!/bin/sh
 case "$*" in
   *"session current snapshot"*) cat "${snapshot}" ;;
+  *"notification create"*) printf '%s\\n' '{"value":{"notification_id":"notification_1"}}' ;;
   *"tab create browser"*) printf '%s\\n' '{"value":{"browser_id":"browser_1"}}' ;;
   *) exit 91 ;;
 esac

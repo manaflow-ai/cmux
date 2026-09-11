@@ -29,6 +29,12 @@ if [ -z "${NODE_EXTRA_CA_CERTS-}" ] && [ -f /usr/local/share/ca-certificates/fre
   export NODE_EXTRA_CA_CERTS
 fi
 
+# Human browser opens belong to the attached Mac, while explicit Chrome and
+# agent-browser commands keep using the desktop on DISPLAY=:1. The common
+# Linux opener names are PATH shims to this same command in the devbox image.
+if [ -z "${BROWSER-}" ]; then export BROWSER=/usr/local/bin/cmux-open-url; fi
+if [ -z "${GH_BROWSER-}" ]; then export GH_BROWSER=/usr/local/bin/cmux-open-url; fi
+
 cmux_write_agent_configs() {
   # Every model-plane var, persisted generically; OPENAI_BASE_URL is the
   # anchor: its presence means a boot env is present.

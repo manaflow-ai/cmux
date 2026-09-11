@@ -75,6 +75,7 @@ const FILE_PIN_CHECKS = [
   ["agent-config.sh", "/etc/cmux/agent-config.sh"],
   ["seed-history", "/etc/cmux/seed-history"],
   ["cmux-devbox-boot", "/usr/local/bin/cmux-devbox-boot"],
+  ["cmux-open-url", "/usr/local/bin/cmux-open-url"],
   ["chrome-managed-policy.json", "/etc/opt/chrome/policies/managed/cmux.json"],
 ].map(([source, target]) => `echo '${shaOf(source)}  ${target}' | sha256sum -c -`);
 
@@ -96,6 +97,8 @@ const CHECKS: readonly string[] = [
   "google-chrome-stable --version",
   "jq -e '.DefaultSearchProviderSearchURL | test(\"duckduckgo\")' /etc/opt/chrome/policies/managed/cmux.json >/dev/null && echo chrome-ddg-policy-ok",
   "grep -q AGENT_BROWSER_EXECUTABLE_PATH /etc/profile.d/cmux-media.sh && echo media-profile-ok",
+  "test -x /usr/local/bin/cmux-open-url && sh -n /usr/local/bin/cmux-open-url && for opener in xdg-open x-www-browser sensible-browser; do test \"$(readlink /usr/local/bin/$opener)\" = cmux-open-url || exit 1; done && echo cloud-browser-openers-ok",
+  "bash -lc 'test \"$BROWSER\" = /usr/local/bin/cmux-open-url && test \"$GH_BROWSER\" = /usr/local/bin/cmux-open-url' && echo cloud-browser-env-ok",
   "cua-driver --version",
   "ffmpeg -version | head -1 && command -v Xvfb && command -v xdpyinfo && command -v xdotool",
   // codex's Linux sandbox prerequisite: without the distro bwrap, codex warns

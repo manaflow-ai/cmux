@@ -138,6 +138,20 @@ Agents started with `vm agent` authenticate inside the machine the way they woul
 
 ## Guest auth and CodeRouter
 
+### Browser opens from cloud terminals
+
+Devbox login shells route `BROWSER` and `GH_BROWSER`, plus `xdg-open`,
+`x-www-browser`, and `sensible-browser`, through `cmux open <url>`. The guest
+sends a private request over the daemon's durable notification stream. When the
+caller terminal has a native Mac mirror, the Mac consumes that request as a
+browser tab in the terminal's remote pane without changing the selected
+workspace. With no attached host (for
+example `vm exec` or a detached `vm agent`), it prints `Open this URL: <url>`
+and exits successfully so the calling CLI keeps polling. Chrome,
+agent-browser, xdotool, and CUA continue to use the VM's `DISPLAY=:1` desktop.
+Older machines require a one-time wrapper/env patch until a snapshot carrying
+the opener is promoted.
+
 Start with `cmux self --json` to identify the current machine and `cmux vm ls`
 to list the team's live machines. The guest reads those through its VM-bound
 TLS edge without a Mac account token. Host lifecycle verbs still run on the Mac;
