@@ -348,6 +348,19 @@ mod tests {
         );
     }
 
+    /// `resolve-terminal` is a lookup. Queueing it behind PTY input and every
+    /// mutation on the ordered Interactive lane let one slow commit trip the
+    /// resolver's deadline for unrelated terminals (#12362).
+    #[test]
+    fn read_only_terminal_resolution_rides_the_control_lane() {
+        assert_eq!(
+            classify_client_line(
+                br#"{"id":4,"cmd":"resolve-terminal","terminal_id":"term_41fb0b7fe0f204d428acf9db124023f4"}"#
+            ),
+            Lane::Control
+        );
+    }
+
     #[test]
     fn mux_mutations_share_input_ordering_lane() {
         for command in ["close-surface", "run", "new-workspace", "set-client-sizing"] {
