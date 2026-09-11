@@ -912,7 +912,7 @@
           "label": "Resources per Cloud VM",
           "free": "false",
           "pro": "24 GB RAM and 6 vCPUs per VM",
-          "max": "24 GB RAM and 6 vCPUs per VM",
+          "max": "64 GB RAM and 16 vCPUs per VM",
           "team": "24 GB RAM and 6 vCPUs per VM",
           "enterprise": "Custom"
         },
