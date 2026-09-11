@@ -225,13 +225,19 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
             guard parameters["workspace_id"] is String else {
                 return .denied(
                     code: "remote_relay_workspace_denied",
-                    message: "Relay viewport methods require an explicit workspace_id selector"
+                    message: String(
+                        localized: "socket.remoteRelay.viewport.workspaceRequired",
+                        defaultValue: "Relay viewport methods require an explicit workspace_id selector"
+                    )
                 )
             }
             guard parameters["surface_id"] is String else {
                 return .denied(
                     code: "remote_relay_surface_denied",
-                    message: "Relay viewport methods require an explicit surface_id selector"
+                    message: String(
+                        localized: "socket.remoteRelay.viewport.surfaceRequired",
+                        defaultValue: "Relay viewport methods require an explicit surface_id selector"
+                    )
                 )
             }
         }
