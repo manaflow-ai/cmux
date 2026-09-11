@@ -508925,6 +508925,295 @@
           }
         }
       }
+    },
+    "machines.new.plan.name.max": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        }
+      }
+    },
+    "machines.new.plan.name.pro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro"
+          }
+        }
+      }
+    },
+    "machines.new.size.locked.row": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Requires %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@ が必要"
+          }
+        }
+      }
+    },
+    "machines.new.size.locked.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ machines need cmux %2$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ のマシンには cmux %2$@ が必要です。"
+          }
+        }
+      }
+    },
+    "machines.new.size.locked.upgrade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ にアップグレード"
+          }
+        }
+      }
+    },
+    "cloudVM.error.memoryRequiresPlan.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "32 GB and 64 GB machines need cmux Max. Upgrade at https://cmux.com/pricing?plan=max&cmux_source=mac_vm_memory_requires_plan_error&cmux_client=mac, or pick a size up to 24 GB."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "32 GB と 64 GB のマシンには cmux Max が必要です。https://cmux.com/pricing?plan=max&cmux_source=mac_vm_memory_requires_plan_error&cmux_client=mac でアップグレードするか、24 GB までのサイズを選択してください。"
+          }
+        }
+      }
+    },
+    "pricing.native.plan.max": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        }
+      }
+    },
+    "pricing.native.max.price": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$200"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$200"
+          }
+        }
+      }
+    },
+    "pricing.native.max.cta": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get Max"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max を入手"
+          }
+        }
+      }
+    },
+    "pricing.native.max.feature.sizes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VMs with 32 GB or 64 GB RAM"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "32 GB または 64 GB RAM の Cloud VM"
+          }
+        }
+      }
+    },
+    "pricing.native.max.feature.pro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Everything in Pro: 50 Cloud VMs, unlimited workspaces, the iOS app"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro のすべて: 50 台の Cloud VM、無制限のワークスペース、iOS アプリ"
+          }
+        }
+      }
+    },
+    "pricing.native.manageBilling": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manage billing"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請求を管理"
+          }
+        }
+      }
+    },
+    "pricing.native.compare.cloud.max": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Included"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "含まれます"
+          }
+        }
+      }
+    },
+    "pricing.native.compare.largestVm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Largest Cloud VM"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大の Cloud VM"
+          }
+        }
+      }
+    },
+    "pricing.native.compare.largestVm.standard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "24 GB RAM"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "24 GB RAM"
+          }
+        }
+      }
+    },
+    "pricing.native.compare.largestVm.max": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "64 GB RAM"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "64 GB RAM"
+          }
+        }
+      }
+    },
+    "pricing.native.sizes.max": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "32 GB and 64 GB machines need cmux Max."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "32 GB と 64 GB のマシンには cmux Max が必要です。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

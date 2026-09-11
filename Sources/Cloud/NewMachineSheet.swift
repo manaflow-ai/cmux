@@ -67,6 +67,16 @@ struct NewMachineSheet: View {
                             Text(size.menuTitle).tag(memoryMb)
                         }
                     }
+                    // Locked rows stay visible so the ladder reads as one list;
+                    // they are disabled here and the model refuses them anyway.
+                    ForEach(model.lockedMemoryOptions, id: \.self) { memoryMb in
+                        if let size = MachineSizeOption(memoryMb: memoryMb) {
+                            Text(model.lockedSizeMenuTitle(size))
+                                .tag(memoryMb)
+                                .disabled(true)
+                                .accessibilityIdentifier("NewMachineSheet.size.locked.\(memoryMb)")
+                        }
+                    }
                 } label: {
                     Text(selectedSize.menuTitle)
                 }
@@ -75,6 +85,23 @@ struct NewMachineSheet: View {
                 .accessibilityIdentifier("NewMachineSheet.size")
                 .accessibilityLabel(String(localized: "machines.new.size.accessibilityLabel", defaultValue: "RAM size"))
                 .accessibilityValue(selectedSize.menuTitle)
+            }
+
+            if let note = model.lockedSizesNoteText, let upgradeTitle = model.memoryUpgradeButtonTitle {
+                HStack(alignment: .center, spacing: 8) {
+                    Text(note)
+                        .cmuxFont(size: 11)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("NewMachineSheet.size.lockedNote")
+                    Spacer(minLength: 0)
+                    Button(upgradeTitle) {
+                        ProUpgradePresenter.presentCheckout(source: .newMachineSheetMaxUpgrade, plan: .max)
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("NewMachineSheet.size.upgrade")
+                }
             }
         }
         .accessibilityIdentifier("NewMachineSheet.sizeSection")

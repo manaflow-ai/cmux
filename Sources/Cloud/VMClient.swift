@@ -197,6 +197,11 @@ func defaultCloudVMAction(status: Int, errorCode: String) -> String {
             localized: "cloudVM.error.requiresPro.action",
             defaultValue: "Upgrade to cmux Pro at https://cmux.com/pricing?cmux_source=mac_vm_requires_pro_error&cmux_client=mac to create Cloud VMs."
         )
+    case "vm_memory_requires_plan":
+        return String(
+            localized: "cloudVM.error.memoryRequiresPlan.action",
+            defaultValue: "32 GB and 64 GB machines need cmux Max. Upgrade at https://cmux.com/pricing?plan=max&cmux_source=mac_vm_memory_requires_plan_error&cmux_client=mac, or pick a size up to 24 GB."
+        )
     case "vm_create_credits_insufficient":
         return "Ask a team admin to upgrade the plan or grant more Cloud VM create credits, then retry."
     default:
@@ -370,6 +375,12 @@ struct VMPlanLimits {
     var freeAccessExpiresAt: Int64?
     /// Memory sizes the server accepts for new machines, in MB.
     var memoryOptionsMb: [Int] = []
+    /// Ladder sizes the plan cannot start (`[32768, 65536]` on Pro, `[]` on
+    /// Max); nil when the control plane predates the field and the client
+    /// mirror decides.
+    var lockedMemoryOptionsMb: [Int]? = nil
+    /// The plan that sells the locked sizes ("max"); nil when nothing is locked.
+    var memoryUpgradePlanId: String? = nil
     /// The kinds the default provider can serve and the image each resolves to;
     /// informational (`vm.limits` echoes it): one snapshot serves every kind.
     var imageKinds: [VMImageKindOption] = []
@@ -859,6 +870,9 @@ actor VMClient {
                 freeAccessWindowDays: freeAccessWindowDays,
                 freeAccessExpiresAt: Self.epochMilliseconds(rawLimits["freeAccessExpiresAt"]),
                 memoryOptionsMb: Self.decodeIntArray(rawLimits["memoryOptionsMb"]),
+                lockedMemoryOptionsMb: (rawLimits["lockedMemoryOptionsMb"] as? [Any]).map { Self.decodeIntArray($0) },
+                memoryUpgradePlanId: (rawLimits["memoryUpgradePlanId"] as? String)
+                    .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 },
                 imageKinds: Self.decodeImageKinds(rawLimits["imageKinds"])
             )
         }
