@@ -43,6 +43,8 @@ struct CMUXMobileRootView: View {
     /// previews and package hosts keep the store's compiled-in fallback.
     @Environment(MobileMacCompatCenter.self) private var macCompatCenter:
         MobileMacCompatCenter?
+    @Environment(MobileWhatsNewCenter.self) private var whatsNewCenter:
+        MobileWhatsNewCenter?
     /// Set when the one-shot remote policy refresh has been started. The
     /// cached/baked policy is installed synchronously; the network refresh
     /// continues independently of auth restore and stored-Mac reconnect.
@@ -1123,10 +1125,12 @@ struct CMUXMobileRootView: View {
             return
         }
         store.applyMacCompatibilityPolicy(macCompatCenter.policy)
+        whatsNewCenter?.applyMacCompatibilityPolicy(macCompatCenter.policy)
         Task { @MainActor in
             await macCompatCenter.refresh()
             guard !Task.isCancelled else { return }
             store.applyMacCompatibilityPolicy(macCompatCenter.policy)
+            whatsNewCenter?.applyMacCompatibilityPolicy(macCompatCenter.policy)
             store.revalidateActiveMacCompatibilityPolicy()
         }
     }

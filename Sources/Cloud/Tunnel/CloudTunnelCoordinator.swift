@@ -213,7 +213,7 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
         }
         if pin { isPinned = true }
         clearFailureBackoff()
-        _ = startTaskIfNeeded()
+        if state != .up { _ = startTaskIfNeeded() }
         return nil
     }
 
