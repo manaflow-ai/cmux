@@ -1,14 +1,16 @@
 import CMUXMobileCore
 import Foundation
 
+/// Keys one per-connection, per-panel mobile stream session; shared by the
+/// browser and simulator stream coordinators.
+struct MobileStreamSessionKey: Hashable {
+    let connectionID: UUID
+    let panelID: UUID
+}
+
 @MainActor
 final class MobileBrowserStreamCoordinator {
-    private struct SessionKey: Hashable {
-        let connectionID: UUID
-        let panelID: UUID
-    }
-
-    private var sessions: [SessionKey: MobileBrowserStreamSession] = [:]
+    private var sessions: [MobileStreamSessionKey: MobileBrowserStreamSession] = [:]
 
     func start(
         connectionID: UUID,
@@ -18,7 +20,7 @@ final class MobileBrowserStreamCoordinator {
         guard let connection = MobileHostConnectionRegistry.shared.connection(id: connectionID) else {
             return nil
         }
-        let key = SessionKey(connectionID: connectionID, panelID: panel.id)
+        let key = MobileStreamSessionKey(connectionID: connectionID, panelID: panel.id)
         let replacedExisting = sessions[key] != nil
         if let previous = sessions.removeValue(forKey: key) {
             await previous.stop(sendClosed: false)
@@ -49,7 +51,7 @@ final class MobileBrowserStreamCoordinator {
     }
 
     func hasStream(connectionID: UUID, panelID: UUID) -> Bool {
-        sessions[SessionKey(connectionID: connectionID, panelID: panelID)] != nil
+        sessions[MobileStreamSessionKey(connectionID: connectionID, panelID: panelID)] != nil
     }
 
     @discardableResult
@@ -68,7 +70,7 @@ final class MobileBrowserStreamCoordinator {
 
     @discardableResult
     func stop(connectionID: UUID, panelID: UUID) async -> Bool {
-        let key = SessionKey(connectionID: connectionID, panelID: panelID)
+        let key = MobileStreamSessionKey(connectionID: connectionID, panelID: panelID)
         guard let session = sessions.removeValue(forKey: key) else { return false }
         await session.stop(sendClosed: false)
         MobileHostIrohRuntime.hostDiagnosticLog.record(DiagnosticEvent(
@@ -81,7 +83,7 @@ final class MobileBrowserStreamCoordinator {
 
     @discardableResult
     func acknowledge(connectionID: UUID, panelID: UUID, sequence: UInt64) -> Bool {
-        let key = SessionKey(connectionID: connectionID, panelID: panelID)
+        let key = MobileStreamSessionKey(connectionID: connectionID, panelID: panelID)
         guard let session = sessions[key] else { return false }
         session.acknowledge(sequence: sequence)
         return true
@@ -89,7 +91,7 @@ final class MobileBrowserStreamCoordinator {
 
     @discardableResult
     func noteInputReplayed(connectionID: UUID, panelID: UUID) -> Bool {
-        let key = SessionKey(connectionID: connectionID, panelID: panelID)
+        let key = MobileStreamSessionKey(connectionID: connectionID, panelID: panelID)
         guard let session = sessions[key] else { return false }
         session.noteInputReplayed()
         return true
@@ -103,7 +105,7 @@ final class MobileBrowserStreamCoordinator {
         }
     }
 
-    private func sessionEnded(key: SessionKey, sessionID: UUID) {
+    private func sessionEnded(key: MobileStreamSessionKey, sessionID: UUID) {
         guard sessions[key]?.id == sessionID else { return }
         sessions[key] = nil
     }

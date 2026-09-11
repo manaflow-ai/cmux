@@ -218,7 +218,7 @@ final class MobileBrowserStreamSession {
                 scheduleDeadline(after: pacing.ackStallTimeout)
                 return
             case .idle:
-                scheduleIdleReconciliation()
+                scheduleDeadline(after: Self.idleReconcileInterval, reconcile: true)
                 return
             }
         }
@@ -328,53 +328,49 @@ final class MobileBrowserStreamSession {
         }
     }
 
-    private func scheduleDeadline(after interval: TimeInterval) {
-        guard !isStopped else { return }
-        deadlineTask?.cancel()
+    /// Runs `body` after a bounded, cancellable sleep. Every deadline in this
+    /// session (cadence/settle, idle reconciliation, state coalescing) goes
+    /// through this one task shape; storing the returned task and cancelling
+    /// it on a fresh signal is the caller's job.
+    private func scheduleAfter(
+        _ interval: TimeInterval,
+        _ body: @escaping @MainActor () async -> Void
+    ) -> Task<Void, Never> {
         let clock = clock
-        deadlineTask = Task { @MainActor [weak self, clock] in
+        return Task { @MainActor [clock] in
             do {
-                // Bounded, cancellable cadence/settle deadline; new signals cancel it.
                 try await clock.sleep(for: max(0, interval))
                 guard !Task.isCancelled else { return }
-                self?.requestDrive()
+                await body()
             } catch {}
         }
     }
 
-    /// Schedules one lossless reconciliation frame after a quiet interval.
-    ///
-    /// An idle stream's correctness otherwise hangs entirely on page-driven
-    /// dirty signals, which are silently lost when WebKit suspends
-    /// `requestAnimationFrame` for the occluded offscreen host. This bounds
-    /// how long the phone can display a stale (or blank first) frame to
-    /// `idleReconcileInterval`. Any real dirty signal cancels it via
-    /// `requestDrive`, and a fresh one is armed when the stream idles again.
-    private func scheduleIdleReconciliation() {
+    /// Arms the drive deadline. With `reconcile`, expiry also requests one
+    /// lossless settle frame: an idle stream's dirty signals are silently
+    /// lost when WebKit suspends `requestAnimationFrame` for the occluded
+    /// offscreen host, so this bounds how long the phone can display a stale
+    /// (or blank first) frame to `idleReconcileInterval`. Any real dirty
+    /// signal cancels the deadline via `requestDrive`, and `drive()` arms a
+    /// fresh one when the stream idles again.
+    private func scheduleDeadline(after interval: TimeInterval, reconcile: Bool = false) {
         guard !isStopped else { return }
         deadlineTask?.cancel()
-        let clock = clock
-        deadlineTask = Task { @MainActor [weak self, clock] in
-            do {
-                try await clock.sleep(for: Self.idleReconcileInterval)
-                guard !Task.isCancelled, let self, !self.isStopped else { return }
+        deadlineTask = scheduleAfter(interval) { [weak self] in
+            guard let self, !self.isStopped else { return }
+            if reconcile {
                 self.pacing.requestSettleReconciliation()
-                self.requestDrive()
-            } catch {}
+            }
+            self.requestDrive()
         }
     }
 
     private func scheduleStateEmission() {
         guard !isStopped else { return }
         stateTask?.cancel()
-        let clock = clock
-        stateTask = Task { @MainActor [weak self, clock] in
-            do {
-                // Bounded, cancellable coalescing delay for bursty WebKit state KVO.
-                try await clock.sleep(for: 0.016)
-                guard !Task.isCancelled else { return }
-                await self?.emitStateIfChanged()
-            } catch {}
+        // Coalesces bursty WebKit state KVO behind one bounded delay.
+        stateTask = scheduleAfter(0.016) { [weak self] in
+            await self?.emitStateIfChanged()
         }
     }
 
