@@ -1,0 +1,98 @@
+From: cmux fork
+Subject: [PATCH] angle: resolve metal toolchain tools via xcrun when Xcode stubs are broken
+
+macOS 15 (Sequoia) + Xcode 26 ship the Metal compiler toolchain as a
+separate downloadable component which gets mounted at runtime under:
+
+    /var/run/com.apple.security.cryptexd/.../Metal.xctoolchain/usr/bin/
+
+The stubs Xcode bundles at:
+
+    /Applications/Xcode.app/Contents/Developer/Toolchains/\
+        XcodeDefault.xctoolchain/usr/bin/metal
+    /Applications/Xcode.app/Contents/Developer/Toolchains/\
+        XcodeDefault.xctoolchain/usr/bin/metallib
+
+(plus other tools in the metal family) do NOT auto-locate the
+cryptex-mounted real toolchain. `metal` errors out with "missing Metal
+Toolchain"; `metallib` does not exist as a stub at all so the
+GN-supplied path is a dangling reference. Only `xcrun --find <tool>`
+finds the real binary.
+
+Any chromium build that touches the ANGLE Metal renderer (including
+content_shell and chrome itself) trips two GN actions:
+
+  //third_party/angle/src/libANGLE/renderer/metal:angle_metal_internal_shaders_to_air
+  //third_party/angle/src/libANGLE/renderer/metal:angle_metal_internal_shaders_to_mtllib
+
+Both shell out via third_party/angle/src/libANGLE/renderer/metal/shaders/metal_wrapper.py
+with a hardcoded XcodeDefault.xctoolchain path as args[0].
+
+This patch teaches metal_wrapper.py to detect when args[0] is one of
+the broken Xcode metal-family stubs and substitute the xcrun-resolved
+real path before exec. Carry in the cmux Chromium fork until upstream
+chromium or angle adopts the same fix.
+
+--- a/third_party/angle/src/libANGLE/renderer/metal/shaders/metal_wrapper.py
++++ b/third_party/angle/src/libANGLE/renderer/metal/shaders/metal_wrapper.py
+@@ -1,15 +1,57 @@
+ #!/usr/bin/python3
+ # Copyright 2023 The ANGLE Project Authors. All rights reserved.
+ # Use of this source code is governed by a BSD-style license that can be
+ # found in the LICENSE file.
++#
++# cmux fork: macOS 15 + Xcode 26 ships the Metal compiler toolchain as a
++# separate downloadable component which is mounted at runtime under
++# /var/run/com.apple.security.cryptexd/.../Metal.xctoolchain/usr/bin/.
++# The Xcode-bundled stubs at XcodeDefault.xctoolchain/usr/bin/metal,
++# metallib, etc. do NOT find that mount (only xcrun --find <tool> does).
++# Worse, some tools (e.g. metallib) do not exist as a stub at all, so the
++# GN-supplied path is a dangling reference. When the first argument
++# looks like a Metal toolchain tool living under
++# XcodeDefault.xctoolchain/usr/bin/, swap it for the xcrun-resolved real
++# path. Carry this patch in the cmux Chromium fork until upstream
++# chromium/angle handles this natively.
++from __future__ import annotations
+ import os
+ import subprocess
+ import sys
+
++_XCODE_BIN_PREFIX = "XcodeDefault.xctoolchain/usr/bin/"
++_METAL_TOOL_PREFIXES = ("metal",)  # metal, metallib, metal-ar, metal-lipo, ...
++
++
++def _looks_like_metal_xcode_stub(path):
++    if not path:
++        return False
++    if _XCODE_BIN_PREFIX not in path:
++        return False
++    base = os.path.basename(path)
++    return any(base == p or base.startswith(p) for p in _METAL_TOOL_PREFIXES)
++
++
++def _xcrun_find(tool):
++    try:
++        r = subprocess.run(
++            ["/usr/bin/xcrun", "--find", tool],
++            stdout=subprocess.PIPE,
++            stderr=subprocess.DEVNULL,
++            text=True,
++            check=False,
++        )
++        path = (r.stdout or "").strip()
++        return path or None
++    except FileNotFoundError:
++        return None
++
++
+ def main(args):
++    if args and _looks_like_metal_xcode_stub(args[0]):
++        tool = os.path.basename(args[0])
++        replacement = _xcrun_find(tool)
++        if replacement and replacement != args[0]:
++            args = [replacement] + list(args[1:])
+     return subprocess.run(args, stdout=subprocess.PIPE, text=True).returncode
+
+
+ if __name__ == '__main__':
+     sys.exit(main(sys.argv[1:]))
