@@ -39,6 +39,8 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     private var startContinuation: CheckedContinuation<Void, Error>?
     private var pendingLine = Data()
     private var pendingLineSearchOffset = 0
+    // This storage is queue-owned and reused for every socket read.
+    private var readBuffer = [UInt8](repeating: 0, count: Self.readChunkBytes)
     private var pendingWrites: [Data] = []
     private var pendingWriteOffset = 0
     private var pendingWriteBytes = 0
@@ -247,7 +249,6 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
 
     private func readAvailableLocked() {
         guard !closed, isConnected, descriptor >= 0, nextFrameContinuation != nil else { return }
-        var bytes = [UInt8](repeating: 0, count: Self.readChunkBytes)
         while !closed {
             while let newline = pendingLine[
                 pendingLine.index(pendingLine.startIndex, offsetBy: pendingLineSearchOffset)...
@@ -276,9 +277,11 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
                 closeLocked()
                 return
             }
-            let count = Darwin.read(descriptor, &bytes, bytes.count)
+            let count = readBuffer.withUnsafeMutableBytes { buffer in
+                Darwin.read(descriptor, buffer.baseAddress, buffer.count)
+            }
             if count > 0 {
-                pendingLine.append(bytes, count: count)
+                pendingLine.append(readBuffer, count: count)
                 continue
             }
             if count == 0 {
