@@ -77744,7 +77744,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتطلب dismiss-notification واحدًا فقط من --id أو --all-read"
+            "value": "يتطلب dismiss-notification خيارًا واحدًا بالضبط من --id أو --all-read"
           }
         },
         "bs": {
@@ -77762,7 +77762,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "dismiss-notification erfordert genau eines von --id oder --all-read"
+            "value": "dismiss-notification erfordert genau eine der Optionen --id oder --all-read"
           }
         },
         "en": {
@@ -77780,7 +77780,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "dismiss-notification nécessite exactement un de --id ou --all-read"
+            "value": "dismiss-notification requiert exactement l'option --id ou l'option --all-read"
           }
         },
         "it": {
@@ -77804,7 +77804,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "dismiss-notification에는 --id 또는 --all-read 중 정확히 하나가 필요합니다"
+            "value": "dismiss-notification에는 --id 또는 --all-read 중 정확히 하나가 필요합니다."
           }
         },
         "nb": {
@@ -77852,55 +77852,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "dismiss-notification 需要 --id 或 --all-read 中的恰好一个"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "dismiss-notification 需要 --id 或 --all-read 中的恰好一個"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
             "value": "dismiss-notification 需要且仅需 --id 或 --all-read 之一"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "dismiss-notification erfordert genau eine der Optionen --id oder --all-read"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "dismiss-notification requiert exactement l'option --id ou l'option --all-read"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يتطلب dismiss-notification خيارًا واحدًا بالضبط من --id أو --all-read"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "dismiss-notification requiere exactamente uno de --id o --all-read"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
             "value": "dismiss-notification 需要正好一個 --id 或 --all-read"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "dismiss-notification에는 --id 또는 --all-read 중 정확히 하나가 필요합니다."
           }
         }
       }
