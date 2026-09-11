@@ -4884,6 +4884,10 @@ struct CMUXCLI {
         if normalizedCommand == "read-screen" || normalizedCommand == "read-selection" {
             return false
         }
+        if normalizedCommand == "workspace-font-size" {
+            // Font-size mutation preserves the user's current focus context.
+            return false
+        }
         if normalizedCommand == "rpc",
            commandArgs.first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 == "surface.read_selection" {
