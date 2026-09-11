@@ -139,6 +139,11 @@ public final class HivePairingController {
     public func unpair(id: String) async throws {
         try checkCurrent()
         guard !isPairing else { throw HivePairingError.busy }
+        // Unpairing is a pairing mutation: hold the same lock so a pair that
+        // starts while the delete is suspended on store I/O cannot persist a
+        // grant that the in-flight delete or the following load then drops.
+        isPairing = true
+        defer { isPairing = false }
         guard let computer = computers.first(where: { $0.id == id }) else { return }
         loadGeneration &+= 1
         do {
