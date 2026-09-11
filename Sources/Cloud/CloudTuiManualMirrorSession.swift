@@ -83,6 +83,14 @@ final class CloudTuiManualMirrorSession {
     /// assigning them here also makes rebinding after restore safe.
     func bind(surface: TerminalSurface) {
         self.surface = surface
+        // A color sidecar that arrived before any surface existed reaches this
+        // one now. The stored sidecar is the remote truth, and the next
+        // identical sidecar would produce an empty delta and leave the pane on
+        // the local theme.
+        let pendingColors = appliedRemoteColors.oscBytes
+        if !pendingColors.isEmpty {
+            surface.processRemoteOutput(pendingColors)
+        }
         surface.onManualSizeApplied = { [weak self] sample in
             self?.apply(size: sample, validatePanePixels: false)
         }
