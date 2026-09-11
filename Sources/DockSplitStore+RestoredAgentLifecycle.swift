@@ -44,11 +44,20 @@ extension DockSplitStore {
         case (.promptIdle, .some(.awaitingAutoResumeCommand)):
             scheduleRestoredStartupInputResend(panelId: panelId)
         case (.commandRunning, .some(.manualResumeAvailable)):
+            if restoredAgentHasLiveProcess(panelId: panelId, restoredAgent: restoredAgent) {
+                // A TUI turn (OSC 133;C) from the agent itself, not an
+                // unrelated command replacing an idle agent.
+                restoredAgentLifecycle.setResumeState(.observedAgentCommandRunning, panelId: panelId)
+                break
+            }
             restoredAgentLifecycle.setSnapshot(nil, panelId: panelId)
             restoredAgentLifecycle.setResumeState(nil, panelId: panelId)
             retireAgentHookResumeBinding(panelId: panelId)
         case (.promptIdle, .some(.autoResumeCommandRunning)),
              (.promptIdle, .some(.observedAgentCommandRunning)):
+            // A TUI prompt mark (OSC 133;A) is not the shell prompt returning
+            // while the agent process is still alive.
+            guard !restoredAgentHasLiveProcess(panelId: panelId, restoredAgent: restoredAgent) else { break }
             if restoredAgent != nil {
                 markRestoredAgentCompleted(panelId: panelId)
             } else {

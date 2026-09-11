@@ -214,7 +214,6 @@ extension SurfaceResumeBindingSnapshot {
         }
     }
 }
-
 extension TerminalController {
     private func resolveSurfaceResumeTarget(
         routing: ControlRoutingSelectors,

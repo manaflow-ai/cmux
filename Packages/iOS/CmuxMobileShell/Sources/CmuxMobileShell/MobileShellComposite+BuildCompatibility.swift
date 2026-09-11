@@ -35,7 +35,8 @@ extension MobileShellComposite {
         guard let violation = macCompatPolicy.violation(
             iosVersion: versionGateIOSAppVersion,
             channel: channel,
-            macAppVersion: macAppVersion
+            macAppVersion: macAppVersion,
+            buildType: versionGateBuildType
         ) else {
             return .allowed
         }
@@ -58,7 +59,8 @@ extension MobileShellComposite {
               let violation = macCompatPolicy.violation(
                   iosVersion: versionGateIOSAppVersion,
                   channel: channel,
-                  macAppVersion: authenticatedMacAppVersion
+                  macAppVersion: authenticatedMacAppVersion,
+                  buildType: versionGateBuildType
               ) else {
             return
         }
