@@ -426,8 +426,9 @@ struct CloudLoopbackPortForwardTests {
         #expect(url.hasPrefix("http://127.0.0.1:"))
         #expect(try await addressed.portLinkURL(port: 3000) == url, "Copy Link and vm.port_open hand out the pane's loopback URL")
         let link = try await addressed.portLink(port: 3000)
+        let expectedLocalPort = await forwarder.localPort(machineID: "vm-1", port: 3000)
         #expect(link.remotePort == 3000)
-        #expect(link.localPort == await forwarder.localPort(machineID: "vm-1", port: 3000))
+        #expect(link.localPort == expectedLocalPort)
         #expect(link.url == url)
         #expect(link.privateURL == "http://10.0.0.7:3000")
 
