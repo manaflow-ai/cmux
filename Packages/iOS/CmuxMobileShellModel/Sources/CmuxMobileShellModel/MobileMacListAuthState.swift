@@ -194,7 +194,7 @@ public final class MobileMacListAuthState {
     }
 
     /// Builds the collision-free key for one app pairing and one directory endpoint.
-    public static func identityKey(pairingID: String, endpointIDHex: String) -> String {
+    nonisolated public static func identityKey(pairingID: String, endpointIDHex: String) -> String {
         "\(pairingID)\u{1F}\(endpointIDHex)"
     }
 
