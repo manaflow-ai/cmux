@@ -676,6 +676,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 newerRevision
             )
             let delayedCommands = Array(context.state.snapshot().dropFirst(commandCountBeforeRelease))
+            let expectedHookEventName = event.subcommand == "stop" ? "Stop" : "Notification"
             XCTAssertFalse(
                 AgentJournalAppendCapture.contains(
                     delayedCommands,
@@ -686,7 +687,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "A fenced \(event.name) must not journal completion for the newer prompt"
             )
             XCTAssertFalse(
-                delayedCommands.contains { $0.contains(#""method":"feed.push""#) },
+                delayedCommands.contains {
+                    $0.contains(#""method":"feed.push""#)
+                        && $0.contains(#""hook_event_name":"#)
+                        && $0.contains(#"#(expectedHookEventName)"#)
+                },
                 "A fenced \(event.name) must not publish completion to Feed"
             )
             XCTAssertFalse(
