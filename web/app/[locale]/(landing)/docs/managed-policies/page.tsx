@@ -63,6 +63,33 @@ const sampleProfile = `<?xml version="1.0" encoding="UTF-8"?>
                                 <true/>
                                 <key>DisableRemoteControl</key>
                                 <true/>
+                                <key>DisableCloud</key>
+                                <true/>
+                                <key>DisableRemoteConnections</key>
+                                <true/>
+                                <key>DisableFileTransfer</key>
+                                <true/>
+                                <key>DisableIrohNetworking</key>
+                                <true/>
+                                <key>DisableTelemetry</key>
+                                <true/>
+                                <key>DisableAutoUpdate</key>
+                                <true/>
+                                <key>DisableAutomationWebhooks</key>
+                                <true/>
+                                <key>DisableTLSTrustBypass</key>
+                                <true/>
+                                <key>DisableComputerUse</key>
+                                <true/>
+                                <key>DisableCustomSidebars</key>
+                                <true/>
+                                <key>DisableAICredentialUpload</key>
+                                <true/>
+                                <key>BrowserURLAllowlist</key>
+                                <array>
+                                    <string>https://git.example.com</string>
+                                    <string>*.example.com</string>
+                                </array>
                             </dict>
                         </dict>
                     </array>
@@ -129,12 +156,125 @@ export default async function ManagedPoliciesPage({
             <td><code>false</code></td>
             <td>{t("remoteKeyDesc")}</td>
           </tr>
+          <tr>
+            <td><code>DisableCloud</code></td>
+            <td>{t("booleanType")}</td>
+            <td><code>false</code></td>
+            <td>{t("cloudKeyDesc")}</td>
+          </tr>
+          <tr>
+            <td><code>DisableRemoteConnections</code></td>
+            <td>{t("booleanType")}</td>
+            <td><code>false</code></td>
+            <td>{t("remoteConnectionsKeyDesc")}</td>
+          </tr>
+          <tr>
+            <td><code>DisableFileTransfer</code></td>
+            <td>{t("booleanType")}</td>
+            <td><code>false</code></td>
+            <td>{t("fileTransferKeyDesc")}</td>
+          </tr>
+          <tr>
+            <td><code>DisableIrohNetworking</code></td>
+            <td>{t("booleanType")}</td>
+            <td><code>false</code></td>
+            <td>{t("irohKeyDesc")}</td>
+          </tr>
+          <tr>
+            <td><code>DisableTelemetry</code></td>
+            <td>{t("booleanType")}</td>
+            <td><code>false</code></td>
+            <td>{t("telemetryKeyDesc")}</td>
+          </tr>
+          <tr>
+            <td><code>DisableAutoUpdate</code></td>
+            <td>{t("booleanType")}</td>
+            <td><code>false</code></td>
+            <td>{t("autoUpdateKeyDesc")}</td>
+          </tr>
+          <tr>
+            <td><code>DisableAutomationWebhooks</code></td>
+            <td>{t("booleanType")}</td>
+            <td><code>false</code></td>
+            <td>{t("webhooksKeyDesc")}</td>
+          </tr>
+          <tr>
+            <td><code>DisableTLSTrustBypass</code></td>
+            <td>{t("booleanType")}</td>
+            <td><code>false</code></td>
+            <td>{t("tlsBypassKeyDesc")}</td>
+          </tr>
+          <tr>
+            <td><code>DisableComputerUse</code></td>
+            <td>{t("booleanType")}</td>
+            <td><code>false</code></td>
+            <td>{t("computerUseKeyDesc")}</td>
+          </tr>
+          <tr>
+            <td><code>DisableCustomSidebars</code></td>
+            <td>{t("booleanType")}</td>
+            <td><code>false</code></td>
+            <td>{t("customSidebarsKeyDesc")}</td>
+          </tr>
+          <tr>
+            <td><code>DisableAICredentialUpload</code></td>
+            <td>{t("booleanType")}</td>
+            <td><code>false</code></td>
+            <td>{t("aiCredentialUploadKeyDesc")}</td>
+          </tr>
         </tbody>
       </table>
       <ul>
         <li>{t("noteBoolean")}</li>
+        <li>{t("noteLaunchTimeKeys")}</li>
         <li>{t("noteForcedOnly")}</li>
         <li>{t("noteTiming")}</li>
+        <li>{t("noteCloudEntitlement")}</li>
+        <li>{t("noteComposition")}</li>
+      </ul>
+
+      <DocsHeading level={2} id="browser-allowlist">{t("allowlistTitle")}</DocsHeading>
+      <p>{t("allowlistIntro")}</p>
+      <table>
+        <thead>
+          <tr>
+            <th>{t("keyHeader")}</th>
+            <th>{t("typeHeader")}</th>
+            <th>{t("defaultHeader")}</th>
+            <th>{t("allowlistBehaviorHeader")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>BrowserURLAllowlist</code></td>
+            <td>{t("stringArrayType")}</td>
+            <td>{t("allowlistDefault")}</td>
+            <td>{t("allowlistKeyDesc")}</td>
+          </tr>
+          <tr>
+            <td><code>BrowserAllowLocalhost</code></td>
+            <td>{t("booleanType")}</td>
+            <td><code>true</code></td>
+            <td>{t("allowLocalhostKeyDesc")}</td>
+          </tr>
+          <tr>
+            <td><code>BrowserAllowLocalFiles</code></td>
+            <td>{t("booleanType")}</td>
+            <td><code>true</code></td>
+            <td>{t("allowLocalFilesKeyDesc")}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>{t("allowlistRules")}</p>
+      <CodeBlock lang="text">{`git.example.com          # exactly this host, any port, http or https
+*.example.com            # every subdomain of example.com (not example.com itself)
+https://issues.example.com
+http://localhost:3000    # only needed when BrowserAllowLocalhost is false`}</CodeBlock>
+      <ul>
+        <li>{t("allowlistNoteLocal")}</li>
+        <li>{t("allowlistNoteEmpty")}</li>
+        <li>{t("allowlistNoteScope")}</li>
+        <li>{t("allowlistNoteBlockedPage")}</li>
       </ul>
 
       <DocsHeading level={2} id="lockability">{t("lockTitle")}</DocsHeading>
@@ -155,7 +295,22 @@ export default async function ManagedPoliciesPage({
       <p>{t("verifyDesc")}</p>
       <CodeBlock lang="bash">{`defaults read com.cmuxterm.app DisableEmbeddedBrowser
 defaults read com.cmuxterm.app DisableRemoteControl
-cmux browser status --json   # {"enabled": false, "managed": true, ...}`}</CodeBlock>
+defaults read com.cmuxterm.app DisableCloud
+defaults read com.cmuxterm.app DisableRemoteConnections
+defaults read com.cmuxterm.app DisableFileTransfer
+defaults read com.cmuxterm.app DisableIrohNetworking
+defaults read com.cmuxterm.app DisableTelemetry
+defaults read com.cmuxterm.app DisableAutoUpdate
+defaults read com.cmuxterm.app DisableAutomationWebhooks
+defaults read com.cmuxterm.app DisableTLSTrustBypass
+defaults read com.cmuxterm.app DisableComputerUse
+defaults read com.cmuxterm.app DisableCustomSidebars
+defaults read com.cmuxterm.app DisableAICredentialUpload
+defaults read com.cmuxterm.app BrowserURLAllowlist
+defaults read com.cmuxterm.app BrowserAllowLocalhost     # absent or 1 = allowed
+defaults read com.cmuxterm.app BrowserAllowLocalFiles    # absent or 1 = allowed
+cmux browser status --json   # url_allowlist, url_allowlist_managed, url_allowlist_allows_localhost, url_allowlist_allows_local_files
+cmux vm list                 # refused: Cloud Machines are disabled by your administrator.`}</CodeBlock>
       <Callout>{t("verifyUi")}</Callout>
     </>
   );

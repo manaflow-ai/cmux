@@ -499,6 +499,22 @@ struct MachineCreateCoordinatorTests {
 @MainActor
 @Suite(.serialized)
 struct MachinesPanelPendingCreateTests {
+    @Test func resettingOnePanelClearsPendingCreatesInEveryPanel() {
+        let launches = MachineCreateCoordinatorTests.LaunchRecorder()
+        let coordinator = MachineCreateCoordinator(notifier: { _ in })
+        let firstPanel = MachinesPanelViewModel(createCoordinator: coordinator)
+        let secondPanel = MachinesPanelViewModel(createCoordinator: coordinator)
+        coordinator.start(MachineCreateCoordinatorTests.baseRequest(), launch: launches.launch)
+        #expect(firstPanel.pendingCreates.count == 1)
+        #expect(secondPanel.pendingCreates.count == 1)
+
+        firstPanel.resetForAuthTransition()
+
+        #expect(coordinator.operations.isEmpty)
+        #expect(firstPanel.pendingCreates.isEmpty)
+        #expect(secondPanel.pendingCreates.isEmpty)
+    }
+
     @Test func viewModelMirrorsPendingCreatesAndNotesCreatedButOpenFailed() {
         let center = NotificationCenter.default
         let launches = MachineCreateCoordinatorTests.LaunchRecorder()

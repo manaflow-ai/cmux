@@ -236,7 +236,7 @@ while (performance.now() < deadline) {
     text = await Bun.file(logPath).text();
   } catch (_) {}
   const completed = text.split("\\n").filter((line) => line.startsWith("end ")).length;
-  if (completed >= 7) break;
+  if (completed >= 5) break;
   await new Promise((resolve) => setTimeout(resolve, 10));
 }
 """
@@ -266,8 +266,6 @@ while (performance.now() < deadline) {
     completed = [line for line in calls if line.startswith("end ")]
     expected = (
         "hooks pi session-start",
-        "--json surface resume set",
-        "--json surface resume get",
         "hooks pi prompt-submit",
         "hooks feed --source pi --event PostToolUse",
         "hooks pi notification",
@@ -2423,8 +2421,8 @@ await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
         return 1
     calls = moved_log.read_text(encoding="utf-8").splitlines()
     resume_calls = [line for line in calls if "surface resume" in line]
-    if len(resume_calls) != 3:
-        print(f"FAIL: moved-surface harness missed resume set/get/clear: {calls!r}")
+    if len(resume_calls) != 1 or "surface resume clear" not in resume_calls[0]:
+        print(f"FAIL: moved-surface harness emitted unexpected resume mutations: {calls!r}")
         return 1
     moved_target = (
         "--workspace 00000000-0000-0000-0000-000000008674 "
