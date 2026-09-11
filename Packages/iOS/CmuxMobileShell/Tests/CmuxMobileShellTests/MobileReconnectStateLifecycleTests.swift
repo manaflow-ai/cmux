@@ -1,0 +1,166 @@
+import CMUXMobileCore
+import Foundation
+import Testing
+@testable import CmuxMobileShell
+
+// Review-found lifecycle regressions around issue #10482: stale asynchronous
+// workspace summaries and public terminal surface-ID reuse.
+
+/// Verifies a superseded workspace summary cannot publish stale chips.
+@MainActor
+@Test func canceledWorkspaceSummaryCannotPublishStaleChips() async throws {
+    let router = LivenessHostRouter()
+    await router.setCapabilities([
+        "events.v1",
+        "terminal.render_grid.v1",
+        "terminal.replay.v1",
+        "workspace.changes.v1",
+    ])
+    let box = TransportBox()
+    let clock = TestClock()
+    let summaryClock = ControlPoolManualClock()
+    let store = try await makeConnectedStore(
+        router: router,
+        box: box,
+        clock: clock,
+        workspaceChangesSchedulingClock: summaryClock
+    )
+    // Keep the automatic capability-triggered debounce from becoming the
+    // request under test; this pass owns an explicit generation below.
+    store.suspendWorkspaceChangesSummaryFetchesPreservingChips()
+    store.setWorkspaceChangeChipsByWorkspaceID([
+        "live-workspace": MobileWorkspaceChangesChip(
+            filesChanged: 51,
+            additions: 120,
+            deletions: 8
+        ),
+    ])
+    let responseData = try JSONSerialization.data(withJSONObject: [
+        "summaries": [[
+            "workspace_id": "live-workspace",
+            "is_repo": true,
+            "files_changed": 99,
+            "additions": 200,
+            "deletions": 1,
+        ]],
+    ])
+    await router.enqueueWorkspaceChangesSummaryResponse(jsonData: responseData)
+    await router.holdNextWorkspaceChangesSummaryRequests()
+
+    let taskID = UUID()
+    store.workspaceChangesSummaryFetchTaskID = taskID
+    let fetchTask = Task { @MainActor in
+        await store.fetchWorkspaceChangesSummaries(
+            workspaceIDs: ["live-workspace"],
+            force: true,
+            taskID: taskID
+        )
+    }
+    #expect(await router.waitForCount(
+        of: "mobile.workspace.changes.summary",
+        atLeast: 1
+    ))
+
+    // Supersede the in-flight request while its client/state identity still
+    // matches. The post-await task-ID guard must prevent its 99-file response
+    // from overwriting the authoritative 51-file chip.
+    store.workspaceChangesSummaryFetchTaskID = UUID()
+    await router.releaseAllHeld()
+    await fetchTask.value
+    #expect(
+        store.workspaceChangeChipsByWorkspaceID["live-workspace"]?.filesChanged == 51,
+        "a canceled summary generation must not publish stale chips"
+    )
+}
+
+/// Verifies canceling a summary task releases the policy's single-flight gate.
+@MainActor
+@Test func transientDisconnectAllowsWorkspaceSummaryRefreshToRestart() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let summaryClock = ControlPoolManualClock()
+    let store = try await makeConnectedStore(
+        router: router,
+        box: box,
+        clock: clock,
+        workspaceChangesSchedulingClock: summaryClock
+    )
+
+    store.suspendWorkspaceChangesSummaryFetchesPreservingChips()
+    let scheduledBeforeFetch = store.workspaceChangesSummaryRefreshSchedulePolicy.schedule(
+        scope: .fullSnapshot,
+        force: false
+    )
+    #expect(scheduledBeforeFetch)
+    let fetchRequest = store.workspaceChangesSummaryRefreshSchedulePolicy.beginFetchAfterDebounce()
+    #expect(fetchRequest != nil)
+    #expect(store.workspaceChangesSummaryRefreshSchedulePolicy.isFetchInFlight)
+
+    store.suspendWorkspaceChangesSummaryFetchesPreservingChips()
+
+    #expect(!store.workspaceChangesSummaryRefreshSchedulePolicy.isFetchInFlight)
+    let scheduledAfterDisconnect = store.workspaceChangesSummaryRefreshSchedulePolicy.schedule(
+        scope: .fullSnapshot,
+        force: false
+    )
+    #expect(
+        scheduledAfterDisconnect,
+        "a reconnect must be able to schedule a fresh summary pass"
+    )
+}
+
+/// Verifies a same-ID replacement mount starts with fresh hydration state.
+@MainActor
+@Test func terminalSurfaceIDReuseStartsFreshHydration() async throws {
+    let router = LivenessHostRouter()
+    await router.setCapabilities([
+        "events.v1",
+        "terminal.render_grid.v1",
+        "terminal.render_grid.screen_anchor.v1",
+        "terminal.replay.v1",
+    ])
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 10,
+        renderEpoch: "epoch-1",
+        renderRevision: 1,
+        columns: 80,
+        rows: 4,
+        full: true,
+        rowSpans: [],
+        scrollbackRows: 20,
+        anchor: .screen,
+        historyRows: 20,
+        rowSpaceRevision: 1
+    )
+    await router.enqueueReplayRenderGrid(frame)
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: surfaceID)
+    #expect(await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1))
+    #expect(try await pollUntil { !collector.lines.isEmpty })
+
+    // A second mount reuses the public surface ID while the old stream's
+    // asynchronous termination callback is still in flight. Registration is
+    // the lifecycle boundary: it must replace the old per-surface state rather
+    // than inherit any retained mirror marker from that ID.
+    let replayCountBeforeRemount = await router.count(of: "mobile.terminal.replay")
+    await router.enqueueReplayRenderGrid(frame)
+    let replacementCollector = OutputCollector()
+    replacementCollector.mount(store: store, surfaceID: surfaceID)
+    #expect(await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountBeforeRemount + 1
+    ))
+    let remountReplay = try #require(await router.requests(for: "mobile.terminal.replay").last)
+    #expect(
+        (remountReplay.maxScrollbackRows ?? 0) > 0,
+        "reusing a surface ID for a new mount must hydrate a fresh mirror"
+    )
+    collector.unmount()
+    replacementCollector.unmount()
+}

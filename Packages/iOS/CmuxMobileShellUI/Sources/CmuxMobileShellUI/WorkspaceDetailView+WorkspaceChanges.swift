@@ -55,13 +55,16 @@ extension WorkspaceDetailView {
     }
 
     func refreshWorkspaceChangesHint() {
-        guard !UITestConfig.hideWorkspaceChangesHintForScreenshots,
-              workspaceChangesAreAvailable else {
+        guard !UITestConfig.hideWorkspaceChangesHintForScreenshots else {
             workspaceChangesHint = nil
             return
         }
-        workspaceChangesHint = store.workspaceChangesHint(
-            workspaceID: workspace.rpcWorkspaceID.rawValue
+        workspaceChangesHint = WorkspaceChangesHintRefreshPolicy.next(
+            current: workspaceChangesHint,
+            isAvailable: workspaceChangesAreAvailable,
+            candidate: store.workspaceChangesHint(
+                workspaceID: workspace.rpcWorkspaceID.rawValue
+            )
         )
     }
 }

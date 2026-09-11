@@ -417,6 +417,10 @@ extension MobileShellComposite {
         foregroundRefreshLifecycleState = .active
         foregroundRefreshIsActive = true
         foregroundResumeEpoch &+= 1
+        // A fresh foreground return earns a clean fast recovery: clear any
+        // dead-stream backoff accrued before backgrounding so the first probe
+        // or resync is not needlessly delayed (issue #10482).
+        resetDeadTerminalEventStreamBackoff()
         startObservingNetworkPathChanges()
         // Covers stores constructed already-signed-in (no isSignedIn edge) and
         // restarts a subscription torn down while backgrounded.
@@ -433,9 +437,13 @@ extension MobileShellComposite {
         }
         restartActiveMobileBrowserStreams()
         restartActiveMobileSimulatorStreams()
+        // Replay a parked stream-end recovery before the generic foreground
+        // probe. Its healthy result must force a subscription resync; if the
+        // generic probe claimed the owner first, it could complete as healthy
+        // without restarting a listener whose backoff was canceled above.
+        recoverPendingInactiveRecoveryIfNeeded()
         recoverForegroundConnectionIfNeeded(resyncAfterHealthy: shouldResync)
         recoverDisconnectedOnForegroundIfNeeded()
-        recoverPendingInactiveRecoveryIfNeeded()
         resumeSecondaryControlMaintenanceAfterForeground()
         // The foreground Mac's workspace list updates live over the sync stream,
         // but the other Macs are a read-only snapshot. Re-aggregate them on
@@ -454,6 +462,15 @@ extension MobileShellComposite {
         guard foregroundRefreshLifecycleState != .background else { return }
         foregroundRefreshLifecycleState = .background
         foregroundRefreshIsActive = false
+        // A pending dead-stream backoff redial would otherwise fire on resume
+        // with the process's frozen wall clock; foreground recovery re-drives it.
+        if cancelDeadTerminalEventStreamRedial() {
+            // Keep the definitive stream-end trigger alive across suspension.
+            // The connection can remain RPC-healthy while its event listener is
+            // gone, so a generic foreground liveness probe is not sufficient to
+            // guarantee that the listener is restarted.
+            pendingInactiveRecoveryTrigger = .eventStreamEnded
+        }
         if connectionRecoveryOwner.cancelProbing() {
             applyConnectionRecoveryOwnerState()
         }

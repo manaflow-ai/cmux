@@ -123,6 +123,11 @@ extension MobileShellComposite {
             // in-flight recovery. The replacement below owns a new generation
             // and is the only attempt allowed to publish a foreground client.
             connectionRecoveryOwner.cancel()
+            // A deliberate connection-method change restarts connectivity from
+            // scratch (it already clears the automatic reconnect backoff), so
+            // clear the barren-stream streak too instead of inheriting a stale
+            // backoff on the fresh method.
+            resetDeadTerminalEventStreamBackoff()
             applyConnectionRecoveryOwnerState()
             invalidateStoredMacReconnectAttempt()
         } else {
@@ -170,7 +175,10 @@ extension MobileShellComposite {
             guard failConnectionRecoveryReplacement(failure: .connectionClosed) else { return }
             connectionState = .disconnected
             macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            clearRemoteConnectionContext(
+                preservingTerminalMirror: true,
+                preservingWorkspaceChanges: true
+            )
             applyConnectionRecoveryOwnerState()
             armAutomaticReconnectRetryAfterFailedAttempt(
                 failure: .connectionClosed,
@@ -192,10 +200,101 @@ extension MobileShellComposite {
         )
     }
 
+    /// Routes a dead terminal-event-stream recovery through a backoff gate so a
+    /// subscription that keeps ending — or being rejected — before delivering
+    /// any event cannot spin the reconnect loop (issue #10482).
+    ///
+    /// A stream that proved itself alive (delivered at least one event) is a
+    /// genuine mid-session drop and recovers immediately. A stream that ended
+    /// barren recovers immediately the first time — a transient blip should
+    /// heal fast — but each subsequent barren stream is redialed on an
+    /// exponential backoff instead of restarting the same failing stream at
+    /// scheduler speed.
+    func recoverDeadTerminalEventStream(
+        trigger: RecoveryTrigger,
+        expectedClient: MobileCoreRPCClient,
+        streamDeliveredEvent: Bool
+    ) {
+        // Listener tasks from an older client can finish after a replacement
+        // has already become current. Reject that callback before it can
+        // consume or cancel the current session's retry budget.
+        guard remoteClient === expectedClient, connectionState == .connected else {
+            return
+        }
+        if streamDeliveredEvent {
+            connectionRecoveryOwner.resetDeadTerminalEventStreamBackoff()
+            recoverDeadConnection(trigger: trigger, expectedClient: expectedClient)
+            return
+        }
+        guard let delay = connectionRecoveryOwner
+            .nextDeadTerminalEventStreamRedialDelay() else {
+            // A delayed redial is already pending; coalesce into it instead of
+            // stacking another dial.
+            return
+        }
+        guard delay > .zero else {
+            recoverDeadConnection(trigger: trigger, expectedClient: expectedClient)
+            return
+        }
+        scheduleDeadTerminalEventStreamRedial(
+            after: delay,
+            trigger: trigger,
+            expectedClient: expectedClient
+        )
+    }
+
+    /// Schedules one owner-managed retry for the exact failing client.
+    private func scheduleDeadTerminalEventStreamRedial(
+        after delay: Duration,
+        trigger: RecoveryTrigger,
+        expectedClient: MobileCoreRPCClient
+    ) {
+        // Hold the session visibly reconnecting (once) during the wait so the
+        // status pill does not flip on every barren stream end.
+        if connectionState == .connected { markMacConnectionReconnecting() }
+        MobileDebugLog.anchormux(
+            "connection.recovery dead-stream backoff trigger=\(trigger.description) "
+                + "delay=\(delay) barren=\(connectionRecoveryOwner.deadTerminalEventStreamBarrenCount)"
+        )
+        connectionRecoveryOwner.scheduleDeadTerminalEventStreamRedial(
+            after: delay,
+            clock: controlPlaneSchedulingClock
+        ) { [weak self] in
+            guard let self,
+                  self.remoteClient === expectedClient,
+                  self.connectionState == .connected else {
+                return
+            }
+            self.recoverDeadConnection(trigger: trigger, expectedClient: expectedClient)
+        }
+    }
+
+    /// Cancel a pending backoff redial. Every `connectionRecoveryOwner.cancel()`
+    /// pairs with this — directly (background suspend), or through
+    /// ``resetDeadTerminalEventStreamBackoff()`` at new-session boundaries
+    /// (sign-out, new pairing, method change) — so the single recovery owner's
+    /// lifecycle also invalidates the dead-stream redial. Clearing the backoff's
+    /// scheduled flag is part of the cancel: a cancelled redial is no longer
+    /// scheduled, so the next barren stream may schedule again instead of
+    /// coalescing into a dead timer. It keeps the barren-stream streak, so a
+    /// suspend/resume of the same session preserves the accrued backoff.
+    @discardableResult
+    func cancelDeadTerminalEventStreamRedial() -> Bool {
+        connectionRecoveryOwner.cancelDeadTerminalEventStreamRedial()
+    }
+
+    /// Clear the dead-stream backoff streak and cancel any pending backoff
+    /// redial. A delivered event or a fresh foreground return proves the path
+    /// can carry traffic, so the next failure should recover fast.
+    func resetDeadTerminalEventStreamBackoff() {
+        connectionRecoveryOwner.resetDeadTerminalEventStreamBackoff()
+    }
+
     /// Replays the most recent recovery trigger that was parked while the
-    /// scene was inactive. Called from `resumeForegroundRefresh()` after the
-    /// foreground recovery passes, so a replay coalesces into any attempt
-    /// they already started instead of stacking a second dial.
+    /// scene was inactive. Called from `resumeForegroundRefresh()` before the
+    /// generic foreground recovery pass so a parked stream-end replay can force
+    /// its subscription resync instead of being coalesced into a probe that
+    /// reports the still-healthy RPC connection and skips that resync.
     func recoverPendingInactiveRecoveryIfNeeded() {
         guard foregroundRefreshIsActive,
               let trigger = pendingInactiveRecoveryTrigger else { return }
@@ -320,7 +419,10 @@ extension MobileShellComposite {
                     // while the fresh stored-Mac dial starts.
                     self.connectionState = .disconnected
                     self.macConnectionStatus = .unavailable
-                    self.clearRemoteConnectionContext()
+                    self.clearRemoteConnectionContext(
+                        preservingTerminalMirror: true,
+                        preservingWorkspaceChanges: true
+                    )
                     self.applyConnectionRecoveryOwnerState()
                     MobileDebugLog.anchormux(
                         "connection.recovery waiting for physical transport drain "
@@ -351,7 +453,10 @@ extension MobileShellComposite {
                 if self.connectionState == .connected {
                     self.connectionState = .disconnected
                     self.macConnectionStatus = .unavailable
-                    self.clearRemoteConnectionContext()
+                    self.clearRemoteConnectionContext(
+                        preservingTerminalMirror: true,
+                        preservingWorkspaceChanges: true
+                    )
                 }
                 self.applyConnectionRecoveryOwnerState()
 

@@ -17,7 +17,10 @@ extension MobileShellComposite {
         return true
     }
 
-    func recordTerminalRenderGridDelivery(_ renderGrid: MobileTerminalRenderGridFrame) {
+    /// Updates per-surface screen and mirror metadata after an authoritative
+    /// render-grid frame has been accepted for delivery.
+    @discardableResult
+    func recordTerminalRenderGridDelivery(_ renderGrid: MobileTerminalRenderGridFrame) -> Bool {
         // The toolbar observes this dictionary via `isAlternateScreen`; same-value
         // writes would re-fire observers for every delivered render-grid frame.
         if terminalActiveScreenBySurfaceID[renderGrid.surfaceID] != renderGrid.activeScreen {
@@ -33,6 +36,7 @@ extension MobileShellComposite {
         } else if renderGrid.activeScreen == .primary {
             terminalAlternateRenderGridBaselineSurfaceIDs.remove(renderGrid.surfaceID)
         }
+        return recordTerminalMirrorFrame(renderGrid)
     }
 
     /// Record the screen-anchor history that the next live delta must link to.
@@ -339,15 +343,24 @@ extension MobileShellComposite {
             terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID[renderGrid.surfaceID] =
                 terminalReplayBarrierDroppedOutputCountsBySurfaceID[renderGrid.surfaceID] ?? 0
         }
-        recordTerminalRenderGridDelivery(renderGrid)
+        let retainedMirrorNeedsHydration = recordTerminalRenderGridDelivery(renderGrid)
         markTerminalBytesDelivered(
             surfaceID: renderGrid.surfaceID,
             endSeq: renderGrid.stateSeq,
-            fullReplacement: renderGrid.full
+            // A retained mirror's changed-producer frame paints the current
+            // screen but is not a trustworthy scrollback replacement. Keeping
+            // it out of the full-replacement generation prevents the
+            // same-sequence hydration replay from being rejected as stale.
+            fullReplacement: renderGrid.full && !retainedMirrorNeedsHydration
         )
         recordTerminalRenderGridHistoryContinuity(renderGrid)
-        if renderGrid.full, renderGrid.scrollbackRows > 0 {
-            terminalMirrorHydrationNeededSurfaceIDs.remove(renderGrid.surfaceID)
+        if source == "event",
+           retainedMirrorNeedsHydration,
+           terminalReplayBarrierTokensBySurfaceID[renderGrid.surfaceID] == nil {
+            // A producer change can arrive as a live full frame before the
+            // reconnect replay response. Keep that screen visible, but open a
+            // full replay barrier so its old local scrollback is not trusted.
+            terminalOutputNeedsReplay(surfaceID: renderGrid.surfaceID)
         }
         #if DEBUG
         MobileLatencyTrace.stamp(
@@ -651,7 +664,7 @@ extension MobileShellComposite {
         // Rebuilt surface: nothing pre-barrier is visible anymore.
         rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
-        terminalMirrorHydrationNeededSurfaceIDs.insert(surfaceID)
+        markTerminalMirrorHydrationNeeded(surfaceID: surfaceID)
         MobileDebugLog.anchormux("terminal.output.reset surface=\(surfaceID)")
         requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
     }
@@ -670,7 +683,7 @@ extension MobileShellComposite {
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridRevisionContinuityBySurfaceID.removeValue(forKey: surfaceID)
-        terminalMirrorHydrationNeededSurfaceIDs.insert(surfaceID)
+        markTerminalMirrorHydrationNeeded(surfaceID: surfaceID)
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
         terminalFullReplacementSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalFullReplacementGenerationBySurfaceID.removeValue(forKey: surfaceID)
@@ -719,7 +732,7 @@ extension MobileShellComposite {
         let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
         rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
-        terminalMirrorHydrationNeededSurfaceIDs.insert(surfaceID)
+        markTerminalMirrorHydrationNeeded(surfaceID: surfaceID)
         MobileDebugLog.anchormux("terminal.output.replay_requested surface=\(surfaceID)")
         requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
     }

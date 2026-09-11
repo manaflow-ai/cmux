@@ -81,7 +81,7 @@ extension WorkspaceDetailView {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            if workspaceChangesHint != nil {
+            if workspaceChangesAreAvailable, workspaceChangesHint != nil {
                 WorkspaceChangesHintBanner(
                     openChanges: openWorkspaceChanges,
                     dismiss: dismissWorkspaceChangesHint

@@ -32,6 +32,7 @@ actor LivenessHostRouter {
         var title: String?
         var attachToken: String?
         var stackAccessToken: String?
+        var maxScrollbackRows: Int?
     }
 
     private var recorded: [RecordedRequest] = []
@@ -49,6 +50,9 @@ actor LivenessHostRouter {
     private var workspaceListRequestCount = 0
     private var heldWorkspaceListRequestNumbers: Set<Int> = []
     private var workspaceListErrorCodesByRequestNumber: [Int: String] = [:]
+    private var workspaceChangesSummaryRequestCount = 0
+    private var heldWorkspaceChangesSummaryRequestNumbers: Set<Int> = []
+    private var workspaceChangesSummaryResponses: [[String: Any]] = []
     private var subscribeRequestCount = 0
     private var probeRequestCount = 0
     private var heldSubscribeRequestNumbers: Set<Int> = []
@@ -120,6 +124,7 @@ actor LivenessHostRouter {
         heldSyncFetchRequestNumbers.insert(number)
     }
 
+    /// Records one RPC request and wakes count waiters satisfied by its arrival.
     func record(
         method: String?,
         topics: [String]?,
@@ -133,7 +138,8 @@ actor LivenessHostRouter {
         action: String? = nil,
         title: String? = nil,
         attachToken: String? = nil,
-        stackAccessToken: String? = nil
+        stackAccessToken: String? = nil,
+        maxScrollbackRows: Int? = nil
     ) {
         recorded.append(RecordedRequest(
             method: method,
@@ -148,7 +154,8 @@ actor LivenessHostRouter {
             action: action,
             title: title,
             attachToken: attachToken,
-            stackAccessToken: stackAccessToken
+            stackAccessToken: stackAccessToken,
+            maxScrollbackRows: maxScrollbackRows
         ))
         resumeSatisfiedCountWaiters()
     }
@@ -387,6 +394,32 @@ actor LivenessHostRouter {
         heldWorkspaceListRequestNumbers.insert(number)
     }
 
+    /// Hold one workspace-changes summary response so a test can invalidate
+    /// the owning fetch generation before the response publishes.
+    func holdWorkspaceChangesSummaryRequest(number: Int) {
+        heldWorkspaceChangesSummaryRequestNumbers.insert(number)
+    }
+
+    /// Hold the next workspace-changes summary response relative to requests
+    /// already observed by the scripted host.
+    func holdNextWorkspaceChangesSummaryRequests(count: Int = 1) {
+        guard count > 0 else { return }
+        for offset in 1 ... count {
+            heldWorkspaceChangesSummaryRequestNumbers.insert(
+                workspaceChangesSummaryRequestCount + offset
+            )
+        }
+    }
+
+    /// Queue a JSON result for the next workspace-changes summary request.
+    func enqueueWorkspaceChangesSummaryResponse(jsonData: Data) {
+        guard let object = (try? JSONSerialization.jsonObject(with: jsonData))
+            as? [String: Any] else {
+            return
+        }
+        workspaceChangesSummaryResponses.append(object)
+    }
+
     func failWorkspaceListRequest(
         number: Int,
         code: String = "workspace_list_failed"
@@ -447,6 +480,18 @@ actor LivenessHostRouter {
         subscribeErrorCodesByRequestNumber[number] = code
     }
 
+    /// Reject the next `count` `mobile.events.subscribe` acks (relative to the
+    /// requests already seen), modeling a host that accepts the transport dial
+    /// but never enables the subscription. This is the exact edge that drives
+    /// the `subscriptionStartFailed`/`eventStreamEnded` redial loop in
+    /// https://github.com/manaflow-ai/cmux/issues/10482.
+    func failNextSubscribeRequests(count: Int, code: String = "subscribe_failed") {
+        guard count > 0 else { return }
+        for offset in 1 ... count {
+            subscribeErrorCodesByRequestNumber[subscribeRequestCount + offset] = code
+        }
+    }
+
     /// Return a malformed acknowledgement for the Nth unsubscribe request.
     func invalidateUnsubscribeRequest(number: Int) {
         invalidUnsubscribeRequestNumbers.insert(number)
@@ -494,6 +539,7 @@ actor LivenessHostRouter {
         heldHostStatusRequestNumbers = []
         delayedHostStatusRequestNumbers = []
         heldWorkspaceListRequestNumbers = []
+        heldWorkspaceChangesSummaryRequestNumbers = []
         heldSubscribeRequestNumbers = []
         heldProbeRequestNumbers = []
         delayedSubscribeRequestNumbers = []
@@ -571,6 +617,17 @@ actor LivenessHostRouter {
             return try? Self.resultFrame(id: id, result: [
                 "workspaces": workspaces,
             ])
+        case "mobile.workspace.changes.summary":
+            workspaceChangesSummaryRequestCount += 1
+            if heldWorkspaceChangesSummaryRequestNumbers.contains(
+                workspaceChangesSummaryRequestCount
+            ) {
+                await park()
+            }
+            let result: [String: Any] = workspaceChangesSummaryResponses.isEmpty
+                ? ["summaries": []]
+                : workspaceChangesSummaryResponses.removeFirst()
+            return try? Self.resultFrame(id: id, result: result)
         case "mobile.host.status":
             hostStatusRequestCount += 1
             if heldHostStatusRequestNumbers.contains(hostStatusRequestCount) {
@@ -890,7 +947,8 @@ actor LivenessTransport: CmxByteTransport, CmxByteTransportLivenessObserving {
                 action: params?["action"] as? String,
                 title: params?["title"] as? String,
                 attachToken: auth?["attach_token"] as? String,
-                stackAccessToken: auth?["stack_access_token"] as? String
+                stackAccessToken: auth?["stack_access_token"] as? String,
+                maxScrollbackRows: (params?["max_scrollback_rows"] as? NSNumber)?.intValue
             )
             // Answer each request concurrently so one held response cannot
             // head-of-line block later RPCs, matching the Mac host's
@@ -1022,6 +1080,7 @@ func waitForReplayResponsesServed(
     #expect(settled, "\(message)")
 }
 
+/// Builds a connected preview shell against the scripted liveness transport.
 @MainActor
 func makeConnectedStore(
     router: LivenessHostRouter,
@@ -1029,7 +1088,8 @@ func makeConnectedStore(
     clock: TestClock,
     probeTimeoutNanoseconds: UInt64 = 200_000_000,
     inputAckRetryClock: any Clock<Duration> = ContinuousClock(),
-    controlPlaneSchedulingClock: any Clock<Duration> = ContinuousClock()
+    controlPlaneSchedulingClock: any Clock<Duration> = ContinuousClock(),
+    workspaceChangesSchedulingClock: any Clock<Duration> = ContinuousClock()
 ) async throws -> MobileShellComposite {
     let runtime = LivenessTestRuntime(
         transportFactory: LivenessTransportFactory(router: router, box: box),
@@ -1039,7 +1099,8 @@ func makeConnectedStore(
     let store = MobileShellComposite.preview(
         runtime: runtime,
         terminalInputAckResubscribeClock: inputAckRetryClock,
-        controlPlaneSchedulingClock: controlPlaneSchedulingClock
+        controlPlaneSchedulingClock: controlPlaneSchedulingClock,
+        workspaceChangesSchedulingClock: workspaceChangesSchedulingClock
     )
     store.signIn()
     let ticket = try makeTicket(clock: clock)
