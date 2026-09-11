@@ -134,7 +134,7 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
             guard let nightly = requirement.nightly else { return nil }
             requirementDisplay = "\(nightly.minBaseVersion)-nightly.\(nightly.minBuild)"
         }
-        let result = MobileMacVersionCompatibilityEvaluator.evaluate(
+        let result = evaluateMobileMacVersionCompatibility(
             appVersion: macAppVersion,
             releaseTrack: channel == .nightly ? "nightly" : "stable",
             stableMinimum: requirement.stableMinVersion.description,
