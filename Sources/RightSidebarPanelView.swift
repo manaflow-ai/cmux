@@ -516,7 +516,8 @@ struct RightSidebarPanelView: View {
                 dockPanel(windowAppearance: windowAppearance)
             case .machines:
                 MachinesPanelView(
-                    chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor
+                    chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
+                    tabManager: tabManager
                 )
             case .customSidebar:
                 customSidebarPanel

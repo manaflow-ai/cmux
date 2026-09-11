@@ -1132,6 +1132,11 @@ final class MobileHostService {
 
     func stop() {
         MobileHostIrohRuntime.shared.setDesiredActive(false)
+        if MobileHostIrxRuntime.isEnabled {
+            Task { @MainActor in
+                await MobileHostIrxRuntime.shared.stopHost()
+            }
+        }
         stopLegacyListener(reason: "service stopped")
         for connection in MobileHostConnectionRegistry.shared.removeAll() {
             Task { await connection.close(reason: "service stopped") }
@@ -1273,6 +1278,14 @@ final class MobileHostService {
     /// against the app's real store; `start`/`restart` do the same, so there is
     /// no caller-supplied store to honor here.
     func syncToSettings() {
+        // IRX is the primary transport. Reconcile it on every settings/policy
+        // pass so `DisableIrohNetworking` and `DisableRemoteControl` tear the
+        // live endpoint down immediately, not at the next account poll.
+        if MobileHostIrxRuntime.isEnabled {
+            Task { @MainActor in
+                await MobileHostIrxRuntime.shared.applyManagedNetworkingPolicy()
+            }
+        }
         // An MDM-managed remote-control disable overrides every transport:
         // tear down the Iroh runtime, the legacy listener, and every live
         // connection, and refuse to re-arm until the policy is lifted.
