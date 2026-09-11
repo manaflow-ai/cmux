@@ -2,7 +2,7 @@ import Foundation
 import CMUXAgentLaunch
 
 /// An immutable non-decision hook accepted before downstream delivery begins.
-nonisolated struct AgentHookDeliveryEvent: Sendable {
+struct AgentHookDeliveryEvent: Sendable {
     static let maximumPayloadBytes = AgentHookDeliveryPolicy.maximumPayloadBytes
     static let maximumEnvironmentBytes = 64 * 1_024
 

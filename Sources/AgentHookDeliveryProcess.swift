@@ -8,7 +8,7 @@ nonisolated private let agentHookDeliveryProcessLogger = Logger(
 )
 
 /// Runs one admitted hook through the bundled CLI with a cancellable deadline.
-nonisolated struct AgentHookDeliveryProcess: Sendable {
+struct AgentHookDeliveryProcess: Sendable {
     private enum Completion: Sendable {
         case exited(Int32)
         case deadline

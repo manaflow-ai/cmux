@@ -119,6 +119,242 @@
         }
       }
     },
+    "socket.agentHook.error.barrierTimeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent hook barrier timed out"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントフックバリアがタイムアウトしました"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeitüberschreitung beim Warten auf die Agenten-Hook-Barriere"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Délai d’attente de la barrière des hooks de l’agent dépassé"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهت مهلة حاجز خطافات الوكيل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se agotó el tiempo de espera de la barrera de hooks del agente"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式掛鉤屏障逾時"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理钩子屏障超时"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 훅 배리어 시간 초과"
+          }
+        }
+      }
+    },
+    "socket.agentHook.error.invalidBarrier": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid agent hook barrier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントフックバリアが無効です"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungültige Agenten-Hook-Barriere"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barrière des hooks de l’agent non valide"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حاجز خطافات الوكيل غير صالح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barrera de hooks del agente no válida"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無效的代理程式掛鉤屏障"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无效的代理钩子屏障"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잘못된 에이전트 훅 배리어"
+          }
+        }
+      }
+    },
+    "socket.agentHook.error.invalidEvent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid agent hook event"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントフックイベントが無効です"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungültiges Agenten-Hook-Ereignis"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Événement de hook de l’agent non valide"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدث خطاف الوكيل غير صالح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Evento de hook del agente no válido"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無效的代理程式掛鉤事件"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无效的代理钩子事件"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잘못된 에이전트 훅 이벤트"
+          }
+        }
+      }
+    },
+    "socket.agentHook.error.queueFull": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent hook delivery queue is full"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントフック配信キューがいっぱいです"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Zustellungswarteschlange für Agenten-Hooks ist voll"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La file de livraison des hooks de l’agent est pleine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قائمة انتظار تسليم خطافات الوكيل ممتلئة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cola de entrega de hooks del agente está llena"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式掛鉤傳送佇列已滿"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理钩子传递队列已满"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 훅 전달 대기열이 가득 찼습니다"
+          }
+        }
+      }
+    },
     "cloud.vpn.setup.heading": {
       "extractionState": "manual",
       "localizations": {
@@ -3493,7 +3729,8 @@
           }
         }
       }
-    },
+    }
+,
     "cloud.vpn.setup.entry.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -3743,7 +3980,7 @@
           }
         }
       }
-    },
+    } ,
     "cli.vm.help.baseCreate": {
       "extractionState": "manual",
       "localizations": {
@@ -4158,20 +4395,20 @@
       }
     },
     "cloudTree.error.invalidPreviewURL": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The Cloud service returned an unusable preview address. Refresh and retry."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud サービスから使用できないプレビューアドレスが返されました。更新して再試行してください。"
-          }
-        },
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "The Cloud service returned an unusable preview address. Refresh and retry."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud サービスから使用できないプレビューアドレスが返されました。更新して再試行してください。"
+        }
+      },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -4214,23 +4451,9 @@
             "value": "Cloud 서비스가 유효하지 않은 미리보기 주소를 반환했습니다. 새로고침 후 다시 시도하세요."
           }
         }
-      }
-    },
-    "cli.claude-hook.notification.body.error": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude reported an error"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude がエラーを報告しました"
-          }
-        },
+    }
+  },
+    "cli.claude-hook.notification.body.error": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Claude reported an error"}}, "ja": {"stringUnit": {"state": "translated", "value": "Claude がエラーを報告しました"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -4272,24 +4495,12 @@
             "state": "translated",
             "value": "Claude가 오류를 보고했습니다"
           }
-        }
-      }
-    },
+        }}},
     "cli.notification.invalidPayload": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invalid notification payload"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知のペイロードが無効です"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "Invalid notification payload" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知のペイロードが無効です" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -4930,242 +5141,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "read-selection [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]"
-          }
-        }
-      }
-    },
-    "socket.agentHook.error.barrierTimeout": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent hook barrier timed out"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントフックバリアがタイムアウトしました"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zeitüberschreitung beim Warten auf die Agenten-Hook-Barriere"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Délai d’attente de la barrière des hooks de l’agent dépassé"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "انتهت مهلة حاجز خطافات الوكيل"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se agotó el tiempo de espera de la barrera de hooks del agente"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代理程式掛鉤屏障逾時"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代理钩子屏障超时"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "에이전트 훅 배리어 시간 초과"
-          }
-        }
-      }
-    },
-    "socket.agentHook.error.invalidBarrier": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invalid agent hook barrier"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントフックバリアが無効です"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ungültige Agenten-Hook-Barriere"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Barrière des hooks de l’agent non valide"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حاجز خطافات الوكيل غير صالح"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Barrera de hooks del agente no válida"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無效的代理程式掛鉤屏障"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无效的代理钩子屏障"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "잘못된 에이전트 훅 배리어"
-          }
-        }
-      }
-    },
-    "socket.agentHook.error.invalidEvent": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invalid agent hook event"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントフックイベントが無効です"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ungültiges Agenten-Hook-Ereignis"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Événement de hook de l’agent non valide"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حدث خطاف الوكيل غير صالح"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Evento de hook del agente no válido"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無效的代理程式掛鉤事件"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无效的代理钩子事件"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "잘못된 에이전트 훅 이벤트"
-          }
-        }
-      }
-    },
-    "socket.agentHook.error.queueFull": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent hook delivery queue is full"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントフック配信キューがいっぱいです"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die Zustellungswarteschlange für Agenten-Hooks ist voll"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La file de livraison des hooks de l’agent est pleine"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "قائمة انتظار تسليم خطافات الوكيل ممتلئة"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La cola de entrega de hooks del agente está llena"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代理程式掛鉤傳送佇列已滿"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代理钩子传递队列已满"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "에이전트 훅 전달 대기열이 가득 찼습니다"
           }
         }
       }
@@ -77758,18 +77733,8 @@
     "cli.localTmux.error.cleanupSelector": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux cleanup does not take a session selector"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux cleanup ではセッションセレクターを指定できません"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux cleanup does not take a session selector" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux cleanup ではセッションセレクターを指定できません" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -77817,18 +77782,8 @@
     "cli.localTmux.error.clientListFailed": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux could not inspect attached clients."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux は接続中のクライアントを確認できませんでした。"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux could not inspect attached clients." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux は接続中のクライアントを確認できませんでした。" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -77876,18 +77831,8 @@
     "cli.localTmux.error.clientNotFound": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux client not found for session %@: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "セッション %@ の local-tmux クライアントが見つかりません: %@"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux client not found for session %@: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッション %@ の local-tmux クライアントが見つかりません: %@" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -77935,18 +77880,8 @@
     "cli.localTmux.error.listFailed": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux could not list sessions; liveness is unknown."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux はセッションを一覧表示できなかったため、生存状態を確認できません。"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux could not list sessions; liveness is unknown." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux はセッションを一覧表示できなかったため、生存状態を確認できません。" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -77994,18 +77929,8 @@
     "cli.localTmux.error.listingIncomplete": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux session listing was incomplete; liveness is unknown."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux のセッション一覧が不完全なため、生存状態を確認できません。"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux session listing was incomplete; liveness is unknown." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux のセッション一覧が不完全なため、生存状態を確認できません。" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -78053,18 +77978,8 @@
     "cli.localTmux.error.closeFailed": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux close failed"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux の終了に失敗しました"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux close failed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の終了に失敗しました" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -78112,18 +78027,8 @@
     "cli.localTmux.error.createDirectory": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "could not create local-tmux state directory"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux の状態ディレクトリを作成できませんでした"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "could not create local-tmux state directory" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の状態ディレクトリを作成できませんでした" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -78171,18 +78076,8 @@
     "cli.localTmux.error.cwdInvalid": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux working directory is not an accessible directory: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux の作業ディレクトリにアクセスできません: %@"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux working directory is not an accessible directory: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の作業ディレクトリにアクセスできません: %@" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -78230,18 +78125,8 @@
     "cli.localTmux.error.detachOnly": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux --client/--all are only valid with detach"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux の --client/--all は detach でのみ使用できます"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux --client/--all are only valid with detach" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の --client/--all は detach でのみ使用できます" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -78289,18 +78174,8 @@
     "cli.localTmux.error.attachOrStartOnly": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux workspace and attachment options are only valid with start or attach"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux のワークスペースとアタッチ用オプションは start または attach でのみ使用できます"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux workspace and attachment options are only valid with start or attach" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux のワークスペースとアタッチ用オプションは start または attach でのみ使用できます" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -78348,18 +78223,8 @@
     "cli.localTmux.error.detachSelectorConflict": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux detach accepts either --client or --all, not both"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux detach では --client と --all のどちらか一方を指定してください"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux detach accepts either --client or --all, not both" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux detach では --client と --all のどちらか一方を指定してください" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -78407,18 +78272,8 @@
     "cli.localTmux.error.duplicateName": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux: session name was supplied more than once"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux: セッション名が複数回指定されています"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux: session name was supplied more than once" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux: セッション名が複数回指定されています" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -78466,18 +78321,8 @@
     "cli.localTmux.error.headlessOnly": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux --headless is only valid with attach or start"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux の --headless は attach または start でのみ使用できます"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux --headless is only valid with attach or start" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の --headless は attach または start でのみ使用できます" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -78525,18 +78370,8 @@
     "cli.localTmux.error.insecurePath": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux state path is not owned by the current user or is group/world accessible: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux の状態パスが現在のユーザー所有でないか、グループ/全ユーザーに公開されています: %@"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux state path is not owned by the current user or is group/world accessible: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の状態パスが現在のユーザー所有でないか、グループ/全ユーザーに公開されています: %@" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -78584,18 +78419,8 @@
     "cli.localTmux.error.interactiveExit": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux interactive client exited with status %d"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux の対話クライアントがステータス %d で終了しました"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux interactive client exited with status %d" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の対話クライアントがステータス %d で終了しました" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -78643,18 +78468,8 @@
     "cli.localTmux.error.interactiveStart": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux could not start an interactive client"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux の対話クライアントを起動できませんでした"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux could not start an interactive client" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の対話クライアントを起動できませんでした" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -78702,18 +78517,8 @@
     "cli.localTmux.error.existingSessionCommand": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux session already exists; use attach or close it before supplying a new command"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux セッションは既に存在します。新しいコマンドを指定する前に attach または close を使用してください"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux session already exists; use attach or close it before supplying a new command" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux セッションは既に存在します。新しいコマンドを指定する前に attach または close を使用してください" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -78761,18 +78566,8 @@
     "cli.localTmux.error.existingSessionCwd": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux session already exists with a different working directory; use attach or close it first"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "別の作業ディレクトリを持つ local-tmux セッションが既に存在します。先に attach または close を使用してください"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux session already exists with a different working directory; use attach or close it first" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "別の作業ディレクトリを持つ local-tmux セッションが既に存在します。先に attach または close を使用してください" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -78820,18 +78615,8 @@
     "cli.localTmux.error.invalidFocus": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux: --focus must be true or false"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux: --focus は true または false で指定してください"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux: --focus must be true or false" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux: --focus は true または false で指定してください" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -78879,18 +78664,8 @@
     "cli.localTmux.error.invalidID": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux: --id must be a UUID"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux: --id は UUID で指定してください"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux: --id must be a UUID" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux: --id は UUID で指定してください" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -78938,18 +78713,8 @@
     "cli.localTmux.error.invalidName": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux session names must contain only letters, numbers, underscore, or dash (1–128 characters)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux のセッション名には英数字、アンダースコア、ハイフンのみ使用できます（1～128文字）"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux session names must contain only letters, numbers, underscore, or dash (1–128 characters)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux のセッション名には英数字、アンダースコア、ハイフンのみ使用できます（1～128文字）" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -78997,18 +78762,8 @@
     "cli.localTmux.error.invalidState": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux state is invalid: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux の状態が無効です: %@"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux state is invalid: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の状態が無効です: %@" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -79056,18 +78811,8 @@
     "cli.localTmux.error.listSelector": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux list does not take a session selector"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux list ではセッションセレクターを指定できません"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux list does not take a session selector" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux list ではセッションセレクターを指定できません" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -79115,18 +78860,8 @@
     "cli.localTmux.error.lockFailed": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "could not lock local-tmux state: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux の状態をロックできませんでした: %@"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "could not lock local-tmux state: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の状態をロックできませんでした: %@" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -79174,18 +78909,8 @@
     "cli.localTmux.error.multipleClients": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux session has multiple clients; pass --client <id> or --all to detach explicitly"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux セッションに複数のクライアントがあります。明示的に切断するには --client <id> または --all を指定してください"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux session has multiple clients; pass --client <id> or --all to detach explicitly" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux セッションに複数のクライアントがあります。明示的に切断するには --client <id> または --all を指定してください" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -79233,18 +78958,8 @@
     "cli.localTmux.error.newClientOnly": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux --new-client is only valid with attach"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux の --new-client は attach でのみ使用できます"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux --new-client is only valid with attach" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の --new-client は attach でのみ使用できます" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -79292,18 +79007,8 @@
     "cli.localTmux.error.noClients": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux session has no attached clients: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux セッションに接続中のクライアントがありません: %@"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux session has no attached clients: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux セッションに接続中のクライアントがありません: %@" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -79351,18 +79056,8 @@
     "cli.localTmux.error.operationFailed": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux %@ failed (exit %d)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux %@ に失敗しました（終了コード %d）"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux %@ failed (exit %d)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux %@ に失敗しました（終了コード %d）" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -79410,18 +79105,8 @@
     "cli.localTmux.error.persistState": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "could not persist %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ を保存できませんでした"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "could not persist %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ を保存できませんでした" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -79469,18 +79154,8 @@
     "cli.localTmux.error.pruneOnly": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux --prune is only valid with cleanup"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux の --prune は cleanup でのみ使用できます"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux --prune is only valid with cleanup" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の --prune は cleanup でのみ使用できます" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -79528,18 +79203,8 @@
     "cli.localTmux.error.requiresApp": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux %@ requires a running cmux app; use --headless for a direct tmux client"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux %@ には実行中の cmux アプリが必要です。直接 tmux クライアントを使うには --headless を指定してください"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux %@ requires a running cmux app; use --headless for a direct tmux client" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux %@ には実行中の cmux アプリが必要です。直接 tmux クライアントを使うには --headless を指定してください" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -79587,18 +79252,8 @@
     "cli.localTmux.error.requiresValue": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux: %@ requires a value"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux: %@ には値が必要です"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux: %@ requires a value" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux: %@ には値が必要です" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -79646,18 +79301,8 @@
     "cli.localTmux.error.runFailed": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux could not run tmux"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux で tmux を実行できませんでした"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux could not run tmux" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux で tmux を実行できませんでした" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -79705,18 +79350,8 @@
     "cli.localTmux.error.selectorConflict": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux: use either a session name or --id, not both"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux: セッション名または --id のどちらか一方を指定してください"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux: use either a session name or --id, not both" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux: セッション名または --id のどちらか一方を指定してください" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -79764,18 +79399,8 @@
     "cli.localTmux.error.selectorRequired": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux %@ requires a session name or --id\n%@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux %@ にはセッション名または --id が必要です\n%@"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux %@ requires a session name or --id\n%@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux %@ にはセッション名または --id が必要です\n%@" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -79823,18 +79448,8 @@
     "cli.localTmux.error.sessionIDNotFound": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux session not found for id %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "指定された ID の local-tmux セッションが見つかりません: %@"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux session not found for id %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "指定された ID の local-tmux セッションが見つかりません: %@" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -79882,18 +79497,8 @@
     "cli.localTmux.error.sessionIdentityChanged": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux session identity changed; refusing to operate on replacement session: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux セッションの識別子が変更されたため、置き換えられたセッションへの操作を拒否しました: %@"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux session identity changed; refusing to operate on replacement session: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux セッションの識別子が変更されたため、置き換えられたセッションへの操作を拒否しました: %@" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -79941,18 +79546,8 @@
     "cli.localTmux.error.sessionIdentityUnavailable": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux could not verify the tmux session identity: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux で tmux セッションの識別子を確認できませんでした: %@"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux could not verify the tmux session identity: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux で tmux セッションの識別子を確認できませんでした: %@" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -80000,18 +79595,8 @@
     "cli.localTmux.error.sessionNotFound": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux session not found: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux セッションが見つかりません: %@"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux session not found: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux セッションが見つかりません: %@" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -80059,18 +79644,8 @@
     "cli.localTmux.error.sessionNotRunning": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux session is no longer running: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux セッションは実行されていません: %@"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux session is no longer running: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux セッションは実行されていません: %@" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -80118,18 +79693,8 @@
     "cli.localTmux.error.socketPathTooLong": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux state directory is too long for a Unix socket: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux の状態ディレクトリが Unix ソケットには長すぎます: %@"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux state directory is too long for a Unix socket: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の状態ディレクトリが Unix ソケットには長すぎます: %@" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -80177,18 +79742,8 @@
     "cli.localTmux.error.stateOperationFailed": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux state could not be accessed safely"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux の状態に安全にアクセスできませんでした"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux state could not be accessed safely" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の状態に安全にアクセスできませんでした" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -80236,18 +79791,8 @@
     "cli.localTmux.error.surfaceNotFound": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux surface target was not found"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux のサーフェス対象が見つかりません"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux surface target was not found" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux のサーフェス対象が見つかりません" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -80295,18 +79840,8 @@
     "cli.localTmux.error.startID": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux start accepts a name, not --id"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux start では --id ではなく名前を指定してください"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux start accepts a name, not --id" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux start では --id ではなく名前を指定してください" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -80354,18 +79889,8 @@
     "cli.localTmux.error.startOnly": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux --cwd and --command are only valid with start"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux の --cwd と --command は start でのみ使用できます"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux --cwd and --command are only valid with start" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の --cwd と --command は start でのみ使用できます" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -80413,18 +79938,8 @@
     "cli.localTmux.error.startRequiresName": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux start requires a session name"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux start にはセッション名が必要です"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux start requires a session name" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux start にはセッション名が必要です" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -80472,18 +79987,8 @@
     "cli.localTmux.error.timedOut": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux command timed out"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux コマンドがタイムアウトしました"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux command timed out" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux コマンドがタイムアウトしました" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -80531,18 +80036,8 @@
     "cli.localTmux.error.tmuxMissing": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux requires tmux. Install tmux or configure an executable tmux path"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux には tmux が必要です。tmux をインストールするか、実行可能な tmux のパスを設定してください"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux requires tmux. Install tmux or configure an executable tmux path" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux には tmux が必要です。tmux をインストールするか、実行可能な tmux のパスを設定してください" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -80590,18 +80085,8 @@
     "cli.localTmux.error.tmuxAliasAttachOnly": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "the tmux alias only supports attach; use local-tmux for other session operations"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "tmux エイリアスは attach のみをサポートします。他のセッション操作には local-tmux を使用してください"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "the tmux alias only supports attach; use local-tmux for other session operations" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "tmux エイリアスは attach のみをサポートします。他のセッション操作には local-tmux を使用してください" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -80649,18 +80134,8 @@
     "cli.localTmux.error.targetNotFound": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux could not resolve %@ target %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux で %@ の対象 %@ を解決できませんでした"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux could not resolve %@ target %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux で %@ の対象 %@ を解決できませんでした" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -80708,18 +80183,8 @@
     "cli.localTmux.error.livenessUnavailable": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux could not verify the existing surface; no new client was created"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux で既存サーフェスを確認できなかったため、新しいクライアントは作成されませんでした"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux could not verify the existing surface; no new client was created" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux で既存サーフェスを確認できなかったため、新しいクライアントは作成されませんでした" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -80767,18 +80232,8 @@
     "cli.localTmux.error.workspaceNotFound": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux workspace target was not found"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux のワークスペース対象が見つかりません"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux workspace target was not found" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux のワークスペース対象が見つかりません" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -80826,18 +80281,8 @@
     "cli.localTmux.error.workspaceRequiredForTarget": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux pane or surface targets require a workspace"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux の pane または surface 対象にはワークスペースが必要です"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux pane or surface targets require a workspace" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の pane または surface 対象にはワークスペースが必要です" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -80885,18 +80330,8 @@
     "cli.localTmux.error.unexpectedArgument": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux: unexpected argument '%@'"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux: 予期しない引数 '%@'"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux: unexpected argument '%@'" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux: 予期しない引数 '%@'" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -80944,18 +80379,8 @@
     "cli.localTmux.error.unknownFlag": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux: unknown flag '%@'\n%@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux: 不明なフラグ '%@'\n%@"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux: unknown flag '%@'\n%@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux: 不明なフラグ '%@'\n%@" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -81003,18 +80428,8 @@
     "cli.localTmux.error.unknownSubcommand": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unknown local-tmux subcommand '%@'.\n%@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "不明な local-tmux サブコマンド '%@' です。\n%@"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown local-tmux subcommand '%@'.\n%@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明な local-tmux サブコマンド '%@' です。\n%@" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -81062,18 +80477,8 @@
     "cli.localTmux.error.writeState": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "could not write %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ に書き込めませんでした"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "could not write %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ に書き込めませんでした" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -81121,18 +80526,8 @@
     "cli.localTmux.error.workspaceCreateFailed": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local-tmux could not create a workspace for %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 用のワークスペースを local-tmux で作成できませんでした"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux could not create a workspace for %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ 用のワークスペースを local-tmux で作成できませんでした" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -81180,18 +80575,8 @@
     "cli.localTmux.output.attached": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OK session=%@ surface=%@ mode=local-tmux"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OK session=%@ surface=%@ mode=local-tmux"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "OK session=%@ surface=%@ mode=local-tmux" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OK session=%@ surface=%@ mode=local-tmux" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -81239,12 +80624,7 @@
     "cli.localTmux.output.closed": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OK closed session=%@"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "OK closed session=%@" } },
         "ja": {
           "stringUnit": {
             "state": "translated",
@@ -81298,12 +80678,7 @@
     "cli.localTmux.output.detached": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OK detached session=%@ client=%@"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "OK detached session=%@ client=%@" } },
         "ja": {
           "stringUnit": {
             "state": "translated",
@@ -81357,12 +80732,7 @@
     "cli.localTmux.output.detachedAll": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OK detached all clients from session=%@"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "OK detached all clients from session=%@" } },
         "ja": {
           "stringUnit": {
             "state": "translated",
@@ -81595,18 +80965,8 @@
     "cli.localTmux.output.idSuffix": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": " id=%@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": " id=%@"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": " id=%@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": " id=%@" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -81654,18 +81014,8 @@
     "cli.localTmux.output.noSessions": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No local tmux sessions"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "local tmux セッションはありません"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "No local tmux sessions" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local tmux セッションはありません" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -81713,18 +81063,8 @@
     "cli.localTmux.output.noStale": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No stale local tmux sessions"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "古い local tmux セッションはありません"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "No stale local tmux sessions" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "古い local tmux セッションはありません" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -81772,18 +81112,8 @@
     "cli.localTmux.output.record": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OK session=%@ id=%@ state=%@ socket=%@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OK session=%@ id=%@ state=%@ socket=%@"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "OK session=%@ id=%@ state=%@ socket=%@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OK session=%@ id=%@ state=%@ socket=%@" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -82010,18 +81340,8 @@
     "cli.localTmux.output.sessionRow": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ [%@] clients=%lld"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ [%@] clients=%lld"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "%@ [%@] clients=%lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ [%@] clients=%lld" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -82069,18 +81389,8 @@
     "cli.localTmux.output.status": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ [%@] clients=%lld socket=%@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ [%@] clients=%lld socket=%@"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "%@ [%@] clients=%lld socket=%@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ [%@] clients=%lld socket=%@" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -82128,18 +81438,8 @@
     "cli.localTmux.state.detached": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "detached"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切断済み"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "detached" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "切断済み" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -82187,18 +81487,8 @@
     "cli.localTmux.state.live": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "live"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "稼働中"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "live" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "稼働中" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -82246,18 +81536,8 @@
     "cli.localTmux.state.stale": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "stale"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "古い"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "stale" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "古い" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -82305,18 +81585,8 @@
     "cli.localTmux.state.unknown": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "unknown"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "不明"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "unknown" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -82364,18 +81634,8 @@
     "cli.localTmux.target.pane": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "pane"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ペイン"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "pane" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペイン" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -82423,18 +81683,8 @@
     "cli.localTmux.target.surface": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "surface"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サーフェス"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "surface" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サーフェス" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -485366,21 +484616,7 @@
         }
       }
     },
-    "cloudTree.port.forwardListenerFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux could not open a local port for the forward: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux は転送用のローカルポートを開けませんでした: %@"
-          }
-        },
+    "cloudTree.port.forwardListenerFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux could not open a local port for the forward: %@"}},"ja":{"stringUnit":{"state":"translated","value":"cmux は転送用のローカルポートを開けませんでした: %@"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -485422,24 +484658,8 @@
             "state": "translated",
             "value": "cmux가 포트 포워딩을 위한 로컬 포트를 열 수 없습니다: %@"
           }
-        }
-      }
-    },
-    "cloudTree.port.forwardListenerCancelled": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The local port forward was closed before it started."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ローカルポート転送は開始前に閉じられました。"
-          }
-        },
+        }}},
+    "cloudTree.port.forwardListenerCancelled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The local port forward was closed before it started."}},"ja":{"stringUnit":{"state":"translated","value":"ローカルポート転送は開始前に閉じられました。"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -485481,24 +484701,8 @@
             "state": "translated",
             "value": "로컬 포트 포워딩이 시작되기 전에 닫혔습니다."
           }
-        }
-      }
-    },
-    "cloudTree.port.noPort": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ has no port to open."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ には開くポートがありません。"
-          }
-        },
+        }}},
+    "cloudTree.port.noPort": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%@ has no port to open."}},"ja":{"stringUnit":{"state":"translated","value":"%@ には開くポートがありません。"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -485540,24 +484744,8 @@
             "state": "translated",
             "value": "%@에 열 수 있는 포트가 없습니다."
           }
-        }
-      }
-    },
-    "cloudTree.port.noPrivateAddress": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ has no private network address yet; refresh the machine list and retry."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ にはまだプライベートネットワークアドレスがありません。マシン一覧を更新して再試行してください。"
-          }
-        },
+        }}},
+    "cloudTree.port.noPrivateAddress": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%@ has no private network address yet; refresh the machine list and retry."}},"ja":{"stringUnit":{"state":"translated","value":"%@ にはまだプライベートネットワークアドレスがありません。マシン一覧を更新して再試行してください。"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -485599,24 +484787,8 @@
             "state": "translated",
             "value": "%@에 아직 사설 네트워크 주소가 없습니다. 머신 목록을 새로고침한 후 다시 시도하세요."
           }
-        }
-      }
-    },
-    "cloudTree.error.hubUnavailable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This cmux build has no user-space WireGuard hub, so it cannot reach ports on Cloud machines."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この cmux ビルドにはユーザー空間 WireGuard ハブがないため、クラウドマシンのポートに接続できません。"
-          }
-        },
+        }}},
+    "cloudTree.error.hubUnavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This cmux build has no user-space WireGuard hub, so it cannot reach ports on Cloud machines."}},"ja":{"stringUnit":{"state":"translated","value":"この cmux ビルドにはユーザー空間 WireGuard ハブがないため、クラウドマシンのポートに接続できません。"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -485658,24 +484830,8 @@
             "state": "translated",
             "value": "이 cmux 빌드에는 사용자 공간 WireGuard 허브가 없어 Cloud 머신의 포트에 접근할 수 없습니다."
           }
-        }
-      }
-    },
-    "cloudTree.tunnel.connectedPinned": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud Tunnel is on: every app on this Mac can reach your Cloud VM network. `cmux vpn down` turns it off."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux クラウドトンネルはオンです。この Mac のすべてのアプリがクラウド VM ネットワークに到達できます。`cmux vpn down` でオフになります。"
-          }
-        },
+        }}},
+    "cloudTree.tunnel.connectedPinned": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux Cloud Tunnel is on: every app on this Mac can reach your Cloud VM network. `cmux vpn down` turns it off."}},"ja":{"stringUnit":{"state":"translated","value":"cmux クラウドトンネルはオンです。この Mac のすべてのアプリがクラウド VM ネットワークに到達できます。`cmux vpn down` でオフになります。"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -485717,24 +484873,8 @@
             "state": "translated",
             "value": "cmux Cloud Tunnel이 켜져 있습니다: 이 Mac의 모든 앱이 Cloud VM 네트워크에 연결할 수 있습니다. `cmux vpn down`으로 끌 수 있습니다."
           }
-        }
-      }
-    },
-    "cloudTree.tunnel.connected": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud Tunnel is on: every app on this Mac can reach your Cloud VM network. It stops on its own when idle."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux クラウドトンネルはオンです。この Mac のすべてのアプリがクラウド VM ネットワークに到達できます。アイドル状態になると自動的に停止します。"
-          }
-        },
+        }}},
+    "cloudTree.tunnel.connected": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux Cloud Tunnel is on: every app on this Mac can reach your Cloud VM network. It stops on its own when idle."}},"ja":{"stringUnit":{"state":"translated","value":"cmux クラウドトンネルはオンです。この Mac のすべてのアプリがクラウド VM ネットワークに到達できます。アイドル状態になると自動的に停止します。"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -485776,24 +484916,8 @@
             "state": "translated",
             "value": "cmux Cloud Tunnel이 켜져 있습니다: 이 Mac의 모든 앱이 Cloud VM 네트워크에 연결할 수 있습니다. 유휴 상태가 되면 자동으로 중지됩니다."
           }
-        }
-      }
-    },
-    "cloudTree.tunnel.openSystemSettings": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open System Settings"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "システム設定を開く"
-          }
-        },
+        }}},
+    "cloudTree.tunnel.openSystemSettings": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Open System Settings"}},"ja":{"stringUnit":{"state":"translated","value":"システム設定を開く"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -485835,24 +484959,8 @@
             "state": "translated",
             "value": "시스템 설정 열기"
           }
-        }
-      }
-    },
-    "cloudTree.tunnel.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The cmux Cloud Tunnel is a macOS network extension that gives every app on this Mac a route to your Cloud VM network. cmux itself does not need it: terminals, Ports, and Desktop use the built-in user-space tunnel."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux クラウドトンネルは、この Mac のすべてのアプリにクラウド VM ネットワークへの経路を与える macOS のネットワーク機能拡張です。cmux 自体には不要です。ターミナル、ポート、デスクトップは内蔵のユーザー空間トンネルを使います。"
-          }
-        },
+        }}},
+    "cloudTree.tunnel.help": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The cmux Cloud Tunnel is a macOS network extension that gives every app on this Mac a route to your Cloud VM network. cmux itself does not need it: terminals, Ports, and Desktop use the built-in user-space tunnel."}},"ja":{"stringUnit":{"state":"translated","value":"cmux クラウドトンネルは、この Mac のすべてのアプリにクラウド VM ネットワークへの経路を与える macOS のネットワーク機能拡張です。cmux 自体には不要です。ターミナル、ポート、デスクトップは内蔵のユーザー空間トンネルを使います。"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -485894,24 +485002,8 @@
             "state": "translated",
             "value": "cmux Cloud Tunnel은 이 Mac의 모든 앱에 Cloud VM 네트워크로 가는 경로를 제공하는 macOS 네트워크 확장 프로그램입니다. cmux 자체는 이것이 필요하지 않습니다: 터미널, Ports, Desktop은 내장된 사용자 공간 터널을 사용합니다."
           }
-        }
-      }
-    },
-    "cloudTree.operation.copyPortLink": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Preparing the link…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リンクを準備しています…"
-          }
-        },
+        }}},
+    "cloudTree.operation.copyPortLink": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Preparing the link…"}},"ja":{"stringUnit":{"state":"translated","value":"リンクを準備しています…"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -485953,24 +485045,8 @@
             "state": "translated",
             "value": "링크 준비 중…"
           }
-        }
-      }
-    },
-    "cloudTree.menu.copyLink": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copy Link"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リンクをコピー"
-          }
-        },
+        }}},
+    "cloudTree.menu.copyLink": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Copy Link"}},"ja":{"stringUnit":{"state":"translated","value":"リンクをコピー"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -486012,24 +485088,8 @@
             "state": "translated",
             "value": "링크 복사"
           }
-        }
-      }
-    },
-    "cloudTree.menu.copyPrivateURL": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copy Private Address URL"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プライベートアドレスの URL をコピー"
-          }
-        },
+        }}},
+    "cloudTree.menu.copyPrivateURL": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Copy Private Address URL"}},"ja":{"stringUnit":{"state":"translated","value":"プライベートアドレスの URL をコピー"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -486071,24 +485131,8 @@
             "state": "translated",
             "value": "사설 주소 URL 복사"
           }
-        }
-      }
-    },
-    "cli.vpn.appManaged.explain": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This installs the cmux Cloud Tunnel network extension and a macOS VPN configuration named “cmux Cloud”, so every app on this Mac can reach your Cloud VM network. cmux itself does not need it: terminals, Ports, and Desktop use the built-in user-space tunnel. The first time, macOS asks you to allow the extension in System Settings › General › Login Items & Extensions."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "これにより、cmux クラウドトンネルのネットワーク機能拡張と「cmux Cloud」という名前の macOS VPN 構成がインストールされ、この Mac のすべてのアプリがクラウド VM ネットワークに到達できるようになります。cmux 自体には不要です。ターミナル、ポート、デスクトップは内蔵のユーザー空間トンネルを使います。初回は、macOS が「システム設定」›「一般」›「ログイン項目と機能拡張」で機能拡張の許可を求めます。"
-          }
-        },
+        }}},
+    "cli.vpn.appManaged.explain": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This installs the cmux Cloud Tunnel network extension and a macOS VPN configuration named “cmux Cloud”, so every app on this Mac can reach your Cloud VM network. cmux itself does not need it: terminals, Ports, and Desktop use the built-in user-space tunnel. The first time, macOS asks you to allow the extension in System Settings › General › Login Items & Extensions."}},"ja":{"stringUnit":{"state":"translated","value":"これにより、cmux クラウドトンネルのネットワーク機能拡張と「cmux Cloud」という名前の macOS VPN 構成がインストールされ、この Mac のすべてのアプリがクラウド VM ネットワークに到達できるようになります。cmux 自体には不要です。ターミナル、ポート、デスクトップは内蔵のユーザー空間トンネルを使います。初回は、macOS が「システム設定」›「一般」›「ログイン項目と機能拡張」で機能拡張の許可を求めます。"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -486130,24 +485174,8 @@
             "state": "translated",
             "value": "이 작업은 cmux Cloud Tunnel 네트워크 확장 프로그램과 “cmux Cloud”라는 이름의 macOS VPN 구성을 설치하여, 이 Mac의 모든 앱이 Cloud VM 네트워크에 연결할 수 있도록 합니다. cmux 자체는 이것이 필요하지 않습니다: 터미널, Ports, Desktop은 내장된 사용자 공간 터널을 사용합니다. 최초 실행 시, macOS가 시스템 설정 › 일반 › 로그인 항목 및 확장 프로그램에서 확장 프로그램을 허용하도록 요청합니다."
           }
-        }
-      }
-    },
-    "cloudTree.link.tunnelStopping": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The cmux Cloud Tunnel is stopping…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux クラウドトンネルを停止しています…"
-          }
-        },
+        }}},
+    "cloudTree.link.tunnelStopping": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The cmux Cloud Tunnel is stopping…"}},"ja":{"stringUnit":{"state":"translated","value":"cmux クラウドトンネルを停止しています…"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -486189,24 +485217,8 @@
             "state": "translated",
             "value": "cmux Cloud Tunnel을 중지하는 중…"
           }
-        }
-      }
-    },
-    "cloudTree.error.localForwardURLUnavailable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux could not build a local address for this port forward."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux はこのポート転送用のローカルアドレスを作成できませんでした。"
-          }
-        },
+        }}},
+    "cloudTree.error.localForwardURLUnavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux could not build a local address for this port forward."}},"ja":{"stringUnit":{"state":"translated","value":"cmux はこのポート転送用のローカルアドレスを作成できませんでした。"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -486248,24 +485260,8 @@
             "state": "translated",
             "value": "cmux가 이 포트 포워딩을 위한 로컬 주소를 구성할 수 없습니다."
           }
-        }
-      }
-    },
-    "cli.vpn.appManaged.explainReconnect": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This turns the cmux Cloud Tunnel back on, so every app on this Mac can reach your Cloud VM network. cmux itself does not need it: terminals, Ports, and Desktop use the built-in user-space tunnel."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "これにより cmux クラウドトンネルが再びオンになり、この Mac のすべてのアプリがクラウド VM ネットワークに到達できるようになります。cmux 自体には不要です。ターミナル、ポート、デスクトップは内蔵のユーザー空間トンネルを使います。"
-          }
-        },
+        }}},
+    "cli.vpn.appManaged.explainReconnect": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This turns the cmux Cloud Tunnel back on, so every app on this Mac can reach your Cloud VM network. cmux itself does not need it: terminals, Ports, and Desktop use the built-in user-space tunnel."}},"ja":{"stringUnit":{"state":"translated","value":"これにより cmux クラウドトンネルが再びオンになり、この Mac のすべてのアプリがクラウド VM ネットワークに到達できるようになります。cmux 自体には不要です。ターミナル、ポート、デスクトップは内蔵のユーザー空間トンネルを使います。"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -486307,9 +485303,7 @@
             "state": "translated",
             "value": "이 작업은 cmux Cloud Tunnel을 다시 켜서 이 Mac의 모든 앱이 Cloud VM 네트워크에 연결할 수 있도록 합니다. cmux 자체는 이것이 필요하지 않습니다: 터미널, Ports, Desktop은 내장된 사용자 공간 터널을 사용합니다."
           }
-        }
-      }
-    },
+        }}},
     "agentRestore.admission.invalid": {
       "extractionState": "manual",
       "localizations": {
@@ -495369,20 +494363,10 @@
       }
     },
     "cloudTree.displays.loading": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Discovering displays…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ディスプレイを検出中…"
-          }
-        },
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Discovering displays…" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "ディスプレイを検出中…" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -495425,23 +494409,13 @@
             "value": "디스플레이 감지 중…"
           }
         }
-      }
-    },
+    }
+  },
     "cloudTree.displays.failed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn’t discover displays. Refresh to retry."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ディスプレイを検出できませんでした。更新して再試行してください。"
-          }
-        },
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Couldn’t discover displays. Refresh to retry." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "ディスプレイを検出できませんでした。更新して再試行してください。" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -495484,23 +494458,13 @@
             "value": "디스플레이를 감지할 수 없습니다. 새로고침 후 다시 시도하세요."
           }
         }
-      }
-    },
+    }
+  },
     "cloudTree.displays.asleep": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Displays unavailable while the machine sleeps"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "マシンがスリープ中はディスプレイを利用できません"
-          }
-        },
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Displays unavailable while the machine sleeps" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "マシンがスリープ中はディスプレイを利用できません" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -495543,23 +494507,13 @@
             "value": "머신이 절전 모드인 동안에는 디스플레이를 사용할 수 없습니다."
           }
         }
-      }
-    },
+    }
+  },
     "cloudTree.displays.unavailable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Display discovery unavailable. Refresh to retry."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ディスプレイ検出を利用できません。更新して再試行してください。"
-          }
-        },
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Display discovery unavailable. Refresh to retry." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "ディスプレイ検出を利用できません。更新して再試行してください。" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -495602,23 +494556,13 @@
             "value": "디스플레이 감지 기능을 사용할 수 없습니다. 새로고침 후 다시 시도하세요."
           }
         }
-      }
-    },
+    }
+  },
     "cloudTree.displays.empty": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No displays available"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "利用可能なディスプレイはありません"
-          }
-        },
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "No displays available" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "利用可能なディスプレイはありません" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -495661,23 +494605,13 @@
             "value": "사용할 수 있는 디스플레이가 없습니다."
           }
         }
-      }
-    },
+    }
+  },
     "cloudTree.workspace.pending": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New workspace"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新しいワークスペース"
-          }
-        },
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "New workspace" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "新しいワークスペース" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -495720,23 +494654,13 @@
             "value": "새 워크스페이스"
           }
         }
-      }
-    },
+    }
+  },
     "cli.vm.open.sessionsUnavailable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The machine’s sessions are unavailable. Refresh and retry."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "マシンのセッションを利用できません。更新して再試行してください。"
-          }
-        },
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "The machine’s sessions are unavailable. Refresh and retry." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "マシンのセッションを利用できません。更新して再試行してください。" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -495779,23 +494703,13 @@
             "value": "머신의 세션을 사용할 수 없습니다. 새로고침 후 다시 시도하세요."
           }
         }
-      }
-    },
+    }
+  },
     "cli.vm.tree.noDisplays": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "(none available)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "（利用可能なものはありません）"
-          }
-        },
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "(none available)" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "（利用可能なものはありません）" } },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -495838,8 +494752,8 @@
             "value": "(사용 가능한 항목 없음)"
           }
         }
-      }
-    },
+    }
+  },
     "cloudTunnel.error.cloudMachinesOff": {
       "extractionState": "manual",
       "localizations": {
@@ -496017,146 +494931,8 @@
         }
       }
     },
-    "cli.coderouter.error.notFound": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذر العثور على أداة سطر الأوامر المطلوبة. ثبّت الأمر ثم أعد المحاولة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Traženi CLI nije pronađen. Instalirajte naredbu i pokušajte ponovo."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Den nødvendige CLI blev ikke fundet. Installer kommandoen, og prøv igen."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die erforderliche CLI wurde nicht gefunden. Installieren Sie den Befehl und versuchen Sie es erneut."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Required CLI not found. Install the command and retry."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se encontró la CLI necesaria. Instala el comando y vuelve a intentarlo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La CLI requise est introuvable. Installez la commande, puis réessayez."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La CLI richiesta non è stata trovata. Installa il comando e riprova."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "必要な CLI が見つかりません。コマンドをインストールして、もう一度お試しください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "រកមិនឃើញ CLI ដែលត្រូវការ។ សូមដំឡើងពាក្យបញ្ជា ហើយព្យាយាមម្ដងទៀត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "필요한 CLI를 찾을 수 없습니다. 명령을 설치한 후 다시 시도하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fant ikke den nødvendige CLI-en. Installer kommandoen og prøv igjen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nie znaleziono wymaganej CLI. Zainstaluj polecenie i spróbuj ponownie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A CLI necessária não foi encontrada. Instale o comando e tente novamente."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не удалось найти необходимый CLI. Установите команду и повторите попытку."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ไม่พบ CLI ที่จำเป็น โปรดติดตั้งคำสั่งแล้วลองอีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gerekli CLI bulunamadı. Komutu yükleyip tekrar deneyin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не знайдено потрібний CLI. Установіть команду та повторіть спробу."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未找到所需的 CLI。请安装该命令后重试。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "找不到必要的 CLI。請安裝該命令後再試一次。"
-          }
-        }
-      }
-    },
-    "featureFlags.cloudVM.description": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shows Cloud VM entrypoints in the new-workspace dropdown and command palette."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新規ワークスペースのドロップダウンとコマンドパレットにクラウドVMのエントリーポイントを表示します。"
-          }
-        },
+    "cli.coderouter.error.notFound": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"تعذر العثور على أداة سطر الأوامر المطلوبة. ثبّت الأمر ثم أعد المحاولة."}},"bs":{"stringUnit":{"state":"translated","value":"Traženi CLI nije pronađen. Instalirajte naredbu i pokušajte ponovo."}},"da":{"stringUnit":{"state":"translated","value":"Den nødvendige CLI blev ikke fundet. Installer kommandoen, og prøv igen."}},"de":{"stringUnit":{"state":"translated","value":"Die erforderliche CLI wurde nicht gefunden. Installieren Sie den Befehl und versuchen Sie es erneut."}},"en":{"stringUnit":{"state":"translated","value":"Required CLI not found. Install the command and retry."}},"es":{"stringUnit":{"state":"translated","value":"No se encontró la CLI necesaria. Instala el comando y vuelve a intentarlo."}},"fr":{"stringUnit":{"state":"translated","value":"La CLI requise est introuvable. Installez la commande, puis réessayez."}},"it":{"stringUnit":{"state":"translated","value":"La CLI richiesta non è stata trovata. Installa il comando e riprova."}},"ja":{"stringUnit":{"state":"translated","value":"必要な CLI が見つかりません。コマンドをインストールして、もう一度お試しください。"}},"km":{"stringUnit":{"state":"translated","value":"រកមិនឃើញ CLI ដែលត្រូវការ។ សូមដំឡើងពាក្យបញ្ជា ហើយព្យាយាមម្ដងទៀត។"}},"ko":{"stringUnit":{"state":"translated","value":"필요한 CLI를 찾을 수 없습니다. 명령을 설치한 후 다시 시도하세요."}},"nb":{"stringUnit":{"state":"translated","value":"Fant ikke den nødvendige CLI-en. Installer kommandoen og prøv igjen."}},"pl":{"stringUnit":{"state":"translated","value":"Nie znaleziono wymaganej CLI. Zainstaluj polecenie i spróbuj ponownie."}},"pt-BR":{"stringUnit":{"state":"translated","value":"A CLI necessária não foi encontrada. Instale o comando e tente novamente."}},"ru":{"stringUnit":{"state":"translated","value":"Не удалось найти необходимый CLI. Установите команду и повторите попытку."}},"th":{"stringUnit":{"state":"translated","value":"ไม่พบ CLI ที่จำเป็น โปรดติดตั้งคำสั่งแล้วลองอีกครั้ง"}},"tr":{"stringUnit":{"state":"translated","value":"Gerekli CLI bulunamadı. Komutu yükleyip tekrar deneyin."}},"uk":{"stringUnit":{"state":"translated","value":"Не знайдено потрібний CLI. Установіть команду та повторіть спробу."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"未找到所需的 CLI。请安装该命令后重试。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"找不到必要的 CLI。請安裝該命令後再試一次。"}}}},
+    "featureFlags.cloudVM.description": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Shows Cloud VM entrypoints in the new-workspace dropdown and command palette."}},"ja":{"stringUnit":{"state":"translated","value":"新規ワークスペースのドロップダウンとコマンドパレットにクラウドVMのエントリーポイントを表示します。"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -496198,24 +494974,8 @@
             "state": "translated",
             "value": "새 워크스페이스 드롭다운 및 명령 팔레트에 Cloud VM 진입점을 표시합니다."
           }
-        }
-      }
-    },
-    "featureFlags.cloudVM.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM UI"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "クラウドVM UI"
-          }
-        },
+        }}},
+    "featureFlags.cloudVM.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM UI"}},"ja":{"stringUnit":{"state":"translated","value":"クラウドVM UI"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -496257,24 +495017,8 @@
             "state": "translated",
             "value": "클라우드 VM UI"
           }
-        }
-      }
-    },
-    "cloud.managed.tunnelDisabled": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud private-network access is disabled by your organization."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud のプライベートネットワークアクセスは組織によって無効になっています。"
-          }
-        },
+        }}},
+    "cloud.managed.tunnelDisabled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud private-network access is disabled by your organization."}},"ja":{"stringUnit":{"state":"translated","value":"Cloud のプライベートネットワークアクセスは組織によって無効になっています。"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -496316,24 +495060,8 @@
             "state": "translated",
             "value": "조직에 의해 Cloud 사설 네트워크 접근이 비활성화되었습니다."
           }
-        }
-      }
-    },
-    "machines.managedPolicy.disconnectedDetail": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM access ended because your organization disabled cmux Cloud."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "組織が cmux Cloud を無効にしたため、Cloud VM へのアクセスは終了しました。"
-          }
-        },
+        }}},
+    "machines.managedPolicy.disconnectedDetail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM access ended because your organization disabled cmux Cloud."}},"ja":{"stringUnit":{"state":"translated","value":"組織が cmux Cloud を無効にしたため、Cloud VM へのアクセスは終了しました。"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -496375,24 +495103,8 @@
             "state": "translated",
             "value": "조직에서 cmux Cloud를 비활성화했기 때문에 Cloud VM 접근이 종료되었습니다."
           }
-        }
-      }
-    },
-    "managedPolicy.remoteConnections.disabled": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remote connections are disabled by your organization."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リモート接続は組織によって無効になっています。"
-          }
-        },
+        }}},
+    "managedPolicy.remoteConnections.disabled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Remote connections are disabled by your organization."}},"ja":{"stringUnit":{"state":"translated","value":"リモート接続は組織によって無効になっています。"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -496434,24 +495146,8 @@
             "state": "translated",
             "value": "조직에 의해 원격 연결이 비활성화되었습니다."
           }
-        }
-      }
-    },
-    "managedPolicy.fileTransfer.disabled": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "File transfer is disabled by your organization."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ファイル転送は組織によって無効になっています。"
-          }
-        },
+        }}},
+    "managedPolicy.fileTransfer.disabled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"File transfer is disabled by your organization."}},"ja":{"stringUnit":{"state":"translated","value":"ファイル転送は組織によって無効になっています。"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -496493,24 +495189,8 @@
             "state": "translated",
             "value": "조직에 의해 파일 전송이 비활성화되었습니다."
           }
-        }
-      }
-    },
-    "managedPolicy.irohNetworking.disabled": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux relay networking is disabled by your organization."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux のリレーネットワークは組織によって無効になっています。"
-          }
-        },
+        }}},
+    "managedPolicy.irohNetworking.disabled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux relay networking is disabled by your organization."}},"ja":{"stringUnit":{"state":"translated","value":"cmux のリレーネットワークは組織によって無効になっています。"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -496552,24 +495232,8 @@
             "state": "translated",
             "value": "조직에 의해 cmux 릴레이 네트워킹이 비활성화되었습니다."
           }
-        }
-      }
-    },
-    "agentRestore.admission.unavailable.hookStoreUnreadable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux could not read its saved session records for this agent, so it cannot tell whether the session is already running. Retry 'cmux restore --surface'."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このエージェントの保存済みセッション記録を読み取れなかったため、セッションがすでに実行中かどうかを cmux で判断できません。「cmux restore --surface」を再試行してください。"
-          }
-        },
+        }}},
+    "agentRestore.admission.unavailable.hookStoreUnreadable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux could not read its saved session records for this agent, so it cannot tell whether the session is already running. Retry 'cmux restore --surface'."}},"ja":{"stringUnit":{"state":"translated","value":"このエージェントの保存済みセッション記録を読み取れなかったため、セッションがすでに実行中かどうかを cmux で判断できません。「cmux restore --surface」を再試行してください。"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -496611,24 +495275,8 @@
             "state": "translated",
             "value": "cmux가 이 에이전트에 대해 저장된 세션 기록을 읽을 수 없어 세션이 이미 실행 중인지 알 수 없습니다. 'cmux restore --surface'를 다시 시도하세요."
           }
-        }
-      }
-    },
-    "agentRestore.admission.unavailable.timedOut": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux could not finish checking whether this agent session is already running before the time limit. Retry 'cmux restore --surface'."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このエージェントセッションがすでに実行中かどうかの確認が制限時間内に終わりませんでした。「cmux restore --surface」を再試行してください。"
-          }
-        },
+        }}},
+    "agentRestore.admission.unavailable.timedOut": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux could not finish checking whether this agent session is already running before the time limit. Retry 'cmux restore --surface'."}},"ja":{"stringUnit":{"state":"translated","value":"このエージェントセッションがすでに実行中かどうかの確認が制限時間内に終わりませんでした。「cmux restore --surface」を再試行してください。"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -496670,24 +495318,8 @@
             "state": "translated",
             "value": "cmux가 시간 제한 내에 이 에이전트 세션의 중복 실행 여부를 확인하지 못했습니다. 'cmux restore --surface'를 다시 시도하세요."
           }
-        }
-      }
-    },
-    "agentRestore.unverifiable.notice": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux could not verify whether this agent session is already running, so it did not resume the session automatically. Run 'cmux restore --surface' to resume it here."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このエージェントセッションがすでに実行中かどうかを cmux で確認できなかったため、セッションを自動的に再開しませんでした。このターミナルで再開するには「cmux restore --surface」を実行してください。"
-          }
-        },
+        }}},
+    "agentRestore.unverifiable.notice": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux could not verify whether this agent session is already running, so it did not resume the session automatically. Run 'cmux restore --surface' to resume it here."}},"ja":{"stringUnit":{"state":"translated","value":"このエージェントセッションがすでに実行中かどうかを cmux で確認できなかったため、セッションを自動的に再開しませんでした。このターミナルで再開するには「cmux restore --surface」を実行してください。"}},
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -496729,9 +495361,7 @@
             "state": "translated",
             "value": "cmux가 이 에이전트 세션의 중복 실행 여부를 확인할 수 없어 세션을 자동으로 재개하지 않았습니다. 여기서 재개하려면 'cmux restore --surface'를 실행하세요."
           }
-        }
-      }
-    },
+        }}}  ,
     "cli.surface.open.tabAndSide": {
       "extractionState": "manual",
       "localizations": {
