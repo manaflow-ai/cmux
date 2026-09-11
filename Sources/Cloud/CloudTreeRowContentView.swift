@@ -39,7 +39,15 @@ enum CloudTreeIconPalette {
 /// nothing here is interactive.
 struct CloudTreeRowContentView: View {
     let kind: CloudTreeNode.Kind
+    /// A terminal beneath this row has a notification this Mac has not read
+    /// (`CloudTreeNode.hasUnreadNotification`, derived from the terminal rows).
+    /// Workspace rows show it so a collapsed workspace still surfaces the dot.
+    var hasUnreadDescendant: Bool = false
     var style: CloudTreeStyle = CloudTreeStyleStore.current
+
+    static var workspaceUnreadHelp: String {
+        String(localized: "cloudTree.workspace.unread.help", defaultValue: "A terminal in this workspace has a notification you have not read on this Mac")
+    }
 
     private static func nonEmptyTrimmed(_ value: String?) -> String? {
         guard let value else { return nil }
@@ -95,7 +103,9 @@ struct CloudTreeRowContentView: View {
                 detail: style.showsGroupCounts
                     ? CloudTreeRowContentView.count(terminalCount)
                     : nil
-            )
+            ) {
+                CloudTreeUnreadDot(style: style, visible: hasUnreadDescendant, help: Self.workspaceUnreadHelp)
+            }
         case .localWorkspace(let row):
             CloudTreeLeafRow(
                 style: style,
@@ -104,7 +114,9 @@ struct CloudTreeRowContentView: View {
                 title: row.title,
                 titleWeight: row.isSelected ? .medium : .regular,
                 detail: style.showsGroupCounts ? CloudTreeRowContentView.count(row.terminalCount) : nil
-            )
+            ) {
+                CloudTreeUnreadDot(style: style, visible: hasUnreadDescendant, help: Self.workspaceUnreadHelp)
+            }
         case .terminal(let row):
             CloudTreeTerminalRowContent(row: row, style: style)
         case .display(let resource, _, let remoteView):
@@ -393,6 +405,26 @@ extension CloudTreeLeafRow where Accessories == EmptyView {
     }
 }
 
+/// The per-client attention dot shared by terminal rows and the workspace rows
+/// above them. The dot is always in the layout and only its opacity changes: an
+/// in-place row refresh (reloadData(forRowIndexes:)) re-hosts the same SwiftUI
+/// tree, and a structural insert there is not repainted.
+struct CloudTreeUnreadDot: View {
+    let style: CloudTreeStyle
+    let visible: Bool
+    let help: String
+
+    var body: some View {
+        Circle()
+            .fill(Color.accentColor)
+            .frame(width: max(style.iconSize * 0.5, 6), height: max(style.iconSize * 0.5, 6))
+            .opacity(visible ? 1 : 0)
+            .accessibilityHidden(!visible)
+            .help(visible ? help : "")
+            .accessibilityLabel(visible ? help : "")
+    }
+}
+
 /// A cmux-tui terminal row: lifecycle glyph, title (a dim sparkle prefix when an
 /// agent is running in it), dimmed cwd, an optional daemon-tab badge on pool
 /// rows, and a dim "open" mark when a local pane is already showing it.
@@ -430,17 +462,11 @@ struct CloudTreeTerminalRowContent: View {
             // always in the layout and only its opacity changes: an in-place
             // row refresh (reloadData(forRowIndexes:)) re-hosts the same
             // SwiftUI tree, and a structural insert there is not repainted.
-            Circle()
-                .fill(Color.accentColor)
-                .frame(width: max(style.iconSize * 0.5, 6), height: max(style.iconSize * 0.5, 6))
-                .opacity(row.hasUnreadNotification ? 1 : 0)
-                .accessibilityHidden(!row.hasUnreadNotification)
-                .help(row.hasUnreadNotification
-                      ? String(localized: "cloudTree.terminal.unread.help", defaultValue: "This terminal has a notification you have not read on this Mac")
-                      : "")
-                .accessibilityLabel(row.hasUnreadNotification
-                                    ? String(localized: "cloudTree.terminal.unread.help", defaultValue: "This terminal has a notification you have not read on this Mac")
-                                    : "")
+            CloudTreeUnreadDot(
+                style: style,
+                visible: row.hasUnreadNotification,
+                help: String(localized: "cloudTree.terminal.unread.help", defaultValue: "This terminal has a notification you have not read on this Mac")
+            )
             if showsDetachedState {
                 // Zero views: still running on the machine, no daemon tab shows it.
                 // Greyed with a "detached" mark (austin, 2026-09-02 — reversing the

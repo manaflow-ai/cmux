@@ -188,6 +188,48 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         )
     }
 
+    /// The unread dot on a workspace row is not stored anywhere: it is read
+    /// off the terminal rows beneath it every time, so the workspace can never
+    /// disagree with its terminals (https://github.com/manaflow-ai/cmux/pull/12112
+    /// put the dot on terminal rows only, which hid it for a collapsed workspace).
+    @Test("A workspace row derives its unread dot from the terminals beneath it")
+    func workspaceUnreadDerivesFromItsTerminals() throws {
+        let main = workspace("ws_main", "main", index: 0, focused: true)
+        let side = workspace("ws_side", "side", index: 1)
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [info(workspaces: [main, side])],
+            resources: [terminal("term_a", in: [main]), terminal("term_b", in: [side])],
+            projections: []
+        )
+        func tree(unread: Set<String>) -> [CloudTreeNode] {
+            CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(
+                machines: [fleetRow()], snapshot: snapshot, localWorkspaces: [],
+                unreadTerminalIDs: unread.isEmpty ? [:] : [machineID: unread], includeLocalMachine: false
+            ))
+        }
+        func node(_ id: String, in nodes: [CloudTreeNode]) -> CloudTreeNode? { nodes.first { $0.id == id } }
+
+        let unread = tree(unread: ["term_b"])
+        let mainRow = try #require(node("machine:brave-otter/ws/ws_main", in: unread))
+        let sideRow = try #require(node("machine:brave-otter/ws/ws_side", in: unread))
+        #expect(!mainRow.hasUnreadNotification, "no unread terminal under main")
+        #expect(sideRow.hasUnreadNotification, "term_b under side is unread")
+        #expect(try #require(node("machine:brave-otter", in: unread)).hasUnreadNotification, "the machine derives it too")
+        let sideTerminal = try #require(sideRow.children.first { if case .terminal(let row) = $0.kind { return row.resource.id.key == "term_b" }; return false })
+        #expect(sideTerminal.hasUnreadNotification)
+
+        // Reading it on this Mac clears the terminal flag; the workspace follows
+        // with no second write, because it has no state of its own.
+        let read = tree(unread: [])
+        #expect(!(try #require(node("machine:brave-otter/ws/ws_side", in: read))).hasUnreadNotification)
+        #expect(!(try #require(node("machine:brave-otter", in: read))).hasUnreadNotification)
+
+        // Adopting a refreshed tree in place carries the derived value with it.
+        let stale = tree(unread: ["term_b"])
+        for (existing, replacement) in zip(stale, read) { existing.adopt(from: replacement) }
+        #expect(!(try #require(node("machine:brave-otter/ws/ws_side", in: stale))).hasUnreadNotification)
+    }
+
     @Test("A machine with a single workspace keeps its Workspaces group row and the group's +")
     func singleWorkspaceKeepsItsGroupRow() throws {
         let main = workspace("ws_main", "main", index: 0, focused: true)
