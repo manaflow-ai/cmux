@@ -196,6 +196,114 @@ struct WorkspaceSidebarObservationTests {
         #expect(received == [1, 2, 5, 6])
     }
 
+    @Test func coalesceLatestRetainsScheduledTrailingValueUntilDemandReturns() {
+        let scheduler = VirtualCoalesceScheduler()
+        let subject = CurrentValueSubject<Int, Never>(1)
+        let subscriber = ManualDemandSubscriber<Int>()
+
+        subject
+            .coalesceLatest(for: .milliseconds(50), scheduler: scheduler)
+            .subscribe(subscriber)
+
+        #expect(
+            subscriber.received.isEmpty,
+            "A publisher cannot emit its replay before downstream requests demand."
+        )
+
+        subscriber.request(.max(1))
+        #expect(subscriber.received == [1])
+
+        subject.send(2)
+        subject.send(3)
+        scheduler.advance(by: 0.06)
+        scheduler.runScheduledActions()
+
+        #expect(
+            subscriber.received == [1],
+            "A burst cannot emit while downstream demand is exhausted."
+        )
+
+        subscriber.request(.max(1))
+        #expect(
+            subscriber.received == [1, 3],
+            "The next demand must receive the latest coalesced value."
+        )
+    }
+
+    @Test func coalesceLatestSerializesReentrantValuesAndCompletion() {
+        let scheduler = VirtualCoalesceScheduler()
+        let subject = PassthroughSubject<Int, Never>()
+        let subscriber = ReentrantDemandSubscriber {
+            subject.send(2)
+            subject.send(completion: .finished)
+        }
+
+        subject
+            .coalesceLatest(for: .milliseconds(50), scheduler: scheduler)
+            .subscribe(subscriber)
+
+        subscriber.request(.max(1))
+        subject.send(1)
+
+        #expect(
+            subscriber.events == [
+                "value 1 begin",
+                "value 1 end",
+                "value 2 begin",
+                "value 2 end",
+                "completion",
+            ]
+        )
+        #expect(
+            subscriber.maximumCallbackDepth == 1,
+            "Downstream value and completion callbacks must never nest."
+        )
+    }
+
+    @Test func coalesceLatestUsesDemandReturnedByDownstream() {
+        let scheduler = VirtualCoalesceScheduler()
+        let subject = PassthroughSubject<Int, Never>()
+        let subscriber = ManualDemandSubscriber<Int>(returning: .max(1))
+
+        subject
+            .coalesceLatest(for: .milliseconds(50), scheduler: scheduler)
+            .subscribe(subscriber)
+
+        subscriber.request(.max(1))
+        subject.send(1)
+        subject.send(2)
+        subject.send(3)
+        scheduler.advance(by: 0.06)
+        scheduler.runScheduledActions()
+
+        #expect(
+            subscriber.received == [1, 2, 3],
+            "Returned demand must carry replay, leading, and trailing values without another request."
+        )
+    }
+
+    @Test func coalesceLatestSupportsAsyncPublisherDemandBetweenIteratorCalls() async {
+        let scheduler = VirtualCoalesceScheduler()
+        let subject = CurrentValueSubject<Int, Never>(1)
+        let publisher = subject.coalesceLatest(
+            for: .milliseconds(50),
+            scheduler: scheduler
+        )
+        var iterator = publisher.values.makeAsyncIterator()
+
+        let replay = await iterator.next()
+        #expect(replay == 1)
+
+        subject.send(2)
+        subject.send(3)
+        subject.send(completion: .finished)
+
+        let latest = await iterator.next()
+        let end = await iterator.next()
+        #expect(latest == 3)
+        #expect(end == nil)
+    }
+
     @Test func coalesceLatestDropsStalePendingValueWhenLeadingSupersedesOverdueTrailing() {
         let scheduler = VirtualCoalesceScheduler()
         let subject = PassthroughSubject<Int, Never>()
@@ -460,6 +568,85 @@ private final class DemandControlledSubscriber<Input>: Subscriber {
     func cancel() {
         subscription?.cancel()
         subscription = nil
+    }
+}
+
+private final class ManualDemandSubscriber<Input>: Subscriber {
+    typealias Failure = Never
+
+    private let returnedDemand: Subscribers.Demand
+    private var subscription: Subscription?
+    private(set) var received: [Input] = []
+
+    init(returning returnedDemand: Subscribers.Demand = .none) {
+        self.returnedDemand = returnedDemand
+    }
+
+    func receive(subscription: Subscription) {
+        self.subscription = subscription
+    }
+
+    func receive(_ input: Input) -> Subscribers.Demand {
+        received.append(input)
+        return returnedDemand
+    }
+
+    func receive(completion: Subscribers.Completion<Never>) {
+    }
+
+    func request(_ demand: Subscribers.Demand) {
+        subscription?.request(demand)
+    }
+}
+
+private final class ReentrantDemandSubscriber: Subscriber {
+    typealias Input = Int
+    typealias Failure = Never
+
+    private let whileReceivingFirstValue: () -> Void
+    private var subscription: Subscription?
+    private var callbackDepth = 0
+    private var handledFirstValue = false
+    private(set) var maximumCallbackDepth = 0
+    private(set) var events: [String] = []
+
+    init(whileReceivingFirstValue: @escaping () -> Void) {
+        self.whileReceivingFirstValue = whileReceivingFirstValue
+    }
+
+    func receive(subscription: Subscription) {
+        self.subscription = subscription
+    }
+
+    func receive(_ input: Int) -> Subscribers.Demand {
+        beginCallback()
+        events.append("value \(input) begin")
+        if !handledFirstValue {
+            handledFirstValue = true
+            whileReceivingFirstValue()
+        }
+        events.append("value \(input) end")
+        endCallback()
+        return input == 1 ? .max(1) : .none
+    }
+
+    func receive(completion: Subscribers.Completion<Never>) {
+        beginCallback()
+        events.append("completion")
+        endCallback()
+    }
+
+    func request(_ demand: Subscribers.Demand) {
+        subscription?.request(demand)
+    }
+
+    private func beginCallback() {
+        callbackDepth += 1
+        maximumCallbackDepth = max(maximumCallbackDepth, callbackDepth)
+    }
+
+    private func endCallback() {
+        callbackDepth -= 1
     }
 }
 // Deterministic Combine scheduler for coalesceLatest tests: `now` only moves
