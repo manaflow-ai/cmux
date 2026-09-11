@@ -1,7 +1,7 @@
+import CmuxSettings
 import Foundation
 
-// Port observations and sidebar projection stay together so Workspace keeps
-// authoritative raw ports while exposing a filtered presentation projection.
+/// Port presentation and remote status derived from authoritative workspace state.
 extension Workspace {
     func recomputeListeningPorts() {
         let policy = currentSidebarPortVisibilityPolicy()
@@ -16,92 +16,6 @@ extension Workspace {
         // Keep authoritative observations independent from the sidebar
         // projection so control APIs and automation never lose hidden badges.
         setSidebarVisibleListeningPorts(policy.visiblePorts(from: authoritativePorts))
-    }
-
-    /// Returns the indexed sidebar projection policy shared by every port-badge surface.
-    func currentSidebarPortVisibilityPolicy() -> SidebarPortVisibilityPolicy {
-        sidebarPortVisibilityPolicy
-    }
-
-    /// Applies one or more raw per-surface observations with a single publication.
-    /// The sidebar cache is updated only for the touched surfaces before observers
-    /// receive the new authoritative dictionary.
-    func updateSurfaceListeningPorts(
-        setting updates: [UUID: [Int]] = [:],
-        removing removedPanelIds: Set<UUID> = []
-    ) {
-        guard !updates.isEmpty || !removedPanelIds.isEmpty else { return }
-
-        var next = surfaceListeningPorts
-        var didChange = false
-
-        for panelId in removedPanelIds {
-            if next.removeValue(forKey: panelId) != nil {
-                didChange = true
-            }
-            sidebarVisibleSurfacePorts.removeValue(forKey: panelId)
-        }
-
-        for (panelId, ports) in updates {
-            let visiblePorts = sidebarPortVisibilityPolicy.visiblePorts(from: ports)
-            if sidebarVisibleSurfacePorts[panelId] != visiblePorts {
-                sidebarVisibleSurfacePorts[panelId] = visiblePorts
-            }
-            if next[panelId] != ports {
-                next[panelId] = ports
-                didChange = true
-            }
-        }
-
-        guard didChange else { return }
-        surfaceListeningPorts = next
-    }
-
-    func setSurfaceListeningPorts(_ ports: [Int], for panelId: UUID) {
-        updateSurfaceListeningPorts(setting: [panelId: ports])
-    }
-
-    func removeSurfaceListeningPorts(for panelId: UUID) {
-        updateSurfaceListeningPorts(removing: [panelId])
-    }
-
-    func removeAllSurfaceListeningPorts() {
-        sidebarVisibleSurfacePorts.removeAll()
-        guard !surfaceListeningPorts.isEmpty else { return }
-        surfaceListeningPorts.removeAll()
-    }
-
-    func retainSurfaceListeningPorts(for validPanelIds: Set<UUID>) {
-        let removedPanelIds = Set(surfaceListeningPorts.keys).subtracting(validPanelIds)
-        updateSurfaceListeningPorts(removing: removedPanelIds)
-    }
-
-    func setSidebarVisibleListeningPorts(_ ports: [Int]) {
-        guard sidebarVisibleListeningPorts != ports else { return }
-        sidebarVisibleListeningPorts = ports
-    }
-
-    /// Rebuilds the per-surface sidebar projection outside SwiftUI render paths.
-    func refreshSidebarVisibleSurfacePorts(using policy: SidebarPortVisibilityPolicy) {
-        let next = surfaceListeningPorts.mapValues { policy.visiblePorts(from: $0) }
-        guard next != sidebarVisibleSurfacePorts else { return }
-        sidebarVisibleSurfacePorts = next
-    }
-
-    /// Returns the cached sidebar projection for one surface.
-    func sidebarVisiblePorts(for panelId: UUID) -> [Int] {
-        sidebarVisibleSurfacePorts[panelId] ?? []
-    }
-
-    /// Rebuilds and applies the policy only when ignored-port behavior changes.
-    func refreshSidebarPortVisibilityPolicy() {
-        let nextPolicy = SidebarPortVisibilityPolicy(
-            ignoredRules: settings.value(for: SettingCatalog().sidebar.ignoredPorts)
-        )
-        guard nextPolicy != sidebarPortVisibilityPolicy else { return }
-        sidebarPortVisibilityPolicy = nextPolicy
-        refreshSidebarVisibleSurfacePorts(using: nextPolicy)
-        recomputeListeningPorts()
     }
 
     /// Whether remote listening-port discovery may run, derived from the global
@@ -169,4 +83,97 @@ extension Workspace {
             attachmentToken: attachmentToken
         )
     }
+
+    func makeRemoteStatusPayload(
+        heartbeatTimestamp: Any,
+        hasProxyOnlyRemoteSidebarError: Bool
+    ) -> [String: Any] {
+        let heartbeatAgeSeconds: Any = {
+            guard let last = remoteLastHeartbeatAt else { return NSNull() }
+            return max(0, Date().timeIntervalSince(last))
+        }()
+        var payload: [String: Any] = [
+            "enabled": remoteConfiguration != nil,
+            "state": remoteConnectionState.rawValue,
+            "connected": remoteConnectionState == .connected,
+            "active_terminal_sessions": activeRemoteTerminalSessionCount,
+            "daemon": remoteDaemonStatus.payload(),
+            "detected_ports": remoteDetectedPorts,
+            "forwarded_ports": remoteForwardedPorts,
+            "conflicted_ports": remotePortConflicts,
+            "detail": remoteConnectionDetail ?? NSNull(),
+            "heartbeat": [
+                "count": remoteHeartbeatCount,
+                "last_seen_at": heartbeatTimestamp,
+                "age_seconds": heartbeatAgeSeconds,
+            ],
+        ]
+        if let endpoint = remoteProxyEndpoint {
+            payload["proxy"] = [
+                "state": "ready",
+                "host": endpoint.host,
+                "port": endpoint.port,
+                "schemes": ["socks5", "http_connect"],
+                "url": "socks5://\(endpoint.host):\(endpoint.port)",
+            ]
+        } else {
+            let proxyState: String
+            if hasProxyOnlyRemoteSidebarError {
+                proxyState = "error"
+            } else {
+                switch remoteConnectionState {
+                case .connecting, .reconnecting:
+                    proxyState = "connecting"
+                case .error:
+                    proxyState = "error"
+                default:
+                    proxyState = "unavailable"
+                }
+            }
+            payload["proxy"] = [
+                "state": proxyState,
+                "host": NSNull(),
+                "port": NSNull(),
+                "schemes": ["socks5", "http_connect"],
+                "url": NSNull(),
+                "error_code": proxyState == "error" ? "proxy_unavailable" : NSNull(),
+            ]
+        }
+        payload["transport"] = (remoteConfiguration?.transport.rawValue as Any?) ?? NSNull()
+        payload["terminal_transport"] = (remoteConfiguration?.terminalTransport.rawValue as Any?) ?? NSNull()
+        payload["terminal_profile"] = (remoteConfiguration?.terminalProfile.kind.rawValue as Any?) ?? NSNull()
+        payload["terminal_tmux_session"] = (remoteConfiguration?.terminalProfile.tmuxSessionName as Any?) ?? NSNull()
+        if let remoteConfiguration {
+            payload["destination"] = remoteConfiguration.destination
+            payload["port"] = remoteConfiguration.port ?? NSNull()
+            payload["has_identity_file"] = remoteConfiguration.identityFile != nil
+            payload["has_ssh_options"] = !remoteConfiguration.sshOptions.isEmpty
+            payload["local_proxy_port"] = remoteConfiguration.localProxyPort ?? NSNull()
+            payload["persistent_daemon_slot"] = remoteConfiguration.persistentDaemonSlot ?? NSNull()
+            payload["managed_cloud_vm_id"] = remoteConfiguration.managedCloudVMID ?? NSNull()
+        } else {
+            payload["destination"] = NSNull()
+            payload["port"] = NSNull()
+            payload["has_identity_file"] = false
+            payload["has_ssh_options"] = false
+            payload["local_proxy_port"] = NSNull()
+            payload["persistent_daemon_slot"] = NSNull()
+        }
+        // A cmux-tui workspace reports its machine under the same key the managed
+        // transports use, so `cmux vm desktop`/the Machines panel find it either way.
+        if let binding = cloudVMBinding {
+            if remoteConfiguration?.managedCloudVMID?.isEmpty != false {
+                payload["managed_cloud_vm_id"] = binding.vmID
+            }
+            payload["cloud_vm_id"] = binding.vmID
+            payload["cloud_vm_base"] = binding.isBase
+            payload["cloud_vm_transport"] = "cmux-remote"
+        } else {
+            payload["cloud_vm_id"] = NSNull()
+            payload["cloud_vm_base"] = NSNull()
+            payload["cloud_vm_transport"] = NSNull()
+        }
+        return payload
+    }
+
 }

@@ -468,8 +468,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let handled = expectation(description: "silent pty bridge server handled")
         DispatchQueue.global(qos: .userInitiated).async {
             defer { handled.fulfill() }
-            var clientAddr = sockaddr_un(); var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.accept(listenerFD, $0, &clientAddrLen) } }
+            let clientFD = Darwin.accept(listenerFD, nil, nil)
             guard clientFD >= 0 else { return }
             defer { Darwin.close(clientFD) }
             var buffer = [UInt8](repeating: 0, count: 1024)
@@ -482,6 +481,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         return handled
     }
+
     private func sshPTYAttachTestEnvironment(socketPath: String) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath

@@ -371,11 +371,6 @@ extension Workspace {
         PortScanner.shared.refreshAgentPorts(workspaceId: id, agentRoots: remainingAgentRoots)
     }
 
-        // Keep authoritative observations independent from the sidebar
-        // projection so control APIs and automation never lose hidden badges.
-        setSidebarVisibleListeningPorts(policy.visiblePorts(from: authoritativePorts))
-    }
-
     @discardableResult
     private func discardAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) -> Bool {
         guard let runtimeState else { return false }

@@ -16,6 +16,7 @@ struct SSHDeepSleepReattachTests {
         let stderr: String
         let timedOut: Bool
     }
+
     @MainActor
     @Test func persistentAttachFailurePreservesReattachIdentityAndConnectionOwner() throws {
         let workspace = Workspace()
@@ -30,7 +31,9 @@ struct SSHDeepSleepReattachTests {
             workspaceId: workspace.id,
             panelId: panel.id
         )
+
         workspace.markPersistentRemotePTYAttachFailed(surfaceId: panel.id)
+
         #expect(workspace.remoteConnectionState == .connected)
         #expect(workspace.isRemoteTerminalSurface(panel.id))
         #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(panel.id))
@@ -342,18 +345,17 @@ struct SSHDeepSleepReattachTests {
         environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
         environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
-        environment["CMUX_TEST_SSH_TOOL_PATH"] = fakeSSH.path
         environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
         environment["CMUX_TEST_AUTH_ATTEMPT_FILE"] = authAttemptFile.path
         environment["CMUX_TEST_SLEEP_LOG"] = sleepLog.path
         environment["CMUX_SSH_RECONNECT_LIMIT"] = reconnectLimit
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
         environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "5"
-
         let result = Self.runProcess(
             command: SSHPTYAttachStartupCommandBuilder.command(
                 sessionID: "ssh-test-session",
-                foregroundAuth: Self.foregroundAuth()
+                foregroundAuth: Self.foregroundAuth(),
+                sshExecutable: fakeSSH.path
             ),
             environment: environment
         )
@@ -406,7 +408,6 @@ struct SSHDeepSleepReattachTests {
         environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
         environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
-        environment["CMUX_TEST_SSH_TOOL_PATH"] = fakeSSH.path
         environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
         environment["CMUX_TEST_SLEEP_LOG"] = sleepLog.path
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = delay
@@ -457,14 +458,13 @@ struct SSHDeepSleepReattachTests {
         environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
         environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
-        environment["CMUX_TEST_SSH_TOOL_PATH"] = fakeSSH.path
         environment["CMUX_TEST_AUTH_ATTEMPT_FILE"] = authAttemptFile.path
         environment["CMUX_TEST_CLI_ATTEMPT_FILE"] = cliAttemptFile.path
-
         let result = Self.runProcess(
             command: SSHPTYAttachStartupCommandBuilder.command(
                 sessionID: "ssh-test-session",
-                foregroundAuth: Self.foregroundAuth()
+                foregroundAuth: Self.foregroundAuth(),
+                sshExecutable: fakeSSH.path
             ),
             environment: environment
         )
