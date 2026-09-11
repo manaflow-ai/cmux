@@ -195,6 +195,15 @@ class GeneratedClientMixin:
     def ping(self) -> PingResult:
         return self._invoke_command('ping', PingRequest())
 
+    def presence_clear(self) -> EmptyResult:
+        return self._invoke_command('presence-clear', PresenceClearRequest())
+
+    def presence_list(self) -> PresenceListResult:
+        return self._invoke_command('presence-list', PresenceListRequest())
+
+    def presence_update(self, surface: Id, *, highlight: Union[PresenceHighlight, None, MissingType] = MISSING, pointer: Union[PresenceAnchor, None, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('presence-update', PresenceUpdateRequest(surface=surface, highlight=highlight, pointer=pointer))
+
     def process_info(self, surface: Id) -> ProcessInfoResult:
         return self._invoke_command('process-info', ProcessInfoRequest(surface=surface))
 
@@ -392,6 +401,9 @@ GeneratedClientMixin.notify.__cmux_command__ = COMMANDS['notify']
 GeneratedClientMixin.pairing_response.__cmux_command__ = COMMANDS['pairing-response']
 GeneratedClientMixin.pane_neighbor.__cmux_command__ = COMMANDS['pane-neighbor']
 GeneratedClientMixin.ping.__cmux_command__ = COMMANDS['ping']
+GeneratedClientMixin.presence_clear.__cmux_command__ = COMMANDS['presence-clear']
+GeneratedClientMixin.presence_list.__cmux_command__ = COMMANDS['presence-list']
+GeneratedClientMixin.presence_update.__cmux_command__ = COMMANDS['presence-update']
 GeneratedClientMixin.process_info.__cmux_command__ = COMMANDS['process-info']
 GeneratedClientMixin.put_frontend_projection.__cmux_command__ = COMMANDS['put-frontend-projection']
 GeneratedClientMixin.read_screen.__cmux_command__ = COMMANDS['read-screen']

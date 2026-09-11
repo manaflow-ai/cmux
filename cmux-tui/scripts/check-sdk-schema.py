@@ -19,6 +19,8 @@ SERVER = TUI / "crates/cmux-tui-core/src/server.rs"
 RUNTIME_NAMED_REQUEST_REFS = {
     "BrowserProviderTargetRequest": "BrowserProviderTarget",
     "crate::FrontendJournalEvent": "FrontendJournalEvent",
+    "crate::PresenceAnchor": "PresenceAnchor",
+    "crate::PresenceHighlight": "PresenceHighlight",
     "crate::ResourceSelectors": "ResourceSelectors",
     "ProtocolKeyInput": "TerminalKeyInput",
 }

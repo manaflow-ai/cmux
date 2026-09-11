@@ -114,6 +114,9 @@ pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
 pub const DAEMON_SHUTDOWN_EVENT: &str = "daemon-shutdown";
 /// The daemon answers `machine-usage` and emits `machine-usage-changed`.
 pub const MACHINE_USAGE_CAPABILITY: &str = "machine-usage-v1";
+/// `presence-update`, `presence-clear`, `presence-list`, and the
+/// `presence-changed` subscribe event.
+pub const PRESENCE_CAPABILITY: &str = "presence-v1";
 /// The daemon reads the host's listening TCP sockets for an authenticated
 /// client. Cloud clients use this over the private cmux-tui link, so routine
 /// port inventory never needs a provider or web control-plane call.
@@ -141,6 +144,20 @@ fn validate_client_focus_id(client_id: &str) -> anyhow::Result<()> {
 
 /// `machine-usage` result and `machine-usage-changed` payload body: `usage`
 /// is the readout object or null when the daemon has none.
+fn presence_entry_json(entry: &crate::PresenceEntry) -> Value {
+    json!({
+        "client": entry.client,
+        "name": entry.name,
+        "kind": entry.kind,
+        "color": entry.color,
+        "surface": entry.surface,
+        "pointer": entry.pointer,
+        "highlight": entry.highlight,
+        "updated_at_ms": entry.updated_at_ms,
+        "generation": entry.generation,
+    })
+}
+
 fn machine_usage_json(usage: Option<&MachineUsage>) -> Value {
     json!({
         "usage": usage.map(|usage| json!({
@@ -215,6 +232,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         BROWSER_PROVIDER_CAPABILITY,
         CLIENT_FOCUS_CAPABILITY,
         MACHINE_USAGE_CAPABILITY,
+        PRESENCE_CAPABILITY,
         MACHINE_LISTENING_TCP_CAPABILITY,
         SERVER_STATS_CAPABILITY,
     ];
@@ -703,6 +721,19 @@ enum Command {
     ListClients,
     /// Read the machine-level model spend readout hosted by this daemon.
     MachineUsage,
+    /// Publish this connection's collaboration pointer and highlight on one
+    /// surface. Ephemeral: never journaled, forgotten on disconnect.
+    PresenceUpdate {
+        surface: SurfaceId,
+        #[serde(default)]
+        pointer: Option<crate::PresenceAnchor>,
+        #[serde(default)]
+        highlight: Option<crate::PresenceHighlight>,
+    },
+    /// Withdraw this connection's presence.
+    PresenceClear,
+    /// Every client that currently points somewhere.
+    PresenceList,
     /// Read listening TCP sockets on this host. The fixed command has no
     /// caller-controlled arguments and returns only the socket listing.
     MachineListeningTcp,
@@ -5563,6 +5594,9 @@ fn disconnect_client_with_notice(
         record.writer.close_after_control();
     } else {
         record.writer.close();
+    }
+    if let Some(entry) = mux.presence.clear(client) {
+        mux.emit(MuxEvent::PresenceChanged(entry));
     }
     mux.emit(MuxEvent::ClientDetached(client));
     true
@@ -11287,6 +11321,25 @@ fn handle_command_with_cancellation(
         }
         Command::ListClients => Ok(mux.control_clients_json(client)),
         Command::MachineUsage => Ok(machine_usage_json(mux.machine_usage().as_ref())),
+        Command::PresenceUpdate { surface, pointer, highlight } => {
+            get_surface(mux, surface)?;
+            let (name, kind) = mux.control_clients.client_info(client).unwrap_or((None, None));
+            let entry = mux
+                .presence
+                .update(client, crate::PresenceUpdate { name, kind, surface, pointer, highlight })
+                .map_err(|error| anyhow::anyhow!("bad request: {error}"))?;
+            mux.emit(MuxEvent::PresenceChanged(entry));
+            Ok(json!({}))
+        }
+        Command::PresenceClear => {
+            if let Some(entry) = mux.presence.clear(client) {
+                mux.emit(MuxEvent::PresenceChanged(entry));
+            }
+            Ok(json!({}))
+        }
+        Command::PresenceList => Ok(json!({
+            "entries": mux.presence.snapshot().iter().map(presence_entry_json).collect::<Vec<_>>(),
+        })),
         Command::MachineListeningTcp => machine_listening_tcp_json(),
         Command::RegisterBrowserProvider {
             provider_id,
@@ -13262,6 +13315,11 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
         MuxEvent::MachineUsageChanged(usage) => {
             let mut payload = machine_usage_json(usage.as_ref());
             payload["event"] = json!("machine-usage-changed");
+            payload
+        }
+        MuxEvent::PresenceChanged(entry) => {
+            let mut payload = presence_entry_json(entry);
+            payload["event"] = json!("presence-changed");
             payload
         }
         MuxEvent::ConfigReloadRequested => json!({"event": "config-reload-requested"}),
@@ -19114,6 +19172,98 @@ mod tests {
             Ok(MuxEvent::ClientDetached(id)) if id == client
         )));
         assert!(mux.surface(surface.id).is_some(), "the session must survive its last viewer");
+    }
+
+    #[test]
+    fn presence_update_emits_a_coalesced_event_and_clears_on_disconnect() {
+        let mux = test_mux();
+        let surface = sizing_browser(&mux, (80, 24));
+        let events = mux.subscribe();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        assert!(handle_message(
+            &mux,
+            client,
+            &json!({"id": 1, "cmd": "set-client-info", "name": "ada", "kind": "tui"}).to_string(),
+            &writer,
+        ));
+        for col in 0..3u32 {
+            assert!(handle_message(
+                &mux,
+                client,
+                &json!({
+                    "id": 2,
+                    "cmd": "presence-update",
+                    "surface": surface.id,
+                    "pointer": {"kind": "cell", "row": 1, "col": col},
+                })
+                .to_string(),
+                &writer,
+            ));
+        }
+        // Three updates coalesce to the newest state for one subscriber.
+        let latest = loop {
+            match events.recv_timeout(Duration::from_secs(1)).unwrap() {
+                MuxEvent::PresenceChanged(entry) => break entry,
+                _ => continue,
+            }
+        };
+        assert_eq!(latest.client, client);
+        assert_eq!(latest.name.as_deref(), Some("ada"));
+        assert_eq!(latest.surface, Some(surface.id));
+        assert_eq!(
+            latest.pointer,
+            Some(crate::PresenceAnchor::Cell { row: 1, col: 2, scroll_offset: 0 })
+        );
+        assert_eq!(latest.generation, 3);
+        assert_eq!(
+            subscribed_event_json(&MuxEvent::PresenceChanged(latest.clone()))["event"],
+            "presence-changed"
+        );
+        assert_eq!(mux.presence.snapshot().len(), 1);
+
+        assert!(disconnect_client(&mux, client, false));
+        let cleared = loop {
+            match events.recv_timeout(Duration::from_secs(1)).unwrap() {
+                MuxEvent::PresenceChanged(entry) if entry.surface.is_none() => break entry,
+                _ => continue,
+            }
+        };
+        assert_eq!(cleared.client, client);
+        assert!(cleared.generation > latest.generation);
+        assert!(mux.presence.snapshot().is_empty());
+    }
+
+    #[test]
+    fn presence_is_cleared_when_its_surface_exits() {
+        let mux = test_mux();
+        let surface = sizing_browser(&mux, (80, 24));
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        assert!(handle_message(
+            &mux,
+            client,
+            &json!({
+                "id": 1,
+                "cmd": "presence-update",
+                "surface": surface.id,
+                "pointer": {"kind": "point", "x": 10.5, "y": 20.0},
+            })
+            .to_string(),
+            &writer,
+        ));
+        assert_eq!(mux.presence.snapshot().len(), 1);
+        let events = mux.subscribe();
+        mux.emit(MuxEvent::SurfaceExited(surface.id));
+        let cleared = loop {
+            match events.recv_timeout(Duration::from_secs(1)).unwrap() {
+                MuxEvent::PresenceChanged(entry) => break entry,
+                _ => continue,
+            }
+        };
+        assert_eq!(cleared.client, client);
+        assert_eq!(cleared.surface, None);
+        assert!(mux.presence.snapshot().is_empty());
     }
 
     #[test]

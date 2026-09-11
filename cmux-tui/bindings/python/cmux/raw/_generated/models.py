@@ -85,6 +85,10 @@ class PaneDirection(str, Enum):
     UP = 'up'
     DOWN = 'down'
 
+class PresenceHighlightMode(str, Enum):
+    LASER = 'laser'
+    PIN = 'pin'
+
 class RenderGraphicFormat(str, Enum):
     RGB = 'rgb'
     RGBA = 'rgba'
@@ -701,6 +705,51 @@ class PingResult:
     version: str
     build_commit: Union[str, None, MissingType] = field(default=MISSING)
     ghostty_commit: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class PresenceAnchorCell:
+    __cmux_schema_path__: ClassVar[str] = 'types/PresenceAnchor/variants/cell'
+    col: int
+    kind: Literal['cell']
+    row: int
+    scroll_offset: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class PresenceAnchorPoint:
+    __cmux_schema_path__: ClassVar[str] = 'types/PresenceAnchor/variants/point'
+    kind: Literal['point']
+    x: float
+    y: float
+
+
+@dataclass(frozen=True)
+class PresenceEntry:
+    __cmux_schema_path__: ClassVar[str] = 'types/PresenceEntry'
+    surface: Union[Id, None]
+    client: int
+    color: int
+    generation: int
+    highlight: Union[PresenceHighlight, None]
+    kind: Union[str, None]
+    name: Union[str, None]
+    pointer: Union[PresenceAnchor, None]
+    updated_at_ms: int
+
+
+@dataclass(frozen=True)
+class PresenceHighlight:
+    __cmux_schema_path__: ClassVar[str] = 'types/PresenceHighlight'
+    end: PresenceAnchor
+    mode: PresenceHighlightMode
+    start: PresenceAnchor
+
+
+@dataclass(frozen=True)
+class PresenceListResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/PresenceListResult'
+    entries: List[PresenceEntry]
 
 
 @dataclass(frozen=True)
@@ -1738,6 +1787,26 @@ class PingRequest:
 
 
 @dataclass(frozen=True)
+class PresenceClearRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/presence-clear/request'
+    pass
+
+
+@dataclass(frozen=True)
+class PresenceListRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/presence-list/request'
+    pass
+
+
+@dataclass(frozen=True)
+class PresenceUpdateRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/presence-update/request'
+    surface: Id
+    highlight: Union[PresenceHighlight, None, MissingType] = field(default=MISSING)
+    pointer: Union[PresenceAnchor, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ProcessInfoRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/process-info/request'
     surface: Id
@@ -2354,6 +2423,22 @@ class PaneClosedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class PresenceChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/presence-changed/payload'
+    surface: Union[Id, None]
+    client: int
+    color: int
+    event: Literal['presence-changed']
+    generation: int
+    highlight: Union[PresenceHighlight, None]
+    kind: Union[str, None]
+    name: Union[str, None]
+    pointer: Union[PresenceAnchor, None]
+    updated_at_ms: int
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class RenderDeltaEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/render-delta/payload'
     surface: Id
@@ -2647,9 +2732,10 @@ JsonValue = Any
 Layout = Union[LayoutLeaf, LayoutSplit, LayoutStack]
 LayoutUndoResult = Union[LayoutUndoUndone, LayoutUndoConfirmationRequired]
 Pane = Union[LivePane, DeadPane]
+PresenceAnchor = Union[PresenceAnchorCell, PresenceAnchorPoint]
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PresenceChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -2668,6 +2754,7 @@ __all__ = [
     'FrontendFocusTarget',
     'NotificationLevel',
     'PaneDirection',
+    'PresenceHighlightMode',
     'RenderGraphicFormat',
     'RenderUnderline',
     'ServerStatsWriterPhase',
@@ -2727,6 +2814,11 @@ __all__ = [
     'NotifyResult',
     'PaneNeighborResult',
     'PingResult',
+    'PresenceAnchorCell',
+    'PresenceAnchorPoint',
+    'PresenceEntry',
+    'PresenceHighlight',
+    'PresenceListResult',
     'ProcessInfoResult',
     'ProviderWorkspaceMutationResult',
     'ReadScreenResult',
@@ -2839,6 +2931,9 @@ __all__ = [
     'PairingResponseRequest',
     'PaneNeighborRequest',
     'PingRequest',
+    'PresenceClearRequest',
+    'PresenceListRequest',
+    'PresenceUpdateRequest',
     'ProcessInfoRequest',
     'PutFrontendProjectionRequest',
     'ReadScreenRequest',
@@ -2909,6 +3004,7 @@ __all__ = [
     'PairingResolvedEvent',
     'PaneAddedEvent',
     'PaneClosedEvent',
+    'PresenceChangedEvent',
     'RenderDeltaEvent',
     'RenderStateEvent',
     'ResizedEvent',
@@ -2942,5 +3038,6 @@ __all__ = [
     'Layout',
     'LayoutUndoResult',
     'Pane',
+    'PresenceAnchor',
     'TerminalExitOutcome',
 ]

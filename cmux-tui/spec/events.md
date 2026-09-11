@@ -12,7 +12,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `terminal-registry-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `terminal-registry-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `presence-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -56,6 +56,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `daemon-shutdown` | control | session | protocol 12; sent after the successful `shutdown-daemon` or `session.shutdown` response |
 | `window-title-requested` | subscribe | session | protocol 6 |
 | `machine-usage-changed` | subscribe | session | protocol 12 additive extension; capability `machine-usage-v1` |
+| `presence-changed` | subscribe | `client` | protocol 12 additive extension; capability `presence-v1` |
 | `client-attached` | subscribe | `client` | protocol 6 |
 | `client-changed` | subscribe | `client` | protocol 6 |
 | `client-detached` | subscribe | `client` | protocol 6 |
@@ -776,6 +777,39 @@ Example:
 
 ```json
 {"event":"machine-usage-changed","usage":{"vm_id":"3f1c...","period_days":30,"total_tokens":184220,"api_equivalent_usd":1.23,"as_of":"2026-09-01T00:00:00Z"}}
+```
+
+### presence-changed
+
+| Field | Value |
+| --- | --- |
+| event | `presence-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `presence-v1` |
+
+Payload:
+
+```text
+object{
+  event:"presence-changed",
+  client:uint64,
+  name:string|null,
+  kind:string|null,
+  color:uint64,
+  surface:Id|null,
+  pointer:PresenceAnchor|null,
+  highlight:PresenceHighlight|null,
+  updated_at_ms:uint64,
+  generation:uint64
+}
+```
+
+Meaning: one connection's collaboration pointer or highlight changed. `name` and `kind` are that connection's `set-client-info` labels. `color` is a palette slot in `0..8`, stable for the connection. `surface:null` means the connection cleared its presence, disconnected, or its surface exited; frontends remove every overlay for that `client`. `generation` increases on every change, so a frontend discards an event whose generation is not above the last one it applied for that client. Delivery is coalesced per client: a slow subscriber sees the latest state, not every intermediate pointer.
+
+Example:
+
+```json
+{"event":"presence-changed","client":3,"name":"ada","kind":"mac","color":3,"surface":7,"pointer":{"kind":"cell","row":3,"col":12,"scroll_offset":0},"highlight":null,"updated_at_ms":1757548800000,"generation":9}
 ```
 
 ### empty

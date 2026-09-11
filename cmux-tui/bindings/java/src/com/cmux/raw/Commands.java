@@ -71,6 +71,9 @@ public final class Commands {
     public static final CommandMetadata PAIRING_RESPONSE = new CommandMetadata("pairing-response", Authority.LOCAL_ADMIN, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PANE_NEIGHBOR = new CommandMetadata("pane-neighbor", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PING = new CommandMetadata("ping", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata PRESENCE_CLEAR = new CommandMetadata("presence-clear", Authority.CONTROL, 12, "presence-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata PRESENCE_LIST = new CommandMetadata("presence-list", Authority.CONTROL, 12, "presence-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata PRESENCE_UPDATE = new CommandMetadata("presence-update", Authority.CONTROL, 12, "presence-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PROCESS_INFO = new CommandMetadata("process-info", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PUT_FRONTEND_PROJECTION = new CommandMetadata("put-frontend-projection", Authority.CONTROL, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata READ_SCREEN = new CommandMetadata("read-screen", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
@@ -181,6 +184,9 @@ public final class Commands {
         values.put("pairing-response", PAIRING_RESPONSE);
         values.put("pane-neighbor", PANE_NEIGHBOR);
         values.put("ping", PING);
+        values.put("presence-clear", PRESENCE_CLEAR);
+        values.put("presence-list", PRESENCE_LIST);
+        values.put("presence-update", PRESENCE_UPDATE);
         values.put("process-info", PROCESS_INFO);
         values.put("put-frontend-projection", PUT_FRONTEND_PROJECTION);
         values.put("read-screen", READ_SCREEN);
