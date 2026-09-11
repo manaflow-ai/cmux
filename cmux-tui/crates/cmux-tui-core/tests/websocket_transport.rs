@@ -640,8 +640,10 @@ fn websocket_presence_pointer_fans_out_and_clears_on_disconnect() {
             .any(|capability| capability == server::PRESENCE_CAPABILITY),
         "server must advertise presence-v1"
     );
-    send_json(&mut viewer, json!({"id": 2, "cmd": "subscribe"}));
+    send_json(&mut viewer, json!({"id": 2, "cmd": "subscribe", "presence_only": true}));
     assert_eq!(read_until(&mut viewer, |value| value["id"] == 2)["ok"], true);
+    // Presence-only subscribers never see tree traffic.
+    mux.emit(MuxEvent::TreeChanged);
 
     // Pointer: names itself, then points at a cell with a laser highlight.
     let mut pointer = authenticated_connect(server.local_addr());
@@ -666,7 +668,13 @@ fn websocket_presence_pointer_fans_out_and_clears_on_disconnect() {
     );
     assert_eq!(read_until(&mut pointer, |value| value["id"] == 4)["ok"], true);
 
-    let changed = read_until(&mut viewer, |value| value["event"] == "presence-changed");
+    let changed = loop {
+        let value = read_json(&mut viewer);
+        assert_ne!(value["event"], "tree-changed", "presence_only must filter tree events");
+        if value["event"] == "presence-changed" {
+            break value;
+        }
+    };
     assert_eq!(changed["name"], "ada");
     assert_eq!(changed["kind"], "mac");
     assert_eq!(changed["surface"], surface);

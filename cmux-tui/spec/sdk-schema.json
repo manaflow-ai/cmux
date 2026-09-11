@@ -10013,6 +10013,16 @@
       "default": null,
       "since": 9,
       "capability": "surface-subscribe-filter"
+     },
+     "presence_only": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "since": 12,
+      "capability": "presence-v1"
      }
     },
     "additional_properties": false

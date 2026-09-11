@@ -6448,6 +6448,11 @@ impl Mux {
         Some(self.subscribers.subscribe_surface_session(surface, workspace.id, screen.id, pane))
     }
 
+    /// Subscribe to presence changes only (`subscribe` with `presence_only`).
+    pub fn subscribe_presence(&self) -> MuxEventReceiver {
+        self.subscribers.subscribe_presence()
+    }
+
     pub fn emit(&self, event: MuxEvent) {
         if let MuxEvent::SurfaceExited(surface) = &event {
             for entry in self.presence.forget_surface(*surface) {

@@ -1371,6 +1371,8 @@ enum Command {
         tree_events: Option<String>,
         #[serde(default)]
         surface: Option<SurfaceId>,
+        #[serde(default)]
+        presence_only: Option<bool>,
     },
     /// Stream a surface: vt-state event followed by live output events.
     AttachSurface {
@@ -12735,17 +12737,21 @@ fn handle_command_with_cancellation(
             mux.scroll_surface_viewport(&surface, delta)?;
             Ok(json!({}))
         }
-        Command::Subscribe { tree_events, surface } => {
+        Command::Subscribe { tree_events, surface, presence_only } => {
             let tree_deltas = match tree_events.as_deref().unwrap_or("coarse") {
                 "coarse" => false,
                 "deltas" => true,
                 other => anyhow::bail!("bad request: unsupported tree_events {other:?}"),
             };
-            let events = match surface {
-                Some(surface) => mux
+            let events = match (presence_only.unwrap_or(false), surface) {
+                (true, Some(_)) => {
+                    anyhow::bail!("bad request: presence_only cannot be combined with surface")
+                }
+                (true, None) => mux.subscribe_presence(),
+                (false, Some(surface)) => mux
                     .subscribe_surface_session(surface)
                     .ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?,
-                None => mux.subscribe(),
+                (false, None) => mux.subscribe(),
             };
             let event_mux = mux.clone();
             let trusted_pairing_client = mux.control_clients.is_unix(client);
