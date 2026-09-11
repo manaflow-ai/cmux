@@ -1609,7 +1609,7 @@ export class FreestyleProvider implements VMProvider {
           `ln -sfn '${openerName}' /usr/local/bin/xdg-open`,
           `ln -sfn '${openerName}' /usr/local/bin/x-www-browser`,
           `ln -sfn '${openerName}' /usr/local/bin/sensible-browser`,
-          `printf '%s\\n' 'if [ -z "${BROWSER-}" ]; then export BROWSER=${GUEST_CMUX_OPEN_URL_PATH}; fi' 'if [ -z "${GH_BROWSER-}" ]; then export GH_BROWSER=${GUEST_CMUX_OPEN_URL_PATH}; fi' > /etc/profile.d/cmux-browser-open.sh`,
+          `printf '%s\\n' 'if [ -z "\${BROWSER-}" ]; then export BROWSER=${GUEST_CMUX_OPEN_URL_PATH}; fi' 'if [ -z "\${GH_BROWSER-}" ]; then export GH_BROWSER=${GUEST_CMUX_OPEN_URL_PATH}; fi' > /etc/profile.d/cmux-browser-open.sh`,
         ].join(" && "),
         timeoutMs: 30_000,
         linuxUser: GUEST_LINUX_USER,

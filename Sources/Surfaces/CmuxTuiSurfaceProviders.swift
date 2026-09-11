@@ -1771,7 +1771,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             clientID: clientID,
             resolveTarget: { [weak self] row in self?.notificationDeliveryTarget(for: row) },
             deliver: { [weak self] row, target in self?.deliverNotification(row, to: target) ?? false },
-            handle: { [weak self] row, target in self?.handleCloudBrowserOpenRequest(row, target: target) ?? false },
             send: { [weak self] batch in
                 // A vanished provider must not report success: the batch stays
                 // pending in the durable state for the replacement sync.
@@ -1798,7 +1797,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 for notification in store.notifications where notification.correlationKey.map(keys.contains) == true {
                     store.remove(id: notification.id)
                 }
-            }
+            },
+            handle: { [weak self] row, target in self?.handleCloudBrowserOpenRequest(row, target: target) ?? false }
         )
         notificationSync = sync
         CloudNotificationSyncHub.shared.register(sync)
