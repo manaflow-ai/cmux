@@ -2,15 +2,10 @@ import AppKit
 import CmuxSettings
 
 extension AppDelegate {
-    @objc func openCloudVPNSetupMenuItem(_ sender: NSMenuItem) {
-        guard let windowID = sender.representedObject as? UUID,
-              let context = mainWindowContexts.values.first(where: { $0.windowId == windowID }) else { return }
-        openCloudVPNSetupWorkspace(preferredTabManager: context.tabManager, preferredWindow: context.window)
-    }
-
-    /// Opens the optional Cloud VPN guide as a normal cmux pane. All entry
-    /// points use this method so the Machines panel and context menu behave the
-    /// same way as the iOS pairing pane.
+    /// Opens the optional Cloud VPN guide as a normal cmux pane.
+    ///
+    /// The command palette and explicit machine or port actions use this method
+    /// so the setup flow has one behavior everywhere.
     @discardableResult
     func openCloudVPNSetupWorkspace(
         preferredTabManager: TabManager? = nil,

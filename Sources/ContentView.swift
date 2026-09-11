@@ -7614,7 +7614,7 @@ struct ContentView: View {
         )
         contributions.append(CommandPaletteCommandContribution(
             commandId: "palette.cloudVPNSetup",
-            title: constant(String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…")),
+            title: constant(String(localized: "machines.menu.privateNetwork", defaultValue: "Private Network Access…")),
             subtitle: constant(String(localized: "cloud.vpn.setup.title", defaultValue: "Cloud VPN")),
             keywords: ["cloud", "vpn", "private", "network", "wireguard", "freestyle"],
             when: { _ in CloudMachinesFeature.isEnabled }
