@@ -388,12 +388,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 // Same rule as usageLine (nil for empty totals), without formatting text per row.
                 let hasUsage = machine.usage.map { !$0.totals.isEmpty } ?? false
                 return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: hasStats, hasUsage: hasUsage))
-            case .device:
+            case .device(let row):
                 // Device rows use the iOS Computers hierarchy: avatar, name,
-                // status, and (when online) a resource summary. Keep this
-                // height independent of the Cloud tree style so the row never
-                // clips when the Cloud tree is using the compact preset.
-                return GlobalFontMagnification.scaledSize(48)
+                // status, and (when online) a resource summary. The height is
+                // independent of the Cloud tree style so the row never clips
+                // under the compact preset, and it grows with the third line.
+                return GlobalFontMagnification.scaledSize(CloudTreeDeviceRowContent.rowHeight(for: row))
             case .localMachine, .pendingMachine:
                 return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
             case .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup, .workspace, .localWorkspace, .terminal, .display, .browser, .port, .placeholder, .devicesSection:

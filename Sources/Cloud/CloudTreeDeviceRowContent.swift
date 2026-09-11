@@ -37,7 +37,7 @@ struct CloudTreeDeviceRowContent: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                if row.isOnline, (row.workspaceCount > 0 || row.terminalCount > 0) {
+                if Self.showsResourceSummary(row) {
                     Text(Self.resourceSummary(row))
                         .cmuxFont(size: 10)
                         .foregroundStyle(.tertiary)
@@ -96,6 +96,21 @@ struct CloudTreeDeviceRowContent: View {
                 .frame(width: 7, height: 7)
                 .help(String(localized: "cloudTree.device.presence.offline", defaultValue: "Offline"))
         }
+    }
+
+    /// Outline height for the two-line row (avatar, name, status) and for the
+    /// three-line row that adds the resource summary. Both rules live next to
+    /// the row body so the view and `heightOfRowByItem` cannot drift apart.
+    static let rowHeight: CGFloat = 48
+    static let rowHeightWithResourceSummary: CGFloat = 60
+
+    /// Only an online Mac with something to open shows the third line.
+    static func showsResourceSummary(_ row: CloudTreeDeviceRow) -> Bool {
+        row.isOnline && (row.workspaceCount > 0 || row.terminalCount > 0)
+    }
+
+    static func rowHeight(for row: CloudTreeDeviceRow) -> CGFloat {
+        showsResourceSummary(row) ? rowHeightWithResourceSummary : rowHeight
     }
 
     /// The primary connection/presence line. Resource counts are rendered on a
