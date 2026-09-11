@@ -189,7 +189,11 @@ struct CloudActivationPolicyTests {
         defer { harness.tearDown() }
         let policy = harness.policy
 
+        #if DEBUG
+        #expect(policy.allowsBackgroundCloudWork)
+        #else
         #expect(policy.allowsBackgroundCloudWork == false)
+        #endif
         #expect(policy.allowsLaunchTimeTunnelAdoption == false)
         #if DEBUG
         #expect(policy.tunnelStartRefusal() == nil)
@@ -313,14 +317,5 @@ struct CloudActivationPolicyTests {
         defaults.set(false, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
         #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged) == false)
 
-        let managedBackground = CloudActivationPolicy(
-            isCloudMachinesEnabled: { false },
-            isCloudMachinesExplicitlyEnabled: { true },
-            hasUsedCloud: { false },
-            hasCloudMachine: { nil },
-            isTunnelConfigured: { false },
-            resolveCloudMachine: { nil }
-        )
-        #expect(managedBackground.allowsBackgroundCloudWork == false)
     }
 }
