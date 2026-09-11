@@ -229,6 +229,7 @@ struct MacComputerRow: View {
                 requirement
             )
         }
+        guard hasVersionGateWarning else { return "" }
         return L10n.string(
             "mobile.pairing.guidance.macUpdateRequired",
             defaultValue: "Update cmux on this Mac to connect securely."
