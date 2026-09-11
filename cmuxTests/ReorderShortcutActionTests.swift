@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxPanes
 import CmuxCanvasUI
 import CmuxSettings
 import Foundation
@@ -141,6 +142,10 @@ struct ReorderShortcutActionTests {
             .moveSurfaceToPaneRight,
             .moveSurfaceToPaneUp,
             .moveSurfaceToPaneDown,
+            .movePaneToNewOuterSplitLeft,
+            .movePaneToNewOuterSplitRight,
+            .movePaneToNewOuterSplitAbove,
+            .movePaneToNewOuterSplitBelow,
             .moveWorkspaceUp,
             .moveWorkspaceDown,
         ]
@@ -149,19 +154,23 @@ struct ReorderShortcutActionTests {
             #expect(KeyboardShortcutSettings.publicShortcutActions.contains(action))
             #expect(KeyboardShortcutSettings.settingsVisibleActions.contains(action))
             let settingsAction = try #require(ShortcutAction(rawValue: action.rawValue))
-            let settingsStroke = try #require(settingsAction.defaultStroke)
             let runtimeShortcut = action.defaultShortcut
             #expect(settingsAction.displayName == action.label)
-            #expect(settingsStroke.key == runtimeShortcut.key)
-            #expect(settingsStroke.command == runtimeShortcut.command)
-            #expect(settingsStroke.shift == runtimeShortcut.shift)
-            #expect(settingsStroke.option == runtimeShortcut.option)
-            #expect(settingsStroke.control == runtimeShortcut.control)
-            #expect(
-                !KeyboardShortcutSettings.Action.allCases.contains {
-                    $0 != action && $0.defaultShortcut == runtimeShortcut
-                }
-            )
+            if runtimeShortcut.isUnbound {
+                #expect(settingsAction.defaultStroke == nil)
+            } else {
+                let settingsStroke = try #require(settingsAction.defaultStroke)
+                #expect(settingsStroke.key == runtimeShortcut.key)
+                #expect(settingsStroke.command == runtimeShortcut.command)
+                #expect(settingsStroke.shift == runtimeShortcut.shift)
+                #expect(settingsStroke.option == runtimeShortcut.option)
+                #expect(settingsStroke.control == runtimeShortcut.control)
+                #expect(
+                    !KeyboardShortcutSettings.Action.allCases.contains {
+                        $0 != action && $0.defaultShortcut == runtimeShortcut
+                    }
+                )
+            }
         }
 
         #expect(ContentView.commandPaletteShortcutAction(forCommandID: "palette.moveWorkspaceUp") == .moveWorkspaceUp)
@@ -172,6 +181,14 @@ struct ReorderShortcutActionTests {
                     forCommandID: movement.commandID
                 ) == movement.shortcutAction
             )
+        }
+        for movement in PaneOuterSplitMovement.allCases {
+            #expect(
+                ContentView.commandPaletteShortcutAction(
+                    forCommandID: movement.commandID
+                ) == movement.shortcutAction
+            )
+            #expect(movement.shortcutAction.defaultShortcut.isUnbound)
         }
 
         let previousDefault =

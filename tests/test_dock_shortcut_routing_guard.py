@@ -3,6 +3,7 @@
 
 from pathlib import Path
 import re
+from typing import Optional
 import unittest
 
 
@@ -10,6 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 ROUTING_SOURCE = REPO_ROOT / "Sources" / "AppDelegate+DockShortcutRouting.swift"
 ACTION_SOURCE = REPO_ROOT / "Sources" / "KeyboardShortcutSettings.swift"
 MOVEMENT_SOURCE = REPO_ROOT / "Sources" / "SurfacePaneMovement.swift"
+OUTER_MOVEMENT_SOURCE = REPO_ROOT / "Sources" / "PaneOuterSplitMovement.swift"
 DISPATCH_SOURCES = tuple((REPO_ROOT / "Sources").glob("AppDelegate*.swift")) + (
     REPO_ROOT / "Sources" / "Workspace+DockBrowserLookup.swift",
 )
@@ -18,6 +20,10 @@ GATE_CALLS = (
     "performFocusedDockShortcut",
     "routeCreateToFocusedDock",
     "routeSplitToFocusedDock",
+)
+MOVEMENT_DISPATCHERS = (
+    (MOVEMENT_SOURCE, "performSurfacePaneMovement"),
+    (OUTER_MOVEMENT_SOURCE, "performPaneOuterSplitMovement"),
 )
 
 
@@ -141,13 +147,75 @@ def balanced_call_bodies(source: str, call_name: str) -> list[str]:
     return bodies
 
 
-def movement_shortcut_actions() -> set[str]:
-    source = MOVEMENT_SOURCE.read_text(encoding="utf-8")
+def balanced_function_body(source: str, function_name: str) -> Optional[str]:
+    match = re.search(
+        r"\bfunc\s+" + re.escape(function_name) + r"\s*\(",
+        source,
+    )
+    if not match:
+        return None
+    opening = source.find("{", match.end())
+    if opening < 0:
+        return None
+
+    depth = 1
+    index = opening + 1
+    in_string = False
+    escaped = False
+    line_comment = False
+    block_comment_depth = 0
+    while index < len(source) and depth:
+        character = source[index]
+        following = source[index + 1] if index + 1 < len(source) else ""
+        if line_comment:
+            if character == "\n":
+                line_comment = False
+            index += 1
+            continue
+        if block_comment_depth:
+            if character == "/" and following == "*":
+                block_comment_depth += 1
+                index += 2
+            elif character == "*" and following == "/":
+                block_comment_depth -= 1
+                index += 2
+            else:
+                index += 1
+            continue
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            index += 1
+            continue
+        if character == "/" and following == "/":
+            line_comment = True
+            index += 2
+            continue
+        if character == "/" and following == "*":
+            block_comment_depth = 1
+            index += 2
+            continue
+        if character == '"':
+            in_string = True
+        elif character == "{":
+            depth += 1
+        elif character == "}":
+            depth -= 1
+        index += 1
+    return source[opening + 1:index - 1] if depth == 0 else None
+
+
+def movement_shortcut_actions(path: Path) -> set[str]:
+    source = path.read_text(encoding="utf-8")
     property_body = source_between(
         source,
         "var shortcutAction: KeyboardShortcutSettings.Action {",
         "init?(shortcutAction:",
-        MOVEMENT_SOURCE.name,
+        path.name,
     )
     return set(
         re.findall(
@@ -158,9 +226,37 @@ def movement_shortcut_actions() -> set[str]:
     )
 
 
+def movement_gate_actions_by_source() -> dict[Path, set[str]]:
+    result: dict[Path, set[str]] = {}
+    for movement_source, dispatcher_name in MOVEMENT_DISPATCHERS:
+        has_gate = False
+        for dispatch_path in DISPATCH_SOURCES:
+            source = dispatch_path.read_text(encoding="utf-8")
+            function_body = balanced_function_body(source, dispatcher_name)
+            if function_body is None:
+                continue
+            if any(
+                re.search(
+                    r"\baction\s*:\s*movement\.shortcutAction\b",
+                    body,
+                )
+                for body in balanced_call_bodies(
+                    function_body,
+                    "focusedDockStoreForShortcut",
+                )
+            ):
+                has_gate = True
+                break
+        result[movement_source] = (
+            movement_shortcut_actions(movement_source)
+            if has_gate
+            else set()
+        )
+    return result
+
+
 def explicitly_gated_actions() -> set[str]:
     actions: set[str] = set()
-    has_movement_gate = False
     for path in DISPATCH_SOURCES:
         source = path.read_text(encoding="utf-8")
         for call_name in GATE_CALLS:
@@ -171,13 +267,8 @@ def explicitly_gated_actions() -> set[str]:
                         body,
                     )
                 )
-                if re.search(
-                    r"\baction\s*:\s*movement\.shortcutAction\b",
-                    body,
-                ):
-                    has_movement_gate = True
-    if has_movement_gate:
-        actions.update(movement_shortcut_actions())
+    for source_actions in movement_gate_actions_by_source().values():
+        actions.update(source_actions)
     return actions
 
 
@@ -205,6 +296,18 @@ class DockShortcutRoutingGuardTests(unittest.TestCase):
             dock_scoped,
             "Every dockScoped action must appear in an action-aware Dock gate "
             "call. Add the route before adding its main-area fallback.",
+        )
+
+    def test_each_movement_source_reaches_the_focused_dock_gate(self) -> None:
+        expected = {
+            source: movement_shortcut_actions(source)
+            for source, _ in MOVEMENT_DISPATCHERS
+        }
+        self.assertEqual(
+            movement_gate_actions_by_source(),
+            expected,
+            "Each pane-movement dispatcher must retain its own action-aware "
+            "Dock gate; coverage from the other movement source is insufficient.",
         )
 
 

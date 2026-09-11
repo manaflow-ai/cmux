@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCommandPalette
+import CmuxPanes
 
 extension ContentView {
     static func commandPaletteSurfaceNavigationContributions()
@@ -12,6 +13,12 @@ extension ContentView {
             String(
                 localized: "command.surfaceNavigation.subtitle",
                 defaultValue: "Surface Navigation"
+            )
+        )
+        let paneSubtitle = constant(
+            String(
+                localized: "command.paneNavigation.subtitle",
+                defaultValue: "Pane Navigation"
             )
         )
         var contributions = [
@@ -45,6 +52,15 @@ extension ContentView {
                 commandId: movement.commandID,
                 title: constant(movement.title),
                 subtitle: subtitle,
+                keywords: movement.keywords,
+                when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
+            )
+        })
+        contributions.append(contentsOf: PaneOuterSplitMovement.allCases.map { movement in
+            CommandPaletteCommandContribution(
+                commandId: movement.commandID,
+                title: constant(movement.title),
+                subtitle: paneSubtitle,
                 keywords: movement.keywords,
                 when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
             )
@@ -89,6 +105,29 @@ extension ContentView {
                     return
                 }
                 if AppDelegate.shared?.performSurfacePaneMovement(
+                    movement,
+                    tabManager: tabManager,
+                    preferredWindow: preferredWindow
+                ) != true {
+                    NSSound.beep()
+                }
+            }
+        }
+        for movement in PaneOuterSplitMovement.allCases {
+            registry.register(commandId: movement.commandID) {
+                if let dock {
+                    if !dock.performShortcutCommand(
+                        .movePaneToNewOuterSplit(movement)
+                    ) {
+                        NSSound.beep()
+                    }
+                    return
+                }
+                guard let preferredWindow = preferredWindow() else {
+                    NSSound.beep()
+                    return
+                }
+                if AppDelegate.shared?.performPaneOuterSplitMovement(
                     movement,
                     tabManager: tabManager,
                     preferredWindow: preferredWindow

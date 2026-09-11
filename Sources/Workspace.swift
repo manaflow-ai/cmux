@@ -2729,6 +2729,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     /// The bonsplit controller managing the split panes for this workspace
     let bonsplitController: BonsplitController
+    /// Stateless outer-pane promotion service owned by this workspace.
+    let paneOuterSplitLayoutMutation: any PaneOuterSplitLayoutMutating
     /// Process/window composition capability registry shared with every pane target.
     let tabDragTransferRegistry: TabDragTransferRegistry
     /// One content-change pipeline shared by every file-backed panel in this workspace.
@@ -2759,6 +2761,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 )
             },
             tabDragTransferRegistry: tabDragTransferRegistry,
+            paneOuterSplitLayoutMutation: paneOuterSplitLayoutMutation,
             settings: settings,
             agentSessionAutoResumeDefaults: agentSessionAutoResumeDefaults,
             agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
@@ -3960,7 +3963,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         fileContentChangeCoordinator: FileContentChangeCoordinator? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
-        restorableAgentIndexProvider: (@MainActor () -> RestorableAgentSessionIndex?)? = nil
+        restorableAgentIndexProvider: (@MainActor () -> RestorableAgentSessionIndex?)? = nil,
+        paneOuterSplitLayoutMutation: any PaneOuterSplitLayoutMutating = PaneOuterSplitLayoutMutation()
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         let resolvedID = id ?? UUID()
@@ -3979,6 +3983,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.agentChatResumeIntentRecorder = agentChatResumeIntentRecorder
         self.restorableAgentIndexProvider = resolvedRestorableAgentIndexProvider
+        self.paneOuterSplitLayoutMutation = paneOuterSplitLayoutMutation
         self.tabDragTransferRegistry = tabDragTransferRegistry
         self.fileContentChangeCoordinator =
             fileContentChangeCoordinator ?? FileContentChangeCoordinator()
