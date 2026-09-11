@@ -1,0 +1,165 @@
+name: Daily Codex Docs Audit
+
+on:
+  schedule:
+    - cron: "17 11 * * *"
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Codex model to use through subrouter
+        required: false
+        default: gpt-5.5
+
+concurrency:
+  group: daily-codex-docs-audit
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  audit:
+    name: Audit docs with Codex
+    runs-on: ${{ vars.CODEX_DOCS_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 90
+    env:
+      CODEX_MODEL: ${{ inputs.model || vars.CODEX_DOCS_MODEL || 'gpt-5.5' }}
+      DOCS_AUDIT_BRANCH: automation/daily-codex-docs-audit
+      SUBROUTER_OPENAI_BASE_URL: ${{ secrets.SUBROUTER_OPENAI_BASE_URL }}
+      SUBROUTER_CHATGPT_BASE_URL: ${{ secrets.SUBROUTER_CHATGPT_BASE_URL }}
+      SUBROUTER_API_KEY: ${{ secrets.SUBROUTER_API_KEY }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Verify subrouter configuration
+        run: |
+          set -euo pipefail
+          if [ -z "${SUBROUTER_OPENAI_BASE_URL}" ]; then
+            echo "::error::SUBROUTER_OPENAI_BASE_URL secret is required so Codex talks to subrouter."
+            exit 1
+          fi
+          if [ -z "${SUBROUTER_API_KEY}" ]; then
+            echo "::error::SUBROUTER_API_KEY secret is required so Codex can authenticate to subrouter."
+            exit 1
+          fi
+
+      - name: Install Codex CLI
+        run: npm install --global @openai/codex@0.136.0
+
+      - name: Configure Codex for subrouter
+        run: |
+          set -euo pipefail
+          CODEX_HOME="${RUNNER_TEMP}/codex-home"
+          mkdir -p "${CODEX_HOME}"
+          echo "CODEX_HOME=${CODEX_HOME}" >> "${GITHUB_ENV}"
+
+          chatgpt_base_url="${SUBROUTER_CHATGPT_BASE_URL}"
+          if [ -z "${chatgpt_base_url}" ]; then
+            chatgpt_base_url="${SUBROUTER_OPENAI_BASE_URL%/v1}/backend-api"
+          fi
+
+          cat > "${CODEX_HOME}/config.toml" <<EOF
+          model = "${CODEX_MODEL}"
+          model_reasoning_effort = "high"
+          openai_base_url = "${SUBROUTER_OPENAI_BASE_URL}"
+          chatgpt_base_url = "${chatgpt_base_url}"
+          experimental_realtime_ws_base_url = "${SUBROUTER_OPENAI_BASE_URL}"
+
+          [projects."${GITHUB_WORKSPACE}"]
+          trust_level = "trusted"
+
+          [notice]
+          hide_full_access_warning = true
+          EOF
+
+      - name: Run Codex docs audit
+        env:
+          OPENAI_API_KEY: ${{ secrets.SUBROUTER_API_KEY }}
+        run: |
+          set -euo pipefail
+          codex --version
+          codex exec \
+            --cd "${GITHUB_WORKSPACE}" \
+            --sandbox workspace-write \
+            --ask-for-approval never \
+            --model "${CODEX_MODEL}" \
+            --output-last-message "${RUNNER_TEMP}/codex-docs-summary.md" \
+            - < .github/prompts/daily-docs-codex.md
+
+      - name: Detect docs changes
+        id: changes
+        run: |
+          set -euo pipefail
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "changed=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "changed=false" >> "${GITHUB_OUTPUT}"
+            {
+              echo "### Codex docs audit"
+              echo
+              cat "${RUNNER_TEMP}/codex-docs-summary.md"
+            } >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+      - name: Commit and push docs changes
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          git config user.name "cmux-docs-bot"
+          git config user.email "cmux-docs-bot@users.noreply.github.com"
+          git switch -c "${DOCS_AUDIT_BRANCH}"
+          git add -A
+          git commit -m "Update docs from daily Codex audit"
+          git push --force-with-lease origin "HEAD:${DOCS_AUDIT_BRANCH}"
+
+      - name: Create or update pull request
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          body_file="${RUNNER_TEMP}/docs-audit-pr-body.md"
+          {
+            echo "## Summary"
+            echo "- Daily Codex docs audit found documentation updates based on repository history."
+            echo "- Codex was configured to use subrouter via SUBROUTER_OPENAI_BASE_URL."
+            echo
+            echo "## Codex Notes"
+            cat "${RUNNER_TEMP}/codex-docs-summary.md"
+            echo
+            echo "## Testing"
+            echo "- Performed by Codex during the audit when applicable; see notes above."
+          } > "${body_file}"
+
+          existing_pr="$(
+            gh pr list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --head "${DOCS_AUDIT_BRANCH}" \
+              --state open \
+              --json number \
+              --jq '.[0].number // empty'
+          )"
+
+          if [ -n "${existing_pr}" ]; then
+            gh pr edit "${existing_pr}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "Update docs from daily Codex audit" \
+              --body-file "${body_file}"
+            echo "Updated PR: https://github.com/${GITHUB_REPOSITORY}/pull/${existing_pr}" >> "${GITHUB_STEP_SUMMARY}"
+          else
+            pr_url="$(
+              gh pr create \
+                --repo "${GITHUB_REPOSITORY}" \
+                --base main \
+                --head "${DOCS_AUDIT_BRANCH}" \
+                --title "Update docs from daily Codex audit" \
+                --body-file "${body_file}"
+            )"
+            echo "Created PR: ${pr_url}" >> "${GITHUB_STEP_SUMMARY}"
+          fi
