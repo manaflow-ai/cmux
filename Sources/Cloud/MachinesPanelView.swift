@@ -104,7 +104,7 @@ struct MachinesPanelView: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("CloudVPNSetupEntryButton")
-        if let banner = tunnelStatus.banner {
+        if let banner = tunnelStatus.banner, banner.showsInMachinesPanel {
             MachinesTunnelBanner(banner: banner, backgroundColor: chromeBackgroundColor) {
                 SystemExtensionSettingsLink.open()
             }
