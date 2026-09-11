@@ -74,7 +74,7 @@ struct CloudPortRoutePlanTests {
         #expect(CloudPortRoutePlan.loopbackPort(from: "http://127.0.0.1:64321") == 64_321)
         #expect(CloudPortRoutePlan.loopbackPort(from: "http://10.0.0.7:8000") == nil)
         #expect(CloudPortRoutePlan.sidebarTitle(remotePort: 8000) == "Port 8000")
-        #expect(CloudPortRoutePlan.sidebarDetail == "Remote VM · local forward")
+        #expect(CloudPortRoutePlan.sidebarDetail == "Remote VM · cmux link")
         #expect(CloudPortRoutePlan.sidebarTooltip(remotePort: 8000).contains("8000"))
     }
 

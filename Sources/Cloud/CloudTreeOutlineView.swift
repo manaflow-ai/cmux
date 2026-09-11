@@ -765,7 +765,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             if resource.id.isForwardedPort, !isLocal {
                 // Name local and VM routes separately: the local listener can
                 // use an ephemeral port that differs from the VM port.
-                items.append(item(String(localized: "cloudTree.menu.copyLink", defaultValue: "Copy Local Link")) { [nodeActions] in nodeActions.copyPortLink(resource.id) })
+                let copyTitle = portURL == nil ? String(localized: "cloudTree.menu.copyPreviewLink", defaultValue: "Copy Preview Link") : String(localized: "cloudTree.menu.copyLink", defaultValue: "Copy Local Link")
+                items.append(item(copyTitle) { [nodeActions] in nodeActions.copyPortLink(resource.id) })
                 if let portURL {
                     items.append(item(String(localized: "cloudTree.menu.copyPrivateURL", defaultValue: "Copy VM Address")) { [nodeActions] in nodeActions.copyToPasteboard(portURL) })
                 }
@@ -777,7 +778,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             items.append(item(String(localized: "cloudTree.menu.copySurfaceID", defaultValue: "Copy Surface ID")) { [nodeActions] in nodeActions.copyToPasteboard(resource.id.rawValue) })
             return items
         }
-
         private func machineMenuItems(_ machine: MachineSnapshot) -> [NSMenuItem] {
             var items: [NSMenuItem] = []
             let actions = machineActions

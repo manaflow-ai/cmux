@@ -80,7 +80,7 @@ enum CloudPortRoutePlan: Equatable, Sendable {
 
     /// The compact row detail shown below a discovered port.
     static var sidebarDetail: String {
-        String(localized: "cloudTree.port.detail", defaultValue: "Remote VM · local forward")
+        String(localized: "cloudTree.port.detail", defaultValue: "Remote VM · cmux link")
     }
 
     /// Explains why a copied/opened link can contain a different local port.
@@ -88,7 +88,7 @@ enum CloudPortRoutePlan: Equatable, Sendable {
         String(
             format: String(
                 localized: "cloudTree.port.tooltip",
-                defaultValue: "Remote VM port %d. cmux opens it through a local forward, so the local port may be different."
+                defaultValue: "Remote VM port %d. cmux may use a different local port for its local forward."
             ),
             remotePort
         )

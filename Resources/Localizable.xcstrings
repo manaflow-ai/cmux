@@ -480701,55 +480701,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Remote VM · local forward"
+            "value": "Remote VM · cmux link"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リモート VM · ローカル転送"
+            "value": "リモート VM · cmux リンク"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Remote VM · lokale Weiterleitung"
+            "value": "Remote VM · cmux-Link"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "VM distante · redirection locale"
+            "value": "VM distante · lien cmux"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "VM البعيد · إعادة توجيه محلية"
+            "value": "VM البعيد · رابط cmux"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "VM remoto · reenvío local"
+            "value": "VM remoto · enlace de cmux"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "遠端 VM · 本機轉送"
+            "value": "遠端 VM · cmux 連結"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "远程 VM · 本地转发"
+            "value": "远程 VM · cmux 链接"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "원격 VM · 로컬 포워딩"
+            "value": "원격 VM · cmux 링크"
           }
         }
       }
@@ -480760,55 +480760,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Remote VM port %d. cmux opens it through a local forward, so the local port may be different."
+            "value": "Remote VM port %d. cmux may use a different local port for its local forward."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リモート VM ポート %d。cmux はローカル転送で開くため、ローカルポートは異なる場合があります。"
+            "value": "リモート VM ポート %d。cmux はローカル転送に別のローカルポートを使う場合があります。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Remote VM-Port %d. cmux öffnet ihn über eine lokale Weiterleitung, daher kann der lokale Port abweichen."
+            "value": "Remote VM-Port %d. cmux kann für die lokale Weiterleitung einen anderen lokalen Port verwenden."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Port de VM distant %d. cmux l’ouvre via une redirection locale ; le port local peut donc être différent."
+            "value": "Port de VM distant %d. cmux peut utiliser un autre port local pour sa redirection."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "منفذ VM البعيد %d. يفتحه cmux عبر إعادة توجيه محلية، لذلك قد يختلف المنفذ المحلي."
+            "value": "منفذ VM البعيد %d. قد يستخدم cmux منفذًا محليًا مختلفًا لإعادة التوجيه المحلي."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Puerto de VM remoto %d. cmux lo abre mediante un reenvío local, por lo que el puerto local puede ser diferente."
+            "value": "Puerto de VM remoto %d. cmux puede usar otro puerto local para su reenvío."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "遠端 VM 連接埠 %d。cmux 會透過本機轉送開啟，因此本機連接埠可能不同。"
+            "value": "遠端 VM 連接埠 %d。cmux 可能會為本機轉送使用不同的本機連接埠。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "远程 VM 端口 %d。cmux 会通过本地转发打开它，因此本地端口可能不同。"
+            "value": "远程 VM 端口 %d。cmux 可能会为本地转发使用不同的本地端口。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "원격 VM 포트 %d입니다. cmux가 로컬 포워딩으로 열기 때문에 로컬 포트는 다를 수 있습니다."
+            "value": "원격 VM 포트 %d입니다. cmux가 로컬 포워딩에 다른 로컬 포트를 사용할 수 있습니다."
           }
         }
       }
@@ -481479,6 +481479,65 @@
             "value": "링크 준비 중…"
           }
         }}},
+    "cloudTree.menu.copyPreviewLink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Preview Link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューリンクをコピー"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorschaulink kopieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier le lien d’aperçu"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخ رابط المعاينة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar enlace de vista previa"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製預覽連結"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制预览链接"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미리보기 링크 복사"
+          }
+        }
+      }
+    },
     "cloudTree.menu.copyLink": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Copy Local Link"}},"ja":{"stringUnit":{"state":"translated","value":"ローカルリンクをコピー"}},
         "de": {
           "stringUnit": {
