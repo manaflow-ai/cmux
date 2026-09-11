@@ -204,4 +204,52 @@ struct SurfaceCatalogCloudRenameCompatibilityTests {
         catalog.rollbackCloudWorkspaceRename(token)
         #expect(catalog.machines[machine]?.remoteWorkspaces?.map(\.name) == ["canonical", "pending"])
     }
+
+    @Test("Typed cloud state keeps committed rename for an unobserved pending workspace")
+    func typedCloudStateKeepsCommittedRenameForUnobservedPendingWorkspace() throws {
+        let machine = SurfaceMachineID.cloud("vivid-newt")
+        let catalog = SurfaceCatalog()
+        let provider = SurfaceCatalogTests.FakeProvider(machine: machine)
+        catalog.register(provider)
+
+        func state(cursorGeneration: String, cursorRevision: String) throws -> CloudVMState {
+            let snapshot: [String: Any] = [
+                "cursor": ["generation": cursorGeneration, "revision": cursorRevision],
+                "workspaces": [["id": "canonical", "name": "canonical"]],
+                "screens": [],
+                "panes": [],
+                "tabs": [],
+                "terminals": [],
+                "browsers": [],
+                "agents": [],
+            ]
+            return try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: machine))
+        }
+
+        let initialState = try state(cursorGeneration: "g1", cursorRevision: "1")
+        var initialInfo = provider.info
+        initialInfo.remoteWorkspaces = [
+            SurfaceRemoteWorkspace(id: "canonical", name: "canonical", index: 0, focused: true),
+            SurfaceRemoteWorkspace(id: "pending", name: "pending", index: 1, focused: false),
+        ]
+        catalog.replaceCloudState(initialState, resources: [], info: initialInfo)
+
+        let token = try catalog.beginCloudWorkspaceRename(
+            machine: machine,
+            workspaceID: "pending",
+            name: "renamed pending"
+        )
+        catalog.commitCloudWorkspaceRename(
+            token,
+            receipt: CloudVMCursor(generation: "g1", revision: 2)
+        )
+
+        let newerState = try state(cursorGeneration: "g1", cursorRevision: "3")
+        var newerInfo = provider.info
+        newerInfo.remoteWorkspaces = initialInfo.remoteWorkspaces
+        catalog.replaceCloudState(newerState, resources: [], info: newerInfo)
+
+        #expect(catalog.pendingCloudWorkspaceRenameName(machine: machine, workspaceID: "pending") == "renamed pending")
+        #expect(catalog.machines[machine]?.remoteWorkspaces?.map(\.name) == ["canonical", "renamed pending"])
+    }
 }
