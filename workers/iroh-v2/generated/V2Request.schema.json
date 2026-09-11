@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.cmux.invalid/iroh-v2/V2Request.json",
+  "oneOf": [
+    {
+      "$ref": "https://contracts.cmux.invalid/iroh-v2/V2ChallengeRequest.json"
+    },
+    {
+      "$ref": "https://contracts.cmux.invalid/iroh-v2/V2RegisterRequest.json"
+    },
+    {
+      "$ref": "https://contracts.cmux.invalid/iroh-v2/V2TicketRequest.json"
+    },
+    {
+      "$ref": "https://contracts.cmux.invalid/iroh-v2/V2RelayRequest.json"
+    },
+    {
+      "$ref": "https://contracts.cmux.invalid/iroh-v2/V2DirectoryRequest.json"
+    },
+    {
+      "$ref": "https://contracts.cmux.invalid/iroh-v2/V2MetadataRequest.json"
+    },
+    {
+      "$ref": "https://contracts.cmux.invalid/iroh-v2/V2RevokeRequest.json"
+    },
+    {
+      "$ref": "https://contracts.cmux.invalid/iroh-v2/V2PermissionRequest.json"
+    },
+    {
+      "$ref": "https://contracts.cmux.invalid/iroh-v2/V2PreferencesRequest.json"
+    },
+    {
+      "$ref": "https://contracts.cmux.invalid/iroh-v2/V2GoodbyeRequest.json"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": [
+      "ES2022"
+    ],
+    "types": [
+      "@cloudflare/workers-types",
+      "bun"
+    ],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": [
+    "src/**/*.ts",
+    "scripts/**/*.ts",
+    "test/**/*.ts",
+    "worker-configuration.d.ts"
+  ]
+}
