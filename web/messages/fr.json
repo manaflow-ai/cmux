@@ -2406,7 +2406,7 @@
       "currentWorkspaceDesc": "Obtenir l'espace de travail actuellement actif.",
       "closeWorkspaceDesc": "Fermer un espace de travail.",
       "splitCommands": "Commandes de division",
-      "newSplitDesc": "Créer un nouveau panneau divisé. Directions : left, right, up, down.",
+    "newSplitDesc": "Créer un nouveau panneau divisé. Directions : left, right, up, down. Passez --command <text> pour lancer une commande dans le nouveau shell du terminal ; le shell reste ouvert une fois la commande terminée.",
       "listSurfacesDesc": "Répertorie toutes les surfaces dans l'espace de travail actuel.",
       "focusSurfaceDesc": "Mettre le focus sur une surface spécifique.",
       "inputCommands": "Commandes de saisie",

@@ -2406,7 +2406,7 @@
       "currentWorkspaceDesc": "현재 활성 워크스페이스를 가져옵니다.",
       "closeWorkspaceDesc": "워크스페이스를 닫습니다.",
       "splitCommands": "분할 명령",
-      "newSplitDesc": "새 분할 패널을 생성합니다. 방향: left, right, up, down.",
+    "newSplitDesc": "새 분할 패널을 생성합니다. 방향: left, right, up, down. --command <text>를 전달하면 새 터미널 셸에서 명령을 시작하며, 명령이 끝난 뒤에도 셸은 열려 있습니다.",
       "listSurfacesDesc": "현재 작업 공간의 모든 표면을 나열합니다.",
       "focusSurfaceDesc": "특정 서피스에 포커스합니다.",
       "inputCommands": "입력 명령",

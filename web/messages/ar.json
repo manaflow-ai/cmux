@@ -2406,7 +2406,7 @@
       "currentWorkspaceDesc": "الحصول على مساحة العمل النشطة حالياً.",
       "closeWorkspaceDesc": "إغلاق مساحة عمل.",
       "splitCommands": "أوامر التقسيم",
-      "newSplitDesc": "إنشاء لوح مقسم جديد. الاتجاهات: يسار، يمين، أعلى، أسفل.",
+    "newSplitDesc": "إنشاء لوح مقسم جديد. الاتجاهات: left وright وup وdown. مرّر --command <text> لبدء أمر في صدفة الطرفية الجديدة؛ تبقى الصدفة مفتوحة بعد انتهاء الأمر.",
       "listSurfacesDesc": "قم بإدراج كافة الأسطح في مساحة العمل الحالية.",
       "focusSurfaceDesc": "التركيز على سطح محدد.",
       "inputCommands": "أوامر الإدخال",

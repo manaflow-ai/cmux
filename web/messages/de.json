@@ -2406,7 +2406,7 @@
       "currentWorkspaceDesc": "Den aktuell aktiven Workspace abrufen.",
       "closeWorkspaceDesc": "Einen Workspace schließen.",
       "splitCommands": "Split-Befehle",
-      "newSplitDesc": "Einen neuen geteilten Bereich erstellen. Richtungen: left, right, up, down.",
+    "newSplitDesc": "Einen neuen geteilten Bereich erstellen. Richtungen: left, right, up, down. Mit --command <text> wird ein Befehl in der neuen Terminal-Shell gestartet; die Shell bleibt nach dem Ende geöffnet.",
       "listSurfacesDesc": "Alle Oberflächen im aktuellen Arbeitsbereich auflisten.",
       "focusSurfaceDesc": "Eine bestimmte Oberfläche fokussieren.",
       "inputCommands": "Eingabebefehle",

@@ -2406,7 +2406,7 @@
       "currentWorkspaceDesc": "获取当前活跃的工作区。",
       "closeWorkspaceDesc": "关闭工作区。",
       "splitCommands": "分屏命令",
-      "newSplitDesc": "创建新的分屏面板。方向：left、right、up、down。",
+    "newSplitDesc": "创建新的分屏面板。方向：left、right、up、down。传入 --command <text> 可在新的终端 Shell 中启动命令；命令退出后 Shell 仍保持打开。",
       "listSurfacesDesc": "列出当前工作区中的所有曲面。",
       "focusSurfaceDesc": "聚焦到指定 surface。",
       "inputCommands": "输入命令",
