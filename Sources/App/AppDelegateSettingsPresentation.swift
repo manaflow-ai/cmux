@@ -12,9 +12,9 @@ extension AppDelegate {
         // `SettingsWindowShowResult`, so there is no alternate path that can
         // claim success without a verified window (the #7775 failure shape).
         presentSettingsWindow: (@MainActor (SettingsNavigationTarget?) -> SettingsWindowShowResult)? = nil,
-        // The legacy body also passed .activateIgnoringOtherApps; the option
-        // is deprecated and documented as a no-op on macOS 14+ (this target's
-        // minimum), so dropping it is behavior-neutral.
+        // Fallback for a substitute presenter that could only order a window
+        // while the app remained hidden. A normally presented window already
+        // has exact activation and key ordering owned by the presenter.
         activateApplication: @MainActor () -> Void = {
             NSRunningApplication.current.activate(options: [.activateAllWindows])
         }
@@ -24,15 +24,27 @@ extension AppDelegate {
 #endif
         let present = presentSettingsWindow
             ?? { SettingsWindowPresenter.show(navigationTarget: $0) }
-        if case .failed = present(navigationTarget) {
+        switch present(navigationTarget) {
+        case .failed:
             // The presenter already logged the loud failure diagnostics;
             // surface the failed menu/⌘, action instead of silently activating.
             NSSound.beep()
             return
-        }
-        activateApplication()
+        case .orderedWhileAppHidden:
+            // Only this result still owes activation. Running another
+            // `.activateAllWindows` after `.presented` can reorder a main cmux
+            // window above the Settings window the presenter just keyed.
+            activateApplication()
 #if DEBUG
-        cmuxDebugLog("settings.open.present activate=1")
+            cmuxDebugLog("settings.open.present activate=fallbackHiddenApp")
+#endif
+        case .presented:
+            // SettingsWindowPresenter activated the app, then made the exact
+            // Settings window key and frontmost. Preserve that final ordering.
+            break
+        }
+#if DEBUG
+        cmuxDebugLog("settings.open.present complete=1")
 #endif
     }
 
