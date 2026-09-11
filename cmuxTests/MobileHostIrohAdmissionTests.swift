@@ -23,9 +23,9 @@ extension MobileHostAuthorizationTests {
             transport: transport,
             firstFrameTimeoutNanoseconds: 0,
             idleTimeoutNanoseconds: 0,
-            isAuthorizationCurrent: { false },
             authorizeRequest: { _ in nil },
             onAuthorizedRequest: { _ in },
+            isAuthorizationCurrent: { false },
             handleRequest: { request in
                 await handled.record(request)
                 return .ok(["handled": true])
