@@ -19,6 +19,21 @@ import Testing
 struct CloudTreeMachineMenuTests {
     private static let machineID = "brave-otter"
 
+    @Test("Expanding the Ports group requests fresh discovery")
+    func portsGroupRequestsFreshDiscoveryOnExpansion() {
+        let node = CloudTreeNode(
+            id: "machine:\(Self.machineID)/ports",
+            kind: .portsGroup(machine: .cloud(Self.machineID))
+        )
+        #expect(node.kind.refreshesOnExpansion)
+
+        let workspaceGroup = CloudTreeNode(
+            id: "machine:\(Self.machineID)/workspaces",
+            kind: .workspacesGroup(machine: .cloud(Self.machineID))
+        )
+        #expect(!workspaceGroup.kind.refreshesOnExpansion)
+    }
+
     @Test("A machine's menu lists its verbs with no disk resize item or submenu")
     func machineMenuOffersOnlySupportedVerbs() throws {
         let recorder = CloudTreeMenuVerbRecorder()

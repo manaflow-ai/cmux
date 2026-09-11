@@ -369,7 +369,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
             true
         }
-
         func outlineViewSelectionDidChange(_ notification: Notification) {
             guard !isUpdatingProgrammatically, let outlineView else { return }
             selectedNodeID = outlineView.selectedRow >= 0
@@ -380,6 +379,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         func outlineViewItemDidExpand(_ notification: Notification) {
             guard !isUpdatingProgrammatically, let node = notification.userInfo?["NSObject"] as? CloudTreeNode else { return }
             expansionStore.setExpanded(true, node: node)
+            if node.kind.refreshesOnExpansion { nodeActions.refreshMachine(node.machine) }
         }
 
         func outlineViewItemDidCollapse(_ notification: Notification) {
