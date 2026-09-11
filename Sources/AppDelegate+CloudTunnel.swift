@@ -14,7 +14,7 @@ extension AppDelegate {
         let tunnelManager = VMTunnelManager()
         let activation = CloudActivationPolicy.live(browserTunnel: tunnelManager)
         let coordinator = CloudTunnelCoordinator.live(
-            consumers: CloudTunnelAppConsumers(cloudBrowserCount: { 0 }),
+            consumers: CloudTunnelAppConsumers(),
             tunnelManager: tunnelManager,
             activation: activation
         )

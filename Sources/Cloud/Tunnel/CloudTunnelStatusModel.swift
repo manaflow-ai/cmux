@@ -1,9 +1,9 @@
 import Foundation
 import Observation
 
-/// The Machines panel's live view of ``CloudTunnelCoordinator``: the latest
-/// status projected as a ``CloudTunnelBanner``. The panel observes it while it
-/// is on screen; the coordinator remains the only owner of the state.
+/// The explicit VPN setup pane's live view of ``CloudTunnelCoordinator``.
+/// The coordinator remains the only owner of the state; ordinary Cloud browsing
+/// does not observe or display this optional system-wide connection.
 @MainActor
 @Observable
 final class CloudTunnelStatusModel {
