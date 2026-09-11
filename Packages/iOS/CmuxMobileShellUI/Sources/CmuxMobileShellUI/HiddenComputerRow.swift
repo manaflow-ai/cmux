@@ -1,6 +1,7 @@
 #if os(iOS)
 import CMUXMobileCore
 import CmuxMobileShell
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
@@ -176,7 +177,8 @@ private struct ComputerVisibilityRow: View {
                    ) {
                     ComputerBuildBadge(label: buildLabel)
                 }
-                if gateWarningPairingIDs.contains(computer.id) {
+                if gateWarningPairingIDs.contains(computer.id)
+                    || MobileMacListAuthState.shared.compatibilityEntry(pairingID: computer.id).isOutdated {
                     Button {
                         showingHiddenVersionGateWarning = true
                     } label: {

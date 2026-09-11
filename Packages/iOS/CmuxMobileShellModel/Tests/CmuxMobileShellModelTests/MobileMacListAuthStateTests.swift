@@ -11,10 +11,9 @@ struct MobileMacListAuthStateTests {
             let nightly = MobileMacListAuthState.Entry(status: "active", revoked: false, isFresh: true, appVersion: "0.64.22-nightly.3439608067501", releaseTrack: "nightly")
             state.applyPolicyMinimumSupportedMacVersions(stable: "0.64.23", nightly: nil)
             state.replace(
-                entriesByEndpointID: ["stable-peer": stable, "nightly-peer": nightly],
-                entriesByIdentityKey: [
-                    "physical-device\u{1F}default": stable,
-                    "physical-device\u{1F}nightly": nightly,
+                entriesByIdentity: [
+                    .init(pairingID: "physical-device\u{1F}default", endpointIDHex: "stable-peer"): stable,
+                    .init(pairingID: "physical-device\u{1F}nightly", endpointIDHex: "nightly-peer"): nightly,
                 ]
             )
             #expect(state.entry(pairingID: "physical-device\u{1F}default")?.isOutdated == true)
@@ -62,6 +61,16 @@ struct MobileMacListAuthStateTests {
             minimumSupportedVersion: "0.64.20"
         )
         #expect(malformed.isOutdated)
+
+        let malformedNightlyWithoutNightlyFloor = MobileMacListAuthState.Entry(
+            status: "active",
+            revoked: false,
+            isFresh: true,
+            appVersion: "not-a-nightly-stamp",
+            minimumSupportedVersion: "0.64.23",
+            releaseTrack: "nightly"
+        )
+        #expect(malformedNightlyWithoutNightlyFloor.isOutdated)
     }
 
     @Test(arguments: ["999.-1.0", "999.0.0.1", "999..0", "999.a.0"])
@@ -165,8 +174,7 @@ struct MobileMacListAuthStateTests {
             appVersion: "0.64.20"
         )
         state.replace(
-            entriesByEndpointID: ["endpoint": entry],
-            entriesByIdentityKey: ["device": entry],
+            entriesByIdentity: [.init(pairingID: "device", endpointIDHex: "endpoint"): entry],
             minimumSupportedMacVersion: "0.64.20"
         )
         #expect(!state.entry(pairingID: "device")!.isOutdated)
@@ -178,8 +186,7 @@ struct MobileMacListAuthStateTests {
         // A directory refresh without the legacy server floor must not erase
         // the current iOS build's policy floor.
         state.replace(
-            entriesByEndpointID: ["endpoint": entry],
-            entriesByIdentityKey: ["device": entry]
+            entriesByIdentity: [.init(pairingID: "device", endpointIDHex: "endpoint"): entry]
         )
         #expect(state.entry(pairingID: "device")!.isOutdated)
         #expect(state.minimumSupportedMacVersion == "0.64.23")
@@ -196,8 +203,7 @@ struct MobileMacListAuthStateTests {
             releaseTrack: "nightly"
         )
         state.replace(
-            entriesByEndpointID: ["endpoint": nightly],
-            entriesByIdentityKey: ["device": nightly],
+            entriesByIdentity: [.init(pairingID: "device", endpointIDHex: "endpoint"): nightly],
             minimumSupportedMacVersion: "0.64.23"
         )
         #expect(!state.entry(pairingID: "device")!.isOutdated)
@@ -226,8 +232,7 @@ struct MobileMacListAuthStateTests {
             appVersion: "0.64.20"
         )
         state.replace(
-            entriesByEndpointID: ["endpoint": stable],
-            entriesByIdentityKey: ["device": stable],
+            entriesByIdentity: [.init(pairingID: "device", endpointIDHex: "endpoint"): stable],
             minimumSupportedMacVersion: "0.64.23"
         )
         #expect(state.entry(pairingID: "device")!.isOutdated)
@@ -240,8 +245,7 @@ struct MobileMacListAuthStateTests {
             releaseTrack: "nightly"
         )
         state.replace(
-            entriesByEndpointID: ["nightly-endpoint": nightly],
-            entriesByIdentityKey: ["nightly-device": nightly]
+            entriesByIdentity: [.init(pairingID: "nightly-device", endpointIDHex: "endpoint"): nightly]
         )
         #expect(state.minimumSupportedMacVersion == nil)
         #expect(state.entry(pairingID: "nightly-device")!.minimumSupportedVersion == nil)
@@ -249,8 +253,7 @@ struct MobileMacListAuthStateTests {
         // A subsequent authoritative snapshot without a floor clears the
         // previous Stable requirement rather than retaining stale state.
         state.replace(
-            entriesByEndpointID: ["endpoint": stable],
-            entriesByIdentityKey: ["device": stable]
+            entriesByIdentity: [.init(pairingID: "device", endpointIDHex: "endpoint"): stable]
         )
         #expect(state.entry(pairingID: "device")!.minimumSupportedVersion == nil)
         #expect(!state.entry(pairingID: "device")!.isOutdated)
@@ -267,8 +270,7 @@ struct MobileMacListAuthStateTests {
             minimumSupportedVersion: "0.64.23"
         )
         state.replace(
-            entriesByEndpointID: ["endpoint": entry],
-            entriesByIdentityKey: ["device": entry],
+            entriesByIdentity: [.init(pairingID: "device", endpointIDHex: "endpoint"): entry],
             minimumSupportedMacVersion: "0.64.23"
         )
         #expect(state.entry(pairingID: "device")!.isOutdated)

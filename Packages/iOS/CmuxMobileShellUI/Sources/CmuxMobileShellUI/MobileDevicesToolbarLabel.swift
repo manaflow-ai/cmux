@@ -17,7 +17,7 @@ struct MobileDevicesToolbarLabel: View {
     private var showsWarning: Bool {
         let listAuth = MobileMacListAuthState.shared
         let hasOutdatedListAuth = computerPairingIDs.contains { pairingID in
-            listAuth.entry(pairingID: pairingID)?.isOutdated == true
+            listAuth.compatibilityEntry(pairingID: pairingID).isOutdated
         }
         return Self.warningVisible(
             hasGateWarning: !gateWarningPairingIDs.isDisjoint(with: computerPairingIDs),

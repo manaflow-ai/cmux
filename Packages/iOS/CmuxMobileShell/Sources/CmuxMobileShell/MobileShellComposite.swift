@@ -10276,7 +10276,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         continue routeLoop
                     case let .macAppVersionTooOld(violation):
                         mobileShellLog.error(
-                            "rejecting route from outdated Mac app version=\(violation.macAppVersion ?? "missing", privacy: .public) required=\(violation.requiredVersionDisplay, privacy: .public)"
+                            "rejecting route from outdated Mac app version=\(violation.macAppVersion ?? "missing", privacy: .public) required=\(violation.requiredVersionDisplay ?? "valid-version-required", privacy: .public)"
                         )
                         noteMacVersionUpdateRequired(
                             for: status.macDeviceID ?? ticket.macDeviceID,
