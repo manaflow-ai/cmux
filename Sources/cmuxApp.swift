@@ -29,6 +29,9 @@ import CmuxTerminal
 @main
 enum CmuxMain {
     static func main() {
+        // GUI processes inherit launchd's 256-file soft limit. Raise before
+        // any worker re-exec or child spawn so terminals and agents inherit.
+        FileDescriptorLimit.raiseSoftLimitIfNeeded()
         AppHostProcessReceipt.writeIfRequired()
 #if DEBUG
         // Bonsplit's `dlog` and the app's `cmuxDebugLog` resolve the same
