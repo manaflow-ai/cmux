@@ -83,6 +83,46 @@ After approval, macOS starts the route without `sudo` or a password. Later
 for other apps on the Mac (a system browser, `ssh`, `.internal` hostnames via
 `cmux vpn hosts`); cmux's own panes never depend on it.
 
+### Activation gate
+
+Nothing on the browser path runs until `CloudActivationPolicy` admits it. The
+policy is built once at the composition root from local state only, and it is
+the single decision every tunnel consumer (browser navigation, `cmux vpn up`,
+`vm.tunnel_config`, `vm.tunnel_up`) flows through:
+
+- A start is admitted only when `Settings › Beta Features › Cloud Machines` is
+  on (`cloud.beta.machines.enabled`, off by default on every build, and never
+  forced on by a managed `DisableCloud` profile) **and** the account has at
+  least one machine. Launch-time decisions and status answer "has a machine"
+  from a cached marker written by every machine list and create
+  (`cloud.machines.cachedHasAny`; cleared on sign-out, reset to unknown by a
+  delete). An explicit start (`cmux vpn up`, a Cloud browser open) does not
+  trust that marker: it settles the count against the control plane with one
+  fleet list before scheduling the start, so a machine deleted or created
+  outside this app is neither trusted nor missed; while the tunnel is up or a
+  start is in flight, uses read local state only. A refused start touches
+  neither enrollment nor NetworkExtension and reports `cloud-machines-off`
+  or `no-cloud-machine` (`start_refusal` in `vm.tunnel_status`, from local
+  state only).
+- The NetworkExtension controller, whose construction reads
+  `NETunnelProviderManager` preferences, is built at launch only when the
+  browser-role config already exists on this Mac (a previous opted-in session
+  saved a VPN configuration), so an inherited tunnel can still be adopted or
+  stopped. Otherwise it is built on the first admitted start. A fresh install,
+  or an update from a version without the tunnel, therefore never calls
+  NetworkExtension at all.
+- The Beta Features toggle is honored while the app runs: turning it off
+  brings a running tunnel down; turning it on lets the next Cloud use start
+  the tunnel without a relaunch. The periodic fleet read (`GET /api/vm` from
+  the cmux-tui registry) runs only while the toggle is on **or** this Mac has
+  used Cloud before (the marker said the account had a machine, or a tunnel
+  role was enrolled here), so an idle app that never opted in makes no Cloud
+  API traffic, while an existing Cloud user's fleet keeps reconnecting even
+  with the toggle off. Sign-out clears that evidence and stops the poll; a
+  delete resets the marker to unknown until the next list.
+- `down`, `revoke`, sign-out, and quit stay available regardless, so a tunnel
+  from an earlier opted-in session is always cleaned up.
+
 ## Device identity and revoke
 
 `cloud_vm_access_grants` contains one row for the physical Mac. It stores the

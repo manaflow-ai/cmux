@@ -88,10 +88,16 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     /// Incremented whenever find focus ownership changes, so stale async
     /// focus requests posted before a hide/re-show can never steal focus.
-    @Published private(set) var searchFocusRequestGeneration: UInt64 = 0
+    @Published var searchFocusRequestGeneration: UInt64 = 0
+
+    /// The generation currently allowed to claim the find field. Leaving the
+    /// pane clears this lease even though the monotonic counter continues, so
+    /// a newly mounted overlay cannot mistake an invalidated request for a
+    /// fresh one.
+    var activeSearchFocusRequestGeneration: UInt64?
 
     private var searchNeedleCancellable: AnyCancellable?
-    private var lastSearchNeedle = ""
+    var lastSearchNeedle = ""
     private lazy var findService = BrowserFindService(
         evaluator: MarkdownFindWebViewEvaluator(panel: self)
     )
@@ -113,8 +119,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private var pendingSearchNeedle: String?
     /// Set when activation asks a preview panel to focus before SwiftUI has
     /// mounted its WKWebView. The renderer fulfills this at window attach.
-    private var pendingPreviewFocus = false
-    private weak var textView: NSTextView?
+    var pendingPreviewFocus = false
+    weak var textView: NSTextView?
     private let selectionReader = NativeTextSurfaceSelectionReader()
     var isClosed: Bool = false
     // NotificationCenter token; removal is thread-safe so deinit can drop it.
@@ -181,26 +187,6 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         }
     }
 
-    // MARK: - Find in preview (methods)
-
-    /// Shows (or refocuses) the preview find bar. Preview-only: text mode uses
-    /// the NSTextView's native find panel via the responder chain.
-    func startFind() {
-        guard displayMode == .preview else { return }
-        let created = searchState == nil
-        let recoveredNeedle = created ? lastSearchNeedle : ""
-        if created { searchState = BrowserSearchState(needle: recoveredNeedle) }
-        let shouldSelectAll = created && !recoveredNeedle.isEmpty
-        searchFocusRequestGeneration &+= 1
-        let generation = searchFocusRequestGeneration
-        postSearchFocusNotification(generation: generation, selectAll: shouldSelectAll)
-        // Re-post once because the overlay mounts on the same runloop turn and
-        // can miss the first notification.
-        DispatchQueue.main.async { [weak self] in
-            self?.postSearchFocusNotification(generation: generation, selectAll: shouldSelectAll)
-        }
-    }
-
     func findNext() {
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -213,25 +199,6 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             guard let self else { return }
             self.applyFindMatchCount(await self.findService.previous())
         }
-    }
-
-    func hideFind() {
-        searchState = nil
-    }
-
-    /// Whether an async find-field focus request for `generation` may still
-    /// be applied. Guards against focus theft after hide or a newer request.
-    func canApplySearchFocusRequest(_ generation: UInt64) -> Bool {
-        searchState != nil && generation == searchFocusRequestGeneration
-    }
-
-    private func postSearchFocusNotification(generation: UInt64, selectAll: Bool) {
-        guard canApplySearchFocusRequest(generation) else { return }
-        NotificationCenter.default.post(
-            name: .browserSearchFocus,
-            object: id,
-            userInfo: [FindFocusNotificationKey.selectAll: selectAll]
-        )
     }
 
     private func handleSearchStateChange(oldValue: BrowserSearchState?) {
@@ -256,7 +223,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         } else if let oldValue {
             lastSearchNeedle = oldValue.needle
             searchNeedleCancellable = nil
-            searchFocusRequestGeneration &+= 1
+            invalidateSearchFocusRequests()
             executeFindClear()
         }
     }
@@ -440,11 +407,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         focus()
     }
 
-    func unfocus() {
-        pendingPreviewFocus = false
-    }
-
+    /// Closes the panel and tears down its renderer and file watcher.
     func close() {
+        unfocus()
         isClosed = true
         pendingPreviewFocus = false
         searchState = nil

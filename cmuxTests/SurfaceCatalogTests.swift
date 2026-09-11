@@ -1020,6 +1020,36 @@ struct SurfaceCatalogTests {
         }
     }
 
+    @Test func openingLayoutKeepsUnplacedGroupResources() async throws {
+        let catalog = SurfaceCatalog()
+        let machine = SurfaceMachineID.cloud("vm-layout")
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+        let members = ["placed-a", "placed-b", "pool-terminal"].map {
+            SurfaceResourcePlacement(resource: SurfaceResourceID(machine: machine, kind: .terminal, key: $0))
+        }
+        catalog.replaceResources(members.map { terminal(machine, $0.resource.key) }, on: machine)
+        let group = SurfaceResourceGroup(title: "layout", placements: members)
+        let layout = SurfaceProjectionLayout.split(
+            direction: .right,
+            ratio: 0.6,
+            first: .leaf(placements: [members[0]]),
+            second: .leaf(placements: [members[1]])
+        )
+        let workspace = UUID()
+        let host = SurfaceCatalog.NewWorkspaceHost(
+            create: { _ in (workspace, nil) },
+            paneLookup: { _, panel in panel.uuidString },
+            closeStarter: { _, _ in }
+        )
+        let opened = try await catalog.projectGroupAsNewLocalWorkspace(
+            group, title: "layout", focus: false, host: host, layout: layout
+        )
+        #expect(opened.projections.count == members.count)
+        #expect(Set(opened.projections.map(\.resource)) == Set(group.resources))
+        #expect(provider.materialized.count == members.count)
+    }
+
     @Test func `Unregistering a machine drops its resources and projections`() async throws {
         let catalog = SurfaceCatalog()
         let provider = FakeProvider(machine: .cloud("m"))
