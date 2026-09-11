@@ -63,6 +63,49 @@ struct CloudTuiManualIOCommand: Sendable {
         ]
     }
 
+    /// The capability under which the daemon fans out collaboration
+    /// pointers and highlights (`cmux-tui/spec/presence.md`).
+    let presenceCapability = "presence-v1"
+
+    /// Advertises a presence-only connection: it never attaches a surface.
+    func setPresenceClientInfo(name: String, kind: String, requestID: UInt64) -> [String: Any] {
+        [
+            "id": requestID,
+            "cmd": "set-client-info",
+            "name": name,
+            "kind": kind,
+            "capabilities": [presenceCapability],
+        ]
+    }
+
+    /// Subscribes to `presence-changed` and nothing else.
+    func subscribePresence(requestID: UInt64) -> [String: Any] {
+        ["id": requestID, "cmd": "subscribe", "presence_only": true]
+    }
+
+    /// Asks for every live pointer so a late joiner can draw them.
+    func presenceList(requestID: UInt64) -> [String: Any] {
+        ["id": requestID, "cmd": "presence-list"]
+    }
+
+    /// Publishes this connection's pointer and highlight on one surface.
+    func presenceUpdate(
+        surfaceID: UInt64,
+        pointer: CloudPresenceAnchor?,
+        highlight: CloudPresenceHighlight?,
+        requestID: UInt64
+    ) -> [String: Any] {
+        var command: [String: Any] = ["id": requestID, "cmd": "presence-update", "surface": surfaceID]
+        if let pointer { command["pointer"] = pointer.json }
+        if let highlight { command["highlight"] = highlight.json }
+        return command
+    }
+
+    /// Withdraws this connection's presence.
+    func presenceClear(requestID: UInt64) -> [String: Any] {
+        ["id": requestID, "cmd": "presence-clear"]
+    }
+
     /// Claims this connection as the terminal's geometry owner.
     ///
     /// A `resize-surface` report is sent before this command.  The daemon

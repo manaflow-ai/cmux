@@ -74,6 +74,12 @@ extension CmuxTuiSurfaceProvider {
                 session?.claimGeometry()
             }
             manualMirrorSessions[created.panelID] = session
+            CloudPresenceStore.shared.registerPane(
+                panelID: created.panelID,
+                machineID: machineID,
+                remoteSurfaceID: resolved.surfaceID,
+                socketPath: connected.socketPath
+            )
             session.reconnect(socketPath: connected.socketPath)
             return CloudManualMirrorMaterialization(
                 workspaceID: created.workspaceID,

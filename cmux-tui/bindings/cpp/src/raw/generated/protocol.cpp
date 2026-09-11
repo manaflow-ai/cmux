@@ -13364,6 +13364,11 @@ Result<SplitRequest> Codec<SplitRequest>::decode(const Json& value) {
 Result<Json> Codec<SubscribeRequest>::encode(const SubscribeRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.presence_only.is_absent()) {
+        auto encoded = encode_value(value.presence_only);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("presence_only", std::move(encoded).value());
+    }
     if (!value.surface.is_absent()) {
         auto encoded = encode_value(value.surface);
         if (!encoded) return std::move(encoded).error();
@@ -13381,6 +13386,16 @@ Result<SubscribeRequest> Codec<SubscribeRequest>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     SubscribeRequest result{};
+    const Json* field_presence_only = value.find("presence_only");
+    if (field_presence_only) {
+        if (field_presence_only->is_null()) {
+            result.presence_only = Field<bool>::null();
+        } else {
+            auto decoded = decode_value<bool>(*field_presence_only);
+            if (!decoded) return std::move(decoded).error();
+            result.presence_only = Field<bool>(std::move(decoded).value());
+        }
+    }
     const Json* field_surface = value.find("surface");
     if (field_surface) {
         if (field_surface->is_null()) {
@@ -18903,7 +18918,8 @@ constexpr std::array<CommandFieldRequirement, 1> kCommand96FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand98FieldRequirements{{
     {"force", 10U, "daemon-handoff-force-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand101FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 3> kCommand101FieldRequirements{{
+    {"presence_only", 12U, "presence-v1"},
     {"surface", 9U, "surface-subscribe-filter"},
     {"tree_events", 7U, ""},
 }};

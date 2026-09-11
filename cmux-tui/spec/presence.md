@@ -16,7 +16,7 @@ talking. It is not focus, not selection, and not input.
    one `presence-changed` with `surface:null`. Frontends remove every overlay
    for that client on such an event.
 4. Anchors are surface coordinates, never pixels. `cell` is a terminal grid
-   cell plus the publisher's scrollback offset. `point` is a browser or
+   cell plus the publisher's `scroll_offset`: how many rows the publisher's viewport sits above the live bottom (0 when at the bottom). A viewer at offset `V` draws the cell on row `row + V - scroll_offset` and hides it when that falls outside the grid. `point` is a browser or
    display point in CSS/document pixels. Frontends own the mapping to their
    own viewport and may hide an anchor they cannot place.
 5. The daemon validates that the surface is alive and nothing else. It does
@@ -33,7 +33,7 @@ talking. It is not focus, not selection, and not input.
 | Item | Name |
 | --- | --- |
 | capability | `presence-v1` |
-| commands | `presence-update`, `presence-clear`, `presence-list` |
+| commands | `presence-update`, `presence-clear`, `presence-list`; `subscribe` with `presence_only:true` |
 | event | `presence-changed` on the subscribe stream |
 
 Command and payload shapes are normative in [`commands.md`](commands.md) and
