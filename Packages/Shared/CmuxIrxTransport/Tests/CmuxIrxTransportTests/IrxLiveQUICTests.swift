@@ -66,6 +66,53 @@ enum IrxLiveTestSupport {
 
 @Suite("live QUIC", .serialized)
 struct IrxLiveQUICTests {
+    @Test("a revoked control lane does not deliver buffered remote data")
+    func revokedControlLaneRejectsRead() async throws {
+        let journal = IrxLiveTestSupport.journal()
+        let server = try await IrxLiveTestSupport.bindLoopback(
+            seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 1)
+        let client = try await IrxLiveTestSupport.bindLoopback(
+            seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 0)
+        let serverTask = Task { () -> IrxConnection? in
+            guard let incoming = await server.acceptNext() else { return nil }
+            let accepting = try await incoming.accept()
+            let connection = try await accepting.connect()
+            let irx = IrxConnection(connection: connection, role: .acceptor, journal: journal)
+            guard let admitted = await IrxAdmission.performServer(
+                connection: irx,
+                judgment: IrxLiveTestSupport.fixedJudgment(accepting: "good-grant"),
+                journal: journal
+            ) else { return nil }
+            try await admitted.1.writer.write(Data("remote output".utf8))
+            return irx
+        }
+        let connection = try await client.connect(
+            addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol.alpnData)
+        let irx = IrxConnection(connection: connection, role: .dialer, journal: journal)
+        let (_, control) = try await IrxAdmission.performClient(
+            connection: irx, grantJWS: "good-grant", journal: journal)
+        let releaseProbe = IrxControlReleaseProbe()
+        let transport = IrxControlByteTransport(
+            closeCode: .userRequested,
+            establish: { (irx, control) },
+            onClose: { await releaseProbe.record() },
+            permitsIO: { false }
+        )
+        let serverConnection = try #require(try await serverTask.value)
+        do {
+            _ = try await transport.receive()
+            Issue.record("a revoked lane delivered remote data")
+        } catch let error as IrxConnectionError {
+            if case .closed = error {} else { Issue.record("unexpected error: \(error)") }
+        }
+        #expect(await releaseProbe.count == 1)
+        await transport.close()
+        await irx.close(code: .userRequested, origin: .local)
+        await serverConnection.close(code: .userRequested, origin: .local)
+        try? await server.close()
+        try? await client.close()
+    }
+
     @Test("closing a control transport releases its owner without closing the session")
     func controlTransportReleasesOwner() async throws {
         let journal = IrxLiveTestSupport.journal()
