@@ -4,6 +4,7 @@ public import CmuxIrohTransport
 import CmuxIrxTransport
 public import CmuxMobileRPC
 import CmuxMobileShellModel
+import CmuxMobilePairedMac
 import CmuxMobileTransport
 public import Foundation
 
