@@ -32,6 +32,14 @@ extension TerminalController {
             return v2VmCall(id: id, timeoutSeconds: 120) {
                 if refresh {
                     if let machine {
+                        // `cmux vm new` asks for the catalog right after `POST /api/vm`
+                        // returns; the registry may not have listed the machine yet, and
+                        // a catalog refresh for a machine with no provider is a no-op
+                        // that reports its sessions unavailable. List the fleet once so
+                        // the provider exists and its refresh brings the link up.
+                        if let vmID = machine.cloudMachineID {
+                            _ = await CmuxTuiSurfaceProviderRegistry.shared.providerRefreshingIfMissing(machineID: vmID)
+                        }
                         await SurfaceCatalog.shared.refresh(machine: machine, force: true)
                     } else {
                         await SurfaceCatalog.shared.refreshAll(force: true)
