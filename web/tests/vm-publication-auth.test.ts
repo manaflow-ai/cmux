@@ -3,7 +3,6 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import {
-  CloudVmPublicationRepository,
   type CloudVmPublicationRepositoryShape,
 } from "../services/vm-publications/repository";
 import {
@@ -20,6 +19,8 @@ import {
   publicationPkceChallenge,
   randomPublicationToken,
 } from "../services/vm-publications/security";
+
+import { PublicationAuthRepository as CloudVmPublicationRepository } from "../services/vm-publications/authRepository";
 
 const now = new Date("2026-09-02T12:00:00.000Z");
 const publication = {

@@ -1,7 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
+import * as Effect from "effect/Effect";
+import { Database } from "../db/effect";
 import { cloudDb, closeCloudDbForTests } from "../db/client";
-import { closePublicationAuthDb, publicationAuthDb } from "../services/vm-publications/database";
+import { closePublicationAuthDb, publicationDatabaseRuntime } from "../services/vm-publications/database";
 
 const dbTest = process.env.CMUX_DB_TEST === "1" ? test : test.skip;
 const originalMax = process.env.CMUX_DB_POOL_MAX;
@@ -28,7 +30,7 @@ describe("publication authorization capacity", () => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const completed = await Promise.race([
-        publicationAuthDb().execute(sql`select 1`).then(() => true),
+        publicationDatabaseRuntime().runPromise(Effect.flatMap(Database, db => db.execute(sql`select 1`))).then(() => true),
         new Promise<boolean>(resolve => { timer = setTimeout(() => resolve(false), 1000); }),
       ]);
       expect(completed).toBe(true);

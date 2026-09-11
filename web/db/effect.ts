@@ -1,4 +1,5 @@
 import { PgClient } from "@effect/sql-pg";
+import * as Statement from "@effect/sql/Statement";
 import * as PgDrizzle from "drizzle-orm/effect-postgres";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -6,6 +7,7 @@ import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import { types } from "pg";
 import * as schema from "./schema";
+import { tagCloudDbQuery } from "./queryTags";
 
 const database = PgDrizzle.makeWithDefaults({ schema });
 
@@ -38,7 +40,13 @@ export function makeDatabaseLayer(options: DatabasePoolOptions) {
     },
   });
   // DefaultServices disables SQL/parameter logging and result caching.
-  return Layer.effect(Database, database).pipe(Layer.provideMerge(client));
+  return Layer.effect(Database, database).pipe(
+    Layer.provideMerge(client),
+    Layer.provide(Statement.setTransformer((statement, sql) => Effect.sync(() => {
+      const [text, parameters] = statement.compile();
+      return sql.unsafe(tagCloudDbQuery(text), parameters);
+    }))),
+  );
 }
 
 /** Create once at the service composition root, reuse, then dispose on shutdown. */

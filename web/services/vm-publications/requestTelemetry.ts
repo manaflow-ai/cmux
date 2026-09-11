@@ -1,6 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { SpanStatusCode, type Span } from "@opentelemetry/api";
 import { after } from "next/server";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import { runWithCloudDbQueryTags } from "../../db/queryTags";
 import { forceFlushTraces, withPrioritySpan, withSpan, withTraceIdHeaders } from "../telemetry";
 
@@ -12,6 +15,7 @@ const ROUTE = "/api/freestyle/forward-auth";
 type Operation = { operation: string; offset_ms: number; duration_ms: number; failed: boolean };
 type RequestState = { now: () => number; startedAt: number; operations: Operation[]; dropped: number };
 const requests = new AsyncLocalStorage<RequestState>();
+class EffectRequestState extends Context.Tag("cmux/PublicationAuthTrace")<EffectRequestState, RequestState>() {}
 const rounded = (value: number) => Math.round(value * 100) / 100;
 
 function recordOperation(state: RequestState, operation: Operation): void {
@@ -22,6 +26,27 @@ function recordOperation(state: RequestState, operation: Operation): void {
 function decision(status: number): string {
   if (status >= 500) return "unavailable";
   return ({ 204: "allow", 302: "redirect", 400: "invalid", 401: "unauthorized", 404: "not_found", 429: "rate_limited" } as Record<number, string>)[status] ?? "other";
+}
+
+/** Capture at the HTTP boundary; fibers retain their own request state. */
+export function withPublicationAuthEffectContext<A, E, R>(program: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> {
+  const state = requests.getStore();
+  return state ? program.pipe(Effect.provideService(EffectRequestState, state)) : program;
+}
+
+export function tracePublicationAuthEffect<A, E, R>(operation: string, program: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> {
+  return Effect.gen(function* () {
+    const context = yield* Effect.serviceOption(EffectRequestState);
+    if (context._tag === "None") return yield* program;
+    const state = context.value;
+    const startedAt = state.now();
+    return yield* program.pipe(Effect.onExit(exit => Effect.sync(() => recordOperation(state, {
+      operation,
+      offset_ms: rounded(startedAt - state.startedAt),
+      duration_ms: rounded(state.now() - startedAt),
+      failed: Exit.isFailure(exit),
+    }))));
+  });
 }
 
 /** Operation names come from fixed call sites, never URLs, SQL, or user input. */

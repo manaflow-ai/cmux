@@ -5,8 +5,6 @@ import * as Layer from "effect/Layer";
 
 import { getStackServerApp } from "../../app/lib/stack";
 import {
-  CloudVmPublicationRepository,
-  CloudVmPublicationRepositoryLive,
   type CloudVmPublicationAuthTransaction,
   type CloudVmPublicationTarget,
 } from "./repository";
@@ -26,7 +24,9 @@ import {
   randomPublicationToken,
 } from "./security";
 import { normalizePublicationEmail } from "./managedHostnames";
-import { tracePublicationAuthOperation } from "./requestTelemetry";
+import { tracePublicationAuthOperation, withPublicationAuthEffectContext } from "./requestTelemetry";
+import { publicationDatabaseRuntime } from "./database";
+import { PublicationAuthRepository, PublicationAuthRepositoryLive } from "./authRepository";
 
 export const PUBLICATION_TRANSACTION_TTL_MS = 10 * 60 * 1_000;
 export const PUBLICATION_AUTH_CODE_TTL_MS = 60 * 1_000;
@@ -88,15 +88,15 @@ export const PublicationViewerResolverLive = Layer.succeed(
 );
 
 export const PublicationAuthRuntime = Layer.merge(
-  CloudVmPublicationRepositoryLive,
+  PublicationAuthRepositoryLive,
   PublicationViewerResolverLive,
 );
 
 export function runPublicationAuth<A, E>(
-  program: Effect.Effect<A, E, CloudVmPublicationRepository | PublicationViewerResolver>,
+  program: Effect.Effect<A, E, PublicationAuthRepository | PublicationViewerResolver>,
 ): Promise<A> {
-  return Effect.runPromise(
-    program.pipe(Effect.provide(PublicationAuthRuntime), Effect.either),
+  return publicationDatabaseRuntime().runPromise(
+    withPublicationAuthEffectContext(program.pipe(Effect.provide(PublicationAuthRuntime), Effect.either)),
   ).then((result) => {
     if (result._tag === "Left") throw result.left;
     return result.right;
@@ -155,7 +155,7 @@ export function evaluatePublicationRequest(input: {
   readonly now?: Date;
 }) {
   return Effect.gen(function* () {
-    const repository = yield* CloudVmPublicationRepository;
+    const repository = yield* PublicationAuthRepository;
     const viewerResolver = yield* PublicationViewerResolver;
     const now = input.now ?? new Date();
     const requestContext = yield* repository.findRequestContext({
@@ -206,7 +206,7 @@ export function resolvePublicationForRequest(input: {
   readonly providerTlsRuleId: string;
 }) {
   return Effect.gen(function* () {
-    const repository = yield* CloudVmPublicationRepository;
+    const repository = yield* PublicationAuthRepository;
     return yield* repository.findActivePublicationForRequest({
       providerTlsRuleId: input.providerTlsRuleId,
     });
@@ -252,7 +252,7 @@ export function completePublicationAuthorization(input: {
     ) {
       return { kind: "invalid" } as const;
     }
-    const repository = yield* CloudVmPublicationRepository;
+    const repository = yield* PublicationAuthRepository;
     const now = input.now ?? new Date();
     const sessionToken = randomPublicationToken();
     const consumed = yield* repository.consumeAuthCodeAndCreateSession({
@@ -284,7 +284,7 @@ export function resolvePublicationAccess(input: {
     if (!isPublicationToken(input.transaction) || !isPublicationToken(input.state)) {
       return { kind: "invalid" } as const;
     }
-    const repository = yield* CloudVmPublicationRepository;
+    const repository = yield* PublicationAuthRepository;
     const now = input.now ?? new Date();
     const pending = yield* repository.findPendingAuthTransaction({
       transactionHash: hashPublicationToken(input.transaction),
@@ -354,7 +354,7 @@ function publicationAllowsViewer(publication: VmPublicationPolicy & { readonly i
   return Effect.gen(function* () {
     if (vmPublicationAllowsViewer(publication, viewer, owningTeamId)) return true;
     if (!viewer) return false;
-    const repository = yield* CloudVmPublicationRepository;
+    const repository = yield* PublicationAuthRepository;
     for (const value of viewer.verifiedEmails ?? []) {
       const email = normalizePublicationEmail(value);
       if (email && (yield* repository.hasEmailGrant({ publicationId: publication.id, email, now }))) return true;
@@ -371,7 +371,7 @@ export function beginPublicationAuthorization(input: {
   readonly now?: Date;
 }) {
   return Effect.gen(function* () {
-    const repository = yield* CloudVmPublicationRepository;
+    const repository = yield* PublicationAuthRepository;
     const transaction = randomPublicationToken();
     const state = randomPublicationToken();
     const verifier = randomPublicationToken();
