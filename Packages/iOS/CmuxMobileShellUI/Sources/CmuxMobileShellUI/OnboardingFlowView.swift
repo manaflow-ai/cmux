@@ -272,7 +272,17 @@ struct OnboardingFlowView: View {
         var properties = eventProperties
         properties["connection_method"] = .string(method.rawValue)
         analytics.capture("ios_onboarding_connection_method_selected", properties)
-        onSelectConnectionMethod(method)
+        let shouldStartTailscalePairing =
+            method == .tailscale && connectionPhase == .ready
+        withAnimation(.smooth(duration: 0.25)) {
+            onSelectConnectionMethod(method)
+        }
+        // A ready Iroh connection must not turn a Tailscale selection into an
+        // accidental onboarding completion. Pair the newly selected route now,
+        // while leaving the existing ready state untouched for other changes.
+        if shouldStartTailscalePairing {
+            startTailscalePairing()
+        }
     }
 
     private func startTailscalePairing() {

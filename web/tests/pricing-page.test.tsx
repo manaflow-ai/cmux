@@ -28,7 +28,22 @@ const redirect = mock((href: unknown) => {
 });
 const originalVaultEnabled = process.env.CMUX_VAULT_ENABLED;
 
-mock.module("next/navigation", () => createNextNavigationMock(redirect));
+const nextNavigationMock = createNextNavigationMock(redirect);
+
+mock.module("next/navigation", () => nextNavigationMock);
+
+// The pricing page uses the locale-aware Link returned by createNavigation.
+// Bun module mocks are process-global, so mock the package's complete export
+// surface and return every navigation function our shared wrapper exposes.
+mock.module("next-intl/navigation", () => ({
+  createNavigation: () => ({
+    Link: (props: React.ComponentProps<"a">) => <a {...props} />,
+    redirect: nextNavigationMock.redirect,
+    usePathname: nextNavigationMock.usePathname,
+    useRouter: nextNavigationMock.useRouter,
+    getPathname: ({ href }: { href: string }) => href,
+  }),
+}));
 
 mock.module("next-intl", () => ({
   NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
@@ -129,6 +144,23 @@ describe("localized pricing page", () => {
       expect(flat).not.toContain("コンピュート時間");
       expect("sizes" in catalog).toBe(false);
     }
+  });
+
+  test("shows the Founder's Edition recovery link once, after every card and before comparison", async () => {
+    const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
+    const html = renderToStaticMarkup(element);
+    const recoveryIndex = html.indexOf('href="/billing/recover"');
+    expect(html.match(/href="\/billing\/recover"/g)).toHaveLength(1);
+    for (const plan of ["free", "pro", "team", "enterprise"] as const) {
+      const lastFeature = enMessages.pricing[plan].features.at(-1)!;
+      const featureIndex = html.indexOf(lastFeature);
+      expect(featureIndex).toBeGreaterThan(-1);
+      expect(recoveryIndex).toBeGreaterThan(featureIndex);
+    }
+    const comparisonIndex = html.indexOf("<table");
+    expect(comparisonIndex).toBeGreaterThan(-1);
+    expect(recoveryIndex).toBeLessThan(comparisonIndex);
+    expect(html).toContain("Already paid? Connect Founder&#x27;s Edition");
   });
 
   beforeEach(() => {
@@ -272,7 +304,7 @@ describe("localized pricing page", () => {
     expect(html).toContain("$50");
     expect(html).toContain("$60");
     expect(html).toContain(
-      "Up to 50 Cloud VMs, each with its own resources; default size 8 GB RAM and 32 GB disk, with 4 to 64 GB RAM available",
+      "Up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs",
     );
     expect(html).toContain("Unlimited workspaces");
     expect(html).not.toContain("Unlimited active Cloud VMs");

@@ -51,6 +51,7 @@ jobs:
     timeout-minutes: ${{ fromJSON(inputs.job_timeout || '20') }}
     env:
       TEST_REF: ${{ inputs.ref || github.ref }}
+      CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
     steps:
       - name: Validate Depot runner identity
         if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner, 'depot-macos-') }}
