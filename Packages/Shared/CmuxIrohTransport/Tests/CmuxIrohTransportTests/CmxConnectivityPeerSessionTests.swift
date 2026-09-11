@@ -396,6 +396,28 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     @Test
+    func policyPathStreamTerminationFailsClosed() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let session = TestConnectivitySession(
+            continuityID: 34,
+            keepsSelectedPathStreamOpen: true
+        )
+        let builder = SequencedConnectivitySessionBuilder(sessions: [session])
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in try await builder.build(request) }
+        )
+
+        _ = try await peer.acquireControl(for: request, ownerID: UUID())
+        try await Self.waitUntil { await session.hasSelectedPathObserver() }
+        await session.finishSelectedPathStream()
+        try await Self.waitUntil { await session.closeCount() == 1 }
+
+        #expect(await peer.snapshot().failure == .unsupportedRoute)
+    }
+
+    @Test
     func lateClosureCleanupCannotOverwriteAReplacementSession() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
@@ -1255,6 +1277,7 @@ private actor TestConnectivitySession: CmxConnectivitySession {
     }
 
     func pathIsAllowed(_ path: CmxIrohObservedConnectionPath) async -> Bool {
+        if case .unknown = path { return false }
         guard rejectsRelayPaths else { return true }
         if case .relay = path { return false }
         return true
@@ -1267,6 +1290,11 @@ private actor TestConnectivitySession: CmxConnectivitySession {
     func publishSelectedPath(_ path: CmxIrohObservedConnectionPath) {
         selectedPath = path
         selectedPathContinuation?.yield(path)
+    }
+
+    func finishSelectedPathStream() {
+        selectedPathContinuation?.finish()
+        selectedPathContinuation = nil
     }
 
     func setSelectedPathQuietly(_ path: CmxIrohObservedConnectionPath) {

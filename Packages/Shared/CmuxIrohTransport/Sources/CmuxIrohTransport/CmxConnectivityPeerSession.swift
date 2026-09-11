@@ -496,6 +496,8 @@ actor CmxConnectivityPeerSession {
                 guard !Task.isCancelled else { return }
                 await self?.pathDidChange(id: id, path: path)
             }
+            guard !Task.isCancelled else { return }
+            await self?.pathDidChange(id: id, path: .unknown)
         }
         let pathEventObservationTask: Task<Void, Never>?
         if let diagnosticLog {

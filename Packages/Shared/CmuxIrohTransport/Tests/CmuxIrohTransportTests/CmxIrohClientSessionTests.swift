@@ -71,12 +71,53 @@ struct CmxIrohClientSessionTests {
                 for: .direct(address: "203.0.113.42:443")
             ) == .irohDirect
         )
-        // Private observations still require a source-qualified hint and must
-        // remain unavailable when no provenance can be established.
+        // An unmatched private observation is still native Iroh in Iroh mode.
         #expect(
             await session.transportPath(
                 for: .privateNetwork(address: "192.168.1.42:443")
-        ) == .unavailable
+        ) == .irohDirect
+        )
+    }
+
+    @Test
+    func irohModeAllowsNativePrivateHolePunchMigration() async throws {
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: []
+        )
+        let observedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let nativePrivateHint = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "192.168.1.42:443",
+            source: .native,
+            privacyScope: .privateNetwork,
+            observedAt: observedAt,
+            expiresAt: observedAt.addingTimeInterval(30 * 60),
+            networkProfile: CmxIrohNetworkProfileKey(
+                source: .native,
+                profileID: String(repeating: "f", count: 64)
+            )
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(
+                publicPaths: [try publicRelayHint()],
+                privateFallbackPaths: [nativePrivateHint]
+            ),
+            credential: credential,
+            transportMode: .iroh
+        )
+
+        #expect(
+            await session.pathIsAllowed(
+                .privateNetwork(address: "192.168.1.42:61234")
+            )
+        )
+        #expect(
+            await session.transportPath(
+                for: .privateNetwork(address: "192.168.1.42:61234")
+            ) == .irohDirect
         )
     }
 

@@ -44,10 +44,10 @@ struct CmxIrohLibConnection:
     @concurrent
     func policySelectedPathChanges() async -> AsyncStream<CmxIrohObservedConnectionPath> {
         // Policy enforcement cannot silently coalesce transitions. Keep the
-        // stream bounded and convert an overflow into an explicit unknown
-        // state; the peer-session policy check then fails closed.
+        // stream bounded and terminate when a new transition cannot be
+        // enqueued; the peer-session policy check then fails closed.
         makePathChangeStream(
-            bufferingPolicy: .bufferingNewest(32),
+            bufferingPolicy: .bufferingOldest(32),
             failClosedOnOverflow: true
         )
     }

@@ -373,8 +373,8 @@ public actor CmxIrohClientSession {
                 // stay constrained by source-qualified matching below.
                 _ = address
                 return true
-            case let .privateNetwork(address):
-                return pathMatchesPlan(.privateNetwork(address: address), source: .native)
+            case .privateNetwork:
+                return true
             }
         case .direct:
             switch path {
@@ -396,9 +396,8 @@ public actor CmxIrohClientSession {
     }
 
     /// Projects a selected path without guessing provenance from an IP range.
-    /// A private socket is classified from the matching dial-plan hint; an
-    /// unmatched private socket is deliberately unavailable rather than being
-    /// mislabeled as LAN or Tailscale.
+    /// An unmatched private Iroh socket remains native Iroh; other modes keep
+    /// the unavailable fallback rather than guessing LAN or Tailscale.
     func transportPath(for path: CmxIrohObservedConnectionPath) async -> CmxTransportPath {
         switch path {
         case .unavailable:
@@ -415,7 +414,10 @@ public actor CmxIrohClientSession {
         case .relay:
             return .irohRelay(region: nil)
         case let .privateNetwork(address):
-            return projectedAddressPath(address)
+            return projectedAddressPath(
+                address,
+                unmatchedPath: transportMode == .iroh ? .irohDirect : .unavailable
+            )
         }
     }
 
