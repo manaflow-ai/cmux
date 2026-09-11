@@ -210,7 +210,6 @@ public actor IrxRelayCredentialAutopilot {
             bypassRefreshDeadlineOnce = false
             do {
                 let minted = try await broker.mintRelayCredentials()
-                failureCount = 0
                 guard generation == loopGeneration, !Task.isCancelled else { return }
                 // The ownership check lives inside the endpoint actor too:
                 // cancellation can race an in-flight broker request.
