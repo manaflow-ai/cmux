@@ -60,17 +60,25 @@ extension DockSplitStore {
             )
         }
 
-        let customTitle = tab.hasCustomTitle ? tab.title : nil
+        let stableTerminalTitle = panel is TerminalPanel
+            ? stableDockTerminalTabTitle(
+                panelId: panel.id,
+                transferOverride: transfer
+            )
+            : nil
+        let stableTabTitle = stableTerminalTitle?.title ?? tab.title
+        let customTitle = tab.hasCustomTitle ? stableTabTitle : nil
         let customTitleSource: Workspace.CustomTitleSource? = if let customTitle {
-            customTitle == transfer?.customTitle
-                ? transfer?.customTitleSource
-                : .user
+            panelCustomTitleSourcesByPanelId[panel.id]
+                ?? (customTitle == transfer?.customTitle
+                    ? (transfer?.customTitleSource ?? .user)
+                    : .user)
         } else {
             nil
         }
-        let cachedTitle = tab.hasCustomTitle ? panel.displayTitle : tab.title
+        let cachedTitle = tab.hasCustomTitle ? panel.displayTitle : stableTabTitle
         return (
-            title: tab.title,
+            title: stableTabTitle,
             cachedTitle: cachedTitle,
             customTitle: customTitle,
             customTitleSource: customTitleSource
@@ -494,6 +502,10 @@ extension DockSplitStore {
             focus: focus,
             reconcileReason: "dock.attachDetachedSurface"
         )
+        _ = reconcileCodexTabTitlePresentation(
+            panelId: detached.panelId,
+            fallback: detached.customTitle ?? detached.title
+        )
         if let terminalPanel = panel as? TerminalPanel {
             if let owningWorkspace =
                     terminalFontSizeOwningWorkspace {
@@ -591,6 +603,10 @@ extension DockSplitStore {
             inPane: newPane,
             focus: focus,
             reconcileReason: "dock.attachDetachedSurface.split"
+        )
+        _ = reconcileCodexTabTitlePresentation(
+            panelId: detached.panelId,
+            fallback: detached.customTitle ?? detached.title
         )
         if let terminalPanel = panel as? TerminalPanel {
             if let owningWorkspace =
