@@ -11854,6 +11854,9 @@ struct VerticalTabsSidebar: View, Equatable {
             guard isPresented else { return }
             scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
         }
+        .sidebarCloudWorkspaceObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.sidebarCloudWorkspaceObservation)) { workspaceId in
+            if isPresented { scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId) }
+        }
         .sidebarWorkspaceObservations(
             ids: renderContext.workspaceIds,
             workspaces: renderContext.tabs,

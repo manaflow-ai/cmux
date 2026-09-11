@@ -16,6 +16,7 @@ struct SidebarWorkspaceSnapshotFactory {
     let settings: SidebarTabItemSettingsSnapshot
     let showsAgentActivity: Bool
 
+    /// Creates the current immutable presentation snapshot for the workspace row.
     func makeSnapshot() -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         let detailVisibility = settings.visibleAuxiliaryDetails
         let orderedPanelIds: [UUID]? =
@@ -82,7 +83,11 @@ struct SidebarWorkspaceSnapshotFactory {
             isMuted: workspace.isMuted,
             customColorHex: workspace.customColor,
             cloudWorkspaceLabel: workspace.cloudVMID.map { machine in
-                String(localized: "sidebar.cloudWorkspace.label", defaultValue: "Cloud workspace on \(machine)")
+                let template = String(
+                    localized: "sidebar.cloudWorkspace.label",
+                    defaultValue: "Cloud workspace on %@"
+                )
+                return String.localizedStringWithFormat(template, machine)
             },
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,

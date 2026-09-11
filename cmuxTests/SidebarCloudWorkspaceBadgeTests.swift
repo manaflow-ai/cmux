@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import CmuxCore
 import Testing
 @testable import cmux_DEV
@@ -96,14 +95,12 @@ struct SidebarCloudWorkspaceBadgeTests {
         #expect(cell.layoutContent(model: try #require(cell.currentModelForMeasurement), width: width, apply: false) == height)
     }
 
-    @Test func cloudBindingChangeImmediatelyInvalidatesSidebar() {
+    @Test func cloudBindingChangeInvalidatesSidebarThroughAsyncObservation() async {
         let workspace = Workspace(initialSurface: .cloudVMLoading)
-        var publishCount = 0
-        let cancellable = workspace.sidebarImmediateObservationPublisher.sink { publishCount += 1 }
-        defer { cancellable.cancel() }
-        publishCount = 0
+        let changes = workspace.sidebarCloudWorkspaceObservation.changes()
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
-        #expect(publishCount == 1)
+        var iterator = changes.makeAsyncIterator()
+        #expect(await iterator.next() != nil)
     }
 
     private static func makeModel(

@@ -3,7 +3,61 @@ import CmuxCore
 import CmuxWorkspaces
 import Foundation
 import CmuxSidebar
+import Observation
 import SwiftUI
+
+/// Publishes Cloud identity changes through a cancellation-aware async stream.
+@MainActor
+@Observable
+final class WorkspaceSidebarCloudWorkspaceObservationModel {
+    @ObservationIgnored
+    private(set) var changeGeneration: UInt64 = 0
+    @ObservationIgnored
+    private(set) var changeObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
+    @ObservationIgnored
+    private var hasUnobservedChange = false
+
+    /// Creates a stream that replays a change which occurred before subscription.
+    func changes() -> AsyncStream<Void> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let id = UUID()
+            changeObservers[id] = continuation
+            if hasUnobservedChange {
+                hasUnobservedChange = false
+                changeGeneration &+= 1
+                continuation.yield(())
+            }
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor in self?.changeObservers[id] = nil }
+            }
+        }
+    }
+
+    /// Signals that the workspace's Cloud binding changed.
+    func cloudBindingDidChange() {
+        guard !changeObservers.isEmpty else {
+            hasUnobservedChange = true
+            return
+        }
+        var terminatedObserverIDs: [UUID] = []
+        var delivered = false
+        for (id, continuation) in changeObservers {
+            if case .terminated = continuation.yield(()) {
+                terminatedObserverIDs.append(id)
+            } else {
+                delivered = true
+            }
+        }
+        for id in terminatedObserverIDs {
+            changeObservers[id] = nil
+        }
+        if delivered {
+            changeGeneration &+= 1
+        } else {
+            hasUnobservedChange = true
+        }
+    }
+}
 
 private struct SidebarPanelObservationState: Equatable {
     let panelIds: [UUID]
@@ -14,6 +68,27 @@ private struct SidebarPanelObservationState: Equatable {
 }
 
 extension View {
+    /// Refreshes row snapshots when a workspace's Cloud identity changes.
+    func sidebarCloudWorkspaceObservations(
+        ids: [UUID],
+        models: [WorkspaceSidebarCloudWorkspaceObservationModel],
+        onChange: @MainActor @escaping (UUID) -> Void
+    ) -> some View {
+        task(id: ids) { @MainActor in
+            await withTaskGroup(of: Void.self) { group in
+                for (id, model) in zip(ids, models) {
+                    let changes = model.changes()
+                    group.addTask { @MainActor in
+                        for await _ in changes {
+                            if Task.isCancelled { break }
+                            onChange(id)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Observes row-affecting workspace publishers above the lazy-list boundary.
     ///
     /// Each task retains the workspace identity that produced a change, so a
@@ -166,7 +241,6 @@ private struct SidebarImmediateObservationState: Equatable {
     let isPinned: Bool
     let isMuted: Bool
     let customColor: String?
-    let cloudVMBinding: WorkspaceCloudVMBinding?
     let latestConversationMessage: String?
     let latestSubmittedMessage: String?
     let latestSubmittedAt: Date?
@@ -208,6 +282,7 @@ extension Workspace {
     // sustained churn so a row's title cannot stay stale until the agent
     // goes quiet. See https://github.com/manaflow-ai/cmux/issues/5570.
     static let sidebarImmediateObservationCoalesceInterval: DispatchQueue.SchedulerTimeType.Stride = .milliseconds(50)
+    /// Publishes synchronous row-affecting workspace changes other than Cloud identity.
     func makeSidebarImmediateObservationPublisher() -> AnyPublisher<Void, Never> {
         // Combine exposes up to four-way convenience publishers. Compose the
         // extra fields explicitly so adding a row-affecting property does not
@@ -218,7 +293,7 @@ extension Workspace {
             $isPinned,
             $customColor
         )
-        .combineLatest($isMuted, $cloudVMBinding)
+        .combineLatest($isMuted)
         let conversationFields = Publishers.CombineLatest3(
             $latestConversationMessage,
             $latestSubmittedMessage,
@@ -242,7 +317,6 @@ extension Workspace {
                     isPinned: workspaceFields.0.2,
                     isMuted: workspaceFields.1,
                     customColor: workspaceFields.0.3,
-                    cloudVMBinding: workspaceFields.2,
                     latestConversationMessage: conversationFields.0,
                     latestSubmittedMessage: conversationFields.1,
                     latestSubmittedAt: conversationFields.2,

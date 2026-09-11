@@ -3071,8 +3071,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// machine's workspace. Set through `workspace.cloud_vm_bind` and persisted in the
     /// session snapshot (`SessionWorkspaceSnapshot.cloudVM`); the pane's one-shot link is
     /// not replayed on restore, only the binding is.
-    @Published var cloudVMBinding: WorkspaceCloudVMBinding?
-
+    @Published var cloudVMBinding: WorkspaceCloudVMBinding? { didSet { if oldValue != cloudVMBinding { sidebarCloudWorkspaceObservation.cloudBindingDidChange() } } }
     /// The binding a session snapshot restores, or nil when the snapshot has none or its
     /// machine id is malformed.
     nonisolated static func restoredCloudVMBinding(from snapshot: SessionCloudVMBindingSnapshot?) -> WorkspaceCloudVMBinding? {
@@ -3196,6 +3195,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     let sidebarAgentRuntimeObservation = WorkspaceSidebarAgentRuntimeObservationModel()
     /// Todo lifecycle state: manual status override + persisted checklist (all logic lives in `Workspace+Todos.swift`).
     let todoState = WorkspaceTodoState()
+    let sidebarCloudWorkspaceObservation = WorkspaceSidebarCloudWorkspaceObservationModel()
     let sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]

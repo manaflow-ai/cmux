@@ -10,12 +10,18 @@ extension NSImageView {
         tint: NSColor,
         weight: Font.Weight = .semibold
     ) {
-        isHidden = label == nil
-        toolTip = label
-        guard label != nil else { return }
-        image = RenderableSystemSymbol.configuredAppKitImage(
+        guard let label else {
+            image = nil
+            toolTip = nil
+            isHidden = true
+            return
+        }
+        let renderedImage = RenderableSystemSymbol.configuredAppKitImage(
             systemName: symbol, pointSize: pointSize, weight: weight
         )
+        image = renderedImage
+        isHidden = renderedImage == nil
+        toolTip = label
         contentTintColor = tint
     }
 
