@@ -108,10 +108,22 @@ actor DeviceIrxClient {
               !entry.eventsClaimed else { throw DeviceLinkError.notConnected }
         entry.eventsClaimed = true
         sessions[endpoint] = entry
-        let borrowed = try await context()
-        let session = try await entry.engine.ensureSession(trigger: "mac-events")
-        guard !stopped, sessions[endpoint]?.owner == entry.owner else { throw DeviceLinkError.notConnected }
         let owner = entry.owner
+        // The claim is taken before suspending so a concurrent caller cannot
+        // also accept the events lane. Nothing has been accepted yet when the
+        // context or the session fails, so hand the claim back: the next
+        // caller must be able to retry instead of finding the lane held
+        // until the whole session is released.
+        let borrowed: DeviceIrxClientContext
+        let session: IrxClientSession
+        do {
+            borrowed = try await context()
+            session = try await entry.engine.ensureSession(trigger: "mac-events")
+            guard !stopped, sessions[endpoint]?.owner == owner else { throw DeviceLinkError.notConnected }
+        } catch {
+            releaseEventsClaim(endpoint: endpoint, owner: owner)
+            throw error
+        }
         return AsyncThrowingStream { continuation in
             let pump = Task {
                 do {
@@ -177,6 +189,12 @@ actor DeviceIrxClient {
         return peer.deviceID == session.instance.deviceID && peer.tag == session.instance.tag
             && peer.bindingID == bindingID
             && (peer.identityGeneration == nil || peer.identityGeneration == generation)
+    }
+
+    private func releaseEventsClaim(endpoint: String, owner: UUID) {
+        guard var session = sessions[endpoint], session.owner == owner else { return }
+        session.eventsClaimed = false
+        sessions[endpoint] = session
     }
 
     private func release(endpoint: String, owner: UUID) async {
