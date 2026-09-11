@@ -1,0 +1,211 @@
+name: Daily Codex docs audit
+
+on:
+  schedule:
+    - cron: "23 12 * * *"
+  workflow_dispatch:
+    inputs:
+      commit_window:
+        description: Git commit window to audit, for example "30 days" or "all"
+        required: false
+        default: all
+      model:
+        description: Codex model
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: daily-codex-docs-audit
+  cancel-in-progress: false
+
+jobs:
+  docs-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CODEX_VERSION: "0.136.0"
+      CODEX_MODEL: ${{ github.event.inputs.model || vars.DAILY_DOCS_CODEX_MODEL || 'gpt-5.5' }}
+      DOCS_AUDIT_COMMIT_WINDOW: ${{ github.event.inputs.commit_window || vars.DAILY_DOCS_COMMIT_WINDOW || 'all' }}
+      SUBROUTER_BASE_URL: ${{ vars.SUBROUTER_BASE_URL || 'http://subrouter-team:31415' }}
+      SUBROUTER_OPENAI_BASE_URL: ${{ vars.SUBROUTER_OPENAI_BASE_URL }}
+      SUBROUTER_CHATGPT_BASE_URL: ${{ vars.SUBROUTER_CHATGPT_BASE_URL }}
+      SUBROUTER_API_KEY: ${{ secrets.SUBROUTER_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.SUBROUTER_API_KEY }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install Codex CLI
+        run: |
+          set -euo pipefail
+          npm install -g "@openai/codex@${CODEX_VERSION}"
+          codex --version
+
+      - name: Configure Codex for subrouter
+        run: |
+          set -euo pipefail
+          if [ -z "${SUBROUTER_API_KEY:-}" ]; then
+            echo "::error::Missing SUBROUTER_API_KEY secret. Daily Codex docs audit must use subrouter."
+            exit 1
+          fi
+
+          root="${SUBROUTER_BASE_URL%/}"
+          openai_base="${SUBROUTER_OPENAI_BASE_URL:-}"
+          chatgpt_base="${SUBROUTER_CHATGPT_BASE_URL:-}"
+          if [ -z "$openai_base" ]; then
+            if [[ "$root" == */v1 ]]; then
+              openai_base="$root"
+              root="${root%/v1}"
+            else
+              openai_base="$root/v1"
+            fi
+          fi
+          if [ -z "$chatgpt_base" ]; then
+            chatgpt_base="$root/backend-api"
+          fi
+
+          {
+            echo "CODEX_HOME=${RUNNER_TEMP}/codex-home"
+            echo "SUBROUTER_OPENAI_BASE_URL_RESOLVED=${openai_base}"
+            echo "SUBROUTER_CHATGPT_BASE_URL_RESOLVED=${chatgpt_base}"
+          } >> "$GITHUB_ENV"
+
+          mkdir -p "${RUNNER_TEMP}/codex-home"
+          cat > "${RUNNER_TEMP}/codex-home/config.toml" <<EOF
+          model = "${CODEX_MODEL}"
+          model_reasoning_effort = "high"
+          openai_base_url = "${openai_base}"
+          chatgpt_base_url = "${chatgpt_base}"
+          experimental_realtime_ws_base_url = "${openai_base}"
+
+          [projects."${GITHUB_WORKSPACE}"]
+          trust_level = "trusted"
+          EOF
+
+      - name: Create dated branch
+        id: branch
+        run: |
+          set -euo pipefail
+          run_date="$(date -u +%Y%m%d)"
+          branch="automation/daily-docs-codex-${run_date}"
+          git switch -c "$branch"
+          git config user.name "cmux docs automation"
+          git config user.email "actions@github.com"
+          echo "name=$branch" >> "$GITHUB_OUTPUT"
+          echo "date=$run_date" >> "$GITHUB_OUTPUT"
+
+      - name: Run Codex docs audit through subrouter
+        run: |
+          set -euo pipefail
+          {
+            cat .github/prompts/daily-docs-codex.md
+            printf '\n\nWorkflow context:\n'
+            printf 'DOCS_AUDIT_COMMIT_WINDOW=%s\n' "$DOCS_AUDIT_COMMIT_WINDOW"
+            printf 'SUBROUTER_OPENAI_BASE_URL=%s\n' "$SUBROUTER_OPENAI_BASE_URL_RESOLVED"
+            printf 'SUBROUTER_CHATGPT_BASE_URL=%s\n' "$SUBROUTER_CHATGPT_BASE_URL_RESOLVED"
+          } | codex exec \
+            --cd "$GITHUB_WORKSPACE" \
+            --model "$CODEX_MODEL" \
+            --sandbox workspace-write \
+            --ask-for-approval never \
+            --output-last-message "$RUNNER_TEMP/codex-docs-audit-summary.md" \
+            -
+
+      - name: Stop if Codex made no changes
+        id: changes
+        run: |
+          set -euo pipefail
+          if [ -z "$(git status --porcelain=v1 --untracked-files=all)" ]; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            echo "No docs changes needed."
+            if [ -f "$RUNNER_TEMP/codex-docs-audit-summary.md" ]; then
+              sed -n '1,120p' "$RUNNER_TEMP/codex-docs-audit-summary.md"
+            fi
+            exit 0
+          fi
+
+          changed="$(git status --porcelain=v1 --untracked-files=all | cut -c4- | sed 's/.* -> //')"
+          bad="$(
+            printf '%s\n' "$changed" \
+              | grep -Ev '^(CHANGELOG\.md|README(\.[^.]+)?\.md|docs/|web/app/\[locale\]/docs/|web/app/\[locale\]/components/docs-|web/messages/|web/tools/build-docs-search\.mjs$)' \
+              || true
+          )"
+          if [ -n "$bad" ]; then
+            echo "::error::Codex changed files outside the docs surface:"
+            printf '%s\n' "$bad"
+            exit 1
+          fi
+
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
+
+      - name: Verify web docs changes
+        if: steps.changes.outputs.has_changes == 'true'
+        run: |
+          set -euo pipefail
+          if git status --porcelain=v1 --untracked-files=all | cut -c4- | sed 's/.* -> //' | grep -q '^web/'; then
+            cd web
+            bun install --frozen-lockfile
+            bun run lint
+            bun run build
+          fi
+
+      - name: Commit and push docs changes
+        if: steps.changes.outputs.has_changes == 'true'
+        run: |
+          set -euo pipefail
+          git add -A
+          git commit -m "Update docs from daily Codex audit"
+          git push --force-with-lease origin "HEAD:refs/heads/${{ steps.branch.outputs.name }}"
+
+      - name: Open pull request
+        if: steps.changes.outputs.has_changes == 'true'
+        env:
+          BRANCH_NAME: ${{ steps.branch.outputs.name }}
+          RUN_DATE: ${{ steps.branch.outputs.date }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Summary"
+            echo "- Daily Codex audit reviewed cmux commit history and updated docs where needed."
+            echo "- Codex ran through subrouter at ${SUBROUTER_OPENAI_BASE_URL_RESOLVED}."
+            echo
+            echo "## Codex notes"
+            if [ -f "$RUNNER_TEMP/codex-docs-audit-summary.md" ]; then
+              sed -n '1,160p' "$RUNNER_TEMP/codex-docs-audit-summary.md"
+            else
+              echo "- Codex did not write a final summary file."
+            fi
+            echo
+            echo "## Testing"
+            if git show --name-only --pretty='' HEAD | grep -q '^web/'; then
+              echo "- cd web && bun install --frozen-lockfile"
+              echo "- cd web && bun run lint"
+              echo "- cd web && bun run build"
+            else
+              echo "- Docs-only change outside web; no runtime tests run."
+            fi
+          } > "$RUNNER_TEMP/pr-body.md"
+
+          existing="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH_NAME" --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --repo "$GITHUB_REPOSITORY" \
+              --title "Update docs from daily Codex audit (${RUN_DATE})" \
+              --body-file "$RUNNER_TEMP/pr-body.md"
+            gh pr view "$existing" --repo "$GITHUB_REPOSITORY" --json url --jq .url
+          else
+            gh pr create --repo "$GITHUB_REPOSITORY" \
+              --base main \
+              --head "$BRANCH_NAME" \
+              --title "Update docs from daily Codex audit (${RUN_DATE})" \
+              --body-file "$RUNNER_TEMP/pr-body.md"
+          fi
