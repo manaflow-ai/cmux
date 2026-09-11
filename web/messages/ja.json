@@ -671,9 +671,8 @@
     "benefits": "医療・歯科・眼科保険",
     "locationLabel": "勤務地",
     "location": "サンフランシスコ",
-    "applyAriaLabel": "メールで Founding Engineer に応募する",
-    "applyEmailSubject": "cmux Founding Engineer への応募",
-    "applyCta": "メールする",
+    "applyAriaLabel": "Founding Engineer に応募する",
+    "applyCta": "応募する",
     "foundingChromiumEngineer": {
       "metaTitle": "Founding Chromium Engineer の採用情報 — cmux",
       "metaDescription": "ファウンディング Chromium エンジニアとして cmux に参加し、Chromium フォークを担い、C++ と Rust で Windows と Linux に cmux を届けませんか。",
@@ -706,9 +705,8 @@
       "benefits": "医療・歯科・眼科保険",
       "locationLabel": "勤務地",
       "location": "サンフランシスコ",
-      "applyAriaLabel": "メールで Founding Chromium Engineer に応募する",
-      "applyEmailSubject": "cmux Founding Chromium Engineer への応募",
-      "applyCta": "メールする"
+      "applyAriaLabel": "Founding Chromium Engineer に応募する",
+      "applyCta": "応募する"
     },
     "foundingDesigner": {
       "metaTitle": "Founding Designer の採用情報 — cmux",
@@ -742,9 +740,8 @@
       "benefits": "医療・歯科・眼科保険",
       "locationLabel": "勤務地",
       "location": "サンフランシスコ",
-      "applyAriaLabel": "メールで Founding Designer に応募する",
-      "applyEmailSubject": "cmux Founding Designer への応募",
-      "applyCta": "メールする"
+      "applyAriaLabel": "Founding Designer に応募する",
+      "applyCta": "応募する"
     }
   },
   "pricing": {

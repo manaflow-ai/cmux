@@ -149,9 +149,8 @@
     "benefits": "Seguro de saúde, odontológico e oftalmológico",
     "locationLabel": "Localização",
     "location": "São Francisco",
-    "applyAriaLabel": "Candidatar-se por e-mail à vaga de Founding Engineer",
-    "applyEmailSubject": "Candidatura para Founding Engineer na cmux",
-    "applyCta": "Enviar e-mail",
+    "applyAriaLabel": "Candidatar-se à vaga de Founding Engineer",
+    "applyCta": "Candidatar-se",
     "foundingChromiumEngineer": {
       "metaTitle": "Founding Chromium Engineer na cmux",
       "metaDescription": "Junte-se ao cmux como engenheiro fundador de Chromium para assumir nosso fork do Chromium e levar o cmux ao Windows e Linux com C++ e Rust.",
@@ -184,9 +183,8 @@
       "benefits": "Seguro de saúde, odontológico e oftalmológico",
       "locationLabel": "Localização",
       "location": "São Francisco",
-      "applyAriaLabel": "Candidatar-se por e-mail à vaga de Founding Chromium Engineer",
-      "applyEmailSubject": "Candidatura para Founding Chromium Engineer na cmux",
-      "applyCta": "Enviar e-mail"
+      "applyAriaLabel": "Candidatar-se à vaga de Founding Chromium Engineer",
+      "applyCta": "Candidatar-se"
     },
     "foundingDesigner": {
       "metaTitle": "Founding Designer na cmux",
@@ -220,9 +218,8 @@
       "benefits": "Seguro de saúde, odontológico e oftalmológico",
       "locationLabel": "Localização",
       "location": "São Francisco",
-      "applyAriaLabel": "Candidatar-se por e-mail à vaga de Founding Designer",
-      "applyEmailSubject": "Candidatura para Founding Designer na cmux",
-      "applyCta": "Enviar e-mail"
+      "applyAriaLabel": "Candidatar-se à vaga de Founding Designer",
+      "applyCta": "Candidatar-se"
     }
   },
   "home": {

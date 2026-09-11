@@ -149,9 +149,8 @@
     "benefits": "Kranken-, Zahn- und Sehkraftversicherung",
     "locationLabel": "Standort",
     "location": "San Francisco",
-    "applyAriaLabel": "Per E-Mail als Founding Engineer bewerben",
-    "applyEmailSubject": "Bewerbung als Founding Engineer bei cmux",
-    "applyCta": "E-Mail senden",
+    "applyAriaLabel": "Als Founding Engineer bewerben",
+    "applyCta": "Bewerben",
     "foundingChromiumEngineer": {
       "metaTitle": "Founding Chromium Engineer bei cmux",
       "metaDescription": "Kommen Sie zu cmux als Founding Chromium Engineer: Verantworten Sie unseren Chromium-Fork und bringen Sie cmux mit C++ und Rust auf Windows und Linux.",
@@ -184,9 +183,8 @@
       "benefits": "Kranken-, Zahn- und Sehkraftversicherung",
       "locationLabel": "Standort",
       "location": "San Francisco",
-      "applyAriaLabel": "Per E-Mail als Founding Chromium Engineer bewerben",
-      "applyEmailSubject": "Bewerbung als Founding Chromium Engineer bei cmux",
-      "applyCta": "E-Mail senden"
+      "applyAriaLabel": "Als Founding Chromium Engineer bewerben",
+      "applyCta": "Bewerben"
     },
     "foundingDesigner": {
       "metaTitle": "Founding Designer bei cmux",
@@ -220,9 +218,8 @@
       "benefits": "Kranken-, Zahn- und Sehkraftversicherung",
       "locationLabel": "Standort",
       "location": "San Francisco",
-      "applyAriaLabel": "Per E-Mail als Founding Designer bewerben",
-      "applyEmailSubject": "Bewerbung als Founding Designer bei cmux",
-      "applyCta": "E-Mail senden"
+      "applyAriaLabel": "Als Founding Designer bewerben",
+      "applyCta": "Bewerben"
     }
   },
   "home": {
