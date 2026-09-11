@@ -1450,9 +1450,12 @@ final class MobileHostService {
                 )
                 return true
             },
-            isAuthorizationCurrent: authorization == .irohAdmission
-                ? irohAdmissionIsAuthorized
-                : { true },
+            isAuthorizationCurrent: {
+                if case .irohAdmission = authorization {
+                    return await irohAdmissionIsAuthorized()
+                }
+                return true
+            },
             handleRequest: { request in
                 if request.method == "mobile.host.status" {
                     return await Self.connectionStatusResult(
