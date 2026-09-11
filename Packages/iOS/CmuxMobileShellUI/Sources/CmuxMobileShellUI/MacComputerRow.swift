@@ -171,6 +171,17 @@ struct MacComputerRow: View {
     private var showsListAuthWarning: Bool {
         hasVersionGateWarning
             || MobileMacListAuthState.shared.entry(deviceID: computer.deviceId)?.isOutdated == true
+            || hasUnverifiedVersionWarning
+    }
+
+    /// A paired Mac with no directory entry has not advertised its version in
+    /// this session. Keep the warning visible until a hello establishes that
+    /// the Mac meets the current floor.
+    private var hasUnverifiedVersionWarning: Bool {
+        guard MobileMacListAuthState.shared.hasSnapshot,
+              MobileMacListAuthState.shared.minimumSupportedMacVersion != nil
+        else { return false }
+        return MobileMacListAuthState.shared.entry(deviceID: computer.deviceId) == nil
     }
 
     /// Outdated rows carry a compact warning triangle beside the name; the
@@ -229,7 +240,7 @@ struct MacComputerRow: View {
                 requirement
             )
         }
-        guard hasVersionGateWarning else { return "" }
+        guard hasVersionGateWarning || hasUnverifiedVersionWarning else { return "" }
         return L10n.string(
             "mobile.pairing.guidance.macUpdateRequired",
             defaultValue: "Update cmux on this Mac to connect securely."
