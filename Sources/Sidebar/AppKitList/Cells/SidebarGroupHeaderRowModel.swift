@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import CoreGraphics
 import Foundation
 import SwiftUI
@@ -28,6 +29,10 @@ struct SidebarGroupHeaderRowModel: Equatable, Hashable {
     var canMarkAllUnread: Bool
     /// Resolved modifier-hold hint (for example "⌘3"); nil hides the pill.
     let shortcutHintText: String?
+    /// Style and optional color mirror the workspace-row settings so a group
+    /// header can use the same hint treatment when it has a resolved hint.
+    let shortcutHintStyle: SidebarShortcutHintStyle
+    let shortcutHintColorHex: String?
     let shortcutHintXOffset: Double
     let shortcutHintYOffset: Double
     let fontScale: CGFloat

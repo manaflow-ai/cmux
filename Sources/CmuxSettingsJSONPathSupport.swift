@@ -484,6 +484,8 @@ extension CmuxSettingsFileStore {
         "sidebar.showAgentActivity",
         "sidebar.loadingSpinnerPosition",
         "sidebar.notificationBadgePosition",
+        "sidebar.shortcutHintStyle",
+        "sidebar.shortcutHintColor",
         "sidebar.showCustomMetadata",
         RightSidebarWidthSettings.settingsPath,
         "workspaceColors.indicatorStyle",

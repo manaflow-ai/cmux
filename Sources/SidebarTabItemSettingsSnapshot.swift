@@ -25,6 +25,8 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let activeTabIndicatorStyle: WorkspaceIndicatorStyle
     let loadingSpinnerPosition: SidebarIndicatorPosition
     let notificationBadgePosition: SidebarIndicatorPosition
+    let shortcutHintStyle: SidebarShortcutHintStyle
+    let shortcutHintColorHex: String?
     let selectionColorHex: String?
     let notificationBadgeColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
@@ -87,6 +89,8 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         activeTabIndicatorStyle = settings.value(for: workspaceColors.indicatorStyle)
         loadingSpinnerPosition = settings.value(for: sidebar.loadingSpinnerPosition)
         notificationBadgePosition = settings.value(for: sidebar.notificationBadgePosition)
+        shortcutHintStyle = settings.value(for: sidebar.shortcutHintStyle)
+        shortcutHintColorHex = settings.value(for: sidebar.shortcutHintColorHex).nilIfEmpty
         selectionColorHex = settings.value(for: workspaceColors.selectionColorHex).nilIfEmpty
         notificationBadgeColorHex = settings.value(for: workspaceColors.notificationBadgeColorHex).nilIfEmpty
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)

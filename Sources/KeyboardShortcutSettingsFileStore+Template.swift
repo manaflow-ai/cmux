@@ -160,6 +160,8 @@ extension CmuxSettingsFileStore {
                     "showLog": SidebarWorkspaceDetailDefaults.showLog,
                     "showProgress": SidebarWorkspaceDetailDefaults.showProgress,
                     "showAgentActivity": SidebarWorkspaceDetailDefaults.showAgentActivity,
+                    "shortcutHintStyle": SettingCatalog().sidebar.shortcutHintStyle.defaultValue.rawValue,
+                    "shortcutHintColor": NSNull(),
                     "showCustomMetadata": SidebarWorkspaceDetailDefaults.showCustomMetadata,
                 ],
             ],

@@ -28,6 +28,8 @@ struct SidebarWorkspaceGroupRowSnapshot {
     let shortcutDigit: Int?
     let shortcutModifierSymbol: String?
     let showsShortcutHint: Bool
+    let shortcutHintStyle: SidebarShortcutHintStyle
+    let shortcutHintColorHex: String?
     let isPointerHovering: Bool
     let shortcutHintXOffset: Double
     let shortcutHintYOffset: Double

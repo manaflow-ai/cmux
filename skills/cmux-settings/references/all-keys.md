@@ -72,6 +72,8 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.showPorts` | boolean | `true` | Show listening ports. |
 | `sidebar.showLog` | boolean | `true` | Show recent log snippets. |
 | `sidebar.showProgress` | boolean | `true` | Show progress indicators. |
+| `sidebar.shortcutHintStyle` | `"pill"` or `"bare"` | `"pill"` | Visual treatment for modifier-hold shortcut hints in the workspace sidebar. |
+| `sidebar.shortcutHintColor` | colorHexOrNull | `null` | Optional color for bare shortcut-hint text on unselected sidebar rows; selected rows use a readable foreground. |
 | `sidebar.showCustomMetadata` | boolean | `true` | Show custom metadata pills. |
 
 ## workspaceColors

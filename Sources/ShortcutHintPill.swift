@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxSettings
 import SwiftUI
 
 enum ShortcutHintAnimation {
@@ -36,29 +37,52 @@ struct ShortcutHintPill: View {
     let text: String
     var fontSize: CGFloat = 9
     var emphasis: Double = 1.0
+    var style: SidebarShortcutHintStyle = .pill
+    var textColor: Color?
 
-    init(shortcut: StoredShortcut, fontSize: CGFloat = 9, emphasis: Double = 1.0) {
+    init(
+        shortcut: StoredShortcut,
+        fontSize: CGFloat = 9,
+        emphasis: Double = 1.0,
+        style: SidebarShortcutHintStyle = .pill,
+        textColor: Color? = nil
+    ) {
         self.text = shortcut.displayString
         self.fontSize = fontSize
         self.emphasis = emphasis
+        self.style = style
+        self.textColor = textColor
     }
 
-    init(text: String, fontSize: CGFloat = 9, emphasis: Double = 1.0) {
+    init(
+        text: String,
+        fontSize: CGFloat = 9,
+        emphasis: Double = 1.0,
+        style: SidebarShortcutHintStyle = .pill,
+        textColor: Color? = nil
+    ) {
         self.text = text
         self.fontSize = fontSize
         self.emphasis = emphasis
+        self.style = style
+        self.textColor = textColor
     }
 
     var body: some View {
-        Text(text)
+        let label = Text(text)
             .cmuxFont(size: fontSize, weight: .semibold, design: .rounded)
             .monospacedDigit()
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
-            .foregroundColor(.primary)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(ShortcutHintPillBackground(emphasis: emphasis))
+            .foregroundColor(textColor ?? .primary)
+        if style == .bare {
+            label.padding(.vertical, 2)
+        } else {
+            label
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(ShortcutHintPillBackground(emphasis: emphasis))
+        }
     }
 }
 
@@ -73,11 +97,19 @@ extension View {
         emphasis: Double,
         offsetX: Double,
         offsetY: Double,
-        fontSize: CGFloat = 10
+        fontSize: CGFloat = 10,
+        style: SidebarShortcutHintStyle = .pill,
+        textColor: Color? = nil
     ) -> some View {
         overlay(alignment: .topTrailing) {
             if let text {
-                ShortcutHintPill(text: text, fontSize: fontSize, emphasis: emphasis)
+                ShortcutHintPill(
+                    text: text,
+                    fontSize: fontSize,
+                    emphasis: emphasis,
+                    style: style,
+                    textColor: textColor
+                )
                     .offset(
                         x: ShortcutHintDebugSettings.clamped(offsetX),
                         y: ShortcutHintDebugSettings.clamped(offsetY)
