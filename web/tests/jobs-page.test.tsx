@@ -124,6 +124,16 @@ describe("jobs page", () => {
         enMessages.jobs.foundingDesigner.applyEmailSubject,
       )}"`,
     );
+    expect(html).toContain(
+      'href="https://www.ycombinator.com/companies/cmux/jobs/RcX3bDA-founding-engineer"',
+    );
+    expect(html).toContain(
+      'href="https://www.ycombinator.com/companies/cmux/jobs/p21OZLR-founding-designer"',
+    );
+    expect(html).toContain(
+      'href="https://www.ycombinator.com/companies/cmux/jobs/T4rJNKX-founding-chromium-engineer"',
+    );
+    expect(html.match(/>YC Work at a Startup</g)).toHaveLength(3);
     expect(html).not.toContain("About cmux");
     expect(html).not.toContain("Open roles");
     expect(html).not.toContain("Who we're looking for");
@@ -255,6 +265,7 @@ describe("jobs page", () => {
           catalog.jobs.foundingDesigner.applyEmailSubject,
         )}`,
       );
+      expect(html.match(/>YC Work at a Startup</g)).toHaveLength(3);
       expect(catalog.jobs).not.toHaveProperty("aboutTitle");
       expect(catalog.jobs).not.toHaveProperty("applyTitle");
       expect(catalog.jobs.foundingDesigner).not.toHaveProperty("aboutTitle");
