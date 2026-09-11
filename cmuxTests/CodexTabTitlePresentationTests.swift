@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxWorkspaces
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -288,7 +289,8 @@ struct CodexTabTitlePresentationTests {
             let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
             #expect(dock.attachDetachedSurface(detached, inPane: dockPane, focus: false) == panelId)
             let dockTabId = try #require(dock.surfaceId(forPanelId: panelId))
-            #expect(dock.bonsplitController.tab(dockTabId)?.title == stableTitle)
+            #expect(dock.bonsplitController.tab(dockTabId)?.title == decoratedTitle)
+            #expect(dock.bonsplitController.tab(dockTabId)?.isLoading == isRunning)
 
             let returned = try #require(dock.detachSurface(panelId: panelId))
             #expect(returned.title == stableTitle)
@@ -305,5 +307,511 @@ struct CodexTabTitlePresentationTests {
             target.clearAgentLifecycle(key: "codex", panelId: panelId)
             #expect(target.bonsplitController.tab(targetTabId)?.title == stableTitle)
         }
+    }
+
+    @Test("Codex lifecycle presentation survives a Dock round trip")
+    func lifecyclePresentationSurvivesDockRoundTrip() throws {
+        let source = Workspace()
+        let destination = Workspace()
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer {
+            dock.closeAllPanels()
+            source.teardownAllPanels()
+            destination.teardownAllPanels()
+        }
+        let panelId = try #require(source.focusedPanelId)
+        let terminal = try #require(source.panels[panelId] as? TerminalPanel)
+        terminal.updateTitle("some-name")
+        #expect(source.updatePanelTitle(panelId: panelId, title: "some-name"))
+        source.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+
+        let transfer = try #require(source.detachSurface(panelId: panelId))
+        let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+        #expect(dock.attachDetachedSurface(transfer, inPane: dockPane, focus: false) == panelId)
+
+        let dockTabId = try #require(dock.surfaceId(forPanelId: panelId))
+        let dockTab = try #require(dock.bonsplitController.tab(dockTabId))
+        #expect(dockTab.title == "◐ some-name")
+        #expect(dockTab.isLoading)
+
+        let roundTripped = try #require(dock.detachSurface(panelId: panelId))
+        #expect(roundTripped.title == "some-name")
+        #expect(roundTripped.cachedTitle == "some-name")
+
+        let destinationPane = try #require(
+            destination.bonsplitController.allPaneIds.first
+        )
+        #expect(
+            destination.attachDetachedSurface(
+                roundTripped,
+                inPane: destinationPane,
+                focus: false
+            ) == panelId
+        )
+        let destinationTabId = try #require(
+            destination.surfaceIdFromPanelId(panelId)
+        )
+        let destinationTab = try #require(
+            destination.bonsplitController.tab(destinationTabId)
+        )
+        #expect(destinationTab.title == "◐ some-name")
+        #expect(destinationTab.isLoading)
+        #expect(destination.panelTitles[panelId] == "some-name")
+    }
+
+    @Test("Dock lifecycle, title, and custom-title changes share one presentation path")
+    func dockLifecycleAndTitleChangesReconcilePresentation() throws {
+        let source = Workspace()
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer {
+            dock.closeAllPanels()
+            source.teardownAllPanels()
+        }
+        let panelId = try #require(source.focusedPanelId)
+        let terminal = try #require(source.panels[panelId] as? TerminalPanel)
+        terminal.updateTitle("first-name")
+        #expect(source.updatePanelTitle(panelId: panelId, title: "first-name"))
+
+        let transfer = try #require(source.detachSurface(panelId: panelId))
+        let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+        #expect(dock.attachDetachedSurface(transfer, inPane: dockPane, focus: false) == panelId)
+        let tabId = try #require(dock.surfaceId(forPanelId: panelId))
+
+        dock.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+        #expect(dock.bonsplitController.tab(tabId)?.title == "◐ first-name")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == true)
+
+        dock.applyResolvedTerminalTitle("second-name", to: terminal)
+        #expect(dock.bonsplitController.tab(tabId)?.title == "◐ second-name")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == true)
+
+        #expect(dock.setDockPanelCustomTitle(panelId: panelId, title: "Pinned lane"))
+        dock.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .idle)
+        #expect(dock.bonsplitController.tab(tabId)?.title == "Pinned lane")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == false)
+
+        dock.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+        #expect(dock.bonsplitController.tab(tabId)?.title == "Pinned lane")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == true)
+
+        #expect(dock.clearAgentLifecycle(key: "codex", panelId: panelId))
+        #expect(dock.bonsplitController.tab(tabId)?.title == "Pinned lane")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == false)
+    }
+
+    @Test(
+        "Dock persistence keeps the transferred title before another terminal title arrives",
+        arguments: [false, true]
+    )
+    func dockPersistenceKeepsTransferredTitle(isRemoteTerminal: Bool) throws {
+        let source = Workspace()
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer {
+            dock.closeAllPanels()
+            source.teardownAllPanels()
+        }
+        let panelId = try #require(source.focusedPanelId)
+        let terminal = try #require(source.panels[panelId] as? TerminalPanel)
+        terminal.updateTitle("runtime-title")
+        #expect(
+            source.updatePanelTitle(
+                panelId: panelId,
+                title: "Configured lane"
+            )
+        )
+        if isRemoteTerminal {
+            source.activeRemoteTerminalSurfaceIds.insert(panelId)
+        }
+
+        let transfer = try #require(source.detachSurface(panelId: panelId))
+        #expect(transfer.isRemoteTerminal == isRemoteTerminal)
+        let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+        #expect(
+            dock.attachDetachedSurface(
+                transfer,
+                inPane: dockPane,
+                focus: false
+            ) == panelId
+        )
+
+        let roundTripped = try #require(
+            dock.detachSurface(panelId: panelId)
+        )
+        #expect(roundTripped.title == "Configured lane")
+        #expect(roundTripped.cachedTitle == "Configured lane")
+        roundTripped.panel.close()
+    }
+
+    @Test("renaming a running auto-titled Dock tab claims the stable title")
+    func dockRenameClaimsStableAutoTitle() throws {
+        let source = Workspace()
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer {
+            dock.closeAllPanels()
+            source.teardownAllPanels()
+        }
+        let panelId = try #require(source.focusedPanelId)
+        #expect(
+            source.setPanelCustomTitle(
+                panelId: panelId,
+                title: "Generated lane",
+                source: .auto
+            )
+        )
+        source.setAgentLifecycle(
+            key: "codex",
+            panelId: panelId,
+            lifecycle: .running
+        )
+
+        let transfer = try #require(source.detachSurface(panelId: panelId))
+        let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+        #expect(
+            dock.attachDetachedSurface(
+                transfer,
+                inPane: dockPane,
+                focus: false
+            ) == panelId
+        )
+        let tabId = try #require(dock.surfaceId(forPanelId: panelId))
+        #expect(dock.bonsplitController.tab(tabId)?.title == "◐ Generated lane")
+        let stableTitle = try #require(
+            dock.stableDockTerminalTabTitle(panelId: panelId)?.title
+        )
+        #expect(stableTitle == "Generated lane")
+
+        #expect(
+            dock.setDockPanelCustomTitle(
+                panelId: panelId,
+                title: stableTitle
+            )
+        )
+        #expect(dock.bonsplitController.tab(tabId)?.title == "Generated lane")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == true)
+
+        let roundTripped = try #require(
+            dock.detachSurface(panelId: panelId)
+        )
+        #expect(roundTripped.customTitle == "Generated lane")
+        #expect(roundTripped.customTitleSource == .user)
+        roundTripped.panel.close()
+    }
+
+    @Test("restored auto-titled Dock tabs retain lifecycle presentation")
+    func restoredDockAutoTitleKeepsProvenance() throws {
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let snapshotPanelId = UUID()
+        let panelSnapshot = SessionPanelSnapshot(
+            id: snapshotPanelId,
+            type: .terminal,
+            title: "Generated lane",
+            customTitle: "Generated lane",
+            customTitleSource: .auto,
+            directory: "/tmp",
+            isPinned: false,
+            isManuallyUnread: false,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: SessionTerminalPanelSnapshot(
+                workingDirectory: "/tmp"
+            ),
+            browser: nil,
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil
+        )
+        let restoredPanelIds = dock.restoreSessionSnapshot(
+            SessionSplitContainerSnapshot(
+                focusedPanelId: snapshotPanelId,
+                layout: .pane(
+                    SessionPaneLayoutSnapshot(
+                        panelIds: [snapshotPanelId],
+                        selectedPanelId: snapshotPanelId
+                    )
+                ),
+                panels: [panelSnapshot]
+            )
+        )
+        let panelId = try #require(restoredPanelIds[snapshotPanelId])
+        let tabId = try #require(dock.surfaceId(forPanelId: panelId))
+
+        dock.setAgentLifecycle(
+            key: "codex",
+            panelId: panelId,
+            lifecycle: .running
+        )
+        #expect(dock.bonsplitController.tab(tabId)?.title == "◐ Generated lane")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == true)
+
+        dock.setAgentLifecycle(
+            key: "codex",
+            panelId: panelId,
+            lifecycle: .idle
+        )
+        #expect(dock.bonsplitController.tab(tabId)?.title == "✳ Generated lane")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == false)
+
+        #expect(dock.clearAgentLifecycle(key: "codex", panelId: panelId))
+        #expect(dock.bonsplitController.tab(tabId)?.title == "Generated lane")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == false)
+
+        let persisted = try #require(
+            dock.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == panelId }
+        )
+        #expect(persisted.customTitle == "Generated lane")
+        #expect(persisted.customTitleSource == .auto)
+    }
+
+    @Test("transferred auto titles survive an active restore boundary")
+    func transferredDockAutoTitleSurvivesActiveRestoreBoundary() throws {
+        let source = Workspace()
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer {
+            dock.closeAllPanels()
+            source.teardownAllPanels()
+        }
+        let panelId = try #require(source.focusedPanelId)
+        let terminal = try #require(source.panels[panelId] as? TerminalPanel)
+        terminal.updateTitle("Shell title")
+        #expect(
+            source.updatePanelTitle(
+                panelId: panelId,
+                title: "Shell title"
+            )
+        )
+        #expect(
+            source.setPanelCustomTitle(
+                panelId: panelId,
+                title: "Generated lane",
+                source: .auto
+            )
+        )
+
+        var transfer = try #require(source.detachSurface(panelId: panelId))
+        transfer.restoredPanelTitleBoundary = RestoredPanelTitleBoundary(
+            internallySeededInput: "resume-session\n",
+            shellState: .commandRunning
+        )
+        let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+        #expect(
+            dock.attachDetachedSurface(
+                transfer,
+                inPane: dockPane,
+                focus: false
+            ) == panelId
+        )
+        let tabId = try #require(dock.surfaceId(forPanelId: panelId))
+
+        dock.setAgentLifecycle(
+            key: "codex",
+            panelId: panelId,
+            lifecycle: .running
+        )
+        #expect(dock.bonsplitController.tab(tabId)?.title == "◐ Generated lane")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == true)
+        #expect(dock.clearAgentLifecycle(key: "codex", panelId: panelId))
+        #expect(dock.bonsplitController.tab(tabId)?.title == "Generated lane")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == false)
+
+        #expect(
+            dock.stableDockTerminalTabTitle(panelId: panelId)?.title
+                == "Generated lane"
+        )
+
+        let persisted = try #require(
+            dock.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == panelId }
+        )
+        #expect(persisted.customTitle == "Generated lane")
+        #expect(persisted.customTitleSource == .auto)
+
+        let roundTripped = try #require(
+            dock.detachSurface(panelId: panelId)
+        )
+        #expect(roundTripped.title == "Generated lane")
+        #expect(roundTripped.cachedTitle == "Shell title")
+        #expect(roundTripped.customTitle == "Generated lane")
+        #expect(roundTripped.customTitleSource == .auto)
+        roundTripped.panel.close()
+    }
+
+    @Test("an admitted Dock title survives detach while its restore boundary remains active")
+    func admittedDockTitleSurvivesActiveRestoreBoundary() throws {
+        let source = Workspace()
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer {
+            dock.closeAllPanels()
+            source.teardownAllPanels()
+        }
+        let panelId = try #require(source.focusedPanelId)
+        let terminal = try #require(source.panels[panelId] as? TerminalPanel)
+        terminal.updateTitle("Persisted lane")
+        #expect(
+            source.updatePanelTitle(
+                panelId: panelId,
+                title: "Persisted lane"
+            )
+        )
+
+        var transfer = try #require(source.detachSurface(panelId: panelId))
+        transfer.restoredPanelTitleBoundary = RestoredPanelTitleBoundary(
+            internallySeededInput: "resume-session\n",
+            shellState: .commandRunning
+        )
+        let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+        #expect(
+            dock.attachDetachedSurface(
+                transfer,
+                inPane: dockPane,
+                focus: false
+            ) == panelId
+        )
+        #expect(
+            dock.shouldApplyRestoredPanelTitle(
+                panelId: panelId,
+                rawTitle: "Live Codex lane"
+            )
+        )
+        dock.applyResolvedTerminalTitle("Live Codex lane", to: terminal)
+
+        let roundTripped = try #require(
+            dock.detachSurface(panelId: panelId)
+        )
+        #expect(roundTripped.title == "Live Codex lane")
+        #expect(roundTripped.cachedTitle == "Live Codex lane")
+        roundTripped.panel.close()
+    }
+
+    @Test("remote Dock terminals retain Codex lifecycle presentation")
+    func remoteDockTerminalShowsLifecycle() throws {
+        let source = Workspace()
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer {
+            dock.closeAllPanels()
+            source.teardownAllPanels()
+        }
+        let panelId = try #require(source.focusedPanelId)
+        let terminal = try #require(source.panels[panelId] as? TerminalPanel)
+        terminal.updateTitle("Remote Codex")
+        #expect(
+            source.updatePanelTitle(
+                panelId: panelId,
+                title: "Remote Codex"
+            )
+        )
+        source.activeRemoteTerminalSurfaceIds.insert(panelId)
+        source.setAgentLifecycle(
+            key: "codex",
+            panelId: panelId,
+            lifecycle: .running
+        )
+
+        let transfer = try #require(source.detachSurface(panelId: panelId))
+        #expect(transfer.isRemoteTerminal)
+        let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+        #expect(
+            dock.attachDetachedSurface(
+                transfer,
+                inPane: dockPane,
+                focus: false
+            ) == panelId
+        )
+        let tabId = try #require(dock.surfaceId(forPanelId: panelId))
+        #expect(dock.bonsplitController.tab(tabId)?.title == "◐ Remote Codex")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == true)
+    }
+
+    @Test("restored remote-titled Dock tabs retain title protection")
+    func restoredDockRemoteTitleKeepsProtection() throws {
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let snapshotPanelId = UUID()
+        let panelSnapshot = SessionPanelSnapshot(
+            id: snapshotPanelId,
+            type: .terminal,
+            title: "Remote lane",
+            customTitle: "Remote lane",
+            customTitleSource: .user,
+            customTitleWasRemote: true,
+            directory: "/tmp",
+            isPinned: false,
+            isManuallyUnread: false,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: SessionTerminalPanelSnapshot(
+                workingDirectory: "/tmp"
+            ),
+            browser: nil,
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil
+        )
+        let restoredPanelIds = dock.restoreSessionSnapshot(
+            SessionSplitContainerSnapshot(
+                focusedPanelId: snapshotPanelId,
+                layout: .pane(
+                    SessionPaneLayoutSnapshot(
+                        panelIds: [snapshotPanelId],
+                        selectedPanelId: snapshotPanelId
+                    )
+                ),
+                panels: [panelSnapshot]
+            )
+        )
+        let panelId = try #require(restoredPanelIds[snapshotPanelId])
+        let tabId = try #require(dock.surfaceId(forPanelId: panelId))
+
+        dock.setAgentLifecycle(
+            key: "codex",
+            panelId: panelId,
+            lifecycle: .running
+        )
+        #expect(dock.bonsplitController.tab(tabId)?.title == "Remote lane")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == true)
+
+        dock.setAgentLifecycle(
+            key: "codex",
+            panelId: panelId,
+            lifecycle: .idle
+        )
+        #expect(dock.bonsplitController.tab(tabId)?.title == "Remote lane")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == false)
+
+        let persisted = try #require(
+            dock.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == panelId }
+        )
+        #expect(persisted.customTitle == "Remote lane")
+        #expect(persisted.customTitleSource == .user)
+        #expect(persisted.customTitleWasRemote == true)
     }
 }

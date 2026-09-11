@@ -20,6 +20,7 @@ extension DockSplitStore {
         agentRuntimeByPanelId.removeValue(forKey: panelId)
         syncAgentNeedsInputAttention(panelId: panelId, runtime: nil)
         restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
+        panelCustomTitleSourcesByPanelId.removeValue(forKey: panelId)
     }
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
@@ -121,6 +122,14 @@ extension DockSplitStore {
     func adoptSessionRestoreState(from detached: Workspace.DetachedSurfaceTransfer) {
         invalidatedCachedTransferAgentSessionPanelIds.remove(detached.panelId)
         replacedCachedTransferAgentSessionPanelIds.remove(detached.panelId)
+        if detached.customTitle != nil {
+            panelCustomTitleSourcesByPanelId[detached.panelId] =
+                detached.customTitleSource ?? .user
+        } else {
+            panelCustomTitleSourcesByPanelId.removeValue(
+                forKey: detached.panelId
+            )
+        }
         storeRestoredPanelTitleBoundary(
             detached.restoredPanelTitleBoundary,
             panelId: detached.panelId
@@ -365,6 +374,9 @@ extension DockSplitStore {
         mutation: (inout Workspace.DetachedAgentRuntimeState) -> Void
     ) {
         guard panels[panelId] != nil else { return }
+        let previousCodexLifecycle = agentRuntimeByPanelId[panelId]?
+            .agentLifecycleStates["codex"]
+        let stableTitle = stableDockTerminalTabTitle(panelId: panelId)?.title
         var runtime = agentRuntimeByPanelId[panelId] ?? Workspace.DetachedAgentRuntimeState(
             panelId: panelId,
             statusEntries: [:],
@@ -390,6 +402,12 @@ extension DockSplitStore {
             syncAgentNeedsInputAttention(
                 panelId: panelId,
                 runtime: shouldKeep ? runtime : nil
+            )
+        }
+        if previousCodexLifecycle != runtime.agentLifecycleStates["codex"] {
+            _ = reconcileCodexTabTitlePresentation(
+                panelId: panelId,
+                fallback: stableTitle
             )
         }
     }
