@@ -480,6 +480,42 @@ struct BrowserAutomationNavigationCoordinatorTests {
     }
 
     @Test(
+        "A replacement external navigation waits for a canceled operation to exit",
+        .timeLimit(.minutes(1))
+    )
+    func replacementExternalNavigationRunsAfterCancellation() async {
+        let (started, startedContinuation) = AsyncStream.makeStream(of: Int.self)
+        let gate = UncooperativeNavigationGate()
+        let coordinator = BrowserAutomationNavigationCoordinator(
+            navigationTimeout: .seconds(5)
+        )
+        let instanceID = UUID()
+        coordinator.bind(to: instanceID)
+        var startedIterator = started.makeAsyncIterator()
+
+        let firstTicket = coordinator.begin(instanceID: instanceID)
+        coordinator.startExternalNavigation(firstTicket) {
+            startedContinuation.yield(1)
+            await gate.wait()
+        }
+        #expect(await startedIterator.next() == 1)
+
+        let secondTicket = coordinator.begin(instanceID: instanceID)
+        coordinator.startExternalNavigation(secondTicket) {
+            startedContinuation.yield(2)
+        }
+
+        // The first operation ignores cancellation. The second request remains
+        // pending until the coordinator owns a free engine-operation slot.
+        #expect(await coordinator.wait(for: firstTicket) == .superseded)
+        gate.release()
+        #expect(await startedIterator.next() == 2)
+        #expect(await coordinator.wait(for: secondTicket) == .committed)
+
+        startedContinuation.finish()
+    }
+
+    @Test(
         "External navigation timeout does not await an uncooperative operation",
         .timeLimit(.minutes(1))
     )

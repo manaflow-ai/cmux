@@ -82,7 +82,10 @@ extension BrowserPanel {
                 try await self.browserEngineController.adapter.navigate(to: targetURL)
             }
             guard !self.chromiumIsolationPending else { throw CDPError.notConnected }
-            try await session.waitForNavigation(to: nil, after: revision)
+            try await session.waitForNavigation(
+                to: reload ? nil : targetURL,
+                after: revision
+            )
             guard !self.chromiumIsolationPending else { throw CDPError.notConnected }
         }
     }

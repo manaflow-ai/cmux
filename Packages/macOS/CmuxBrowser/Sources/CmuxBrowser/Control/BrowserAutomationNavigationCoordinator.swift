@@ -23,10 +23,11 @@ public final class BrowserAutomationNavigationCoordinator {
     private var externalNavigationTicket: BrowserAutomationNavigationTicket?
     // Swift tasks cannot force-terminate an engine callback that ignores
     // cancellation. Keep one cancelled operation slot owned until that task
-    // exits, and fail closed while it is occupied so repeated retries cannot
-    // accumulate permanently retained engine tasks.
+    // exits, and queue only the newest replacement while it is occupied.
     private var externalNavigationOperationTask: Task<Void, Never>?
     private var externalNavigationOperationID: UUID?
+    private var pendingExternalNavigationTicket: BrowserAutomationNavigationTicket?
+    private var pendingExternalNavigationOperation: (@MainActor () async throws -> Void)?
 
     /// Creates a coordinator with a bounded continuous-clock navigation deadline.
     public init(navigationTimeout: Duration = .seconds(15)) {
@@ -105,9 +106,21 @@ public final class BrowserAutomationNavigationCoordinator {
         guard activeTicket == ticket else { return }
         cancelExternalNavigation()
         guard externalNavigationOperationID == nil else {
-            finish(ticket, with: .timedOut)
+            // Cancellation is cooperative at the Swift task boundary. Keep the
+            // newest request pending until the canceled engine operation exits,
+            // rather than reporting an immediate timeout for a valid ticket.
+            pendingExternalNavigationTicket = ticket
+            pendingExternalNavigationOperation = operation
             return
         }
+        launchExternalNavigation(ticket, operation: operation)
+    }
+
+    private func launchExternalNavigation(
+        _ ticket: BrowserAutomationNavigationTicket,
+        operation: @escaping @MainActor () async throws -> Void
+    ) {
+        guard activeTicket == ticket, externalNavigationOperationID == nil else { return }
         let operationID = UUID()
         externalNavigationTicket = ticket
         externalNavigationOperationID = operationID
@@ -130,7 +143,13 @@ public final class BrowserAutomationNavigationCoordinator {
     public func cancelExternalNavigation(
         _ ticket: BrowserAutomationNavigationTicket? = nil
     ) {
-        guard ticket == nil || externalNavigationTicket == ticket else { return }
+        guard ticket == nil || externalNavigationTicket == ticket || pendingExternalNavigationTicket == ticket else {
+            return
+        }
+        if ticket == nil || pendingExternalNavigationTicket == ticket {
+            pendingExternalNavigationTicket = nil
+            pendingExternalNavigationOperation = nil
+        }
         externalNavigationTask?.cancel()
         externalNavigationTask = nil
         externalNavigationTicket = nil
@@ -470,6 +489,13 @@ public final class BrowserAutomationNavigationCoordinator {
         guard externalNavigationOperationID == operationID else { return }
         externalNavigationOperationTask = nil
         externalNavigationOperationID = nil
+        guard let pendingTicket = pendingExternalNavigationTicket,
+              let pendingOperation = pendingExternalNavigationOperation else {
+            return
+        }
+        pendingExternalNavigationTicket = nil
+        pendingExternalNavigationOperation = nil
+        launchExternalNavigation(pendingTicket, operation: pendingOperation)
     }
 
     private func finishMatching(

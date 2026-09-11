@@ -315,7 +315,7 @@ extension TerminalController {
                         let revision = await session.currentNavigationRevision()
                         try await ensureIsolationIsStillClear()
                         try await session.navigate(to: url)
-                        try await session.waitForNavigation(to: nil, after: revision)
+                        try await session.waitForNavigation(to: url, after: revision)
                         value = .completed
                     case .back:
                         let revision = await session.currentNavigationRevision()
