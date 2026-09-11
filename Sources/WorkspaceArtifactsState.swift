@@ -358,7 +358,7 @@ final class WorkspaceArtifactsState {
     /// Restores new artifact records from a portable session snapshot.
     func restoreArtifacts(_ restoredRecords: [ArtifactRecord], retentionLimit: Int) {
         let cap = WorkspaceLinksIngestConfiguration.clampedRetentionLimit(retentionLimit)
-        for record in restoredRecords.sorted(by: { $0.lastSeenAt > $1.lastSeenAt }).prefix(cap) {
+        for record in recordsRetainedByLimit(restoredRecords, limit: cap) {
             upsertProjection(record)
         }
         markStructuralChange()
@@ -393,7 +393,7 @@ final class WorkspaceArtifactsState {
         let didChangeLimit = retentionLimit != clamped
         retentionLimit = clamped
         let before = records.count
-        records = Array(ordered(recordsByIdentity.values).prefix(clamped))
+        records = recordsRetainedByLimit(recordsByIdentity.values, limit: clamped)
         recordsByIdentity = Dictionary(uniqueKeysWithValues: records.map { ($0.identityKey, $0) })
         if before != records.count {
             let liveIDs = Set(records.map(\.id))

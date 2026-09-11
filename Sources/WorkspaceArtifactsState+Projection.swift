@@ -188,4 +188,20 @@ extension WorkspaceArtifactsState {
             return $0.id.uuidString < $1.id.uuidString
         }
     }
+
+    func recordsRetainedByLimit<S: Sequence>(_ values: S, limit: Int) -> [ArtifactRecord]
+        where S.Element == ArtifactRecord
+    {
+        let orderedRecords = ordered(values)
+        let pinnedKeys = Set(orderedRecords.filter(\.isUserOwned).map(\.identityKey))
+        let automaticSlots = max(0, limit - pinnedKeys.count)
+        var retainedKeys = pinnedKeys
+        retainedKeys.formUnion(
+            orderedRecords
+                .filter { !$0.isUserOwned }
+                .prefix(automaticSlots)
+                .map(\.identityKey)
+        )
+        return orderedRecords.filter { retainedKeys.contains($0.identityKey) }
+    }
 }

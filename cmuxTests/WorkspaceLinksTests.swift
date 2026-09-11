@@ -157,6 +157,28 @@ struct WorkspaceLinksTests {
 
     @MainActor
     @Test
+    func loweringRetentionPinsExplicitArtifacts() async throws {
+        let state = WorkspaceLinksState()
+        let saved = try #require(await state.capture(.text("saved note"), source: .manual))
+        let config = WorkspaceLinksIngestConfiguration(ignoreHosts: [], retentionLimit: 100)
+        for index in 0..<20 {
+            state.ingest(
+                url: "https://example.com/automatic-\(index)",
+                origin: .detected,
+                sourcePanelId: nil,
+                sourceSurfaceTitle: nil,
+                configuration: config
+            )
+        }
+
+        state.applyRetentionLimit(1)
+
+        #expect(state.artifactRecords.contains(saved))
+        #expect(state.artifactRecords.filter { !$0.isUserOwned }.count == 1)
+    }
+
+    @MainActor
+    @Test
     func titleFetchFailureStateStaysBoundToRetainedEntry() throws {
         let state = WorkspaceLinksState(fetchTitlesEnabled: true)
         let config = WorkspaceLinksIngestConfiguration(ignoreHosts: [])
