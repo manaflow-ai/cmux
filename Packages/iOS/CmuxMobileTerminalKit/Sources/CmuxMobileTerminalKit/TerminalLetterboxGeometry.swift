@@ -93,19 +93,18 @@ public struct TerminalLetterboxGeometry {
         return CGSize(width: containerW, height: containerH)
     }
 
-    /// Resolve the bottom safe-area inset, preferring the view's own inset and
-    /// falling back to the window's when the view inset is zero (it can be zero
-    /// before the view is on a window, and STALE for one layout pass right after
-    /// the keyboard hides).
+    /// Resolve the physical bottom safe area from the stationary outer layout.
     ///
     /// Mirrors `GhosttySurfaceView.safeAreaInsetsBottom`. Factored out so the
-    /// "do not trust a zero view inset" rule is host-testable: passing a zero
-    /// (stale) view inset must return the window inset, not zero, so the
-    /// keyboard-down grid height does not briefly over-extend under the home
-    /// indicator and then snap back.
+    /// terminal grid stays independent of keyboard presentation. Sliding the
+    /// full-height surface changes its local safe area, including nonzero
+    /// intermediate values. Feeding those values back into the grid reservation
+    /// resizes and reflows the terminal, which changes the content measurement
+    /// and moves the surface again. Prefer the window or captured outer inset;
+    /// the local view is only a fallback before those sources are available.
     ///
     /// - Parameters:
-    ///   - viewInset: The view's `safeAreaInsets.bottom` (may be a stale 0).
+    ///   - viewInset: The moving view's local inset, used only as a fallback.
     ///   - windowInset: The window's `safeAreaInsets.bottom` (authoritative
     ///     when the window reports it).
     ///   - capturedInset: A safe-area value captured outside an ignored
@@ -121,14 +120,14 @@ public struct TerminalLetterboxGeometry {
         capturedInset: CGFloat = 0,
         ancestorInsets: [CGFloat] = []
     ) -> CGFloat {
-        if viewInset > 0 {
-            return viewInset
-        }
         if windowInset > 0 {
             return windowInset
         }
         if capturedInset > 0 {
             return capturedInset
+        }
+        if viewInset > 0 {
+            return viewInset
         }
         // Ancestors may add their own bottom chrome (for example a tab or
         // navigation container), so use the smallest positive inset rather

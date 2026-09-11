@@ -241,8 +241,9 @@ struct TerminalLetterboxGeometryTests {
         // and let the grid extend under the home indicator, then snap back. The
         // resolver must take the window value instead.
         #expect(TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(viewInset: 0, windowInset: 34) == 34)
-        // When the view inset is present it wins (it is the most specific).
+        // Matching values agree; the local inset remains a pre-window fallback.
         #expect(TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(viewInset: 34, windowInset: 34) == 34)
+        #expect(TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(viewInset: 34, windowInset: 0) == 34)
         // Both zero (pre-window-attach) => 0.
         #expect(TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(viewInset: 0, windowInset: 0) == 0)
     }
@@ -334,12 +335,6 @@ struct TerminalLetterboxGeometryTests {
         #expect(TerminalLetterboxGeometry.keyboardAbsorptionSlack(
             blankBelowContent: -5, intrusion: -5
         ) == 0)
-    }
-
-    @Test("keyboard absorption does not retarget while content is sampled")
-    func keyboardAbsorptionMeasurementIsImmediate() {
-        let animation = TerminalKeyboardAbsorptionAnimation()
-        #expect(animation.duration == 0)
     }
 
     @Test("clampPinnedSize bounds refined pixels by the container")

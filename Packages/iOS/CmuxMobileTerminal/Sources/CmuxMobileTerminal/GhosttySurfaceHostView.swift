@@ -54,7 +54,6 @@ import UIKit
 public final class GhosttySurfaceHostView: UIView {
     public let surfaceView: GhosttySurfaceView
     private let keyboardFrameTracker: MobileKeyboardFrameTracker
-    private let keyboardAbsorptionAnimation = TerminalKeyboardAbsorptionAnimation()
     private var isHandlingKeyboardTransition = false
     /// Safe-area value captured outside the SwiftUI terminal subtree. The
     /// surface can be intentionally underlapped, so its UIKit leaf may report
@@ -544,10 +543,10 @@ public final class GhosttySurfaceHostView: UIView {
     /// composer bar (and relaxes after a `clear`); and the pixel-scroll axis
     /// grants or consumes the scroll-top reveal, sliding the render so the
     /// clipped top rows track the gesture. Driven by the surface's display
-    /// link; a no-op within half a point. Content measurements apply
-    /// immediately because they can change on every wrapped input character;
-    /// while a scroll gesture (or its deceleration) owns the axis the update
-    /// is also UNANIMATED so the render tracks the finger frame-locked.
+    /// link; a no-op within half a point. Measurement changes ease over
+    /// 0.2s; while a scroll gesture (or its deceleration) owns the axis the
+    /// retarget is UNANIMATED so the render tracks the finger frame-locked,
+    /// exactly like the grid scroll it continues.
     func refreshKeyboardAbsorptionIfNeeded() {
         guard !keyboardTransitionActive,
               surfaceView.hostedKeyboardHeight > 0 else { return }
@@ -567,28 +566,15 @@ public final class GhosttySurfaceHostView: UIView {
         }
         MobileDebugLog.anchormux(
             "kb.follow capC->\(Int(constant)) blank=\(Int(blank)) reveal=\(Int(reveal)) "
-            + "kb=\(Int(surfaceView.hostedKeyboardHeight)) immediate=1"
+            + "kb=\(Int(surfaceView.hostedKeyboardHeight))"
         )
-        // The display link samples terminal content while the user types. A
-        // wrapped line changes the sample on successive frames, so an
-        // animated constraint would continually retarget itself and move the
-        // terminal up and down forever. Apply the cap in the same layout pass;
-        // keyboard seat transitions remain animated by `beginKeyboardLeg`.
-        let duration = keyboardAbsorptionAnimation.duration
-        if duration > 0 {
-            UIView.animate(
-                withDuration: duration,
-                delay: 0,
-                options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
-            ) {
-                self.presentationContentCapConstraint.constant = constant
-                self.layoutIfNeeded()
-            }
-        } else {
-            UIView.performWithoutAnimation {
-                self.presentationContentCapConstraint.constant = constant
-                self.layoutIfNeeded()
-            }
+        UIView.animate(
+            withDuration: 0.2,
+            delay: 0,
+            options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
+        ) {
+            self.presentationContentCapConstraint.constant = constant
+            self.layoutIfNeeded()
         }
     }
 
