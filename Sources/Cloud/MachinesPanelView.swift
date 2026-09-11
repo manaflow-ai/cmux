@@ -38,6 +38,7 @@ struct MachinesPanelView: View {
     /// and @AppStorage re-renders the live panel the moment it changes.
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
     let chromeBackgroundColor: NSColor
+    var tabManager: TabManager? = nil
 
     private var accountFlow: HostAccountFlow? {
         AppDelegate.shared?.auth?.accountFlow
@@ -81,7 +82,7 @@ struct MachinesPanelView: View {
     private var authenticatedContent: some View {
         controlBar
         Button {
-            AppDelegate.shared?.openCloudVPNSetupWorkspace()
+            AppDelegate.shared?.openCloudVPNSetupWorkspace(preferredTabManager: tabManager)
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "network")
@@ -733,7 +734,7 @@ struct MachinesChromeIconButton: View {
 /// see the store. All verbs go through `CloudVMActionLauncher` so this panel,
 /// the ＋ menu, the palette, and the CLI share one mutation path.
 struct MachineRowActions {
-    let setupVPN: @MainActor () -> Void
+    let setupVPN: @MainActor (NSWindow?) -> Void
     let openShell: @MainActor (String) -> Void
     let openDesktop: @MainActor (String) -> Void
     let runCommand: @MainActor (String, [String]) -> Void
@@ -750,7 +751,7 @@ struct MachineRowActions {
         onDidMutate: @escaping @MainActor () -> Void
     ) -> MachineRowActions {
         MachineRowActions(
-            setupVPN: { _ = AppDelegate.shared?.openCloudVPNSetupWorkspace() },
+            setupVPN: { window in _ = AppDelegate.shared?.openCloudVPNSetupWorkspace(preferredWindow: window) },
             openShell: { id in
                 onWillMutate(String(format: String(localized: "machines.operation.openShell", defaultValue: "Opening %@\u{2026}"), id))
                 if !launch(arguments: ["vm", "shell", id], onDidMutate: onDidMutate) {
