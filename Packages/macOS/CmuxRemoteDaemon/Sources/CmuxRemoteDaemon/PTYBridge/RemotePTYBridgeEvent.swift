@@ -13,4 +13,7 @@ public enum RemotePTYBridgeEvent: Sendable {
     case exit
     /// The attachment failed; the payload is the daemon's error text.
     case error(String)
+    /// The attachment failed with a daemon-provided machine code. The plain
+    /// ``error`` case remains available for older bridge clients.
+    case codedError(message: String, code: String?)
 }

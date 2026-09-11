@@ -159,6 +159,16 @@ struct SSHPTYAttachExitCodeTests {
         )
     }
 
+    @Test("mixed-case structured codes fail closed")
+    func mixedCaseStructuredCodeFailsClosed() {
+        #expect(
+            SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(
+                code: "REMOTE_PTY_TIMEOUT",
+                message: "remote connection is not active"
+            ) == .fatal
+        )
+    }
+
     @Test("replayed scrollback does not count as live bridge progress")
     func replayedScrollbackDoesNotCountAsLiveProgress() {
         var progress = SSHPTYAttachOutputProgress(replayBytes: 6)

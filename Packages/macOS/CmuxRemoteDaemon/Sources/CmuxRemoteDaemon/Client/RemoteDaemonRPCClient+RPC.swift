@@ -1,4 +1,5 @@
 public import Foundation
+internal import CmuxFoundation
 
 // Hands a write completion's error across the @Sendable URLSession completion
 // boundary to the thread blocked on `semaphore`; the signal->wait pair is the
@@ -360,6 +361,7 @@ extension RemoteDaemonRPCClient {
             }
             throw NSError(domain: "cmux.remote.daemon.rpc", code: 11, userInfo: [
                 NSLocalizedDescriptionKey: "daemon RPC timeout waiting for \(method) response",
+                RemotePTYErrorCode.rpcErrorCodeUserInfoKey: RemotePTYErrorCode.timeout.rawValue,
             ])
         case .failure(let failure):
             throw NSError(domain: "cmux.remote.daemon.rpc", code: 12, userInfo: [
