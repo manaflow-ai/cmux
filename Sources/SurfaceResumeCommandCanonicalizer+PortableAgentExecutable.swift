@@ -17,7 +17,8 @@ extension SurfaceResumeBindingSnapshot {
         guard source == "agent-hook" else { return trimmed }
         return TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
             in: trimmed,
-            workingDirectory: cwd
+            workingDirectory: cwd,
+            agentKind: agentKind
         )
     }
 

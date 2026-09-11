@@ -59,11 +59,22 @@ extension SessionRestorableAgentSnapshot {
         observedPermissionMode: String? = nil
     ) -> [String]? {
         guard kind.restoreMode == .resumeSession else { return nil }
+        let selection = effectiveRestoreWorkingDirectorySelection(
+            .recordedFallback(preferred: workingDirectory)
+        )
+        guard selection.permitsResume else { return nil }
+        let effectiveLaunchCommand = constrainedLaunchCommand(
+            launchCommand ?? self.launchCommand,
+            selection: selection
+        )
         return AgentResumeCommandBuilder.forkArguments(
             kind: kind,
             sessionId: sessionId,
-            launchCommand: launchCommand ?? self.launchCommand,
-            workingDirectory: workingDirectory ?? self.workingDirectory,
+            launchCommand: effectiveLaunchCommand,
+            workingDirectory: selection.resolved(
+                snapshotWorkingDirectory: self.workingDirectory,
+                launchWorkingDirectory: effectiveLaunchCommand?.workingDirectory
+            ),
             customRegistration: registration,
             observedPermissionMode: observedPermissionMode ?? permissionMode
         )
