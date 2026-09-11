@@ -35,6 +35,10 @@ struct MacComputerRow: View {
     /// status dot). Re-entry is guarded by the owning list, not by disabling the
     /// button, so the row does not flash a dimmed state.
     var isConnecting: Bool = false
+    /// Whether the last authenticated attempt for this Mac was rejected by
+    /// the iOS minimum-version gate. This covers Macs absent from the
+    /// directory snapshot, which cannot expose a list-auth entry yet.
+    var hasVersionGateWarning: Bool = false
 
     @State private var showListAuthInfo = false
 
@@ -165,7 +169,8 @@ struct MacComputerRow: View {
     /// Mac. A row with no remembered version warns until its first hello
     /// records the build version in the durable overlay.
     private var showsListAuthWarning: Bool {
-        MobileMacListAuthState.shared.entry(deviceID: computer.deviceId)?.isOutdated == true
+        hasVersionGateWarning
+            || MobileMacListAuthState.shared.entry(deviceID: computer.deviceId)?.isOutdated == true
     }
 
     /// Outdated rows carry a compact warning triangle beside the name; the
@@ -212,19 +217,22 @@ struct MacComputerRow: View {
     }
 
     private var listAuthWarningMessage: String {
-        guard let entry = MobileMacListAuthState.shared.entry(deviceID: computer.deviceId),
-              entry.isOutdated,
-              let required = entry.requiredVersionDisplay
-        else {
-            return ""
+        if let entry = MobileMacListAuthState.shared.entry(deviceID: computer.deviceId),
+           entry.isOutdated,
+           let required = entry.requiredVersionDisplay {
+            let requirement = "cmux \(required) or later"
+            return String(
+                format: L10n.string(
+                    "mobile.macUpdate.requiredOnMacFormat",
+                    defaultValue: "Requires %@ on your Mac."
+                ),
+                requirement
+            )
         }
-        let requirement = "cmux \(required) or later"
-        return String(
-            format: L10n.string(
-                "mobile.macUpdate.requiredOnMacFormat",
-                defaultValue: "Requires %@ on your Mac."
-            ),
-            requirement
+        guard hasVersionGateWarning else { return "" }
+        return L10n.string(
+            "mobile.pairing.guidance.macUpdateRequired",
+            defaultValue: "Update cmux on this Mac to connect securely."
         )
     }
 
