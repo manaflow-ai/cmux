@@ -109,6 +109,17 @@ struct TerminalLinkOpenCoordinatorTests {
             secondURL.absoluteString,
         ])
         #expect(externallyOpened.isEmpty)
+
+        let focusedBeforeHostOpen = store.focusedPanelId
+        let hostURL = try #require(URL(string: "https://example.com/host-request"))
+        #expect(coordinator.open(TerminalLinkOpenRequest(
+            rawValue: hostURL.absoluteString,
+            sourceWorkspaceId: nil,
+            sourcePanelId: terminalPanelId,
+            workingDirectory: nil,
+            focus: false
+        )))
+        #expect(store.focusedPanelId == focusedBeforeHostOpen)
     }
 
     @Test(

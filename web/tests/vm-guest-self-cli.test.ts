@@ -77,6 +77,47 @@ describe("guest cmux self-discovery shim", () => {
     expect(install).not.toContain("crt_");
   });
 
+  test("open routes an attached terminal URL through the host request stream", () => {
+    writeFileSync(
+      path.join(bin, "cmux-tui"),
+      `#!/bin/sh
+case "$*" in
+  *"session current snapshot"*) printf '%s\\n' '{"clients":[{"client_kind":"native-mirror","attached_terminal_ids":["term_0123456789abcdef0123456789abcdef"]}],"tabs":[{"content_kind":"terminal","content_id":"term_0123456789abcdef0123456789abcdef","pane_id":"pane_1"}],"browsers":[{"id":"browser_1"}]}' ;;
+  *"notification create"*) printf '%s\\n' '{"value":{"notification_id":"notification_1"}}' ;;
+  *"tab create browser"*) printf '%s\\n' '{"value":{"browser_id":"browser_1"}}' ;;
+  *) exit 91 ;;
+esac
+`,
+    );
+    chmodSync(path.join(bin, "cmux-tui"), 0o755);
+    const result = run(["open", "https://github.com/login/device"], {
+      CMUX_TUI_BIN: path.join(bin, "cmux-tui"),
+      CMUX_TUI_TERMINAL_ID: "term_0123456789abcdef0123456789abcdef",
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("");
+  });
+
+  test("open prints the URL when no Mac terminal is attached", () => {
+    writeFileSync(
+      path.join(bin, "cmux-tui"),
+      `#!/bin/sh
+case "$*" in
+  *"session current snapshot"*) printf '%s\\n' '{"clients":[],"tabs":[],"browsers":[]}' ;;
+  *) exit 91 ;;
+esac
+`,
+    );
+    chmodSync(path.join(bin, "cmux-tui"), 0o755);
+    const result = run(["open", "https://github.com/login/device"], {
+      CMUX_TUI_BIN: path.join(bin, "cmux-tui"),
+      CMUX_TUI_TERMINAL_ID: "term_0123456789abcdef0123456789abcdef",
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Open this URL: https://github.com/login/device");
+  });
+
   test("cmux self prints this machine and calls the edge with the placeholder bearer", () => {
     withCurl(JSON.stringify(SELF_BODY), "200");
     const result = run(["self"]);

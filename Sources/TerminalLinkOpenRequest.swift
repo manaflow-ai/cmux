@@ -6,4 +6,6 @@ struct TerminalLinkOpenRequest: Sendable {
     let sourceWorkspaceId: UUID?
     let sourcePanelId: UUID?
     let workingDirectory: String?
+    /// Whether an embedded browser pane should receive focus after opening.
+    let focus: Bool = true
 }

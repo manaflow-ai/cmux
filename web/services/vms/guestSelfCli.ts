@@ -7,8 +7,10 @@
 // Installed by the driver on every attach and, when missing, in the same
 // round trip as any `vm exec`, so it reaches machines created from any
 // existing snapshot without a rebake. POSIX sh plus curl and jq,
-// which the devbox image ships. Every other verb is refused with a pointer to
-// the Mac CLI, so an agent learns the boundary from the tool, not from a doc.
+// which the devbox image ships. Unsupported verbs are refused with a pointer to
+// the Mac CLI, while browser opens are handed to the attached host when possible.
+
+import { GUEST_CMUX_OPEN_SHELL } from "./guestBrowserOpen";
 
 export const GUEST_CMUX_SELF_SHIM_PATH = "/usr/local/bin/cmux";
 
@@ -29,18 +31,20 @@ msg() {
 
   cmux self [--json]     which machine this is: name, id, status, team
   cmux vm ls [--json]    the team'"'"'s machines, this one marked with *
+  cmux open <url>        open a URL in the attached Mac browser, or print it when unavailable
   cmux notify [flags]    post a notification from this machine (Mac flags: --title, --subtitle, --body, --clear, --surface)
 
-Every other cmux verb (vm new, vm exec, vm push, …) runs on the Mac
+Every other unsupported cmux verb (vm new, vm exec, vm push, …) runs on the Mac
 cmux CLI. This machine holds no account token; the TLS edge authenticates it.
 ' ;;
     ja/help) printf '%s' 'cmux（cmux Cloud マシン内）
 
   cmux self [--json]     このマシンの名前、ID、状態、チーム
   cmux vm ls [--json]    チームのマシン一覧。このマシンには * が付きます
+  cmux open <url>        接続中の Mac のブラウザーで URL を開きます。利用できない場合は URL を表示します
   cmux notify [flags]    このマシンから通知を送ります（Mac と同じフラグ: --title、--subtitle、--body、--clear、--surface）
 
-その他の cmux コマンド（vm new、vm exec、vm push など）は Mac の
+その他の未対応 cmux コマンド（vm new、vm exec、vm push など）は Mac の
 cmux CLI で実行してください。このマシンはアカウントトークンを持たず、
 TLS エッジが認証します。
 ' ;;
@@ -62,8 +66,22 @@ TLS エッジが認証します。
     ja/team) printf 'チーム' ;;
     en/machines) printf 'machines' ;;
     ja/machines) printf 'マシン' ;;
+    en/openUsage) printf 'usage: cmux open <url>\\n' ;;
+    ja/openUsage) printf '使用方法: cmux open <url>\\n' ;;
+    en/openHelp) printf 'cmux open <url> — open a URL in the attached Mac browser.\\n\\nIf no host request can be sent, prints the URL and exits 0 so device-login tools keep polling. Alias: cmux open-url.\\n' ;;
+    ja/openHelp) printf 'cmux open <url> — 接続中の Mac のブラウザーで URL を開きます。\\n\\nホストへのリクエストを送れない場合は URL を表示し、終了コード 0 を返します。デバイスログインの待機は継続されます。別名: cmux open-url。\\n' ;;
+    en/openFallback) printf 'Open this URL: %s\\n' "$@" ;;
+    ja/openFallback) printf 'この URL を開いてください: %s\\n' "$@" ;;
   esac
 }
+
+# The shared opener fragment uses the full CLI message helper name.
+cmux_message() { msg "$@"; }
+
+CMUX_TUI_BIN="\${CMUX_TUI_BIN:-/usr/local/bin/cmux-tui}"
+tui() { "\$CMUX_TUI_BIN" --session "\${CMUX_TUI_SESSION:-cloud}" "\$@"; }
+
+${GUEST_CMUX_OPEN_SHELL}
 
 die() { status="$1"; shift; msg "$@" >&2; exit "$status"; }
 
@@ -131,6 +149,7 @@ cmd_vm_ls() {
 }
 
 case "\${1:-}" in
+  open|open-url) shift; guest_open_url "$@" ;;
   self) shift; cmd_self "$@" ;;
   notify|notification)
     # Notifications live in this machine's cmux-tui daemon; the Mac derives

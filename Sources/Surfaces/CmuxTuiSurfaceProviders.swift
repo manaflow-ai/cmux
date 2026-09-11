@@ -1761,7 +1761,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
 
     // MARK: Notifications
-
     private func installNotificationSync() {
         // The registry never creates a provider while the managed-device
         // policy disables Cloud, so no policy check is repeated here.
@@ -1772,6 +1771,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             clientID: clientID,
             resolveTarget: { [weak self] row in self?.notificationDeliveryTarget(for: row) },
             deliver: { [weak self] row, target in self?.deliverNotification(row, to: target) ?? false },
+            handle: { [weak self] row, target in self?.handleCloudBrowserOpenRequest(row, target: target) ?? false },
             send: { [weak self] batch in
                 // A vanished provider must not report success: the batch stays
                 // pending in the durable state for the replacement sync.

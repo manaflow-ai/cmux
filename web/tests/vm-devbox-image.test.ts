@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -29,6 +29,7 @@ import {
   rewriteDevboxAgentPins,
 } from "../scripts/devbox-image-common";
 import { DEVBOX_DESKTOP_USER } from "../services/vms/images/desktop";
+import { GUEST_CMUX_OPEN_URL_SCRIPT } from "../services/vms/guestBrowserOpen";
 import {
   DEVBOX_WORK_HOME,
   DEVBOX_WORK_UID,
@@ -101,6 +102,7 @@ describe("devbox image template", () => {
       "cmux-bashrc",
       "cmux-devbox-boot",
       "cmux-motd",
+      "cmux-open-url",
       "cmux-terminfo.sh",
       "cmux-terminfo.src",
       "codex-managed.toml",
@@ -116,6 +118,7 @@ describe("devbox image template", () => {
       "cmux-bashrc",
       "cmux-devbox-boot",
       "cmux-motd",
+      "cmux-open-url",
       "cmux-terminfo.sh",
       "cmux-terminfo.src",
       "codex-managed.toml",
@@ -162,7 +165,7 @@ describe("devbox image template", () => {
   });
 
   test("every shell file parses", () => {
-    for (const name of ["cmux-bashrc", "agent-config.sh", "cmux-terminfo.sh"]) {
+    for (const name of ["cmux-bashrc", "agent-config.sh", "cmux-open-url", "cmux-terminfo.sh"]) {
       const result = spawnSync("bash", ["-n", path.join(templateDir, name)]);
       expect({ name, status: result.status }).toEqual({ name, status: 0 });
     }
@@ -397,6 +400,41 @@ describe("devbox image template", () => {
     expect(dockerfile).toContain(
       "PATH=/opt/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
     );
+  });
+
+  test("cloud browser openers are baked and preserve explicit desktop browser tools", () => {
+    const opener = read("cmux-open-url");
+    expect(opener).toBe(GUEST_CMUX_OPEN_URL_SCRIPT);
+    expect(spawnSync("sh", ["-n", path.join(templateDir, "cmux-open-url")]).status).toBe(0);
+    expect(opener).toContain("command -v cmux");
+    expect(opener).toContain("Open this URL: %s");
+    expect(dockerfile).toContain("COPY cmux-open-url /usr/local/bin/cmux-open-url");
+    for (const name of ["xdg-open", "x-www-browser", "sensible-browser"]) {
+      expect(dockerfile).toContain(`ln -sfn cmux-open-url /usr/local/bin/${name}`);
+    }
+    const bake = readScript("build-devbox-freestyle.ts");
+    expect(bake).toContain('await put("cmux-open-url", "/usr/local/bin/cmux-open-url", 0o755);');
+    expect(readScript("verify-devbox-image.ts")).toContain("cloud-browser-openers-ok");
+    expect(read("agent-config.sh")).toContain("export BROWSER=/usr/local/bin/cmux-open-url");
+    expect(read("agent-config.sh")).toContain("export GH_BROWSER=/usr/local/bin/cmux-open-url");
+
+    const fakeRoot = mkdtempSync(path.join(tmpdir(), "cmux-browser-opener-"));
+    try {
+      const fakeCmux = path.join(fakeRoot, "cmux");
+      writeFileSync(fakeCmux, "#!/bin/sh\nprintf 'cmux-called %s\\n' \"$*\"\n");
+      chmodSync(fakeCmux, 0o755);
+      symlinkSync(path.join(templateDir, "cmux-open-url"), path.join(fakeRoot, "xdg-open"));
+      const result = spawnSync(path.join(fakeRoot, "xdg-open"), ["https://github.com/login/device"], {
+        encoding: "utf8",
+        env: { PATH: `${fakeRoot}:/usr/bin:/bin` },
+      });
+      expect({ status: result.status, stdout: result.stdout }).toEqual({
+        status: 0,
+        stdout: "cmux-called open https://github.com/login/device\n",
+      });
+    } finally {
+      rmSync(fakeRoot, { recursive: true, force: true });
+    }
   });
 
   test("cmux-tui is the one session daemon; nothing cmuxd-era survives", () => {

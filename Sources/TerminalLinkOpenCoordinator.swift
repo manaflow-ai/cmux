@@ -251,7 +251,8 @@ struct TerminalLinkOpenCoordinator {
             let openedInBrowser = BrowserAvailabilitySettings.isEnabled(defaults: self.defaults)
                 && currentContainer?.openTerminalBrowserLink(
                     url: url,
-                    sourcePanelId: sourcePanelId
+                    sourcePanelId: sourcePanelId,
+                    focus: request.focus
                 ) == true
             if openedInBrowser { return }
 

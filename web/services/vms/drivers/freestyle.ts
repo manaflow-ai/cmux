@@ -46,6 +46,7 @@ import {
 } from "../images/desktop";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../guestCli";
+import { GUEST_CMUX_OPEN_URL_PATH, GUEST_CMUX_OPEN_URL_SCRIPT } from "../guestBrowserOpen";
 import {
   approveCmuxTuiEnrollment,
   CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT,
@@ -1595,10 +1596,21 @@ export class FreestyleProvider implements VMProvider {
    */
   private async installGuestCli(vm: Vm): Promise<void> {
     const temporaryPath = `${GUEST_CMUX_SHIM_PATH}.tmp-${randomBytes(12).toString("hex")}`;
+    const openerTemporaryPath = `${GUEST_CMUX_OPEN_URL_PATH}.tmp-${randomBytes(12).toString("hex")}`;
+    const openerName = GUEST_CMUX_OPEN_URL_PATH.split("/").pop()!;
+    const openerEncoded = Buffer.from(GUEST_CMUX_OPEN_URL_SCRIPT, "utf8").toString("base64");
     try {
       await vm.fs.writeTextFile(temporaryPath, GUEST_CMUX_SHIM, { mode: 0o755 });
       const result = await vm.exec({
-        command: `chmod 0755 '${temporaryPath}' && mv -f '${temporaryPath}' '${GUEST_CMUX_SHIM_PATH}'`,
+        command: [
+          `chmod 0755 '${temporaryPath}' && mv -f '${temporaryPath}' '${GUEST_CMUX_SHIM_PATH}'`,
+          `printf '%s' '${openerEncoded}' | base64 -d > '${openerTemporaryPath}'`,
+          `chmod 0755 '${openerTemporaryPath}' && mv -f '${openerTemporaryPath}' '${GUEST_CMUX_OPEN_URL_PATH}'`,
+          `ln -sfn '${openerName}' /usr/local/bin/xdg-open`,
+          `ln -sfn '${openerName}' /usr/local/bin/x-www-browser`,
+          `ln -sfn '${openerName}' /usr/local/bin/sensible-browser`,
+          `printf '%s\\n' 'if [ -z "${BROWSER-}" ]; then export BROWSER=${GUEST_CMUX_OPEN_URL_PATH}; fi' 'if [ -z "${GH_BROWSER-}" ]; then export GH_BROWSER=${GUEST_CMUX_OPEN_URL_PATH}; fi' > /etc/profile.d/cmux-browser-open.sh`,
+        ].join(" && "),
         timeoutMs: 30_000,
         linuxUser: GUEST_LINUX_USER,
       });
@@ -1608,6 +1620,7 @@ export class FreestyleProvider implements VMProvider {
       }
     } catch (error) {
       await vm.fs.remove(temporaryPath).catch(() => undefined);
+      await vm.fs.remove(openerTemporaryPath).catch(() => undefined);
       throw error;
     }
   }

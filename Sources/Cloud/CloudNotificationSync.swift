@@ -262,20 +262,16 @@ struct CloudNotificationDeliveryTarget: Equatable, Sendable {
     var panelID: UUID?
 }
 
-/// One machine's notification sync. Owned by that machine's surface provider,
-/// which feeds it every accepted state and reports link reconnects. All
-/// effects go through the injected closures so tests drive it without a
-/// daemon: `deliver` creates the local notification, `send` performs one
-/// `notification.ack` round trip over the link.
+/// One machine's notification sync, with injected delivery and acknowledgement effects.
 @MainActor
 final class CloudNotificationSync {
     /// Returns false when the store declined the notification (muted
     /// workspace, no store); the row then stays undelivered for a later fold.
     typealias Deliverer = @MainActor (CloudVMNotificationRow, CloudNotificationDeliveryTarget) -> Bool
     typealias TargetResolver = @MainActor (CloudVMNotificationRow) -> CloudNotificationDeliveryTarget?
+    typealias Handler = @MainActor (CloudVMNotificationRow, CloudNotificationDeliveryTarget) -> Bool
     typealias AckSender = @MainActor (CloudNotificationSyncState.PendingAck) async throws -> Void
     typealias UnreadObserver = @MainActor (Set<String>) -> Void
-    /// Withdraw local banners for rows the machine no longer retains.
     typealias Withdrawer = @MainActor ([String]) -> Void
 
     let machineID: String
@@ -283,6 +279,7 @@ final class CloudNotificationSync {
     private let store: CloudNotificationSyncStore
     private let deliver: Deliverer
     private let resolveTarget: TargetResolver
+    private let handle: Handler?
     private let send: AckSender
     private let unreadChanged: UnreadObserver
     private let withdraw: Withdrawer
@@ -291,15 +288,9 @@ final class CloudNotificationSync {
     private(set) var state: CloudNotificationSyncState
     private(set) var rows: [CloudVMNotificationRow] = []
     private(set) var unreadTerminalIDs: Set<String> = []
-    /// Rows the target resolver could not place yet (no local workspace for
-    /// the machine). They stay undelivered, not consumed, so a later placement
-    /// still delivers them once.
     private var flushTask: Task<Void, Never>?
     private var flushRequested = false
-    /// Set by `retire()`: a replaced sync must not write the shared per-machine
-    /// key after its provider is gone.
     private var retired = false
-
     init(
         machineID: String,
         clientID: String,
@@ -309,13 +300,15 @@ final class CloudNotificationSync {
         deliver: @escaping Deliverer,
         send: @escaping AckSender,
         unreadChanged: @escaping UnreadObserver = { _ in },
-        withdraw: @escaping Withdrawer = { _ in }
+        withdraw: @escaping Withdrawer = { _ in },
+        handle: Handler? = nil
     ) {
         self.machineID = machineID
         self.clientID = clientID
         self.store = store
         self.newKey = newKey
         self.resolveTarget = resolveTarget
+        self.handle = handle
         self.deliver = deliver
         self.send = send
         self.unreadChanged = unreadChanged
@@ -329,22 +322,29 @@ final class CloudNotificationSync {
         rows = incoming
         let plan = CloudNotificationSyncReducer.plan(rows: incoming, clientID: clientID, state: state)
         var next = plan.state
-        var placed: [(CloudVMNotificationRow, CloudNotificationDeliveryTarget)] = []
+        var candidates: [(CloudVMNotificationRow, CloudNotificationDeliveryTarget)] = []
         for row in plan.deliver {
             if let target = resolveTarget(row) {
-                placed.append((row, target))
+                candidates.append((row, target))
             } else {
-                // Not consumed: the next fold retries placement.
                 next.delivered.removeAll { $0 == row.id }
             }
         }
-        // Commit before delivering: the store can call back into this sync
-        // while a banner is recorded (a focused surface reads it at once), and
-        // that re-entrant commit must build on the state that already counts
-        // these rows as delivered.
         commit(next)
         if !plan.removed.isEmpty {
             withdraw(plan.removed)
+        }
+        var placed: [(CloudVMNotificationRow, CloudNotificationDeliveryTarget)] = []
+        var handledIDs: [String] = []
+        for (row, target) in candidates {
+            if handle?(row, target) == true {
+                handledIDs.append(row.id)
+            } else {
+                placed.append((row, target))
+            }
+        }
+        if !handledIDs.isEmpty {
+            noteRead(notificationIDs: handledIDs)
         }
         var undelivered: [String] = []
         for (row, target) in placed where !deliver(row, target) {
