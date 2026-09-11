@@ -283,6 +283,28 @@ struct ChromiumEngineTests {
         }
     }
 
+    @Test("CDP navigation waits accept a server redirect only after a navigation event")
+    func cdpRedirectCompletionRequiresNavigationEvent() {
+        #expect(!ChromiumNavigationCompletionPredicate.accepts(
+            revisionAdvanced: true,
+            loading: false,
+            targetMatches: false,
+            redirectObserved: false
+        ))
+        #expect(ChromiumNavigationCompletionPredicate.accepts(
+            revisionAdvanced: true,
+            loading: false,
+            targetMatches: false,
+            redirectObserved: true
+        ))
+        #expect(!ChromiumNavigationCompletionPredicate.accepts(
+            revisionAdvanced: true,
+            loading: true,
+            targetMatches: false,
+            redirectObserved: true
+        ))
+    }
+
     @Test("Navigation matching includes URL ports, fragments, and origin slashes")
     func navigationMatchingIncludesPortAndFragment() throws {
         let target = try #require(URL(string: "https://example.com:8443/path?q=1#section"))

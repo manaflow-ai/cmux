@@ -1,5 +1,16 @@
 @preconcurrency public import Foundation
 
+enum ChromiumNavigationCompletionPredicate {
+    static func accepts(
+        revisionAdvanced: Bool,
+        loading: Bool,
+        targetMatches: Bool,
+        redirectObserved: Bool
+    ) -> Bool {
+        revisionAdvanced && !loading && (targetMatches || redirectObserved)
+    }
+}
+
 extension ChromiumBrowserSession {
     /// Starts a main-frame navigation.
     ///
@@ -173,7 +184,8 @@ extension ChromiumBrowserSession {
     /// provide a load-complete callback.
     ///
     /// - Parameters:
-    ///   - targetURL: Optional destination that must match the completed page.
+    ///   - targetURL: Optional requested destination. A completed server redirect
+    ///     is accepted only after a navigation event for this operation.
     ///   - revision: Navigation revision captured before issuing the command.
     /// - Throws: Cancellation, renderer failure, or a navigation stream error.
     public func waitForNavigation(
@@ -181,14 +193,19 @@ extension ChromiumBrowserSession {
         after revision: UInt64
     ) async throws {
         let targetMatchesCurrent = targetURL.map { matchesCurrentURL($0) } ?? true
-        if navigationRevision > revision,
-           !isLoading,
-           (targetMatchesCurrent || owlRedirectCompletionMatches(targetURL: targetURL)) {
+        var sawNavigationEvent = navigationRevision > revision &+ 1
+        if ChromiumNavigationCompletionPredicate.accepts(
+            revisionAdvanced: navigationRevision > revision,
+            loading: isLoading,
+            targetMatches: targetMatchesCurrent || owlRedirectCompletionMatches(targetURL: targetURL),
+            redirectObserved: sawNavigationEvent
+        ) {
             return
         }
         let stream = snapshots()
         for await value in stream {
             try Task.checkCancellation()
+            sawNavigationEvent = sawNavigationEvent || value.navigationRevision > revision &+ 1
             switch value.state {
             case .crashed(let status):
                 throw CDPError.disconnected(ChromiumBrowserDiagnostic.rendererExited(status).message)
@@ -198,9 +215,12 @@ extension ChromiumBrowserSession {
                 break
             }
             let targetMatchesValue = targetURL.map { Self.matches(url: value.currentURL, target: $0) } ?? true
-            if value.navigationRevision > revision,
-               !value.isLoading,
-               (targetMatchesValue || owlRedirectCompletionMatches(targetURL: targetURL)) {
+            if ChromiumNavigationCompletionPredicate.accepts(
+                revisionAdvanced: value.navigationRevision > revision,
+                loading: value.isLoading,
+                targetMatches: targetMatchesValue || owlRedirectCompletionMatches(targetURL: targetURL),
+                redirectObserved: sawNavigationEvent
+            ) {
                 return
             }
         }
