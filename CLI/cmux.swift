@@ -4112,19 +4112,20 @@ final class SocketClient {
             )
             let line = try readStreamLine(deadline: deadline)
             if SocketAuthenticationChallenge.isRequired(line) {
-                // The challenge establishes the route's password-required mode
-                // before the auth command can return a successful response.
-                // Otherwise that auth response could be mistaken for a
-                // credential-free stream and suppress later one-way auth.
+                // Record password-required mode before auth so its response is
+                // not mistaken for a credential-free stream.
                 authenticationModeCoordinator.recordPasswordRequired()
-                guard !didRetryAuthentication,
-                      !authenticationInProgress,
-                      !authenticationPasswordResolutionAttempt.isCompleted,
-                      authenticationPasswordProvider != nil,
-                      let password = try resolveDeferredAuthenticationPassword(deadline: deadline) else {
+                guard !didRetryAuthentication, !authenticationInProgress else {
                     throw CLIError(message: line)
                 }
-                authenticationPassword = password
+                if authenticationPassword == nil {
+                    guard !authenticationPasswordResolutionAttempt.isCompleted,
+                          authenticationPasswordProvider != nil,
+                          let password = try resolveDeferredAuthenticationPassword(deadline: deadline) else {
+                        throw CLIError(message: line)
+                    }
+                    authenticationPassword = password
+                }
                 socketAuthenticated = false
                 let remaining = deadline?.timeIntervalSinceNow
                 try authenticateIfNeeded(

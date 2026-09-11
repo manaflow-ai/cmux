@@ -65,6 +65,49 @@ struct CLISocketAuthenticationDeadlineTests {
     }
 
     @Test
+    func streamV2ReauthenticatesWithResolvedPasswordAfterASecondChallenge() throws {
+        let support = CMUXCLIErrorOutputRegressionTests()
+        let cliPath = try support.bundledCLIPath()
+        let root = try makeHome()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let stateDirectory = CmuxStateDirectory.url(homeDirectory: root)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        let passwordURL = stateDirectory.appendingPathComponent(SocketControlPasswordStore.fileName)
+        try Data("stream-test-password".utf8).write(to: passwordURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: passwordURL.path)
+
+        let socketPath = root.appendingPathComponent("control.sock").path
+        let challenge = #"{"ok":false,"error":{"code":"auth_required","message":"send auth <password> first"}}"#
+        let event = #"{"type":"event","seq":1,"name":"test.event","data":{}}"#
+        let server = try UnixSocketResponder(
+            path: socketPath,
+            responses: [challenge, "OK: Authenticated", challenge, "OK: Authenticated", event]
+        )
+        defer { server.stop() }
+
+        let result = support.runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "events", "--limit", "1", "--no-ack", "--no-heartbeat"],
+            environment: environment(home: root, responseTimeout: "1"),
+            timeout: 5
+        )
+        #expect(!result.timedOut, "\(result.diagnostics)")
+        try #require(result.status == 0, "\(result.diagnostics)")
+        #expect(result.stdout.contains("\"name\":\"test.event\""))
+
+        let requests = server.receivedRequests
+        try #require(requests.count == 5)
+        for index in [0, 2, 4] {
+            let request = try #require(
+                JSONSerialization.jsonObject(with: Data(requests[index].utf8)) as? [String: Any]
+            )
+            #expect(request["method"] as? String == "events.stream")
+        }
+        #expect(requests[1] == "auth stream-test-password")
+        #expect(requests[3] == "auth stream-test-password")
+    }
+
+    @Test
     func ordinaryMultilineResponseIsNotTruncated() throws {
         let support = CMUXCLIErrorOutputRegressionTests()
         let cliPath = try support.bundledCLIPath()
