@@ -102,8 +102,9 @@ the single decision every tunnel consumer (browser navigation, `cmux vpn up`,
 `vm.tunnel_config`, `vm.tunnel_up`) flows through:
 
 - A start is admitted only when `Settings › Beta Features › Cloud Machines` is
-  on (`cloud.beta.machines.enabled`, off by default on every build, and never
-  forced on by a managed `DisableCloud` profile) **and** the account has at
+  on (`cloud.beta.machines.enabled`, on by default in dev builds and off by
+  default in release builds, and never forced on by a managed `DisableCloud`
+  profile) **and** the account has at
   least one machine. Launch-time decisions and status answer "has a machine"
   from a cached marker written by every machine list and create
   (`cloud.machines.cachedHasAny`; cleared on sign-out, reset to unknown by a
