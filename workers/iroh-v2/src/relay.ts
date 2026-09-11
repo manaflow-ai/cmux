@@ -3,6 +3,12 @@ import { DeviceDescriptorSchema, RelayCredentialSchema, identifier, relayURL, ty
 import { RELAY_CREDENTIAL_SECONDS, canonicalJSON, encodeBase64URL, hash } from "./crypto";
 import { OperationError } from "./errors";
 
+// These values are part of the deployed relay's offline admission contract.
+// Environment separation stays in the additional claims below; changing the
+// shared issuer or audience would make every existing relay reject the token.
+export const RELAY_TOKEN_ISSUER = "cmux";
+export const RELAY_TOKEN_AUDIENCE = "cmux-relay";
+
 const ConfigurationSchema = z.strictObject({
   environment: identifier, projectId: identifier, issuer: identifier, audience: identifier, keyId: identifier,
   privateKeyPem: z.string().min(1).max(4096), relayURLs: z.array(relayURL).min(1).max(16),

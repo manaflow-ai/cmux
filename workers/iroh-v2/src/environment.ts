@@ -3,7 +3,7 @@ import { StackAuthority } from "./auth";
 import { identifier, relayURL } from "./contracts/common";
 import { OperationError } from "./errors";
 import { PlanetScaleOwnership } from "./ownership/planetscale";
-import { RelayIssuer } from "./relay";
+import { RELAY_TOKEN_AUDIENCE, RELAY_TOKEN_ISSUER, RelayIssuer } from "./relay";
 export type Environment = Cloudflare.Env;
 
 export function environmentScope(env: Environment) {
@@ -30,7 +30,7 @@ function createRuntime(env: Environment) {
       stack: new StackAuthority({ ...scope, apiURL: env.STACK_API_URL, publishableKey: env.STACK_PUBLISHABLE_KEY, serverKey: env.STACK_SERVER_KEY }),
       ownership: new PlanetScaleOwnership(env.PLANETSCALE_DATABASE_URL, scope.environment, scope.projectId),
       relays: new RelayIssuer({
-        ...scope, relayURLs, issuer: "cmux-iroh-v2-" + scope.environment, audience: "cmux-relay-v2-" + scope.environment,
+        ...scope, relayURLs, issuer: RELAY_TOKEN_ISSUER, audience: RELAY_TOKEN_AUDIENCE,
         keyId: env.RELAY_KEY_ID, privateKeyPem: env.RELAY_SIGNING_KEY,
       }),
     };
