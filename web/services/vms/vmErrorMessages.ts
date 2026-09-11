@@ -36,7 +36,16 @@ export function vmRequestLocale(request: Request): Locale {
 }
 
 /** Load and translate the phase-specific unsupported-operation response copy. */
-export type VmUnsupportedOperationKey = "snapshot" | "restore" | "fork" | "openPort" | "default";
+export type VmUnsupportedOperationKey =
+  | "snapshot"
+  | "restore"
+  | "fork"
+  | "openPort"
+  | "sizing"
+  | "persistentHome"
+  | "pause"
+  | "resume"
+  | "default";
 
 /** Maps a workflow operation to the stable copy key used by the API response. */
 export function vmUnsupportedOperationKey(operation: string): VmUnsupportedOperationKey {
@@ -45,6 +54,10 @@ export function vmUnsupportedOperationKey(operation: string): VmUnsupportedOpera
   if (normalized.includes("restore")) return "restore";
   if (normalized.includes("fork")) return "fork";
   if (normalized.includes("snapshot")) return "snapshot";
+  // `cmux vm pause` / `cmux vm resume`: a provider without the verb answers a
+  // pause-specific 501, so the CLI can say "this provider cannot pause machines".
+  if (normalized.includes("pause")) return "pause";
+  if (normalized.includes("resume")) return "resume";
   return "default";
 }
 
@@ -57,7 +70,7 @@ export async function vmUnsupportedCopy(
     messages: await loadMessages(locale),
     namespace: "vmErrors.unsupported",
   }) as unknown as (key: string) => string;
-  const phaseKey: VmUnsupportedOperationKey = ["snapshot", "restore", "fork", "openPort"].includes(phase)
+  const phaseKey: VmUnsupportedOperationKey = ["snapshot", "restore", "fork", "openPort", "sizing", "persistentHome", "pause", "resume"].includes(phase)
     ? phase
     : "default";
   return {

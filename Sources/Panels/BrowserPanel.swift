@@ -10360,7 +10360,7 @@ enum BrowserDataImporter {
                     String(
                         format: String(
                             localized: "browser.import.warning.noHistoryDatabase",
-                            defaultValue: "No history database found for %@."
+                            defaultValue: "No browsing history was found for %@."
                         ),
                         browser.displayName
                     )

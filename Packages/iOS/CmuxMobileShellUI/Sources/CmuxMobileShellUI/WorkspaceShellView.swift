@@ -91,7 +91,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
     let select: (WorkspaceMacSelection) -> Void
     let machines: [WorkspaceFilterMachine]
     let showAddDevice: (() -> Void)?
-    var gateWarningDeviceIDs: Set<String> = []
+    var gateWarningPairingIDs: Set<String> = []
     var statusLine: WorkspaceConnectionStatusLine?
 
     private var titlePlacement: ToolbarItemPlacement {
@@ -145,8 +145,8 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
         ToolbarItem(id: "workspace-list-devices", placement: .topBarLeading) {
             Button(action: openDevices) {
                 MobileDevicesToolbarLabel(
-                    gateWarningDeviceIDs: gateWarningDeviceIDs,
-                    computerDeviceIDs: Set(machines.map(\.macDeviceID).filter { !$0.isEmpty })
+                    gateWarningPairingIDs: gateWarningPairingIDs,
+                    computerPairingIDs: Set(machines.map(\.id))
                 )
             }
             .frame(
@@ -171,7 +171,7 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
     let pendingSelection: WorkspaceMacSelection?
     let select: (WorkspaceMacSelection) -> Void
     let showAddDevice: (() -> Void)?
-    var gateWarningDeviceIDs: Set<String> = []
+    var gateWarningPairingIDs: Set<String> = []
 
     var body: some ToolbarContent {
         WorkspaceRootToolbarContent(
@@ -183,7 +183,7 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
             select: select,
             machines: renderContext.machines,
             showAddDevice: showAddDevice,
-            gateWarningDeviceIDs: gateWarningDeviceIDs,
+            gateWarningPairingIDs: gateWarningPairingIDs,
             statusLine: renderContext.statusLine
         )
     }
@@ -1299,7 +1299,7 @@ struct WorkspaceShellView: View {
             pendingSelection: rootToolbarPendingSelection,
             select: handleRootToolbarSelection,
             showAddDevice: showAddDevice,
-            gateWarningDeviceIDs: store.macVersionUpdateRequiredDeviceIDs
+            gateWarningPairingIDs: store.macVersionUpdateRequiredPairingIDs
         )
     }
 
