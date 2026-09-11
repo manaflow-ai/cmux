@@ -1,7 +1,7 @@
 {
   "capturedAtUTC": "2026-09-11",
   "role": "interaction/profiling agent",
-  "sourceSHA": "4137fa23ddb",
+  "sourceSHA": "17f823006b2",
   "tag": "v2s3",
   "status": "partial-pass",
   "acceptanceStatus": "not-confirmed",
@@ -11,7 +11,7 @@
     "workerVersion": "4bdddd87-8cd4-4dcc-a125-08c9a9ea5864",
     "observed": [
       "POST /v2/control/session reached the team Durable Object",
-      "GET /v2/control/socket completed with HTTP 101",
+      "GET /v2/control/socket completed with HTTP 101 during the smoke session",
       "TeamControl accepted a directory request with status 200",
       "UserUsage reserve, consume, setOutput, and release calls completed"
     ]
@@ -24,10 +24,10 @@
     "macBuild": "installed and launched",
     "iosBuild": "installed and launched"
   },
-  "failureFound": {
-    "legacyTraffic": "The installed iOS build still sent legacy /api/observability/mobile-network and /api/analytics/events requests to the v2 Worker, which correctly returned typed 404 errors.",
-    "impact": "The v2 handshake succeeds, but the client build is not yet cleanly isolated from retired legacy service traffic.",
-    "previousBackendFailure": "Cloudflare rejected redirect:error in the Stack fetch; changed to redirect:manual with a 5 second timeout and deployed the fix."
+  "configurationCorrection": {
+    "earlierIssue": "An earlier launch had CMUXApiBaseURL pointed at the v2 Worker, producing typed 404s for legacy compatibility calls.",
+    "correction": "The installed simulator app was relaunched with CMUXApiBaseURL set to https://cmux-staging.vercel.app while CMUX_IROH_V2_BASE_URL remained the staging Worker.",
+    "followUpObservation": "The corrected smoke produced no legacy /api calls on the v2 Worker. This is a smoke result, not proof that the legacy client code has been retired."
   },
   "notRun": [
     "two complete 3600 second foreground runs",
