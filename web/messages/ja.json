@@ -711,7 +711,7 @@
       "metaDescription": "ファウンディング Chromium エンジニアとして cmux に参加し、Chromium フォークを担い、C++ と Rust で Windows と Linux に cmux を届けませんか。",
       "section": "採用情報",
       "eyebrow": "役割について",
-      "title": "Founding Chromium Engineer",
+      "title": "創業 Chromium エンジニア",
       "tagline": "cmux を Windows と Linux に。",
       "intro": "cmux は Ghostty を基盤にしたネイティブ macOS ターミナルです。複数の AI コーディングエージェントを並列で動かすために設計され、数十万人の開発者がエージェントによるコーディングワークフローに cmux を活用しています。",
       "hiring": "私たちは、独自の Chromium フォークを基盤に、Windows（および Linux）版 cmux を担うファウンディングエンジニアを募集しています。",
@@ -731,7 +731,7 @@
         "歓迎：Chromium 上流へのコントリビューション、Swift/AppKit への関心、オープンソースメンテナー、元創業者。"
       ],
       "details": "詳細",
-      "roleTitle": "Founding Chromium Engineer",
+      "roleTitle": "創業 Chromium エンジニア",
       "compensationLabel": "報酬",
       "compensation": "$130k〜$170k + 株式 0.5%〜1.5%",
       "benefitsLabel": "福利厚生",

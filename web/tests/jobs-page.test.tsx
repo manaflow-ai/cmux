@@ -288,7 +288,7 @@ describe("jobs page", () => {
       params: Promise.resolve({ locale: "ja" }),
     });
     expect(japanese.title).toEqual({
-      absolute: "Founding Engineer / Founding Designer / Founding Chromium Engineer — 採用情報",
+      absolute: "創業エンジニア / 創設デザイナー / 創業 Chromium エンジニア — 採用情報",
     });
     expect(japanese.alternates).toMatchObject({
       canonical: "https://cmux.com/ja/jobs",
