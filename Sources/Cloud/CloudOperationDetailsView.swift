@@ -6,12 +6,23 @@ struct CloudOperationDetailsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(String(localized: "cloud.operation.details", defaultValue: "Cloud activity and errors"))
-                .font(.headline)
+            HStack {
+                Text(String(localized: "cloud.diagnostics.title", defaultValue: "Cloud Diagnostics"))
+                    .font(.headline)
+                Spacer()
+                Button(String(localized: "cloud.diagnostics.copy", defaultValue: "Copy Diagnostics")) {
+                    CloudErrorCopy.copy(CloudDiagnosticReport.text(operations: operations))
+                }
+                .accessibilityIdentifier("CloudDiagnosticsCopy")
+            }
             Text(String(localized: "cloud.operation.diagnosticsNotice", defaultValue: "Cloud sends connection timing and error codes while you are signed in. Terminal content and credentials are excluded."))
                 .font(.caption).foregroundStyle(.secondary)
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
+                    if operations.isEmpty {
+                        Text(String(localized: "cloud.diagnostics.empty", defaultValue: "No Cloud activity recorded in this session."))
+                            .foregroundStyle(.secondary)
+                    }
                     ForEach(Array(operations.reversed())) { operation in
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
@@ -31,6 +42,8 @@ struct CloudOperationDetailsView: View {
                                     if let duration = step.durationMs { Text(Duration.milliseconds(duration), format: .units(allowed: [.seconds, .milliseconds], width: .abbreviated)) }
                                 }
                                 .font(.caption)
+                                .cloudErrorCopyMenu(step.failure != nil || step.outcome == .failure || step.outcome == .timeout
+                                    ? CloudDiagnosticReport.stepText(step) + "\n" + operation.reference : nil)
                             }
                             if operation.needsAttention {
                                 Text(String(localized: "cloud.operation.failedAction", defaultValue: "This operation did not complete. Check the machine state before you try it again."))
@@ -42,6 +55,7 @@ struct CloudOperationDetailsView: View {
                             }
                             .font(.caption)
                         }
+                        .cloudErrorCopyMenu(operation.copyableError)
                         Divider()
                     }
                 }

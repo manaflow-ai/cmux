@@ -8,6 +8,16 @@ extension TerminalController {
         id: Any?,
         params: [String: Any]
     ) -> String {
+        if method == "vm.diagnostics" {
+            let show = params["show"] as? Bool ?? false
+            return v2VmCall(id: id, timeoutSeconds: 10) {
+                await MainActor.run {
+                    if show { AppDelegate.shared?.showCloudDiagnostics() }
+                    let operations = AppDelegate.shared?.cloudOperations?.operations ?? []
+                    return ["report": CloudDiagnosticReport.text(operations: operations)]
+                }
+            }
+        }
         if let tunnelResponse = socketWorkerCloudTunnelResponse(method: method, id: id, params: params) {
             return tunnelResponse
         }

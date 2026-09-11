@@ -505,6 +505,7 @@ final class CloudVMActionLauncher {
             : CmuxAlertContent(flattenedText: informativeText, separatingScrollableDetails: safeOutput)
         let window = Self.presentationWindow(preferred: preferredWindow, key: NSApp.keyWindow, main: NSApp.mainWindow)
         content.apply(to: alert, presentingWindow: window)
+        CloudErrorCopy.install(in: alert, text: "\(title)\n\(content.flattenedText)")
         if let window {
             alert.beginSheetModal(for: window, completionHandler: nil)
         } else {

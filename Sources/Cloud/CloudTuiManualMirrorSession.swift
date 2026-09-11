@@ -23,6 +23,7 @@ final class CloudTuiManualMirrorSession {
     private var diagnosticReplayReceived = false
     private var diagnosticDeadline: Task<Void, Never>?
     private(set) var diagnosticFailure: CloudDiagnosticFailure?
+    private var diagnosticReference: String?
     private weak var surface: TerminalSurface?
     private let onNeedsReconnect: @MainActor () -> Void
     private let commandBuilder: CloudTuiManualIOCommand
@@ -73,10 +74,12 @@ final class CloudTuiManualMirrorSession {
         case .disconnected: state = .error
         case .stopped: return nil
         }
-        return CloudTerminalReconnectOverlayPolicy.presentation(
+        var presentation = CloudTerminalReconnectOverlayPolicy.presentation(
             isManagedCloudWorkspace: true, isRemoteTerminalSurface: true,
             connectionState: state, detail: diagnosticFailure?.label ?? CloudOperationPhase.ready.label
         )
+        presentation?.diagnosticReference = diagnosticReference
+        return presentation
     }
 
     @discardableResult
@@ -291,6 +294,7 @@ final class CloudTuiManualMirrorSession {
             diagnosticContext = root
         }
         if let context = diagnosticContext {
+            diagnosticReference = "operation=\(context.operationID.uuidString.lowercased()) trace=\(context.traceID)"
             diagnosticDeadline = Task { @MainActor [weak self] in
                 do { try await Task.sleep(for: .seconds(60)) } catch { return }
                 guard let self, self.diagnosticContext?.spanID == context.spanID else { return }

@@ -22,4 +22,6 @@ struct CloudOperationSnapshot: Identifiable, Equatable, Sendable {
     var needsAttention: Bool { outcome == .failure || outcome == .timeout || steps.contains { $0.phase == .ready && ($0.outcome == .failure || $0.outcome == .timeout) } }
     var currentPhase: CloudOperationPhase { steps.last(where: { $0.outcome == nil })?.phase ?? steps.last?.phase ?? .operation }
     var reference: String { "operation=\(id.uuidString.lowercased()) trace=\(traceID)" }
+    var isVisibleInMachinesPanel: Bool { foreground && (isRunning || needsAttention) }
+    var copyableError: String { CloudDiagnosticReport.operationText(self) }
 }

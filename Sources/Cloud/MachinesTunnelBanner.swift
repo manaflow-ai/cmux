@@ -36,6 +36,7 @@ struct MachinesTunnelBanner: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(nsColor: backgroundColor))
         .help(helpText)
+        .cloudErrorCopyMenu(banner.kind == .failed ? banner.text : nil)
         .accessibilityIdentifier("CloudMachinesTunnelBanner")
     }
 

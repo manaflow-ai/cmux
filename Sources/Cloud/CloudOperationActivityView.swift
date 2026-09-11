@@ -5,10 +5,9 @@ import SwiftUI
 struct CloudOperationActivityView: View {
     let operations: [CloudOperationSnapshot]
     let dismiss: @MainActor (UUID) -> Void
-    @State private var showsDetails = false
 
     private var visible: [CloudOperationSnapshot] {
-        operations.filter { $0.foreground && ($0.isRunning || $0.needsAttention) }
+        operations.filter(\.isVisibleInMachinesPanel)
     }
 
     var body: some View {
@@ -30,13 +29,8 @@ struct CloudOperationActivityView: View {
                             .accessibilityLabel(String(localized: "cloud.operation.dismiss", defaultValue: "Dismiss operation"))
                     }
                 }
+                .cloudErrorCopyMenu(operation.needsAttention ? operation.copyableError : nil)
             }
-            Button(String(localized: "cloud.operation.details", defaultValue: "Cloud activity and errors")) { showsDetails = true }
-                .font(.caption)
-                .popover(isPresented: $showsDetails) {
-                    CloudOperationDetailsView(operations: operations)
-                }
-                .accessibilityIdentifier("CloudOperationDetailsButton")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
