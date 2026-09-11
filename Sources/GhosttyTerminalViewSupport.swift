@@ -82,6 +82,56 @@ extension GhosttySurfaceScrollView {
     }
 }
 
+extension GhosttyNSView {
+    /// Keep the terminal cursor out of the native resize rim on full-size main
+    /// windows. A cursor rect is not clipped to the window frame, so claiming
+    /// the view's full bounds would hide AppKit's edge and corner resize cursors.
+    func terminalCursorRect() -> NSRect {
+        guard let window,
+              window is CmuxMainWindow,
+              window.styleMask.contains(.resizable),
+              window.styleMask.contains(.fullSizeContentView),
+              !window.styleMask.contains(.fullScreen)
+        else {
+            return bounds
+        }
+
+        let rectInWindow = convert(bounds, to: nil)
+        let rectInScreen = window.convertToScreen(rectInWindow)
+        let windowFrame = window.frame
+        var claimedRect = rectInScreen.intersection(windowFrame)
+        guard !claimedRect.isNull, claimedRect.width > 0, claimedRect.height > 0 else {
+            return .zero
+        }
+
+        let edgeTolerance: CGFloat = 1
+        let nativeResizeBorderWidth: CGFloat = 4
+        if abs(claimedRect.minX - windowFrame.minX) <= edgeTolerance {
+            claimedRect.origin.x += nativeResizeBorderWidth
+            claimedRect.size.width -= nativeResizeBorderWidth
+        }
+        if abs(claimedRect.maxX - windowFrame.maxX) <= edgeTolerance {
+            claimedRect.size.width -= nativeResizeBorderWidth
+        }
+        if abs(claimedRect.minY - windowFrame.minY) <= edgeTolerance {
+            claimedRect.origin.y += nativeResizeBorderWidth
+            claimedRect.size.height -= nativeResizeBorderWidth
+        }
+        if abs(claimedRect.maxY - windowFrame.maxY) <= edgeTolerance {
+            claimedRect.size.height -= nativeResizeBorderWidth
+        }
+        guard claimedRect.width > 0, claimedRect.height > 0 else { return .zero }
+
+        let adjustedRectInWindow = window.convertFromScreen(claimedRect)
+        let adjustedRectInView = convert(adjustedRectInWindow, from: nil)
+        let clippedRect = adjustedRectInView.intersection(bounds)
+        guard !clippedRect.isNull, clippedRect.width > 0, clippedRect.height > 0 else {
+            return .zero
+        }
+        return clippedRect
+    }
+}
+
 func shouldAllowEnsureFocusWindowActivation(
     activeTabManager: TabManager?,
     targetTabManager: TabManager,
