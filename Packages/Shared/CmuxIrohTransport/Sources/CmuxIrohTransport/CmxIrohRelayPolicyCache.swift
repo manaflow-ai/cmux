@@ -97,16 +97,47 @@ public actor CmxIrohRelayPolicyCache {
     /// - Parameters:
     ///   - trustRoot: App-pinned public verification keys.
     ///   - now: Verification time.
+    ///   - expiredPolicyReuseGrace: Bounded fail-open window after the signed
+    ///     expiry in which the last-good policy still loads. The policy is
+    ///     re-verified at its final valid instant, so signature, rollback,
+    ///     and claim checks run unweakened; only the expiry gate is graced
+    ///     (cmux#10375). Zero preserves strict expiry.
     /// - Returns: The verified policy, or `nil` when no policy is cached.
     /// - Throws: ``CmxIrohRelayPolicyError`` or a secure-storage error.
     public func load(
         trustRoot: CmxIrohRelayPolicyTrustRoot,
-        now: Date
+        now: Date,
+        expiredPolicyReuseGrace: TimeInterval = 0
     ) async throws -> CmxIrohManagedRelayPolicy? {
         await acquire()
         defer { release() }
         guard let record = try await storedRecord() else { return nil }
-        let policy = try verifier.verify(record.signedPolicy, trustRoot: trustRoot, now: now)
+        let policy: CmxIrohManagedRelayPolicy
+        do {
+            policy = try verifier.verify(
+                record.signedPolicy,
+                trustRoot: trustRoot,
+                now: now
+            )
+        } catch CmxIrohRelayPolicyError.expired {
+            // The recorded expiry is cross-checked against the signed claims
+            // below; a record that overstates it re-fails as expired here or
+            // as rollback below.
+            guard expiredPolicyReuseGrace > 0,
+                  let recordedExpiry = record.expiresAt,
+                  now.timeIntervalSince1970
+                    <= TimeInterval(recordedExpiry) + expiredPolicyReuseGrace else {
+                throw CmxIrohRelayPolicyError.expired
+            }
+            let lastValidInstant = Date(
+                timeIntervalSince1970: TimeInterval(recordedExpiry) - 1
+            )
+            policy = try verifier.verify(
+                record.signedPolicy,
+                trustRoot: trustRoot,
+                now: min(now, lastValidInstant)
+            )
+        }
         guard policy.sequence == record.highestSequence,
               Self.metadataMatches(policy, record: record) else {
             throw CmxIrohRelayPolicyError.rollback
