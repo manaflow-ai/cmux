@@ -56,6 +56,7 @@ import Testing
 
         let client = makeClient(socketPath: server.path)
         var iterator = client.events().makeAsyncIterator()
+        try await expectLeadingSnapshot(&iterator)
         let first = try await iterator.next()
         guard case .workspaceUpserted(let workspace) = first else {
             Issue.record("expected workspace upsert, got \(String(describing: first))")
@@ -92,6 +93,7 @@ import Testing
 
         let client = makeClient(socketPath: server.path)
         var iterator = client.events().makeAsyncIterator()
+        try await expectLeadingSnapshot(&iterator)
         let event = try await iterator.next()
         guard case .workspaceUpserted = event else {
             Issue.record("expected workspace event after fragmented reads")
@@ -321,6 +323,8 @@ import Testing
         )
 
         var iterator = client.events().makeAsyncIterator()
+        // Attach-path snapshot, then the pushed event, then the reconnect snapshot.
+        try await expectLeadingSnapshot(&iterator)
         let first = try await iterator.next()
         guard case .workspaceUpserted = first else {
             Issue.record("expected first workspace event, got \(String(describing: first))")
@@ -338,6 +342,94 @@ import Testing
         #expect(store.record(for: key) == nil)
         let handshake = await client.currentHandshake()
         #expect(handshake?.providerInstanceID != oldInstance)
+    }
+
+    /// A new pane widens pane-scoped subscriptions on the *same* connection.
+    ///
+    /// Routine pane creation must not run the reconnect handshake: protocol 17 has no
+    /// durable `instance_id`, so a fresh `ping` mints a new generation, which invalidates
+    /// every compound node ID and fails in-flight focus/list calls with `stale_instance`.
+    @Test func paneCreateResubscribesWithoutRemintingInstanceIdentity() async throws {
+        final class State: @unchecked Sendable {
+            private let lock = NSLock()
+            private var subscribeCount = 0
+            private var pingCount = 0
+
+            func noteSubscribe() -> Int {
+                lock.lock()
+                defer { lock.unlock() }
+                subscribeCount += 1
+                return subscribeCount
+            }
+
+            func notePing() {
+                lock.lock()
+                defer { lock.unlock() }
+                pingCount += 1
+            }
+
+            /// Scoped read so counters are never touched with a bare lock from async code.
+            func counts() -> (pings: Int, subscribes: Int) {
+                lock.lock()
+                defer { lock.unlock() }
+                return (pingCount, subscribeCount)
+            }
+        }
+        let state = State()
+
+        let server = try FakeHerdrUnixSocketServer { _, id, method in
+            switch method {
+            case "ping":
+                state.notePing()
+                return [HerdrFakeFixtures.line(HerdrFakeFixtures.pongJSON(id: id))]
+            case "session.snapshot":
+                return [HerdrFakeFixtures.line(HerdrFakeFixtures.snapshotJSON(id: id))]
+            case "events.subscribe":
+                let count = state.noteSubscribe()
+                if count == 1 {
+                    // Announce a pane the snapshot never listed: subscriptions must widen.
+                    return [
+                        HerdrFakeFixtures.line(HerdrFakeFixtures.subscriptionStartedJSON(id: id)),
+                        HerdrFakeFixtures.line(HerdrFakeFixtures.paneCreatedEventJSON()),
+                    ]
+                }
+                return [
+                    HerdrFakeFixtures.line(HerdrFakeFixtures.subscriptionStartedJSON(id: id)),
+                    HerdrFakeFixtures.line(HerdrFakeFixtures.paneAgentStatusEventJSON()),
+                ]
+            default:
+                return [HerdrFakeFixtures.line(HerdrFakeFixtures.errorJSON(id: id))]
+            }
+        }
+        defer { server.shutdown() }
+
+        let client = makeClient(socketPath: server.path)
+        var iterator = client.events().makeAsyncIterator()
+        try await expectLeadingSnapshot(&iterator)
+        let instanceBefore = await client.currentHandshake()?.providerInstanceID
+        #expect(instanceBefore != nil)
+
+        let created = try await iterator.next()
+        guard case .paneUpserted(let pane) = created else {
+            Issue.record("expected pane upsert, got \(String(describing: created))")
+            return
+        }
+        #expect(pane.id.rawID == "w1:p2")
+
+        // Resubscribe republishes the snapshot that drives the widened pane set.
+        try await expectLeadingSnapshot(&iterator)
+
+        let afterResubscribe = try await iterator.next()
+        guard case .agentUpserted = afterResubscribe else {
+            Issue.record("expected agent upsert, got \(String(describing: afterResubscribe))")
+            return
+        }
+
+        // Identity survives: same generation, and no second handshake was performed.
+        #expect(await client.currentHandshake()?.providerInstanceID == instanceBefore)
+        let counts = state.counts()
+        #expect(counts.pings == 1)
+        #expect(counts.subscribes == 2)
     }
 
     @Test func protocol17UnknownFieldsTolerated() throws {
@@ -392,6 +484,24 @@ import Testing
         let lines = try reader.append(Data("1}\n{\"b\":2}\n{\"c\":".utf8))
         #expect(lines == [#"{"a":1}"#, #"{"b":2}"#])
         #expect(try reader.append(Data("3}\n".utf8)) == [#"{"c":3}"#])
+    }
+}
+
+/// Consumes the leading `replaceSnapshot` every event-loop attempt publishes.
+///
+/// The client yields the snapshot that drove its pane subscriptions before forwarding
+/// pushed events, so consumers never hold a topology older than the subscription set.
+private func expectLeadingSnapshot(
+    _ iterator: inout AsyncThrowingStream<NestedTopologyEvent, any Error>.AsyncIterator,
+    sourceLocation: SourceLocation = #_sourceLocation
+) async throws {
+    let first = try await iterator.next()
+    guard case .replaceSnapshot = first else {
+        Issue.record(
+            "expected leading replaceSnapshot, got \(String(describing: first))",
+            sourceLocation: sourceLocation
+        )
+        return
     }
 }
 

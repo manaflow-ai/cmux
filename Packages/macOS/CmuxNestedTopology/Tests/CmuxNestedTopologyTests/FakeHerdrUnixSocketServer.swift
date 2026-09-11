@@ -295,6 +295,12 @@ enum HerdrFakeFixtures {
         #"{"event":"pane.agent_status_changed","data":{"pane_id":"w1:p1","workspace_id":"w1","agent_status":"blocked","agent":"claude"}}"#
     }
 
+    /// `pane_created` for a pane absent from ``snapshotJSON``, so the client must widen
+    /// its pane-scoped subscriptions to cover it.
+    static func paneCreatedEventJSON(paneID: String = "w1:p2") -> String {
+        #"{"event":"pane_created","data":{"type":"pane_created","pane":{"pane_id":"\#(paneID)","terminal_id":"term2","workspace_id":"w1","tab_id":"w1:t1","focused":false,"label":"shell","agent":"","agent_status":"unknown","revision":1}}}"#
+    }
+
     static func line(_ json: String) -> Data {
         Data((json + "\n").utf8)
     }

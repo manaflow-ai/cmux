@@ -1,11 +1,21 @@
 import Foundation
 
+/// Internal signal: pane-scoped subscriptions must be rebuilt from a fresh snapshot
+/// on the **same** provider connection.
+///
+/// Distinct from ``NestedTopologyProviderError/unexpectedEOF`` on purpose. A transport
+/// EOF drives a reconnect, and a reconnect re-runs `ping`, which mints a new provider
+/// instance generation while protocol 17 lacks a durable `instance_id`. Routine pane
+/// creation must never invalidate node identity that way.
+struct HerdrResubscribeRequired: Error {}
+
 /// Herdr nested topology client over the local newline-delimited JSON Unix socket API.
 ///
 /// This client never shells out to the `herdr` CLI. It performs handshake (`ping`),
 /// `session.snapshot`, `events.subscribe`, and capability-gated `*.focus` RPCs.
-/// Reconnects always assign a new provider instance generation (until Herdr returns
-/// a durable `instance_id`) and invalidate association entries from prior generations.
+/// Reconnects — transport loss only — assign a new provider instance generation (until
+/// Herdr returns a durable `instance_id`) and invalidate association entries from prior
+/// generations. Pane-scoped resubscribes reuse the current handshake and never remint.
 /// Unavailable methods fail closed — never synthesized via keystrokes or shell.
 public actor HerdrNestedTopologyClient: NestedTopologyProviderClient {
     private let configuration: HerdrNestedTopologyClientConfiguration
@@ -180,30 +190,42 @@ public actor HerdrNestedTopologyClient: NestedTopologyProviderClient {
     ) async {
         var backoff = configuration.reconnectInitialBackoff
         var isFirstAttempt = true
+        var isResubscribeOnly = false
 
         while !Task.isCancelled {
             do {
-                if !isFirstAttempt {
+                if isFirstAttempt || isResubscribeOnly {
+                    // Attach path, or a pane-scoped resubscribe on the same live
+                    // provider. Reuse the existing handshake: re-running it would mint
+                    // a new instance generation and invalidate every compound node ID.
+                    _ = try await ensureHandshake()
+                } else {
                     // Mandatory full resnapshot on every reconnect.
                     _ = try await handshake()
-                } else {
-                    _ = try await ensureHandshake()
                 }
                 // One required snapshot per attempt: drives pane-scoped subscriptions and
-                // (on reconnect) the authoritative replaceSnapshot. Fail closed — never
-                // subscribe with an empty pane set after a silent snapshot failure.
+                // the authoritative replaceSnapshot. Fail closed — never subscribe with
+                // an empty pane set after a silent snapshot failure.
                 let snap = try await snapshot()
                 let paneIDs = snap.panes.map(\.id.rawID)
-                if !isFirstAttempt {
-                    continuation.yield(.replaceSnapshot(snap))
-                }
+                // Publish every attempt's snapshot, including the first. Subscriptions are
+                // driven by this exact snapshot, so a consumer holding an older one would
+                // otherwise miss topology changes until the next event or reconnect.
+                continuation.yield(.replaceSnapshot(snap))
                 isFirstAttempt = false
+                isResubscribeOnly = false
                 backoff = configuration.reconnectInitialBackoff
                 try await subscribeAndForward(
                     continuation: continuation,
                     paneIDs: paneIDs
                 )
                 throw NestedTopologyProviderError.unexpectedEOF
+            } catch is HerdrResubscribeRequired {
+                // A new pane needs pane-scoped subscriptions. The provider connection and
+                // instance identity are unchanged, so resubscribe immediately without a
+                // reconnect handshake and without backoff.
+                isResubscribeOnly = true
+                continue
             } catch is CancellationError {
                 continuation.finish(throwing: NestedTopologyProviderError.cancelled)
                 return
@@ -279,9 +301,14 @@ public actor HerdrNestedTopologyClient: NestedTopologyProviderClient {
         let connectTimeout = configuration.connectTimeout
         let idleTimeout = configuration.eventIdleTimeout
         let socketPath = configuration.socketPath
+        let expectedPeerUID = configuration.expectedPeerUID
         let initialPaneIDs = normalizedPaneIDs
 
-        let connection = try HerdrUnixSocketConnection(path: socketPath, timeout: connectTimeout)
+        let connection = try HerdrUnixSocketConnection(
+            path: socketPath,
+            timeout: connectTimeout,
+            expectedPeerUID: expectedPeerUID
+        )
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
                 Thread.detachNewThread {
@@ -344,15 +371,19 @@ public actor HerdrNestedTopologyClient: NestedTopologyProviderClient {
                                 )
                                 for event in events {
                                     continuation.yield(event)
-                                    // pane.agent_status_changed is subscribed per pane_id at
-                                    // connect time. A newly upserted pane is not covered until
-                                    // we reconnect and resubscribe from a fresh snapshot.
+                                    // pane.agent_status_changed is subscribed per pane_id
+                                    // at connect time. A newly upserted pane is not covered
+                                    // until we resubscribe from a fresh snapshot. Signal a
+                                    // resubscribe, never a transport EOF: routine pane
+                                    // creation must not force a reconnect handshake, which
+                                    // would mint a new provider instance generation and
+                                    // invalidate every compound node ID in flight.
                                     if case let .paneUpserted(pane) = event {
                                         let rawID = pane.id.rawID.trimmingCharacters(
                                             in: .whitespacesAndNewlines
                                         )
                                         if !rawID.isEmpty, !subscribedPaneIDs.contains(rawID) {
-                                            throw NestedTopologyProviderError.unexpectedEOF
+                                            throw HerdrResubscribeRequired()
                                         }
                                     }
                                 }
@@ -401,8 +432,13 @@ public actor HerdrNestedTopologyClient: NestedTopologyProviderClient {
         let connectTimeout = configuration.connectTimeout
         let requestTimeout = configuration.requestTimeout
         let socketPath = configuration.socketPath
+        let expectedPeerUID = configuration.expectedPeerUID
 
-        let connection = try HerdrUnixSocketConnection(path: socketPath, timeout: connectTimeout)
+        let connection = try HerdrUnixSocketConnection(
+            path: socketPath,
+            timeout: connectTimeout,
+            expectedPeerUID: expectedPeerUID
+        )
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (cont: CheckedContinuation<HerdrWireResponse, Error>) in
                 Thread.detachNewThread {
