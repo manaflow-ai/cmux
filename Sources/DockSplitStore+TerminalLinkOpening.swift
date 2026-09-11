@@ -8,11 +8,17 @@ extension DockSplitStore: TerminalLinkOpenContainer {
     }
 
     func terminalLinkWorkingDirectory(for sourcePanelId: UUID) -> String? {
-        terminalWorkingDirectory(for: sourcePanelId)
+        guard let panelId = panelID(forTerminalLinkSourceID: sourcePanelId) else {
+            return nil
+        }
+        return terminalWorkingDirectory(for: panelId)
     }
 
     func terminalLinkIsRemoteTerminal(_ sourcePanelId: UUID) -> Bool {
-        detachedSurfaceTransfersByPanelId[sourcePanelId]?.isRemoteTerminal == true
+        guard let panelId = panelID(forTerminalLinkSourceID: sourcePanelId) else {
+            return false
+        }
+        return detachedSurfaceTransfersByPanelId[panelId]?.isRemoteTerminal == true
     }
 
     func deferTerminalFileLinkOpen(
@@ -26,7 +32,8 @@ extension DockSplitStore: TerminalLinkOpenContainer {
     }
 
     func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
-        guard let sourcePane = paneId(forPanelId: sourcePanelId) else { return false }
+        guard let panelId = panelID(forTerminalLinkSourceID: sourcePanelId),
+              let sourcePane = paneId(forPanelId: panelId) else { return false }
         if let targetPane = BrowserRightSidePaneResolver().preferredPane(
             from: sourcePane,
             in: bonsplitController
@@ -47,9 +54,9 @@ extension DockSplitStore: TerminalLinkOpenContainer {
         noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
         guard let panelId = newSplit(
             kind: .browser,
-            orientation: .horizontal,
-            insertFirst: false,
-            sourcePanelId: sourcePanelId,
+                orientation: .horizontal,
+                insertFirst: false,
+                sourcePanelId: panelId,
             url: url,
             focus: false
         ) else { return false }
