@@ -43,7 +43,7 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
 
     override func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
         _ = pasteboard
-        return registration.pasteboardItem.types
+        return types
     }
 
     override func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
@@ -52,9 +52,14 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
         // only reads values written with `setPropertyList`, so proxy each
         // representation through the matching accessor before falling back to
         // a true property-list value.
-        registration.pasteboardItem.string(forType: type)
+        string(forType: type)
+            ?? registration.pasteboardItem.string(forType: type)
             ?? registration.pasteboardItem.data(forType: type)
             ?? registration.pasteboardItem.propertyList(forType: type)
+    }
+
+    func setOrganizationNodeID(_ id: String) {
+        setString(id, forType: CloudTreeOutlineView.Coordinator.organizationDragType)
     }
 
     /// Copies the registration into ``NSPasteboardItem`` storage before AppKit

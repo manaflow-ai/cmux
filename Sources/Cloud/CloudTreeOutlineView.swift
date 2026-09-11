@@ -83,6 +83,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         private let tabDragTransferRegistry: @MainActor () -> TabDragTransferRegistry?
         weak var outlineView: CloudTreeNSOutlineView?
         private var nodes: [CloudTreeNode] = []
+        private var catalogNodes: [CloudTreeNode] = []
+        private var organizationStore: CloudTreeOrganizationStore { expansionStore.organizationStore }
+        static let organizationDragType = NSPasteboard.PasteboardType("com.cmux.cloud-tree-reorder")
         private var structureSignature: [String] = []
         private var contentSignature: [String] = []
         private var selectedNodeID: String?
@@ -249,8 +252,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 deferredNodes = nodes
                 return
             }
+            catalogNodes = nodes
+            let nodes = organizationStore.arranged(nodes)
             let nextStructure = CloudTreeNodeBuilder.structureSignature(nodes)
             let nextContent = CloudTreeNodeBuilder.contentSignature(nodes)
+                + CloudTreeNodeBuilder.flattened(nodes).map { "\($0.id):\($0.isPinned)" }
             #if DEBUG
             let unreadRows = CloudTreeNodeBuilder.flattened(nodes).filter {
                 if case .terminal(let row) = $0.kind { return row.hasUnreadNotification }
@@ -588,7 +594,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             guard resolvedRow >= 0, let node = outlineView.item(atRow: resolvedRow) as? CloudTreeNode else { return nil }
             let menu = NSMenu()
             menu.autoenablesItems = false
-            for item in menuItems(for: node) {
+            for item in menuItems(for: node) + organizationMenuItems(for: node) {
                 menu.addItem(item)
             }
             if let error = node.errorCopyText {
@@ -599,6 +605,58 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             cmuxDebugLog("cloudTree.menu.build row=\(resolvedRow) items=\(menu.items.count)")
             #endif
             return menu.items.isEmpty ? nil : menu
+        }
+
+        private func organizationMenuItems(for node: CloudTreeNode) -> [NSMenuItem] {
+            guard node.canOrganize else { return [] }
+            let up = item(String(localized: "contextMenu.moveUp", defaultValue: "Move Up")) { [weak self] in
+                self?.moveNode(node.id, by: -1)
+            }
+            up.isEnabled = organizationStore.canMove(node.id, by: -1, in: catalogNodes)
+            let down = item(String(localized: "contextMenu.moveDown", defaultValue: "Move Down")) { [weak self] in
+                self?.moveNode(node.id, by: 1)
+            }
+            down.isEnabled = organizationStore.canMove(node.id, by: 1, in: catalogNodes)
+            let pin = item(node.isPinned
+                ? String(localized: "cloudTree.menu.unpin", defaultValue: "Unpin")
+                : String(localized: "cloudTree.menu.pin", defaultValue: "Pin")) { [weak self] in
+                guard let self else { return }
+                organizationStore.togglePin(node.id, in: catalogNodes)
+                apply(nodes: catalogNodes)
+            }
+            return [.separator(), up, down, pin]
+        }
+
+        private func moveNode(_ id: String, by delta: Int) {
+            if organizationStore.move(id, by: delta, in: catalogNodes) {
+                apply(nodes: catalogNodes)
+            }
+        }
+
+        func outlineView(_ outlineView: NSOutlineView, validateDrop info: NSDraggingInfo, proposedItem item: Any?, proposedChildIndex index: Int) -> NSDragOperation {
+            guard organizationDrop(info, item: item, index: index) != nil else { return [] }
+            return .move
+        }
+
+        func outlineView(_ outlineView: NSOutlineView, acceptDrop info: NSDraggingInfo, item: Any?, childIndex index: Int) -> Bool {
+            guard let drop = organizationDrop(info, item: item, index: index) else { return false }
+            let changed = organizationStore.move(drop.id, parentID: drop.parent, to: drop.index, in: catalogNodes)
+            // The native session still owns the outline. At drag end apply the latest
+            // catalog snapshot with the newly committed organization preferences.
+            if changed { apply(nodes: deferredNodes ?? catalogNodes) }
+            return changed
+        }
+
+        private func organizationDrop(_ info: NSDraggingInfo, item: Any?, index: Int) -> (id: String, parent: String, index: Int)? {
+            guard let source = info.draggingSource as? NSOutlineView, source === outlineView,
+                  index >= 0,
+                  let id = info.draggingPasteboard.string(forType: Self.organizationDragType),
+                  let context = organizationStore.siblings(of: id, in: nodes),
+                  let sourceIndex = context.nodes.firstIndex(where: { $0.id == id }),
+                  context.nodes[sourceIndex].canOrganize else { return nil }
+            let parent = (item as? CloudTreeNode)?.id ?? ""
+            guard parent == context.parentID, index <= context.nodes.count else { return nil }
+            return (id, parent, index > sourceIndex ? index - 1 : index)
         }
 
         private func menuItems(for node: CloudTreeNode) -> [NSMenuItem] {
@@ -853,9 +911,14 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             // Only terminals and displays leave the tree by drag (lawrence,
             // 2026-08-27). Workspaces are containers (their drag becomes the D2
             // mirror later); browsers and ports open in place.
-            guard let node = item as? CloudTreeNode, node.isDragSource,
+            guard let node = item as? CloudTreeNode, node.canOrganize else { return nil }
+            guard node.isDragSource,
                   let group = node.dragGroup, let lead = group.resources.first,
-                  let transferRegistry = tabDragTransferRegistry() else { return nil }
+                  let transferRegistry = tabDragTransferRegistry() else {
+                let writer = NSPasteboardItem()
+                writer.setString(node.id, forType: Self.organizationDragType)
+                return writer
+            }
             // Do not mutate the outline while AppKit is asking for this
             // writer. The `willBeginAt` callback below is the next native
             // boundary and performs any superseded-source reclamation after
@@ -873,6 +936,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 coordinator: self,
                 provisionalToken: dragWriterOwnership.makeToken()
             )
+            writer.setOrganizationNodeID(node.id)
             pendingDrags[writer.provisionalToken.id] = PendingDrag(
                 dragID: dragID,
                 registration: registration,
@@ -1095,6 +1159,7 @@ final class CloudTreeContainerView: NSView {
         // only anymore.
         outlineView.action = #selector(CloudTreeOutlineView.Coordinator.handleSingleClick(_:))
         outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
+        outlineView.registerForDraggedTypes([CloudTreeOutlineView.Coordinator.organizationDragType])
         outlineView.onOpenSelection = { [weak coordinator] in coordinator?.openSelection() }
         outlineView.onMoveSelection = { [weak coordinator] delta in coordinator?.moveSelection(by: delta) }
         outlineView.onDisclosure = { [weak coordinator] action in coordinator?.performDisclosure(action) }

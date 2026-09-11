@@ -40,6 +40,7 @@ enum CloudTreeIconPalette {
 struct CloudTreeRowContentView: View {
     let kind: CloudTreeNode.Kind
     var style: CloudTreeStyle = CloudTreeStyleStore.current
+    var isPinned = false
 
     private static func nonEmptyTrimmed(_ value: String?) -> String? {
         guard let value else { return nil }
@@ -48,7 +49,15 @@ struct CloudTreeRowContentView: View {
     }
 
     var body: some View {
-        row
+        HStack(spacing: 4) {
+            row
+            if isPinned {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(String(localized: "cloudTree.pinned", defaultValue: "Pinned"))
+            }
+        }
             .overlay(alignment: .bottom) {
                 if style.rowSeparators, showsSeparator {
                     Rectangle()
