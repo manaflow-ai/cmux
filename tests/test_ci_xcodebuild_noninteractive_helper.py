@@ -447,6 +447,38 @@ def main() -> int:
         )
         return 1
 
+    incidental_swift_testing_child = textwrap.dedent(
+        """
+        import time
+
+        print("Test Suite 'Selected tests' passed at now", flush=True)
+        print("\\t Executed 1 test, with 0 failures (0 unexpected) in 0.001 seconds", flush=True)
+        print("application message: Test run with 1 test passed after 0.001 seconds.", flush=True)
+        time.sleep(10)
+        """
+    )
+    incidental_swift_testing_result = subprocess.run(
+        [sys.executable, str(HELPER), sys.executable, "-c", incidental_swift_testing_child],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
+        env=expected_mixed_framework_env,
+    )
+    if (
+        incidental_swift_testing_result.returncode
+        != EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE
+    ):
+        print(incidental_swift_testing_result.stdout, end="")
+        print(incidental_swift_testing_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: an incidental Swift Testing completion line without a start event "
+            "must not satisfy the required phase, "
+            f"got {incidental_swift_testing_result.returncode}"
+        )
+        return 1
+
     missing_swift_testing_nonzero_child = textwrap.dedent(
         """
         print("Test Suite 'Selected tests' passed at now", flush=True)

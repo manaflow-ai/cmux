@@ -456,7 +456,7 @@ def main() -> int:
                 post_test_deadline = None
 
             swift_testing_match = SWIFT_TESTING_DONE_RE.search(line)
-            if swift_testing_match:
+            if swift_testing_active and swift_testing_match:
                 swift_testing_active = False
                 swift_testing_result = swift_testing_match.group(1).decode("ascii")
                 if swift_testing_result == "failed":
