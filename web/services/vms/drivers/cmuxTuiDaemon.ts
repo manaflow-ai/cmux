@@ -170,7 +170,7 @@ export function parseCmuxTuiManifest(
     throw new ProviderError(provider, `cmux-tui manifest at ${manifestUrl} has no ${CMUX_TUI_LINUX_TARGET} sha256 — publish artifacts from a main with the musl target`);
   }
   if (!/^[0-9a-f]{64}$/.test(hookSha256)) {
-    throw new ProviderError(provider, `cmux-tui manifest at ${manifestUrl} has no ${CMUX_TUI_HOOK_LINUX_TARGET} sha256 — the hook helper ships beside the daemon since cmux-tui-artifacts publishes both`);
+    throw new ProviderError(provider, "Cloud VM agent hooks are unavailable in this image");
   }
   const base = manifestUrl.replace(/\/manifest\.json$/, "");
   return {

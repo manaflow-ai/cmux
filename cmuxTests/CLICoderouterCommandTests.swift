@@ -35,14 +35,6 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
         #expect(!CmuxTuiRemoteRouting.isAgentSubcommand("agents"))
     }
 
-    @Test(arguments: ["claude", "codex", "opencode", "pi"])
-    func cloudAgentLaunchInstallsTheGuestHookBeforeStarting(agent: String) {
-        #expect(
-            CmuxTuiRemoteRouting.vmAgentHookInstallCommand(agent: agent)
-                == "cmux agent hook install '\(agent)' >/dev/null 2>&1 || :"
-        )
-    }
-
     @Test(arguments: ["claude", "codex", "opencode", "pi"], ["--help", "-h"])
     func providerHelpDoesNotBypassWrapperValidation(agent: String, help: String) throws {
         for command in [["vm", "agent", "--agent", agent], ["agent", agent], ["coderouter", "agent", agent]] {

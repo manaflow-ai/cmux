@@ -1624,11 +1624,9 @@ extension CMUXCLI {
         // starting in $HOME instead would run the agent against the wrong tree
         // while the JSON still claims it synced.
         let enter = workDirectory.map { "cd \(shellQuote($0)) || exit 1; " } ?? ""
-        let agent = argv.first ?? ""
-        let hookInstall = CmuxTuiRemoteRouting.vmAgentHookInstallCommand(agent: agent)
         return [
             "bash", "-lc",
-            "cd \"$HOME\"; \(enter)export PATH=\"$HOME/.npm-global/bin:$HOME/.bun/bin:$HOME/.local/bin:$PATH\"; \(hookInstall); exec \(joined)",
+            "cd \"$HOME\"; \(enter)export PATH=\"$HOME/.npm-global/bin:$HOME/.bun/bin:$HOME/.local/bin:$PATH\"; exec \(joined)",
         ]
     }
 

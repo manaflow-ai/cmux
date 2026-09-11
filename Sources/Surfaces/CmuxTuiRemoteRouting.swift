@@ -2,8 +2,6 @@ import Foundation
 
 /// Pure remote catalog selector and placement resolution shared by the app and CLI.
 enum CmuxTuiRemoteRouting {
-    private static let vmAgentNames: Set<String> = ["claude", "codex", "opencode", "pi"]
-
     /// Every `cmux vm agent` option that takes a value, so the alias walk and
     /// the help scan skip the value instead of reading it as the first provider
     /// argument (or as `--help`).
@@ -68,16 +66,6 @@ enum CmuxTuiRemoteRouting {
             normalized.append(contentsOf: tail[index...])
         }
         return normalized
-    }
-
-    /// Install the selected provider's hooks in the machine before a detached
-    /// agent starts. The operation is deliberately idempotent and best-effort:
-    /// older machines may not have the hook installer yet, but a failed setup
-    /// must never prevent the requested agent from launching.
-    static func vmAgentHookInstallCommand(agent: String) -> String {
-        let provider = agent.lowercased()
-        guard vmAgentNames.contains(provider) else { return ":" }
-        return "cmux agent hook install '\(provider)' >/dev/null 2>&1 || :"
     }
 
     /// Where `cmux vm open <target>` points. Grammar:

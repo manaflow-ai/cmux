@@ -112,7 +112,7 @@ describe("cmux-tui install and daemon commands", () => {
     // Beside the binary: the one place `agent hook install` finds it without a PATH search.
     expect(command).toContain('CMUX_TUI_HOOK_BIN="$(dirname "$CMUX_TUI_BIN")/cmux-tui-hook"');
     expect(command).toContain(`'${HOOK_SHA}' "$CMUX_TUI_HOOK_BIN" | sha256sum -c >/dev/null 2>&1; then :; else`);
-    expect(command).toContain(`curl -fsSL --retry 3 --retry-delay 2 -o "$CMUX_TUI_HOOK_TMP" '${HOOK_URL}'`);
+    expect(command).toContain(`curl -fsSL --retry 3 -o "$CMUX_TUI_HOOK_TMP" '${HOOK_URL}'`);
     expect(command).toContain(`'${HOOK_SHA}' "$CMUX_TUI_HOOK_TMP" | sha256sum -c >/dev/null 2>&1 && chmod 755`);
     expect(command).toContain('"$CMUX_TUI_BIN" "$CMUX_TUI_HOOK_BIN" 2>/dev/null || true');
     // The hooks are the daemon user's (HOME=/home/cmux), never root's: root's
