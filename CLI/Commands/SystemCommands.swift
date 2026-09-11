@@ -589,6 +589,13 @@ struct VPNRevokeCommand: SharedLegacyFacadeCommand {
     static let configuration = CommandConfiguration(commandName: "revoke", helpNames: [])
 }
 
+/// Dispatched before the legacy parser's command switch; its argv (including
+/// `run -c '<command>'`) must reach `runSudoCommand` untouched.
+struct SudoCommand: SharedLegacyFacadeCommand {
+    @Argument(parsing: .captureForPassthrough) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "sudo", helpNames: [])
+}
+
 struct VaultCommand: SharedLegacyFacadeCommand {
     // See AuthCommand's comment: no catch-all argument alongside `subcommands`.
     static let configuration = CommandConfiguration(
