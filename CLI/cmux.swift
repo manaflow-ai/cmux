@@ -5778,10 +5778,14 @@ struct CMUXCLI {
                     break
                 }
                 let printOnly = hasFlag(rest, name: "--print")
+                // `--proxy`: the port's public cmux.sh publication (signed in as this
+                // account) instead of the private route; the same path as the sidebar's
+                // "Open Proxy URL".
+                let viaProxy = hasFlag(rest, name: "--proxy")
                 let (workspaceOpt, rest1) = parseOption(rest, name: "--workspace")
                 let (focusOpt, rest2) = parseOption(rest1, name: "--focus")
                 let (windowOpt, rest3) = parseOption(rest2, name: "--window")
-                let openArgs = rest3.filter { $0 != "--print" }
+                let openArgs = rest3.filter { $0 != "--print" && $0 != "--proxy" }
                 let focus: Bool?
                 switch focusOpt?.lowercased() {
                 case nil: focus = nil
@@ -5798,7 +5802,7 @@ struct CMUXCLI {
                     guard case .machine(let vmId) = target, let port = Int(portArg), (1...65535).contains(port) else {
                         throw CLIError(message: Self.vmOpenUsage)
                     }
-                    try openVMPort(vmId: vmId, port: port, printOnly: printOnly, workspaceRaw: workspaceOpt, client: client, jsonOutput: jsonOutput)
+                    try openVMPort(vmId: vmId, port: port, printOnly: printOnly, viaProxy: viaProxy, workspaceRaw: workspaceOpt, client: client, jsonOutput: jsonOutput)
                     break
                 }
                 if case .machine(let vmId) = target {
@@ -5813,7 +5817,7 @@ struct CMUXCLI {
                     )
                     break
                 }
-                try runVMOpenTarget(target, workspaceRaw: workspaceOpt, focus: focus, printOnly: printOnly, client: client, jsonOutput: jsonOutput)
+                try runVMOpenTarget(target, workspaceRaw: workspaceOpt, focus: focus, printOnly: printOnly, viaProxy: viaProxy, client: client, jsonOutput: jsonOutput)
 
             case "status", "info":
                 guard let vmId = rest.first else {
@@ -18585,7 +18589,7 @@ struct CMUXCLI {
                                         <machine>/<ws>[/<term>] (a cmux-tui workspace or one
                                         terminal — reuses the pane already showing it),
                                         <machine>:desktop, <machine>:port/<n>.
-              open <id> <port> [--print]
+              open <id> <port> [--print] [--proxy]
                                         Mint a private HTTPS URL for an HTTP port on the VM
                                         and show it in a browser split. --print only prints.
               ssh <id> [--window <id|ref|index>]
