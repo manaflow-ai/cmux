@@ -60,4 +60,26 @@ enum CloudPortRoutePlan: Equatable, Sendable {
         parts.port = Int(localPort)
         return parts.url
     }
+
+    /// The stable primary label for a discovered port. It names the VM port,
+    /// rather than the implementation detail of the local listener.
+    static func sidebarTitle(remotePort: Int) -> String {
+        String(format: String(localized: "cloudTree.port.title", defaultValue: "Port %d"), remotePort)
+    }
+
+    /// The compact row detail shown below a discovered port.
+    static var sidebarDetail: String {
+        String(localized: "cloudTree.port.detail", defaultValue: "Remote VM · cmux link")
+    }
+
+    /// Explains why a copied/opened link can contain a different local port.
+    static func sidebarTooltip(remotePort: Int) -> String {
+        String(
+            format: String(
+                localized: "cloudTree.port.tooltip",
+                defaultValue: "Remote VM port %d. cmux may use a different local port for its local forward."
+            ),
+            remotePort
+        )
+    }
 }

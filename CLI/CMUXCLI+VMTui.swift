@@ -1927,7 +1927,6 @@ extension CMUXCLI {
         let reused = (response["reused"] as? Bool) == true
         print("OK surface=\(surfaceId) workspace=\(workspaceId) terminal=\(terminalId)\(reused ? " reused=true" : "")")
     }
-
     /// The one port path: `vm open <id> <port>`, `vm open <id>:port/<n>`, and the tree all
     /// land here. `--print` only mints the URL (vm.open_port); otherwise the app opens the
     /// browser pane and reports the surface (vm.port_open).
@@ -1957,14 +1956,18 @@ extension CMUXCLI {
             return
         }
         print("\(vmId):\(port)")
-        print("  \((payload["url"] as? String) ?? (payload["open_url"] as? String) ?? "")")
+        let remotePort = (payload["remote_port"] as? Int) ?? port
+        print("  \(String(format: String(localized: "cli.vm.portOpen.remotePort", defaultValue: "Remote VM port: %d"), remotePort))")
+        let linkURL = (payload["url"] as? String) ?? (payload["open_url"] as? String) ?? ""
+        let linkFormat = payload["local_port"] is Int && payload["local_url"] is String
+            ? String(localized: "cli.vm.portOpen.localLink", defaultValue: "Local cmux link: %@ (forwards to VM port %d)")
+            : String(localized: "cli.vm.portOpen.link", defaultValue: "Link: %@")
+        print("  \(String(format: linkFormat, linkURL, remotePort))")
         if let surfaceId = payload["surface_id"] as? String, !surfaceId.isEmpty {
             print("OK surface=\(surfaceId)")
         }
     }
-
     // MARK: - cmux surface ls|open|new-terminal
-
     /// `cmux surface <sub>` for the catalog verbs. `resume` stays in cmux.swift.
     func runSurfaceCatalogCommand(subcommand: String, rest: [String], client: SocketClient, jsonOutput: Bool) throws {
         if rest.contains("--help") || rest.contains("-h") {
@@ -1974,7 +1977,6 @@ extension CMUXCLI {
         switch subcommand {
         case "ls", "list", "tree", "catalog":
             try runVMTreeCommand(rest: rest, client: client, jsonOutput: jsonOutput)
-
         case "open", "project":
             let (workspaceOpt, rest1) = parseOption(rest, name: "--workspace")
             let (paneOpt, rest2) = parseOption(rest1, name: "--pane")
@@ -2031,7 +2033,6 @@ extension CMUXCLI {
             let workspaceId = (response["workspace_id"] as? String) ?? "?"
             let reused = (response["reused"] as? Bool) == true
             print("OK surface=\(surfaceId) workspace=\(workspaceId) resource=\(resource)\(reused ? " reused=true" : "")")
-
         case "new-terminal", "new":
             let (machineOpt, rest1) = parseOption(rest, name: "--machine")
             let (cwdOpt, rest2) = parseOption(rest1, name: "--cwd")
@@ -2068,7 +2069,6 @@ extension CMUXCLI {
             if let surfaceId = response["surface_id"] as? String, !surfaceId.isEmpty { line += " surface=\(surfaceId)" }
             if let workspaceId = response["workspace_id"] as? String, !workspaceId.isEmpty { line += " workspace=\(workspaceId)" }
             print(line)
-
         default:
             throw CLIError(message: "Unsupported surface subcommand: \(subcommand)\n\n\(Self.surfaceUsage)")
         }

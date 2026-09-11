@@ -82,6 +82,21 @@ final class CloudTreeCellView: NSTableCellView {
             toolTip = operation.summaryLine
         } else if case .localMachine(let row) = node.kind {
             toolTip = row.name
+        } else if case .port(let resource, let url, _) = node.kind,
+                  let port = resource.id.forwardedPort ?? resource.port {
+            let route = CloudPortRoutePlan.sidebarTooltip(remotePort: port)
+            if let url {
+                let address = String(
+                    format: String(
+                        localized: "cloudTree.port.remoteAddress",
+                        defaultValue: "VM address: %@"
+                    ),
+                    CloudTreePortLinkText.displayText(forURL: url)
+                )
+                toolTip = "\(route)\n\(address)"
+            } else {
+                toolTip = route
+            }
         } else {
             toolTip = nil
         }

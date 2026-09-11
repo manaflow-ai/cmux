@@ -1,3 +1,5 @@
+import CmuxCore
+import CmuxFoundation
 import Foundation
 
 /// The Ports and Desktop rows' panes: every route goes through
@@ -125,14 +127,30 @@ extension CmuxTuiSurfaceProvider {
         }
     }
 
-    /// The link `port` opens as, shared by the pane, Copy Link, and
-    /// `vm.port_open`: the loopback forward when the machine has a private
-    /// address, else the control plane's tokened preview URL. Throws when the
-    /// machine supports neither route or the route it has cannot be made;
-    /// never falls back to an address only `cmux vpn up` can reach.
+    /// Resolves the endpoint shared by the pane, Copy Link, and
+    /// `vm.port_open`. The remote port is kept alongside the local URL so a
+    /// caller never mistakes an ephemeral listener port for the VM service.
+    func portLink(port: Int) async throws -> CloudPortLink {
+        let privateURL = info.privateAddress.map {
+            CmuxInternalHostnames.directPortURL(privateAddress: $0, port: port)
+        }
+        if let local = try await localPortLink(port: port) {
+            return local
+        }
+        return CloudPortLink(
+            remotePort: port,
+            url: try await controlPlanePreviewURL(port: port).absoluteString,
+            privateURL: privateURL,
+            localPort: nil
+        )
+    }
+
+    /// The URL `port` opens as, retained for callers that only need the link
+    /// string. New callers should use ``portLink(port:)`` to preserve the
+    /// remote/local relationship.
     func portLinkURL(port: Int) async throws -> String {
-        if let local = try await localPortURL(port: port) { return local }
-        return try await controlPlanePreviewURL(port: port).absoluteString
+        let link = try await portLink(port: port)
+        return link.url
     }
 
     /// The control plane's tokened preview URL for `port`, the route for a
@@ -152,6 +170,13 @@ extension CmuxTuiSurfaceProvider {
     /// plane's preview URL; throws only when a forward should exist and could
     /// not be made.
     func localPortURL(port: Int) async throws -> String? {
+        guard let link = try await localPortLink(port: port) else { return nil }
+        return link.url
+    }
+
+    /// Resolves the app-owned forward, retaining the listener port returned by
+    /// the forwarder rather than inferring it from the URL text.
+    private func localPortLink(port: Int) async throws -> CloudPortLink? {
         let plan = CloudPortRoutePlan.plan(
             resource: CmuxTuiSnapshotParser.portBrowser(machine: machine, port: port),
             privateAddress: info.privateAddress,
@@ -159,7 +184,15 @@ extension CmuxTuiSurfaceProvider {
         )
         switch plan {
         case .hubForward(let target, _):
-            return try await hubForward(to: target).localURLString
+            let forward = try await hubForward(to: target)
+            return CloudPortLink(
+                remotePort: port,
+                url: await forward.localURLString,
+                privateURL: info.privateAddress.map {
+                    CmuxInternalHostnames.directPortURL(privateAddress: $0, port: port)
+                },
+                localPort: await forward.localPort
+            )
         case .controlPlanePreview:
             return nil
         case .unsupported(let reason):

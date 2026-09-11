@@ -425,7 +425,12 @@ struct CloudLoopbackPortForwardTests {
         let url = try #require(try await addressed.localPortURL(port: 3000))
         #expect(url.hasPrefix("http://127.0.0.1:"))
         #expect(try await addressed.portLinkURL(port: 3000) == url, "Copy Link and vm.port_open hand out the pane's loopback URL")
-        #expect(await forwarder.localPort(machineID: "vm-1", port: 3000) != nil)
+        let link = try await addressed.portLink(port: 3000)
+        let expectedLocalPort = try #require(await forwarder.localPort(machineID: "vm-1", port: 3000))
+        #expect(link.remotePort == 3000)
+        #expect(link.localPort == expectedLocalPort)
+        #expect(link.url == url)
+        #expect(link.privateURL == "http://10.0.0.7:3000")
 
         let unaddressed = CmuxTuiSurfaceProvider(summary: summary(address: nil), links: links, catalog: catalog, portForwards: forwarder)
         #expect(try await unaddressed.localPortURL(port: 3000) == nil, "no private address means the control-plane preview route, not an error")

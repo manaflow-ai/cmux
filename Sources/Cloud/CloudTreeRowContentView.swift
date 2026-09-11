@@ -129,15 +129,14 @@ struct CloudTreeRowContentView: View {
         case .portsGroup:
             groupRow(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"))
         case .port(let resource, let url, _):
+            let remotePort = resource.id.forwardedPort ?? resource.port
             CloudTreeLeafRow(
                 style: style,
                 icon: "network",
                 tint: CloudTreeIconPalette.browser,
-                title: url.map(CloudTreePortLinkText.displayText)
-                    ?? (resource.id.forwardedPort ?? resource.port).map(String.init)
+                title: remotePort.map { CloudPortRoutePlan.sidebarTitle(remotePort: $0) }
                     ?? resource.title,
-                titleIsLink: url != nil,
-                detail: url == nil ? (resource.detail?.isEmpty == false ? resource.detail : nil) : nil
+                detail: CloudPortRoutePlan.sidebarDetail
             )
         case .placeholder(_, let placeholder):
             HStack(alignment: .center, spacing: style.iconGap) {

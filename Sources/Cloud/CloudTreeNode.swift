@@ -156,8 +156,8 @@ final class CloudTreeNode: NSObject {
         case .browsersGroup: return String(localized: "cloudTree.group.browsers", defaultValue: "Browsers")
         case .browser(let row): return row.resource.title
         case .portsGroup: return String(localized: "cloudTree.group.ports", defaultValue: "Ports")
-        case .port(let resource, let url, _):
-            return url ?? (resource.id.forwardedPort ?? resource.port).map(String.init) ?? resource.title
+        case .port(let resource, _, _):
+            return (resource.id.forwardedPort ?? resource.port).map(String.init) ?? resource.title
         case .placeholder(_, let placeholder): return placeholder.text
         }
     }
@@ -814,10 +814,10 @@ enum CloudTreeNodeBuilder {
                 projectionIndex: projectionIndex
             ))
         }
-        // Ports: one row per listening port, titled as the URL a person would
-        // paste (`http://<private-ip>:<port>`) when the machine has a private
-        // address; the bare `:<port>` otherwise. Click opens it as a browser
-        // pane; the row's menu copies the link.
+        // Ports: one row per listening port, titled with the stable VM port.
+        // Opening/copying may use an app-owned loopback listener with a
+        // different local port; the row deliberately never presents that
+        // implementation detail as the discovered port.
         let portBrowsers = resources
             .filter { $0.id.isForwardedPort }
             .sorted {

@@ -69,6 +69,13 @@ struct CloudPortRoutePlanTests {
         #expect(CloudPortRoutePlan.localURL(rewriting: "http://10.0.0.7:8080/", toLoopbackPort: 40_001)?.absoluteString == "http://127.0.0.1:40001/")
     }
 
+    @Test("port presentation keeps the VM port separate from the local listener")
+    func portPresentationExplainsTwoPortRoute() {
+        #expect(CloudPortRoutePlan.sidebarTitle(remotePort: 8000) == "Port 8000")
+        #expect(CloudPortRoutePlan.sidebarDetail == "Remote VM · cmux link")
+        #expect(CloudPortRoutePlan.sidebarTooltip(remotePort: 8000).contains("8000"))
+    }
+
     @Test("no private address but a preview capability asks the control plane")
     func controlPlaneFallback() {
         let resource = CmuxTuiSnapshotParser.portBrowser(machine: machine, port: 3000)

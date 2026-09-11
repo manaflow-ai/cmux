@@ -484262,6 +484262,419 @@
         }
       }
     },
+    "cloudTree.port.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port %d"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポート %d"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anschluss %d"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port n° %d"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المنفذ %d"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puerto %d"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連接埠 %d"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端口 %d"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포트 %d"
+          }
+        }
+      }
+    },
+    "cloudTree.port.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote VM · cmux link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート VM · cmux リンク"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote VM · cmux-Link"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM distante · lien cmux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM البعيد · رابط cmux"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM remoto · enlace de cmux"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端 VM · cmux 連結"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程 VM · cmux 链接"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 VM · cmux 링크"
+          }
+        }
+      }
+    },
+    "cloudTree.port.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote VM port %d. cmux may use a different local port for its local forward."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート VM ポート %d。cmux はローカル転送に別のローカルポートを使う場合があります。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote VM-Port %d. cmux kann für die lokale Weiterleitung einen anderen lokalen Port verwenden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port de VM distant %d. cmux peut utiliser un autre port local pour sa redirection."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "منفذ VM البعيد %d. قد يستخدم cmux منفذًا محليًا مختلفًا لإعادة التوجيه المحلي."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puerto de VM remoto %d. cmux puede usar otro puerto local para su reenvío."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端 VM 連接埠 %d。cmux 可能會為本機轉送使用不同的本機連接埠。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程 VM 端口 %d。cmux 可能会为本地转发使用不同的本地端口。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 VM 포트 %d입니다. cmux가 로컬 포워딩에 다른 로컬 포트를 사용할 수 있습니다."
+          }
+        }
+      }
+    },
+    "cloudTree.port.remoteAddress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM address: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM アドレス: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM-Adresse: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adresse de VM : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عنوان VM: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dirección de VM: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM 位址：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM 地址：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM 주소: %@"
+          }
+        }
+      }
+    },
+    "cli.vm.portOpen.remotePort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote VM port: %d"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート VM ポート: %d"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote VM-Port: %d"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port de VM distant : %d"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "منفذ VM البعيد: %d"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puerto de VM remoto: %d"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端 VM 連接埠：%d"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程 VM 端口：%d"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 VM 포트: %d"
+          }
+        }
+      }
+    },
+    "cli.vm.portOpen.localLink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local cmux link: %@ (forwards to VM port %d)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカル cmux リンク: %@（VM ポート %d に転送）"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokaler cmux-Link: %@ (Weiterleitung an VM-Port %d)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lien cmux local : %@ (redirige vers le port de VM %d)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رابط cmux المحلي: %@ (يعيد التوجيه إلى منفذ VM %d)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enlace cmux local: %@ (reenvía al puerto de VM %d)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本機 cmux 連結：%@（轉送至 VM 連接埠 %d）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地 cmux 链接：%@（转发到 VM 端口 %d）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 cmux 링크: %@ (VM 포트 %d로 전달)"
+          }
+        }
+      }
+    },
+    "cli.vm.portOpen.link": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンク: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verknüpfung: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lien : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الرابط: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enlace: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連結：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "链接：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크: %@"
+          }
+        }
+      }
+    },
     "cloudTree.port.forwardListenerFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux could not open a local port for the forward: %@"}},"ja":{"stringUnit":{"state":"translated","value":"cmux は転送用のローカルポートを開けませんでした: %@"}},
         "de": {
           "stringUnit": {
@@ -484692,90 +485105,149 @@
             "value": "링크 준비 중…"
           }
         }}},
-    "cloudTree.menu.copyLink": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Copy Link"}},"ja":{"stringUnit":{"state":"translated","value":"リンクをコピー"}},
+    "cloudTree.menu.copyPreviewLink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Preview Link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューリンクをコピー"
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Link kopieren"
+            "value": "Vorschaulink kopieren"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copier le lien"
+            "value": "Copier le lien d’aperçu"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "نسخ الرابط"
+            "value": "نسخ رابط المعاينة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copiar enlace"
+            "value": "Copiar enlace de vista previa"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "複製連結"
+            "value": "複製預覽連結"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "复制链接"
+            "value": "复制预览链接"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "링크 복사"
+            "value": "미리보기 링크 복사"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.copyLink": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Copy Local Link"}},"ja":{"stringUnit":{"state":"translated","value":"ローカルリンクをコピー"}},
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokalen Link kopieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier le lien local"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخ الرابط المحلي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar enlace local"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製本機連結"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制本地链接"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 링크 복사"
           }
         }}},
-    "cloudTree.menu.copyPrivateURL": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Copy Private Address URL"}},"ja":{"stringUnit":{"state":"translated","value":"プライベートアドレスの URL をコピー"}},
+    "cloudTree.menu.copyPrivateURL": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Copy VM Address"}},"ja":{"stringUnit":{"state":"translated","value":"VM アドレスをコピー"}},
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "URL der privaten Adresse kopieren"
+            "value": "VM-Adresse kopieren"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copier l'URL de l'adresse privée"
+            "value": "Copier l’adresse de VM"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "نسخ عنوان URL للعنوان الخاص"
+            "value": "نسخ عنوان VM"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copiar URL de dirección privada"
+            "value": "Copiar dirección de VM"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "複製私人位址 URL"
+            "value": "複製 VM 位址"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "复制私有地址 URL"
+            "value": "复制 VM 地址"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사설 주소 URL 복사"
+            "value": "VM 주소 복사"
           }
         }}},
     "cli.vpn.appManaged.explain": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This installs the cmux Cloud Tunnel network extension and a macOS VPN configuration named “cmux Cloud”, so every app on this Mac can reach your Cloud VM network. cmux itself does not need it: terminals, Ports, and Desktop use the built-in user-space tunnel. The first time, macOS asks you to allow the extension in System Settings › General › Login Items & Extensions."}},"ja":{"stringUnit":{"state":"translated","value":"これにより、cmux クラウドトンネルのネットワーク機能拡張と「cmux Cloud」という名前の macOS VPN 構成がインストールされ、この Mac のすべてのアプリがクラウド VM ネットワークに到達できるようになります。cmux 自体には不要です。ターミナル、ポート、デスクトップは内蔵のユーザー空間トンネルを使います。初回は、macOS が「システム設定」›「一般」›「ログイン項目と機能拡張」で機能拡張の許可を求めます。"}},
