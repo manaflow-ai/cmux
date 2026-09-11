@@ -115,6 +115,7 @@ struct WorkspaceCanvasHostView: View {
         case .cloudVMLoading: return "cloud.fill"
         case .mobilePairing: return "iphone"
         case .accountSignIn: return "person.crop.circle"
+        case .cloudVPNSetup: return "network"
         }
     }
 

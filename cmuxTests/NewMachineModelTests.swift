@@ -29,6 +29,22 @@ struct NewMachineModelTests {
         return (model, recorder)
     }
 
+    /// One snapshot serves every kind, so the sheet never asks: whatever the
+    /// backend lists under `limits.imageKinds`, every create is the devbox
+    /// with a screen (#12244).
+    @Test func theSheetHasNoKindInputAndAlwaysCreatesTheDevboxWithAScreen() {
+        let (model, recorder) = makeModel()
+        #expect(NewMachineModel.machineKind == .desktop)
+        model.create()
+        #expect(recorder.value.first?.kind == .desktop)
+        #expect(recorder.value.first?.arguments == ["vm", "new", "--desktop", "--size", "8192", "--focus", "false"])
+        let workspaceID = UUID()
+        let (base, baseRecorder) = makeModel(mode: .base(workspaceID: workspaceID))
+        base.create()
+        #expect(baseRecorder.value.first?.kind == .desktop)
+        #expect(baseRecorder.value.first?.arguments == ["vm", "base", "open", "--workspace", workspaceID.uuidString, "--desktop", "--focus", "false"])
+    }
+
     @Test func defaultSizeIsTheSmallestSupportedBaseImage() {
         let (model, _) = makeModel()
         #expect(model.memoryOptions == [4096, 8192, 16384, 24576, 32768, 65536])
@@ -65,24 +81,28 @@ struct NewMachineModelTests {
         #expect(model.memoryOptions == [])
         #expect(model.memoryMb == 20480)
         #expect(!model.supportsSize)
-        #expect(model.cliArguments == ["vm", "new", "--base", "--focus", "false"])
+        #expect(model.cliArguments == ["vm", "new", "--desktop", "--focus", "false"])
     }
 
-    @Test func selectedSizeTravelsAsBaseSizeFlagOnly() {
+    /// #12239: the sheet's defaults create a machine with a VNC screen; only
+    /// the size is user input here, and it travels as `--size`.
+    @Test func defaultCreateIsADesktopMachineAtTheSelectedSize() {
         let (model, recorder) = makeModel()
         model.memoryMb = 65536
         model.create()
         let request = recorder.value.first
-        #expect(request?.kind == .base)
+        #expect(request?.kind == .desktop)
         #expect(request?.name == nil)
-        #expect(request?.arguments == ["vm", "new", "--base", "--size", "65536", "--focus", "false"])
+        #expect(request?.arguments == ["vm", "new", "--desktop", "--size", "65536", "--focus", "false"])
     }
 
-    @Test func baseSetupHasNoSizeFlag() {
+    @Test func baseSetupHasNoSizeFlagAndDefaultsToADesktop() {
         let workspaceID = UUID()
-        let (model, _) = makeModel(mode: .base(workspaceID: workspaceID))
+        let (model, recorder) = makeModel(mode: .base(workspaceID: workspaceID))
         #expect(!model.supportsSize)
-        #expect(model.cliArguments == ["vm", "base", "open", "--workspace", workspaceID.uuidString, "--base", "--focus", "false"])
+        #expect(model.cliArguments == ["vm", "base", "open", "--workspace", workspaceID.uuidString, "--desktop", "--focus", "false"])
+        model.create()
+        #expect(recorder.value.first?.kind == .desktop)
     }
 
     @Test func planTextsMirrorTheMeterAndFreeWindow() {

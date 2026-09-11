@@ -16,6 +16,14 @@ set -euo pipefail
 
 APPLICATIONS_DIR="${CMUX_XCODE_APPLICATIONS_DIR:-/Applications}"
 REQUIRED_SDK_MAJOR="${CMUX_CI_REQUIRED_MACOS_SDK_MAJOR:-}"
+# A ceiling excludes unvalidated newer SDKs while retaining older-runner fallback.
+MAX_SDK_MAJOR="${CMUX_CI_MAX_MACOS_SDK_MAJOR:-}"
+
+case "$MAX_SDK_MAJOR" in *[!0-9]*)
+  echo "CMUX_CI_MAX_MACOS_SDK_MAJOR must be numeric, got: $MAX_SDK_MAJOR" >&2
+  exit 1
+  ;;
+esac
 
 sdk_major() {
   local v="$1" maj
@@ -24,20 +32,26 @@ sdk_major() {
   printf '%s' "$maj"
 }
 
-validate_required_sdk() {
+validate_sdk_constraints() {
   local selected_dir="$1" sdk_version="$2" actual_major
-  [ -n "$REQUIRED_SDK_MAJOR" ] || return 0
-  case "$REQUIRED_SDK_MAJOR" in ''|*[!0-9]*)
-    echo "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR must be numeric, got: $REQUIRED_SDK_MAJOR" >&2
-    exit 1
-    ;;
-  esac
+  [ -n "$REQUIRED_SDK_MAJOR$MAX_SDK_MAJOR" ] || return 0
+  if [ -n "$REQUIRED_SDK_MAJOR" ]; then
+    case "$REQUIRED_SDK_MAJOR" in *[!0-9]*)
+      echo "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR must be numeric, got: $REQUIRED_SDK_MAJOR" >&2
+      exit 1
+      ;;
+    esac
+  fi
   if ! actual_major="$(sdk_major "$sdk_version")"; then
     echo "Could not parse macOS SDK version for $selected_dir: $sdk_version" >&2
     exit 1
   fi
-  if [ "$actual_major" != "$REQUIRED_SDK_MAJOR" ]; then
+  if [ -n "$REQUIRED_SDK_MAJOR" ] && [ "$actual_major" != "$REQUIRED_SDK_MAJOR" ]; then
     echo "Selected Xcode at $selected_dir has macOS SDK $sdk_version; required major is $REQUIRED_SDK_MAJOR" >&2
+    exit 1
+  fi
+  if [ -n "$MAX_SDK_MAJOR" ] && [ "$actual_major" -gt "$MAX_SDK_MAJOR" ]; then
+    echo "Selected Xcode at $selected_dir has macOS SDK $sdk_version; maximum major is $MAX_SDK_MAJOR" >&2
     exit 1
   fi
 }
@@ -45,7 +59,7 @@ validate_required_sdk() {
 select_developer_dir() {
   local selected_dir="$1" sdk_version="$2" label="$3"
 
-  validate_required_sdk "$selected_dir" "$sdk_version"
+  validate_sdk_constraints "$selected_dir" "$sdk_version"
   echo "$label (DEVELOPER_DIR): $selected_dir (macOS SDK $sdk_version)"
   if [ -n "${GITHUB_ENV:-}" ]; then
     echo "DEVELOPER_DIR=$selected_dir" >> "$GITHUB_ENV"
@@ -129,6 +143,16 @@ while IFS= read -r app; do
   [ -d "$dev" ] || continue
   sdk_ver="$(DEVELOPER_DIR="$dev" xcrun --sdk macosx --show-sdk-version 2>/dev/null || true)"
   [ -n "$sdk_ver" ] || continue
+  if [ -n "$MAX_SDK_MAJOR" ]; then
+    if ! actual_major="$(sdk_major "$sdk_ver")"; then
+      echo "Ignoring $app with unparsable macOS SDK version: $sdk_ver" >&2
+      continue
+    fi
+    if [ "$actual_major" -gt "$MAX_SDK_MAJOR" ]; then
+      echo "Skipping $app -> macOS SDK $sdk_ver; maximum major is $MAX_SDK_MAJOR"
+      continue
+    fi
+  fi
   if [ -n "$REQUIRED_SDK_MAJOR" ]; then
     if ! actual_major="$(sdk_major "$sdk_ver")"; then
       echo "Ignoring $app with unparsable macOS SDK version: $sdk_ver" >&2

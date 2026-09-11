@@ -152,6 +152,42 @@
     "applyAriaLabel": "이메일로 Founding Engineer에 지원하기",
     "applyEmailSubject": "cmux Founding Engineer 지원",
     "applyCta": "이메일 보내기",
+    "foundingChromiumEngineer": {
+      "metaTitle": "cmux Founding Chromium Engineer 채용",
+      "metaDescription": "파운딩 Chromium 엔지니어로 cmux에 합류해 Chromium 포크를 담당하고 C++와 Rust로 Windows와 Linux에 cmux를 선보이세요.",
+      "section": "채용",
+      "eyebrow": "역할 소개",
+      "title": "Founding Chromium Engineer",
+      "tagline": "cmux를 Windows와 Linux로.",
+      "intro": "cmux는 Ghostty를 기반으로 한 네이티브 macOS 터미널입니다. 여러 AI 코딩 에이전트를 병렬로 실행하도록 설계되었으며, 수십만 명의 개발자가 에이전트 코딩 워크플로에 cmux를 사용하고 있습니다.",
+      "hiring": "자체 Chromium 포크를 기반으로 Windows(및 Linux)용 cmux를 총괄할 파운딩 엔지니어를 찾고 있습니다.",
+      "whatYoullDo": "담당하게 될 일",
+      "whatYoullDoItems": [
+        "Chromium 포크 소유: 업스트림 추적, 깔끔한 리베이스, cmux 패치(창/입력/렌더링 통합, 터미널 화면, 에이전트 UI) 유지.",
+        "Windows/Linux용 cmux를 처음부터 끝까지 담당: C++, 설치 프로그램, 자동 업데이트, 크래시 리포팅.",
+        "Ghostty 기반 터미널 코어와 에이전트 오케스트레이션 기능(수직 탭, 알림 링, 분할, CLI)을 Windows로 이식.",
+        "시작 시간, GPU 렌더링, 입력 지연까지 네이티브다운 성능 구현.",
+        "끊임없이 도그푸딩, 테스트, 검증."
+      ],
+      "excitedLead": "다음과 같은 분이라면 특히 반갑습니다:",
+      "excitedItems": [
+        "깊은 C++ 실력과 실제 Chromium 작업 경험 - 포크 유지 관리 경험이 이상적: 패치 유지, 업스트림 마일스톤 리베이스, content/ 또는 blink 디버깅.",
+        "Rust 경험이 있으면 큰 강점(TUI와 네트워킹 데몬이 Rust로 작성됨).",
+        "실제 Windows 데스크톱 앱을 출시하거나 유지 관리한 경험.",
+        "우대: Chromium 업스트림 기여, Swift/AppKit에 대한 관심, 오픈소스 메인테이너, 전 창업자."
+      ],
+      "details": "세부 정보",
+      "roleTitle": "Founding Chromium Engineer",
+      "compensationLabel": "보상",
+      "compensation": "$130k–$170k + 지분 0.5%–1.5%",
+      "benefitsLabel": "복지",
+      "benefits": "건강·치과·안과 보험",
+      "locationLabel": "근무지",
+      "location": "샌프란시스코",
+      "applyAriaLabel": "이메일로 Founding Chromium Engineer에 지원하기",
+      "applyEmailSubject": "cmux Founding Chromium Engineer 지원",
+      "applyCta": "이메일 보내기"
+    },
     "foundingDesigner": {
       "metaTitle": "cmux Founding Designer 채용",
       "metaDescription": "cmux의 창립 디자이너로 합류해 macOS, TUI, Windows, Linux, iOS, Cloud, cmux.com, chatmux 전반에서 AI 코딩의 미래를 디자인해 보세요.",
