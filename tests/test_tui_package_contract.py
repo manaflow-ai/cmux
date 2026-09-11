@@ -195,9 +195,6 @@ def make_npm_packages(root: Path) -> None:
                 "version": VERSION,
                 "bin": {"cmux": "bin/cmux.js"},
                 "files": ["bin/cmux.js"],
-                "optionalDependencies": {
-                    name: VERSION for name in NPM_TARGETS
-                },
             }
         )
         + "\n"

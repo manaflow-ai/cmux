@@ -114,9 +114,6 @@ def make_package_fixture(packages: Path) -> None:
                 "version": VERSION,
                 "bin": {"cmux": "bin/cmux.js"},
                 "files": ["bin/cmux.js"],
-                "optionalDependencies": {
-                    name: VERSION for name in TARGETS
-                },
             }
         )
         + "\n"
