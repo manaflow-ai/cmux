@@ -39,7 +39,7 @@ struct NewMachineSheet: View {
                 )
                 : String(
                     localized: "machines.new.subtitle",
-                    defaultValue: "A cloud computer with devtools and coding agents preinstalled. It keeps its home directory between sessions."
+                    defaultValue: "A cloud computer with devtools and coding agents preinstalled. Its home directory is reset when the machine is recreated."
                 ))
                 .cmuxFont(size: 12)
                 .foregroundStyle(.secondary)

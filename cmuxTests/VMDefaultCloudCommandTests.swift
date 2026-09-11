@@ -105,6 +105,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 XCTAssertNotEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
                 XCTAssertEqual(params["kind"] as? String, "desktop")
                 XCTAssertNil(params["image"])
+                XCTAssertNil(params["persistent_home"], "Freestyle does not support persistent home volumes")
+                XCTAssertNil(params["per_machine_home"], "Freestyle does not support per-machine home volumes")
                 return self.v2Response(
                     id: id,
                     ok: true,

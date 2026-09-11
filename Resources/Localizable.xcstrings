@@ -299606,13 +299606,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A cloud computer with devtools and coding agents preinstalled. It keeps its home directory between sessions."
+            "value": "A cloud computer with devtools and coding agents preinstalled. Its home directory is reset when the machine is recreated."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "開発ツールとコーディングエージェントがプリインストールされたクラウドコンピュータ。ホームディレクトリはセッション間で保持されます。"
+            "value": "開発ツールとコーディングエージェントがプリインストールされたクラウドコンピュータ。マシンを再作成するとホームディレクトリはリセットされます。"
           }
         }
       }
