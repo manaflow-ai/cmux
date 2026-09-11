@@ -2,6 +2,7 @@ import type { AuthedUser } from "./auth";
 import type { BillingCustomerType } from "./billingGateway";
 import {
   isDevelopmentProAccessEnabled,
+  MAX_PLAN_ID,
   PRO_PLAN_ID,
   TEAM_PLAN_ID,
   isPaidPlanId,
@@ -161,6 +162,15 @@ function resolveBillingContext(
  */
 export const VM_MEMORY_OPTIONS_MB: readonly number[] = [4096, 8192, 16384, 24576, 32768, 65536];
 
+/**
+ * The largest machine Free, Pro, Team, and Founder's Edition may start. The
+ * 32 GB and 64 GB rows above it are what Max sells; the plan that unlocks
+ * them is MEMORY_UPGRADE_PLAN_ID so every surface names the same upgrade.
+ */
+export const PLAN_MAX_MEMORY_MB = 24576;
+export const MAX_PLAN_MAX_MEMORY_MB = Math.max(...VM_MEMORY_OPTIONS_MB);
+export const MEMORY_UPGRADE_PLAN_ID = MAX_PLAN_ID;
+
 /** Largest machine a plan may create. Env-overridable per plan. */
 export function maxMemoryMbForPlan(
   planId: string | null | undefined,
@@ -170,19 +180,39 @@ export function maxMemoryMbForPlan(
   const planKey = normalized.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
   const specific = env[`CMUX_VM_PLAN_${planKey}_MAX_MEMORY_MB`];
   if (specific?.trim()) return positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_MEMORY_MB`);
+  if (normalized === MAX_PLAN_ID) return MAX_PLAN_MAX_MEMORY_MB;
   if (normalized === "free") {
-    // The free machine is the product demo: the same full-size computer a
-    // paid plan gets, not a cut-down teaser. The paywall is the 7-day access
-    // window and the machine count, never the machine's usefulness.
+    // The free machine is the product demo: the same computer Pro gets, not a
+    // cut-down teaser. The paywall is the 7-day access window and the machine
+    // count, never the machine's usefulness.
     return positiveInteger(
-      env.CMUX_VM_FREE_MAX_MEMORY_MB ?? String(Math.max(...VM_MEMORY_OPTIONS_MB)),
+      env.CMUX_VM_FREE_MAX_MEMORY_MB ?? String(PLAN_MAX_MEMORY_MB),
       "CMUX_VM_FREE_MAX_MEMORY_MB",
     );
   }
   return positiveInteger(
-    env.CMUX_VM_PAID_MAX_MEMORY_MB ?? String(Math.max(...VM_MEMORY_OPTIONS_MB)),
+    env.CMUX_VM_PAID_MAX_MEMORY_MB ?? String(PLAN_MAX_MEMORY_MB),
     "CMUX_VM_PAID_MAX_MEMORY_MB",
   );
+}
+
+/**
+ * Ladder sizes above a plan's ceiling, and the plan that sells them. Clients
+ * render these as locked rows with an upgrade action instead of hiding them.
+ * Empty (and no upgrade plan) once the plan already has the whole ladder.
+ */
+export function lockedMemoryOptionsMbForPlan(
+  planId: string | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+): { readonly memoryOptionsMb: readonly number[]; readonly upgradePlanId: string | null } {
+  const max = maxMemoryMbForPlan(planId, env);
+  const locked = VM_MEMORY_OPTIONS_MB.filter((mb) => mb > max);
+  const normalized = normalizedPlanId(planId ?? "");
+  const upgradePlanId = locked.length > 0 && normalized !== MEMORY_UPGRADE_PLAN_ID &&
+      maxMemoryMbForPlan(MEMORY_UPGRADE_PLAN_ID, env) >= locked[locked.length - 1]
+    ? MEMORY_UPGRADE_PLAN_ID
+    : null;
+  return { memoryOptionsMb: locked, upgradePlanId };
 }
 
 /**

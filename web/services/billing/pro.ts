@@ -27,6 +27,10 @@ import {
   "../account/metadataMutation";
 
 export const PRO_PLAN_ID = "pro";
+// Max is Pro plus the 32 GB and 64 GB machine sizes. It is a personal
+// subscription like Pro: same Stripe customer scope, same metadata mirror
+// (`cmuxPlan: "max"`), and it satisfies every "is Pro" check.
+export const MAX_PLAN_ID = "max";
 export const TEAM_PLAN_ID = "team";
 // Founder's Edition is a one-time purchase. Its completion recorder stores a
 // durable active Pro row with a Founder marker, and subscription reconciliation
@@ -56,7 +60,35 @@ export function isDevelopmentProAccessEnabled(
  * grant Pro without a Stripe subscription. Mirrors `isPaidVmPlan` in
  * services/vms/entitlements.ts so the desktop plan and the VM plan agree.
  */
-export const PAID_PLAN_IDS = [PRO_PLAN_ID, TEAM_PLAN_ID, FOUNDERS_PLAN_ID] as const;
+export const PAID_PLAN_IDS = [PRO_PLAN_ID, MAX_PLAN_ID, TEAM_PLAN_ID, FOUNDERS_PLAN_ID] as const;
+/**
+ * Plans a person buys for themselves through `/api/billing/checkout`. A
+ * user-scoped Stripe subscription row carries one of these in `plan`, derived
+ * from its Price (see `personalPlanIdForPrice` in purchase.ts) so a portal
+ * upgrade between them re-labels the row on the next webhook.
+ */
+export const PERSONAL_PLAN_IDS = [PRO_PLAN_ID, MAX_PLAN_ID] as const;
+export type PersonalPlanId = (typeof PERSONAL_PLAN_IDS)[number];
+/** Higher index wins when an account has more than one active personal row. */
+const PERSONAL_PLAN_RANK: Record<PersonalPlanId, number> = { pro: 1, max: 2 };
+
+export function isPersonalPlanId(planId: string | null | undefined): planId is PersonalPlanId {
+  return typeof planId === "string" &&
+    (PERSONAL_PLAN_IDS as readonly string[]).includes(planId.trim().toLowerCase());
+}
+
+/** The best of several personal plans, or null when none is given. */
+export function highestPersonalPlanId(
+  planIds: readonly (string | null | undefined)[],
+): PersonalPlanId | null {
+  let best: PersonalPlanId | null = null;
+  for (const candidate of planIds) {
+    if (!isPersonalPlanId(candidate)) continue;
+    const normalized = candidate.trim().toLowerCase() as PersonalPlanId;
+    if (!best || PERSONAL_PLAN_RANK[normalized] > PERSONAL_PLAN_RANK[best]) best = normalized;
+  }
+  return best;
+}
 export const PRO_ACCESS_ITEM_ID = "cmux-pro-access";
 export const ACTIVE_STRIPE_PRO_STATUSES = ["active", "trialing", "past_due"] as const;
 /** Subscription states that Stripe Billing Portal can manage or recover. */

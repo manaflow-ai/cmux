@@ -453,6 +453,39 @@ export async function vmRequiresProResponse(locale: Locale = "en"): Promise<Resp
 }
 
 /**
+ * A machine size the ladder offers but the caller's plan does not include
+ * (today: 32 GB and 64 GB, sold by Max). This is a paywall, so the response
+ * carries the same `upgradeRequired`/`upgradeUrl` fields as `vm_requires_pro`
+ * plus the plan that unlocks the size, and it is never silently coerced.
+ */
+export function vmMemoryRequiresPlanResponse(input: {
+  readonly memoryMb: number;
+  readonly maxMemoryMb: number;
+  readonly planId: string;
+  readonly upgradePlanId: string;
+}): Response {
+  const memoryGb = Math.round(input.memoryMb / 1024);
+  const maxGb = Math.round(input.maxMemoryMb / 1024);
+  const upgradeName = input.upgradePlanId.charAt(0).toUpperCase() + input.upgradePlanId.slice(1);
+  const upgradeUrl = `${VM_UPGRADE_URL}?plan=${encodeURIComponent(input.upgradePlanId)}`;
+  return vmErrorResponse({
+    error: "vm_memory_requires_plan",
+    status: 402,
+    message: `${memoryGb} GB machines need cmux ${upgradeName}. Your plan starts machines up to ${maxGb} GB.`,
+    action: `Upgrade to cmux ${upgradeName} at ${upgradeUrl}, or pick a size up to ${maxGb} GB.`,
+    displayTitle: `cmux ${upgradeName} required`,
+    extra: {
+      upgradeRequired: true,
+      upgradeUrl,
+      upgradePlanId: input.upgradePlanId,
+      planId: input.planId,
+      memoryMb: input.memoryMb,
+      maxMemoryMb: input.maxMemoryMb,
+    },
+  });
+}
+
+/**
  * One response for every provisioning verb that hits the active-VM limit. On a free plan the
  * limit is the paywall moment: the message sells the upgrade (Pro removes the cap and bills by
  * usage) and `upgradeRequired`/`upgradeUrl` let clients render a real upgrade prompt instead of
