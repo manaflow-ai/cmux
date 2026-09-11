@@ -519,9 +519,7 @@ extension MobileShellComposite {
         connectionAttemptGeneration = generation
         connectionGeneration = generation
         let previousForegroundID = foregroundMacDeviceID
-        let previousForegroundConnection = previousForegroundID.flatMap {
-            connections[$0]
-        }
+        let previousForegroundConnection = connections[foregroundMacKey]
         let unregisteredPreviousClient = previousForegroundConnection == nil
             ? remoteClient
             : nil

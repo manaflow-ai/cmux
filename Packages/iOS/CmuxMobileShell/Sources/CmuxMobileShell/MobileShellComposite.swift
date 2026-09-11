@@ -4496,9 +4496,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             for: previousActive.macDeviceID,
             instanceTag: previousActive.instanceTag
         ))
-        let focusedForegroundConnection = foregroundMacDeviceID.flatMap {
-            connections[$0]
-        }
+        let focusedForegroundConnection = connections[foregroundMacKey]
         let foregroundHandoffNeedsRepair =
             focusedForegroundConnection == nil
             || focusedForegroundConnection.map {
@@ -8299,7 +8297,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // the live foreground rows.
             workspacesByMac[newKey] = state
         }
-        if let connection = connections[oldKey.canonicalMacDeviceID] {
+        if let connection = connections[oldKey] {
             removeFocusedConnection(ifMatching: connection)
             installFocusedConnection(MacConnection(
                 macDeviceID: macDeviceID,
@@ -9842,9 +9840,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 : ticketMacDeviceID)
         let previousForegroundKeyBeforeConnect = foregroundOrRecoveryMacKey
         let currentFocusedConnection: MacConnection? =
-            foregroundMacDeviceID.flatMap { macID in
-                guard let connection = connections[macID],
-                      connection.client === remoteClient else { return nil }
+            remoteClient.flatMap { client in
+                guard let connection = connections[foregroundMacKey],
+                      connection.client === client else { return nil }
                 return connection
             }
         func isConnectCurrent() -> Bool {
@@ -10948,8 +10946,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // capabilities for other peers are torn down separately. A focused
         // peer may also own control, so remove both capabilities before its
         // shared physical client is disconnected.
-        if let foreground = foregroundMacDeviceID,
-           let focused = connections[foreground] {
+        if let focused = connections[offlineForegroundKey] {
             removeControlCapability(ifMatching: focused)
             macConnectionRegistry.setFocusedConnection(nil, for: focused.ownerKey)
         }
@@ -11012,8 +11009,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// bounded cleanup and one recovery dial may proceed.
     func releaseRemoteClientForReplacement() async {
         let previous = remoteClient
-        if let foregroundMacDeviceID,
-           let focused = connections[foregroundMacDeviceID],
+        if let focused = connections[foregroundMacKey],
            focused.client === previous {
             removeControlCapability(ifMatching: focused)
             removeFocusedConnection(ifMatching: focused)
@@ -13475,9 +13471,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let clientID = ObjectIdentifier(client)
         if terminalSubscriptionHandoffFences[clientID] != nil {
-            let focusedConnection = foregroundMacDeviceID.flatMap {
-                connections[$0]
-            }
+            let focusedConnection = connections[foregroundMacKey]
             guard focusedConnection?.client === client,
                   focusedConnection.map({
                       !focusedHandoffPreparedGenerations.contains($0.generation)
