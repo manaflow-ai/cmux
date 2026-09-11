@@ -4,8 +4,8 @@ import SwiftUI
 /// Hosts SwiftUI row content inside an `NSOutlineView` cell while leaving every
 /// pointer event to the outline: the display host never hit-tests, so click,
 /// double-click, drag, and the context menu are handled natively. Machine rows
-/// add a second, hit-testable host for their hover buttons, faded in by a
-/// tracking area (the buttons are always laid out so hovering never reflows).
+/// add a second, hit-testable host for their hover buttons. The outline owns
+/// hover visibility; buttons stay laid out so hovering never reflows.
 final class CloudTreeCellView: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("CloudTreeCell")
 
@@ -13,7 +13,6 @@ final class CloudTreeCellView: NSTableCellView {
     private var buttonsHost: NSHostingView<AnyView>?
     private var buttonsTopConstraint: NSLayoutConstraint?
     private var buttonsCenterConstraint: NSLayoutConstraint?
-    private var trackingArea: NSTrackingArea?
     private var hovered = false {
         didSet { buttonsHost?.alphaValue = hovered ? 1 : 0 }
     }
@@ -107,27 +106,9 @@ final class CloudTreeCellView: NSTableCellView {
         return host
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let trackingArea {
-            removeTrackingArea(trackingArea)
-        }
-        let area = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(area)
-        trackingArea = area
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        hovered = true
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        hovered = false
+    func setHovered(_ hovered: Bool) {
+        guard self.hovered != hovered else { return }
+        self.hovered = hovered
     }
 
     override func prepareForReuse() {

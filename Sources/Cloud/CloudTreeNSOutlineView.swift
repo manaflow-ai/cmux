@@ -7,6 +7,107 @@ import CmuxFoundation
 final class CloudTreeNSOutlineView: NSOutlineView {
     static let leadingMargin: CGFloat = 8
 
+    private var hoverTrackingArea: NSTrackingArea?
+    private weak var hoveredCell: CloudTreeCellView?
+
+    /// The outline owns exactly one hover target. Cells cannot retain independent
+    /// enter/exit state across tracking-area replacement, scrolling, or reloads.
+    private func updateHover(at point: NSPoint?) {
+        var next: CloudTreeCellView?
+        if let point, visibleRect.contains(point) {
+            let row = row(at: point)
+            if row >= 0,
+               let cell = view(atColumn: 0, row: row, makeIfNecessary: false) as? CloudTreeCellView,
+               convert(cell.bounds, from: cell).contains(point) {
+                next = cell
+            }
+        }
+        if hoveredCell !== next {
+            hoveredCell?.setHovered(false)
+            hoveredCell = next
+        }
+        next?.setHovered(true)
+    }
+
+    private func refreshHover() {
+        guard let window, window.isKeyWindow, !isHiddenOrHasHiddenAncestor else {
+            updateHover(at: nil)
+            return
+        }
+        updateHover(at: convert(window.mouseLocationOutsideOfEventStream, from: nil))
+    }
+
+    @objc private func hoverEnvironmentDidChange(_ notification: Notification) {
+        refreshHover()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect],
+            owner: self, userInfo: nil
+        )
+        addTrackingArea(area)
+        hoverTrackingArea = area
+        refreshHover()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        updateHover(at: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        updateHover(at: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        updateHover(at: nil)
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        updateHover(at: nil)
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: window)
+        super.viewWillMove(toWindow: newWindow)
+        if let newWindow {
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(hoverEnvironmentDidChange(_:)),
+                name: NSWindow.didResignKeyNotification, object: newWindow
+            )
+        }
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: nil)
+        if let clip = enclosingScrollView?.contentView {
+            clip.postsBoundsChangedNotifications = true
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(hoverEnvironmentDidChange(_:)),
+                name: NSView.boundsDidChangeNotification, object: clip
+            )
+        }
+        updateHover(at: nil)
+    }
+
+    override func layout() {
+        super.layout()
+        refreshHover()
+    }
+
+    override func reloadData() {
+        updateHover(at: nil)
+        super.reloadData()
+        needsLayout = true
+    }
+
+    override func reloadData(forRowIndexes rowIndexes: IndexSet, columnIndexes: IndexSet) {
+        updateHover(at: nil)
+        super.reloadData(forRowIndexes: rowIndexes, columnIndexes: columnIndexes)
+        needsLayout = true
+    }
+
     /// Keeps the outline delegate/source graph alive while AppKit owns a
     /// native surface drag, including reconstruction between writer creation
     /// and `willBeginAt`.
