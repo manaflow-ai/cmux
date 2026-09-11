@@ -481,7 +481,7 @@ enum AgentResumeCommandBuilder {
             ? workingDirectoriesToRemove.reduce(commandParts) { parts, directory in
                 AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                     from: parts,
-                    workingDirectory: directory
+                    workingDirectory: directory, agentKind: kind.rawValue
                 )
             }
             : commandParts
