@@ -58,7 +58,8 @@ final class ConnectivityInvalidationSubscriberCoordinator {
     }
 
     private func desiredScope() -> Scope? {
-        guard let auth,
+        guard MobileHostService.isListeningEnabled,
+              let auth,
               auth.isAuthenticated,
               let userID = auth.currentUser?.id,
               let baseURL = PresenceHeartbeatClient.resolvedServiceURL()

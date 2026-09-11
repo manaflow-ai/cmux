@@ -97,6 +97,10 @@ final class MobileHostIrxRuntime {
             && !managedDevicePolicy.isEnforced(.disableRemoteControl)
     }
 
+    var canStartNetworking: Bool {
+        isNetworkingAllowed && MobileHostService.isListeningEnabled
+    }
+
     /// Tears the host down without treating the transition as a sign-out:
     /// persisted device-list leases stay so a later policy lift can re-arm
     /// the same account. Idempotent when already idle.
@@ -144,6 +148,9 @@ final class MobileHostIrxRuntime {
             || activationTask != nil
             || settingsPhase != .idle
             || brokerService != nil
+            || endpointSupervisor != nil
+            || controlPlane != nil
+            || acceptLoop != nil
         else {
             return
         }
@@ -152,7 +159,7 @@ final class MobileHostIrxRuntime {
     }
 
     private func performManagedNetworkingReconcile() async {
-        guard isNetworkingAllowed else {
+        guard canStartNetworking else {
             await performStopHost()
             return
         }
@@ -276,7 +283,7 @@ final class MobileHostIrxRuntime {
     }
 
     private func activate(accountID: String) async {
-        guard isNetworkingAllowed, !Task.isCancelled, let auth else { return }
+        guard canStartNetworking, !Task.isCancelled, let auth else { return }
         generationToken = UUID()
         let token = generationToken
         // The control-plane client now starts EARLY in activation (before the
@@ -393,7 +400,7 @@ final class MobileHostIrxRuntime {
                 listBox.replace(persisted)
             }
             try Task.checkCancellation()
-            guard generationToken == token, isNetworkingAllowed else { return }
+            guard generationToken == token, canStartNetworking else { return }
 
             // Control-plane socket: hint announcements out (instant phone
             // propagation, the signed HTTPS registration stays authoritative),
@@ -434,6 +441,7 @@ final class MobileHostIrxRuntime {
                     },
                     handlers: .init(
                         onRelayPasses: { [weak self, weak broker, weak supervisor, weak pilot] pushed in
+                            guard await self?.canStartNetworking == true else { return false }
                             guard let broker, let supervisor, let pilot,
                                 let accepted = await broker
                                     .acceptPushedRelayCredentials(pushed)
@@ -481,7 +489,7 @@ final class MobileHostIrxRuntime {
             noteLiveDiscoverySucceeded()
 
             try Task.checkCancellation()
-            guard generationToken == token, isNetworkingAllowed else { return }
+            guard generationToken == token, canStartNetworking else { return }
             _ = try await supervisor.readyEndpoint(credentials: credentials)
             try Task.checkCancellation()
             // Advertise the relay the endpoint ACTUALLY homes on, then
@@ -531,7 +539,7 @@ final class MobileHostIrxRuntime {
             // moves in milliseconds instead of at the next registry read.
             try Task.checkCancellation()
             await pilot.setOnRotation { [weak self, weak broker, weak supervisor] in
-                guard await self?.isNetworkingAllowed == true,
+                guard await self?.canStartNetworking == true,
                       let broker, let supervisor else { return }
                 let relay = await supervisor.homeRelayURL()
                 let directAddresses = await supervisor.localDirectAddresses()
@@ -608,7 +616,7 @@ final class MobileHostIrxRuntime {
                 ]
             )
             try? await Task.sleep(for: .seconds(delay))
-            if !Task.isCancelled, isNetworkingAllowed,
+            if !Task.isCancelled, canStartNetworking,
                generationToken == token, activeAccountID == accountID {
                 await activate(accountID: accountID)
             }
@@ -618,6 +626,7 @@ final class MobileHostIrxRuntime {
     private func deactivate() async {
         generationToken = UUID()
         acceptLoop?.cancel()
+        let retiringAcceptLoop = acceptLoop
         acceptLoop = nil
         let retiringActivation = activationTask
         activationTask = nil
@@ -649,6 +658,9 @@ final class MobileHostIrxRuntime {
         if let endpointSupervisor {
             await endpointSupervisor.close()
         }
+        // Closing the endpoint wakes the accept loop. Drain it after the close
+        // so its endpoint-closed branch cannot outlive this deactivation.
+        await retiringAcceptLoop?.value
         endpointSupervisor = nil
         brokerService = nil
         localBinding = nil
@@ -754,6 +766,7 @@ final class MobileHostIrxRuntime {
         relayURL: String?,
         directAddresses: [String] = []
     ) {
+        guard canStartNetworking else { return }
         guard let peerIdentity = try? CmxIrohPeerIdentity(endpointID: identity.endpointIDHex)
         else { return }
         var hints: [CmxIrohPathHint] = []
@@ -798,6 +811,7 @@ final class MobileHostIrxRuntime {
     }
 
     private func startAcceptLoop(token: UUID) {
+        guard canStartNetworking else { return }
         guard let endpointSupervisor, let brokerService, let registry, let localBinding,
             let deviceListBox
         else { return }
@@ -818,17 +832,36 @@ final class MobileHostIrxRuntime {
         acceptLoop = Task { [weak self] in
             journal.record("host-runtime", "accept-loop-started")
             while !Task.isCancelled {
+                guard await self?.canStartNetworking == true else { return }
                 guard let inbound = await endpointSupervisor.acceptNextInbound() else {
                     // Endpoint closed or unbound: rebind with the freshest
                     // cached credentials and continue accepting.
+                    guard await self?.generationToken == token,
+                          await self?.canStartNetworking == true else {
+                        return
+                    }
                     do {
                         let credentials = await brokerService.cachedRelayCredentials()
+                        guard await self?.generationToken == token,
+                              await self?.canStartNetworking == true else {
+                            return
+                        }
                         _ = try await endpointSupervisor.readyEndpoint(credentials: credentials)
+                        guard await self?.generationToken == token,
+                              await self?.canStartNetworking == true else {
+                            await endpointSupervisor.close()
+                            return
+                        }
                     } catch {
+                        guard await self?.generationToken == token,
+                              await self?.canStartNetworking == true else {
+                            return
+                        }
                         try? await Task.sleep(for: .seconds(1))
                     }
                     continue
                 }
+                guard await self?.canStartNetworking == true else { return }
                 switch inbound {
                 case .irx(let irx):
                     Task { [weak self] in
@@ -837,6 +870,7 @@ final class MobileHostIrxRuntime {
                     }
                 case .foreign(let alpn, let connection):
                     guard alpn == MobileHostIrxLegacyDialectServer.legacyALPN,
+                        await self?.canStartNetworking == true,
                         MobileHostIrxLegacyDialectServer.listenerEnabled,
                         let trust = trustSnapshot(),
                         let adopted = try? CmxIrohLibEndpointFactory
@@ -855,7 +889,10 @@ final class MobileHostIrxRuntime {
                             brokerClient: brokerClient,
                             isCurrent: { [weak self] in
                                 let runtime = self
-                                return await MainActor.run { runtime?.generationToken == token }
+                                return await MainActor.run {
+                                    runtime?.generationToken == token
+                                        && runtime?.canStartNetworking == true
+                                }
                             },
                             journal: journal
                         )
@@ -883,6 +920,10 @@ final class MobileHostIrxRuntime {
         token: UUID
     ) async {
         let journal = Self.journal
+        guard await canStartNetworking else {
+            await irx.close(code: .hostShutdown, origin: .local)
+            return
+        }
         guard
             let (peer, control, sessionID) = await IrxAdmission.performServer(
                 connection: irx,
@@ -947,7 +988,10 @@ final class MobileHostIrxRuntime {
             idleTimeoutNanoseconds: 0,
             isCurrent: { [weak self] in
                 let runtime = self
-                return await MainActor.run { runtime?.generationToken == token }
+                return await MainActor.run {
+                    runtime?.generationToken == token
+                        && runtime?.canStartNetworking == true
+                }
             }
         )
         journal.record(

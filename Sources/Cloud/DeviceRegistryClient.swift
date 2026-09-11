@@ -9,10 +9,9 @@ import Foundation
 /// Event-driven: it observes ``MobileHostService/statusUpdates()`` and registers
 /// whenever the advertised route set changes (e.g. the Mac moved networks or
 /// rebound to a different port), which is exactly the freshness the phone needs.
-/// Gating falls out of the routes: ``MobileHostService`` advertises no routes
-/// until the user has enabled mobile pairing, so an empty route set is never
-/// registered. There is no separate opt-in flag — the registry is core to the
-/// pairing the user already turned on, not a distinct privacy surface.
+/// The explicit iOS pairing setting gates both route publication and the
+/// registry request, so a stale status callback cannot re-register a disabled
+/// Mac.
 ///
 /// Best-effort and non-blocking, mirroring ``PhonePushClient``: a registry
 /// outage never disturbs the Mac, and pairing still works through the phone's
@@ -90,6 +89,12 @@ final class DeviceRegistryClient {
     private func registerIfRoutesChanged(routes: [CmxAttachRoute]) async {
         // Status, route, and foreground events share this gate. Cached routes
         // remain valid while the server owns the next registration attempt.
+        guard MobileHostService.isListeningEnabled else {
+            // Forget the last accepted scope while pairing is off. Re-enabling
+            // must POST even when the endpoint identity and routes are reused.
+            lastRegistration = nil
+            return
+        }
         guard await retryAfterGate.remainingSeconds() == nil else { return }
         guard let auth else { return }
         // Await tokens FIRST: this both gates on "signed in" and waits for launch
@@ -104,6 +109,10 @@ final class DeviceRegistryClient {
             tokens = try await auth.currentTokens()
         } catch {
             return // not signed in → nothing to do
+        }
+        guard MobileHostService.isListeningEnabled else {
+            lastRegistration = nil
+            return
         }
         // Resolve the team AFTER bootstrap, and use that same scope for both the
         // dedup decision and the request header, so a team switch with unchanged

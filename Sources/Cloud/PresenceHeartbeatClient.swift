@@ -181,6 +181,7 @@ final class PresenceHeartbeatClient {
         // Cadence, route-change, and shutdown triggers share one server-owned
         // floor so an immediate trigger cannot reopen a rate-limited endpoint.
         guard (try? await retryAfterGate.wait()) != nil else { return }
+        guard isEnabled || stopping else { return }
         guard let auth, let baseURL = Self.resolvedServiceURL() else { return }
         // Await tokens first, mirroring DeviceRegistryClient: gates on "signed
         // in" and on launch auth bootstrap so the team header resolves from a
@@ -191,6 +192,7 @@ final class PresenceHeartbeatClient {
         } catch {
             return // not signed in -> nothing to announce
         }
+        guard isEnabled || stopping else { return }
         let teamID = auth.resolvedTeamID
 
         guard var comps = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else { return }

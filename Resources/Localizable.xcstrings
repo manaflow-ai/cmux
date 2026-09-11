@@ -253382,6 +253382,57 @@
         }
       }
     },
+    "mobile.pairing.disabled.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS pairing is off on this Mac. Open Settings and enable iOS pairing to discover this Mac from cmux on your iPhone."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac では iOS ペアリングがオフです。設定を開き、iOS ペアリングを有効にすると、iPhone の cmux からこの Mac を検出できます。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.disabled.openSettings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定を開く"
+          }
+        }
+      }
+    },
+    "mobile.pairing.disabled.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable iOS pairing"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS ペアリングを有効にする"
+          }
+        }
+      }
+    },
     "mobile.pairing.error.listenerOffline": {
       "extractionState": "manual",
       "localizations": {
@@ -323418,13 +323469,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS Pairing"
+            "value": "Enable iOS pairing"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS ペアリング"
+            "value": "iOS ペアリングを有効にする"
           }
         },
         "zh-Hans": {
@@ -323477,13 +323528,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keeps the Mac-side iOS pairing listener off until you enable it here."
+            "value": "Keeps iOS pairing and Iroh networking off until you enable it here."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ここで有効にするまで、Mac 側の iOS ペアリングリスナーをオフにします。"
+            "value": "ここで有効にするまで、iOS ペアリングと Iroh ネットワークをオフにします。"
           }
         },
         "zh-Hans": {
@@ -323536,13 +323587,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Allows the iOS app to discover and sync with this Mac on your local network."
+            "value": "Allows iOS pairing and Iroh networking for this Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS アプリがローカルネットワーク上でこの Mac を検出し、同期できるようにします。"
+            "value": "この Mac の iOS ペアリングと Iroh ネットワークを有効にします。"
           }
         },
         "zh-Hans": {

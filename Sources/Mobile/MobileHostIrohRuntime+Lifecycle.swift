@@ -255,7 +255,9 @@ extension MobileHostIrohRuntime {
     func setDesiredActive(_ requested: Bool) {
         // Apply the transport policy to every activation/retry entry point,
         // including settings reconciliation while a runtime is already live.
-        let desired = requested && ManagedIrohNetworkingPolicy.isEnabled
+        let desired = requested
+            && MobileHostService.isListeningEnabled
+            && ManagedIrohNetworkingPolicy.isEnabled
         guard desiredActive != desired else {
             if desired { retryIfNeeded() }
             return
@@ -267,6 +269,7 @@ extension MobileHostIrohRuntime {
 
     func retryIfNeeded() {
         guard !signOutIntentActive,
+              MobileHostService.isListeningEnabled,
               desiredActive,
               observedAccountID != nil else { return }
         if preparedSignOut?.wasPersisted == false {
@@ -294,11 +297,13 @@ extension MobileHostIrohRuntime {
             }
             guard let self,
                   self.retryInspectionRevision == inspectionRevision,
+                  MobileHostService.isListeningEnabled,
                   self.desiredActive,
                   self.runtime === activeRuntime,
                   revision == self.lifecycleRevision else { return }
             if await activeRuntime.snapshot().state == .failed {
-                guard self.desiredActive,
+                guard MobileHostService.isListeningEnabled,
+                      self.desiredActive,
                       !self.signOutIntentActive,
                       self.runtime === activeRuntime,
                       self.retryInspectionRevision == inspectionRevision,
@@ -310,7 +315,8 @@ extension MobileHostIrohRuntime {
                 await self.recoverFailedRuntimeIfNeeded()
                 return
             }
-            guard self.runtime === activeRuntime,
+            guard MobileHostService.isListeningEnabled,
+                  self.runtime === activeRuntime,
                   revision == self.lifecycleRevision else { return }
             await self.synchronizeLANPublicationWithSettings()
         }
@@ -330,6 +336,7 @@ extension MobileHostIrohRuntime {
     /// double-schedule.
     func scheduleFailureRecovery() {
         guard failureRecoveryTask == nil,
+              MobileHostService.isListeningEnabled,
               desiredActive,
               !signOutIntentActive,
               observedAccountID != nil else { return }
@@ -360,7 +367,8 @@ extension MobileHostIrohRuntime {
     /// Level-triggered: the action is re-derived from current state, so a
     /// stale wake-up is a no-op rather than a disruption.
     func recoverFailedRuntimeIfNeeded() async {
-        guard desiredActive,
+        guard MobileHostService.isListeningEnabled,
+              desiredActive,
               !signOutIntentActive,
               observedAccountID != nil,
               transitionTask == nil else { return }
@@ -372,6 +380,7 @@ extension MobileHostIrohRuntime {
         guard state == .failed,
               runtime === activeRuntime,
               transitionTask == nil,
+              MobileHostService.isListeningEnabled,
               desiredActive,
               !signOutIntentActive else { return }
         scheduleReconcile(eraseAccountState: false, restartActiveRuntime: true)
@@ -397,6 +406,7 @@ extension MobileHostIrohRuntime {
 
     private func ownsDeactivationCleanup(revision: UInt64) -> Bool {
         revision == lifecycleRevision
+            && MobileHostService.isListeningEnabled
             && desiredActive
             && !signOutIntentActive
     }
@@ -409,6 +419,7 @@ extension MobileHostIrohRuntime {
     /// scheduling for those.
     func noteActiveRuntimeDeactivated(revision: UInt64) async {
         guard revision == lifecycleRevision,
+              MobileHostService.isListeningEnabled,
               desiredActive,
               !signOutIntentActive,
               let activeRuntime = runtime else { return }
@@ -434,10 +445,8 @@ extension MobileHostIrohRuntime {
         retryInspectionTask = nil
     }
 
-    /// Applies the legacy-listener setting only to account-private Bonjour
-    /// publication. The authenticated Iroh endpoint and broker binding remain
-    /// active regardless, while enabling the listener later can publish the
-    /// already-validated runtime without restarting it.
+    /// Applies the explicit iOS pairing setting to LAN publication. The same
+    /// setting also owns the authenticated Iroh endpoint and broker binding.
     func synchronizeLANPublicationWithSettings() async {
         guard MobileHostService.isListeningEnabled else {
             await lanPublisher.stop()

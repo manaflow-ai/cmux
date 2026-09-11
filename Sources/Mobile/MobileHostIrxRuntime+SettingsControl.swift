@@ -107,7 +107,9 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
     }
 
     func refreshIrohSettings() async {
-        guard isNetworkingAllowed, let broker = brokerService else {
+        guard MobileHostService.isListeningEnabled,
+              isNetworkingAllowed,
+              let broker = brokerService else {
             publishIrxSettingsUpdate()
             return
         }

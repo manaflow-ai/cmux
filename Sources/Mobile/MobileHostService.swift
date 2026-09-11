@@ -256,8 +256,7 @@ enum MobileHostSyncDecision: Equatable {
     case restart
 }
 
-/// Separates account-authenticated Iroh availability from the opt-in legacy
-/// TCP listener used by Tailscale and other private-network clients.
+/// The single explicit opt-in controls every Mac-side iOS pairing transport.
 struct MobileHostStartupPlan: Equatable {
     let activatesIroh: Bool
     let startsLegacyListener: Bool
@@ -489,6 +488,10 @@ final class MobileHostService {
         identity: CmxIrohPeerIdentity?,
         pathHints: [CmxIrohPathHint] = []
     ) {
+        guard identity == nil || Self.isListeningEnabled else {
+            MobileHostPublicStatusCache.update(irohIdentity: nil)
+            return
+        }
         MobileHostPublicStatusCache.update(
             irohIdentity: identity,
             pathHints: pathHints
@@ -496,6 +499,10 @@ final class MobileHostService {
     }
 
     func updateIrohBinding(_ binding: CmxIrohBrokerBindingMetadata) {
+        guard Self.isListeningEnabled else {
+            MobileHostPublicStatusCache.update(irohIdentity: nil)
+            return
+        }
         MobileHostPublicStatusCache.update(irohBinding: binding)
     }
 
@@ -735,26 +742,12 @@ final class MobileHostService {
 
     /// Whether the mobile pairing host should bind a network listener at all.
     ///
-    /// An explicit current or legacy preference always wins. Without one,
-    /// dev and nightly builds preserve their historical listener default so an
-    /// older iOS app can still reach an updated Mac over Tailscale. Stable
-    /// remains opt-in so macOS does not ask every user for Local Network
-    /// permission.
+    /// An explicit current or legacy Bool preference always wins. Without one,
+    /// every build stays off so sign-in and app lifecycle events cannot start
+    /// iOS or Iroh networking implicitly.
     nonisolated static var isListeningEnabled: Bool {
         isListeningEnabled(defaults: .standard)
     }
-
-    #if DEBUG
-    nonisolated private static var isRunningUnderXCTest: Bool {
-        let environment = ProcessInfo.processInfo.environment
-        return environment["XCTestConfigurationFilePath"] != nil
-            || environment["XCTestBundlePath"] != nil
-            || environment["XCTestSessionIdentifier"] != nil
-            || environment["XCInjectBundle"] != nil
-            || environment["XCInjectBundleInto"] != nil
-            || environment["DYLD_INSERT_LIBRARIES"]?.contains("libXCTest") == true
-    }
-    #endif
 
     nonisolated static func isListeningEnabled(defaults: UserDefaults) -> Bool {
         isListeningEnabled(defaults: defaults, buildFlavor: .current)
@@ -770,7 +763,8 @@ final class MobileHostService {
         if let legacyOverride = defaults.object(forKey: legacyListeningEnabledDefaultsKey) as? Bool {
             return legacyOverride
         }
-        return buildFlavor != .stable
+        _ = buildFlavor
+        return false
     }
 
     /// User-default key for the preferred iOS pairing listener port.
@@ -831,14 +825,11 @@ final class MobileHostService {
         return .noop
     }
 
-    /// Iroh is an account-authenticated transport and starts for every signed-in
-    /// Mac. The legacy listener remains opt-in so existing Tailscale and private
-    /// network users keep their route without making it a prerequisite for Iroh.
-    /// An MDM-managed remote-control disable overrides both: no transport may
-    /// host while the policy is enforced.
+    /// An MDM-managed remote-control disable overrides the user's pairing opt-in:
+    /// no transport may host while the policy is enforced.
     nonisolated static func startupPlan(
         remoteControlDisabledByPolicy: Bool,
-        legacyListenerEnabled: Bool,
+        pairingEnabled: Bool,
         legacyListenerRunning: Bool
     ) -> MobileHostStartupPlan {
         guard !remoteControlDisabledByPolicy else {
@@ -848,8 +839,8 @@ final class MobileHostService {
             )
         }
         return MobileHostStartupPlan(
-            activatesIroh: true,
-            startsLegacyListener: legacyListenerEnabled && !legacyListenerRunning
+            activatesIroh: pairingEnabled,
+            startsLegacyListener: pairingEnabled && !legacyListenerRunning
         )
     }
 
@@ -1029,54 +1020,45 @@ final class MobileHostService {
     func start() {
         let plan = Self.startupPlan(
             remoteControlDisabledByPolicy: MobileRemoteControlPolicy.isDisabled,
-            legacyListenerEnabled: Self.isListeningEnabled,
+            pairingEnabled: Self.isListeningEnabled,
             legacyListenerRunning: listener != nil
         )
         if MobileRemoteControlPolicy.isDisabled {
             mobileHostLog.info("mobile host disabled by managed policy; not starting")
         }
         guard plan.startsLegacyListener else {
-            #if DEBUG
-            if Self.canPublishRoutesWithoutListenerForXCTest(defaults: .standard) {
-                publishRoutesWithoutListenerForXCTest()
+            if !plan.activatesIroh {
+                if listener != nil {
+                    stopLegacyListener(reason: "iOS pairing disabled")
+                }
+                MobileHostIrohRuntime.shared.setDesiredActive(false)
+                if MobileHostIrxRuntime.isEnabled {
+                    Task { @MainActor in
+                        await MobileHostIrxRuntime.shared.stopHost()
+                    }
+                }
+                mobileHostLog.info("iOS pairing disabled; no mobile networking starts")
+                return
             }
-            #endif
-            if listener == nil {
-                mobileHostLog.info("legacy mobile host listener disabled; starting Iroh only")
-            }
-            if plan.activatesIroh {
-                MobileHostIrohRuntime.shared.setDesiredActive(true)
-            }
+            mobileHostLog.info("legacy mobile host listener disabled; starting Iroh only")
+            MobileHostIrohRuntime.shared.setDesiredActive(true)
             return
         }
 
         CmxIrohTCPFirstActivation.start(
-            startTCP: { startListener(usePreferredPort: true) },
-            scheduleIroh: { MobileHostIrohRuntime.shared.setDesiredActive(true) }
+            startTCP: {
+                guard Self.isListeningEnabled else { return }
+                startListener(usePreferredPort: true)
+            },
+            scheduleIroh: {
+                guard Self.isListeningEnabled else { return }
+                MobileHostIrohRuntime.shared.setDesiredActive(true)
+            }
         )
     }
 
-    #if DEBUG
-    nonisolated private static func canPublishRoutesWithoutListenerForXCTest(defaults: UserDefaults) -> Bool {
-        guard isRunningUnderXCTest else { return false }
-        return defaults.object(forKey: listeningEnabledDefaultsKey) == nil
-            && defaults.object(forKey: legacyListeningEnabledDefaultsKey) == nil
-    }
-
-    private func publishRoutesWithoutListenerForXCTest() {
-        guard listener == nil else { return }
-        let port = Self.configuredPort()
-        listenerGeneration = UUID()
-        listenerUsesEphemeralFallback = false
-        listenerPort = port
-        appliedPreferredPort = port
-        lastErrorDescription = nil
-        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
-        mobileHostLog.info("mobile host listener disabled; publishing XCTest routes without binding")
-    }
-    #endif
-
     private func startListener(usePreferredPort: Bool) {
+        guard Self.isListeningEnabled, MobileRemoteControlPolicy.isEnabled else { return }
         let desiredPort = Self.configuredPort()
         appliedPreferredPort = desiredPort
         do {
@@ -1105,6 +1087,7 @@ final class MobileHostService {
             startNetworkPathMonitorIfNeeded()
         } catch {
             if usePreferredPort {
+                guard Self.isListeningEnabled, MobileRemoteControlPolicy.isEnabled else { return }
                 mobileHostLog.info("mobile host preferred port unavailable before listener start, falling back to an ephemeral port")
                 startListener(usePreferredPort: false)
                 return
@@ -1299,9 +1282,8 @@ final class MobileHostService {
         }
         remoteControlPolicyStopApplied = false
         let defaults = UserDefaults.standard
-        // Settings control only the legacy TCP/Tailscale listener. Account-
-        // authenticated Iroh stays available for signed-in Macs.
-        MobileHostIrohRuntime.shared.setDesiredActive(true)
+        let pairingEnabled = Self.isListeningEnabled(defaults: defaults)
+        MobileHostIrohRuntime.shared.setDesiredActive(pairingEnabled)
         // An invalid stored port (`resolvedDesiredPort == nil`, e.g. mid-edit)
         // must not restart a running listener. Treat it as "no change" by
         // reusing the applied port; a fresh start still binds the default via
@@ -1310,7 +1292,7 @@ final class MobileHostService {
             ?? appliedPreferredPort
             ?? Self.configuredPort(defaults: defaults)
         switch Self.syncDecision(
-            enabled: Self.isListeningEnabled(defaults: defaults),
+            enabled: pairingEnabled,
             listenerRunning: listener != nil,
             desiredPort: desiredPort,
             appliedPort: appliedPreferredPort
