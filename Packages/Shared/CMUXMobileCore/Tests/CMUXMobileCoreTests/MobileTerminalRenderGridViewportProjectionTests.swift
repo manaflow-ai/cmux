@@ -191,3 +191,27 @@ import Testing
     #expect(projected.cursor?.row == 0)
     #expect(projected.cursor?.column == 3)
 }
+
+@Test func viewportProjectionDeclinesDeltaFrames() throws {
+    var frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "surface-a", stateSeq: 2, columns: 8, rows: 2, text: "delta"
+    )
+    frame.full = false
+
+    let resized: MobileTerminalRenderGridFrame? = frame.projectedViewport(columns: 4, rows: 1)
+    let unchanged: MobileTerminalRenderGridFrame? = frame.projectedViewport(columns: 8, rows: 2)
+
+    #expect(resized == nil)
+    #expect(unchanged == nil)
+}
+
+@Test func viewportProjectionDeclinesInvalidConstructedFrames() throws {
+    var frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "surface-a", stateSeq: 1, columns: 8, rows: 2, text: "native"
+    )
+    frame.rowSpans = [.init(row: 0, column: 0, styleID: 99, text: "invalid style")]
+
+    let projected: MobileTerminalRenderGridFrame? = frame.projectedViewport(columns: 4, rows: 2)
+
+    #expect(projected == nil)
+}
