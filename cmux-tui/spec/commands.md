@@ -3201,6 +3201,7 @@ Example:
 | since | protocol 5 |
 | `tree_events` field | protocol 7 additive extension |
 | `surface` field | protocol 9 additive extension |
+| `presence_only` field | protocol 12 additive extension; capability `presence-v1` |
 
 Subscribes the connection to mux events. After this command, response lines and event lines may be interleaved on the same connection. `subscribe` does not send an initial tree snapshot; clients should call `list-workspaces` when they need state.
 
@@ -3216,6 +3217,7 @@ Params:
 | --- | --- | --- | --- |
 | `tree_events` | `string` | default `"coarse"` | Protocol 7: `"coarse"` or `"deltas"` |
 | `surface` | `Id` | optional | Protocol 9: existing surface to scope at the event source |
+| `presence_only` | `bool` | default false | Protocol 12, capability `presence-v1`: deliver only `presence-changed`; cannot be combined with `surface` |
 
 Result:
 
@@ -3228,7 +3230,7 @@ Errors:
 | Error | Condition |
 | --- | --- |
 | thread spawn error string | Server cannot create the event writer thread |
-| `bad request: ...` | Malformed request envelope, wrong field type, or unsupported `tree_events` value |
+| `bad request: ...` | Malformed request envelope, wrong field type, unsupported `tree_events` value, or `presence_only` with `surface` |
 
 CLI mapping:
 

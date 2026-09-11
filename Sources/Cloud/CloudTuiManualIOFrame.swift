@@ -14,6 +14,8 @@ enum CloudTuiManualIOFrame: Equatable, Sendable {
     case colorsChanged(surfaceID: UInt64, colors: CloudTuiRemoteColors)
     case detached(surfaceID: UInt64)
     case overflow(surfaceID: UInt64?)
+    /// A `presence-changed` subscribe event (capability `presence-v1`).
+    case presence(CloudPresenceEntry)
     case response(
         requestID: UInt64,
         ok: Bool,

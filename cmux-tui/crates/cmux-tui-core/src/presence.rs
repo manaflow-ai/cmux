@@ -30,9 +30,9 @@ pub const PRESENCE_POINTER_TTL: Duration = Duration::from_secs(60);
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum PresenceAnchor {
-    /// A terminal grid cell. `row` counts from the top of the live screen;
-    /// `scroll_offset` is the viewer's scrollback offset when the anchor was
-    /// taken so a viewer at another offset can decide whether it is visible.
+    /// A terminal grid cell. `row` counts from the top of the publisher's
+    /// viewport; `scroll_offset` is how many rows that viewport sits above
+    /// the live bottom, so a viewer at another offset can shift the row.
     Cell {
         row: u32,
         col: u32,
