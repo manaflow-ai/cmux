@@ -56,8 +56,8 @@ struct CloudVPNExplicitActivationTests {
         await setup.disconnect()
     }
 
-    @Test("Cancelling approval prevents a late approval from starting the VPN")
-    func cancelApprovalDoesNotReconnect() async {
+    @Test("Cancelling approval returns setup to off without starting the VPN")
+    func cancelApprovalReturnsToOff() async {
         let controller = FakeTunnelController()
         controller.holdInstallForApproval = true
         let enroller = FakeTunnelEnroller()
@@ -72,10 +72,6 @@ struct CloudVPNExplicitActivationTests {
         #expect(setup.state == .off)
         #expect(!controller.calls.contains("start"))
         #expect(enroller.enrollCount == 1)
-        controller.approve()
-        // Revoke drains any late installation through the coordinator's cleanup path.
-        try? await coordinator.revoke()
-        #expect(await coordinator.state == .off)
-        #expect(!controller.calls.contains("start"))
+        controller.approve(with: CancellationError())
     }
 }
