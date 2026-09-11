@@ -82,6 +82,7 @@ extension CmxIrohHostRuntime {
         registrationRefreshTask = nil
         registrationRenewalTask?.cancel()
         registrationRenewalTask = nil
+        registrationRetryScheduled = false
         registrationRefreshPending = false
         registrationRefreshPendingForcesPublication = false
         registrationRefreshEnabled = false
