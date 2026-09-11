@@ -443,10 +443,23 @@ struct CloudTunnelCoordinatorTests {
         let harness = Harness()
         harness.controller.currentStatusValue = .connecting
         harness.controller.connectsOnStart = false
+        let controller = harness.controller
+        let (hookEntered, hookEnteredContinuation) = AsyncStream<Void>.makeStream()
+        let (hookRelease, hookReleaseContinuation) = AsyncStream<Void>.makeStream()
+        controller.onCurrentStatus = { _ in
+            controller.onCurrentStatus = nil
+            controller.emit(.disconnected)
+            hookEnteredContinuation.yield(())
+            var iterator = hookRelease.makeAsyncIterator()
+            _ = await iterator.next()
+        }
         let use = Task { await harness.coordinator.prepareForPrivateNetworkUse(Self.use) }
         #expect(await harness.awaitState(.starting) == .starting)
-        harness.controller.emit(.disconnected)
+        var enteredIterator = hookEntered.makeAsyncIterator()
+        _ = await enteredIterator.next()
+        hookReleaseContinuation.yield(())
         await use.value
+        controller.onCurrentStatus = nil
         // No clock advance happened: the failure came from the drop, not the timeout.
         #expect(await harness.coordinator.state.failureMessage?.isEmpty == false)
         #expect(harness.controller.calls == ["install", "stop"])
