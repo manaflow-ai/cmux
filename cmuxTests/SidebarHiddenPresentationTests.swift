@@ -177,6 +177,7 @@ struct SidebarHiddenPresentationTests {
         #expect(spinner.contentLayer.animation(forKey: GPUSpinnerNSView.animationKey) == nil)
     }
 
+    /// Ensures a hidden sidebar rebuilds retained rows from current Cloud state.
     @Test
     func visibilityToggleKeepsAppKitTableContainerMounted() async throws {
         _ = NSApplication.shared
@@ -276,6 +277,8 @@ struct SidebarHiddenPresentationTests {
             initialContainer.tableView.numberOfRows == initialRowCount,
             "The retained native table must not apply workspace updates while hidden."
         )
+        focusedWorkspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
+        await drainMainRunLoop(for: window)
 
         revealRowInputProjections = 0
         sidebarState.toggle()
@@ -296,6 +299,14 @@ struct SidebarHiddenPresentationTests {
         #expect(
             revealRowInputProjections == tabManager.tabs.count,
             "Reopening must project each current workspace row exactly once."
+        )
+        let cloudRow = descendants(
+            of: SidebarWorkspaceRowTableCellView.self,
+            in: initialContainer
+        ).first { $0.accessibilityLabel()?.contains("Cloud workspace on vivid-newt") == true }
+        #expect(
+            cloudRow != nil,
+            "Reopening must rebuild retained AppKit rows from the current Cloud identity after a hidden update."
         )
 
         let sidebarField = NSTextField(frame: NSRect(x: 20, y: 40, width: 120, height: 24))
