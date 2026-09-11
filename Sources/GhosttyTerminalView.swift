@@ -11814,6 +11814,9 @@ final class GhosttySurfaceScrollView: NSView {
                 window.makeFirstResponder(nil)
             }
         } else if !wasVisible {
+            if isActive, surfaceView.window?.firstResponder === surfaceView {
+                surfaceView.applyTerminalPointerStyle(.focusChanged(true))
+            }
             surfaceView.deferReconcileGhosttyMouseButtons(reason: "setVisibleInUI.true")
             // Workspace/sidebar selection can make an already-sized terminal visible again
             // without a portal frame delta or a focus handoff. Nudge the Metal layer with

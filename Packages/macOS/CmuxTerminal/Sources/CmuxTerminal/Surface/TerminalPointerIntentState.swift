@@ -106,6 +106,14 @@ public struct TerminalPointerIntentState: @unchecked Sendable {
                 }
                 return false
             }
+            if shape == GHOSTTY_MOUSE_SHAPE_POINTER,
+               isGhosttyLinkHoverActive,
+               hasPendingGhosttyLinkPointer,
+               !persistentPointerBaseConfirmed,
+               let lastNonPointerShape {
+                ghosttyShape = lastNonPointerShape
+                return false
+            }
             guard shape.isSupportedTerminalPointerShape else {
                 // Ghostty sends the terminal's base shape when an OSC 8
                 // hyperlink ends. Unsupported base shapes have no AppKit

@@ -408,6 +408,35 @@ struct TerminalPointerStyleStateTests {
         #expect(state.effectiveCursor == NSCursor.pointingHand)
     }
 
+    @Test("link hover pointer refresh preserves the prior base shape")
+    func linkHoverPointerRefreshPreservesPriorBaseShape() {
+        var state = TerminalPointerStyleState()
+        let runtimeLifetimeId = activate(&state)
+        state.apply(.focusChanged(true))
+        state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_CROSSHAIR,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+        state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_POINTER,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+        state.apply(.ghosttyLinkHoverChanged(
+            true,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+        state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_POINTER,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+        state.apply(.ghosttyLinkHoverChanged(
+            false,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+
+        #expect(state.effectiveCursor == NSCursor.crosshair)
+    }
+
     @Test("empty hyperlink exit preserves a persistent OSC 22 pointer")
     func emptyHyperlinkExitPreservesPersistentPointerBase() {
         var state = TerminalPointerStyleState()
