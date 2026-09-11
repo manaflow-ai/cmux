@@ -3,10 +3,9 @@ public import CmuxIrohTransport
 
 /// Keeps the endpoint's relay credentials perpetually fresh: mints early
 /// (min(refreshAfter, expiry-120s) minus jitter), rotates with insertRelay
-/// alone (make-before-break), and on mint failure retries at half the
-/// remaining validity so retries speed up toward expiry instead of backing
-/// off past it. The relay closes connections at the signed expiry, so this
-/// loop is what makes 15 minutes without a disconnect possible at all.
+/// alone (make-before-break), and on mint failure uses bounded exponential
+/// backoff independent of token expiry. This avoids turning an outage into a
+/// one-second request storm.
 public actor IrxRelayCredentialAutopilot {
     private static let maximumHintRetryAttempts = 3
     private static let hintRetrySchedule = CmxIrohRetrySchedule(
@@ -211,6 +210,7 @@ public actor IrxRelayCredentialAutopilot {
             bypassRefreshDeadlineOnce = false
             do {
                 let minted = try await broker.mintRelayCredentials()
+                failureCount = 0
                 guard generation == loopGeneration, !Task.isCancelled else { return }
                 // The ownership check lives inside the endpoint actor too:
                 // cancellation can race an in-flight broker request.

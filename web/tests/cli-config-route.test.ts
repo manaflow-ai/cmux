@@ -48,6 +48,46 @@ async function withCliConfigEnvironment(
 }
 
 describe("CLI config route", () => {
+  test("uses cmux.com for production CodeRouter browser auth and preserves the login code", async () => {
+    await withCliConfigEnvironment(testEnvironment, async () => {
+      const response = GET(
+        new Request("https://coderouter.dev/api/cli/config"),
+      );
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.auth.confirmUrl).toBe(
+        "https://cmux.com/handler/cli-auth-confirm",
+      );
+      expect(body.coderouter.sessionUrl).toBe(
+        "https://coderouter.dev/api/coderouter/session",
+      );
+      expect(body.coderouter.openaiBaseUrl).toBe("https://coderouter.dev/v1");
+
+      const nonDefaultPortResponse = GET(
+        new Request("https://coderouter.dev:4443/api/cli/config"),
+      );
+      const nonDefaultPortBody = await nonDefaultPortResponse.json();
+      expect(nonDefaultPortBody.auth.confirmUrl).toBe(
+        "https://cmux.com/handler/cli-auth-confirm",
+      );
+      expect(nonDefaultPortBody.coderouter.sessionUrl).toBe(
+        "https://coderouter.dev:4443/api/coderouter/session",
+      );
+
+      const confirmation = new URL(body.auth.confirmUrl);
+      confirmation.searchParams.set("login_code", "fresh-test-login-code");
+      const signIn = new URL("https://cmux.com/handler/sign-in");
+      signIn.searchParams.set(
+        "after_auth_return_to",
+        `${confirmation.pathname}${confirmation.search}`,
+      );
+      expect(signIn.toString()).toBe(
+        "https://cmux.com/handler/sign-in?after_auth_return_to=%2Fhandler%2Fcli-auth-confirm%3Flogin_code%3Dfresh-test-login-code",
+      );
+    });
+  });
+
   test("publishes CodeRouter and the hosted Subrouter POST contract", async () => {
     await withCliConfigEnvironment(testEnvironment, async () => {
       const response = GET(new Request("https://cmux.com/api/cli/config"));
@@ -124,6 +164,23 @@ describe("CLI config route", () => {
       );
       expect(body.coderouter.sessionUrl).toBe(
         "http://127.0.0.1:4152/api/coderouter/session",
+      );
+    });
+  });
+
+  test("keeps confirmation on a custom staging origin", async () => {
+    await withCliConfigEnvironment(testEnvironment, async () => {
+      const response = GET(
+        new Request("https://coderouter-staging.example.test/api/cli/config"),
+      );
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.auth.confirmUrl).toBe(
+        "https://coderouter-staging.example.test/handler/cli-auth-confirm",
+      );
+      expect(body.coderouter.sessionUrl).toBe(
+        "https://coderouter-staging.example.test/api/coderouter/session",
       );
     });
   });
