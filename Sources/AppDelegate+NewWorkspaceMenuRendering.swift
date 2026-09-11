@@ -116,6 +116,17 @@ extension AppDelegate {
                     addRenderedSection([item])
                 }
             case .management(let management):
+                if CloudMachinesFeature.isEnabled {
+                    let vpnItem = NSMenuItem(
+                        title: String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…"),
+                        action: #selector(openCloudVPNSetupMenuItem(_:)),
+                        keyEquivalent: ""
+                    )
+                    vpnItem.target = self
+                    vpnItem.representedObject = context.windowId as NSUUID
+                    vpnItem.image = NSImage(systemSymbolName: "network", accessibilityDescription: nil)
+                    addRenderedSection([vpnItem])
+                }
                 var items: [NSMenuItem] = []
                 let saveItem = NSMenuItem(
                     title: String(
