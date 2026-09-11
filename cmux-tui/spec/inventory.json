@@ -179,6 +179,9 @@
       "pane-neighbor",
       "paste-image",
       "ping",
+      "presence-clear",
+      "presence-list",
+      "presence-update",
       "process-info",
       "put-frontend-projection",
       "read-screen",
@@ -405,6 +408,12 @@
       "name": "pane-closed",
       "streams": [
         "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "presence-changed",
+      "streams": [
+        "subscribe"
       ]
     },
     {

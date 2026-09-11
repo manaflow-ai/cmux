@@ -103,6 +103,9 @@ public:
     [[nodiscard]] Result<PaneNeighborResult> pane_neighbor(const PaneNeighborRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<PasteImageResult> paste_image(const PasteImageRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<PingResult> ping(const PingRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> presence_clear(const PresenceClearRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<PresenceListResult> presence_list(const PresenceListRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> presence_update(const PresenceUpdateRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ProcessInfoResult> process_info(const ProcessInfoRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<FrontendProjection> put_frontend_projection(const PutFrontendProjectionRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ReadScreenResult> read_screen(const ReadScreenRequest& request, RequestOptions options = {});
