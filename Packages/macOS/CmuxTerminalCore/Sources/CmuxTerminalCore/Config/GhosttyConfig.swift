@@ -997,6 +997,10 @@ public struct GhosttyConfig {
                 recursiveConfigPaths: &recursiveConfigPaths
             )
         }
+
+        if let repairedThemeValue = normalizedCmuxManagedThemeValue(in: contents) {
+            summary.recordDirective(key: "theme", value: repairedThemeValue)
+        }
     }
 
     private static func parseIntegerLiteral(_ value: String) -> Int? {

@@ -32,17 +32,6 @@ extension GhosttyApp {
         #endif
     }
 
-    /// Returns the normalized value from the active cmux-managed Ghostty config.
-    ///
-    /// The caller injects the returned value into the live Ghostty config after
-    /// the on-disk files have loaded, so legacy single-sided values are repaired
-    /// without rewriting user files during startup.
-    func currentCmuxManagedThemeRepairValue() -> String? {
-        cmuxAppSupportConfigValue {
-            GhosttyConfig.normalizedCmuxManagedThemeValue(in: $0)
-        }
-    }
-
     /// Returns the last raw theme directive found in cmux app-support config files.
     // This remains internal because the configuration reload path is declared
     // in GhosttyTerminalView.swift while the shared scanner lives here.

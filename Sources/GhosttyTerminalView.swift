@@ -1296,17 +1296,6 @@ class GhosttyApp {
         )
     }
 
-    /// Injects a valid pair when the managed config contains a legacy one-sided theme.
-    private func loadCmuxManagedThemeRepairIfNeeded(_ config: ghostty_config_t) {
-        guard let repairedThemeValue = currentCmuxManagedThemeRepairValue() else { return }
-        loadInlineGhosttyConfig(
-            "theme = \(repairedThemeValue)",
-            into: config,
-            prefix: "cmux-managed-theme-repair",
-            logLabel: "cmux managed theme repair"
-        )
-    }
-
     /// Loads the user's resolved Ghostty config. When enabled, cmux's managed
     /// default appearance is applied only if the config contains no directives;
     /// otherwise Ghostty's own resolved colors are preserved.
@@ -1327,7 +1316,6 @@ class GhosttyApp {
         ghostty_config_load_default_files(config)
         loadLegacyGhosttyConfigIfNeeded(config)
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
-        loadCmuxManagedThemeRepairIfNeeded(config)
         ghostty_config_load_recursive_files(config)
         loadConditionalThemeOverrideIfNeeded(config, preferredColorScheme: themeColorScheme)
         // Ghostty's own default-file load also reads the native legacy app-support
