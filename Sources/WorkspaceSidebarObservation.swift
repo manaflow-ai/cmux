@@ -210,7 +210,7 @@ extension Workspace {
     static let sidebarImmediateObservationCoalesceInterval: DispatchQueue.SchedulerTimeType.Stride = .milliseconds(50)
     func makeSidebarImmediateObservationPublisher() -> AnyPublisher<Void, Never> {
         // Combine exposes up to four-way convenience publishers. Compose the
-        // fifth field explicitly so adding a row-affecting property does not
+        // extra fields explicitly so adding a row-affecting property does not
         // require a non-existent ``CombineLatest5`` specialization.
         let workspaceFields = Publishers.CombineLatest4(
             $customTitle,

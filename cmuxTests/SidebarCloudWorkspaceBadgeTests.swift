@@ -20,6 +20,20 @@ struct SidebarCloudWorkspaceBadgeTests {
         #expect(factory.makeSnapshot() == local)
     }
 
+    @Test func cloudIdentityUpdatesWhileContextMenuIsOpen() {
+        let workspace = Workspace(initialSurface: .cloudVMLoading)
+        let settings = SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults())
+        let factory = SidebarWorkspaceSnapshotFactory(workspace: workspace, settings: settings, showsAgentActivity: false)
+        let local = factory.makeSnapshot()
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
+        let cloud = factory.makeSnapshot()
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
+            current: local, next: cloud, force: false, contextMenuVisible: true
+        )
+        #expect(decision.workspaceSnapshotStorage?.cloudWorkspaceLabel == cloud.cloudWorkspaceLabel)
+        #expect(decision.workspaceSnapshotStorage?.cloudWorkspaceLabel != nil)
+    }
+
     @Test(arguments: [false, true])
     func cloudBadgeSurvivesRestoreAndReconnect(legacyTransport: Bool) throws {
         let workspace = Workspace(title: "Same project", initialSurface: .cloudVMLoading)
