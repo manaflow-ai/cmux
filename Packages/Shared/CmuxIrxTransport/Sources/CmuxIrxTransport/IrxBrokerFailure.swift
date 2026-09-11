@@ -115,6 +115,15 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
                 statusCode = status
                 errorCode = code ?? "http_\(status)"
                 retryAfterSeconds = nil
+            case let .rejectedWithRetryAfter(status, code, retryAfter):
+                kind = irxBrokerFailureKind(
+                    operation: operation,
+                    statusCode: status,
+                    code: code
+                )
+                statusCode = status
+                errorCode = code ?? "http_\(status)"
+                retryAfterSeconds = retryAfter
             case .invalidBaseURL, .nonHTTPResponse:
                 kind = .invalid
                 statusCode = nil
@@ -395,6 +404,7 @@ private extension CmxIrohTrustBrokerClientError {
         case .invalidResponse: "invalid_response"
         case let .rateLimited(code, _): code
         case let .rejected(_, code): code
+        case let .rejectedWithRetryAfter(_, code, _): code
         }
     }
 }
