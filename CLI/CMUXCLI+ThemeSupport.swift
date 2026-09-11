@@ -1,5 +1,6 @@
 import Foundation
 import CmuxFoundation
+import CmuxSettings
 
 extension CMUXCLI {
     func availableThemeNames() -> [String] {
@@ -350,11 +351,19 @@ extension CMUXCLI {
         case "cmux.sock":
             return Self.cmuxThemeOverrideBundleIdentifier
         case "cmux-debug.sock":
-            return "com.cmuxterm.app.debug"
+            return SocketPathMarkerFiles.defaultBaseDebugBundleIdentifier
         case "cmux-nightly.sock":
-            return "com.cmuxterm.app.nightly"
+            return SocketPathMarkerFiles.nightlyBundleIdentifier
         case "cmux-staging.sock":
-            return "com.cmuxterm.app.staging"
+            return SocketPathMarkerFiles.stagingBundleIdentifier
+        case SocketPathMarkerFiles.releaseSocketFileName:
+            return SocketPathMarkerFiles.releaseBundleIdentifier
+        case SocketPathMarkerFiles.nightlySocketFileName:
+            return SocketPathMarkerFiles.nightlyBundleIdentifier
+        case SocketPathMarkerFiles.stagingSocketFileName:
+            return SocketPathMarkerFiles.stagingBundleIdentifier
+        case SocketPathMarkerFiles.devSocketFileName:
+            return SocketPathMarkerFiles.defaultBaseDebugBundleIdentifier
         default:
             break
         }
@@ -370,7 +379,14 @@ extension CMUXCLI {
             return "com.cmuxterm.app.nightly.\(slug)"
         }
         if let slug = themeReloadSocketSlug(name, prefix: "cmux-staging-", suffix: ".sock") {
-            return "com.cmuxterm.app.staging.\(slug)"
+            return "\(SocketPathMarkerFiles.stagingBundleIdentifier).\(slug)"
+        }
+        if let slug = themeReloadSocketSlug(
+            name,
+            prefix: "\(SocketPathMarkerFiles.releaseBundleIdentifier).dev.",
+            suffix: ".sock"
+        ) {
+            return "\(SocketPathMarkerFiles.defaultBaseDebugBundleIdentifier).\(slug)"
         }
         return nil
     }

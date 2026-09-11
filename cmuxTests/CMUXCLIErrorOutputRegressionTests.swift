@@ -3076,6 +3076,59 @@ import Testing
         XCTAssertTrue(result.stdout.contains(targetBundleIdentifier), result.diagnostics)
     }
 
+    @Test func testThemesSetTargetsAppSupportSocketVariantBundleIdentifiers() throws {
+        let cliPath = try bundledCLIPath()
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-themes-app-support-sockets-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let resourcesURL = root.appendingPathComponent("resources", isDirectory: true)
+        let themesURL = resourcesURL.appendingPathComponent("themes", isDirectory: true)
+        try fileManager.createDirectory(at: themesURL, withIntermediateDirectories: true)
+        try writeTheme(named: "Theme A", background: "#101010", to: themesURL)
+
+        let cases = [
+            ("com.cmuxterm.app.sock", "com.cmuxterm.app"),
+            ("com.cmuxterm.app.nightly.sock", "com.cmuxterm.app.nightly"),
+            ("com.cmuxterm.app.staging.sock", "com.cmuxterm.app.staging"),
+            ("com.cmuxterm.app.dev.issue-3993.sock", "com.cmuxterm.app.debug.issue.3993"),
+        ]
+
+        for (socketFileName, expectedBundleIdentifier) in cases {
+            var environment = ProcessInfo.processInfo.environment
+            for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+                environment.removeValue(forKey: key)
+            }
+            let socketPath = root
+                .appendingPathComponent("state", isDirectory: true)
+                .appendingPathComponent("cmux", isDirectory: true)
+                .appendingPathComponent(socketFileName, isDirectory: false)
+                .path
+            environment["CFFIXED_USER_HOME"] = root.path
+            environment["HOME"] = root.path
+            environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
+            environment["CMUX_SOCKET_PATH"] = socketPath
+            environment["CMUX_BUNDLE_ID"] = "com.cmuxterm.app.debug.stale"
+            environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["--json", "themes", "set", "Theme A"],
+                environment: environment
+            )
+
+            XCTAssertFalse(result.timedOut, result.diagnostics)
+            XCTAssertEqual(result.status, 0, result.diagnostics)
+            let payload = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+                result.diagnostics
+            )
+            XCTAssertEqual(payload["reload_target_bundle_id"] as? String, expectedBundleIdentifier)
+        }
+    }
+
     @Test func testThemesSetNightlyOverridePathIsReadableByNightlyAppConfigResolution() throws {
         let cliPath = try bundledCLIPath()
         let fileManager = FileManager.default
