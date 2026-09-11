@@ -72,6 +72,17 @@ preview URL.
 
 ## System-wide route (`cmux vpn up`)
 
+The Machines panel has an optional **Set Up cmux VPN…** entry. The same action
+is available in the workspace plus-button menu, the command palette, and the
+context menus for Cloud machines and private port URLs. Each opens the same
+native setup pane, like iPhone pairing. Opening it only reads connection status;
+**Connect Cloud VPN** explicitly starts and pins the existing tunnel coordinator.
+The pane explains extension approval and VPN configuration permission, follows
+approval automatically, reports errors, and supports cancellation and disconnect.
+It reports builds without a signed extension as unavailable without prompting.
+Automation can open it through `workspace.action {action: "cloud_vpn_setup"}`.
+
+
 `cmux vpn up` creates a separate browser peer through `POST /api/vm/tunnel`,
 saves its configuration in the Apple VPN manager, and requests activation of
 the bundled packet tunnel system extension. macOS can require one user
@@ -94,8 +105,9 @@ the single decision every tunnel consumer (browser navigation, `cmux vpn up`,
 `vm.tunnel_config`, `vm.tunnel_up`) flows through:
 
 - A start is admitted only when `Settings › Beta Features › Cloud Machines` is
-  on (`cloud.beta.machines.enabled`, off by default on every build, and never
-  forced on by a managed `DisableCloud` profile) **and** the account has at
+  on (`cloud.beta.machines.enabled`, on by default in dev builds and off by
+  default in release builds, and never forced on by a managed `DisableCloud`
+  profile) **and** the account has at
   least one machine. Launch-time decisions and status answer "has a machine"
   from a cached marker written by every machine list and create
   (`cloud.machines.cachedHasAny`; cleared on sign-out, reset to unknown by a

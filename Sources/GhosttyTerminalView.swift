@@ -4262,10 +4262,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // GhosttyMetalLayer provides render stats and opt-in frame notifications for
         // input sequencing that needs to wait for terminal redraws.
         wantsLayer = true
-        // Ghostty installs and can replace the backing layer after this view is
-        // created. Keep clipping at the view boundary as well as on the layer,
-        // so a stale drawable cannot paint outside the terminal pane.
-        clipsToBounds = true
         layer?.masksToBounds = true
         setupKeyboardCopyModeCursorOverlay()
         installEventMonitor()
@@ -5260,11 +5256,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         if pendingSurfaceSize != size { deferredSurfaceSizeNonMetalRetryCount = 0 }
         pendingSurfaceSize = size
-        // Reassert the view-level boundary on every size publication. AppKit
-        // may re-materialize the layer while a window is resized, and the
-        // renderer must remain contained without adding a redraw or queue hop.
-        clipsToBounds = true
-        layer?.masksToBounds = true
         if let deferralReason = activeSurfaceResizeDeferralReason() {
             scheduleDeferredSurfaceSizeRetryIfNeeded()
 #if DEBUG
@@ -10140,22 +10131,12 @@ final class GhosttySurfaceScrollView: NSView {
         scrollView.surfaceView = surfaceView
 
         documentView = NSView(frame: .zero)
-        // The surface is positioned explicitly below. Clearing its inherited
-        // autoresizing mask prevents AppKit from growing it past the viewport
-        // between two synchronous resize ticks.
-        surfaceView.autoresizingMask = []
-        surfaceView.translatesAutoresizingMaskIntoConstraints = true
         scrollView.documentView = documentView
         documentView.addSubview(surfaceView)
 
         super.init(frame: .zero)
         wantsLayer = true
-        clipsToBounds = true
         layer?.masksToBounds = true
-        scrollView.clipsToBounds = true
-        documentView.clipsToBounds = true
-        surfaceView.clipsToBounds = true
-        surfaceView.layer?.masksToBounds = true
 
         backgroundView.wantsLayer = true
         backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
@@ -10613,17 +10594,6 @@ final class GhosttySurfaceScrollView: NSView {
         forceViewportSync: Bool? = nil,
         preservedReviewOriginY: CGFloat? = nil
     ) -> Bool {
-        // Keep every AppKit boundary in the rendering chain clipped. These
-        // assignments are idempotent and avoid any deferred layout or display
-        // work, which is important while the window resize callback is open.
-        clipsToBounds = true
-        layer?.masksToBounds = true
-        scrollView.clipsToBounds = true
-        scrollView.contentView.clipsToBounds = true
-        documentView.clipsToBounds = true
-        surfaceView.clipsToBounds = true
-        surfaceView.layer?.masksToBounds = true
-        surfaceView.autoresizingMask = []
         let preservedReviewOriginY = preservedReviewOriginY ?? {
             guard scrollbackViewportIntent.preservesViewportDuringPendingSync else { return nil }
             return max(scrollView.contentView.bounds.origin.y, 0)
@@ -10640,13 +10610,17 @@ final class GhosttySurfaceScrollView: NSView {
         _ = setFrameIfNeeded(backgroundView, to: bounds)
         let contentFrame = sessionContentFrame
         _ = setFrameIfNeeded(scrollView, to: contentFrame)
-        if didScrollbarAppearanceChange {
-            scrollView.tile()
-        }
-        let targetSize = synchronizeTerminalContentFrames()
+        let targetSize = scrollView.bounds.size
 #if DEBUG
         logLayoutDuringActiveDrag(targetSize: targetSize)
 #endif
+        let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: targetSize)
+        _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
+        let targetDocumentFrame = CGRect(
+            origin: documentView.frame.origin,
+            size: CGSize(width: scrollView.bounds.width, height: documentView.frame.height)
+        )
+        _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
         _ = setFrameIfNeeded(mobileViewportBorderOverlayView, to: contentFrame)
         _ = setFrameIfNeeded(inactiveOverlayView, to: bounds)
         _ = setFrameIfNeeded(paneDropTargetView, to: bounds)
@@ -10680,6 +10654,12 @@ final class GhosttySurfaceScrollView: NSView {
             _ = setFrameIfNeeded(overlay, to: contentFrame)
         }
         bringPaneDropTargetToFrontIfNeeded()
+        // NSScrollView can defer clip-view/content-size updates until its own layout pass,
+        // which makes interactive width changes arrive a queue turn late on Sequoia.
+        if didScrollbarAppearanceChange {
+            scrollView.tile()
+        }
+        scrollView.layoutSubtreeIfNeeded()
         updateNotificationRingPath()
         updateFlashPath(style: lastFlashStyle)
         updateFlashAppearance(style: lastFlashStyle)
@@ -13424,22 +13404,17 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func synchronizeTerminalGeometryAfterScrollerStyleChange() {
-        _ = synchronizeTerminalContentFrames()
-        synchronizeSurfaceView()
-        _ = synchronizeCoreSurface()
-    }
-
-    private func synchronizeTerminalContentFrames() -> CGSize {
         scrollView.layoutSubtreeIfNeeded()
         let targetSize = scrollView.contentView.bounds.size
         let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: targetSize)
         _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
         let targetDocumentFrame = CGRect(
             origin: documentView.frame.origin,
-            size: CGSize(width: targetSize.width, height: documentView.frame.height)
+            size: CGSize(width: scrollView.contentView.bounds.width, height: documentView.frame.height)
         )
         _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
-        return targetSize
+        synchronizeSurfaceView()
+        _ = synchronizeCoreSurface()
     }
 
     private func handleTerminalScrollBarPreferenceChange() {

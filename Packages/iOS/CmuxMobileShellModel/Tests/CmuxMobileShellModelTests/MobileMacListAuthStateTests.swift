@@ -46,6 +46,29 @@ struct MobileMacListAuthStateTests {
         #expect(malformed.isOutdated)
     }
 
+    @Test(arguments: ["999.-1.0", "999.0.0.1", "999..0", "999.a.0"])
+    func invalidVersionComponentsWarnInBothReleaseTracks(_ version: String) {
+        let stable = MobileMacListAuthState.Entry(
+            status: "active",
+            revoked: false,
+            isFresh: true,
+            appVersion: version,
+            minimumSupportedVersion: "0.64.23",
+            releaseTrack: "stable"
+        )
+        #expect(stable.isOutdated)
+
+        let nightly = MobileMacListAuthState.Entry(
+            status: "active",
+            revoked: false,
+            isFresh: true,
+            appVersion: "\(version)-nightly.100",
+            releaseTrack: "nightly",
+            minimumSupportedNightlyVersion: "0.64.22-nightly.99"
+        )
+        #expect(nightly.isOutdated)
+    }
+
     @Test
     func nightlyVersionIsNotComparedToStableFloor() {
         let current = MobileMacListAuthState.Entry(
