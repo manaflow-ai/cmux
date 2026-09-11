@@ -1395,6 +1395,7 @@ final class MobileHostService {
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         idleTimeoutNanoseconds: UInt64? = nil,
         promoteUsableSession: @escaping @Sendable () async -> Bool = { true },
+        irohAdmissionIsAuthorized: @escaping @Sendable () async -> Bool = { true },
         remoteControlDisabledByPolicy: @escaping @Sendable () -> Bool = {
             !MobileRemoteControlPolicy.allowsIncomingAccess()
         },
@@ -1449,6 +1450,9 @@ final class MobileHostService {
                 )
                 return true
             },
+            isAuthorizationCurrent: authorization == .irohAdmission
+                ? irohAdmissionIsAuthorized
+                : { true },
             handleRequest: { request in
                 if request.method == "mobile.host.status" {
                     return await Self.connectionStatusResult(
@@ -2114,6 +2118,9 @@ actor MobileHostConnection {
     private let firstFrameTimeoutNanoseconds: UInt64
     private let idleTimeoutNanoseconds: UInt64
     private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
+    /// Per-request authorization for transports whose admission lease can
+    /// expire while the connection remains open (Iroh).
+    private let isAuthorizationCurrent: @Sendable () async -> Bool
     private let onAuthorizedRequest: @Sendable (MobileHostRPCRequest) async -> Void
     private let onUsableSession: @Sendable () async -> Bool
     private let handleRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
@@ -2166,6 +2173,7 @@ actor MobileHostConnection {
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
         onUsableSession: @escaping @Sendable () async -> Bool = { true },
+        isAuthorizationCurrent: @escaping @Sendable () async -> Bool = { true },
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
         onClose: @escaping @Sendable (UUID) async -> Void,
         requestSimulatorFrameReplay: @escaping @Sendable (UUID, Set<String>) async -> Void = { _, _ in }
@@ -2179,6 +2187,7 @@ actor MobileHostConnection {
         self.idleTimeoutNanoseconds = idleTimeoutNanoseconds
         self.eventSendStallTimeoutNanoseconds = eventSendStallTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
+        self.isAuthorizationCurrent = isAuthorizationCurrent
         self.onAuthorizedRequest = onAuthorizedRequest
         self.onUsableSession = onUsableSession
         self.handleRequest = handleRequest
@@ -2198,6 +2207,7 @@ actor MobileHostConnection {
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
         onUsableSession: @escaping @Sendable () async -> Bool = { true },
+        isAuthorizationCurrent: @escaping @Sendable () async -> Bool = { true },
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
         onClose: @escaping @Sendable (UUID) async -> Void,
         requestSimulatorFrameReplay: @escaping @Sendable (UUID, Set<String>) async -> Void = { _, _ in }
@@ -2210,6 +2220,7 @@ actor MobileHostConnection {
         self.idleTimeoutNanoseconds = idleTimeoutNanoseconds
         self.eventSendStallTimeoutNanoseconds = eventSendStallTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
+        self.isAuthorizationCurrent = isAuthorizationCurrent
         self.onAuthorizedRequest = onAuthorizedRequest
         self.onUsableSession = onUsableSession
         self.handleRequest = handleRequest
@@ -2598,6 +2609,18 @@ actor MobileHostConnection {
     ) async -> PreparedResponse? {
         guard !isClosed, !Task.isCancelled else {
             return nil
+        }
+        guard await isAuthorizationCurrent() else {
+            return PreparedResponse(
+                data: MobileHostRPCEnvelope.encodeResponse(
+                    id: request.id,
+                    result: .failure(MobileHostRPCError(
+                        code: "admission_expired",
+                        message: "The remote device authorization has expired. Reconnect to continue."
+                    ))
+                ),
+                readinessContribution: nil
+            )
         }
         let tracksInteractiveActivity = Self.isInteractiveMobileRequest(request.method)
         if tracksInteractiveActivity {

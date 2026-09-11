@@ -15,6 +15,39 @@ import Testing
 
 @MainActor
 extension MobileHostAuthorizationTests {
+    @Test func testIrohAdmissionRejectsRequestsAfterAuthorizationExpires() async throws {
+        let transport = LegacyIOSCompatibilityByteTransport()
+        let handled = MobileHostConnectionRequestRecorder()
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: transport,
+            firstFrameTimeoutNanoseconds: 0,
+            idleTimeoutNanoseconds: 0,
+            isAuthorizationCurrent: { false },
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { request in
+                await handled.record(request)
+                return .ok(["handled": true])
+            },
+            onClose: { _ in }
+        )
+        let runTask = Task { await session.run() }
+        let request = Data(#"{"id":"expired","method":"workspace.list","params":{}}"#.utf8)
+        await transport.enqueue(try MobileSyncFrameCodec.encodeFrame(request))
+
+        var responseBuffer = await transport.waitForSentBuffer()
+        let responsePayload = try #require(MobileSyncFrameCodec.decodeFrames(from: &responseBuffer).first)
+        let response = try #require(JSONSerialization.jsonObject(with: responsePayload) as? [String: Any])
+        let error = try #require(response["error"] as? [String: Any])
+        #expect(response["ok"] as? Bool == false)
+        #expect(error["code"] as? String == "admission_expired")
+        #expect(await handled.recordedMethods().isEmpty)
+
+        await transport.finishReceiving()
+        await runTask.value
+    }
+
     @Test func testPairingPayloadDefaultsCanDiscloseOnlyIrohIdentity() throws {
         let store = MobileAttachTicketStore()
         let endpointID = String(repeating: "a", count: 64)

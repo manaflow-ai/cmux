@@ -37,6 +37,29 @@ extension MobileHostIrxRuntime {
             }
         )
         guard registered else { return }
+        // The device-list lease is the host's offline authorization boundary.
+        // Admission checks it once, but a live QUIC session can outlast the
+        // control-plane connection. Re-check before every RPC and close at the
+        // current lease deadline so an outage cannot turn a temporary grant
+        // into indefinite terminal control.
+        let leaseExpiryTask = Task { [deviceListBox = self.deviceListBox, endpointID = peer.endpointIDHex, peer] in
+            while !Task.isCancelled {
+                guard let snapshot = deviceListBox?.current,
+                      let entry = snapshot.entries[endpointID],
+                      !entry.revoked,
+                      snapshot.isFresh(now: .now) else {
+                    await irx.close(code: .revoked, origin: .local)
+                    return
+                }
+                let elapsed = snapshot.receivedAtMonotonic.duration(to: .now)
+                let remaining = .seconds(snapshot.ttlSeconds) - elapsed
+                do {
+                    try await Task.sleep(for: remaining)
+                } catch {
+                    return
+                }
+            }
+        }
         // Automatic path mode: authorize NAT traversal so the admitted session
         // can upgrade to a direct/LAN path make-before-break.
         if !Self.forceRelayOnly {
@@ -74,11 +97,23 @@ extension MobileHostIrxRuntime {
             // Control-idle timeout is for unowned legacy TCP connections and
             // must not tear down a healthy multi-lane QUIC session.
             idleTimeoutNanoseconds: 0,
+            irohAdmissionIsAuthorized: { [deviceListBox = self.deviceListBox, endpointID = peer.endpointIDHex, peer] in
+                guard let snapshot = deviceListBox?.current,
+                      snapshot.isFresh(now: .now),
+                      let entry = snapshot.entries[endpointID],
+                      !entry.revoked else { return false }
+                if let deviceID = entry.deviceID, deviceID != peer.deviceID { return false }
+                if let tag = entry.tag, tag != peer.tag { return false }
+                if let bindingID = entry.bindingID, bindingID != peer.bindingID { return false }
+                if let generation = entry.identityGeneration, generation != peer.identityGeneration { return false }
+                return true
+            },
             isCurrent: { [weak self] in
                 let runtime = self
                 return await MainActor.run { runtime?.generationToken == token }
             }
         )
+        leaseExpiryTask.cancel()
         journal.record(
             "host-runtime", "connection-exit",
             [
