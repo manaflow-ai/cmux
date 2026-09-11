@@ -434,7 +434,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
 
     @discardableResult
-    private func installSnapshotIfNewer(_ incoming: CloudVMState, requestVersion: UInt64? = nil) -> Bool {
+    func installSnapshotIfNewer(_ incoming: CloudVMState, requestVersion: UInt64? = nil) -> Bool {
         guard acceptsIncomingGeneration(incoming.cursor) else {
             #if DEBUG
             cmuxDebugLog("cloud.state.snapshotIgnored machine=\(machineID) reason=old-generation")
@@ -566,7 +566,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Publishes the authoritative graph and every derived row in one catalog
     /// transaction. Display and forwarded-port rows are machine capabilities, so
     /// they join the daemon graph here without becoming a second session state.
-    private func publish(
+    func publish(
         _ state: CloudVMState,
         ports: [Int],
         reconcileTitles: Bool = true,
@@ -603,7 +603,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Applies a contiguous event to the catalog's canonical graph. Row-local changes rebuild
     /// only their affected terminal, browser, or display rows. A topology change crosses a
     /// relationship boundary and uses the authoritative complete publication path.
-    private func publishDelta(
+    func publishDelta(
         _ state: CloudVMState,
         impact: CloudVMStateDeltaImpact,
         ports: [Int],
