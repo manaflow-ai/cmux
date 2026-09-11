@@ -122,7 +122,7 @@ struct CloudTreeRowContentView: View {
                 title: remotePort.map { CloudPortRoutePlan.sidebarTitle(remotePort: $0) }
                     ?? resource.title,
                 titleIsLink: url != nil,
-                detail: remotePort.map(CloudPortRoutePlan.sidebarDetail)
+                detail: CloudPortRoutePlan.sidebarDetail
             )
         case .placeholder(_, let placeholder):
             CloudTreePlaceholderContent(placeholder: placeholder, style: style)
