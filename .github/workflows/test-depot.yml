@@ -83,13 +83,8 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Export Node path for XCTest child processes
-        run: |
-          set -euo pipefail
-          node_path="$(command -v node)"
-          test -x "$node_path"
-          echo "CMUX_NODE_BINARY=$node_path" >> "$GITHUB_ENV"
-          "$node_path" --version
+      - name: Forward tool PATH into XCTest hosts
+        run: echo "TEST_RUNNER_PATH=$PATH" >> "$GITHUB_ENV"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
