@@ -66,7 +66,7 @@ enum IrxLiveTestSupport {
 
 @Suite("live QUIC", .serialized)
 struct IrxLiveQUICTests {
-    @Test("closing a control transport releases its owner without closing the session")
+    @Test("closing a control transport terminates its admitted session")
     func controlTransportReleasesOwner() async throws {
         let journal = IrxLiveTestSupport.journal()
         let server = try await IrxLiveTestSupport.bindLoopback(
@@ -106,7 +106,7 @@ struct IrxLiveQUICTests {
         await transport.close()
 
         #expect(await releaseProbe.count == 1)
-        #expect(await !irx.isClosed)
+        #expect(await irx.isClosed)
 
         let serverConnection = try #require(try await serverTask.value)
         await irx.close(code: .userRequested, origin: .local)

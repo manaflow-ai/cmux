@@ -5190,6 +5190,7 @@ import Testing
         )
         shell.remoteClient = oldClient
         shell.foregroundMacDeviceID = "mac-a"
+        shell.activeMacInstanceTag = "mmpool"
         shell.activeTicket = oldTicket
         shell.activeRoute = oldRoute
         shell.connectedHostName = "Mac A"
@@ -5343,6 +5344,66 @@ import Testing
         } catch {
             // Expected: the old control owner was retired before focus published.
         }
+    }
+
+    @Test func taggedForegroundReplacementRetiresExactFocusedOwner()
+        async throws {
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: LivenessHostRouter(),
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let route = try CmxAttachRoute(
+            id: "tagged-replacement",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-a",
+            terminalID: "terminal-a",
+            macDeviceID: "mac-a",
+            macDisplayName: "Mac A",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            connectionState: .connected
+        )
+        let ownerKey = MacPairingKey(
+            macDeviceID: "mac-a",
+            instanceTag: "nightly"
+        )
+        shell.remoteClient = client
+        shell.foregroundMacDeviceID = "mac-a"
+        shell.activeMacInstanceTag = "nightly"
+        shell.activeTicket = ticket
+        shell.activeRoute = route
+        shell.connections[ownerKey] = MacConnection(
+            macDeviceID: "mac-a",
+            ticket: ticket,
+            route: route,
+            client: client,
+            generation: UUID(),
+            displayName: "Mac A",
+            instanceTag: "nightly",
+            supportedHostCapabilities: [],
+            actionCapabilities: .none
+        )
+
+        await shell.releaseRemoteClientForReplacement()
+
+        #expect(shell.remoteClient == nil)
+        #expect(shell.connections[ownerKey] == nil)
     }
 
     @Test func lateAnonymousIdentityRegistersFocusedConnection() async throws {
