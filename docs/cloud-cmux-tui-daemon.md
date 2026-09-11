@@ -701,8 +701,9 @@ exists. See docs/vm-identity-edge-auth.md.
 ## Notifications from a machine
 
 `cmux notify` inside a machine is the guest shim (`web/services/vms/guestCli.ts`)
-translating to `notification create --title … --body … [--level …] --terminal
-$CMUX_TUI_TERMINAL_ID` on the machine's own session. The daemon appends it to
+running `cmux-tui --session cloud notify …` with the arguments untouched; the
+daemon's `notify` verb owns the macOS signature (subtitle, scoped `--clear`,
+`--reply` refused, `CMUX_TUI_TERMINAL_ID` as the caller terminal). The daemon appends it to
 its durable notification ledger and the v2 `session.events` stream carries it
 as a delta:
 
