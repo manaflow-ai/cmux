@@ -253,6 +253,23 @@ extension CMUXCLI {
             ],
             feedHookEvents: ["PreToolUse", "PostToolUse"]
         ),
+        AgentHookDef(
+            name: "vibe", displayName: "Mistral Vibe", statusKey: "vibe",
+            configDir: ".vibe", configFile: "hooks.toml",
+            configDirEnvOverride: "VIBE_HOME",
+            createConfigDirIfMissing: true,
+            sessionStoreSuffix: "vibe", disableEnvVar: "CMUX_VIBE_HOOKS_DISABLED",
+            hookMarker: "cmux hooks vibe", format: .tomlArrayTable,
+            events: [
+                // Vibe has no SessionStart or SessionEnd hook. post_agent fires
+                // after each turn; the stop handler upserts the session record
+                // (with session_id from the hook payload) and publishes the
+                // surface resume binding on the first turn, so session restore
+                // works even without an explicit session-start event.
+                .init(agentEvent: "post_agent", cmuxSubcommand: "stop"),
+            ],
+            feedHookEvents: ["pre_tool", "post_tool"]
+        ),
     ]
 
     static func agentDef(named name: String) -> AgentHookDef? {

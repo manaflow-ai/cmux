@@ -32994,6 +32994,10 @@ export default CMUXSessionRestore;
             try installHermesAgentHooks(def)
             return
         }
+        if def.name == "vibe" {
+            try installVibeHooks(def)
+            return
+        }
         if case .antigravityJSON = def.format {
             try installAntigravityHooks(def)
             return
@@ -33372,6 +33376,10 @@ export default CMUXSessionRestore;
         }
         if def.name == "hermes-agent" {
             try uninstallHermesAgentHooks(def)
+            return
+        }
+        if def.name == "vibe" {
+            try uninstallVibeHooks(def)
             return
         }
         if case .antigravityJSON = def.format {
