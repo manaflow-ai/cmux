@@ -1598,6 +1598,7 @@ export class FreestyleProvider implements VMProvider {
     if (ready?.exitCode === 0) return;
     const pin = await this.execResult(vm, "cut -d' ' -f2 /etc/cmux/cmux-tui-pin 2>/dev/null");
     const commit = pin?.exitCode === 0 ? pin.stdout.trim() : "";
+    console.info(`[freestyle] ${vmId}: agent hooks missing (ready exit ${ready?.exitCode ?? "n/a"}); installing for daemon ${commit || "(live pin)"}`);
     let source: CmuxTuiSource;
     try {
       source = /^[0-9a-f]{40}$/.test(commit)
@@ -1611,8 +1612,10 @@ export class FreestyleProvider implements VMProvider {
     }
     await this.execOrThrow(vm, vmId, cmuxTuiAgentHooksInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS)
       .catch((err: unknown) => {
+        console.warn(`[freestyle] ${vmId}: agent hook install failed: ${errorMessage(err)}`);
         throw new ProviderError("freestyle", `cmux-tui agent hook install in ${vmId} failed: ${errorMessage(err)}`);
       });
+    console.info(`[freestyle] ${vmId}: agent hooks installed for daemon ${source.commit}`);
   }
 
   /**
