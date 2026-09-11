@@ -243,6 +243,7 @@ def test_workspace_font_size_honors_global_window_override() -> None:
             global_window=WINDOW_ID,
         )
     assert result.returncode == 0, result.stderr
+    assert [request["method"] for request in state.requests] == ["workspace.font_size"]
     assert state.requests[-1]["params"] == {
         "action": "decrease",
         "window_id": WINDOW_ID,
@@ -293,3 +294,19 @@ def test_workspace_font_size_help_describes_scope_and_queueing() -> None:
     assert "all terminal panels" in result.stdout
     assert "relative 1pt step" in result.stdout
     assert "does not change focus" in result.stdout
+
+
+def test_workspace_font_size_invalid_action_with_global_window_has_no_side_effects() -> None:
+    cli_path = _cli_path()
+    with _fake_socket() as (socket_path, state):
+        result = _run_cli(
+            cli_path,
+            socket_path,
+            "workspace-font-size",
+            "grow",
+            global_window=WINDOW_ID,
+        )
+
+    assert result.returncode == 1
+    assert "Invalid workspace font-size action" in result.stderr
+    assert state.requests == []
