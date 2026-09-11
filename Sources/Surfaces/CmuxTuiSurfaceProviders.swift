@@ -1656,8 +1656,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Compatibility fallback for callers that only have a terminal identity. A terminal with
     /// several views has no safe implicit placement. Returning nil keeps the projection
     /// placement-neutral until a caller supplies an exact tab id.
-    private static func defaultRemoteView(for resource: SurfaceResource) -> SurfaceRemoteView? {
-        guard let views = resource.remoteViews, views.count == 1 else { return nil }
+    static func defaultRemoteView(for resource: SurfaceResource) -> SurfaceRemoteView? {
+        guard resource.kind != .display, let views = resource.remoteViews, views.count == 1 else { return nil }
         return views[0]
     }
 
