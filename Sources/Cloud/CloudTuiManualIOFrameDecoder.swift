@@ -39,16 +39,32 @@ struct CloudTuiManualIOFrameDecoder: Sendable {
         switch event {
         case "vt-state":
             guard let size = Self.size(from: object), let bytes = Self.bytes(from: object["data"]) else { return nil }
-            return .snapshot(surfaceID: surfaceID, columns: size.columns, rows: size.rows, bytes: bytes)
+            return .snapshot(
+                surfaceID: surfaceID,
+                columns: size.columns,
+                rows: size.rows,
+                bytes: bytes,
+                colors: CloudTuiRemoteColors(json: object["colors"])
+            )
         case "output":
             guard let bytes = Self.bytes(from: object["data"]) else { return nil }
-            return .output(surfaceID: surfaceID, bytes: bytes)
+            return .output(surfaceID: surfaceID, bytes: bytes, colors: CloudTuiRemoteColors(json: object["colors"]))
         case "resized":
             guard let size = Self.size(from: object),
                   let bytes = Self.bytes(
                       from: (object["replay"] as? String) ?? (object["data"] as? String)
                   ) else { return nil }
-            return .resized(surfaceID: surfaceID, columns: size.columns, rows: size.rows, bytes: bytes)
+            return .resized(
+                surfaceID: surfaceID,
+                columns: size.columns,
+                rows: size.rows,
+                bytes: bytes,
+                colors: CloudTuiRemoteColors(json: object["colors"])
+            )
+        case "colors-changed":
+            // The daemon flattens the colors object into the event itself.
+            guard let colors = CloudTuiRemoteColors(json: object) else { return nil }
+            return .colorsChanged(surfaceID: surfaceID, colors: colors)
         case "detached":
             return .detached(surfaceID: surfaceID)
         case "overflow":

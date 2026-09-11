@@ -20,10 +20,16 @@ Use this skill for any user-facing string change.
 Before finishing a task that changes UI, Settings rows, menus, shortcut metadata, schema/config text, docs, command/help text, alerts, or tooltips:
 
 1. Enumerate the changed user-facing surfaces.
-2. Verify each surface has a catalog key in the feature PR. Verify translated values for every supported locale in the release PR.
+2. Verify each surface has a catalog key and translated values for every supported macOS locale (`en`, `de`, `fr`, `ar`, `es`, `zh-Hant`, `zh-Hans`, `ko`, `ja`) in the feature PR, unless an exact omission record allows an absent value. Omission records still require `en` and `ja` entries.
 3. Parse the touched localization files and compare changed message keys across locales.
 4. Run `rg` over changed Swift/TS/TSX/docs files for newly introduced bare English.
 5. State in the final handoff what audit was performed, or explicitly say what could not be verified.
+
+`Resources/Localizable.xcstrings`, `Resources/InfoPlist.xcstrings`, and the linked macOS package catalogs must pass `python3 scripts/localization_catalog.py check`. New keys must carry all nine macOS locale entries unless covered by an exact omission record; `en` and `ja` entries remain required. Preserve printf placeholders and use plural variations for count strings where the source has a count.
+
+Count strings are recorded in `scripts/localization-plurals.json` with the English source and the argument numbers that select plurals. Every required plural category must contain translated text. Use substitutions when more than one count varies or when the count is not the first argument. Arabic requires zero/one/two/few/many/other; French and Spanish include many. Keep every message inside the catalog's `strings` object so Xcode compiles it.
+
+For a shared-spelling word inside a plural substitution, use an `identityLocales` object with `reason` and an explicit `values` list. This permits the listed leaf text (for example French `%d machines`) while continuing to reject an untranslated English sentence around it.
 
 ## Detailed reference
 

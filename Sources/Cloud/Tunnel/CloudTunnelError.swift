@@ -25,11 +25,13 @@ enum CloudTunnelError: Error, CustomStringConvertible, Equatable {
     case cloudMachinesOff
     /// The account has no Cloud machine yet; the tunnel has nothing to reach.
     case noCloudMachine
+    /// Legacy managed-policy refusal retained for existing callers/tests.
+    case disabledByPolicy
 
     /// A ``CloudActivationPolicy`` refusal, as opposed to a start that ran and failed.
     var isActivationRefusal: Bool {
         switch self {
-        case .cloudMachinesOff, .noCloudMachine: return true
+        case .cloudMachinesOff, .noCloudMachine, .disabledByPolicy: return true
         default: return false
         }
     }
@@ -77,6 +79,8 @@ enum CloudTunnelError: Error, CustomStringConvertible, Equatable {
                 localized: "cloudTunnel.error.cloudMachinesOff",
                 defaultValue: "Cloud Machines is turned off. Turn it on in Settings › Beta Features, then retry."
             )
+        case .disabledByPolicy:
+            return String(localized: "cloud.managed.tunnelDisabled", defaultValue: "Cloud private-network access is disabled by your organization.")
         case .noCloudMachine:
             return String(
                 localized: "cloudTunnel.error.noCloudMachine",

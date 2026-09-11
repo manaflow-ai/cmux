@@ -54,16 +54,26 @@ extension CMUXCLI {
                 )
             )
         }
-        let response = try client.sendV2(
-            method: "agent.restore.admit",
-            params: [
-                "workspace_id": workspaceID,
-                "surface_id": surfaceID,
-                "kind": record.kind,
-                "session_id": sessionID,
-                "record_session_id": recordSessionID ?? sessionID,
-            ]
-        )
+        let response = try RestoreAdmissionRetryPolicy.response(
+            onRetry: { attempt in
+                guard attempt == 0 else { return }
+                FileHandle.standardError.write(Data((String(
+                    localized: "cli.restore.admission.waiting",
+                    defaultValue: "restore: waiting for cmux to verify that this agent session is not already running…"
+                ) + "\n").utf8))
+            }
+        ) {
+            try client.sendV2(
+                method: "agent.restore.admit",
+                params: [
+                    "workspace_id": workspaceID,
+                    "surface_id": surfaceID,
+                    "kind": record.kind,
+                    "session_id": sessionID,
+                    "record_session_id": recordSessionID ?? sessionID,
+                ]
+            )
+        }
         guard response["admitted"] as? Bool == true else {
             if let processID = (response["live_owner_pid"] as? NSNumber)?.int64Value,
                processID > 0 {
@@ -110,6 +120,35 @@ extension CMUXCLI {
             sessionID: sessionID,
             claimID: claimID
         )
+    }
+
+    /// Bounded retry for a retryable `busy` admission answer.
+    ///
+    /// The app refuses admission when its ownership-sensitive process scan
+    /// cannot settle. Right after a relaunch several restored panes fire their
+    /// session-start hooks at once, so that churn is routine for a few
+    /// seconds. Giving up immediately left a bare shell whose binding then
+    /// retired, and the next relaunch had nothing to resume (#12084).
+    enum RestoreAdmissionRetryPolicy {
+        /// A structured v2 `busy` answer that the app marked retryable.
+        static func isRetryable(_ error: Error) -> Bool {
+            guard let error = error as? CLIError else { return false }
+            return error.isStructuredProtocolResponse
+                && error.v2Code == "busy"
+                && error.v2Retryable
+        }
+
+        /// `AgentRestoreAdmissionRetry.response` with the CLI's error classifier.
+        static func response(
+            onRetry: (Int) -> Void = { _ in },
+            sending send: () throws -> [String: Any]
+        ) throws -> [String: Any] {
+            try AgentRestoreAdmissionRetry.response(
+                onRetry: onRetry,
+                isRetryable: isRetryable,
+                sending: send
+            )
+        }
     }
 
     /// Best-effort rollback when preflight or `execve` fails after admission.

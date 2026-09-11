@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 import Observation
 import PostHog
@@ -66,6 +67,7 @@ final class CmuxFeatureFlags {
     private static let releaseControlDistinctIDPrefix =
         releaseControlProductWideDistinctID + "-"
     private nonisolated static let maximumPostHogControlPlaneResponseBytes = 1_048_576
+    private nonisolated static let releaseControlRetryAfterGate = CmxRetryAfterGate()
 
     // FLAG(key: sidebar-appkit-list-experiment, owner: lawrencecchen,
     //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
@@ -543,6 +545,7 @@ final class CmuxFeatureFlags {
         distinctID: String,
         personProperties: [String: String]
     ) async -> [String: Bool]? {
+        guard (try? await releaseControlRetryAfterGate.wait()) != nil else { return nil }
         guard let request = postHogControlPlaneRequest(
             distinctID: distinctID,
             personProperties: personProperties
@@ -553,8 +556,16 @@ final class CmuxFeatureFlags {
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
         guard let (bytes, response) = try? await session.bytes(for: request),
-              let http = response as? HTTPURLResponse,
-              (200..<300).contains(http.statusCode),
+              let http = response as? HTTPURLResponse else { return nil }
+        if http.statusCode == 429 {
+            let seconds = CmxRetryAfterPolicy.seconds(
+                from: http,
+                defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
+            ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+            await releaseControlRetryAfterGate.extend(by: seconds)
+            return nil
+        }
+        guard (200..<300).contains(http.statusCode),
               response.expectedContentLength < 0
                 || response.expectedContentLength <= maximumPostHogControlPlaneResponseBytes,
               let data = try? await boundedPostHogControlPlaneData(
