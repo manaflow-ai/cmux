@@ -20,6 +20,7 @@ const ready = {
     unpricedTokens: 0,
   },
   daily: [{ day: "2026-09-02", totalTokens: 1_300, apiEquivalentUsd: 4.25 }],
+  breakdown: [],
 };
 
 let sessionResolution:
@@ -159,6 +160,10 @@ describe("GET /api/coderouter/vm-usage", () => {
       asOf: "2026-09-02T12:00:00.000Z",
       totals: publicTotals,
       days: [{ day: "2026-09-02", totalTokens: 1_300, apiEquivalentUsd: 4.25 }],
+      workspaces: [],
+      terminals: [],
+      agents: [],
+      models: [],
     });
     expect(vmMetricsCalls).toEqual([["team-1", ownedVm, "vm_usage_api"]]);
   });
@@ -177,6 +182,10 @@ describe("GET /api/coderouter/vm-usage", () => {
       asOf: null,
       totals: null,
       days: [],
+      workspaces: [],
+      terminals: [],
+      agents: [],
+      models: [],
     });
   });
 });

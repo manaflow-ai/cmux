@@ -579,6 +579,14 @@ guest_coderouter_usage_render() {
   fi
   if [ "\$cmux_cu_format" = tsv ]; then usage_tsv "\$cmux_cu_file" "\$cmux_cu_days"; return 0; fi
   eval "\$(jq -r '@sh "cmux_cu_period=\\(.periodDays // 30) cmux_cu_asof=\\(.asOf // "?") cmux_cu_name=\\(.displayName // .vmId // "?") cmux_cu_total=\\(.totals.totalTokens // 0)"' "\$cmux_cu_file")"
+  # Workspace ids come from the ledger; their names live in this machine's
+  # cmux-tui. Best effort: no daemon, or an old one, leaves the ids visible.
+  cmux_cu_names='{}'
+  if [ -x "\$CMUX_TUI_BIN" ]; then
+    cmux_cu_names="\$("\$CMUX_TUI_BIN" --session "\$LOCAL_SESSION" workspace list --json 2>/dev/null \\
+      | jq -c '[.workspaces[]? | select(.id != null) | {key: .id, value: (.name // .id)}] | from_entries' 2>/dev/null || true)"
+    case "\$cmux_cu_names" in '{'*) ;; *) cmux_cu_names='{}' ;; esac
+  fi
   cmux_cu_bold=""; cmux_cu_dim=""; cmux_cu_reset=""
   if [ -t 1 ] && [ -z "\${NO_COLOR:-}" ]; then
     cmux_cu_bold="\$(printf '\\033[1m')"; cmux_cu_dim="\$(printf '\\033[2m')"; cmux_cu_reset="\$(printf '\\033[0m')"
@@ -591,7 +599,9 @@ guest_coderouter_usage_render() {
     --arg total "\$(cmux_message labelTotal)" --arg input "\$(cmux_message labelInput)" --arg cached "\$(cmux_message labelCached)" \\
     --arg output "\$(cmux_message labelOutput)" --arg api "\$(cmux_message labelApiEquivalent)" \\
     --arg costNote "\$(cmux_message usageCostNote)" --arg costUnpriced "\$(cmux_message usageCostUnpriced)" \\
-    --arg trendTpl "\$(cmux_message usageTrend "%1" "%2")" '
+    --arg trendTpl "\$(cmux_message usageTrend "%1" "%2")" --argjson names "\$cmux_cu_names" \\
+    --arg workspace "\$(cmux_message labelWorkspace)" --arg agentLabel "\$(cmux_message labelAgent)" --arg model "\$(cmux_message labelModel)" \\
+    --arg noWorkspace "\$(cmux_message usageNoWorkspace)" --arg moreTpl "\$(cmux_message usageMore "%1")" '
     def commas: tostring | (length - 1) as \$n
       | [range(0; length) as \$i | .[\$i:\$i+1] + (if (\$n - \$i) > 0 and ((\$n - \$i) % 3 == 0) then "," else "" end)] | join("");
     def whole: (. // 0) | floor | commas;
@@ -601,9 +611,18 @@ guest_coderouter_usage_render() {
     def lpad(\$w): tostring | if length >= \$w then . else (" " * (\$w - length)) + . end;
     def rpad(\$w): tostring | if length >= \$w then . else . + (" " * (\$w - length)) end;
     def bar(\$max): if . <= 0 or \$max <= 0 then "" else ((. * 12 / \$max) | ceil | if . < 1 then 1 else . end) as \$n | ("█" * \$n) end;
+    def share(\$all): if \$all > 0 then " (\\((. * 100 / \$all) | round)%)" else "" end;
+    def section(\$label; \$items; \$lw; \$total): if (\$items | length) == 0 then empty else
+        "\\(\$label | rpad(\$lw))  " + ([\$items[:5][] | "\\(.name) \\(.totals.totalTokens | whole)\\(.totals.totalTokens | share(\$total))"] | join("   "))
+        + (if (\$items | length) > 5 then "   \\(\$dim)\\(\$moreTpl | sub("%1"; ((\$items | length) - 5 | tostring)))\\(\$reset)" else "" end) end;
     .totals as \$t
-    | ([\$machine, \$tokens, \$cost, \$trend] | map(length) | max) as \$lw
+    | ((.workspaces // []) | map({name: (if .workspaceId == null then \$noWorkspace else (\$names[.workspaceId] // .workspaceId) end), totals})) as \$ws
+    | ((.agents // []) | map({name: .agent, totals})) as \$ag
+    | ((.models // []) | map({name: .model, totals})) as \$md
     | (.days // []) as \$all
+    | ([\$machine, \$tokens, \$cost] + (if (\$all | length) >= 8 then [\$trend] else [] end)
+        + (if (\$ws | length) > 0 then [\$workspace] else [] end) + (if (\$ag | length) > 0 then [\$agentLabel] else [] end)
+        + (if (\$md | length) > 0 then [\$model] else [] end) | map(length) | max) as \$lw
     | (\$all | .[-\$days:]) as \$window
     | (\$window | map(select((.totalTokens // 0) > 0))) as \$rows
     | (\$all | .[-7:] | map(.totalTokens // 0) | add // 0) as \$last7
@@ -613,6 +632,7 @@ guest_coderouter_usage_render() {
       "\\(\$tokens | rpad(\$lw))  \\(\$bold)\\(\$t.totalTokens | whole)\\(\$reset) \\(\$total) = \\(\$t.inputTokens | whole) \\(\$input) (\\(\$t.cachedInputTokens | whole) \\(\$cached)) + \\(\$t.outputTokens | whole) \\(\$output)",
       "\\(\$cost | rpad(\$lw))  \\(\$t.apiEquivalentUsd | usd) \\(\$api)  \\(\$dim)(\\(if \$t.totalTokens > 0 and \$t.apiEquivalentUsd == 0 then \$costUnpriced else \$costNote end))\\(\$reset)",
       (if (\$all | length) >= 8 then "\\(\$trend | rpad(\$lw))  \\(\$trendTpl | sub("%1"; (\$last7 | commas)) | sub("%2"; (\$prior7 | commas)))" else empty end),
+      section(\$workspace; \$ws; \$lw; \$t.totalTokens), section(\$agentLabel; \$ag; \$lw; \$t.totalTokens), section(\$model; \$md; \$lw; \$t.totalTokens),
       (if (\$rows | length) > 0 then
         ([\$rows[].totalTokens | whole | length] + [(\$tokens | length)] | max) as \$tw
         | ([\$rows[].apiEquivalentUsd | usd | length] + [(\$cost | length)] | max) as \$cw

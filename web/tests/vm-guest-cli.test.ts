@@ -303,6 +303,45 @@ esac
       ].join("\n"));
     });
 
+    test("usage breaks spend down per workspace (named through cmux-tui), agent, and model", () => {
+      const totals = (totalTokens: number) => ({ inputTokens: totalTokens, cachedInputTokens: 0, outputTokens: 0, totalTokens, apiEquivalentUsd: totalTokens / 100_000 });
+      const body = {
+        ...USAGE,
+        workspaces: [
+          { workspaceId: "ws_a", totals: totals(1_200_000) },
+          { workspaceId: "ws_b", totals: totals(400_000) },
+          { workspaceId: null, totals: totals(103_179) },
+        ],
+        terminals: [{ workspaceId: "ws_a", surfaceId: "sf_1", totals: totals(1_200_000) }],
+        agents: [{ agent: "claude", totals: totals(1_300_000) }, { agent: "codex", totals: totals(403_179) }],
+        models: [
+          { model: "claude-sonnet-5", totals: totals(1_200_000) },
+          { model: "gpt-5.6", totals: totals(403_179) },
+          { model: "claude-haiku-4-5", totals: totals(100_000) },
+        ],
+      };
+      const run = runShim(["coderouter", "usage"], USAGE_ENV, (directory) => {
+        usageCurl(JSON.stringify(body))(directory);
+        writeFileSync(join(directory, "cmux-tui"), "#!/bin/sh\nprintf '%s' '{\"workspaces\":[{\"id\":\"ws_a\",\"name\":\"chatmux\"},{\"id\":\"ws_zzz\",\"name\":\"idle\"}]}'\n");
+      });
+      expect(run.status).toBe(0);
+      expect(run.stdout).toContain([
+        "trend      last 7 days 1,303,179 tokens, prior 7 days 400,000",
+        "workspace  chatmux 1,200,000 (70%)   ws_b 400,000 (23%)   outside a workspace 103,179 (6%)",
+        "agent      claude 1,300,000 (76%)   codex 403,179 (24%)",
+        "model      claude-sonnet-5 1,200,000 (70%)   gpt-5.6 403,179 (24%)   claude-haiku-4-5 100,000 (6%)",
+        "",
+      ].join("\n"));
+      expect(run.stdout).not.toContain("sf_1");
+      const json = runShim(["coderouter", "usage", "--json"], USAGE_ENV, usageCurl(JSON.stringify(body)));
+      expect(JSON.parse(json.stdout).terminals).toEqual(body.terminals);
+
+      // Six or more entries: the top five, then a count of the rest.
+      const many = { ...USAGE, models: Array.from({ length: 7 }, (_, i) => ({ model: `m${i}`, totals: totals(70_000 - i * 10_000) })) };
+      const long = runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(JSON.stringify(many)));
+      expect(long.stdout).toContain("model    m0 70,000 (4%)   m1 60,000 (4%)   m2 50,000 (3%)   m3 40,000 (2%)   m4 30,000 (2%)   +2 more");
+    });
+
     test("usage names an unnamed machine by id, and explains a $0 cost on real tokens as unpriced", () => {
       const body = { ...USAGE, displayName: null, totals: { ...USAGE.totals, apiEquivalentUsd: 0 } };
       const run = runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(JSON.stringify(body)));
