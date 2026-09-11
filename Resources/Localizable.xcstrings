@@ -480701,55 +480701,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Remote VM port %d"
+            "value": "Remote VM · local forward"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リモート VM ポート %d"
+            "value": "リモート VM · ローカル転送"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Remote VM-Port %d"
+            "value": "Remote VM · lokale Weiterleitung"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Port de VM distant %d"
+            "value": "VM distante · redirection locale"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "منفذ VM البعيد %d"
+            "value": "VM البعيد · إعادة توجيه محلية"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Puerto de VM remoto %d"
+            "value": "VM remoto · reenvío local"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "遠端 VM 連接埠 %d"
+            "value": "遠端 VM · 本機轉送"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "远程 VM 端口 %d"
+            "value": "远程 VM · 本地转发"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "원격 VM 포트 %d"
+            "value": "원격 VM · 로컬 포워딩"
           }
         }
       }

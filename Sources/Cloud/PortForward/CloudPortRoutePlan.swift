@@ -1,18 +1,6 @@
 import CmuxFoundation
 import Foundation
 
-/// The user-facing endpoint for a Cloud VM port. `url` is the address a local
-/// browser can load; when it is a loopback forward, `remotePort` remains the
-/// VM service port and `localPort` is the listener on this Mac.
-struct CloudPortLink: Equatable, Sendable {
-    let remotePort: Int
-    let url: String
-    let privateURL: String?
-    let localPort: UInt16?
-
-    var isLocalForward: Bool { localPort != nil }
-}
-
 /// How a Ports or Desktop row reaches its service, decided from what the
 /// machine advertises and nothing else. Pure, so the decision is testable
 /// without panes; ``CmuxTuiSurfaceProvider`` executes the plan.
@@ -91,8 +79,8 @@ enum CloudPortRoutePlan: Equatable, Sendable {
     }
 
     /// The compact row detail shown below a discovered port.
-    static func sidebarDetail(remotePort: Int) -> String {
-        String(format: String(localized: "cloudTree.port.detail", defaultValue: "Remote VM port %d"), remotePort)
+    static var sidebarDetail: String {
+        String(localized: "cloudTree.port.detail", defaultValue: "Remote VM · local forward")
     }
 
     /// Explains why a copied/opened link can contain a different local port.
@@ -104,28 +92,5 @@ enum CloudPortRoutePlan: Equatable, Sendable {
             ),
             remotePort
         )
-    }
-
-    /// Human CLI wording for the two-port relationship.
-    static func cliLocalLinkLine(url: String, remotePort: Int) -> String {
-        String(
-            format: String(
-                localized: "cli.vm.portOpen.localLink",
-                defaultValue: "Local cmux link: %@ (forwards to VM port %d)"
-            ),
-            url,
-            remotePort
-        )
-    }
-
-    /// Human CLI wording when the control plane supplied a URL instead of a
-    /// local listener, or when the response carries a local forward.
-    static func cliLinkLine(url: String, remotePort: Int, isLocalForward: Bool) -> String {
-        if isLocalForward { return cliLocalLinkLine(url: url, remotePort: remotePort) }
-        return String(format: String(localized: "cli.vm.portOpen.link", defaultValue: "Link: %@"), url)
-    }
-
-    static func cliRemotePortLine(remotePort: Int) -> String {
-        String(format: String(localized: "cli.vm.portOpen.remotePort", defaultValue: "Remote VM port: %d"), remotePort)
     }
 }
