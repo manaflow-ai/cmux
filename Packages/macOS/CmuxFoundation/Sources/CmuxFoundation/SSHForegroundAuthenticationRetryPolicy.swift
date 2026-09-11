@@ -2524,9 +2524,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             *)
               cmux_ssh_auth_marker_path="${TMPDIR:-/tmp}/cmux-ssh-auth-marker.$CMUX_SSH_AUTH_EVENT_TOKEN"
               if [ -f "$cmux_ssh_auth_marker_path" ]; then
-                # zsh's managed descriptors are close-on-exec. Use a fixed
-                # descriptor so the marker survives the nested env/zsh exec.
-                # Scope the diagnostic redirection so the child keeps stderr.
+                # Fixed fd 7 survives the nested env/zsh exec.
+                # Scope open errors so exec does not permanently silence stderr.
                 if { exec 7<> "$cmux_ssh_auth_marker_path"; } 2>/dev/null; then
                   # Unlink the marker after the inherited descriptor is open.
                   # The helper uses the saved device and inode, not this path.

@@ -340,34 +340,17 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
             return rewrittenURL.path
         }
 
-        // Reusable startup commands carry the script as one base64 literal.
-        let encodedPrefix = "(printf %s "
-        let encodedSuffix = " | base64"
-        if let prefixRange = startupCommand.range(of: encodedPrefix),
-           let suffixRange = startupCommand.range(
-               of: encodedSuffix,
-               range: prefixRange.upperBound..<startupCommand.endIndex
-           ) {
-            let encodedRange = prefixRange.upperBound..<suffixRange.lowerBound
-            let encodedScript = String(startupCommand[encodedRange])
-            if let scriptData = Data(base64Encoded: encodedScript),
-               let script = String(data: scriptData, encoding: .utf8),
-               script.contains(systemSSHPath) {
-                var rewrittenCommand = startupCommand
-                rewrittenCommand.replaceSubrange(
-                    encodedRange,
-                    with: Data(script.replacingOccurrences(of: systemSSHPath, with: fakeSSHPath).utf8)
-                        .base64EncodedString()
-                )
-                let rewrittenURL = rewriteRoot.appendingPathComponent("startup-with-fake-ssh.sh")
-                try "#!/bin/sh\n\(rewrittenCommand)\n".write(
-                    to: rewrittenURL,
-                    atomically: true,
-                    encoding: .utf8
-                )
-                try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: rewrittenURL.path)
-                return rewrittenURL.path
-            }
+        if let rewritten = SSHStartupCommandTestSupport.replacingPinnedSSH(
+            in: startupCommand, with: fakeSSHPath
+        ) {
+            let rewrittenURL = rewriteRoot.appendingPathComponent("startup-with-fake-ssh.sh")
+            try "#!/bin/sh\n\(rewritten)\n".write(
+                to: rewrittenURL,
+                atomically: true,
+                encoding: .utf8
+            )
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: rewrittenURL.path)
+            return rewrittenURL.path
         }
 
         throw NSError(
