@@ -458,7 +458,6 @@ function StripePlan({
   canManageBilling: boolean;
 }) {
   const plan = subscription.plan === "max" ? "max" : "pro";
-  const plan = subscription.plan === "max" ? "max" : "pro";
   const price = priceCopy(subscription, t, plan);
   const periodDate = subscription.currentPeriodEnd
     ? formatBillingDate(subscription.currentPeriodEnd, locale)
