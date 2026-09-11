@@ -1,0 +1,495 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-05-12T16:00:00Z",
+  "generator": "cmux-home-example",
+  "source": {
+    "kind": "example",
+    "cmuxHost": "local",
+    "workstreamPath": "~/.cmuxterm/workstream.jsonl",
+    "hookSessionPaths": {
+      "claude": "~/.cmuxterm/claude-hook-sessions.json",
+      "codex": "~/.cmuxterm/codex-hook-sessions.json",
+      "opencode": "~/.cmuxterm/opencode-hook-sessions.json",
+      "pi": "~/.cmuxterm/pi-hook-sessions.json"
+    },
+    "eventCursor": {
+      "bootId": "example-boot",
+      "seq": 418,
+      "resumeGap": false
+    }
+  },
+  "config": {
+    "groupOrder": ["awaiting", "working", "completed"],
+    "hiddenAgents": [],
+    "density": "comfortable",
+    "accentByAgent": {
+      "claude": "orange",
+      "codex": "green",
+      "opencode": "blue",
+      "pi": "purple"
+    }
+  },
+  "groups": [
+    {
+      "id": "awaiting",
+      "title": "Awaiting",
+      "sessionIds": ["codex:codex-permission-17", "claude:claude-plan-42"]
+    },
+    {
+      "id": "working",
+      "title": "Working",
+      "sessionIds": ["opencode:opencode-refactor-8", "pi:pi-docs-4"]
+    },
+    {
+      "id": "completed",
+      "title": "Completed",
+      "sessionIds": ["claude:claude-tests-19", "codex:codex-review-33"]
+    }
+  ],
+  "sessions": [
+    {
+      "id": "codex:codex-permission-17",
+      "agent": "codex",
+      "adapter": "codex",
+      "agentSessionId": "codex-permission-17",
+      "sessionId": "codex-permission-17",
+      "title": "Fix auth callback race",
+      "status": "awaiting",
+      "preview": "Permission request for test command.",
+      "cwd": "/Users/example/src/cmux",
+      "branch": "feat-auth-callback",
+      "summary": "Codex is waiting for a shell permission decision.",
+      "startedAt": "2026-05-12T15:31:12Z",
+      "updatedAt": "2026-05-12T15:57:44Z",
+      "workspace": {
+        "id": "9B6920C1-6C29-4C27-A069-78CF285F932A",
+        "ref": "workspace:1",
+        "title": "auth callback",
+        "cwd": "/Users/example/src/cmux",
+        "windowId": "4D7E0FD9-A831-40F9-B3DF-5996AD8A0600",
+        "git": {
+          "repo": "manaflow-ai/cmux",
+          "branch": "feat-auth-callback"
+        }
+      },
+      "surface": {
+        "id": "83F4E6A4-5246-4DB8-A412-9CE7B059FA6C",
+        "ref": "surface:1",
+        "kind": "terminal",
+        "title": "codex"
+      },
+      "activity": {
+        "phase": "awaitingUser",
+        "confidence": "high",
+        "latestEventName": "agent.hook.PermissionRequest",
+        "latestEventId": "example-boot-417",
+        "lastMessage": "Permission request for test command."
+      },
+      "attention": {
+        "kind": "permission",
+        "requestId": "codex-req-17",
+        "source": "codex",
+        "hookEventName": "PermissionRequest",
+        "severity": "blocking",
+        "since": "2026-05-12T15:57:44Z",
+        "promptSummary": "Run a focused test command.",
+        "choices": ["allow once", "always allow", "deny"]
+      },
+      "resume": {
+        "command": ["codex", "resume", "codex-permission-17"],
+        "confidence": "high",
+        "knownGaps": ["Codex plan questions are not Feed hook events in the stock TUI path."]
+      },
+      "dispatch": {
+        "command": ["cmux", "send", "--workspace", "9B6920C1-6C29-4C27-A069-78CF285F932A", "--surface", "83F4E6A4-5246-4DB8-A412-9CE7B059FA6C", "{input}"],
+        "confidence": "high",
+        "knownGaps": []
+      },
+      "focus": {
+        "commands": [
+          ["cmux", "rpc", "workspace.select", "{\"workspace_id\":\"9B6920C1-6C29-4C27-A069-78CF285F932A\"}"],
+          ["cmux", "rpc", "surface.focus", "{\"workspace_id\":\"9B6920C1-6C29-4C27-A069-78CF285F932A\",\"surface_id\":\"83F4E6A4-5246-4DB8-A412-9CE7B059FA6C\"}"]
+        ]
+      },
+      "links": {
+        "workstreamItem": "workstream:codex-req-17"
+      }
+    },
+    {
+      "id": "claude:claude-plan-42",
+      "agent": "claude",
+      "adapter": "claude",
+      "agentSessionId": "claude-plan-42",
+      "sessionId": "claude-plan-42",
+      "title": "Design settings migration",
+      "status": "awaiting",
+      "preview": "Plan review requested.",
+      "cwd": "/Users/example/src/cmux",
+      "branch": "feat-settings-migration",
+      "summary": "Claude Code has an exit plan ready for review.",
+      "startedAt": "2026-05-12T15:08:20Z",
+      "updatedAt": "2026-05-12T15:49:09Z",
+      "workspace": {
+        "id": "1C1CF1E0-1D25-4668-9B53-2C3A0CC2413D",
+        "ref": "workspace:2",
+        "title": "settings migration",
+        "cwd": "/Users/example/src/cmux",
+        "windowId": "4D7E0FD9-A831-40F9-B3DF-5996AD8A0600",
+        "git": {
+          "repo": "manaflow-ai/cmux",
+          "branch": "feat-settings-migration"
+        }
+      },
+      "surface": {
+        "id": "51F3A389-2E39-4BC6-A327-844E8A006A13",
+        "ref": "surface:2",
+        "kind": "terminal",
+        "title": "claude"
+      },
+      "activity": {
+        "phase": "awaitingUser",
+        "confidence": "high",
+        "latestEventName": "agent.hook.ExitPlanMode",
+        "latestEventId": "example-boot-410",
+        "lastMessage": "Plan review requested."
+      },
+      "attention": {
+        "kind": "plan",
+        "requestId": "claude-plan-42",
+        "source": "claude",
+        "hookEventName": "ExitPlanMode",
+        "severity": "blocking",
+        "since": "2026-05-12T15:49:09Z",
+        "promptSummary": "Review the migration plan before edits.",
+        "choices": ["manual", "auto", "ultraplan", "deny"]
+      },
+      "resume": {
+        "command": ["claude", "--resume", "claude-plan-42"],
+        "confidence": "high",
+        "knownGaps": ["Prefer saved launchCommand flags when present."]
+      },
+      "dispatch": {
+        "command": ["cmux", "send", "--workspace", "1C1CF1E0-1D25-4668-9B53-2C3A0CC2413D", "--surface", "51F3A389-2E39-4BC6-A327-844E8A006A13", "{input}"],
+        "confidence": "high",
+        "knownGaps": []
+      },
+      "focus": {
+        "commands": [
+          ["cmux", "rpc", "workspace.select", "{\"workspace_id\":\"1C1CF1E0-1D25-4668-9B53-2C3A0CC2413D\"}"],
+          ["cmux", "rpc", "surface.focus", "{\"workspace_id\":\"1C1CF1E0-1D25-4668-9B53-2C3A0CC2413D\",\"surface_id\":\"51F3A389-2E39-4BC6-A327-844E8A006A13\"}"]
+        ]
+      },
+      "links": {
+        "workstreamItem": "workstream:claude-plan-42"
+      }
+    },
+    {
+      "id": "opencode:opencode-refactor-8",
+      "agent": "opencode",
+      "adapter": "opencode",
+      "agentSessionId": "opencode-refactor-8",
+      "sessionId": "opencode-refactor-8",
+      "title": "Split home renderer",
+      "status": "working",
+      "preview": "Renderer patch in progress.",
+      "cwd": "/Users/example/src/cmux",
+      "branch": "feat-home-renderer",
+      "summary": "OpenCode is editing the renderer prototype.",
+      "startedAt": "2026-05-12T15:18:05Z",
+      "updatedAt": "2026-05-12T15:59:30Z",
+      "workspace": {
+        "id": "D026B587-559F-4D16-B0F4-4DE1FC4585E7",
+        "ref": "workspace:3",
+        "title": "home renderer",
+        "cwd": "/Users/example/src/cmux",
+        "windowId": "4D7E0FD9-A831-40F9-B3DF-5996AD8A0600",
+        "git": {
+          "repo": "manaflow-ai/cmux",
+          "branch": "feat-home-renderer"
+        }
+      },
+      "surface": {
+        "id": "F1C9125A-E060-4022-A987-5A8E5E2A06A0",
+        "ref": "surface:3",
+        "kind": "terminal",
+        "title": "opencode"
+      },
+      "activity": {
+        "phase": "working",
+        "confidence": "high",
+        "latestEventName": "agent.hook.afterAgentResponse",
+        "latestEventId": "example-boot-418",
+        "lastMessage": "Renderer patch in progress."
+      },
+      "attention": null,
+      "resume": {
+        "command": ["opencode", "--session", "opencode-refactor-8"],
+        "confidence": "high",
+        "knownGaps": ["Project-local Feed plugin can differ from the global plugin."]
+      },
+      "dispatch": {
+        "command": ["cmux", "send", "--workspace", "D026B587-559F-4D16-B0F4-4DE1FC4585E7", "--surface", "F1C9125A-E060-4022-A987-5A8E5E2A06A0", "{input}"],
+        "confidence": "high",
+        "knownGaps": []
+      },
+      "focus": {
+        "commands": [
+          ["cmux", "rpc", "workspace.select", "{\"workspace_id\":\"D026B587-559F-4D16-B0F4-4DE1FC4585E7\"}"],
+          ["cmux", "rpc", "surface.focus", "{\"workspace_id\":\"D026B587-559F-4D16-B0F4-4DE1FC4585E7\",\"surface_id\":\"F1C9125A-E060-4022-A987-5A8E5E2A06A0\"}"]
+        ]
+      },
+      "links": {}
+    },
+    {
+      "id": "pi:pi-docs-4",
+      "agent": "pi",
+      "adapter": "pi",
+      "agentSessionId": "pi-docs-4",
+      "sessionId": "pi-docs-4",
+      "title": "Draft adapter docs",
+      "status": "working",
+      "preview": "Lifecycle hook reports active session.",
+      "cwd": "/Users/example/src/cmux",
+      "branch": "feat-pi-adapter",
+      "summary": "Pi is drafting notes from lifecycle hooks.",
+      "startedAt": "2026-05-12T15:35:50Z",
+      "updatedAt": "2026-05-12T15:56:11Z",
+      "workspace": {
+        "id": "FA92779A-3F15-49BC-A872-3401E5E654AF",
+        "ref": "workspace:4",
+        "title": "adapter docs",
+        "cwd": "/Users/example/src/cmux",
+        "windowId": "4D7E0FD9-A831-40F9-B3DF-5996AD8A0600",
+        "git": {
+          "repo": "manaflow-ai/cmux",
+          "branch": "feat-pi-adapter"
+        }
+      },
+      "surface": {
+        "id": "FF28B924-16AD-47EF-838B-336FD23EF8D5",
+        "ref": "surface:4",
+        "kind": "terminal",
+        "title": "pi"
+      },
+      "activity": {
+        "phase": "working",
+        "confidence": "medium",
+        "latestEventName": "agent.hook.session-start",
+        "latestEventId": "example-boot-401",
+        "lastMessage": "Lifecycle hook reports active session."
+      },
+      "attention": null,
+      "resume": {
+        "command": ["pi", "--session", "pi-docs-4"],
+        "confidence": "high",
+        "knownGaps": ["Pi does not provide Feed approval events yet."]
+      },
+      "dispatch": {
+        "command": ["cmux", "send", "--workspace", "FA92779A-3F15-49BC-A872-3401E5E654AF", "--surface", "FF28B924-16AD-47EF-838B-336FD23EF8D5", "{input}"],
+        "confidence": "medium",
+        "knownGaps": ["Awaiting state needs notification or lifecycle heuristics until Pi has Feed support."]
+      },
+      "focus": {
+        "commands": [
+          ["cmux", "rpc", "workspace.select", "{\"workspace_id\":\"FA92779A-3F15-49BC-A872-3401E5E654AF\"}"],
+          ["cmux", "rpc", "surface.focus", "{\"workspace_id\":\"FA92779A-3F15-49BC-A872-3401E5E654AF\",\"surface_id\":\"FF28B924-16AD-47EF-838B-336FD23EF8D5\"}"]
+        ]
+      },
+      "links": {}
+    },
+    {
+      "id": "claude:claude-tests-19",
+      "agent": "claude",
+      "adapter": "claude",
+      "agentSessionId": "claude-tests-19",
+      "sessionId": "claude-tests-19",
+      "title": "Add parser tests",
+      "status": "completed",
+      "preview": "Tests completed.",
+      "cwd": "/Users/example/src/cmux",
+      "branch": "test-parser-contract",
+      "summary": "Claude Code finished parser tests.",
+      "startedAt": "2026-05-12T14:42:01Z",
+      "updatedAt": "2026-05-12T15:12:28Z",
+      "completedAt": "2026-05-12T15:12:28Z",
+      "workspace": {
+        "id": "AB27733A-221D-4923-9245-15C8E204C9C9",
+        "ref": "workspace:5",
+        "title": "parser tests",
+        "cwd": "/Users/example/src/cmux",
+        "windowId": "4D7E0FD9-A831-40F9-B3DF-5996AD8A0600",
+        "git": {
+          "repo": "manaflow-ai/cmux",
+          "branch": "test-parser-contract"
+        }
+      },
+      "surface": {
+        "id": "8C10FD4D-6F7F-4F21-A177-3B8013F93089",
+        "ref": "surface:5",
+        "kind": "terminal",
+        "title": "claude"
+      },
+      "activity": {
+        "phase": "completed",
+        "confidence": "high",
+        "latestEventName": "agent.hook.Stop",
+        "latestEventId": "example-boot-322",
+        "lastMessage": "Tests completed."
+      },
+      "attention": null,
+      "resume": {
+        "command": ["claude", "--resume", "claude-tests-19"],
+        "confidence": "high",
+        "knownGaps": ["Prefer saved launchCommand flags when present."]
+      },
+      "dispatch": {
+        "command": ["cmux", "send", "--workspace", "AB27733A-221D-4923-9245-15C8E204C9C9", "--surface", "8C10FD4D-6F7F-4F21-A177-3B8013F93089", "{input}"],
+        "confidence": "high",
+        "knownGaps": []
+      },
+      "focus": {
+        "commands": [
+          ["cmux", "rpc", "workspace.select", "{\"workspace_id\":\"AB27733A-221D-4923-9245-15C8E204C9C9\"}"],
+          ["cmux", "rpc", "surface.focus", "{\"workspace_id\":\"AB27733A-221D-4923-9245-15C8E204C9C9\",\"surface_id\":\"8C10FD4D-6F7F-4F21-A177-3B8013F93089\"}"]
+        ]
+      },
+      "links": {}
+    },
+    {
+      "id": "codex:codex-review-33",
+      "agent": "codex",
+      "adapter": "codex",
+      "agentSessionId": "codex-review-33",
+      "sessionId": "codex-review-33",
+      "title": "Review Dock config",
+      "status": "completed",
+      "preview": "Review completed.",
+      "cwd": "/Users/example/src/cmux",
+      "branch": "review-dock-config",
+      "summary": "Codex completed a review with no open findings.",
+      "startedAt": "2026-05-12T14:20:14Z",
+      "updatedAt": "2026-05-12T14:58:52Z",
+      "completedAt": "2026-05-12T14:58:52Z",
+      "workspace": {
+        "id": "9EA98374-6E5E-48F3-A2DD-80EC68FE1E58",
+        "ref": "workspace:6",
+        "title": "dock review",
+        "cwd": "/Users/example/src/cmux",
+        "windowId": "4D7E0FD9-A831-40F9-B3DF-5996AD8A0600",
+        "git": {
+          "repo": "manaflow-ai/cmux",
+          "branch": "review-dock-config"
+        }
+      },
+      "surface": {
+        "id": "E4C049A5-72BF-40CB-B720-5A27CF51870A",
+        "ref": "surface:6",
+        "kind": "terminal",
+        "title": "codex"
+      },
+      "activity": {
+        "phase": "completed",
+        "confidence": "high",
+        "latestEventName": "agent.hook.Stop",
+        "latestEventId": "example-boot-288",
+        "lastMessage": "Review completed."
+      },
+      "attention": null,
+      "resume": {
+        "command": ["codex", "resume", "codex-review-33"],
+        "confidence": "high",
+        "knownGaps": ["Codex plan questions are not Feed hook events in the stock TUI path."]
+      },
+      "dispatch": {
+        "command": ["cmux", "send", "--workspace", "9EA98374-6E5E-48F3-A2DD-80EC68FE1E58", "--surface", "E4C049A5-72BF-40CB-B720-5A27CF51870A", "{input}"],
+        "confidence": "high",
+        "knownGaps": []
+      },
+      "focus": {
+        "commands": [
+          ["cmux", "rpc", "workspace.select", "{\"workspace_id\":\"9EA98374-6E5E-48F3-A2DD-80EC68FE1E58\"}"],
+          ["cmux", "rpc", "surface.focus", "{\"workspace_id\":\"9EA98374-6E5E-48F3-A2DD-80EC68FE1E58\",\"surface_id\":\"E4C049A5-72BF-40CB-B720-5A27CF51870A\"}"]
+        ]
+      },
+      "links": {}
+    }
+  ],
+  "adapters": {
+    "claude": {
+      "id": "claude",
+      "displayName": "Claude Code",
+      "sessionStorePath": "~/.cmuxterm/claude-hook-sessions.json",
+      "installCommand": ["cmux", "hooks", "setup", "claude"],
+      "resumeCommandTemplate": ["claude", "--resume", "{agentSessionId}"],
+      "dispatchCommandTemplate": ["claude", "{prompt}"],
+      "sessionSupport": {
+        "confidence": "high",
+        "events": ["SessionStart", "Stop", "PermissionRequest", "ExitPlanMode", "AskUserQuestion"],
+        "knownGaps": ["Saved launchCommand can carry extra safe flags."]
+      },
+      "feedSupport": {
+        "confidence": "high",
+        "events": ["PermissionRequest", "ExitPlanMode", "AskUserQuestion"],
+        "knownGaps": ["Transcript details must be summarized."]
+      },
+      "knownGaps": ["Use saved launchCommand before the static template when available."]
+    },
+    "codex": {
+      "id": "codex",
+      "displayName": "Codex",
+      "sessionStorePath": "~/.cmuxterm/codex-hook-sessions.json",
+      "installCommand": ["cmux", "hooks", "setup", "codex"],
+      "resumeCommandTemplate": ["codex", "resume", "{agentSessionId}"],
+      "dispatchCommandTemplate": ["codex", "{prompt}"],
+      "sessionSupport": {
+        "confidence": "high",
+        "events": ["SessionStart", "UserPromptSubmit", "Stop"],
+        "knownGaps": []
+      },
+      "feedSupport": {
+        "confidence": "medium",
+        "events": ["PreToolUse", "PermissionRequest"],
+        "knownGaps": ["Plan questions stay inside the stock Codex TUI today."]
+      },
+      "knownGaps": ["A shared Codex app-server adapter would be needed for plan questions."]
+    },
+    "opencode": {
+      "id": "opencode",
+      "displayName": "OpenCode",
+      "sessionStorePath": "~/.cmuxterm/opencode-hook-sessions.json",
+      "installCommand": ["cmux", "hooks", "setup", "opencode"],
+      "resumeCommandTemplate": ["opencode", "--session", "{agentSessionId}"],
+      "dispatchCommandTemplate": ["opencode", "{prompt}"],
+      "sessionSupport": {
+        "confidence": "high",
+        "events": ["plugin-session-start", "plugin-session-stop"],
+        "knownGaps": ["Project-local plugin installation is optional."]
+      },
+      "feedSupport": {
+        "confidence": "high",
+        "events": ["plugin event bus"],
+        "knownGaps": ["Global and project-local plugin config can differ."]
+      },
+      "knownGaps": ["Check project-local `.opencode/plugins` when cwd changes."]
+    },
+    "pi": {
+      "id": "pi",
+      "displayName": "Pi",
+      "sessionStorePath": "~/.cmuxterm/pi-hook-sessions.json",
+      "installCommand": ["cmux", "hooks", "setup", "pi"],
+      "resumeCommandTemplate": ["pi", "--session", "{agentSessionId}"],
+      "dispatchCommandTemplate": ["pi", "{prompt}"],
+      "sessionSupport": {
+        "confidence": "high",
+        "events": ["extension lifecycle"],
+        "knownGaps": []
+      },
+      "feedSupport": {
+        "confidence": "low",
+        "events": [],
+        "knownGaps": ["Pi currently has lifecycle and restore hooks only."]
+      },
+      "knownGaps": ["Awaiting state is heuristic until Pi exposes Feed approvals."]
+    }
+  }
+}
