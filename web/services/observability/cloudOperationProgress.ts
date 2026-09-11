@@ -39,7 +39,7 @@ export class CloudOperationProgress {
     try {
       await cloudDb().execute(sql`
         insert into cloud_operation_steps (user_id, operation_id, step_id, phase, outcome, started_at, ended_at)
-        values (${this.userId}, ${this.operationId}::uuid, ${id}::uuid, ${phase}, ${outcome}, ${start}, ${end ?? null})
+        values (${this.userId}, ${this.operationId}::uuid, ${id}::uuid, ${phase}, ${outcome}, ${start.toISOString()}::timestamptz, ${end?.toISOString() ?? null}::timestamptz)
         on conflict (user_id, operation_id, step_id) do update set outcome = excluded.outcome, ended_at = excluded.ended_at
       `);
     } catch {
