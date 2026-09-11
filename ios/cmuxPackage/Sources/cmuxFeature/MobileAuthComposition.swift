@@ -384,7 +384,11 @@ public struct MobileAuthComposition {
         accessGroup: String?,
         legacyProjectID: String
     ) -> TokenStoreInit {
-        #if DEBUG && targetEnvironment(simulator)
+        // Simulator artifacts built without a device provisioning profile do
+        // not have a valid keychain application-identifier entitlement. Keep
+        // simulator dogfood functional in every configuration while device
+        // Release builds continue to use the signed keychain store.
+        #if targetEnvironment(simulator)
         .memory
         #else
         guard let appNamespace else {
