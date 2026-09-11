@@ -909,11 +909,11 @@
           "enterprise": "Custom"
         },
         {
-          "label": "Resources shared across all Cloud VMs",
+          "label": "Resources per Cloud VM",
           "free": "false",
           "pro": "24 GB RAM and 6 vCPUs per VM",
           "max": "24 GB RAM and 6 vCPUs per VM",
-          "team": "24 GB RAM and 6 vCPUs per user, shared across all their VMs",
+          "team": "24 GB RAM and 6 vCPUs per VM",
           "enterprise": "Custom"
         },
         {

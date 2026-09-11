@@ -911,9 +911,9 @@
         {
           "label": "すべての Cloud VM で共有するリソース",
           "free": "false",
-          "pro": "24 GB RAM と 6 vCPU をすべての VM で共有",
-          "max": "24 GB RAM と 6 vCPU をすべての VM で共有",
-          "team": "ユーザーあたり 24 GB RAM と 6 vCPU を、そのユーザーのすべての VM で共有",
+          "pro": "各 VM に 24 GB RAM と 6 vCPU",
+          "max": "各 VM に 24 GB RAM と 6 vCPU",
+          "team": "各 VM に 24 GB RAM と 6 vCPU",
           "enterprise": "カスタム"
         },
         {
