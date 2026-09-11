@@ -522,13 +522,181 @@ guest_auth_status() {
   [ "\$cmux_authenticated" -eq 1 ] || return 1
 }
 
-guest_coderouter_usage() {
-  for cmux_arg in "\$@"; do
-    case "\$cmux_arg" in
-      --json) ;;
-      --help|-h) guest_usage; return 0 ;;
-      *) die_message 2 usageOption "\$cmux_arg" ;;
+# The readout of GET /api/coderouter/vm-usage/self. One text default that a
+# person and an agent both read (stable \`label  value\` lines, one row per day
+# with usage, a bar per row, colour only on a terminal); \`--json\` returns the
+# contract unchanged (vmUsageContract.ts); \`--tsv\` is the day table alone.
+# Without jq the raw body is printed, so an older image never loses it.
+# Exit codes: 0 shown, 1 edge did not answer, 2 bad option, 3 ledger unavailable.
+
+# usage_epoch <iso8601>: seconds since the epoch, GNU date first (the guest),
+# BSD date second (a Mac running the tests); empty when neither parses it.
+usage_epoch() {
+  date -u -d "\$1" +%s 2>/dev/null && return 0
+  date -u -j -f '%Y-%m-%dT%H:%M:%S' "\${1%%.*}" +%s 2>/dev/null
+}
+
+# usage_asof_text <iso8601>: "as of 2 min ago, 23:24 UTC"; only the absolute
+# time when the age cannot be computed. CMUX_NOW_EPOCH pins "now" for tests.
+usage_asof_text() {
+  cmux_ua_abs="\$(printf '%s' "\$1" | sed -e 's/T/ /' -e 's/:[0-9][0-9]\\(\\.[0-9]*\\)\\{0,1\\}Z\$/ UTC/')"
+  cmux_ua_then="\$(usage_epoch "\$1" || true)"
+  cmux_ua_now="\${CMUX_NOW_EPOCH:-\$(date -u +%s)}"
+  if [ -n "\$cmux_ua_then" ] && [ "\$cmux_ua_now" -ge "\$cmux_ua_then" ] 2>/dev/null; then
+    cmux_ua_age=\$(( (cmux_ua_now - cmux_ua_then) / 60 ))
+    if [ "\$cmux_ua_age" -lt 60 ]; then cmux_ua_rel="\$(cmux_message usageAgoMinutes "\$cmux_ua_age")"
+    elif [ "\$cmux_ua_age" -lt 1440 ]; then cmux_ua_rel="\$(cmux_message usageAgoHours "\$((cmux_ua_age / 60))")"
+    else cmux_ua_rel="\$(cmux_message usageAgoDays "\$((cmux_ua_age / 1440))")"; fi
+    cmux_message usageAsOf "\$(cmux_message usageAgo "\$cmux_ua_rel" "\$cmux_ua_abs")"
+  else
+    cmux_message usageAsOf "\$cmux_ua_abs"
+  fi
+}
+
+# usage_tsv <file> <days>: day, tokens, api_equivalent_usd, zeros included.
+usage_tsv() {
+  printf 'day\\ttokens\\tapi_equivalent_usd\\n'
+  jq -r --argjson days "\$2" '(.days // []) | .[-\$days:] | .[] | [.day, (.totalTokens // 0), (.apiEquivalentUsd // 0)] | @tsv' "\$1"
+}
+
+guest_coderouter_usage_render() {
+  cmux_cu_file="\$1"
+  cmux_cu_days="\$2"
+  if ! jq -e . "\$cmux_cu_file" >/dev/null 2>&1; then cat "\$cmux_cu_file"; return 0; fi
+  if jq -e '.kind == "unavailable"' "\$cmux_cu_file" >/dev/null 2>&1; then
+    cmux_message usageUnavailable
+    return 3
+  fi
+  # Anything that is not the ready contract (an error body, a future shape,
+  # a non-numeric field) is passed through untouched rather than formatted.
+  if ! jq -e '.kind == "ready" and (.totals | type) == "object" and (.periodDays | type) == "number" and (.asOf | type) == "string"
+      and ([.totals.inputTokens, .totals.cachedInputTokens, .totals.outputTokens, .totals.totalTokens, .totals.apiEquivalentUsd] | all(type == "number"))
+      and ((.days // []) | type) == "array"
+      and ((.days // []) | all((.day | type) == "string" and (.totalTokens | type) == "number" and (.apiEquivalentUsd | type) == "number"))' \\
+      "\$cmux_cu_file" >/dev/null 2>&1; then
+    cat "\$cmux_cu_file"
+    return 0
+  fi
+  if [ "\$cmux_cu_format" = tsv ]; then usage_tsv "\$cmux_cu_file" "\$cmux_cu_days"; return 0; fi
+  eval "\$(jq -r '@sh "cmux_cu_period=\\(.periodDays // 30) cmux_cu_asof=\\(.asOf // "?") cmux_cu_name=\\(.displayName // .vmId // "?") cmux_cu_total=\\(.totals.totalTokens // 0)"' "\$cmux_cu_file")"
+  # Workspace ids come from the ledger; their names live in this machine's
+  # cmux-tui. Best effort: no daemon, or an old one, leaves the ids visible.
+  # Ids are never shown: named (live) workspaces print by name, the rest fold
+  # into one "closed workspaces" entry, and when the lookup itself fails the
+  # workspace line is dropped rather than printed as ids.
+  cmux_cu_names='{}'
+  cmux_cu_names_ok=false
+  if [ -x "\$CMUX_TUI_BIN" ]; then
+    cmux_cu_names="\$("\$CMUX_TUI_BIN" --session "\$LOCAL_SESSION" workspace list --json 2>/dev/null \\
+      | jq -c '[.workspaces[]? | select(.id != null and .name != null) | {key: .id, value: .name}] | from_entries' 2>/dev/null || true)"
+    case "\$cmux_cu_names" in '{'*) cmux_cu_names_ok=true ;; *) cmux_cu_names='{}' ;; esac
+  fi
+  cmux_cu_bold=""; cmux_cu_dim=""; cmux_cu_reset=""
+  if [ -t 1 ] && [ -z "\${NO_COLOR:-}" ]; then
+    cmux_cu_bold="\$(printf '\\033[1m')"; cmux_cu_dim="\$(printf '\\033[2m')"; cmux_cu_reset="\$(printf '\\033[0m')"
+  fi
+  printf '%s%s%s\\n' "\$cmux_cu_bold" "\$(cmux_message usageTitle "\$cmux_cu_name" "\$cmux_cu_period" "\$(usage_asof_text "\$cmux_cu_asof")")" "\$cmux_cu_reset"
+  jq -r --argjson days "\$cmux_cu_days" \\
+    --arg bold "\$cmux_cu_bold" --arg dim "\$cmux_cu_dim" --arg reset "\$cmux_cu_reset" \\
+    --arg machine "\$(cmux_message labelMachine)" --arg tokens "\$(cmux_message labelTokens)" \\
+    --arg cost "\$(cmux_message labelCost)" --arg trend "\$(cmux_message labelTrend)" --arg day "\$(cmux_message labelDay)" \\
+    --arg total "\$(cmux_message labelTotal)" --arg input "\$(cmux_message labelInput)" --arg cached "\$(cmux_message labelCached)" \\
+    --arg output "\$(cmux_message labelOutput)" --arg api "\$(cmux_message labelApiEquivalent)" \\
+    --arg costNote "\$(cmux_message usageCostNote)" --arg costUnpriced "\$(cmux_message usageCostUnpriced)" \\
+    --arg trendTpl "\$(cmux_message usageTrend "%1" "%2")" --argjson names "\$cmux_cu_names" \\
+    --arg workspace "\$(cmux_message labelWorkspace)" --arg agentLabel "\$(cmux_message labelAgent)" --arg model "\$(cmux_message labelModel)" \\
+    --arg noWorkspace "\$(cmux_message usageNoWorkspace)" --arg closedWorkspaces "\$(cmux_message usageClosedWorkspaces)" \\
+    --argjson namesOk "\$cmux_cu_names_ok" --arg moreTpl "\$(cmux_message usageMore "%1")" '
+    def commas: tostring | (length - 1) as \$n
+      | [range(0; length) as \$i | .[\$i:\$i+1] + (if (\$n - \$i) > 0 and ((\$n - \$i) % 3 == 0) then "," else "" end)] | join("");
+    def whole: (. // 0) | floor | commas;
+    def usd: (. // 0) as \$v | ((\$v * 100) | round) as \$c
+      | if \$v > 0 and \$c == 0 then "<\$0.01"
+        else "\$" + ((\$c / 100 | floor) | commas) + "." + ((\$c % 100) | tostring | if length < 2 then "0" + . else . end) end;
+    def lpad(\$w): tostring | if length >= \$w then . else (" " * (\$w - length)) + . end;
+    def rpad(\$w): tostring | if length >= \$w then . else . + (" " * (\$w - length)) end;
+    def bar(\$max): if . <= 0 or \$max <= 0 then "" else ((. * 12 / \$max) | ceil | if . < 1 then 1 else . end) as \$n | ("█" * \$n) end;
+    def share(\$all): if \$all > 0 then " (\\((. * 100 / \$all) | round)%)" else "" end;
+    def section(\$label; \$items; \$lw; \$total): if (\$items | length) == 0 then empty else
+        "\\(\$label | rpad(\$lw))  " + ([\$items[:5][] | "\\(.name) \\(.totals.totalTokens | whole)\\(.totals.totalTokens | share(\$total))"] | join("   "))
+        + (if (\$items | length) > 5 then "   \\(\$dim)\\(\$moreTpl | sub("%1"; ((\$items | length) - 5 | tostring)))\\(\$reset)" else "" end) end;
+    .totals as \$t
+    | (.workspaces // []) as \$rawWs
+    | (\$rawWs | map(select(.workspaceId != null and \$names[.workspaceId] != null) | {name: \$names[.workspaceId], totals})) as \$namedWs
+    | (\$rawWs | map(select(.workspaceId != null and \$names[.workspaceId] == null))) as \$unnamedWs
+    | (\$rawWs | map(select(.workspaceId == null) | {name: \$noWorkspace, totals})) as \$outsideWs
+    | (if (\$unnamedWs | length) > 0 and (\$namesOk | not) then []
+       else (\$namedWs + \$outsideWs
+             + (if (\$unnamedWs | length) > 0 then [{name: \$closedWorkspaces, totals: {totalTokens: (\$unnamedWs | map(.totals.totalTokens) | add)}}] else [] end))
+            | sort_by(-.totals.totalTokens) end) as \$ws
+    | ((.agents // []) | map({name: .agent, totals})) as \$ag
+    | ((.models // []) | map({name: .model, totals})) as \$md
+    | (.days // []) as \$all
+    | ([\$machine, \$tokens, \$cost] + (if (\$all | length) >= 8 then [\$trend] else [] end)
+        + (if (\$ws | length) > 0 then [\$workspace] else [] end) + (if (\$ag | length) > 0 then [\$agentLabel] else [] end)
+        + (if (\$md | length) > 0 then [\$model] else [] end) | map(length) | max) as \$lw
+    | (\$all | .[-\$days:]) as \$window
+    | (\$window | map(select((.totalTokens // 0) > 0))) as \$rows
+    | (\$all | .[-7:] | map(.totalTokens // 0) | add // 0) as \$last7
+    | (\$all | .[-14:-7] | map(.totalTokens // 0) | add // 0) as \$prior7
+    | (\$rows | map(.totalTokens) | max // 0) as \$max
+    | "\\(\$machine | rpad(\$lw))  \\(.displayName // .vmId // "?")\\(if .displayName != null then "  \\(\$dim)\\(.vmId)\\(\$reset)" else "" end)",
+      "\\(\$tokens | rpad(\$lw))  \\(\$bold)\\(\$t.totalTokens | whole)\\(\$reset) \\(\$total) = \\(\$t.inputTokens | whole) \\(\$input) (\\(\$t.cachedInputTokens | whole) \\(\$cached)) + \\(\$t.outputTokens | whole) \\(\$output)",
+      "\\(\$cost | rpad(\$lw))  \\(\$t.apiEquivalentUsd | usd) \\(\$api)  \\(\$dim)(\\(if \$t.totalTokens > 0 and \$t.apiEquivalentUsd == 0 then \$costUnpriced else \$costNote end))\\(\$reset)",
+      (if (\$all | length) >= 8 then "\\(\$trend | rpad(\$lw))  \\(\$trendTpl | sub("%1"; (\$last7 | commas)) | sub("%2"; (\$prior7 | commas)))" else empty end),
+      section(\$workspace; \$ws; \$lw; \$t.totalTokens), section(\$agentLabel; \$ag; \$lw; \$t.totalTokens), section(\$model; \$md; \$lw; \$t.totalTokens),
+      (if (\$rows | length) > 0 then
+        ([\$rows[].totalTokens | whole | length] + [(\$tokens | length)] | max) as \$tw
+        | ([\$rows[].apiEquivalentUsd | usd | length] + [(\$cost | length)] | max) as \$cw
+        | "",
+          "\\(\$dim)\\(\$day | rpad(10))  \\(\$tokens | lpad(\$tw))  \\(\$cost | lpad(\$cw))\\(\$reset)",
+          (\$rows[] | "\\(.day | rpad(10))  \\(.totalTokens | whole | lpad(\$tw))  \\(.apiEquivalentUsd | usd | lpad(\$cw))  \\(.totalTokens | bar(\$max))")
+      else empty end),
+      "@omitted \\((\$window | length) - (\$rows | length)) \\(\$window | length)"
+  ' "\$cmux_cu_file" | while IFS= read -r cmux_cu_line; do
+    case "\$cmux_cu_line" in
+      "@omitted "*)
+        set -- \$cmux_cu_line
+        if [ "\$cmux_cu_total" -eq 0 ] 2>/dev/null; then
+          printf '\\n'; cmux_message usageNone "\$cmux_cu_period"
+        elif [ "\$2" -gt 0 ] 2>/dev/null; then
+          printf '%s' "\$cmux_cu_dim"; cmux_message usageOmitted "\$2" "\$3"; printf '%s' "\$cmux_cu_reset"
+        fi
+        ;;
+      *) printf '%s\\n' "\$cmux_cu_line" ;;
     esac
+  done
+  printf '\\n%s' "\$cmux_cu_dim"
+  cmux_message usageJsonHint
+  cmux_message usageTeamHint "https://cmux.com/dashboard/coderouter"
+  printf '%s' "\$cmux_cu_reset"
+}
+
+guest_coderouter_usage() {
+  cmux_cu_format=text
+  cmux_cu_days=30
+  [ "\${CMUX_OUTPUT:-}" != json ] || cmux_cu_format=json
+  while [ "\$#" -gt 0 ]; do
+    case "\$1" in
+      --json) cmux_cu_format=json ;;
+      --tsv) cmux_cu_format=tsv ;;
+      --days)
+        shift
+        case "\${1:-}" in
+          ''|*[!0-9]*) die_message 2 usageDays "\${1:-}" ;;
+        esac
+        [ "\$1" -ge 1 ] && [ "\$1" -le 30 ] || die_message 2 usageDays "\$1"
+        cmux_cu_days="\$1"
+        ;;
+      --days=*)
+        cmux_cu_days="\${1#--days=}"
+        case "\$cmux_cu_days" in ''|*[!0-9]*) die_message 2 usageDays "\$cmux_cu_days" ;; esac
+        [ "\$cmux_cu_days" -ge 1 ] && [ "\$cmux_cu_days" -le 30 ] || die_message 2 usageDays "\$cmux_cu_days"
+        ;;
+      --help|-h) cmux_message usageHelp; return 0 ;;
+      *) die_message 2 usageOption "\$1" ;;
+    esac
+    shift
   done
   require_coderouter
   cmux_response="\$(cmux_curl -fsS --connect-timeout 5 --max-time 20 \\
@@ -537,7 +705,18 @@ guest_coderouter_usage() {
     printf '%s\\n' "\$cmux_response" >&2
     return 1
   }
-  printf '%s\\n' "\$cmux_response"
+  if [ "\$cmux_cu_format" = json ] || ! command -v jq >/dev/null 2>&1; then
+    printf '%s\\n' "\$cmux_response"
+    if [ "\$cmux_cu_format" = json ] && command -v jq >/dev/null 2>&1 \\
+      && printf '%s' "\$cmux_response" | jq -e '.kind == "unavailable"' >/dev/null 2>&1; then return 3; fi
+    return 0
+  fi
+  cmux_cu_out="\$(mktemp "\${TMPDIR:-/tmp}/cmux-usage.XXXXXX")"
+  printf '%s\\n' "\$cmux_response" > "\$cmux_cu_out"
+  cmux_cu_rc=0
+  guest_coderouter_usage_render "\$cmux_cu_out" "\$cmux_cu_days" || cmux_cu_rc=\$?
+  rm -f "\$cmux_cu_out"
+  return "\$cmux_cu_rc"
 }
 
 guest_coderouter_models() {

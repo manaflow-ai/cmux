@@ -142,6 +142,59 @@ describe("Freestyle platform contract", () => {
     ]);
   });
 
+  test("create sizes from the create response and never re-reads the machine", async () => {
+    // vms.create already returns the machine's resources; a status read after
+    // it cost ~100 ms on every prod create for nothing. A size-less image is
+    // the one path that still grows the machine, and it grows from the create
+    // response; a sized image boots at its shape and is neither read nor grown.
+    const createResponse = (fake: ReturnType<typeof fakeFreestyle>, gets: string[], resizes: unknown[]) => {
+      const vm = fake.client.vms.ref(VM_ID);
+      vm.resize = (async (request: unknown) => {
+        resizes.push(request);
+      }) as never;
+      fake.client.vms.create = async (options: unknown) => {
+        fake.creates.push(options);
+        return {
+          vm,
+          vmId: VM_ID,
+          data: {
+            publicIpv6: "2602:f75c:0:1::2a",
+            vpcs: [{ ipv4: "10.4.0.7", ipv6: "fd00:4::7" }],
+            resources: { cpu: 2, memory: 4096, storage: 16384 },
+          },
+        } as never;
+      };
+      fake.client.vms.get = async (id: string) => {
+        gets.push(id);
+        throw new Error("create must not read the machine it just created");
+      };
+    };
+    const sizeless = fakeFreestyle({ probeExit: 0 });
+    const sizelessGets: string[] = [];
+    const sizelessResizes: unknown[] = [];
+    createResponse(sizeless, sizelessGets, sizelessResizes);
+    await providerWith(sizeless).create({
+      image: "sh-image",
+      network: { id: "vpc-test-1" },
+      memoryMb: 20480,
+    } as never);
+    expect(sizelessGets).toEqual([]);
+    expect(sizelessResizes).toHaveLength(1);
+
+    const sized = fakeFreestyle({ probeExit: 0 });
+    const sizedGets: string[] = [];
+    const sizedResizes: unknown[] = [];
+    createResponse(sized, sizedGets, sizedResizes);
+    await providerWith(sized).create({
+      image: "sh-image",
+      network: { id: "vpc-test-1" },
+      memoryMb: 20480,
+      imageSize: { name: "lgx", cpu: 12, memoryMb: 24576, storageMb: 98304 },
+    } as never);
+    expect(sizedGets).toEqual([]);
+    expect(sizedResizes).toEqual([]);
+  });
+
   test("network addresses persist from the create response, absent without a network", () => {
     expect(
       freestyleNetworkAddressMetadata({

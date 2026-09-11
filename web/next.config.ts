@@ -16,10 +16,15 @@ const releaseDocsOrigin =
 const nightlyDocsOrigin =
   process.env.CMUX_NIGHTLY_DOCS_ORIGIN ?? "https://cmux-docs-nightly.vercel.app";
 // The embedded browser reaches a dev server through its per-instance
-// Tailscale Serve hostname. Next.js blocks cross-origin HMR and RSC resources
-// unless that hostname is explicitly allowed. Keep this opt-in and validated
-// so production and SSH-backed development retain the default protection.
+// Tailscale Serve hostname. Published development VMs also use generated
+// `*.cmux.sh` hostnames. Next.js blocks cross-origin HMR and RSC resources
+// unless those origins are explicitly allowed. This setting is used only by
+// `next dev`; production keeps the default protection.
 const directDevBackendAllowedHost = directDevBackendHost();
+const developmentPublicationOrigins = [
+  ...(directDevBackendAllowedHost ? [directDevBackendAllowedHost] : []),
+  "*.cmux.sh",
+];
 
 // Agent landing pages moved under /agents/<agent>. Keep the old top-level
 // slugs working with permanent redirects, for the bare English path and every
@@ -71,9 +76,7 @@ const nextConfig: NextConfig = {
         ? "tsconfig.next.json"
         : "tsconfig.json",
   },
-  allowedDevOrigins: directDevBackendAllowedHost
-    ? [directDevBackendAllowedHost]
-    : undefined,
+  allowedDevOrigins: developmentPublicationOrigins,
   cacheComponents: true,
   partialPrefetching: true,
   experimental: {

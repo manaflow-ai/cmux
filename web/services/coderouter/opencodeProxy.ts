@@ -14,6 +14,7 @@ import {
   recordRouteEvent,
   recordUsageEvent,
 } from "./usageLedger";
+import { usageOriginFromHeaders } from "./usageOrigin";
 import {
   currentCoderouterRequestId,
   recordCoderouterOutcome,
@@ -460,6 +461,7 @@ export async function proxyOpenCodeRequest(
       provider: "opencode-go",
       agent: "opencode",
       model: usage.model,
+      ...usageOriginFromHeaders(request.headers),
       inputTokens: usage.inputTokens,
       cachedInputTokens: usage.cachedInputTokens,
       outputTokens: usage.outputTokens,

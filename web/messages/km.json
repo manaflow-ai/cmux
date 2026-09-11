@@ -152,6 +152,42 @@
     "applyAriaLabel": "ដាក់ពាក្យ Founding Engineer តាមអ៊ីមែល",
     "applyEmailSubject": "ដាក់ពាក្យ Founding Engineer នៅ cmux",
     "applyCta": "ផ្ញើអ៊ីមែល",
+    "foundingChromiumEngineer": {
+      "metaTitle": "ការងារ Founding Chromium Engineer នៅ cmux",
+      "metaDescription": "ចូលរួមជាមួយ cmux ជាវិស្វករ Chromium ស្ថាបនិក ដើម្បីទទួលបន្ទុក Chromium fork របស់យើង និងនាំ cmux ទៅ Windows និង Linux ជាមួយ C++ និង Rust។",
+      "section": "ការងារ",
+      "eyebrow": "អំពីតួនាទី",
+      "title": "Founding Chromium Engineer",
+      "tagline": "នាំ cmux ទៅ Windows និង Linux ។",
+      "intro": "cmux គឺជាស្ថានីយ macOS ដើមកំណើតដែលបង្កើតលើ Ghostty ហើយរចនាឡើងសម្រាប់ដំណើរការភ្នាក់ងារ AI សរសេរកូដជាច្រើនក្នុងពេលតែមួយ។ អ្នកអភិវឌ្ឍន៍រាប់សែននាក់ប្រើ cmux សម្រាប់លំហូរការងារសរសេរកូដជាមួយភ្នាក់ងារ។",
+      "hiring": "យើងកំពុងជ្រើសរើសវិស្វករស្ថាបនិកម្នាក់ ដើម្បីទទួលបន្ទុក cmux លើ Windows (និង Linux) ដែលសាងសង់លើ Chromium fork ផ្ទាល់ខ្លួនរបស់យើង។",
+      "whatYoullDo": "អ្វីដែលអ្នកនឹងធ្វើ",
+      "whatYoullDoItems": [
+        "ទទួលបន្ទុក Chromium fork របស់យើង៖ តាមដាន upstream, rebase ឱ្យស្អាត និងរក្សា patch របស់ cmux (ការរួមបញ្ចូល window/input/render, ផ្ទៃ terminal, UI ភ្នាក់ងារ)។",
+        "ទទួលបន្ទុក cmux លើ Windows និង Linux ពីដើមដល់ចប់៖ C++, កម្មវិធីដំឡើង, ធ្វើបច្ចុប្បន្នភាពស្វ័យប្រវត្តិ, របាយការណ៍ការគាំង។",
+        "ផ្ទេរ terminal core ដែលសាងសង់លើ Ghostty និងមុខងារ orchestration ភ្នាក់ងារ (ថេបបញ្ឈរ, ចិញ្ចៀនការជូនដំណឹង, ការបែងចែក, CLI) ទៅ Windows។",
+        "ធ្វើឱ្យដំណើរការមានអារម្មណ៍ដូច native៖ ពេលវេលាចាប់ផ្តើម, ការ render GPU, ភាពយឺតយ៉ាវនៃការបញ្ចូល។",
+        "ប្រើប្រាស់ផលិតផលដោយខ្លួនឯង សាកល្បង និងផ្ទៀងផ្ទាត់ជាប់ជាប្រចាំ។"
+      ],
+      "excitedLead": "យើងរំភើបជាពិសេស ប្រសិនបើអ្នក៖",
+      "excitedItems": [
+        "ជំនាញ C++ ជ្រៅជ្រះ និងបទពិសោធន៍ Chromium ពិតប្រាកដ - ល្អបំផុតប្រសិនបើអ្នកធ្លាប់ថែទាំ fork៖ រក្សា patch, rebase តាម milestone របស់ upstream, debug ក្នុង content/ ឬ blink ។",
+        "Rust គឺជាចំណុចខ្លាំងបន្ថែម (TUI និង networking daemon របស់យើងសរសេរដោយ Rust)។",
+        "អ្នកធ្លាប់បញ្ចេញ ឬថែទាំកម្មវិធី desktop Windows ពិតប្រាកដ។",
+        "បន្ថែម៖ ការចូលរួមក្នុង Chromium upstream, ចំណាប់អារម្មណ៍លើ Swift/AppKit, អ្នកថែទាំ open source, អតីតស្ថាបនិក។"
+      ],
+      "details": "ព័ត៌មានលម្អិត",
+      "roleTitle": "Founding Chromium Engineer",
+      "compensationLabel": "ប្រាក់ឈ្នួល",
+      "compensation": "$130k–$170k + ភាគហ៊ុន 0.5%–1.5%",
+      "benefitsLabel": "អត្ថប្រយោជន៍",
+      "benefits": "ធានារ៉ាប់រងសុខភាព ធ្មេញ និងភ្នែក",
+      "locationLabel": "ទីតាំង",
+      "location": "សាន់ហ្វ្រាន់ស៊ីស្កូ",
+      "applyAriaLabel": "ដាក់ពាក្យ Founding Chromium Engineer តាមអ៊ីមែល",
+      "applyEmailSubject": "ដាក់ពាក្យ Founding Chromium Engineer នៅ cmux",
+      "applyCta": "ផ្ញើអ៊ីមែល"
+    },
     "foundingDesigner": {
       "metaTitle": "ការងារ Founding Designer នៅ cmux",
       "metaDescription": "ចូលរួមជាមួយ cmux ជា Founding Designer ហើយរចនាអនាគតនៃការសរសេរកូដជាមួយ AI លើ macOS, TUI, Windows, Linux, iOS, Cloud, cmux.com និង chatmux។",

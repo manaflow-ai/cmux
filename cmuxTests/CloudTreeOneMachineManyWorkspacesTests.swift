@@ -244,7 +244,6 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "machine:brave-otter/ws/ws_main",
             "machine:brave-otter/ws/ws_main/resource:brave-otter/terminal/term_1/tab:tab_term_1_0",
             "machine:brave-otter/ws/ws_main/resource:brave-otter/terminal/term_shared/tab:tab_term_shared_0",
-            "machine:brave-otter/ws/ws_main/resource:brave-otter/display/display:1",
             "machine:brave-otter/ws/ws_side",
             "machine:brave-otter/ws/ws_side/resource:brave-otter/terminal/term_2/tab:tab_term_2_0",
             "machine:brave-otter/ws/ws_side/resource:brave-otter/terminal/term_shared/tab:tab_term_shared_1",
@@ -279,7 +278,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         }
         #expect(mainCount == 2)
         #expect(sideCount == 2)
-        // The pinned display travels with its workspace's open/drag group; the implicit one does not.
+        // Only actual placements travel with a workspace's open/drag group.
         #expect(byID["machine:brave-otter/ws/ws_side"]?.dragGroup?.resources == [
             SurfaceResourceID(machine: machine, kind: .terminal, key: "term_2"), shared.id, desktop.id,
         ])

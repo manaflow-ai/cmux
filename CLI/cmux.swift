@@ -4367,16 +4367,9 @@ struct CMUXCLI {
         return VMMachineKind.defaultKind
     }
     private static let cloudVMDesktopPort = 6901
-    /// Whether a machine payload (`vm.create` / `vm.status` / `vm.base_open`
-    /// response) describes a machine with a screen: the backend's `kind` when it
-    /// sends one, otherwise the image name for older control planes.
-    static func cloudVMResponseHasDesktop(_ response: [String: Any]) -> Bool {
-        VMMachineKind.resolved(kind: response["kind"], image: response["image"]).hasDesktop
-    }
-
     /// `vm shell <id>` and `vm open <id>`: the shared cloud open path through the
-    /// machine's cmux-tui remote daemon, then the screen beside the shell for desktop machines.
-    func openVMShellWithDesktop(
+    /// machine's cmux-tui remote daemon. Desktop panes are opened explicitly.
+    func openVMWorkspaceShell(
         vmId: String,
         windowRaw: String?,
         targetWorkspaceId: String?,
@@ -4384,7 +4377,7 @@ struct CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
-        let shellWorkspace = try vmOpenShell(
+        try vmOpenShell(
             id: vmId,
             workspaceName: "vm:\(vmId)",
             windowRaw: windowRaw,
@@ -4395,22 +4388,10 @@ struct CMUXCLI {
             jsonOutput: jsonOutput,
             idFormat: idFormat
         )
-        if let status = try? client.sendV2(method: "vm.status", params: ["id": vmId], responseTimeout: 30),
-           Self.cloudVMResponseHasDesktop(status) {
-            // The screen belongs beside the shell it was opened with, not in whatever
-            // workspace holds focus once the attach settles.
-            let desktopWorkspace = shellWorkspace?.workspaceId ?? vmAttachedWorkspaceId(vmId: vmId, client: client)
-            _ = try? openVMDesktopSplit(
-                vmId: vmId,
-                client: client,
-                workspaceId: desktopWorkspace,
-                terminalSurfaceId: shellWorkspace?.terminalSurfaceId
-            )
-        }
     }
 
     /// Shows the VM's desktop (noVNC) as a browser pane. One path for every entrypoint —
-    /// `vm desktop`, `vm open <m>:desktop`, the split beside `vm shell`, and the sidebar
+    /// `vm desktop`, `vm open <m>:desktop`, and the sidebar
     /// tree — through the app's `vm.desktop_open`, which loads the machine's private URL
     /// after the browser Network Extension is ready and reports the surface.
     /// Returns false when the machine has no desktop.
@@ -5789,7 +5770,7 @@ struct CMUXCLI {
                 }
                 if case .machine(let vmId) = target {
                     // The bare machine is the shell: exactly `vm shell <machine>`.
-                    try openVMShellWithDesktop(
+                    try openVMWorkspaceShell(
                         vmId: vmId,
                         windowRaw: windowOpt ?? windowId,
                         targetWorkspaceId: workspaceOpt,
@@ -6086,7 +6067,7 @@ struct CMUXCLI {
                 // a failed attach must not make the next `vm new` replay this create and
                 // "create" the same machine again.
                 Self.clearVMCreateIdempotency(idempotency)
-                let createdWorkspace = try vmOpenShell(
+                try vmOpenShell(
                     id: id,
                     workspaceName: "vm:\(id)",
                     windowRaw: targetWindow,
@@ -6101,18 +6082,6 @@ struct CMUXCLI {
                     jsonOutput: jsonOutput,
                     idFormat: idFormat
                 )
-                // A machine with a screen shows it: stream the noVNC desktop into a browser
-                // split beside the shell so the workspace opens as terminal + desktop.
-                if Self.cloudVMResponseHasDesktop(response) {
-                    _ = try? openVMDesktopSplit(
-                        vmId: id,
-                        client: client,
-                        workspaceId: createdWorkspace?.workspaceId,
-                        // Re-focusing the shell would select its workspace; a background
-                        // open leaves the person where they are.
-                        terminalSurfaceId: focus ? createdWorkspace?.terminalSurfaceId : nil
-                    )
-                }
 
             case "desktop", "vnc":
                 // The machine's screen, on demand: the noVNC desktop opens as a browser
@@ -6129,7 +6098,7 @@ struct CMUXCLI {
                         """)
                 }
                 let desktopWorkspace = workspaceOpt ?? vmAttachedWorkspaceId(vmId: vmId, client: client)
-                // One desktop path for `vm desktop`, `vm open <m>:desktop`, `vm shell`'s split
+                // One desktop path for `vm desktop`, `vm open <m>:desktop`,
                 // and the sidebar tree: vm.desktop_open in the app.
                 guard try openVMDesktopSplit(vmId: vmId, client: client, workspaceId: desktopWorkspace, jsonOutput: jsonOutput) else {
                     throw CLIError(message: String(
@@ -6271,7 +6240,7 @@ struct CMUXCLI {
                           cmux vm ls
                         """)
                 }
-                try openVMShellWithDesktop(
+                try openVMWorkspaceShell(
                     vmId: vmId,
                     windowRaw: windowOpt ?? windowId,
                     targetWorkspaceId: nil,

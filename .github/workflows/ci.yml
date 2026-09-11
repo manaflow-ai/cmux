@@ -159,6 +159,12 @@ jobs:
       - name: Validate Python test harness syntax
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
+      - name: Test macOS localization catalog tooling
+        run: python3 tests/test_localization_catalog.py
+
+      - name: Validate macOS localization parity
+        run: python3 scripts/localization_catalog.py check
+
       - name: Validate cmux-cloud-vm skill covers the vm CLI
         run: python3 tests/test_cloud_vm_skill_coverage.py
 

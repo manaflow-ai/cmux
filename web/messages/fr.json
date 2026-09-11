@@ -152,6 +152,42 @@
     "applyAriaLabel": "Postuler par e-mail au poste de Founding Engineer",
     "applyEmailSubject": "Candidature Founding Engineer chez cmux",
     "applyCta": "Envoyer un e-mail",
+    "foundingChromiumEngineer": {
+      "metaTitle": "Founding Chromium Engineer chez cmux",
+      "metaDescription": "Rejoignez cmux comme ingénieur fondateur Chromium pour prendre en charge notre fork de Chromium et apporter cmux sur Windows et Linux avec C++ et Rust.",
+      "section": "Recrutement",
+      "eyebrow": "À propos du poste",
+      "title": "Founding Chromium Engineer",
+      "tagline": "Apportez cmux sur Windows et Linux.",
+      "intro": "cmux est un terminal macOS natif basé sur Ghostty, conçu pour exécuter plusieurs agents de programmation IA en parallèle. Des centaines de milliers de développeurs utilisent cmux pour leurs workflows de programmation agentique.",
+      "hiring": "Nous recrutons un ingénieur fondateur pour prendre en charge cmux sur Windows (et Linux), construit sur notre propre fork de Chromium.",
+      "whatYoullDo": "Votre mission",
+      "whatYoullDoItems": [
+        "Prenez en charge notre fork de Chromium : suivez l'upstream, rebasez proprement et maintenez les patchs cmux (intégration fenêtre/entrée/rendu, surface de terminal, UI d'agent).",
+        "Prenez en charge cmux sur Windows et Linux de bout en bout : C++, installateur, mises à jour automatiques, rapports de plantage.",
+        "Portez le cœur de terminal basé sur Ghostty et les fonctionnalités d'orchestration d'agents (onglets verticaux, anneaux de notification, splits, CLI) sur Windows.",
+        "Offrez des performances dignes du natif : temps de démarrage, rendu GPU, latence d'entrée.",
+        "Dogfooding, tests et vérifications en permanence."
+      ],
+      "excitedLead": "Nous sommes particulièrement enthousiastes si vous :",
+      "excitedItems": [
+        "Solide maîtrise du C++ et vraie expérience de Chromium - idéalement vous avez maintenu un fork : portage de patchs, rebase sur les jalons upstream, débogage dans content/ ou blink.",
+        "Rust est un gros plus (notre TUI et notre démon réseau sont en Rust).",
+        "Vous avez livré ou maintenu une vraie application de bureau Windows.",
+        "Bonus : contributions à Chromium upstream, curiosité pour Swift/AppKit, mainteneur open source, ex-fondateur."
+      ],
+      "details": "Détails",
+      "roleTitle": "Founding Chromium Engineer",
+      "compensationLabel": "Rémunération",
+      "compensation": "$130k–$170k + 0,5 %–1,5 % de participation",
+      "benefitsLabel": "Avantages",
+      "benefits": "Assurance santé, dentaire et optique",
+      "locationLabel": "Lieu",
+      "location": "San Francisco",
+      "applyAriaLabel": "Postuler par e-mail au poste de Founding Chromium Engineer",
+      "applyEmailSubject": "Candidature Founding Chromium Engineer chez cmux",
+      "applyCta": "Envoyer un e-mail"
+    },
     "foundingDesigner": {
       "metaTitle": "Founding Designer chez cmux",
       "metaDescription": "Rejoignez cmux comme Founding Designer et concevez le futur du code avec l’IA sur macOS, TUI, Windows, Linux, iOS, Cloud, cmux.com et chatmux.",

@@ -61,7 +61,7 @@ extension CloudTreeNodeBuilder {
     /// socket's `vm.workspace_open` both read this, so a click and the CLI open
     /// the same set, and a tree rebuild stays O(resources × views) whatever the
     /// workspace count.
-    static func remoteWorkspaceMembersByWorkspace(resources: [SurfaceResource]) -> [String: CloudTreeRemoteWorkspaceMembers] {
+    static func remoteWorkspaceMembersByWorkspace(resources: [SurfaceResource], projections: [SurfaceProjection] = []) -> [String: CloudTreeRemoteWorkspaceMembers] {
         var byWorkspace: [String: CloudTreeRemoteWorkspaceMembers] = [:]
         for resource in resources {
             for workspace in resource.remoteWorkspaces {
@@ -74,12 +74,17 @@ extension CloudTreeNodeBuilder {
                 byWorkspace[workspace.id] = members
             }
         }
+        for member in SurfaceProjection.localDisplayMembers(resources: resources, projections: projections) {
+            var members = byWorkspace[member.workspaceID] ?? .none
+            members.displays.append(member.resource)
+            byWorkspace[member.workspaceID] = members
+        }
         return byWorkspace
     }
 
     /// The members of one workspace (an existing workspace nothing views has none).
-    static func remoteWorkspaceMembers(workspaceID: String, resources: [SurfaceResource]) -> CloudTreeRemoteWorkspaceMembers {
-        remoteWorkspaceMembersByWorkspace(resources: resources)[workspaceID] ?? .none
+    static func remoteWorkspaceMembers(workspaceID: String, resources: [SurfaceResource], projections: [SurfaceProjection] = []) -> CloudTreeRemoteWorkspaceMembers {
+        remoteWorkspaceMembersByWorkspace(resources: resources, projections: projections)[workspaceID] ?? .none
     }
 
     /// How many panes of each local workspace show each resource, built once per
@@ -112,14 +117,14 @@ extension CloudTreeNodeBuilder {
         let resources = snapshot.resources(on: machine)
         let workspaces = remoteWorkspaces(info: snapshot.machines.first { $0.id == machine }, resources: resources)
         if let byID = workspaces.first(where: { $0.id == trimmed }) {
-            return .found(byID, remoteWorkspaceMembers(workspaceID: byID.id, resources: resources))
+            return .found(byID, remoteWorkspaceMembers(workspaceID: byID.id, resources: resources, projections: snapshot.projections))
         }
         let byName = workspaces.filter { $0.name == trimmed }
         switch byName.count {
         case 0:
             return .notFound
         case 1:
-            return .found(byName[0], remoteWorkspaceMembers(workspaceID: byName[0].id, resources: resources))
+            return .found(byName[0], remoteWorkspaceMembers(workspaceID: byName[0].id, resources: resources, projections: snapshot.projections))
         default:
             return .ambiguous(byName)
         }

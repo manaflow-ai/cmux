@@ -22,6 +22,22 @@ import Testing
         #expect(team.contains("Requires"))
     }
 
+    @Test func whatsNewCompatFootnoteUsesTheBakedMacCompatFloors() {
+        let beta = MobileWhatsNewCatalog.macUpdateFootnote(
+            buildType: .beta,
+            iosVersion: "1.0.5"
+        )
+        #expect(beta.contains("0.64.23"))
+        #expect(beta.contains("0.64.22-nightly.3345650013202"))
+
+        let prod = MobileWhatsNewCatalog.macUpdateFootnote(
+            buildType: .prod,
+            iosVersion: "1.0.5"
+        )
+        #expect(prod.contains("0.64.23"))
+        #expect(prod.contains("0.64.22-nightly.3345650013202"))
+    }
+
     @Test func whatsNewCarriesTheCompatNoticeAsFootnoteNotFeatureRow() {
         let page = MobileWhatsNewCatalog.connectionsUpdate
         #expect(page.footnote != nil)

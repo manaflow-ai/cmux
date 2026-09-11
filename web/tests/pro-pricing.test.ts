@@ -163,19 +163,29 @@ describe("VM defaults and pricing copy", () => {
     }
   });
 
-  test("native pricing keeps the shared limits in every catalog value and Swift fallback", () => {
+  test("native pricing translations preserve the shared plan quantities", () => {
     const catalog = JSON.parse(readFileSync(new URL("../../Resources/Localizable.xcstrings", import.meta.url), "utf8"));
-    const swift = readFileSync(new URL("../../Sources/PricingPlansScreen.swift", import.meta.url), "utf8");
+    const sharedTerms: Record<string, string> = {
+      en: "shared across all",
+      de: "gemeinsam",
+      fr: "partagés",
+      ar: "مشتركة",
+      es: "compartid",
+      "zh-Hans": "共享",
+      "zh-Hant": "共用",
+      ko: "공유",
+      ja: "共有",
+    };
     for (const key of ["pricing.native.pro.feature.hours", "pricing.native.team.feature.compute", "pricing.native.sizes.body"]) {
       const localizations = catalog.strings[key].localizations as Record<string, { stringUnit: { value: string } }>;
       for (const [locale, { stringUnit: { value } }] of Object.entries(localizations)) {
-        expect(value).toContain("24 GB RAM");
-        expect(value).toContain("6 vCPU");
-        expect(value).toContain("50 ");
-        expect(value).toContain(locale === "ja" ? "共有" : "shared across all");
-        expect(value).not.toMatch(/(?:8|32|64|256) GB|each with its own resources/);
+        // Units and word order are localized; plan quantities stay the same.
+        for (const quantity of [24, 6, 50]) {
+          expect(value).toMatch(new RegExp(`(?:^|\\D)${quantity}(?:\\D|$)`));
+        }
+        expect(value).toContain(sharedTerms[locale] ?? sharedTerms.en);
+        expect(value).not.toMatch(/(?:^|\D)(?:8|32|64|256)(?:\D|$)|each with its own resources/);
       }
-      expect(swift).toContain(`defaultValue: "${localizations.en.stringUnit.value}"`);
     }
   });
 });

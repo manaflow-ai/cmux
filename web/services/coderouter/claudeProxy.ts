@@ -30,6 +30,7 @@ import {
   recordRouteEvent,
   recordUsageEvent,
 } from "./usageLedger";
+import { usageOriginFromHeaders } from "./usageOrigin";
 import { observeClaudeUsage, type ClaudeUsage } from "./claudeUsage";
 import {
   currentCoderouterRequestId,
@@ -251,6 +252,7 @@ export function createClaudeMessagesProxy(
         status: response.status,
         durationMs: Math.round(performance.now() - health.startedAt),
         streamed,
+        ...usageOriginFromHeaders(request.headers),
       });
     });
     return new Response(observed, { status: response.status, headers: response.headers });
@@ -1074,6 +1076,8 @@ function captureModelUsage(
     readonly status: number;
     readonly durationMs?: number;
     readonly streamed?: boolean;
+    readonly workspaceId?: string | null;
+    readonly surfaceId?: string | null;
   },
 ): void {
   if (!usage || usage.totalTokens === 0) return;
@@ -1089,6 +1093,8 @@ function captureModelUsage(
     upstreamAccountId: upstream.accountId,
     agent: ledger.agent,
     model: usage.model,
+    workspaceId: ledger.workspaceId,
+    surfaceId: ledger.surfaceId,
     inputTokens,
     cachedInputTokens: usage.cacheReadInputTokens,
     outputTokens: usage.outputTokens,

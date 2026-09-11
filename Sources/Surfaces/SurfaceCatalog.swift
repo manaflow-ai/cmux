@@ -1177,7 +1177,7 @@ final class SurfaceCatalog {
     /// Record a pane that shows a resource (materialized by a provider, or adopted from an
     /// existing pane such as a local terminal the app created on its own).
     func record(_ projection: SurfaceProjection) {
-        insertSupersedingLocalPlaceholder(projection)
+        insertSupersedingLocalPlaceholder(cloudPlacementCoordinator.projectionInCurrentWorkspace(projection))
         reconcileCloudWorkspaceBinding(localWorkspaceID: projection.workspaceID)
         notifyChange()
     }
@@ -1273,13 +1273,13 @@ final class SurfaceCatalog {
         notifyChange()
     }
 
-    /// A pane moved to another workspace (tab transfer / drag between windows).
     func moveProjections(panelID: UUID, to workspaceID: UUID) {
         let moved = projections.filter { $0.panelID == panelID && $0.workspaceID != workspaceID }
         guard !moved.isEmpty else { return }
         projections.subtract(moved)
         for var projection in moved {
             projection.workspaceID = workspaceID
+            projection = cloudPlacementCoordinator.projectionInCurrentWorkspace(projection)
             projections.insert(projection)
         }
         reconcileCloudWorkspaceBinding(localWorkspaceID: workspaceID)

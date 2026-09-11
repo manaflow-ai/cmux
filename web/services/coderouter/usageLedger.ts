@@ -33,6 +33,9 @@ export type UsageEventInput = {
   readonly upstreamAccountId?: string;
   readonly agent: string;
   readonly model: string | undefined;
+  /** cmux-tui workspace and terminal that launched the agent; null when unknown. */
+  readonly workspaceId?: string | null;
+  readonly surfaceId?: string | null;
   readonly inputTokens: number;
   readonly cachedInputTokens: number;
   readonly outputTokens: number;
@@ -79,6 +82,8 @@ export type UsageEventRow = {
   readonly request_id: string;
   readonly status: number;
   readonly upstream_account_id: string;
+  readonly workspace_id: string;
+  readonly surface_id: string;
 };
 
 /** Column-for-column shape of `route_events`. */
@@ -181,7 +186,16 @@ export function usageEventRow(
     request_id: boundedText(input.requestId, 64),
     status: boundedInteger(input.status, MAX_UINT16),
     upstream_account_id: ledgerAccountId(input.upstreamAccountId),
+    workspace_id: ledgerOriginId(input.workspaceId),
+    surface_id: ledgerOriginId(input.surfaceId),
   };
+}
+
+const ORIGIN_ID_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
+
+function ledgerOriginId(value: string | null | undefined): string {
+  const trimmed = value?.trim() ?? "";
+  return ORIGIN_ID_PATTERN.test(trimmed) ? trimmed : "";
 }
 
 export function routeEventRow(input: RouteEventInput, now: Date): RouteEventRow {

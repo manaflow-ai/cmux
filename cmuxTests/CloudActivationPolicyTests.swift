@@ -189,9 +189,17 @@ struct CloudActivationPolicyTests {
         defer { harness.tearDown() }
         let policy = harness.policy
 
+        #if DEBUG
+        #expect(policy.allowsBackgroundCloudWork)
+        #else
         #expect(policy.allowsBackgroundCloudWork == false)
+        #endif
         #expect(policy.allowsLaunchTimeTunnelAdoption == false)
+        #if DEBUG
+        #expect(policy.tunnelStartRefusal() == nil)
+        #else
         #expect(policy.tunnelStartRefusal() == .cloudMachinesOff)
+        #endif
 
         harness.turnCloudMachines(on: true)
         #expect(policy.allowsBackgroundCloudWork)
@@ -284,7 +292,7 @@ struct CloudActivationPolicyTests {
         #expect(cache.hasAnyMachine == nil)
     }
 
-    @Test("Cloud Machines is off by default, on only through the Beta Features toggle, and never on under a managed DisableCloud")
+    @Test("Cloud Machines defaults on in dev builds, remains explicitly controllable, and never bypasses managed DisableCloud")
     func cloudMachinesGateIsTheBetaToggle() throws {
         let suiteName = "cmux.cloud.feature.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -294,8 +302,13 @@ struct CloudActivationPolicyTests {
             key == ManagedDevicePolicyKey.disableCloud.rawValue ? true : nil
         })
 
-        #expect(CloudMachinesFeature.localOptIn(defaults: defaults) == false)
-        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged) == false)
+        #if DEBUG
+        let expectedDefault = true
+        #else
+        let expectedDefault = false
+        #endif
+        #expect(CloudMachinesFeature.localOptIn(defaults: defaults) == expectedDefault)
+        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged) == expectedDefault)
 
         defaults.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
         #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged))
@@ -303,5 +316,6 @@ struct CloudActivationPolicyTests {
 
         defaults.set(false, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
         #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged) == false)
+
     }
 }

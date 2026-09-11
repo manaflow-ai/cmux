@@ -65,15 +65,18 @@ if [ -f /usr/local/share/blesh/ble.sh ] && [ -z "${BLE_VERSION:-}" ]; then
   ble-bind -f 'M-C-h' kill-backward-cword
 fi
 
-# half-life palette: purple 135, lime 118, orange 166, hotpink 161. The machine
+# Palette colors, not 256-color cube indices: the pane renders in the Mac's
+# Ghostty theme, so magenta/green/yellow/cyan/red land on whatever that theme
+# says, exactly like the local zsh prompt (ESC[35m, ESC[32m, ESC[33m). A cube
+# index such as 135 is the same fixed purple under every theme. The machine
 # name stays in the prompt (\h): cloud machines are addressed by name.
 __cmux_git() {
   local b d=""
   b=$(git symbolic-ref --short HEAD 2>/dev/null) || b=$(git rev-parse --short HEAD 2>/dev/null) || return 0
   git diff --quiet --ignore-submodules HEAD 2>/dev/null || d="*"
-  printf ' on \001\033[38;5;166m\002%s\001\033[38;5;161m\002%s\001\033[0m\002' "$b" "$d"
+  printf ' on \001\033[36m\002%s\001\033[31m\002%s\001\033[0m\002' "$b" "$d"
 }
-PS1='\[\e[38;5;135m\]\u@\h\[\e[0m\] in \[\e[38;5;118m\]\w\[\e[0m\]$(__cmux_git) λ '
+PS1='\[\e[35m\]\u@\h\[\e[0m\] in \[\e[32m\]\w\[\e[0m\]$(__cmux_git)\[\e[33m\] λ\[\e[0m\] '
 
 HISTSIZE=50000
 HISTFILESIZE=50000

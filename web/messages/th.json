@@ -152,6 +152,42 @@
     "applyAriaLabel": "สมัครงาน Founding Engineer ทางอีเมล",
     "applyEmailSubject": "สมัครงาน Founding Engineer ที่ cmux",
     "applyCta": "ส่งอีเมล",
+    "foundingChromiumEngineer": {
+      "metaTitle": "งาน Founding Chromium Engineer ที่ cmux",
+      "metaDescription": "ร่วมงานกับ cmux ในฐานะวิศวกร Chromium ผู้ก่อตั้ง เพื่อดูแล Chromium fork ของเราและพา cmux ไปสู่ Windows และ Linux ด้วย C++ และ Rust",
+      "section": "ตำแหน่งงาน",
+      "eyebrow": "เกี่ยวกับบทบาทนี้",
+      "title": "Founding Chromium Engineer",
+      "tagline": "พา cmux ไปสู่ Windows และ Linux",
+      "intro": "cmux คือเทอร์มินัล macOS แบบเนทีฟที่สร้างบน Ghostty ออกแบบมาเพื่อรันเอเจนต์เขียนโค้ด AI หลายตัวพร้อมกัน นักพัฒนาหลายแสนคนใช้ cmux กับเวิร์กโฟลว์การเขียนโค้ดด้วยเอเจนต์",
+      "hiring": "เรากำลังมองหาวิศวกรผู้ก่อตั้งที่จะดูแล cmux บน Windows (และ Linux) ซึ่งสร้างบน Chromium fork ของเราเอง",
+      "whatYoullDo": "สิ่งที่คุณจะทำ",
+      "whatYoullDoItems": [
+        "ดูแล Chromium fork ของเรา: ติดตาม upstream, rebase อย่างสะอาด และดูแลแพตช์ของ cmux (การผสานหน้าต่าง/อินพุต/เรนเดอร์, พื้นผิวเทอร์มินัล, UI ของเอเจนต์)",
+        "ดูแล cmux บน Windows และ Linux แบบครบวงจร: C++, ตัวติดตั้ง, อัปเดตอัตโนมัติ, การรายงานข้อขัดข้อง",
+        "พอร์ตแกนเทอร์มินัลที่สร้างบน Ghostty และฟีเจอร์การจัดการเอเจนต์ (แท็บแนวตั้ง, วงแหวนแจ้งเตือน, การแยกหน้าต่าง, CLI) ไปยัง Windows",
+        "ทำให้ประสิทธิภาพรู้สึกเหมือนเนทีฟ: เวลาเริ่มระบบ, การเรนเดอร์ GPU, ความหน่วงของอินพุต",
+        "ใช้งานเอง ทดสอบ และตรวจสอบอยู่เสมอ"
+      ],
+      "excitedLead": "เราจะตื่นเต้นเป็นพิเศษหากคุณ:",
+      "excitedItems": [
+        "เชี่ยวชาญ C++ อย่างลึกซึ้งและมีประสบการณ์ Chromium จริง - หากเคยดูแล fork จะดีมาก: ดูแลแพตช์, rebase ตาม milestone ของ upstream, ดีบั๊กใน content/ หรือ blink",
+        "Rust เป็นข้อได้เปรียบอย่างมาก (TUI และ networking daemon ของเราเขียนด้วย Rust)",
+        "เคยปล่อยหรือดูแลแอปเดสก์ท็อป Windows จริง",
+        "พิเศษ: มีส่วนร่วมกับ Chromium upstream, สนใจ Swift/AppKit, เป็นผู้ดูแลโอเพนซอร์ส, เคยเป็นผู้ก่อตั้ง"
+      ],
+      "details": "รายละเอียด",
+      "roleTitle": "Founding Chromium Engineer",
+      "compensationLabel": "ค่าตอบแทน",
+      "compensation": "$130k–$170k + หุ้น 0.5%–1.5%",
+      "benefitsLabel": "สวัสดิการ",
+      "benefits": "ประกันสุขภาพ ทันตกรรม และสายตา",
+      "locationLabel": "สถานที่",
+      "location": "ซานฟรานซิสโก",
+      "applyAriaLabel": "สมัครงาน Founding Chromium Engineer ทางอีเมล",
+      "applyEmailSubject": "สมัครงาน Founding Chromium Engineer ที่ cmux",
+      "applyCta": "ส่งอีเมล"
+    },
     "foundingDesigner": {
       "metaTitle": "งาน Founding Designer ที่ cmux",
       "metaDescription": "เข้าร่วม cmux ในฐานะ Founding Designer และออกแบบอนาคตของการเขียนโค้ดด้วย AI บน macOS, TUI, Windows, Linux, iOS, Cloud, cmux.com และ chatmux",

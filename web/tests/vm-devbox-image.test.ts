@@ -129,6 +129,38 @@ describe("devbox image template", () => {
     expect(() => devboxGhosttyVersion("ARG CMUX_IMAGE_GHOSTTY_DEB_URL=https://x/ghostty.deb\n")).toThrow(/ghostty_<x.y.z>/);
   });
 
+  test("agent-config.sh carries the cmux workspace and terminal ids as usage headers", () => {
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-agent-config-origin-"));
+    try {
+      const run = (extraEnv: Record<string, string>) =>
+        spawnSync("bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; printf '%s' "\${ANTHROPIC_CUSTOM_HEADERS-}"`], {
+          encoding: "utf8",
+          env: {
+            NODE_ENV: "test",
+            PATH: process.env.PATH ?? "/usr/bin:/bin",
+            HOME: home,
+            OPENAI_BASE_URL: "https://coderouter.cmux.test/v1",
+            OPENAI_API_KEY: "cmux-vm-edge-placeholder",
+            CMUX_CODEROUTER_URL: "https://coderouter.cmux.test",
+            ...extraEnv,
+          },
+        });
+      expect(run({}).stdout).toBe("");
+      expect(run({ CMUX_WORKSPACE_ID: "ws_abc" }).stdout).toBe("x-cmux-workspace-id: ws_abc");
+      expect(run({ CMUX_WORKSPACE_ID: "ws_abc", CMUX_SURFACE_ID: "sf_1" }).stdout).toBe(
+        "x-cmux-workspace-id: ws_abc\nx-cmux-surface-id: sf_1",
+      );
+      expect(run({ CMUX_WORKSPACE_ID: "ws_abc", ANTHROPIC_CUSTOM_HEADERS: "x-mine: 1" }).stdout).toBe("x-mine: 1");
+      const codexConfig = readFileSync(path.join(home, ".codex", "config.toml"), "utf8");
+      expect(codexConfig).toContain("[model_providers.cmux.env_http_headers]");
+      expect(codexConfig).toContain('"x-cmux-workspace-id" = "CMUX_WORKSPACE_ID"');
+      expect(codexConfig).toContain('"x-cmux-surface-id" = "CMUX_SURFACE_ID"');
+      expect(codexConfig.indexOf("[model_providers.cmux.env_http_headers]")).toBeLessThan(codexConfig.indexOf("[history]"));
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   test("every shell file parses", () => {
     for (const name of ["cmux-bashrc", "agent-config.sh", "cmux-terminfo.sh"]) {
       const result = spawnSync("bash", ["-n", path.join(templateDir, name)]);

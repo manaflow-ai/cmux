@@ -235,6 +235,8 @@ extension Workspace {
             return "mobile_pairing"
         case .accountSignIn:
             return "account_sign_in"
+        case .cloudVPNSetup:
+            return "cloud_vpn_setup"
         }
     }
 }

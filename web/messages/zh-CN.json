@@ -152,6 +152,42 @@
     "applyAriaLabel": "通过电子邮件申请 Founding Engineer 职位",
     "applyEmailSubject": "申请 cmux 创始工程师",
     "applyCta": "发送邮件",
+    "foundingChromiumEngineer": {
+      "metaTitle": "cmux 创始 Chromium 工程师招聘",
+      "metaDescription": "加入 cmux 担任创始 Chromium 工程师，负责我们的 Chromium 分支，用 C++ 和 Rust 把 cmux 带到 Windows 和 Linux。",
+      "section": "招聘",
+      "eyebrow": "关于这个职位",
+      "title": "Founding Chromium Engineer",
+      "tagline": "把 cmux 带到 Windows 和 Linux。",
+      "intro": "cmux 是一款基于 Ghostty 的原生 macOS 终端，专为并行运行多个 AI 编程代理而设计。数十万开发者使用 cmux 驱动他们的代理编程工作流。",
+      "hiring": "我们正在招聘一位创始工程师，基于我们自己的 Chromium 分支，全面负责 Windows（以及 Linux）版的 cmux。",
+      "whatYoullDo": "你将做什么",
+      "whatYoullDoItems": [
+        "负责我们的 Chromium 分支：跟踪上游、干净地 rebase，并维护 cmux 补丁（窗口/输入/渲染集成、终端界面、智能体 UI）。",
+        "端到端负责 Windows 和 Linux 版 cmux：C++、安装程序、自动更新、崩溃报告。",
+        "将基于 Ghostty 的终端核心和智能体编排功能（垂直标签页、通知圆环、分屏、CLI）移植到 Windows。",
+        "让性能有原生质感：启动时间、GPU 渲染、输入延迟。",
+        "持续自用、测试和验证。"
+      ],
+      "excitedLead": "如果你具备以下特点，我们会格外兴奋：",
+      "excitedItems": [
+        "深厚的 C++ 功底和真实的 Chromium 开发经验——最好维护过分支：携带补丁、基于上游里程碑 rebase、在 content/ 或 blink 中调试。",
+        "会 Rust 是重要加分项（我们的 TUI 和网络守护进程都是 Rust 写的）。",
+        "发布或维护过真正的 Windows 桌面应用。",
+        "加分项：Chromium 上游贡献、对 Swift/AppKit 有兴趣、开源维护者、前创始人。"
+      ],
+      "details": "详情",
+      "roleTitle": "Founding Chromium Engineer",
+      "compensationLabel": "薪酬",
+      "compensation": "$130k–$170k + 0.5%–1.5% 股权",
+      "benefitsLabel": "福利",
+      "benefits": "医疗、牙科和视力保险",
+      "locationLabel": "地点",
+      "location": "旧金山",
+      "applyAriaLabel": "通过电子邮件申请 Founding Chromium Engineer 职位",
+      "applyEmailSubject": "申请 cmux Founding Chromium Engineer",
+      "applyCta": "发送邮件"
+    },
     "foundingDesigner": {
       "metaTitle": "cmux 创始设计师招聘",
       "metaDescription": "加入 cmux，成为创始设计师，设计 macOS、TUI、Windows、Linux、iOS、Cloud、cmux.com 和 chatmux 上 AI 编程的未来。",

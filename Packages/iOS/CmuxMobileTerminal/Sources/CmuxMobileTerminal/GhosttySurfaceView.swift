@@ -1825,21 +1825,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///
     /// The surface extends under the bottom safe area (the host applies
     /// `ignoresSafeArea(.container, .bottom)`), so when the keyboard is down the
-    /// always-visible toolbar must clear this much to avoid the home indicator. Reads
-    /// the view's own inset, falling back to the window's, because `safeAreaInsets`
-    /// can be zero before the view is on a window.
+    /// always-visible toolbar must clear this much to avoid the home indicator.
+    /// The window or captured outer inset owns the reservation: this surface
+    /// slides for the keyboard, so its local inset changes with presentation.
     private var safeAreaInsetsBottom: CGFloat {
         TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
             viewInset: safeAreaInsets.bottom,
-            windowInset: window?.safeAreaInsets.bottom ?? 0,
-            capturedInset: capturedBottomSafeAreaInset,
+            windowInset: window?.safeAreaInsets.bottom,
+            capturedInset: capturedBottomSafeAreaInset > 0 ? capturedBottomSafeAreaInset : nil,
             ancestorInsets: safeAreaAncestorBottomInsets
         )
     }
 
     /// Safe-area value captured outside the SwiftUI subtree that intentionally
     /// ignores the terminal's bottom container region. This stays as a
-    /// fallback: a live view or window inset still wins when UIKit provides it.
+    /// fallback for the window, ahead of this moving surface's local inset.
     private var capturedBottomSafeAreaInset: CGFloat = 0
 
     /// Updates the outer safe-area fallback and immediately re-seats the dock

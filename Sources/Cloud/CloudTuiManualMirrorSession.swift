@@ -44,6 +44,8 @@ final class CloudTuiManualMirrorSession {
     /// socket is still the cleanup fence for peers without lease support.
     private var remoteLease: String?
     private var replayNeedsReset = false
+    /// The last sidecar fed to the local surface; the next one is applied as a delta from it.
+    private var appliedRemoteColors = CloudTuiRemoteColors()
     private var hasReceivedRemoteReplay = false
     private var lastRemoteGrid: CloudTuiManualIOGrid?
     private(set) var phase: CloudTuiManualMirrorPhase = .idle
@@ -81,6 +83,14 @@ final class CloudTuiManualMirrorSession {
     /// assigning them here also makes rebinding after restore safe.
     func bind(surface: TerminalSurface) {
         self.surface = surface
+        // A color sidecar that arrived before any surface existed reaches this
+        // one now. The stored sidecar is the remote truth, and the next
+        // identical sidecar would produce an empty delta and leave the pane on
+        // the local theme.
+        let pendingColors = appliedRemoteColors.oscBytes
+        if !pendingColors.isEmpty {
+            surface.processRemoteOutput(pendingColors)
+        }
         surface.onManualSizeApplied = { [weak self] sample in
             self?.apply(size: sample, validatePanePixels: false)
         }
@@ -384,25 +394,31 @@ final class CloudTuiManualMirrorSession {
 
     private func handle(frame: CloudTuiManualIOFrame) {
         switch frame {
-        case let .snapshot(surfaceID, columns, rows, bytes):
+        case let .snapshot(surfaceID, columns, rows, bytes, colors):
             guard surfaceID == remoteSurfaceID else { return }
             applyReplay(bytes, reset: replayNeedsReset)
+            applyColors(colors)
             replayNeedsReset = false
             hasReceivedRemoteReplay = true
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
             reconcileRemoteGrid()
-        case let .output(surfaceID, bytes):
+        case let .output(surfaceID, bytes, colors):
             guard surfaceID == remoteSurfaceID else { return }
             surface?.processRemoteOutput(bytes)
-        case let .resized(surfaceID, columns, rows, bytes):
+            applyColors(colors)
+        case let .resized(surfaceID, columns, rows, bytes, colors):
             guard surfaceID == remoteSurfaceID else { return }
             // `resized` carries a replacement replay, not an incremental
             // output chunk. Resetting first prevents old rows/cursor state from
             // surviving a shrink or a reconnect.
             applyReplay(bytes, reset: true)
+            applyColors(colors)
             hasReceivedRemoteReplay = true
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
             reconcileRemoteGrid()
+        case let .colorsChanged(surfaceID, colors):
+            guard surfaceID == remoteSurfaceID else { return }
+            applyColors(colors)
         case let .detached(surfaceID):
             guard surfaceID == remoteSurfaceID else { return }
             transitionToDisconnected()
@@ -424,9 +440,27 @@ final class CloudTuiManualMirrorSession {
 
     private func applyReplay(_ bytes: Data, reset: Bool) {
         if reset {
+            // Drop every remote color before the reset rather than trusting
+            // RIS to do it: the replay's own sidecar re-applies the authored
+            // set in full, so the pane ends in the same state either way.
+            applyColors(CloudTuiRemoteColors())
             surface?.processRemoteOutput(Self.replayReset)
         }
         surface?.processRemoteOutput(bytes)
+    }
+
+    /// The replay is theme-portable: it carries no palette or default-color
+    /// OSC state, so the local Ghostty theme stands for every color the
+    /// remote PTY did not author. The sidecar restores the authored ones and
+    /// is a full sparse replacement, so an entry that vanished since the last
+    /// sidecar is reset back to the local theme. A frame with no sidecar
+    /// leaves the applied colors alone.
+    private func applyColors(_ colors: CloudTuiRemoteColors?) {
+        guard let colors else { return }
+        let delta = colors.oscDelta(from: appliedRemoteColors)
+        appliedRemoteColors = colors
+        guard !delta.isEmpty else { return }
+        surface?.processRemoteOutput(delta)
     }
 
     private func transitionToDisconnected() {

@@ -31,13 +31,11 @@ enum CloudVMPanelAuthState: Equatable {
 struct MachinesPanelView: View {
     @StateObject private var viewModel = MachinesPanelViewModel()
     @State private var expansionStore = CloudTreeExpansionStore()
-    /// The explicit Cloud VPN's state (`cmux vpn up`), shown as a banner while
-    /// it is starting, waiting for the extension approval, up, or failed.
-    @State private var tunnelStatus = CloudTunnelStatusModel()
     /// The tree's visual preset; the debug gallery's "Use" buttons write this,
     /// and @AppStorage re-renders the live panel the moment it changes.
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
     let chromeBackgroundColor: NSColor
+    var tabManager: TabManager? = nil
 
     private var accountFlow: HostAccountFlow? {
         AppDelegate.shared?.auth?.accountFlow
@@ -71,20 +69,12 @@ struct MachinesPanelView: View {
         .onDisappear {
             viewModel.stopPolling()
         }
-        .task {
-            await tunnelStatus.observe(AppDelegate.shared?.cloudTunnelCoordinator)
-        }
         .accessibilityIdentifier("CloudMachinesPanel")
     }
 
     @ViewBuilder
     private var authenticatedContent: some View {
         controlBar
-        if let banner = tunnelStatus.banner {
-            MachinesTunnelBanner(banner: banner, backgroundColor: chromeBackgroundColor) {
-                SystemExtensionSettingsLink.open()
-            }
-        }
         if let plan = viewModel.plan, !plan.isPaidPlan, let text = plan.freeAccessBannerText {
             MachinesFreeAccessBanner(
                 text: text,
@@ -446,7 +436,7 @@ struct MachinesPanelView: View {
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
-            refresh: { [weak viewModel] in viewModel?.refresh(tree: true) }
+            refresh: { [weak viewModel] in viewModel?.refresh(tree: true) }, refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) }
         )
         return CloudTreeOutlineView(
             machines: viewModel.machines,
@@ -710,6 +700,7 @@ struct MachinesChromeIconButton: View {
 /// see the store. All verbs go through `CloudVMActionLauncher` so this panel,
 /// the ＋ menu, the palette, and the CLI share one mutation path.
 struct MachineRowActions {
+    let setupVPN: @MainActor (NSWindow?) -> Void
     let openShell: @MainActor (String) -> Void
     let openDesktop: @MainActor (String) -> Void
     let runCommand: @MainActor (String, [String]) -> Void
@@ -726,6 +717,7 @@ struct MachineRowActions {
         onDidMutate: @escaping @MainActor () -> Void
     ) -> MachineRowActions {
         MachineRowActions(
+            setupVPN: { window in _ = AppDelegate.shared?.openCloudVPNSetupWorkspace(preferredWindow: window) },
             openShell: { id in
                 onWillMutate(String(format: String(localized: "machines.operation.openShell", defaultValue: "Opening %@\u{2026}"), id))
                 if !launch(arguments: ["vm", "shell", id], onDidMutate: onDidMutate) {

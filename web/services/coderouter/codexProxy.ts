@@ -16,6 +16,7 @@ import {
   recordRouteEvent,
   recordUsageEvent,
 } from "./usageLedger";
+import { usageOriginFromHeaders } from "./usageOrigin";
 import { isStreamingResponse, observeModelUsage, type ModelUsage } from "./responseUsage";
 import {
   currentCoderouterRequestId,
@@ -513,6 +514,7 @@ async function proxyCodexRequestWith(
       status,
       durationMs: Math.round(performance.now() - startedAt),
       streamed,
+      ...usageOriginFromHeaders(request.headers),
     });
   });
   return new Response(observedBody, {
@@ -954,6 +956,8 @@ function captureModelUsage(
     readonly status: number;
     readonly durationMs?: number;
     readonly streamed?: boolean;
+    readonly workspaceId?: string | null;
+    readonly surfaceId?: string | null;
   },
 ): void {
   if (!usage || usage.totalTokens === 0) return;
@@ -965,6 +969,8 @@ function captureModelUsage(
     provider: "codex",
     agent: ledger.agent,
     model: usage.model,
+    workspaceId: ledger.workspaceId,
+    surfaceId: ledger.surfaceId,
     inputTokens: usage.inputTokens,
     cachedInputTokens: usage.cachedInputTokens,
     outputTokens: usage.outputTokens,

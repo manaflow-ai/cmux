@@ -152,6 +152,42 @@
     "applyAriaLabel": "Founding Engineer roluna e-posta ile başvurun",
     "applyEmailSubject": "cmux Founding Engineer başvurusu",
     "applyCta": "E-posta gönder",
+    "foundingChromiumEngineer": {
+      "metaTitle": "cmux Founding Chromium Engineer pozisyonu",
+      "metaDescription": "Kurucu Chromium mühendisi olarak cmux'a katılın: Chromium fork'umuzu üstlenin ve C++ ve Rust ile cmux'u Windows ve Linux'a taşıyın.",
+      "section": "Kariyer",
+      "eyebrow": "Rol hakkında",
+      "title": "Founding Chromium Engineer",
+      "tagline": "cmux'u Windows ve Linux'a taşıyın.",
+      "intro": "cmux, Ghostty üzerine kurulmuş, birden fazla yapay zekâ kodlama ajanını paralel çalıştırmak için tasarlanmış yerel bir macOS terminalidir. Yüz binlerce geliştirici, ajan tabanlı kodlama iş akışlarını yürütmek için cmux kullanıyor.",
+      "hiring": "Kendi Chromium fork'umuz üzerine kurulu cmux'un Windows (ve Linux) sürümünü üstlenecek bir kurucu mühendis arıyoruz.",
+      "whatYoullDo": "Neler yapacaksınız",
+      "whatYoullDoItems": [
+        "Chromium fork'umuzu sahiplenin: upstream'i takip edin, temiz rebase yapın ve cmux yamalarını taşıyın (pencere/girdi/render entegrasyonu, terminal yüzeyi, ajan arayüzü).",
+        "cmux'u Windows ve Linux'ta uçtan uca üstlenin: C++, kurulum programı, otomatik güncelleme, çökme raporlama.",
+        "Ghostty tabanlı terminal çekirdeğini ve ajan orkestrasyon özelliklerini (dikey sekmeler, bildirim halkaları, bölmeler, CLI) Windows'a taşıyın.",
+        "Performansın yerli gibi hissettirmesini sağlayın: başlangıç süresi, GPU render, girdi gecikmesi.",
+        "Sürekli kendi ürününüzü kullanın, test edin ve doğrulayın."
+      ],
+      "excitedLead": "Şunlar varsa özellikle heyecanlanırız:",
+      "excitedItems": [
+        "Derin C++ bilgisi ve gerçek Chromium deneyimi - ideal olarak fork bakımı yapmış olmanız: yama taşıma, upstream kilometre taşlarına rebase, content/ veya blink'te hata ayıklama.",
+        "Rust büyük bir artı (TUI'miz ve ağ arka plan sürecimiz Rust ile yazıldı).",
+        "Gerçek bir Windows masaüstü uygulaması yayınladınız veya bakımını yaptınız.",
+        "Bonus: upstream Chromium katkıları, Swift/AppKit merakı, açık kaynak bakımcısı, eski kurucu."
+      ],
+      "details": "Ayrıntılar",
+      "roleTitle": "Founding Chromium Engineer",
+      "compensationLabel": "Ücret",
+      "compensation": "$130k–$170k + %0,5–%1,5 hisse",
+      "benefitsLabel": "Yan haklar",
+      "benefits": "Sağlık, diş ve göz sigortası",
+      "locationLabel": "Konum",
+      "location": "San Francisco",
+      "applyAriaLabel": "Founding Chromium Engineer rolüne e-posta ile başvurun",
+      "applyEmailSubject": "cmux Founding Chromium Engineer başvurusu",
+      "applyCta": "E-posta gönder"
+    },
     "foundingDesigner": {
       "metaTitle": "cmux Founding Designer pozisyonu",
       "metaDescription": "cmux’a Founding Designer olarak katılın; macOS, TUI, Windows, Linux, iOS, Cloud, cmux.com ve chatmux için yapay zekâ ile kodlamanın geleceğini tasarlayın.",
