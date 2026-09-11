@@ -123,6 +123,59 @@ struct CloudWorkspaceMembershipTests {
         try expectMembership(current, in: catalog)
     }
 
+    @Test("Explicit local VNC panes belong only to their current bound workspace")
+    func localDesktopMembership() async throws {
+        let first = UUID(), second = UUID(), viewer = UUID()
+        let coordinator = CloudPlacementCoordinator(binding: { id in
+            guard id == first || id == second else { return nil }
+            return WorkspaceCloudVMBinding(
+                vmID: "membership-test", isBase: false,
+                remoteWorkspaceID: id == first ? "ws_a" : "ws_b"
+            )
+        })
+        let catalog = SurfaceCatalog(cloudPlacementCoordinator: coordinator)
+        let provider = CloudPlacementTestProvider(machine: machine)
+        catalog.register(provider)
+        let current = try state(desktops: [:])
+        publish(current, to: catalog)
+        let desktop = SurfaceResourceID(machine: machine, kind: .display, key: "display:1")
+
+        func desktopRows(in workspace: String) throws -> [CloudTreeNode] {
+            let tree = CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(
+                machines: [], snapshot: catalog.snapshot, localWorkspaces: [], includeLocalMachine: false
+            ))
+            let row = try #require(tree.first { $0.id == CloudTreeNodeBuilder.nodeID(workspace: workspace, machine: machine) })
+            return row.children.filter { if case .display = $0.kind { return true }; return false }
+        }
+
+        let opened = try await catalog.project(desktop, into: .workspace(id: first, placement: .split), focus: false)
+        await coordinator.waitForPendingMutations()
+        #expect(try desktopRows(in: "ws_a").count == 1)
+        #expect(try desktopRows(in: "ws_b").isEmpty)
+        let repeated = try await catalog.project(desktop, into: .workspace(id: first, placement: .split), focus: false)
+        #expect(repeated.reused && repeated.projection.panelID == opened.projection.panelID)
+        #expect(try desktopRows(in: "ws_a").count == 1)
+
+        // Refresh replaces daemon rows, while the live local pane remains real.
+        publish(current, to: catalog)
+        #expect(try desktopRows(in: "ws_a").count == 1)
+        catalog.moveProjections(panelID: opened.projection.panelID, to: second)
+        await coordinator.waitForPendingMutations()
+        #expect(try desktopRows(in: "ws_a").isEmpty)
+        #expect(try desktopRows(in: "ws_b").count == 1)
+
+        catalog.moveProjections(panelID: opened.projection.panelID, to: viewer)
+        await coordinator.waitForPendingMutations()
+        #expect(try desktopRows(in: "ws_a").isEmpty)
+        #expect(try desktopRows(in: "ws_b").isEmpty)
+        catalog.moveProjections(panelID: opened.projection.panelID, to: first)
+        await coordinator.waitForPendingMutations()
+        catalog.endProjections(panelID: opened.projection.panelID)
+        await coordinator.waitForPendingMutations()
+        try expectMembership(current, in: catalog)
+        #expect(provider.closedTabs.isEmpty, "a local VNC view has no daemon tab to close")
+    }
+
     private func state(
         desktops: [String: String], contentKind: String = "display",
         generation: String = "membership", focused: String = "a"
