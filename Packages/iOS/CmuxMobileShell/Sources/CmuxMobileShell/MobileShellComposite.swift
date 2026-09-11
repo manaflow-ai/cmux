@@ -4149,11 +4149,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Switch the live connection to `macDeviceID`, persisting it as the active
     /// pairing only on a successful connect.
     ///
-    /// The underlying connect path is destructive (it replaces the live client),
-    /// so a failed switch to an offline/stale Mac would drop the working session.
-    /// To avoid stranding the user, the store's active row is only updated on a
-    /// successful connect, and on failure the previously-active Mac (still the
-    /// active row) is reconnected. A no-op when already connected to that Mac.
+    /// A different Mac is authenticated while the current foreground client
+    /// remains live. After a successful handoff, the previous client becomes a
+    /// warm control connection when the bounded pool has capacity. If capacity
+    /// or an unsafe terminal handoff requires retirement, a failed switch can
+    /// reconnect the previously-active Mac. A no-op when already connected to
+    /// that Mac.
     /// - Parameters:
     ///   - macDeviceID: The stored physical Mac to switch to.
     ///   - instanceTag: Exact saved app instance to switch to, or `nil` to
@@ -4224,9 +4225,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         liveForegroundRestoreBaseline: MobilePairedMac?
     ) async -> Bool {
         defer { finishMacSwitchAttempt(switchAttemptID) }
-        // Promotion becomes destructive before its final snapshot request.
-        // Publish the live rollback target before entering that fast path so
-        // cancellation can restore it from every post-handoff await.
+        // A switch may retire the current focus when the warm pool is full or
+        // terminal handoff cannot complete. Publish the live rollback target
+        // before entering that fast path so cancellation can restore it from
+        // every post-handoff await.
         if let liveForegroundRestoreBaseline {
             macSwitchRestoreBaseline = liveForegroundRestoreBaseline
         }
@@ -4314,9 +4316,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             macSwitchRestoreBaseline = nil
             return true
         }
-        // The LIVE foreground Mac to fall back to if the destructive switch fails.
-        // Persisted `isActive` can lag the connection, so use the foreground id
-        // captured before `connectManualHost` clears/replaces the live context.
+        // The LIVE foreground Mac to restore if the switch must retire it and
+        // then fails. Persisted `isActive` can lag the connection, so use the
+        // foreground id captured before `connectManualHost` clears/replaces the
+        // live context.
         let previousForegroundMacDeviceID = foregroundMacDeviceID
         let previousForegroundMac = liveForegroundRestoreBaseline
             ?? previousForegroundMacForSwitchRestore(
@@ -4429,8 +4432,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     ) == MacPairingKey(refreshedTarget)
                 } == true
         } else if macSwitchRestoreBaseline != nil || previousForegroundMac != nil, !hasActiveMacConnection {
-            // The switch did not connect and the destructive connect path dropped
-            // the previous session; reconnect to the still-active previous Mac so
+            // The switch did not connect after the previous session was retired
+            // for capacity or handoff safety. Reconnect the still-active Mac so
             // the user is not left stranded on a failed switch.
             // Keep the attempt alive through the restore so a rapid follow-up
             // picker selection can either cancel this rollback while preserving
@@ -4496,7 +4499,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             for: previousActive.macDeviceID,
             instanceTag: previousActive.instanceTag
         ))
-        let focusedForegroundConnection = connections[foregroundMacKey]
+        let focusedForegroundConnection = self.focusedForegroundConnection
         let foregroundHandoffNeedsRepair =
             focusedForegroundConnection == nil
             || focusedForegroundConnection.map {
@@ -4625,17 +4628,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if let scope {
                 guard await self.isScopeCurrent(scope) else { return }
             }
-            guard self.connectionState == .connected,
-                  self.remoteClient != nil,
-                  (self.foregroundMacDeviceID.map {
-                      MacPairingKey(
-                          macDeviceID: $0,
-                          instanceTag: self.activeMacInstanceTag
-                      ) == MacPairingKey(
-                          macDeviceID: macDeviceID,
-                          instanceTag: instanceTag
-                      )
-                  } == true) else { return }
+            let ownerKey = MacPairingKey(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
+            guard self.isCurrentForegroundOwner(ownerKey) else { return }
             do {
                 try await pairedMacStore.setActive(
                     macDeviceID: macDeviceID,
@@ -4643,17 +4640,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     stackUserID: scope?.userID,
                     teamID: scope?.teamID
                 )
-                guard self.connectionState == .connected,
-                      self.remoteClient != nil,
-                      (self.foregroundMacDeviceID.map {
-                          MacPairingKey(
-                              macDeviceID: $0,
-                              instanceTag: self.activeMacInstanceTag
-                          ) == MacPairingKey(
-                              macDeviceID: macDeviceID,
-                              instanceTag: instanceTag
-                          )
-                      } == true) else { return }
+                guard self.isCurrentForegroundOwner(ownerKey) else { return }
                 if reloadAfterWrite {
                     await self.loadPairedMacs()
                 }
@@ -7909,6 +7896,35 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
+    /// Resolve the focused registry owner by physical device. The registry is
+    /// keyed by stored pairing authority, while `foregroundMacKey` follows the
+    /// authenticated tag displayed by the live host.
+    var focusedForegroundConnection: MacConnection? {
+        guard let foregroundMacDeviceID else {
+            return connections[foregroundMacKey]
+        }
+        return connections.onDevice(foregroundMacDeviceID)
+    }
+
+    /// Check the exact stored owner that currently owns the foreground client.
+    /// A live host may have adopted a tag that has not yet been written back to
+    /// the paired row, so the registry owner is the authoritative comparison.
+    func isCurrentForegroundOwner(_ ownerKey: MacPairingKey) -> Bool {
+        guard connectionState == .connected,
+              let remoteClient,
+              let foregroundMacDeviceID else {
+            return false
+        }
+        if let focused = focusedForegroundConnection {
+            return focused.client === remoteClient
+                && focused.ownerKey == ownerKey
+        }
+        return MacPairingKey(
+            macDeviceID: foregroundMacDeviceID,
+            instanceTag: activeMacInstanceTag
+        ) == ownerKey
+    }
+
     private func updateForegroundWorkspaceActionCapabilities() {
         guard var state = workspacesByMac[foregroundMacKey] else { return }
         state.actionCapabilities = Self.workspaceActionCapabilities(
@@ -9841,7 +9857,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let previousForegroundKeyBeforeConnect = foregroundOrRecoveryMacKey
         let currentFocusedConnection: MacConnection? =
             remoteClient.flatMap { client in
-                guard let connection = connections[foregroundMacKey],
+                guard let connection = focusedForegroundConnection,
                       connection.client === client else { return nil }
                 return connection
             }
@@ -10946,7 +10962,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // capabilities for other peers are torn down separately. A focused
         // peer may also own control, so remove both capabilities before its
         // shared physical client is disconnected.
-        if let focused = connections[offlineForegroundKey] {
+        if let focused = focusedForegroundConnection {
             removeControlCapability(ifMatching: focused)
             macConnectionRegistry.setFocusedConnection(nil, for: focused.ownerKey)
         }
@@ -11009,7 +11025,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// bounded cleanup and one recovery dial may proceed.
     func releaseRemoteClientForReplacement() async {
         let previous = remoteClient
-        if let focused = connections[foregroundMacKey],
+        if let focused = focusedForegroundConnection,
            focused.client === previous {
             removeControlCapability(ifMatching: focused)
             removeFocusedConnection(ifMatching: focused)
@@ -11166,15 +11182,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macConnectionRegistry.ownsClient(of: connection)
     }
 
-    /// A demoted foreground can enter the warm pool only when it is still an
-    /// online, visible pairing in the current account/team scope. The store
-    /// read crosses the team-change boundary, so scope is revalidated afterward.
+    /// A demoted foreground can enter the warm pool while the bounded live
+    /// session pool has room. The aggregation preference controls workspace
+    /// fan-out, not whether a successfully authenticated switched-away client
+    /// can remain warm. Account scope, hidden state, and presence still decide
+    /// whether that client is eligible to remain admitted.
     func canRetainFocusedConnectionInControlPool(
         _ connection: MacConnection,
         vacatingControlOwnerKey: MacPairingKey? = nil
     ) async -> Bool {
-        guard multiMacAggregationEnabled,
-              let pairedMacStore,
+        guard let pairedMacStore,
               let scope = await currentScopeSnapshot(),
               let stored = try? await pairedMacStore.loadAll(
                   stackUserID: scope.userID,
@@ -13471,7 +13488,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let clientID = ObjectIdentifier(client)
         if terminalSubscriptionHandoffFences[clientID] != nil {
-            let focusedConnection = connections[foregroundMacKey]
+            let focusedConnection = focusedForegroundConnection
             guard focusedConnection?.client === client,
                   focusedConnection.map({
                       !focusedHandoffPreparedGenerations.contains($0.generation)

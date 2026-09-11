@@ -81,14 +81,8 @@ extension MobileShellComposite {
     /// Change a retained focused client to control-only ownership after its
     /// terminal subscription has been removed. The workspace snapshot stays in
     /// `workspacesByMac`, so the aggregate never blinks while roles change.
+    /// Pool ownership is independent of the aggregation preference.
     func installControlConnection(from connection: MacConnection) async {
-        guard multiMacAggregationEnabled else {
-            removeControlCapability(ifMatching: connection)
-            removeFocusedConnection(ifMatching: connection)
-            connection.client.retire()
-            Task { await connection.client.disconnect() }
-            return
-        }
         let existing = secondaryMacSubscriptions[connection.ownerKey]
         let subscription: SecondaryMacSubscription
         let needsActivation: Bool
@@ -519,7 +513,7 @@ extension MobileShellComposite {
         connectionAttemptGeneration = generation
         connectionGeneration = generation
         let previousForegroundID = foregroundMacDeviceID
-        let previousForegroundConnection = connections[foregroundMacKey]
+        let previousForegroundConnection = focusedForegroundConnection
         let unregisteredPreviousClient = previousForegroundConnection == nil
             ? remoteClient
             : nil
