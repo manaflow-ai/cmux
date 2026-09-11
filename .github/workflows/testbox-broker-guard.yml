@@ -43,8 +43,11 @@ jobs:
       - name: Validate receipt-bound cleanup ownership check
         run: ./tests/test_testbox_cleanup_receipt_ref.sh
 
+      - name: Validate demo run binding and cleanup
+        run: ./tests/test_blacksmith_testbox_demo_cleanup.sh
+
       - name: Lint the Testbox lane helpers
-        run: shellcheck scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh
+        run: shellcheck scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-demo.sh scripts/blacksmith-testbox-keepalive.sh tests/test_blacksmith_testbox_demo_cleanup.sh
 
       - name: Lint the Testbox warmup workflow
         env:
