@@ -94,6 +94,46 @@ struct SessionEntryResumeLaunchTests {
         )
     }
 
+    @Test("Registry-owned built-ins preserve structured restore argv")
+    func registryOwnedBuiltInsUsePlannerAndAppParity() throws {
+        let cases: [(CmuxVaultAgentRegistration, [String])] = [
+            (.builtInPi, ["pi", "--session", "registry-pi-session"]),
+            (.builtInGrok, ["grok", "-r", "registry-grok-session"]),
+            (
+                .builtInAntigravity,
+                ["agy", "--conversation", "registry-antigravity-session"]
+            ),
+            (.builtInKimi, ["kimi", "--resume", "registry-kimi-session"]),
+        ]
+
+        for (registration, expectedArguments) in cases {
+            let sessionID = expectedArguments.last ?? ""
+            let entry = SessionEntry(
+                id: "\(registration.id):\(sessionID)",
+                agent: .registered(RegisteredSessionAgent(registration: registration)),
+                sessionId: sessionID,
+                title: "Registry-owned restore",
+                cwd: "/tmp/registry-owned-restore",
+                gitBranch: nil,
+                pullRequest: nil,
+                modified: Date(timeIntervalSince1970: 1_800_000_003),
+                fileURL: nil,
+                specifics: .registered(registration)
+            )
+
+            let launch = try #require(entry.resumeLaunch)
+            let snapshot = try #require(launch.startupRestoreAgent)
+            #expect(snapshot.kind == .custom(registration.id))
+            #expect(
+                snapshot.preparedResumeArguments(
+                    launchCommand: snapshot.launchCommand,
+                    workingDirectory: snapshot.workingDirectory,
+                    observedPermissionMode: snapshot.permissionMode
+                ) == expectedArguments
+            )
+        }
+    }
+
     @Test("Unencodable custom Vault kinds use the explicit legacy strategy")
     func unencodableCustomKindUsesLegacyFallback() throws {
         let registration = CmuxVaultAgentRegistration(
