@@ -11870,10 +11870,7 @@ struct VerticalTabsSidebar: View, Equatable {
         .onChange(of: isPresented) { _, presented in
             if !presented {
                 workspaceSnapshotRefreshCoalescer.cancel()
-            } else {
-                if featureFlags.isAppKitSidebarListEnabled {
-                    appKitRowSnapshotCache.invalidateAll()
-                }
+            } else if !featureFlags.isAppKitSidebarListEnabled {
                 refreshWorkspaceSnapshots()
             }
         }
