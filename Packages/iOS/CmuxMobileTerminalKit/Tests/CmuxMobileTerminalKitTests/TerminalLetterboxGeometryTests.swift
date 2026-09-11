@@ -243,9 +243,12 @@ struct TerminalLetterboxGeometryTests {
         #expect(TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(viewInset: 0, windowInset: 34) == 34)
         // Matching values agree; the local inset remains a pre-window fallback.
         #expect(TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(viewInset: 34, windowInset: 34) == 34)
-        #expect(TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(viewInset: 34, windowInset: 0) == 34)
+        #expect(TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(viewInset: 34, windowInset: nil) == 34)
         // Both zero (pre-window-attach) => 0.
-        #expect(TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(viewInset: 0, windowInset: 0) == 0)
+        #expect(TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(viewInset: 0, windowInset: nil) == 0)
+        // A reported zero is authoritative and must not fall through to the
+        // moving local inset.
+        #expect(TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(viewInset: 34, windowInset: 0) == 0)
     }
 
     @Test("keyboard content movement cannot resize the terminal grid", arguments: [CGFloat(34), 9, 0, 59])
@@ -256,7 +259,7 @@ struct TerminalLetterboxGeometryTests {
         for windowInset: CGFloat in [34, 0] {
             let inset = TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
                 viewInset: viewInset,
-                windowInset: windowInset,
+                windowInset: windowInset > 0 ? windowInset : nil,
                 capturedInset: 34,
                 ancestorInsets: [9, 34]
             )
@@ -282,14 +285,14 @@ struct TerminalLetterboxGeometryTests {
         #expect(
             TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
                 viewInset: 0,
-                windowInset: 0,
+                windowInset: nil,
                 ancestorInsets: [83, 34]
             ) == 34
         )
         #expect(
             TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
                 viewInset: 0,
-                windowInset: 0,
+                windowInset: nil,
                 ancestorInsets: [0, -4]
             ) == 0
         )
@@ -300,7 +303,7 @@ struct TerminalLetterboxGeometryTests {
         #expect(
             TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
                 viewInset: 0,
-                windowInset: 0,
+                windowInset: nil,
                 capturedInset: 34,
                 ancestorInsets: [83]
             ) == 34

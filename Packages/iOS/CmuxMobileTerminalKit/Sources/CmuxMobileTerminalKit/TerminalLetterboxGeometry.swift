@@ -106,7 +106,8 @@ public struct TerminalLetterboxGeometry {
     /// - Parameters:
     ///   - viewInset: The moving view's local inset, used only as a fallback.
     ///   - windowInset: The window's `safeAreaInsets.bottom` (authoritative
-    ///     when the window reports it).
+    ///     when the window reports it). `nil` means unavailable; `.some(0)` is
+    ///     an authoritative zero on devices without a bottom reservation.
     ///   - capturedInset: A safe-area value captured outside an ignored
     ///     SwiftUI subtree, when UIKit cannot expose it to the terminal leaf.
     ///   - ancestorInsets: Safe-area values reported by UIKit ancestors. A
@@ -116,15 +117,15 @@ public struct TerminalLetterboxGeometry {
     /// - Returns: The inset to reserve in points.
     public static func resolvedBottomSafeAreaInset(
         viewInset: CGFloat,
-        windowInset: CGFloat,
-        capturedInset: CGFloat = 0,
+        windowInset: CGFloat?,
+        capturedInset: CGFloat? = nil,
         ancestorInsets: [CGFloat] = []
     ) -> CGFloat {
-        if windowInset > 0 {
-            return windowInset
+        if let windowInset {
+            return max(0, windowInset)
         }
-        if capturedInset > 0 {
-            return capturedInset
+        if let capturedInset {
+            return max(0, capturedInset)
         }
         if viewInset > 0 {
             return viewInset
