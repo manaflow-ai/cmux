@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 
 import { CHECKOUT_SOURCE_DASHBOARD_BILLING } from "@/services/analytics/checkoutAttribution";
 import {
+  MAX_CHECKOUT_URL,
   PRO_CHECKOUT_URL,
   TEAM_CHECKOUT_URL,
   withCheckoutSource,
@@ -27,6 +28,7 @@ import { stripeCustomers, stripeSubscriptions } from "@/db/schema";
 import { Link } from "@/i18n/navigation";
 import {
   ACTIVE_STRIPE_PRO_STATUSES,
+  PERSONAL_PLAN_IDS,
   PRO_PLAN_ID,
   TEAM_PLAN_ID,
   isPaidPlanId,
@@ -35,6 +37,7 @@ import {
 } from "@/services/billing/pro";
 import { resolveBillingTeam, type BillingTeamLike } from "@/services/billing/teamResolution";
 import {
+  MAX_PRICING_USD,
   PRO_PRICING_USD,
   TEAM_PRICING_USD,
   proBillingInterval,
@@ -196,7 +199,7 @@ async function latestActiveStripeSubscription(stackUserId: string): Promise<Stri
       and(
         eq(stripeSubscriptions.stackUserId, stackUserId),
         eq(stripeSubscriptions.scope, "user"),
-        eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+        inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
         inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
       ),
     )
@@ -301,8 +304,11 @@ function FreePlanUpsell({
       hostedNetworking: false,
     },
   });
+  const maxFeatures = pricingT.raw("max.features") as string[];
   const teamFeatures = pricingT.raw("team.features") as string[];
   const proCheckoutURL = withCheckoutSource(PRO_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING);
+  // Max is monthly only: one checkout link, no interval parameter.
+  const maxCheckoutHref = withCheckoutSource(MAX_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING);
   const teamCheckoutURL = withCheckoutSource(TEAM_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING);
   const proCheckoutHrefs = {
     month: withCheckoutInterval(proCheckoutURL, "month"),
@@ -335,7 +341,7 @@ function FreePlanUpsell({
               surface="dashboard_billing"
             />
           </div>
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 md:grid-cols-3">
             <PlanCard
               name={pricingT("pro.name")}
               price={
@@ -359,6 +365,22 @@ function FreePlanUpsell({
               </PricingCheckoutButton>
               <p className="mt-5 text-sm font-medium">{pricingT("pro.featuresLead")}</p>
               <FeatureList items={proFeatures} />
+            </PlanCard>
+
+            <PlanCard
+              name={pricingT("max.name")}
+              price={`$${MAX_PRICING_USD.month.billedAmount}`}
+              period={pricingT("perMonth")}
+            >
+              <PricingCheckoutButton
+                hrefs={maxCheckoutHref}
+                location="dashboard_billing"
+                plan="max"
+              >
+                {pricingT("max.cta")}
+              </PricingCheckoutButton>
+              <p className="mt-5 text-sm font-medium">{pricingT("max.featuresLead")}</p>
+              <FeatureList items={maxFeatures} />
             </PlanCard>
 
             <PlanCard

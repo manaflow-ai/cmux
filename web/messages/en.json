@@ -800,6 +800,15 @@
         "Hosted networking to reach your Mac from the iOS app, no Tailscale setup"
       ]
     },
+    "max": {
+      "name": "Max",
+      "cta": "Get Max",
+      "featuresLead": "Everything in Pro, plus:",
+      "features": [
+        "Cloud VMs with 32 GB or 64 GB RAM",
+        "Everything in Pro: 50 Cloud VMs, unlimited workspaces, the iOS app"
+      ]
+    },
     "team": {
       "name": "Team",
       "cta": "Get Teams",
@@ -830,6 +839,7 @@
           "label": "Native macOS terminal, open source",
           "free": "true",
           "pro": "true",
+          "max": "true",
           "team": "true",
           "enterprise": "true"
         },
@@ -837,6 +847,7 @@
           "label": "Local CLI agents with your own keys",
           "free": "true",
           "pro": "true",
+          "max": "true",
           "team": "true",
           "enterprise": "true"
         },
@@ -844,6 +855,7 @@
           "label": "Vertical tabs, splits, notifications, socket API",
           "free": "true",
           "pro": "true",
+          "max": "true",
           "team": "true",
           "enterprise": "true"
         },
@@ -851,6 +863,7 @@
           "label": "Session history",
           "free": "Local",
           "pro": "Unlimited",
+          "max": "Unlimited",
           "team": "Unlimited",
           "enterprise": "Unlimited",
           "vault": true
@@ -859,6 +872,7 @@
           "label": "cmux Vault: cloud session backup",
           "free": "false",
           "pro": "true",
+          "max": "true",
           "team": "true",
           "enterprise": "true",
           "vault": true
@@ -867,6 +881,7 @@
           "label": "Search across all your sessions",
           "free": "false",
           "pro": "true",
+          "max": "true",
           "team": "true",
           "enterprise": "true",
           "vault": true
@@ -875,6 +890,7 @@
           "label": "Cloud agents on Cloud VMs",
           "free": "false",
           "pro": "true",
+          "max": "true",
           "team": "true",
           "enterprise": "true"
         },
@@ -882,6 +898,7 @@
           "label": "Concurrent Cloud VMs",
           "free": "false",
           "pro": "50",
+          "max": "50",
           "team": "50 per user",
           "enterprise": "Custom"
         },
@@ -889,13 +906,23 @@
           "label": "Resources shared across all Cloud VMs",
           "free": "false",
           "pro": "24 GB RAM and 6 vCPUs shared across all VMs",
+          "max": "24 GB RAM and 6 vCPUs shared across all VMs",
           "team": "24 GB RAM and 6 vCPUs per user, shared across all their VMs",
+          "enterprise": "Custom"
+        },
+        {
+          "label": "Largest Cloud VM",
+          "free": "24 GB RAM",
+          "pro": "24 GB RAM",
+          "max": "64 GB RAM",
+          "team": "24 GB RAM",
           "enterprise": "Custom"
         },
         {
           "label": "Workspaces",
           "free": "Unlimited",
           "pro": "Unlimited",
+          "max": "Unlimited",
           "team": "Unlimited",
           "enterprise": "Unlimited"
         },
@@ -903,6 +930,7 @@
           "label": "iOS app",
           "free": "false",
           "pro": "true",
+          "max": "true",
           "team": "true",
           "enterprise": "true"
         },
@@ -910,6 +938,7 @@
           "label": "Networking to reach your Mac",
           "free": "Bring your own",
           "pro": "Hosted",
+          "max": "Hosted",
           "team": "Hosted",
           "enterprise": "Self-hosted",
           "hostedNetworking": true
@@ -918,6 +947,7 @@
           "label": "SSO and SAML sign-in",
           "free": "false",
           "pro": "false",
+          "max": "false",
           "team": "false",
           "enterprise": "true"
         },
@@ -925,6 +955,7 @@
           "label": "Self-hosted and air-gapped execution",
           "free": "false",
           "pro": "false",
+          "max": "false",
           "team": "false",
           "enterprise": "true"
         },
@@ -932,6 +963,7 @@
           "label": "Audit logs: sessions, network, browser",
           "free": "false",
           "pro": "false",
+          "max": "false",
           "team": "false",
           "enterprise": "true"
         },
@@ -939,6 +971,7 @@
           "label": "Volume pricing",
           "free": "false",
           "pro": "false",
+          "max": "false",
           "team": "false",
           "enterprise": "true"
         },
@@ -946,6 +979,7 @@
           "label": "SOC 2 and an SLA",
           "free": "false",
           "pro": "false",
+          "max": "false",
           "team": "false",
           "enterprise": "true"
         },
@@ -953,6 +987,7 @@
           "label": "Support",
           "free": "Community",
           "pro": "Email",
+          "max": "Email",
           "team": "Priority",
           "enterprise": "Dedicated"
         }
@@ -971,6 +1006,10 @@
           "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same limits per user. There is no metering or overage billing."
         },
         {
+          "q": "What does Max add?",
+          "a": "Max is $200/mo, billed monthly. It includes everything in Pro and unlocks Cloud VMs with 32 GB or 64 GB RAM. Pro, Team, and Free machines top out at 24 GB RAM."
+        },
+        {
           "q": "What is cmux Vault?",
           "a": "Vault backs up every terminal session to the cloud and lets you search across all of them, with unlimited history across your machines. Free keeps history locally on each machine; Pro adds cloud backup and search.",
           "vault": true
@@ -981,7 +1020,7 @@
         },
         {
           "q": "How does billing work?",
-          "a": "Pro is $50/mo, or $40/mo when billed annually (a 20% savings). Team is $60/user/mo, or $48/user/mo when billed annually. Paid plans include up to 50 Cloud VMs per user, with 24 GB RAM and 6 vCPUs per user shared across all their VMs. There is no metering or overage billing. The terminal and local agents stay free."
+          "a": "Pro is $50/mo, or $40/mo when billed annually (a 20% savings). Max is $200/mo, billed monthly. Team is $60/user/mo, or $48/user/mo when billed annually. Paid plans include up to 50 Cloud VMs per user, with 24 GB RAM and 6 vCPUs per user shared across all their VMs. There is no metering or overage billing. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { headers } from "next/headers";
 import { NextRequest } from "next/server";
 import { redirect } from "next/navigation";
@@ -6,6 +7,7 @@ import { validatedNativeCallbackScheme } from "../lib/native-callback";
 import {
   FREE_PLAN_ID,
   isDevelopmentProAccessEnabled,
+  MAX_PLAN_ID,
   PRO_PLAN_ID,
   resolveProPlanStatus,
 } from "../../services/billing/pro";
@@ -47,6 +49,7 @@ import {
   PricingIntervalValue,
 } from "../components/pricing-interval-selector";
 import {
+  MAX_PRICING_USD,
   PRO_PRICING_USD,
   TEAM_PRICING_USD,
   proBillingInterval,
@@ -69,6 +72,10 @@ export default async function AppPricingPage({
 
   const snapshot = await currentPlanSnapshot();
   const canManageBilling = snapshot.billingManagement === "stripe";
+  // Max satisfies every "is Pro" check, so the Pro card must not call a Max
+  // subscriber's plan current; only the Max card does.
+  const isMax = snapshot.planId === MAX_PLAN_ID;
+  const isProCurrent = snapshot.isPro && !isMax;
   const headersList = await headers();
   const requestOrigin = appPricingRequestOrigin(headersList);
   const cmuxScheme = validatedNativeCallbackScheme(
@@ -76,6 +83,19 @@ export default async function AppPricingPage({
     appPricingRequest(headersList),
   );
   const appStorePaymentGated = isAppStoreDistributionMode(params);
+  const proAction = personalPlanActionState({
+    isCurrent: isProCurrent,
+    appStorePaymentGated,
+    manageBilling: canManageBilling || isMax,
+  });
+  // A Pro subscriber keeps the Max checkout link; the server routes an active
+  // Pro subscription to the Stripe portal upgrade flow.
+  const maxAction = personalPlanActionState({
+    isCurrent: isMax,
+    appStorePaymentGated,
+    manageBilling: canManageBilling && !snapshot.isPro,
+  });
+  const portalVisible = canManageBilling && !appStorePaymentGated;
   const interval = proBillingInterval(firstParam(params.interval));
   // The app that opened this page tags it with the button it came from and
   // its release channel; forward that to checkout. An app build that predates
@@ -93,6 +113,15 @@ export default async function AppPricingPage({
     month: appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "month", attribution),
     year: appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "year", attribution),
   };
+  // Max is monthly only: one checkout link, no interval parameter.
+  const maxCheckoutHref = appPricingCheckoutURL(
+    "max",
+    requestOrigin,
+    cmuxScheme,
+    undefined,
+    attribution,
+  );
+  const maxComparePrice = `$${MAX_PRICING_USD.month.billedAmount} ${pricing.perMonth}`;
   const signInHref = appPricingSignInHref(cmuxScheme, params);
   const banner = appPricingBanner(params, snapshot, signInHref);
   const theme = appPricingTheme(params);
@@ -157,7 +186,7 @@ export default async function AppPricingPage({
               surface="app_pricing"
             />
 
-            <div className="mt-6 grid items-stretch gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="mt-6 grid items-stretch gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
               <PlanCard
                 name={pricing.free.name}
                 price={pricing.free.price}
@@ -200,38 +229,57 @@ export default async function AppPricingPage({
                   />
                 }
                 badge={
-                  snapshot.isPro ? (
+                  isProCurrent ? (
                     <CurrentPlanBadge>{pricing.currentPlan}</CurrentPlanBadge>
                   ) : null
                 }
               >
-                {snapshot.isPro ? (
-                  <div className="space-y-2">
-                    <DisabledButton>{pricing.currentPlan}</DisabledButton>
-                    {snapshot.billingManagement === "stripe" && !appStorePaymentGated ? (
-                      <SecondaryLink href="/api/billing/portal">
-                        {pricing.manageBilling}
-                      </SecondaryLink>
-                    ) : null}
-                  </div>
-                ) : appStorePaymentGated ? (
-                  <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
-                ) : canManageBilling ? (
-                  <SecondaryLink href="/api/billing/portal">
-                    {pricing.manageBilling}
-                  </SecondaryLink>
-                ) : (
-                  <PricingCheckoutButton
-                    hrefs={proCheckoutHrefs}
-                    location="app_pricing"
-                  >
-                    {pricing.pro.cta}
-                  </PricingCheckoutButton>
-                )}
+                <PersonalPlanAction
+                  state={proAction}
+                  portalVisible={portalVisible}
+                  checkout={
+                    <PricingCheckoutButton
+                      hrefs={proCheckoutHrefs}
+                      location="app_pricing"
+                    >
+                      {pricing.pro.cta}
+                    </PricingCheckoutButton>
+                  }
+                />
                 <p className="mt-5 text-sm font-medium">
                   {pricing.pro.featuresLead}
                 </p>
                 <FeatureList items={proFeatures} />
+              </PlanCard>
+
+              {/* Max: monthly only, so the interval selector never changes it. */}
+              <PlanCard
+                name={pricing.max.name}
+                price={`$${MAX_PRICING_USD.month.billedAmount}`}
+                period={pricing.perMonth}
+                badge={
+                  isMax ? (
+                    <CurrentPlanBadge>{pricing.currentPlan}</CurrentPlanBadge>
+                  ) : null
+                }
+              >
+                <PersonalPlanAction
+                  state={maxAction}
+                  portalVisible={portalVisible}
+                  checkout={
+                    <PricingCheckoutButton
+                      hrefs={maxCheckoutHref}
+                      location="app_pricing"
+                      plan="max"
+                    >
+                      {pricing.max.cta}
+                    </PricingCheckoutButton>
+                  }
+                />
+                <p className="mt-5 text-sm font-medium">
+                  {pricing.max.featuresLead}
+                </p>
+                <FeatureList items={pricing.max.features} />
               </PlanCard>
 
               <PlanCard
@@ -294,6 +342,7 @@ export default async function AppPricingPage({
               names={{
                 free: pricing.free.name,
                 pro: pricing.pro.name,
+                max: pricing.max.name,
                 team: pricing.team.name,
                 enterprise: pricing.enterprise.name,
               }}
@@ -305,6 +354,7 @@ export default async function AppPricingPage({
                     annual={annualComparePrice}
                   />
                 ),
+                max: maxComparePrice,
                 team: (
                   <PricingIntervalValue
                     monthly={teamMonthlyComparePrice}
@@ -391,6 +441,59 @@ async function currentPlanSnapshot(): Promise<AppPlanSnapshot> {
     billingManagement: status.billingManagement,
     email: user.primaryEmail,
   };
+}
+
+type PersonalPlanActionState = "current" | "unavailable" | "manage" | "checkout";
+
+/** Which action a personal plan card (Pro, Max) offers the signed-in account. */
+function personalPlanActionState({
+  isCurrent,
+  appStorePaymentGated,
+  manageBilling,
+}: {
+  isCurrent: boolean;
+  appStorePaymentGated: boolean;
+  manageBilling: boolean;
+}): PersonalPlanActionState {
+  if (isCurrent) return "current";
+  // Apple 3.1.1: no external billing or purchase links inside App Store builds.
+  if (appStorePaymentGated) return "unavailable";
+  if (manageBilling) return "manage";
+  return "checkout";
+}
+
+function PersonalPlanAction({
+  state,
+  portalVisible,
+  checkout,
+}: {
+  state: PersonalPlanActionState;
+  portalVisible: boolean;
+  checkout: ReactNode;
+}) {
+  switch (state) {
+    case "current":
+      return (
+        <div className="space-y-2">
+          <DisabledButton>{pricing.currentPlan}</DisabledButton>
+          {portalVisible ? (
+            <SecondaryLink href="/api/billing/portal">
+              {pricing.manageBilling}
+            </SecondaryLink>
+          ) : null}
+        </div>
+      );
+    case "unavailable":
+      return <DisabledButton>{pricing.billingUnavailable}</DisabledButton>;
+    case "manage":
+      return (
+        <SecondaryLink href="/api/billing/portal">
+          {pricing.manageBilling}
+        </SecondaryLink>
+      );
+    case "checkout":
+      return checkout;
+  }
 }
 
 type BillingBannerModel = {
