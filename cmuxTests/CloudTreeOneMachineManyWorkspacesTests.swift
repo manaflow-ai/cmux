@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -34,7 +35,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         let suite = "cloud-organization-notifications-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let store = CloudTreeOrganizationStore(defaults: defaults)
+        let store = CloudTreeOrganizationStore<CloudTreeNode>(defaults: defaults)
         let main = workspace("ws_main", "main", index: 0)
         let snapshot = SurfaceCatalogSnapshot(
             machines: [info(workspaces: [main])],
@@ -65,7 +66,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         let group = try #require(target.dragGroup)
         #expect(store.move(target.id, by: -1, in: original))
         store.togglePin(target.id, in: original)
-        let restored = CloudTreeOrganizationStore(defaults: defaults)
+        let restored = CloudTreeOrganizationStore<CloudTreeNode>(defaults: defaults)
         let after = CloudTreeNodeBuilder.flattened(restored.arranged(tree()))
         #expect(Set(after.map(\.id)) == Set(before.map(\.id)))
         #expect(after.count == before.count)
@@ -88,7 +89,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         #expect(sync.pendingAcks.map(\.ids) == [[notification.id]])
         let cleared = CloudNotificationSyncReducer.plan(rows: [], clientID: "mac", state: sync)
         #expect(cleared.removed == [notification.id])
-        #expect(restored.arranged(tree()).map(\.id) == original.map(\.id))
+        #expect(CloudTreeNodeBuilder.flattened(restored.arranged(tree())).map(\.id) == after.map(\.id))
     }
 
     private let machineID = "brave-otter"

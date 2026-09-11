@@ -58,6 +58,7 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
             ?? registration.pasteboardItem.propertyList(forType: type)
     }
 
+    /// Adds the stable outline placement alongside the existing pane transfer capability.
     func setOrganizationNodeID(_ id: String) {
         setString(id, forType: CloudTreeOutlineView.Coordinator.organizationDragType)
     }

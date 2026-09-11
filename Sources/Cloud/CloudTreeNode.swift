@@ -11,7 +11,7 @@ import Foundation
 /// the stable `id` (machine id, workspace id, resource id, …), which lets
 /// expansion and selection survive a rebuild. Rows below the outline receive
 /// only the node's values plus a closure bundle (snapshot-boundary rule).
-final class CloudTreeNode: NSObject {
+final class CloudTreeNode: NSObject, CloudTreeOrganizationNode {
     enum Kind: Equatable {
         /// A cloud machine: the fleet row (plan/free-access state) plus what the catalog knows.
         case machine(MachineSnapshot, SurfaceMachineInfo?)
@@ -75,6 +75,9 @@ final class CloudTreeNode: NSObject {
         self.explicitDragGroup = dragGroup
     }
 
+    /// A newly discovered machine remains prominent after replacing a pending row.
+    var prefersLeadingPlacement: Bool { isMachineRow }
+
     var canOrganize: Bool {
         switch kind {
         case .pendingMachine, .placeholder: return false
@@ -82,6 +85,7 @@ final class CloudTreeNode: NSObject {
         }
     }
 
+    /// Copies presentation state while retaining the exact remote placement payload.
     func organized(children: [CloudTreeNode], isPinned: Bool) -> CloudTreeNode {
         let node = CloudTreeNode(id: id, kind: kind, children: children, dragGroup: explicitDragGroup)
         node.isPinned = isPinned

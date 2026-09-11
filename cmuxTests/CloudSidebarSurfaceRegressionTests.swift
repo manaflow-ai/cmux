@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -81,7 +82,7 @@ struct CloudSidebarOrganizationTests {
         let suite = "cloud-organization-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let store = CloudTreeOrganizationStore(defaults: defaults)
+        let store = CloudTreeOrganizationStore<CloudTreeNode>(defaults: defaults)
         let original = [folder("a"), folder("b"), folder("c")]
         #expect(store.move("c", by: -1, in: original))
         #expect(store.arranged(original).map(\.id) == ["a", "c", "b"])
@@ -93,7 +94,7 @@ struct CloudSidebarOrganizationTests {
         // The reconnect can remove all rows or only one folder temporarily.
         #expect(store.arranged([]).isEmpty)
         #expect(store.move("c", by: -1, in: [original[0], original[2]]))
-        let restored = CloudTreeOrganizationStore(defaults: defaults)
+        let restored = CloudTreeOrganizationStore<CloudTreeNode>(defaults: defaults)
         let refreshed = [folder("c"), folder("b"), folder("a"), folder("new")]
         #expect(restored.arranged(refreshed).map(\.id) == ["b", "c", "a", "new"])
         #expect(restored.arranged(refreshed).first?.isPinned == true)
@@ -106,7 +107,7 @@ struct CloudSidebarOrganizationTests {
         let suite = "cloud-organization-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let store = CloudTreeOrganizationStore(defaults: defaults)
+        let store = CloudTreeOrganizationStore<CloudTreeNode>(defaults: defaults)
         let tree = [folder("one", children: [folder("a"), folder("b")]), folder("two")]
         #expect(!store.move("b", parentID: "two", to: 0, in: tree))
         #expect(store.move("b", parentID: "one", to: 0, in: tree))

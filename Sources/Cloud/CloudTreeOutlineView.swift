@@ -84,7 +84,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         weak var outlineView: CloudTreeNSOutlineView?
         private var nodes: [CloudTreeNode] = []
         private var catalogNodes: [CloudTreeNode] = []
-        private var organizationStore: CloudTreeOrganizationStore { expansionStore.organizationStore }
+        private var organizationStore: CloudTreeOrganizationStore<CloudTreeNode> { expansionStore.organizationStore }
         static let organizationDragType = NSPasteboard.PasteboardType("com.cmux.cloud-tree-reorder")
         private var structureSignature: [String] = []
         private var contentSignature: [String] = []
@@ -607,16 +607,17 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             return menu.items.isEmpty ? nil : menu
         }
 
+        /// Builds organization actions from the currently displayed snapshot.
         private func organizationMenuItems(for node: CloudTreeNode) -> [NSMenuItem] {
             guard node.canOrganize else { return [] }
             let up = item(String(localized: "contextMenu.moveUp", defaultValue: "Move Up")) { [weak self] in
                 self?.moveNode(node.id, by: -1)
             }
-            up.isEnabled = organizationStore.canMove(node.id, by: -1, in: catalogNodes)
+            up.isEnabled = organizationStore.canMove(node.id, by: -1, in: nodes, alreadyArranged: true)
             let down = item(String(localized: "contextMenu.moveDown", defaultValue: "Move Down")) { [weak self] in
                 self?.moveNode(node.id, by: 1)
             }
-            down.isEnabled = organizationStore.canMove(node.id, by: 1, in: catalogNodes)
+            down.isEnabled = organizationStore.canMove(node.id, by: 1, in: nodes, alreadyArranged: true)
             let pin = item(node.isPinned
                 ? String(localized: "cloudTree.menu.unpin", defaultValue: "Unpin")
                 : String(localized: "cloudTree.menu.pin", defaultValue: "Pin")) { [weak self] in
@@ -627,17 +628,20 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             return [.separator(), up, down, pin]
         }
 
+        /// Persists a sibling move and refreshes presentation through the shared apply path.
         private func moveNode(_ id: String, by delta: Int) {
             if organizationStore.move(id, by: delta, in: catalogNodes) {
                 apply(nodes: catalogNodes)
             }
         }
 
+        /// Accepts only same-outline drops within the source’s existing parent.
         func outlineView(_ outlineView: NSOutlineView, validateDrop info: NSDraggingInfo, proposedItem item: Any?, proposedChildIndex index: Int) -> NSDragOperation {
             guard organizationDrop(info, item: item, index: index) != nil else { return [] }
             return .move
         }
 
+        /// Commits presentation order, deferring row updates until native drag ownership ends.
         func outlineView(_ outlineView: NSOutlineView, acceptDrop info: NSDraggingInfo, item: Any?, childIndex index: Int) -> Bool {
             guard let drop = organizationDrop(info, item: item, index: index) else { return false }
             let changed = organizationStore.move(drop.id, parentID: drop.parent, to: drop.index, in: catalogNodes)
@@ -647,6 +651,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             return changed
         }
 
+        /// Resolves a native insertion boundary into a stable placement and final sibling index.
         private func organizationDrop(_ info: NSDraggingInfo, item: Any?, index: Int) -> (id: String, parent: String, index: Int)? {
             guard let source = info.draggingSource as? NSOutlineView, source === outlineView,
                   index >= 0,
