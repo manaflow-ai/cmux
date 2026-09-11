@@ -1,25 +1,22 @@
 public import CMUXMobileCore
 public import Foundation
 
-/// MainActor adapter for the shared SwiftUI networking surface while IRX owns
-/// the transport. Legacy remains the source for diagnostics until those move,
-/// while private-address reads and mutations go to the active IRX runtime.
+/// Adapts the active v2 runtime and the app-owned diagnostic log for Settings.
 @MainActor
 public final class MobileIrxSettingsController: CmxIrohSettingsControlling {
     private let irx: MobileIrxRuntimeComposition
-    private let legacy: any CmxIrohSettingsControlling
+    private let diagnosticLog: DiagnosticLog
 
     public init(
         irx: MobileIrxRuntimeComposition,
-        legacy: any CmxIrohSettingsControlling
+        diagnosticLog: DiagnosticLog
     ) {
         self.irx = irx
-        self.legacy = legacy
+        self.diagnosticLog = diagnosticLog
     }
 
     public func irohSettingsSnapshot() async -> CmxIrohSettingsSnapshot {
-        let base = await legacy.irohSettingsSnapshot()
-        return await irx.settingsSnapshot(overlaying: base)
+        await irx.settingsSnapshot()
     }
 
     public func irohSettingsUpdates() -> AsyncStream<CmxIrohSettingsSnapshot> {
@@ -34,17 +31,7 @@ public final class MobileIrxSettingsController: CmxIrohSettingsControlling {
                 continuation.yield(await irohSettingsSnapshot())
             }
         }
-        let legacyTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            for await _ in legacy.irohSettingsUpdates() {
-                guard !Task.isCancelled else { return }
-                continuation.yield(await irohSettingsSnapshot())
-            }
-        }
-        continuation.onTermination = { @Sendable _ in
-            irxTask.cancel()
-            legacyTask.cancel()
-        }
+        continuation.onTermination = { @Sendable _ in irxTask.cancel() }
         return stream
     }
 
@@ -59,7 +46,7 @@ public final class MobileIrxSettingsController: CmxIrohSettingsControlling {
     public func setIrohPathPreference(
         _ preference: CmxIrohPathPreference
     ) async throws {
-        let active: CmxIrohPathPreference = MobileIrxRuntimeComposition.forceRelayOnly
+        let active: CmxIrohPathPreference = irx.forceRelayOnly
             ? .relayOnly : .automatic
         guard preference == active else {
             throw CmxIrohSettingsControlError.unsupported
@@ -118,25 +105,25 @@ public final class MobileIrxSettingsController: CmxIrohSettingsControlling {
         CmxIrohConnectionCheckReport(
             role: .mobileClient,
             snapshot: await irohSettingsSnapshot(),
-            diagnostics: await legacy.irohDiagnosticReport(),
+            diagnostics: await diagnosticLog.snapshot(),
             relayReachability: .unavailable,
             macDiscovery: .unavailable
         )
     }
 
     public func irohDiagnosticReport() async -> DiagnosticReport {
-        await legacy.irohDiagnosticReport()
+        await diagnosticLog.snapshot()
     }
 
     public func exportIrohDiagnosticReport() async -> Data {
-        await legacy.exportIrohDiagnosticReport()
+        await diagnosticLog.export()
     }
 
     public func clearIrohDiagnosticReport() async {
-        await legacy.clearIrohDiagnosticReport()
+        await diagnosticLog.clear()
     }
 
     public func irohPreviousLaunchDiagnosticReport() async -> DiagnosticReport? {
-        await legacy.irohPreviousLaunchDiagnosticReport()
+        nil
     }
 }

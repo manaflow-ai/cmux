@@ -158,8 +158,8 @@ struct MacComputerDetailView: View {
         ) {
             TextField(
                 L10n.string(
-                    "mobile.connections.direct.addPlaceholder",
-                    defaultValue: "Address or address:port"
+                    "mobile.v2.connections.direct.addPlaceholder",
+                    defaultValue: "192.168.1.5:58470 or [fd00::5]:58470"
                 ),
                 text: $newDirectAddress
             )
@@ -601,10 +601,8 @@ struct MacComputerDetailView: View {
         }
     }
 
-    /// The Computer's Direct dial candidates: a multi-selectable list — each
-    /// enabled row is a candidate, dialed in order — plus an add field.
-    /// Entries accept `host` or `host:port`; without a port the Mac's
-    /// advertised listener port is dialed (one listener serves all methods).
+    /// Each enabled local address is dialed in order. Entries require an
+    /// explicit port because listener addresses are never stored by the server.
     @ViewBuilder
     private var directAddressesSection: some View {
         Section {
@@ -704,8 +702,8 @@ struct MacComputerDetailView: View {
         } footer: {
             Text(directAddressDrafts.contains(where: \.enabled)
                 ? L10n.string(
-                    "mobile.connections.direct.footer",
-                    defaultValue: "Enabled addresses feed the encrypted dial as hints; the connection is always identity-checked. Ports are optional."
+                    "mobile.v2.connections.direct.footer",
+                    defaultValue: "Enter each address with its port. These routes stay on this iPhone. The encrypted connection verifies the Mac’s identity."
                 )
                 : L10n.string(
                     "mobile.connections.direct.noneEnabled",
@@ -722,23 +720,10 @@ struct MacComputerDetailView: View {
         Self.parseDirectAddress(newDirectAddress)
     }
 
-    /// Parses `host` or `host:port` (port 1...65535). The host must be a
-    /// numeric IPv4/IPv6 literal the Direct dial can actually use
-    /// (``CmxIrohCustomPrivateAddress``): hostnames, loopback, and scoped
-    /// addresses are refused at entry, because a stored entry the transport
-    /// skips would otherwise fail later with no feedback. IPv6 literals
-    /// without brackets keep their colons by only treating the suffix as a
-    /// port when exactly one colon is present.
+    /// Direct routes require a local numeric address and explicit UDP port.
     static func parseDirectAddress(_ raw: String) -> MobilePairedMacDirectAddress? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let parts = trimmed.split(separator: ":", omittingEmptySubsequences: false)
-        if parts.count == 2, let port = Int(parts[1]), (1...65535).contains(port),
-           let host = try? CmxIrohCustomPrivateAddress(String(parts[0])) {
-            return MobilePairedMacDirectAddress(address: host.value, port: port)
-        }
-        guard let host = try? CmxIrohCustomPrivateAddress(trimmed) else { return nil }
-        return MobilePairedMacDirectAddress(address: host.value, port: nil)
+        guard let socket = try? CmxIrohLocalSocketAddress(raw) else { return nil }
+        return MobilePairedMacDirectAddress(address: socket.address.value, port: Int(socket.port))
     }
 
     /// Prefills the shared add/edit alert with an existing entry. The id is

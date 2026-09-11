@@ -608,10 +608,7 @@ final class HostSettingsActions: SettingsHostActions {
         // Exactly one runtime owns the transport slot (gated in
         // MobileHostService.configure); Settings must read the same one, or
         // the Networking section reports the dormant stack's stale state.
-        if MobileHostIrxRuntime.isEnabled {
-            return MobileHostIrxRuntime.shared
-        }
-        return MobileHostIrohRuntime.shared
+        return MobileHostIrxRuntime.shared
     }
 
     /// Maps the host's ``MobileHostServiceStatus`` into the settings package's
@@ -622,36 +619,10 @@ final class HostSettingsActions: SettingsHostActions {
         from status: MobileHostServiceStatus,
         now: Date = Date()
     ) -> MobilePairingStatusSnapshot {
-        var seenEndpoints = Set<String>()
-        let routes = status.routes.flatMap { route -> [MobilePairingRoute] in
-            switch route.endpoint {
-            case let .hostPort(host, port):
-                return [MobilePairingRoute(
-                    id: route.id,
-                    kindLabel: routeKindLabel(route.kind),
-                    host: host,
-                    port: port
-                )]
-            case let .peer(_, pathHints):
-                // The Iroh endpoint's registered UDP socket addresses: the
-                // port Direct addresses actually dial, which can differ from
-                // the configured preference when that UDP port was taken.
-                return pathHints.compactMap { hint in
-                    guard hint.kind == .directAddress,
-                          hint.isUsable(at: now),
-                          seenEndpoints.insert(hint.value).inserted,
-                          let address = splitSocketAddress(hint.value)
-                    else { return nil }
-                    return MobilePairingRoute(
-                        id: "\(route.id):\(hint.value)",
-                        kindLabel: routeKindLabel(route.kind),
-                        host: address.host,
-                        port: address.port
-                    )
-                }
-            case .url:
-                return []
-            }
+        let routes = Array(Set(status.localSocketAddresses)).sorted().compactMap { address -> MobilePairingRoute? in
+            guard let socket = splitSocketAddress(address) else { return nil }
+            return MobilePairingRoute(id: "iroh-local:" + address,
+                kindLabel: routeKindLabel(.iroh), host: socket.host, port: socket.port)
         }
         return MobilePairingStatusSnapshot(
             isRunning: status.isRunning,
@@ -659,11 +630,12 @@ final class HostSettingsActions: SettingsHostActions {
             boundPort: status.port,
             usesEphemeralFallback: status.usesEphemeralFallback,
             activeConnectionCount: status.activeConnectionCount,
-            routes: routes
+            routes: routes,
+            pendingPortChange: status.pendingPortChange
         )
     }
 
-    /// Splits an Iroh direct-address hint (`203.0.113.7:58465` or
+    /// Splits an observed local IROH socket (`203.0.113.7:58465` or
     /// `[2001:db8::7]:58465`) into the host and port ``MobilePairingRoute``
     /// renders, or `nil` for anything else. Internal for unit tests.
     nonisolated static func splitSocketAddress(_ value: String) -> (host: String, port: Int)? {
@@ -716,9 +688,7 @@ final class HostSettingsActions: SettingsHostActions {
         switch await MobileHostService.shared.applyConfiguredPort(port) {
         case .applied(let bound):
             return .applied(port: bound)
-        case .portInUse:
-            return .portInUse(requestedPort: port)
-        case .savedWhileDisabled:
+        case .savedForLater:
             return .savedForLater(port: port)
         case .invalid:
             return .invalid(requestedPort: port)

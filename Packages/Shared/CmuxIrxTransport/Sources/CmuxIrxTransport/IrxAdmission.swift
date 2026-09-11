@@ -56,6 +56,30 @@ public enum IrxAdmission {
         grantJWS: String? = nil,
         journal: IrxJournal
     ) async throws -> (IrxAdmit, IrxLaneStream) {
+        do {
+            return try await clientExchange(connection: connection, grantJWS: grantJWS, journal: journal)
+        } catch let denial as IrxAdmissionDenied {
+            throw denial
+        } catch {
+            try Task.checkCancellation()
+            // A remote denial can terminate any native open/write/read stage,
+            // not just yield EOF from the admit reader. Inspect the already
+            // published close reason without waiting for a second deadline.
+            if let reason = await connection.closeReason(),
+               let code = IrxCloseCode.parse(fromRenderedCause: reason),
+               code == .admissionTimeout || IrxCloseCode.terminalForAutoRedial.contains(code) {
+                journal.record("admission", "denied", ["code": code.rawValue])
+                throw IrxAdmissionDenied(code: code)
+            }
+            throw error
+        }
+    }
+
+    private static func clientExchange(
+        connection: IrxConnection,
+        grantJWS: String?,
+        journal: IrxJournal
+    ) async throws -> (IrxAdmit, IrxLaneStream) {
         let startedAt = DispatchTime.now()
         let control = try await connection.openLane(IrxLaneDescriptor(lane: .control))
         try await control.writer.writeControlFrame(IrxHello(grant: grantJWS))

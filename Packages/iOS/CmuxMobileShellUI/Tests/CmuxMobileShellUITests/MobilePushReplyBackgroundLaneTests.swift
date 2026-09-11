@@ -1,5 +1,6 @@
 import CmuxAuthRuntime
 import Foundation
+import Synchronization
 import Testing
 
 @testable import CmuxMobileShellUI
@@ -116,20 +117,19 @@ private final class ReplyRelayFake: ReplyRelaying, @unchecked Sendable {
 }
 
 private final class RateLimitedReplyURLProtocol: URLProtocol, @unchecked Sendable {
-    private static let lock = NSLock()
-    private static var storedRequestCount = 0
+    private static let storedRequestCount = Mutex(0)
 
-    static var requestCount: Int { lock.withLock { storedRequestCount } }
+    static var requestCount: Int { storedRequestCount.withLock { $0 } }
 
     static func reset() {
-        lock.withLock { storedRequestCount = 0 }
+        storedRequestCount.withLock { $0 = 0 }
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        Self.lock.withLock { Self.storedRequestCount += 1 }
+        Self.storedRequestCount.withLock { $0 += 1 }
         let response = HTTPURLResponse(
             url: request.url!,
             statusCode: 429,
@@ -388,30 +388,6 @@ private func makeReplyLaneCoordinator(
     #expect(relay.requests.count == 1)
     #expect(runtime.endCount == 0)
     #expect(notifier.cancelCount == 0)
-}
-
-@MainActor
-@Test func confinedRelayPreservesSurfaceRetargetPolicy() async {
-    let runtime = ReplyRuntimeFake()
-    let notifier = ReplyNoticeFake()
-    let relay = ReplyRelayFake(outcomes: [true])
-    let coordinator = makeReplyLaneCoordinator(
-        runtime: runtime,
-        notifier: notifier,
-        nowBox: NowBox(),
-        relay: relay
-    )
-
-    await coordinator.handleReply(
-        text: "stay in this workspace",
-        workspaceId: "workspace-1",
-        surfaceId: "surface-1",
-        macDeviceId: "mac-1",
-        retargetsToLiveSurfaceOwner: false
-    )
-
-    #expect(relay.requests.count == 1)
-    #expect(relay.requests.first?.retargetsToLiveSurfaceOwner == false)
 }
 
 @MainActor

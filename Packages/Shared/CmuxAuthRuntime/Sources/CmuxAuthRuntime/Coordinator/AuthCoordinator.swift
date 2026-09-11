@@ -40,13 +40,16 @@ public final class AuthCoordinator {
     /// Whether a cached session is being restored/validated at launch.
     public private(set) var isRestoringSession = false
     /// The teams the signed-in user belongs to (refreshed on sign-in/restore).
-    public private(set) var availableTeams: [CMUXAuthTeam] = []
+    public private(set) var availableTeams: [CMUXAuthTeam] = [] {
+        didSet { publishAuthenticatedTeamScope() }
+    }
     /// The user's selected team id. Writes persist through the injected
     /// ``CMUXAuthCore/CMUXAuthTeamSelectionStore``.
     public var selectedTeamID: String? {
         didSet {
             guard selectedTeamID != oldValue else { return }
             teamSelection.selectedTeamID = selectedTeamID
+            publishAuthenticatedTeamScope()
         }
     }
 
@@ -109,6 +112,11 @@ public final class AuthCoordinator {
     @ObservationIgnored var authenticatedSessionIdentityContinuations: [
         UUID: AsyncStream<AuthenticatedSessionIdentity?>.Continuation
     ] = [:]
+    @ObservationIgnored var authenticatedTeamScopeContinuations: [
+        UUID: AsyncStream<AuthenticatedTeamScope?>.Continuation
+    ] = [:]
+    @ObservationIgnored var authenticatedTeamScopeGeneration: UInt64 = 0
+    @ObservationIgnored var lastPublishedAuthenticatedTeamScope: AuthenticatedTeamScope?
     /// Sign-in attempts that currently own a possible write to the token store.
     ///
     /// This ownership spans the whole flow, not just the credential-exchange

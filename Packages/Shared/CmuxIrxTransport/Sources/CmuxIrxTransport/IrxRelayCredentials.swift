@@ -1,6 +1,6 @@
 public import Foundation
 
-/// One endpoint-bound relay credential (EdDSA JWT, ~300s TTL). The relay
+/// One endpoint-bound relay credential (EdDSA JWT, 30-minute lifetime). The relay
 /// closes authenticated connections at the credential's signed expiry, so the
 /// ONLY safe lifecycle is: refresh early, rotate with insertRelay alone
 /// (make-before-break), and never let a live endpoint hold an expired token.
@@ -8,7 +8,7 @@ public struct IrxRelayCredential: Codable, Equatable, Sendable {
     public var relayURL: String
     public var token: String
     public var expiresAt: Date
-    /// Server-suggested refresh time (typically expiry minus 60s).
+    /// Server-suggested refresh time (five minutes before expiry in v2).
     public var refreshAfter: Date
 
     public init(relayURL: String, token: String, expiresAt: Date, refreshAfter: Date) {

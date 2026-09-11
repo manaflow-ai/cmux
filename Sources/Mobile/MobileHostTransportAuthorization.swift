@@ -17,14 +17,6 @@ enum MobileHostConnectionAuthorizationContext: Equatable, Sendable {
     case irohAdmission(CmxIrohAdmittedPeer)
 }
 
-extension MobileHostConnectionAuthorizationContext {
-    /// One policy authority for transports accepted by the legacy
-    /// private-network listener. Keeping this separate from Iroh admission
-    /// makes version-skew coverage exercise the same authorization choice as
-    /// the production listener.
-    static let legacyPrivateNetworkListener: Self = .stackBearer
-}
-
 /// Immutable trust context carried from transport admission into RPC dispatch.
 struct MobileHostRPCExecutionContext: Sendable {
     /// The per-connection identity, used to key long-lived subscriptions
@@ -252,6 +244,19 @@ enum MobileHostPublicStatusCache {
     private static let lock = NSLock()
     private nonisolated(unsafe) static var legacyRoutes: [CmxAttachRoute] = []
     private nonisolated(unsafe) static var irohRoute: CmxAttachRoute?
+    private nonisolated(unsafe) static var v2DeviceID: String?
+
+    static func updateV2DeviceID(_ deviceID: String) {
+        lock.lock()
+        v2DeviceID = deviceID
+        lock.unlock()
+    }
+
+    static func currentV2DeviceID() -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return v2DeviceID
+    }
 
     static func update(routes nextRoutes: [CmxAttachRoute]) {
         lock.lock()

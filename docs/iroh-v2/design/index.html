@@ -1,0 +1,1535 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>cmux IROH interaction map</title>
+<style>
+:root{color-scheme:dark;--bg:#10151e;--panel:#19212d;--border:#344154;--text:#edf2fa;--dim:#aab8ca;--blue:#83b8ff;--green:#71d6b1;--orange:#f5c481;--red:#ff9fa6}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 system-ui,-apple-system,sans-serif}main{max-width:1500px;margin:auto;padding:28px 26px 60px}h1{font-size:30px;line-height:1.2;margin:5px 0 12px}h2{font-size:19px;line-height:1.4;margin:0 0 10px}h3{font-size:15px;margin:0 0 6px}p{margin:8px 0}.muted,small{color:var(--dim)}.eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.13em;color:var(--green)}a{color:var(--blue)}code{font-size:.91em;background:#0e1621;padding:2px 5px;border-radius:4px;overflow-wrap:anywhere}.notice{border-left:3px solid var(--orange);background:#2b2830;padding:10px 14px;margin:18px 0;font-size:13px}.chips{display:flex;gap:8px;flex-wrap:wrap}.chip{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:12px}.chip b{color:var(--green)}.mode,.flows{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}.mode button,.flows button,button.action{background:#1d2838;border:1px solid #45566e;border-radius:6px;padding:8px 12px;color:var(--text);font:inherit;cursor:pointer}.mode button[aria-pressed=true],.flows button[aria-pressed=true]{background:#284267;border-color:var(--blue)}button:focus-visible,a:focus-visible{outline:2px solid var(--green);outline-offset:3px}.layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:18px}.panel{border:1px solid var(--border);border-radius:10px;background:var(--panel);padding:18px}.diagram{padding:0;overflow:hidden}.diagram-header{padding:18px;border-bottom:1px solid var(--border)}.diagram-header p{font-size:13px;color:var(--dim)}.viewport{overflow:auto;background:#121a26}.viewport svg{display:block;max-width:none}.side{display:grid;gap:15px;align-content:start}.side p{font-size:13px}.sources{margin:0 18px 18px;font-size:12px}.sources a{display:block;margin:4px 0}.cards{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}.cards p,.cards li{font-size:13px}.cards ul{padding-left:18px}.wide{grid-column:1/-1}table{border-collapse:collapse;width:100%;font-size:12px}th,td{padding:10px 8px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}th{color:var(--dim)}.steps-list{font-size:13px}.steps-list li{margin:6px 0}.footer{font-size:12px;color:var(--dim);margin-top:22px}.status{color:var(--orange)}.legend{font-size:12px;color:var(--dim);padding:8px 18px}.legend span{margin-right:14px}.arrows{color:var(--blue)}.returns{color:var(--green)}svg .step{cursor:pointer}svg .step:hover .rowbg,svg .step:focus .rowbg{fill:#22334a}svg .step:focus{outline:none}svg text{font-family:system-ui,-apple-system,sans-serif}details summary{cursor:pointer;color:var(--blue)}@media(max-width:1150px){.layout{grid-template-columns:1fr}.side{grid-template-columns:repeat(3,1fr)}}@media(max-width:780px){main{padding:18px 12px}.cards,.side{grid-template-columns:1fr}h1{font-size:25px}.wide{grid-column:auto}th,td{padding:8px 4px}.flows button{font-size:12px}}@media print{body{background:#fff;color:#111}.mode,.flows{display:none}.layout,.cards,.side{display:block}.panel{break-inside:avoid;margin-bottom:12px}.viewport{overflow:visible}.viewport svg{width:100%;height:auto}.notice{color:#111}}
+.jump-links{display:flex;gap:18px;flex-wrap:wrap;margin:18px 0}.capacity{margin-top:18px;scroll-margin-top:16px}.table-scroll{overflow-x:auto}.capacity table{min-width:760px}.capacity th{background:#152131;color:var(--text)}.capacity td:first-child{font-weight:600;min-width:190px}.capacity td{overflow-wrap:anywhere}.capacity tbody tr:nth-child(even){background:#15202e}.capacity caption{text-align:left;color:var(--dim);padding-bottom:12px}.scenario{display:flex;flex-wrap:wrap;gap:14px;margin:16px 0}.scenario label{display:grid;gap:5px;font-size:12px;color:var(--dim)}.scenario input{width:155px;padding:8px;border:1px solid var(--border);border-radius:5px;background:var(--bg);color:var(--text);font:inherit}.scenario input:invalid{border-color:var(--red)}.estimate{padding:12px 14px;background:#142b25;border:1px solid #426756;border-radius:7px}.capacity .numeric{font-variant-numeric:tabular-nums;white-space:nowrap}.capacity details{margin-top:14px}.capacity li{margin:7px 0}
+.layout>*{min-width:0}.viewport{max-width:100%}.diagram{overflow:clip}.viewport,.table-scroll{overflow-x:auto;overflow-y:hidden;overscroll-behavior-y:auto}
+</style>
+</head>
+<body><main>
+<div class="eyebrow">Working architecture · revision 21 · 10 September 2026</div>
+<h1>cmux IROH interactions</h1>
+<p class="muted">Verified main behavior and a separate /v2 proposal. Select a flow, then click a row to expand its payload and operation details. Click the row again to collapse it. This document changes the design only. <a href="IROH-DECISIONS.md">Accepted decisions and registration occasions</a>.</p>
+<div class="chips"><span class="chip">API ticket <b>1 hour</b></span><span class="chip">Relay credential <b>30 minutes</b></span><span class="chip">Challenge <b>30 minutes · one pending slot</b></span><span class="chip">Storage <b>Drizzle + DO SQLite</b></span><span class="chip">Shared contract <b>Zod + JSON Schema + quicktype</b></span></div>
+<div class="notice"><b>Correction to revision 1:</b> “Convex-era” came from an old cmux-lite design draft and was incorrectly described as current main. Main already has a Cloudflare Worker and Durable Objects for presence and account control. The newer account channel still proxies some requests to the Vercel web broker. The source baseline below is pinned to <a href="https://github.com/manaflow-ai/cmux/commit/9b98fb04ac159dc1f87b4c1699a35a689420a968">9b98fb04</a>. The old 30s/90s presence figures were also incorrect for this baseline. Payload blocks are contract-level summaries. Exact `/v2` field names remain working design details until implementation.</div>
+<nav class="jump-links" aria-label="Document sections"><a href="#sequence">Sequence diagrams</a><a href="#client-replacement">Client replacement scope</a><a href="#observability">Observability</a><a href="#pr-lessons">PR lessons</a><a href="#team-scope">Team scope</a><a href="#registration-and-reachability">Registration and connection status</a><a href="#rate-limits">Rate limits</a><a href="#expected-usage">Expected usage</a><a href="IROH-CAPACITY.md">Capacity planning document</a></nav>
+<div class="mode" id="sequence" aria-label="Architecture"><button data-mode="target" aria-pressed="true">Proposed /v2</button><button data-mode="current" aria-pressed="false">Verified main</button></div>
+<div class="flows" aria-label="Sequence"><button data-flow="enroll" aria-pressed="true">1. Enrollment + challenge</button><button data-flow="publish" aria-pressed="false">2. Mac activation + updates</button><button data-flow="connect" aria-pressed="false">3. Directory + IROH connection</button><button data-flow="renew" aria-pressed="false">4. Credentials + revocation</button><button data-flow="application" aria-pressed="false">5. Application lifecycle</button><button data-flow="backend" aria-pressed="false">6. Backend handling + storage</button></div>
+<div class="layout"><section class="panel diagram"><div class="diagram-header"><h2 id="flow-title"></h2><p id="flow-summary"></p><small id="scope"></small></div><div class="legend"><span class="arrows">→ request / operation</span><span class="returns">⇢ response / pushed update</span><span>Click a row to expand or collapse its payload and server action.</span><span>Parallel containers hold independent sequential threads.</span><span>Yellow bands describe conditions.</span></div><div class="viewport" id="viewport"></div><div class="sources" id="sources"></div></section>
+<aside class="side"><section class="panel"><h2>Why a challenge?</h2><p>Stack authenticates the user and provides team membership. The challenge proves that the registering app also holds the private key for the advertised IROH EndpointID. Signing a fresh nonce and the registration payload stops someone from registering a copied public key or replaying an old enrollment.</p><p><b>Current:</b> each signed registration, including route refresh, requests a five-minute challenge. Successful registration deletes that challenge; issuance still inserts separate rows, so simultaneous pending challenges can exist.</p><p><b>Proposed:</b> challenge only for enrollment or approved key replacement/recovery. Ordinary resume, ticket renewal, and signed metadata updates reuse the existing binding.</p></section>
+<section class="panel"><h2>One identity, one device row</h2><p>Within an environment, Stack project, and team, device records also retain their owner user ID. The proposed identity key is <code>(teamId, ownerUserId, deviceId, appNamespace, devTag)</code>. The namespace identifies the app/channel, so INTERNAL, BETA, and App Store stay separate. A dev tag separates simultaneous dev builds.</p><p>Repeated registration of the same identity updates its current device record. New identities add records subject to device/storage limits. Store endpoint key, identity generation, and optional pending challenge fields on that row. A fresh challenge replaces the prior nonce; consume it atomically with enrollment. Reject it after 30 minutes. The slot can remain until the next challenge replaces it or the identity is removed. No challenge cleanup scan or scheduled deletion is needed.</p><p>Use stable app identity, not the app version number. An ordinary update should not create another device identity. The app-instance identifier is metadata, not another accumulating row key.</p></section>
+<section class="panel"><h2>How long each credential lasts</h2><table><tr><th>Credential</th><th>v2 design</th></tr><tr><td>API HMAC ticket</td><td>1 hour</td></tr><tr><td>Managed relay token</td><td>30 minutes</td></tr><tr><td>Enrollment challenge</td><td>30 minutes, single use</td></tr><tr><td>Peer device-list lease</td><td>Undecided; main uses 24 hours</td></tr></table><p>Use make-before-break: obtain and validate a replacement around minute 25, switch only after it is usable, and keep the old credential briefly for in-flight work. Apply the same overlap to relay paths, sockets, and key replacement. Immediate cutover is reserved for explicit revocation or suspected compromise. Add a small random offset so apps do not all renew at once.</p><p>HMAC signing keys remain on the backend. Retain public-key signed relay tokens so relays verify them without possessing the issuer’s signing key.</p></section></aside></div>
+<section class="panel capacity" id="observability"><h2>Observability for all backend activity</h2><p><b>Accepted:</b> record every logical backend operation and major event, including successes, response codes and rate-limit decisions. Use compact records; exclude credentials, raw request/response bodies and terminal content. Aggregate metrics from all outcomes; sampling is reserved for optional debug detail.</p><div class="table-scroll" tabindex="0"><table><thead><tr><th>Activity</th><th>Coverage</th></tr></thead><tbody><tr><td>Every HTTP / socket operation</td><td>Success or failure, actual HTTP status or socket error, schema/method, user/team, request ID and duration. Includes auth failures before DO routing.</td></tr><tr><td>Every rate-limit decision</td><td>Allowed/limited, user policy, operation and retry delay. Counters cover all checks; rejected operations are searchable events.</td></tr><tr><td>Major changes</td><td>Enrollment/recovery, credentials, permission removals, directory updates, socket lifecycle, slow-client buffer hits, jobs and deployments.</td></tr><tr><td>Database and relay work</td><td>Operation timings, reads/writes and storage errors; relay auth/limits/lifecycle and aggregate bytes. No payload or encrypted-packet logging.</td></tr><tr><td>Collection health</td><td>Export failures/timeouts, queue pressure and dropped-record counts. Durable security history accompanies state changes.</td></tr></tbody></table></div><p><b>Collection plan:</b> Cloudflare platform logs/metrics, structured searchable events through Axiom, and Sentry for unexpected exceptions. This collection stack and the completed operation coverage are accepted. Exact deployment, dashboards, retention and alert thresholds remain work to implement.</p><p>Use one shared operation wrapper for HTTP and application socket messages. Correlate Worker, DO and database phases without double-counting a routed request. Batch background exports with bounded memory, concurrency and time. Do not add a DO wake timer just for logs.</p><p>Ordinary logging is best effort, with measurable export losses; authority changes have durable history. Runtime ping/pong bypasses our handler. Direct IROH success and terminal responsiveness require app-side telemetry; the backend cannot infer them from its own socket. <a href="IROH-OBSERVABILITY.md">Full coverage and cost rules</a>.</p></section>
+<section class="panel capacity" id="client-replacement"><h2>Accepted client replacement scope</h2><p><b>Remove all Mac/iOS behavior incompatible with v2.</b> Delete retired IROH routes and fallbacks, old relay-minter code, application presence timers, periodic registration loops, competing renewal/reconnect owners and incompatible identity/team handling. Remove obsolete flags, adapters and models with those paths.</p><p>Keep the agreed <code>/v2</code> HTTP recovery path, native transport keepalives, local/peer direct connections and supported v2 schema versions. Old cached authority cannot silently become v2 trust. Verify launch, upgrade, wake, reconnect and failure paths cannot restart removed behavior.</p><p>Production cutover and retirement dates for pre-v2 services remain deployment decisions. <a href="IROH-DECISIONS.md#client-replacement-scope">Complete accepted scope</a>.</p></section>
+<section class="panel capacity" id="pr-lessons"><h2>Accepted decisions from Lawrence’s PR</h2><p><b>Adopted into v2.</b> These are implementation requirements, adapted to team-owned state and user allowances. <a href="https://github.com/manaflow-ai/cmux/pull/12199">PR by Lawrence Chen</a>, inspected at a96093de.</p><div class="table-scroll" tabindex="0"><table><thead><tr><th>Accepted decision</th><th>v2 requirement</th></tr></thead><tbody><tr><td>Shared local broker</td><td>HTTP and socket adapters call the same team-local broker. Keep transport/session handling separate from operation and storage rules. Ordinary IROH operations do not proxy to Vercel.</td></tr><tr><td>Zod at both boundaries</td><td>Validate every server request and response using the versioned Zod contract. Keep JSON Schema export, quicktype Swift/TS generation, and compatibility checks.</td></tr><tr><td>Safe object activation</td><td>Check and apply Drizzle durable-sqlite migrations inside blockConcurrencyWhile before serving requests. Use supported synchronous storage transactions; no partial schema is visible.</td></tr><tr><td>Immutable migration history</td><td>Never edit a shipped migration. Verify migration history and refuse a schema the worker cannot safely serve. Roll back code only when it supports the already-applied schema.</td></tr><tr><td>Database-enforced quotas</td><td>Use constraints/triggers to update usage and reject writes in the same transaction. Attribute product usage to users; size the shared physical database guard separately.</td></tr><tr><td>Bounded temporary state</td><td>Keep one pending challenge slot per device/build identity. Reject expired challenges when used, replace the slot on a new challenge request, and clear it on successful consumption. No challenge sweep or scheduled deletion. Any future retained-history cleanup needs an explicit retention policy and bounded work.</td></tr><tr><td>Real runtime verification</td><td>Require Miniflare/workerd tests for persistence, reactivation, isolation, migrations and rollback/failure. Test real alarms only for features that require them. Add team/user separation, supported v2 client compatibility and interrupted-renewal coverage.</td></tr><tr><td>Enforced architectural boundary</td><td>Required build checks must invoke the no-Vercel/no-Hyperdrive dependency check. Permit the deliberate PlanetScale global ownership service; keep ordinary team-local reads and renewal local.</td></tr><tr><td>Staged deployment</td><td>Run generation, schema checks, runtime tests and a Worker dry run in development. Canary one team, then promote the same immutable worker build. Separate large backfills from traffic cutover.</td></tr><tr><td>Complete, bounded observability</td><td>Use Cloudflare logs/metrics, Axiom structured operation events and Sentry exceptions. Cover all HTTP/socket outcomes and major events. Bound exports and keep telemetry delivery off the response path.</td></tr></tbody></table></div><p><b>Flow 6</b> shows schema readiness, shared request handling, transactional guards and deadline cleanup with expandable payloads. Required verification includes the architectural boundary check, closing the wiring gap observed in the inspected PR.</p><p>Our choices remain explicit: team DOs, user allowances, 30-minute challenge and relay credentials, one pending challenge per identity, no scheduled presence heartbeat, and durable device identity across offline periods. Numeric storage guards are sized for our model. <a href="IROH-DECISIONS.md#accepted-backend-implementation-rules">Accepted implementation rules</a> · <a href="PR-12199-LESSONS.md">Source notes and adaptations</a>.</p></section>
+<section class="panel capacity" id="team-scope"><h2>Team-owned state, user-owned limits</h2><p><b>Decided:</b> use Stack Auth teams for shared IROH state. The Worker verifies the user and selected team before routing to that team’s DO. A valid client-supplied team ID alone grants nothing. Known membership or permission removal invalidates affected sessions and future minting.</p><div class="table-scroll" tabindex="0"><table><thead><tr><th>Area</th><th>Scope</th></tr></thead><tbody><tr><td>Durable Object and SQLite</td><td>One per Stack Auth team in each environment; include Stack project in routing identity.</td></tr><tr><td>Directory and device records</td><td>Team-owned directory, filtered by the caller’s permissions; each device keeps its owner user and unique EndpointID.</td></tr><tr><td>Permissions and revocations</td><td>Team membership plus explicit device/connect/manage permission. Membership alone never grants terminal access.</td></tr><tr><td>Control sockets and live updates</td><td>Join the verified team object; team revisions and permission-filtered broadcasts.</td></tr><tr><td>Tickets, challenges and signed peer permissions</td><td>Bind environment, Stack project, team, user, device/build, generation and allowed actions.</td></tr><tr><td>Relay settings, caches and Dashboard</td><td>Team-scoped shared settings, cached directory and Dashboard selection. User UI preferences and local pairing opt-in stay individual.</td></tr><tr><td>Global EndpointID map and reports</td><td>PlanetScale stores team ownership plus owner user. Global uniqueness remains global.</td></tr><tr><td>Request and product usage limits</td><td>Per verified user and operation, shared across their devices and teams within an environment; no IP quota.</td></tr><tr><td>Physical safety bounds</td><td>Payload/socket limits and finite DO memory still apply. These protect resources; they are not a shared team request allowance.</td></tr></tbody></table></div><p>Team changes must isolate cached credentials, directory revisions, pending work, and local keys. An ordinary team selection must not silently publish a Mac to a new team or broaden terminal access. Exact sharing/transfer UI and membership-change delivery remain open.</p><p><b>Rate key:</b> (environment, Stack project, verified userId, operation). Separate team DOs must coordinate this user budget. The counter owner/batching design remains open and is excluded from current request-cost estimates; separate counters per team would allow a team switch to reset the allowance.</p><p><b>Accepted generous starting output buffers:</b> 2 MiB / 1,024 messages per connection and 8 MiB / 4,096 messages total per user. Bound only unsent data, preserve ordered permission changes, and disconnect/resume a slow control connection when necessary. Healthy peer traffic continues.</p><p>Pairing implementation is running independently in <b>iOS Pairing Opt-in (workspace:51)</b>. <a href="PAIRING-AGENT-TASK.md">Agent task</a> · <a href="PR-12199-LESSONS.md">Lawrence PR lessons</a></p></section>
+<section class="panel capacity" id="registration-and-reachability"><h2>Pairing is off until the user enables it</h2><p><b>Decided:</b> each Mac must have <b>Enable iOS pairing</b> turned on in cmux Settings before its IROH features run. Check that local setting before initializing the endpoint or starting any IROH backend task. While off: no IROH listener, relay connection, control socket, enrollment, directory fetch, or credential-refresh loop. Other cmux features keep their own independent network behavior.</p><p>Once enabled, a returning Mac immediately starts IROH from usable cached data while restoring backend control and refreshing credentials in parallel. First enrollment still obtains the missing prerequisites. Re-enabling an intact trusted identity resumes it. Disabling stops IROH listeners, sessions, and renewal/reconnect tasks; delayed callbacks must not start them again. Detailed migration and cleanup behavior remains an implementation decision.</p><div class="notice"><b>Proposed iOS onboarding text:</b> “On your Mac, open cmux Settings and turn on Enable iOS pairing. Select the same team on both devices using accounts allowed to connect.”<br><b>Proposed empty computer list:</b> “No Macs found. Open cmux Settings on your Mac, enable iOS pairing, and select the same team on both devices.”</div><p>iOS shows setup instructions before starting pairing. The user’s Continue action begins phone setup and discovery. A phone cannot verify a remote Mac’s local setting without communicating; the Mac’s own gate provides the enforcement. An empty list does not prove the setting is off. Exact settings location, buttons, and diagnostic copy remain design details.</p><h2>Seven devices fit the registration allowance</h2><p><b>Accepted: 300 registrations/hour, burst 50 per user.</b> Two iPhones plus five Macs need seven initial registrations, using 7 of 50 immediately available requests. Normal launches and renewals need none. Distinct app channels or dev tags add identities; the shared allowance refills at one request every 12 seconds.</p><div class="table-scroll" tabindex="0" aria-label="Registration conditions"><table><thead><tr><th>Condition</th><th>Call device.register?</th></tr></thead><tbody><tr><td>First setup of an enabled team/user/device/build/environment identity</td><td>Yes, once per identity.</td></tr><tr><td>Approved key replacement or recovery</td><td>Yes, after new-key proof.</td></tr><tr><td>Reinstall, restore, sign-in, team change, or pairing re-enabled</td><td>Only if the matching identity/trust is missing or new. Resume an intact identity.</td></tr><tr><td>Interrupted enrollment or lost response</td><td>Retry safely using the same retry ID; refresh a replaced/expired challenge as needed.</td></tr><tr><td>Restart, wake, foreground, reconnect, renewal, relay change, new terminal, ordinary app update</td><td>No. These reuse the identity or use separate update operations.</td></tr></tbody></table></div><h2 style="margin-top:18px">No scheduled DO presence heartbeat</h2><p><b>Accepted removal.</b> A usable authorized IROH session determines whether this client is connected. A saved Mac without an active session has unknown reachability. Never hide it or block cached dialing based on a backend online flag. Keep control sockets for credentials, directory updates, and revocation; their status describes backend connectivity only.</p><p><b>Keepalives exchange traffic in both directions.</b> In IROH’s QUIC transport, either endpoint can send a probe and the peer acknowledges it. This does not require duplicate application timers. Keep the library’s transport liveness and application request deadlines. On the backend WebSocket, a native client can ping and Cloudflare automatically returns pong without waking the DO. Exact intervals, sender configuration, and failure policy remain open. <a href="https://www.rfc-editor.org/rfc/rfc9000.html#section-19.2">QUIC PING/ACK</a> · <a href="https://developers.cloudflare.com/durable-objects/best-practices/websockets/#automatic-pingpong-handling">WebSocket ping/pong</a>.</p><h2 style="margin-top:18px">Keep a bound on unsent outgoing data</h2><p><b>Accepted generous starting bounds:</b> A slow phone must not make the server accumulate unlimited unsent messages. Bound queued and transport-buffered bytes, pause production where possible, and resync the control socket when required. This does not limit total messages delivered or terminal output. Allow up to 1,024 unsent messages or 2 MiB per connection, with a total of 4,096 messages or 8 MiB per user, whichever is reached first. Allocate memory only as needed. These starting sizes are increased eightfold; tune them after measuring real payloads. A shared DO also needs a physical memory safeguard that handles slow consumers fairly.</p><p>IROH has one connection coordinator per peer to avoid duplicate callers, while permitting parallel direct/relay paths, independent peers, and a planned replacement beside a healthy session. No local attempts-per-minute quota is added. Local cache reads, credential installation, server replies, and database calls behind an accepted request have no additional request counter.</p></section>
+<section class="panel capacity" id="rate-limits"><h2>User limits by endpoint and message</h2><p><b>Decided: each client endpoint or message type gets its own generous per-user allowance, with no IP quotas.</b> Registration is accepted at 300/hour, burst 50. Other numerical allowances remain recommendations. All devices, builds, and Dashboard sessions belonging to the same user share that user’s operation allowance across teams within an environment. A socket message and its equivalent HTTP fallback share that same allowance. Development and production have separate budgets.</p><p>Each allowance refills at the stated rate. “Burst” is how many requests can arrive together after idle time; unused allowance cannot accumulate beyond that burst. There are no additional per-device request quotas or daily lockouts. One connection owner per peer prevents duplicate callers while allowing parallel paths and make-before-break replacement. Message sizes remain bounded.</p><p><b>Room for many builds:</b> Seven continuously active app instances need about 7.6 API-ticket renewals/hour and 16.8 relay renewals/hour, with no scheduled DO presence messages. Proposed user allowances are 1,200/hour for each credential type. Generous limits do not increase the normal renewal frequency.</p><p><b>Separate allowance for each client operation.</b> Directory reads, metadata changes, preferences, and revocation each have their own user counter. The key is <code>(environment, Stack project, verified user, operation)</code>. Switching teams does not reset it. Versions of the same operation and its HTTP fallback share one policy. Route parameters such as a device ID never create fresh allowances.</p><p>Local work, server responses, and database calls behind an accepted request have no separate request quota. Message sizes, queued bytes, and open-connection counts remain resource bounds. Message names and unmapped fallback routes are still working design details.</p><p>Scheduled application presence is removed. Protocol ping/pong needs no application counter: Cloudflare handles it without waking the DO. Actual socket-close cleanup and enforcement of known revocations must always run. <a href="https://developers.cloudflare.com/durable-objects/best-practices/websockets/#automatic-pingpong-handling">Cloudflare ping/pong behavior</a>.</p><div class="table-scroll" tabindex="0" aria-label="Rate limit table"><table><caption>Registration and the generous output-buffer starting values are accepted. Other rate numbers and exact message names remain proposals; HTTP fallback and schema versions share their operation policy.</caption><thead><tr><th scope="col">Operation</th><th scope="col">Who shares the limit</th><th scope="col">Allowance / rule</th><th scope="col">Handling / purpose</th></tr></thead><tbody id="limit-rows"></tbody></table></div><details open><summary>How limits preserve connections and control costs</summary><ul><li>Return HTTP <code>429</code> with <code>Retry-After</code>, or a socket error with <code>requestId, code: rate_limited, retryAfterMs, scope</code>. Report the affected team operation and retry time. Clients share that cooldown for that operation; unrelated operations and healthy IROH sessions continue.</li><li>Enforce each operation’s allowance in the team DO with coordinated user rate state. The server maps recognized endpoints and message types to a fixed policy ID; it never uses arbitrary client strings as new quota keys. Count each operation inside a batch. Setup that performs ticket issuance or challenge creation consumes those operations once, without charging their responses or internal database calls.</li><li>Before authentication, reject malformed credentials cheaply and bound shared authentication work. Never charge a user named in an unverified request, since that would let someone exhaust another user’s allowance. No application IP quota is introduced.</li><li>Rate state must survive reconnects and hibernation. Keep bounded counters and measure persistence work. Do not reset a budget when a device, build, socket, or key changes. Exact storage remains an implementation decision.</li><li>Retry a mutation with its original request ID. Return the prior result where safe, while still counting incoming traffic against abuse protection. Coalesce unchanged metadata before doing work.</li><li>No scheduled presence messages, presence-only alarms, or presence checkpoints. Keep other required state and deadlines correct through hibernation.</li><li>Preserve ordered updates and revocations. Resync or close a slow control socket when its output buffer fills; never silently discard access removals. Known revocations take priority over renewal and rate limits.</li><li>Measure high user usage and throttled operations before adjusting these proposals. Cloudflare’s Worker limiter is local to a location and approximate, so it cannot alone represent one exact shared user allowance. <a href="https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/#locality">Cloudflare limiter behavior</a>.</li></ul></details></section>
+<section class="panel capacity" id="expected-usage"><h2>Expected /v2 usage</h2><p><b>Updated for accepted heartbeat removal.</b> Scheduled DO presence traffic is zero. This model includes only enabled app instances; Macs with pairing off create no IROH traffic.</p><p><b>A planning model, not production measurements.</b> Defaults represent 100,000 app instances active for 24 hours a day, one control-socket opening and two metadata changes per day, over 30 days. A user with a Mac and an iPhone has two instances; each simultaneous build adds another. Suspended iOS apps do not run continuous renewal loops.</p><form class="scenario" id="usage-scenario"><label>Active app instances<input name="instances" type="number" value="100000" min="1" max="100000000" step="1" required></label><label>Active hours / day<input name="hours" type="number" value="24" min="0" max="24" step="0.5" required></label><label>Socket openings / app / day<input name="sessions" type="number" value="1" min="0" max="1000" step="1" required></label><label>Metadata changes / app / day<input name="changes" type="number" value="2" min="0" max="10000" step="1" required></label></form><p id="usage-summary" class="estimate" aria-live="polite"></p><p>Scheduled assumptions: ticket renewal around minute 55 of its one-hour lifetime, relay renewal around minute 25 of its 30-minute lifetime; no application presence timer. These timings are proposed. Counts are long-run averages; renewal requests replace due startup issuance rather than adding duplicate mints. Extra expiry checks after suspension, retries, enrollments, and user actions add to this model.</p><div class="table-scroll" tabindex="0" aria-label="Expected usage table"><table><caption>“Event-driven” needs observed activity to estimate. Response and internal-work rows describe the same operations and must not be added to the client-request rows.</caption><thead><tr><th scope="col">Operation / unit counted</th><th scope="col">Per app / day</th><th scope="col">Selected fleet / 30 days</th><th scope="col">When it happens / backend work</th></tr></thead><tbody id="usage-rows"></tbody></table></div><p id="usage-billing"></p><p>Request counts do not give the complete bill. Measure DO active duration, alarms, rate-counter checkpoints, SQLite rows and indexes touched, stored data, Stack usage, PlanetScale usage, relay bandwidth, and logs, team fanout, and coordination of user quotas across team DOs. Billing allowances are shared across the Cloudflare billing account. <a href="https://developers.cloudflare.com/durable-objects/platform/pricing/">Cloudflare DO pricing, checked 10 September 2026</a>.</p><p>For 100,000 users with two iPhones and five Macs all enabled and always active, set app instances to 700,000. No scheduled DO presence messages are generated. Real active hours, especially on phones, need measurement.</p></section>
+<div class="cards">
+<section class="panel wide" id="renewal-owner"><h2>The client owns credential renewal</h2><p><b>One current cached value:</b> each device/build keeps an API ticket per team authorization scope and a relay credential per relay audience (the relay or fleet that accepts it). Keep the previous valid credential while installing its replacement. Replacing the cache does not invalidate previously issued signed tokens; they can remain valid until expiry, subject to applicable revocation checks. No database row per issued credential and no credential-deletion job.</p><p><b>One client coordinator schedules API-ticket and relay-credential renewal.</b> It requests a replacement over the control socket before expiry. The DO checks current permission and issues the replacement; it does not run a second renewal timer for each client.</p><p>The client installs the new credential, switches when it is usable, and briefly retains the still-valid old one for ongoing work. The server permits that bounded overlap. Failed renewal backs off and retries without restarting a healthy IROH session. Neither side extends expired authority; explicit revocation takes effect independently.</p></section>
+<section class="panel wide"><h2>IROH starts immediately with cached data</h2><p><b>Returning Mac and iOS clients start IROH and backend refresh in parallel.</b> Use the saved identity, usable cached relay credentials, relay URLs, and still-valid peer permissions without waiting for the control socket, ticket renewal, or directory refresh. A healthy peer connection continues while refresh runs.</p><p>Fresh credentials update the shared credential state and promptly unblock a retry that needed them. One coordinator owns retries. First launch, or loss of required saved identity data, must complete the missing enrollment and credential steps first. Network and peer availability can still affect success.</p></section>
+<section class="panel"><h2>What are “hints”?</h2><p>For v2, a hint means the reachable <b>relay server URL</b>. We may keep more than one relay URL for fallback. A relay hint helps find the app; it does not grant terminal access or prove EndpointID ownership.</p><p>Direct mode addresses, direct ports, and optional direct IROH paths stay local or move directly between peers. They are not stored in the server registration.</p><p>A relay credential is permission to use the relay service. It is separate from the hint and from terminal permission.</p><h2>When the Mac registers today</h2><p>The code also calls updates to an existing device record “registration.” Those updates normally keep the same registered identity.</p><ol><li>When the connection system starts after launch/sign-in, register before getting relay credentials.</li><li>After IROH starts, update the record with the actual relay and connection ports.</li><li>After a credential renewal, check the connection details. Publish again if they changed, or the previous publication is at least 15 minutes old.</li><li>Switching teams, restarting the connection system, or re-enabling networking repeats setup. An incomplete setup can retry.</li></ol><p>Separate “still online” messages run every 15 seconds. Silence for 45 seconds marks the Mac offline. A clean shutdown says “going offline” immediately. These messages do not create a new device identity.</p></section>
+<section class="panel"><h2>Yes, iOS registers too</h2><p>The Mac needs to know that the connecting phone belongs to the team, even though the phone does not advertise itself as a Mac to connect to.</p><ol><li>First setup after sign-in: register before obtaining relay credentials and the device list.</li><li>On a later app launch: refresh registration during setup. With usable saved data, that refresh happens in the background.</li><li>Missing saved identity or device-list information, or unusable saved relay credentials, makes the current code register before finishing setup.</li><li>Account changes or rebuilding the connection system repeat setup. Incomplete setup is retried.</li></ol><p>Returning to the foreground with the connection system still alive checks credentials and reconnects. It does not by itself call registration. Connecting to another Mac or opening another terminal reuses the phone identity.</p><p><a href="https://github.com/manaflow-ai/cmux/blob/9b98fb04ac159dc1f87b4c1699a35a689420a968/ios/cmuxPackage/Sources/cmuxFeature/MobileIrxRuntimeComposition.swift#L696">iOS setup code</a> · <a href="https://github.com/manaflow-ai/cmux/blob/9b98fb04ac159dc1f87b4c1699a35a689420a968/ios/cmuxPackage/Sources/cmuxFeature/MobileIrxRuntimeComposition.swift#L361">Foreground behavior</a></p><h3>Accepted v2 registration behavior</h3><p>Both apps register once per team/user/device/build, then resume on restart. Changes to a name or published relay update the same record. Direct ports stay off the server. A lost key or approved key replacement requires registration again. A revoked device must not silently register again to bypass its removal.</p></section>
+<section class="panel"><h2>Chosen: Durable Object SQLite</h2><p>Use Durable Object SQLite for IROH persistent storage. <b>One object per Stack Auth team and environment is decided</b>: it stores that team’s devices, access removals, pending challenges, and connection preferences alongside its live connections.</p><p>PlanetScale is the primary general database choice for data better suited to a shared database. Specific table assignments are still recommendations.</p><table><tr><th>Durable Object SQLite</th><th>PlanetScale</th></tr><tr><td>One team’s devices, pending challenges, connection settings, and team device metadata.</td><td>Records shared with other product services or involving multiple teams.</td></tr><tr><td>Fast changes that should be pushed to that team’s connected apps.</td><td>Admin searches and reports across teams.</td></tr><tr><td>Local permission decisions for that team.</td><td>The global EndpointID ownership map.</td></tr></table><p>Give each record one authoritative home. A later reporting copy should not independently decide access.</p><p>A Durable Object’s SQLite database is private to it. PlanetScale supplies a shared relational database; we have not selected its Postgres/MySQL option here. <a href="https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/">Cloudflare storage</a> · <a href="https://planetscale.com/docs/postgres">PlanetScale</a></p></section>
+<section class="panel wide" id="api-contract"><h2>Shared types and server validation</h2><p><b>Updated decision: use Zod instead of Ajv.</b> Author versioned request and response schemas in Zod. Zod validates server inputs and outputs; export JSON Schema at build time and use quicktype to generate Swift and TypeScript models. Clients decode generated types and handle server errors. They do not run schema validators.</p><p>Keep a portable JSON shape for the shared contract. Request and response schemas are separate; avoid coercions and transforms that change the wire type. Keep custom server checks, such as team permission, signature, or cross-field rules, explicitly documented. Fail generation for an unrepresentable shape instead of silently exporting unrestricted data.</p><p>Each method/frame carries its schema ID. Compatible additions preserve old behavior; breaking request/response changes or intentional behavior differences for newer clients get a new handler version. Keep supported App Store versions working. No mandatory startup version exchange; app version can accompany an ordinary request. Retired versions receive client_upgrade_required with the agreed long backoff.</p><p>Build checks regenerate models, compare the generated TypeScript shape with Zod’s inferred types, compile Swift, and exercise shared request/response examples. Quicktype code generation and compatibility tests are additions we still need beyond Lawrence’s PR.</p><p><a href="IROH-DECISIONS.md">Version and team rules</a> · <a href="https://zod.dev/json-schema">Zod JSON Schema export</a> · <a href="https://github.com/glideapps/quicktype">quicktype</a> · <a href="PR-12199-LESSONS.md">Lessons from Lawrence’s PR</a></p></section>
+<section class="panel wide"><h2>Heartbeat removal and hibernation</h2><p>v2 sends no scheduled application presence heartbeat to the DO. This removes the previously modeled 4.32 billion monthly presence messages at 100,000 continuously active app instances, plus their handler work and presence-only deadlines. Protocol ping/pong and IROH transport keepalives remain. Credential, directory, security, and storage work still have costs.</p><p><a href="IROH-CAPACITY.md">Updated usage model and remaining costs</a> · <a href="https://developers.cloudflare.com/durable-objects/best-practices/websockets/">Hibernation behavior</a></p></section>
+<section class="panel"><h2>EndpointID ownership</h2><p>Every unique identity tuple owns one EndpointID. The active map is keyed by EndpointID and stores its environment, Stack project, team, owner user, device, app namespace, build tag, platform, and generation.</p><p>Registration and key replacement reserve this key atomically. No other device, build, or environment may reuse it. Team-local Durable Object SQLite stores the full device record; PlanetScale stores the strongly consistent global map.</p><p><a href="https://github.com/manaflow-ai/cmux/blob/9b98fb04ac159dc1f87b4c1699a35a689420a968/web/services/iroh/repository.ts#L423">Current duplicate-ID rule</a></p></section>
+<section class="panel"><h2>Development without another DB server</h2><table><thead><tr><th>Environment</th><th>Resources</th><th>Source</th></tr></thead><tbody><tr><td>Production</td><td>Own Worker, DO namespace and SQLite data, signing keys, auth configuration</td><td>Explicit release deployment</td></tr><tr><td>Shared development</td><td>Own Worker, DO namespace and SQLite data, development secrets</td><td>Latest main</td></tr><tr><td>Branch development</td><td>Own suffixed Worker + DO namespace; clean synthetic seed</td><td>Requested branch, on demand</td></tr></tbody></table><p>Both apps in a test pair resolve the same environment. Bind API tickets and relay credentials to that environment; separate trust keys/relay audiences prevent production acceptance. Branch resources expire after a configurable inactivity window and are explicitly cleaned up.</p><p>Use hibernating WebSockets and push only changed facts. Avoid copying production data and avoid a permanent database server per branch. Hibernating objects retain sockets without duration charges while asleep; stored data still costs money. <a href="https://developers.cloudflare.com/durable-objects/best-practices/websockets/">Hibernation behavior</a></p></section>
+<section class="panel"><h2>Security and cost tradeoffs</h2><ul><li>One-hour API tickets remove Stack calls from ordinary backend operations. The team DO still checks the current device generation and revocation state before allowing protected actions.</li><li>30-minute relay credentials reduce routine mint traffic. A disconnected relay verifier can accept an already issued token until its expiry. Stopping future minting does not erase that token.</li><li>Relay access grants transport service, not terminal authority. The Mac must independently authorize the peer against its trusted device list.</li><li>Online revocation pushes can close sessions immediately after receipt. A disconnected Mac has only its cached list, so the offline authorization lease determines the stale-access window. The main value of 24 hours is a separate v2 decision.</li><li>Use one pending challenge field set per identity, bounded user rate counters and audit retention. An enrollment challenge request is rate limited before allocating a pending-only device row.</li><li>Preserve cached state through recoverable outages; never reconnect all IROH sessions just because a backend credential refreshed.</li></ul></section>
+<section class="panel wide"><h2>Proposed client response contract</h2><p class="muted">Codes below are proposed for v2. Clients branch on stable error codes as well as HTTP status. A server failure or corrupt response must not become “wrong password.”</p><table><thead><tr><th>Response</th><th>Client action</th></tr></thead><tbody>
+<tr><td>200 / 201</td><td>Decode generated types; check user, team, environment, endpoint and revision. Apply only if still relevant to the current operation.</td></tr><tr><td>204</td><td>Complete the mutation without parsing a JSON body.</td></tr><tr><td>101 / WebSocket frames</td><td>Decode the versioned frame and check its team and revision. Resume from a known revision, otherwise request a full snapshot.</td></tr><tr><td>400 / 405 / 413 / 415 / 422</td><td>Report invalid request or unsupported format. No automatic unchanged retry.</td></tr><tr><td>401 ticket_expired</td><td>Single shared ticket refresh, then retry once if safe. If Stack refresh fails transiently, preserve local state and back off; only a definitive authentication rejection requires sign-in.</td></tr><tr><td>403 device_revoked / team_access_revoked / permission_denied / team_mismatch / user_mismatch / environment_mismatch</td><td>Stop affected protected operations and close sessions when access is revoked. Clear only that team’s permissions when team access changes; preserve unrelated teams. Explain the denial and do not repeatedly refresh Stack.</td></tr><tr><td>404 challenge_missing / 409 challenge_replaced / 410 challenge_expired</td><td>For enrollment, request one new challenge and retry the transaction within a bounded attempt count. Other 404s are handled according to the missing resource.</td></tr><tr><td>409 revision_conflict</td><td>Fetch the latest revision and reconcile. Retry only a mutation whose intent still applies.</td></tr><tr><td>426 client_upgrade_required</td><td>Present the update action, stop automatic retries of that retired version, and use a 1h, 6h, then 24h jittered backoff. Reset after success or app update; allow a user-triggered retry.</td></tr><tr><td>429</td><td>Honor Retry-After, share cooldown across callers, and add bounded jitter. Do not turn a mint limit into a re-enrollment loop.</td></tr><tr><td>5xx / timeout / connection loss</td><td>Back off with jitter. Preserve a healthy peer session while its independent authorization remains valid. Reconcile uncertain mutations before replay.</td></tr><tr><td>Redirect / unexpected status / malformed body</td><td>Never forward credentials to another origin automatically. Record a protocol/configuration failure; no success assumption or unbounded retry.</td></tr><tr><td>IROH or WebSocket close</td><td>Map the application close code to revoked, superseded, unavailable, or retryable transport loss. Keep lifecycle ownership in one reconnect coordinator.</td></tr>
+</tbody></table></section>
+</div>
+<div class="footer"><b>Dictionary:</b> HMAC is a signature-like authentication tag made with a shared server secret. EndpointID is an IROH endpoint’s public key. A Durable Object (DO) combines one state owner with persistent storage. A lease is permission valid until a deadline. A team groups Stack Auth users; a buffer holds unsent data. A namespace isolates one environment’s objects. Hibernation lets an idle object sleep while its WebSockets remain connected.</div>
+</main>
+<script>
+// These containers scroll horizontally; vertical wheel input belongs to the page.
+// Route it explicitly because WebKit can latch a gesture to an overflow container
+// even when that container has no vertical distance to scroll.
+function forwardPageWheel(event) {
+ if(event.defaultPrevented || !event.cancelable || event.ctrlKey || event.metaKey || event.shiftKey || !event.deltaY)return;
+ let horizontal=null;
+ for(let node=event.target instanceof Element ? event.target : null;node && node!==document.body;node=node.parentElement){
+  const style=getComputedStyle(node);
+  const scrollsY=/auto|scroll/.test(style.overflowY);
+  if(scrollsY && node.scrollHeight>node.clientHeight+1){
+   const room=event.deltaY<0 ? node.scrollTop>0 : node.scrollTop+node.clientHeight<node.scrollHeight-1;
+   if(room)return; // Respect any real vertical scroller added in future.
+  }
+  if(!horizontal && node.matches('.viewport,.table-scroll'))horizontal=node;
+ }
+ if(!horizontal)return;
+ const scale=event.deltaMode===WheelEvent.DOM_DELTA_LINE ? (parseFloat(getComputedStyle(horizontal).lineHeight)||20) : event.deltaMode===WheelEvent.DOM_DELTA_PAGE ? window.innerHeight : 1;
+ event.preventDefault();
+ if(event.deltaX)horizontal.scrollLeft+=event.deltaX*scale;
+ window.scrollBy({top:event.deltaY*scale,left:0,behavior:'instant'});
+}
+document.querySelector('main').addEventListener('wheel',forwardPageWheel,{passive:false});
+// Capacity model: the markdown companion is generated from these same rows.
+const capacityLimits = [
+ [
+  "Mac with iOS pairing disabled",
+  "Local Mac app/build setting",
+  "Zero IROH backend requests and listeners",
+  "Default off until explicitly enabled. Do not initialize the IROH endpoint, contact relays, start the control socket, enroll, fetch the directory, or schedule credential refresh."
+ ],
+ [
+  "Stack sign-in / session refresh",
+  "Verified user when available; provider owns sign-in",
+  "Provider limits apply; one refresh in flight per app",
+  "Our user budget begins only after authentication. Provider quota and pricing are not assumed here."
+ ],
+ [
+  "Unauthenticated setup / failed authentication",
+  "No user budget until verified",
+  "No application IP quota; bounded shared authentication work",
+  "Reject missing/malformed credentials cheaply. Never charge a claimed user ID. Remote auth checks need concurrency bounds and timeouts; reject overload before allocating device state."
+ ],
+ [
+  "GET /v2/control/socket",
+  "User within environment",
+  "300/min, burst 100",
+  "Opening or reconnecting consumes this user allowance. Embedded ticket issuance or challenge work also uses its own operation allowance only when performed."
+ ],
+ [
+  "Unknown or malformed control input",
+  "User within environment",
+  "6,000/min, burst 1,000",
+  "Shared rejected-input guard for authenticated users, not a general cap on recognized operations. Known message types use their own allowance even when their payload is invalid. Never create counters from arbitrary client-supplied type strings."
+ ],
+ [
+  "ticket.request ↔ POST /v2/tickets",
+  "User within environment",
+  "1,200/hour, burst 100",
+  "One logical issuance allowance across socket requests, HTTP fallback, and issuance during setup. Reusing a valid ticket does not consume another issuance."
+ ],
+ [
+  "session.reauthenticate",
+  "User within environment",
+  "1,200/hour, burst 100",
+  "Used when an existing socket must adopt a ticket issued elsewhere. This does not mint another ticket. Renewal through that socket can update its authorization in the same exchange. Message name remains provisional."
+ ],
+ [
+  "challenge.request ↔ POST /v2/challenges",
+  "User within environment",
+  "300/hour, burst 50",
+  "Same challenge-issuance allowance when setup includes the operation. Retain one pending 30-minute challenge per identity; no new challenge on ordinary resume."
+ ],
+ [
+  "device.register ↔ POST /v2/devices/register",
+  "User within environment",
+  "300/hour, burst 50",
+  "Accepted allowance: 300/hour, burst 50 per user. Two iPhones and five Macs need seven initial registrations, then normally zero. Separate builds add identities; retries share the allowance."
+ ],
+ [
+  "Key replacement / recovery approval (name TBD)",
+  "User within environment",
+  "120/hour, burst 20",
+  "Explicit authorization remains mandatory. If approval is a separate method, it has this allowance; the subsequent challenge and proof use their respective operation allowances."
+ ],
+ [
+  "relay.token.request ↔ POST /v2/relay/token",
+  "User within environment",
+  "1,200/hour, burst 100",
+  "One relay-token issuance allowance across both transports and setup. Independent of API-ticket issuance. Accepted token lifetime remains 30 minutes."
+ ],
+ [
+  "directory.request (snapshot or revision resume)",
+  "User within environment",
+  "600/min, burst 200",
+  "One directory-method allowance shared across Mac, iOS, and Dashboard. Resume revision and snapshot selection are parameters, not new quota keys. A future separate permission-refresh method needs its own policy."
+ ],
+ [
+  "device.metadata.update",
+  "User within environment",
+  "600/min, burst 200",
+  "Independent of directory reads and preferences. Coalesce unchanged metadata before work. Direct addresses remain local or between peers."
+ ],
+ [
+  "Scheduled DO presence heartbeat (removed)",
+  "User within environment",
+  "No message, no quota",
+  "Accepted removal: no periodic application presence message, presence-only expiry alarm, or presence checkpoint. Use the authorized usable IROH session for connection state."
+ ],
+ [
+  "WebSocket protocol ping/pong",
+  "Cloudflare/native transport",
+  "No application request quota or custom handler",
+  "Native clients can initiate protocol pings; Cloudflare automatically sends pong without running the DO handler. No mirrored application heartbeat timer. Exact cadence and failure policy remain open."
+ ],
+ [
+  "session.goodbye",
+  "User within environment",
+  "600/min, burst 200",
+  "Optional clean end of this control session, not an online/offline lease. Only the matching session can end itself. Actual socket-close cleanup always proceeds even when this message allowance is exhausted."
+ ],
+ [
+  "device.revoke ↔ POST /v2/devices/{id}/revoke",
+  "User within environment",
+  "120/min, burst 50",
+  "One allowance per user and operation, not per target device ID. Other methods cannot exhaust it. Enforcement of an already-known revocation is never rate limited."
+ ],
+ [
+  "preferences.update",
+  "User within environment",
+  "300/min, burst 100",
+  "Separate preference-message allowance. Dashboard directory reads and device metadata edits use directory.request and device.metadata.update respectively. Names remain provisional."
+ ],
+ [
+  "Concurrent control sockets (capacity, not request rate)",
+  "User within environment",
+  "500 current sockets, plus reserved temporary replacements",
+  "One current socket per native identity and one replacement is a lifecycle rule. Allow replacement even at the user cap; retire the old socket after the new one is ready, with a proposed 10-second overlap."
+ ],
+ [
+  "Control frame size / output backlog (memory bounds)",
+  "User total, with per-connection safety bounds",
+  "16 KiB incoming; 64 KiB snapshot chunks; backlog 1,024 messages / 2 MiB per connection; 4,096 / 8 MiB per user",
+  "These generous starting bounds are accepted, with tuning after payload/load tests. Stop at either frame or byte bound. Count transport-buffered bytes, allocate on demand, and resume slow sockets safely. No delivered-message or terminal-output quota. Shared DO physical safety and fair handling remain necessary."
+ ],
+ [
+  "Server replies / device-change pushes",
+  "Authorized subscribers in the team; backlog attributed to recipient user",
+  "No separate request quota; bounded output queues",
+  "No cap on total replies delivered. Bound unsent bytes so a slow/offline client cannot grow server memory indefinitely. Resync a slow control socket without silently losing revocations; peer terminal traffic is separate."
+ ],
+ [
+  "IROH dial / peer admission",
+  "Local connection coordinator",
+  "One coordinator per peer; no requests-per-minute limit",
+  "Deduplicate callers. IROH may try direct and relay paths concurrently; different peers connect independently. Keep a healthy connection during a coordinated replacement. Never wait for the backend before a usable cached attempt."
+ ],
+ [
+  "Relay connection / token verification",
+  "Verified user within environment, separately at each relay",
+  "600/min, burst 200 per user per relay",
+  "Proposed signed token field carries an opaque user quota key. Validate locally before counting. This is not a fleet-wide exact quota; no DO lookup per relay handshake."
+ ],
+ [
+  "IROH packets / terminal and artifact streams",
+  "Peer connection and relay capacity",
+  "Transport flow control; user bandwidth and stream ceilings still to measure",
+  "No backend request quota per keystroke or packet. Keep bulk transfers from starving terminal control."
+ ],
+ [
+  "Local key lookup / credential installation / direct-path change",
+  "Local app / lib IROH",
+  "One state owner; deduplicate repeated callbacks",
+  "No backend quota. Private direct routes stay local or between peers."
+ ],
+ [
+  "Worker to DO routing / auth checks",
+  "Verified user within environment",
+  "Inherit the originating operation allowance",
+  "Verify user and team; route shared state to the team DO. Cross-team user rate-state coordination is required; exact mechanism remains open. Internal routing does not spend another logical allowance."
+ ],
+ [
+  "DO SQLite reads / durable mutations",
+  "Team DO; initiating user owns the operation allowance",
+  "Inherit originating user operation limits",
+  "Accepted database constraints/triggers enforce payload, record, binding and user-attributed usage changes atomically. Use indexed bounded reads. Shared physical guards and cross-team user quota coordination need their own explicit implementation."
+ ],
+ [
+  "PlanetScale EndpointID map / shared records",
+  "Verified user within environment",
+  "Inherit enrollment, replacement, and management allowances",
+  "Global map stores team plus device owner user. No periodic lookup per relay renewal. Cross-team admin queries need a concrete policy."
+ ],
+ [
+  "Challenge / issued-credential cleanup",
+  "Device/build identity within team",
+  "No scheduled job, no extra quota",
+  "One pending challenge slot: replace on request, consume on success, reject after expiry. API/relay credentials need no row per issuance. No cleanup scan or alarm for these records."
+ ],
+ [
+  "Error / unsupported schema response",
+  "Original user operation; client retry coordinator",
+  "Inherit input allowance; upgrade backoff 1h, 6h, then 24h with jitter",
+  "User retry remains available. A server error must not permanently strand the client."
+ ],
+ [
+  "Metrics / diagnostic logs",
+  "User, team, environment, and error fingerprint",
+  "Aggregate counts; sample repetitive failures",
+  "Log sampling is not a device request quota. Exclude credentials and private payloads; retention and log-volume caps remain open."
+ ],
+ [
+  "Development / branch environments",
+  "User within each environment",
+  "Same generous allowances, independently tracked",
+  "Development does not consume production budgets. Devices, builds, or team switches within an environment do not reset the user allowance."
+ ],
+ [
+  "DO schema activation / migrations",
+  "Team DO",
+  "Applied-version check; bounded missing migrations; no client request quota",
+  "Accepted Drizzle activation gate. Apply schema and version markers transactionally before requests; schema readiness cost is measured separately."
+ ],
+ [
+  "Build / deployment checks",
+  "Environment and worker release",
+  "Required boundary, schema, contract and workerd checks; development then team canary",
+  "No user request quota. Never edit shipped migrations; roll back code only with schema compatibility. Large backfills run separately from traffic cutover."
+ ]
+];
+function capacityUsage(s) {
+ const minutes=s.hours*60, tickets=minutes/55, relays=minutes/25;
+ return [
+  ['Control socket upgrades',s.sessions,'openings','First backend operation. One Worker request and one routed DO request per attempt.'],
+  ['HMAC ticket issue / renewal',tickets,'requests','Scheduled around minute 55; included setup issuance replaces a due renewal. No new ticket for every valid-ticket reconnect.'],
+  ['Stack authentication checks',tickets,'logical checks','Conservative one fresh team-auth check per ticket issuance. Provider SDK caching/network calls and client session refresh are additional variables.'],
+  ['Enrollment challenge',0,'requests','Zero in normal operation; add one per first enrollment, approved replacement, or recovery. Initial handshake may bundle it.'],
+  ['Signed device registration',0,'messages','Zero on normal restart or renewal; add one accepted submission per enrollment. Retries add traffic.'],
+  ['Key replacement / recovery',0,'operations','User-driven; add approved cases, proof attempts, and global ownership updates.'],
+  ['Relay credential renewal',relays,'messages','One renewal request around minute 25. Uses existing control socket and team authorization; no ordinary Stack call.'],
+  ['Directory snapshot / revision resume',s.sessions,'deliveries','One per socket opening in this model, bundled with setup when possible. Revisions avoid unnecessary full lists; gap requests are extra.'],
+  ['Signed peer-permission refresh',null,'event-driven','May share directory delivery. Additional cadence cannot be estimated until the offline permission lifetime is chosen.'],
+  ['Changed device metadata',s.changes,'messages','Illustrative user-set count, not telemetry. Each accepted change commits state, acknowledges, and may broadcast.'],
+  ['Scheduled DO presence',0,'messages','Removed. Keep transport keepalives, connection failure handling, and request deadlines. No periodic DO presence work.'],
+  ['WebSocket protocol ping/pong',null,'transport-dependent','Runtime/native transport timing. No custom application ping; protocol pings do not add DO request charges.'],
+  ['Clean goodbye / transport close',null,'event-driven','End the control session when it closes. No presence lease; sudden network loss is detected by the transport, with delay.'],
+  ['Dashboard listing / device edits / revocations',null,'user-driven','Count per active Dashboard session or action, not per Mac/iOS instance. Shares the corresponding operations above.'],
+  ['Server replies to requests',null,'responses','Normally one per accepted request, with setup replies able to combine results. Outgoing frames add no DO request charge.'],
+  ['Directory / control-session / revocation pushes',null,'event-driven','Committed changes or observed control-session transitions × recipients. Backend connectivity is not proof of peer reachability.'],
+  ['IROH dial / encrypted peer handshake',null,'connection-driven','One successful admission per new peer connection; retries depend on network. Uses cached data immediately. No backend request per handshake.'],
+  ['Relay token verification',null,'connection-driven','Once per authenticated relay handshake or relay-required reauthentication. Verified locally, without a backend lookup.'],
+  ['IROH keepalive / terminal / artifact traffic',null,'bytes / streams','Depends on active peers, session length, direct-path share, and transferred bytes. Relay bandwidth needs separate measurement.'],
+  ['Local credential / key / route updates',0,'backend requests','One local install per fresh credential. No server request for private direct-path changes.'],
+  ['HTTP fallback operations',0,'extra requests','Zero with a healthy control socket. Each fallback adds a Worker request and a routed DO request instead of the socket message.'],
+  ['DO activation / schema upgrade',null,'activations / migrations','Read applied versions on activation; apply only missing bounded migrations. Runtime tests and actual activation metrics establish cost.'],
+  ['Build / deployment verification',null,'runs / duration','Required schema, contract, boundary and workerd checks; development dry run, team canary, then same-build promotion.'],
+  ['DO SQLite trust / directory / metadata work',null,'rows','Reads depend on query and cache behavior; writes on enrollment, changes, and revocation. Steady modeled metadata mutations equal the metadata row above.'],
+  ['DO SQLite presence writes',0,'writes','No scheduled application presence mechanism. Separate rate counters and real device mutations still have storage costs.'],
+  ['PlanetScale EndpointID ownership work',0,'steady operations','Add enrollment, replacement, or ownership-management events. No periodic heartbeat or relay-renewal query.'],
+  ['Challenge / issued-credential cleanup',0,'scheduled invocations','No cleanup job. Challenge slot changes happen inside enrollment requests; signed credentials expire through validation without a row per issuance.'],
+  ['User rate-limit state checkpoints',null,'writes','User allowances must survive reconnect, hibernation and team switches. No presence checkpoints. Persistence frequency remains an implementation decision.'],
+  ['Retries / errors / schema-upgrade checks',0,'extra attempts','Healthy baseline only. Add observed failures and long-backoff checks; preserve existing healthy peer connections.'],
+  ['Cross-team user quota coordination',null,'internal requests / writes','Separate team objects must share a user budget. Mechanism, batching and request/storage costs remain unmeasured.'],
+  ['Backend operation completion events',s.sessions+tickets+relays+s.changes,'records','One compact completion event per modeled logical operation, including successes and limit denials. Major state events and internal jobs add records; export/retention costs remain unmeasured.'],
+  ['Metrics / logs / reporting / branch cleanup',null,'events / bytes','All backend operation/event categories are covered. Debug detail alone may be sampled; retention, batching, provider export cost, and cleanup need measurement.']
+ ];
+}
+function capacityCounts(s) {
+ const monthly=s.instances*30;
+ const presence=0;
+ const messages=(s.hours*60/55+s.hours*60/25+s.changes)*monthly;
+ const upgrades=s.sessions*monthly;
+ const doRequests=upgrades+messages/20;
+ return {presence,messages,upgrades,doRequests,requestCharge:Math.ceil(Math.max(0,doRequests-1e6)/1e6)*0.15};
+}
+const capacityDefault={instances:100000,hours:24,sessions:1,changes:2};
+// End capacity model.
+function fillCapacityTable(id, rows) {
+ const body=document.getElementById(id);
+ body.replaceChildren(...rows.map(row=>{
+  const tr=document.createElement('tr');
+  row.forEach((value,i)=>{const cell=document.createElement(i===0?'th':'td');if(i===0)cell.scope='row';cell.textContent=value;tr.append(cell)});
+  return tr;
+ }));
+}
+function renderCapacity() {
+ const form=document.getElementById('usage-scenario');
+ if(!form.checkValidity())return;
+ const s=Object.fromEntries([...new FormData(form)].map(([k,v])=>[k,Number(v)]));
+ const format=n=>n.toLocaleString('en-US',{maximumFractionDigits:2});
+ fillCapacityTable('usage-rows',capacityUsage(s).map(([op,count,unit,note])=>[op,count===null?unit:format(count)+' '+unit,count===null?'Not yet measured':format(count*s.instances*30)+' '+unit,note]));
+ const c=capacityCounts(s);
+ document.getElementById('usage-summary').textContent=format(s.instances)+' enabled app instances × '+format(s.hours)+' active hours/day → '+format(c.messages)+' modeled incoming control messages in 30 days, with zero scheduled DO presence messages. Disabled Macs generate none of this IROH traffic.';
+ document.getElementById('usage-billing').textContent='Modeled request dimension only: '+format(c.messages)+' incoming control messages ÷ 20 + '+format(c.upgrades)+' socket upgrades = '+format(c.doRequests)+' DO request equivalents/month. With the full 1 million included DO requests available and Cloudflare’s rounding, about $'+c.requestCharge.toFixed(2)+' in DO request charges. This is not a total infrastructure estimate; unmodeled events and all duration, storage, auth, relay, Worker, and cross-team user-quota coordination charges are excluded.';
+}
+fillCapacityTable('limit-rows',capacityLimits);
+document.getElementById('usage-scenario').addEventListener('input',renderCapacity);
+document.getElementById('usage-scenario').addEventListener('submit',event=>event.preventDefault());
+renderCapacity();
+const SHA='9b98fb04ac159dc1f87b4c1699a35a689420a968';
+const G=p=>'https://github.com/manaflow-ai/cmux/blob/'+SHA+'/'+p;
+const sources={host:G('Sources/Mobile/MobileHostIrxRuntime.swift#L249'),broker:G('Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/IrxBrokerService.swift#L250'),client:G('Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohTrustBrokerClient.swift#L383'),repo:G('web/services/iroh/repository.ts#L225'),challenge:G('web/services/iroh/model.ts#L16'),relay:G('web/services/relay/token.ts#L15'),presence:G('workers/presence/src/core.ts#L11'),control:G('workers/presence/src/controlPlane.ts#L1'),readme:G('workers/presence/README.md')};
+const actor={app:['Native app','Mac or iOS'],mac:['cmux Mac','host runtime'],ios:['cmux iOS','client runtime'],lib:['lib IROH','local endpoint'],mlib:['lib IROH · Mac','QUIC endpoint'],ilib:['lib IROH · iOS','QUIC endpoint'],stack:['Stack Auth','account authority'],web:['Web broker','current Vercel API'],worker:['Cloudflare Worker','/v2 API'],presence:['Cloudflare Worker','current /v1 routes'],do:['Account DO','state owner'],db:['DO SQLite','private persistent DB'],pg:['PostgreSQL','current broker DB'],relay:['Relay fleet','encrypted forwarding'],dash:['Dashboard','authenticated user']};
+Object.assign(actor,{caller:['Mac / iOS / Dashboard','authenticated caller'],adapter:['HTTP / socket adapter','one operation contract'],broker:['Local IROH broker','operation + storage rules'],observe:['Observability','bounded background export'],ui:['UI + lifecycle','Settings / foreground'],owner:['App connection owner','one lifecycle run'],cache:['Local state + keys','isolated by identity'],control:['Backend client','socket / refresh'],peer:['Remote peer','Mac or iOS'],teamdo:['Team DO','Stack team state'],teamdb:['Team SQLite','private team DB'],tstack:['Stack Auth','users + teams']});
+const N=t=>({note:t});
+const P=(title,summary,steps)=>({group:'parallel',title,summary,steps});
+const T=(thread,title,summary,steps)=>({group:'thread',thread,title,summary,steps});
+const payloadFor=(from,to,text,type)=>{const t=text.toLowerCase();if(t.includes('sign in')||t.includes('restore the account'))return 'Request: Stack session or refresh credential\nFields: account context, selected environment\nResult: authenticated account session';if(t.includes('control/socket'))return 'Handshake headers: Authorization: Bearer <Stack session or API ticket>\nSetup: environment, appVersion, schemaIds, device tuple, EndpointID, publicKey, lastRevision, setupMode\nResult: WebSocket upgrade or typed error';if(t.includes('upgrade and route'))return 'Internal handoff: verified accountId, environment, device tuple, auth claims\nSocket: accepted with hibernation support\nRule: raw Stack session is not passed to the DO';if(t.includes('challenge')){if(t.includes('return')||t.includes('session.ready'))return 'Response: ticket, challengeId, nonce, expiresAt, challengePayloadHash\nLifetime: ticket 1 hour; challenge 30 minutes, single use';if(t.includes('insert')||t.includes('upsert')||t.includes('create a challenge')||t.includes('check the trusted'))return 'Row: tuple, EndpointID, publicKeyHash, generation, challengeId, nonceHash, expiresAt\nWrite: replace the one pending challenge for this tuple';if(t.includes('post /api/devices/iroh/challenge'))return 'JSON: account, deviceId, appNamespace, devTag, EndpointID, generation, payloadHash\nAuth: account session';return 'Challenge data: challengeId, nonce, canonical payload hash, expiry';}if(t.includes('register')||t.includes('device.register')){if(t.includes('response')||t.includes('registered'))return 'Response: EndpointID, identityGeneration, accountRevision, enrolledAt\nClient action: cache trusted device record';if(t.includes('commit')||t.includes('verify proof')||t.includes('binding'))return 'Transaction: verify signature, tuple, generation and EndpointID ownership\nWrite: trusted device record + accountRevision\nDelete: consumed challenge';return 'JSON: challengeId, nonce, canonical registration payload, signature, publicKey, generation\nSignature: domain-separated enrollment proof';}if(t.includes('ticket'))return 'Request: account session or current ticket, environment, device tuple, requested scopes\nResponse: signed HMAC ticket, expiresAt, audience, generation, scopes';if(t.includes('relay token')||t.includes('relay credential'))return 'Request: API ticket, EndpointID proof, environment, requested relay audience\nResponse: signed relay token, tokenId, issuedAt, expiresAt, relay audience';if(t.includes('actual home relay')||t.includes('relay or eligible path'))return 'Local result: selected relay URL, local path status, transport readiness\nServer storage: relay URL only when explicitly published; direct paths remain local';if(t.includes('authenticate as the token'))return 'Relay handshake: signed relay token, EndpointID, protocol version\nRelay checks: signature, audience, expiry, EndpointID';if(t.includes('metadata')||t.includes('current relay + ports')||t.includes('connection details'))return 'JSON: changed relay URL or server-visible metadata, deviceRevision, generation, endpoint signature\nExcluded: direct addresses, direct ports and private IROH paths';if(t.includes('snapshot')||t.includes('revision resume')||t.includes('directory'))return 'Response: accountRevision, devices, allowed EndpointIDs, relay URLs, revocations, missedChanges\nResume rule: send full snapshot or changes after lastRevision';if(t.includes('presence')||t.includes('heartbeat'))return 'JSON: EndpointID, generation, deviceRevision, observedAt\nServer action: update in-memory lastSeen and lease; no SQLite write per beat';if(t.includes('attach')||t.includes('session'))return 'Session state: accountId, EndpointID, socketId, lastRevision, generation\nRule: newer socket supersedes older session';if(t.includes('dial')||t.includes('encrypted quic'))return 'Peer handshake: EndpointID public keys, signed admission proof, chosen route\nTransport: encrypted QUIC, direct or relay';if(t.includes('control, terminal')||t.includes('terminal/control/artifact'))return 'Peer frames: encrypted terminal, control and artifact streams\nServer: no terminal payload proxying';if(t.includes('clean shutdown')||t.includes('stopping'))return 'JSON: EndpointID, generation, stopping=true, observedAt\nServer action: mark presence offline immediately';if(t.includes('revoke'))return 'Request: deviceId or EndpointID, reason, account revision, dashboard authorization\nResult: revocation event and new accountRevision';if(t.includes('push')||t.includes('changed facts'))return 'Event: accountRevision, changed device facts, revocation state\nDelivery: subscribed control sockets';if(t.includes('read authority')||t.includes('preferences'))return 'Query: account-local device, grants, generation, preferences, lastRevision\nStorage: DO SQLite transaction or consistent read';if(t.includes('bind endpoint'))return 'Local lib IROH input: relay token, relay URLs, endpoint key, transport settings\nResult: endpoint ready';if(t.includes('start account control'))return 'Socket: authenticated hello, account identity, environment, supported schema IDs, lastRevision';if(t.includes('fetch directory'))return 'Upstream request: account ticket, accountId, revision\nResponse: directory snapshot or revisioned changes';if(t.includes('attach account socket'))return 'Socket metadata: accountId, client platform, connectionId, lastRevision\nState: live subscriber registration';if(t.includes('mac checks')||t.includes('authorizes against'))return 'Local check: peer EndpointID, account, generation, cached authorization lease\nResult: allow or deny peer session';if(t.includes('install fresh'))return 'Local lib IROH update: new relay token, expiry, relay audience\nRule: keep old credential until replacement is usable';if(t.includes('refresh if relay')||t.includes('credential rotation'))return 'Request: current metadata hash, relay hint age, generation\nDecision: publish only when changed or lease is due';if(t.includes('stopping'))return 'Presence: stopping=true, EndpointID, generation, observedAt';return 'Operation: '+text+'\nState: authenticated account/device context, current revision and generation';};
+const E=(from,to,text,detail,type='request',payload=payloadFor(from,to,text,type))=>({from,to,text,detail,type,payload});
+const flows={current:{
+enroll:{title:'Main: every signed registration gets a challenge',summary:'This path is used for both enrollment and signed registration refresh. The challenge lifetime is five minutes.',actors:['app','stack','web','pg'],refs:['client','challenge','repo'],steps:[
+E('app','stack','Sign in or restore the account session','Account authentication establishes the Stack user. It does not itself prove possession of an IROH endpoint key.'),
+E('app','web','POST /api/devices/iroh/challenge','Request binds the intended account, device/app slot, endpoint, generation and hash of the registration payload.'),
+E('web','pg','Insert a pending challenge row','Issuance inserts a row. Multiple pending rows for one slot can coexist; mint ordering prevents an older signed refresh from overwriting newer state.'),
+E('web','app','Return challenge ID, random nonce and expiry','The nonce expires in five minutes. The native app signs the nonce and payload hash using the endpoint private key.','return'),
+E('app','web','POST /api/devices/iroh/register + signature','Verify account, nonce, expiry, payload and Ed25519 signature. A copied EndpointID alone cannot satisfy this proof.'),
+E('web','pg','Commit binding + revision; delete consumed challenge','Same endpoint/platform/generation refreshes the existing binding. A new incarnation is separately handled. The successful challenge is deleted in this transaction.'),
+E('web','app','Registration response and binding identity','Client caches the binding and arms endpoint proof signing for subsequent broker requests.','return')
+]},
+publish:{title:'Main: registration refresh and presence are separate',summary:'Default IRX host behavior, including the initial registration before the endpoint is ready. The older runtime remains available as a fallback.',actors:['mac','lib','web','presence','do'],refs:['host','broker','presence'],steps:[
+E('mac','presence','Start account control channel early','The channel starts before the broker calls that may fail, so directory updates can arrive independently.'),
+E('mac','web','Signed initial registration, then relay token request','Each host activation performs registration before mint/discovery for namespaces that require endpoint binding proof.'),
+E('mac','lib','Bind endpoint with usable relay credentials','IROH establishes its actual home relay and UDP ports.'),
+E('lib','mac','Return actual home relay and local ports','The selected relay can differ from the first configured relay. Publish the actual endpoint state.','return'),
+E('mac','web','Signed registration with current relay + ports','Second registration during activation publishes connection details; every such registration has a fresh challenge.'),
+N('Later: check hints on credential rotation'),
+E('mac','web','Refresh if relay hint changed or last publication ≥ 15 min','v2 stores relay URLs only. Direct paths stay local or peer-to-peer. Relay hints have a 30-minute expiry; unchanged younger hints skip registration.'),
+E('mac','presence','Presence heartbeat on server cadence, currently 15s','Heartbeat is liveness, not reenrollment. Route changes may send an immediate heartbeat, subject to the shared backpressure floor.'),
+E('presence','do','Update presence; timeout after 45s without heartbeat','Presence uses TeamPresence objects, distinct from the personal-account IROH control authority.'),
+E('mac','presence','Clean shutdown: stopping=true','Shutdown announces offline immediately. Crashes or network loss rely on the missed-heartbeat timeout; neither deletes the durable identity.')
+]},
+connect:{title:'Main: account DO still proxies the web broker',summary:'The account control channel delivers directory facts. Default IRX admission uses the cached device list; legacy dialect peers retain the pair-grant path.',actors:['ios','presence','do','web','ilib','mlib'],refs:['host','control','readme'],steps:[
+E('ios','presence','GET /v1/control/socket; authenticated hello','Worker verifies account auth and routes to the user-specific AccountControlPlane. The Mac maintains its own channel as well.'),
+E('presence','do','Attach account socket','This already exists on main. Convex is not the realtime service for this path.'),
+E('do','web','Fetch directory from existing broker','Current DO uses authenticated upstream requests; this Vercel dependency is removed in the v2 proposal.'),
+E('do','ios','directory / hint_update / snapshot_complete','Revisioned facts update the local device list. Control refresh is currently 60 seconds while sockets exist; the directory authorization lease is 24 hours.','return'),
+N('Peer traffic begins once identities and relay credentials are usable'),
+E('ios','ilib','Dial the selected Mac EndpointID','Cached trust and endpoint identity are separate from connection details. A hint alone does not authorize a peer.'),
+E('ilib','mlib','Encrypted QUIC, direct or through the relay fleet','The endpoint handshake proves the peer key. The relay forwards encrypted packets; it does not replace Mac admission.'),
+E('mlib','ios','Mac checks device-list authority and accepts session','Default IRX host checks its trusted device list locally. Legacy dialect fallback uses pair grants. No broker call is required for every terminal packet.','return'),
+E('ios','mlib','Control, terminal and artifact lanes','Applications stream over the authenticated peer session. Backend/DO traffic remains control state, not terminal contents.')
+]},
+renew:{title:'Main: managed relay tokens last five minutes',summary:'The managed-fleet issuer sets 300 seconds and requests refresh 60 seconds before expiry. This is distinct from the optional older relay-minter compatibility path.',actors:['app','web','lib','relay','do'],refs:['relay','broker','control'],steps:[
+E('app','web','POST /api/relay/token with binding proof','The backend verifies account and endpoint authorization before issuing a managed relay credential.'),
+E('web','app','Endpoint-bound signed token; 5-minute expiry','refreshAfter is one minute before expiry. Normal refresh is therefore around minute four.','return'),
+E('app','lib','Install fresh credential via one renewal owner','Current code accepts refreshed credentials without reenrolling merely to mint. Hint publication may independently require registration.'),
+E('lib','relay','Authenticate as the token’s EndpointID','The relay checks the public-key signature, expiry, and handshake-authenticated endpoint.'),
+E('do','app','Push revised device directory / revocation facts','Healthy control channels deliver new authority; a disconnected peer is limited by its cached authorization lease.','return'),
+N('v2 changes the managed relay lifetime to 30 minutes; this artifact does not deploy that change.')
+]}
+},target:{
+ "enroll": {
+  "title": "v2: open the control socket and enroll",
+  "summary": "This shared enrollment flow applies to both Mac and iOS. The first control connection is a Worker-routed, hibernatable WebSocket. Its handshake returns the ticket and optional challenge, then registration completes over the same socket.",
+  "actors": [
+   "app",
+   "tstack",
+   "worker",
+   "teamdo",
+   "teamdb"
+  ],
+  "refs": [
+   "challenge",
+   "client"
+  ],
+  "steps": [
+   {
+    "note": "Gate: this Mac must have Enable iOS pairing turned on; iOS setup begins only after the user chooses Continue in pairing onboarding. If inactive, stop before any IROH backend call or endpoint initialization."
+   },
+   {
+    "note": "Team boundary: verified Stack teamId + userId, environment and project. Shared data belongs to the team; the initiating user spends their operation allowance. Team membership alone does not authorize terminal access."
+   },
+   {
+    "note": "First setup needs enrollment. Returning clients run this backend setup in parallel with IROH using cached data; see flows 2 and 3."
+   },
+   {
+    "from": "app",
+    "to": "tstack",
+    "text": "Sign in as a user and select a Stack team",
+    "detail": "Stack authenticates the user. Select a team the user belongs to; the server verifies membership and the requested permission before issuing team authority.",
+    "type": "request",
+    "payload": "Auth: Stack user session\nSelected context: environment, projectId, teamId\nAuthority: userId, verified membership and permissions; client teamId is not trusted"
+   },
+   {
+    "from": "app",
+    "to": "worker",
+    "text": "GET /v2/control/socket with Stack session + setup data",
+    "detail": "The Worker validates the initial Stack session, environment and request shape, then upgrades and routes the socket to the team DO. A resumed app can present its existing HMAC ticket instead. New ticket issuance verifies current team membership. Valid ticket resume avoids repeating Stack checks; the team DO still checks known removals.",
+    "type": "request",
+    "payload": "Handshake headers: Authorization: Bearer <Stack session or API ticket>\nSetup: environment, optional appVersion, requested schemaId, device tuple, EndpointID, publicKey, lastRevision, setupMode\nResult: WebSocket upgrade or typed error\nScope: environment, Stack projectId, verified teamId, verified userId; device/build + generation where applicable\nHandshake: requested teamId, selected schemaId, requestId; appVersion is optional metadata"
+   },
+   {
+    "from": "worker",
+    "to": "teamdo",
+    "text": "Upgrade and route the hibernatable control socket",
+    "detail": "The Worker passes verified team claims, not the raw Stack session, to the team DO. The namespace provides environment isolation.",
+    "type": "request",
+    "payload": "Internal verified context: projectId, environment, teamId, userId, permissions, device tuple, generation\nRoute: TeamControlPlane keyed by environment + projectId + teamId\nCheck: ticket team and socket team must match; overwrite client-supplied internal headers\nNo raw Stack credential forwarded"
+   },
+   {
+    "from": "teamdo",
+    "to": "teamdb",
+    "text": "Check the trusted device record; create a challenge if needed",
+    "detail": "For setupMode ensure, issue a challenge only when this tuple has no matching record. Replace the prior pending nonce for that tuple. Ticket-only renewal uses /v2/tickets; challenge-only recovery uses /v2/challenges.",
+    "type": "request",
+    "payload": "Row: tuple, EndpointID, publicKeyHash, generation, challengeId, nonceHash, expiresAt\nWrite: replace the one pending challenge for this tuple\nScope: environment, Stack projectId, verified teamId, verified userId; device/build + generation where applicable"
+   },
+   {
+    "from": "teamdo",
+    "to": "app",
+    "text": "session.ready: one-hour HMAC API ticket + optional 30-minute challenge",
+    "detail": "The first server message contains the ticket and, when needed, challenge ID, nonce and expiry. An idempotency key makes a retry safe.",
+    "type": "return",
+    "payload": "Response: ticket, challengeId, nonce, expiresAt, challengePayloadHash\nLifetime: ticket 1 hour; challenge 30 minutes, single use\nScope: environment, Stack projectId, verified teamId, verified userId; device/build + generation where applicable"
+   },
+   {
+    "from": "app",
+    "to": "teamdo",
+    "text": "device.register with endpoint signature",
+    "detail": "The signature covers a domain-separated enrollment payload, environment/team, tuple, key generation and fresh challenge. A new public key cannot silently overwrite an existing enrolled key.",
+    "type": "request",
+    "payload": "JSON: challengeId, nonce, canonical registration payload, signature, publicKey, generation\nSignature: domain-separated enrollment proof\nScope: environment, Stack projectId, verified teamId, verified userId; device/build + generation where applicable"
+   },
+   {
+    "from": "teamdo",
+    "to": "teamdb",
+    "text": "Verify proof; consume challenge and enroll atomically",
+    "detail": "Use one transaction to validate the pending slot and its expiry, commit the trusted device record, clear challenge fields and advance revision. No scheduled deletion is needed to enforce expiry. An old challenge yields a specific missing/replaced/expired code.",
+    "type": "request",
+    "payload": "Challenge data: challengeId, nonce, canonical payload hash, expiry\nScope: environment, Stack projectId, verified teamId, verified userId; device/build + generation where applicable"
+   },
+   {
+    "from": "teamdo",
+    "to": "app",
+    "text": "device.registered + durable device identity",
+    "detail": "This response returns the enrolled EndpointID record and identity generation. Subsequent control requests reuse the socket, current ticket and enrolled key; a resumed app does not need another challenge. Approved key replacement or recovery repeats proof.",
+    "type": "return",
+    "payload": "Response: EndpointID, identityGeneration, teamRevision, enrolledAt\nClient action: cache trusted device record\nScope: environment, Stack projectId, verified teamId, verified userId; device/build + generation where applicable"
+   }
+  ]
+ },
+ "publish": {
+  "title": "v2: Mac connects while backend setup runs",
+  "summary": "The Mac starts IROH with cached data immediately. Control setup, directory refresh and credential renewal run alongside it. Enrollment is required only when the necessary trusted identity is missing.",
+  "actors": [
+   "mac",
+   "lib",
+   "worker",
+   "teamdo",
+   "teamdb"
+  ],
+  "refs": [
+   "broker",
+   "presence",
+   "control"
+  ],
+  "steps": [
+   {
+    "note": "Local gate first: if Enable iOS pairing is off on this Mac, do not open an IROH listener, contact relays, or start backend control or renewal tasks."
+   },
+   {
+    "note": "Team boundary: verified Stack teamId + userId, environment and project. Shared data belongs to the team; the initiating user spends their operation allowance. Team membership alone does not authorize terminal access."
+   },
+   {
+    "note": "Returning Mac: start A and B together. First-ever setup must finish the missing identity and credential prerequisites first."
+   },
+   {
+    "group": "parallel",
+    "title": "Concurrent Mac startup",
+    "summary": "Read each thread top to bottom. Threads A and B run independently; neither waits for the other to finish.",
+    "steps": [
+     {
+      "group": "thread",
+      "thread": "A",
+      "title": "IROH connection",
+      "summary": "Starts immediately with usable cached data. Keep an existing healthy connection.",
+      "steps": [
+       {
+        "from": "mac",
+        "to": "lib",
+        "text": "Start or resume IROH immediately from cache",
+        "detail": "Use the saved endpoint key, usable cached relay credential, relay URLs and still-valid peer permissions. Do not wait for the control socket, fresh API ticket, directory response or proactive credential renewal. Preserve an already healthy endpoint and peer session.",
+        "type": "request",
+        "payload": "Local input: saved endpoint key reference, cached relay token + expiresAt, relay URLs, cached peer permissions\nAction: start listening or reconnect immediately; no backend round trip is a prerequisite"
+       },
+       {
+        "from": "lib",
+        "to": "mac",
+        "text": "Actual home relay or eligible path changed",
+        "detail": "IROH may select a different relay or local path after startup. Direct addresses and ports stay local or move peer-to-peer; they are not stored in the v2 server record.",
+        "type": "return",
+        "payload": "Local result: selected relay URL, local path status, transport readiness\nServer storage: relay URL only when explicitly published; direct paths remain local"
+       }
+      ]
+     },
+     {
+      "group": "thread",
+      "thread": "B",
+      "title": "Backend control connection",
+      "summary": "Starts at the same time as A. Its completion enables the socket work below.",
+      "steps": [
+       {
+        "from": "mac",
+        "to": "worker",
+        "text": "Resume /v2/control/socket with API ticket + endpoint proof",
+        "detail": "Resume from the last team revision. The Worker checks environment, ticket expiry and device generation, then forwards the socket to the team DO. Reconnect alone does not create another identity.",
+        "type": "request",
+        "payload": "Handshake headers: Authorization: Bearer <Stack session or API ticket>\nSetup: environment, optional appVersion, requested schemaId, device tuple, EndpointID, publicKey, lastRevision, setupMode\nResult: WebSocket upgrade or typed error\nScope: environment, Stack projectId, verified teamId, verified userId; device/build + generation where applicable"
+       },
+       {
+        "from": "worker",
+        "to": "teamdo",
+        "text": "Attach or resume this Mac session",
+        "detail": "The DO restores durable state after eviction and records the current socket session so an old connection cannot overwrite a newer one.",
+        "type": "request",
+        "payload": "Session state: teamId, EndpointID, socketId, lastRevision, generation\nRule: newer socket supersedes older session\nScope: environment, Stack projectId, verified teamId, verified userId; device/build + generation where applicable"
+       },
+       {
+        "group": "parallel",
+        "title": "Independent work on the connected socket",
+        "summary": "Starts as soon as B2 completes. These threads do not wait for one another or for A to finish.",
+        "steps": [
+         {
+          "group": "thread",
+          "thread": "C",
+          "title": "Device directory",
+          "summary": "Receive current team data independently of credential renewal.",
+          "steps": [
+           {
+            "from": "teamdo",
+            "to": "mac",
+            "text": "Snapshot or revision resume",
+            "detail": "Return the current device directory and team revision. If the Mac has a recent revision, send only missed changes.",
+            "type": "return",
+            "payload": "Response: teamRevision, devices, allowed EndpointIDs, relay URLs, revocations, missedChanges\nResume rule: send full snapshot or changes after lastRevision\nScope: environment, Stack projectId, verified teamId, verified userId; device/build + generation where applicable"
+           }
+          ]
+         },
+         {
+          "group": "thread",
+          "thread": "D",
+          "title": "Credential renewal and retry",
+          "summary": "Run when credentials need renewal. Fresh credentials unblock a failed or waiting attempt in A.",
+          "steps": [
+           {
+            "from": "teamdo",
+            "to": "mac",
+            "text": "Fresh relay credential arrives when renewal is needed",
+            "detail": "Use the control socket to request renewal in the background; flow 4 describes issuance. Receipt is independent of directory refresh. Missing or rejected cached credentials do not cancel this work.",
+            "type": "return",
+            "payload": "Message: relay.credential\nFields: requestId, token, EndpointID, expiresAt, refreshAfter\nLifetime: 30 minutes; token remains scoped to this environment and endpoint\nScope: environment, Stack projectId, verified teamId, verified userId; device/build + generation where applicable"
+           },
+           {
+            "from": "mac",
+            "to": "lib",
+            "text": "Install fresh credential; unblock a needed retry",
+            "detail": "Update shared credential state. If an attempt failed or was waiting for usable credentials, schedule a retry with the newest values. Keep one connection/renewal coordinator and honor server-directed cooldowns. Do not restart a healthy peer session merely because a credential refreshed.",
+            "type": "request",
+            "payload": "Local update: fresh relay token + expiresAt\nAction: retry if disconnected and eligible; preserve an active peer connection"
+           }
+          ]
+         },
+         {
+          "group": "thread",
+          "thread": "E",
+          "title": "Publish changed Mac metadata",
+          "summary": "Requires the control socket and changed relay metadata from A2. Does not wait for C or D.",
+          "steps": [
+           {
+            "from": "mac",
+            "to": "teamdo",
+            "text": "device.metadata.update over the control socket",
+            "detail": "Send only changed server-visible metadata, signed by the existing endpoint key, with an increasing per-device revision. A relay credential renewal alone does not require this update.",
+            "type": "request",
+            "payload": "JSON: changed relay URL or server-visible metadata, deviceRevision, generation, endpoint signature\nExcluded: direct addresses, direct ports and private IROH paths\nScope: environment, Stack projectId, verified teamId, verified userId; device/build + generation where applicable"
+           },
+           {
+            "from": "teamdo",
+            "to": "teamdb",
+            "text": "Commit metadata and team revision",
+            "detail": "Validate the active trusted device record, write durable state before broadcasting, and avoid a full registration solely because a token refreshed.",
+            "type": "request",
+            "payload": "JSON: changed relay URL or server-visible metadata, deviceRevision, generation, endpoint signature\nExcluded: direct addresses, direct ports and private IROH paths\nScope: environment, Stack projectId, verified teamId, verified userId; device/build + generation where applicable"
+           },
+           {
+            "from": "teamdo",
+            "to": "mac",
+            "text": "revision.ack + changed facts",
+            "detail": "Acknowledge the Mac revision and push the ordered update to subscribed Macs, iOS clients, and the Dashboard.",
+            "type": "return",
+            "payload": "Event: teamRevision, changed device facts, revocation state\nDelivery: subscribed control sockets\nScope: environment, Stack projectId, verified teamId, verified userId; device/build + generation where applicable"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "note": "IROH becomes usable as soon as A succeeds. No scheduled DO presence heartbeat. IROH transport and request deadlines detect peer failure; control socket status never gates dialing."
+   }
+  ]
+ },
+ "connect": {
+  "title": "v2: iOS dials immediately while refreshing",
+  "summary": "An enrolled iOS client attempts the chosen Mac with cached credentials and valid cached permissions. Control setup and refresh run in parallel. First-ever setup waits only for the missing connection prerequisites.",
+  "actors": [
+   "ios",
+   "worker",
+   "teamdo",
+   "teamdb",
+   "ilib",
+   "mlib"
+  ],
+  "refs": [
+   "control",
+   "host"
+  ],
+  "steps": [
+   {
+    "note": "Only for an activated iOS pairing session and a Mac whose local pairing setting is enabled. Saved identities can start IROH immediately; an untested Mac has unknown reachability."
+   },
+   {
+    "note": "Team boundary: verified Stack teamId + userId, environment and project. Shared data belongs to the team; the initiating user spends their operation allowance. Team membership alone does not authorize terminal access."
+   },
+   {
+    "note": "Returning iOS client: start A and B together. First-ever setup must finish the missing identity and credential prerequisites first."
+   },
+   {
+    "group": "parallel",
+    "title": "Concurrent iOS connection and backend setup",
+    "summary": "Read each thread top to bottom. Thread A can carry terminal traffic while thread B is still connecting.",
+    "steps": [
+     {
+      "group": "thread",
+      "thread": "A",
+      "title": "IROH connection to the Mac",
+      "summary": "Starts immediately from cache. No backend response is required when cached permissions and credentials are usable.",
+      "steps": [
+       {
+        "from": "ios",
+        "to": "ilib",
+        "text": "Dial the Mac immediately using cached data",
+        "detail": "Use the saved endpoint identity, selected Mac EndpointID, relay URLs, usable relay credential and valid cached peer permissions. An already active peer session is reused. No control-socket or directory response is required before this attempt.",
+        "type": "request",
+        "payload": "Local input: own endpoint key reference, target Mac EndpointID, cached relay URLs + token, cached peer permissions\nAction: start a peer connection attempt immediately"
+       },
+       {
+        "from": "ilib",
+        "to": "mlib",
+        "text": "Encrypted QUIC handshake, direct or via relay",
+        "detail": "IROH proves the endpoint key and handles encrypted transport. Actual path may move without creating a new app identity.",
+        "type": "request",
+        "payload": "Peer handshake: EndpointID public keys, signed admission proof, chosen route\nTransport: encrypted QUIC, direct or relay"
+       },
+       {
+        "from": "mlib",
+        "to": "ios",
+        "text": "Mac authorizes against trusted device directory",
+        "detail": "Verify endpoint, team and active generation using the Mac's valid cached authority. Establish the session only within the chosen offline lease policy. A cached relay token alone does not grant terminal permission.",
+        "type": "return",
+        "payload": "Response: teamRevision, devices, allowed EndpointIDs, relay URLs, revocations, missedChanges\nResume rule: send full snapshot or changes after lastRevision"
+       },
+       {
+        "from": "ios",
+        "to": "mlib",
+        "text": "Terminal/control/artifact traffic over IROH",
+        "detail": "Traffic starts as soon as A succeeds, even while B is still running. The Worker and DO do not proxy terminal contents. Routine credential renewal does not restart this healthy session.",
+        "type": "request",
+        "payload": "Peer frames: encrypted terminal, control and artifact streams\nServer: no terminal payload proxying"
+       }
+      ]
+     },
+     {
+      "group": "thread",
+      "thread": "B",
+      "title": "Backend control connection",
+      "summary": "Starts alongside A. Restores the live team channel without delaying the cached attempt.",
+      "steps": [
+       {
+        "from": "ios",
+        "to": "worker",
+        "text": "Resume /v2/control/socket with scoped API ticket + proof",
+        "detail": "A short-lived handshake proof demonstrates the device key. Reuse the one-hour API ticket for backend authentication.",
+        "type": "request",
+        "payload": "Handshake headers: Authorization: Bearer <Stack session or API ticket>\nSetup: environment, optional appVersion, requested schemaId, device tuple, EndpointID, publicKey, lastRevision, setupMode\nResult: WebSocket upgrade or typed error\nScope: environment, Stack projectId, verified teamId, verified userId; device/build + generation where applicable"
+       },
+       {
+        "from": "worker",
+        "to": "teamdo",
+        "text": "Route verified team and binding",
+        "detail": "The DO checks its live revocation/generation state. A valid old ticket does not override a revoked device.",
+        "type": "request",
+        "payload": "Operation: Route verified team and binding\nState: authenticated team/device context, current revision and generation\nScope: environment, Stack projectId, verified teamId, verified userId; device/build + generation where applicable"
+       },
+       {
+        "group": "parallel",
+        "title": "Independent refresh tasks after B2",
+        "summary": "Directory refresh and relay renewal can finish in either order. Neither gates a healthy connection in A.",
+        "steps": [
+         {
+          "group": "thread",
+          "thread": "C",
+          "title": "Device directory",
+          "summary": "Fetch and apply team changes independently of relay renewal.",
+          "steps": [
+           {
+            "from": "teamdo",
+            "to": "teamdb",
+            "text": "Read device directory, preferences and revision",
+            "detail": "One team database owns durable authorization. An in-memory cache is an optimization; eviction cannot lose enrolled devices.",
+            "type": "request",
+            "payload": "Response: teamRevision, devices, allowed EndpointIDs, relay URLs, revocations, missedChanges\nResume rule: send full snapshot or changes after lastRevision\nScope: environment, Stack projectId, verified teamId, verified userId; device/build + generation where applicable"
+           },
+           {
+            "from": "teamdo",
+            "to": "ios",
+            "text": "Full snapshot or safe revision resume",
+            "detail": "The same team data serves Macs and the team Dashboard. Signed authority intended for offline Mac verification uses a public-key signature, separate from the HMAC API ticket.",
+            "type": "return",
+            "payload": "Response: teamRevision, devices, allowed EndpointIDs, relay URLs, revocations, missedChanges\nResume rule: send full snapshot or changes after lastRevision\nScope: environment, Stack projectId, verified teamId, verified userId; device/build + generation where applicable"
+           }
+          ]
+         },
+         {
+          "group": "thread",
+          "thread": "D",
+          "title": "Credential renewal and retry",
+          "summary": "Refresh when needed. Notify the connection coordinator as soon as usable credentials arrive.",
+          "steps": [
+           {
+            "from": "teamdo",
+            "to": "ios",
+            "text": "Fresh relay credential arrives independently",
+            "detail": "Renew over the existing control socket when needed. The detailed mint flow is in flow 4. Ticket refresh, directory refresh and relay renewal must not form one unnecessary startup barrier.",
+            "type": "return",
+            "payload": "Message: relay.credential\nFields: requestId, token, EndpointID, expiresAt, refreshAfter\nScope: environment, Stack projectId, verified teamId, verified userId; device/build + generation where applicable"
+           },
+           {
+            "from": "ios",
+            "to": "ilib",
+            "text": "Install fresh data; retry if the peer is still disconnected",
+            "detail": "Each retry reads the newest available credentials and routing data. A successful cached connection is preserved. Honor backoff and revoked-device state; fresh credentials do not guarantee that the network or Mac is available.",
+            "type": "request",
+            "payload": "Local update: fresh relay token + expiresAt, current relay URLs and peer permissions as received\nAction: unblock a credential-dependent retry; keep healthy connections"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "note": "No wait-for-all step: terminal traffic begins at A4. If A needs fresh credentials, D2 unblocks its retry. A successful cached connection remains active."
+   }
+  ]
+ },
+ "renew": {
+  "title": "v2: 30-minute relay tokens and explicit revocation limits",
+  "summary": "Thirty minutes is accepted for the proposed managed relay credential. One hour remains the API ticket lifetime. Neither lifetime silently changes the peer authorization lease.",
+  "actors": [
+   "app",
+   "lib",
+   "teamdo",
+   "teamdb",
+   "relay",
+   "dash"
+  ],
+  "refs": [
+   "relay",
+   "control"
+  ],
+  "steps": [
+   {
+    "note": "Native credential renewal runs only while pairing is enabled and its runtime is active. Turning pairing off cancels renewal/reconnect work and prevents late callbacks from restarting it."
+   },
+   {
+    "note": "Team boundary: verified Stack teamId + userId, environment and project. Shared data belongs to the team; the initiating user spends their operation allowance. Team membership alone does not authorize terminal access."
+   },
+   {
+    "note": "These are independent events. Normal renewal runs in the background; revocation begins only on an authorized user action."
+   },
+   {
+    "group": "parallel",
+    "title": "Renewal and revocation may overlap",
+    "summary": "Each thread preserves its own order. Revocation does not wait for renewal and takes priority over cached access.",
+    "steps": [
+     {
+      "group": "thread",
+      "thread": "R",
+      "title": "Client schedules renewal; DO responds",
+      "summary": "One client coordinator requests renewal before expiry. The DO has no second client-renewal timer. Healthy IROH traffic continues.",
+      "steps": [
+       {
+        "from": "app",
+        "to": "teamdo",
+        "text": "relay.token.request over the control socket",
+        "detail": "One owner per endpoint requests renewal near minute 25, with jitter and bounded retry. POST /v2/relay/token through the Worker is a fallback when the socket is unavailable. Both share the mint budget.",
+        "type": "request",
+        "payload": "Message: schemaId, requestId, EndpointID, identityGeneration, relayAudience\nAuth: current authenticated socket and any required endpoint proof\nScope: environment, Stack projectId, verified teamId, verified userId; device/build + generation where applicable"
+       },
+       {
+        "from": "teamdo",
+        "to": "teamdb",
+        "text": "Check active device, generation, and mint allowance",
+        "detail": "Check known membership/permission removals, current device authority and the initiating user’s mint allowance. Fresh ticket issuance rechecks Stack authority; ordinary relay renewal avoids a Stack lookup. Cross-team user quota coordination remains an implementation decision.",
+        "type": "request",
+        "payload": "Read: team membership/permission revision, owner user, device generation, relay scope\nRate key: environment, projectId, verified userId, operation\nStorage: team SQLite; global-per-user counter coordination remains open"
+       },
+       {
+        "from": "teamdo",
+        "to": "app",
+        "text": "Signed relay token, 1,800s expiry; refreshAfter",
+        "detail": "Keep API HMAC and relay signing keys separate. The relay receives only the verification key.",
+        "type": "return",
+        "payload": "Response: requestId, relayToken, tokenId, EndpointID, audience, issuedAt, expiresAt, refreshAfter\nScope: environment, Stack projectId, verified teamId, verified userId; device/build + generation where applicable"
+       },
+       {
+        "from": "app",
+        "to": "lib",
+        "text": "Install fresh credential without stopping IROH",
+        "detail": "Update shared credential state and unblock a retry that needs it. Existing healthy peer sessions continue.",
+        "type": "request",
+        "payload": "Local update: relay token, expiry, audience\nKeep previous credential briefly while replacement becomes usable"
+       },
+       {
+        "from": "lib",
+        "to": "relay",
+        "text": "Use new credential when relay authentication is needed",
+        "detail": "This occurs on a new relay connection or relay-required reauthentication. Installing a token alone does not force a healthy relay connection to restart.",
+        "type": "request",
+        "payload": "Relay handshake: signed token + proof of the bound EndpointID key\nRelay verifies locally: signature, audience, environment, expiry, endpoint match\nNo backend lookup for each connection"
+       }
+      ]
+     },
+     {
+      "group": "thread",
+      "thread": "V",
+      "title": "Device revocation",
+      "summary": "Begins when the Dashboard user revokes a device. This is not a step after renewal.",
+      "steps": [
+       {
+        "from": "dash",
+        "to": "teamdo",
+        "text": "device.revoke over the authenticated control socket",
+        "detail": "The Dashboard must hold team device-management authority. POST /v2/devices/{id}/revoke through the Worker remains an HTTP fallback.",
+        "type": "request",
+        "payload": "Message: schemaId, requestId, targetDeviceId, expectedRevision, reason\nAuth: verified team session with device-management permission\nScope: environment, Stack projectId, verified teamId, verified userId; device/build + generation where applicable"
+       },
+       {
+        "from": "teamdo",
+        "to": "teamdb",
+        "text": "Read current management permission and target ownership",
+        "detail": "Authorize the revocation against current team state before committing it. After commit, reject future API actions and minting from that device, even if its one-hour ticket has not expired.",
+        "type": "request",
+        "payload": "Read: requesting team permissions, target device ownership, current revision\nCheck: idempotent revocation intent, independent of renewal thread\nScope: environment, Stack projectId, verified teamId, verified userId; device/build + generation where applicable"
+       },
+       {
+        "from": "teamdo",
+        "to": "teamdb",
+        "text": "Commit revocation + team revision",
+        "detail": "Push only after durable commit. All authority mutation must use this same owner.",
+        "type": "request",
+        "payload": "Operation: Commit revocation + team revision\nState: authenticated team/device context, current revision and generation\nScope: environment, Stack projectId, verified teamId, verified userId; device/build + generation where applicable"
+       },
+       {
+        "from": "teamdo",
+        "to": "app",
+        "text": "Push directory change; close unauthorized sessions",
+        "detail": "Online peers react immediately after receipt. A disconnected peer can only enforce what it knows, up to its cached authorization lease.",
+        "type": "return",
+        "payload": "Response: teamRevision, devices, allowed EndpointIDs, relay URLs, revocations, missedChanges\nResume rule: send full snapshot or changes after lastRevision\nScope: environment, Stack projectId, verified teamId, verified userId; device/build + generation where applicable"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "note": "Already issued relay credentials can remain usable until their expiry. Terminal permission is checked separately; known revocation stops authorized device access."
+   }
+  ]
+ },
+ "application": {
+  "title": "v2: application lifecycle and IROH handling",
+  "summary": "Mac and iOS application responsibilities. Local activation gates all networking. IROH and backend refresh run independently; one app owner applies results, coordinates retries and rejects stale callbacks. This is the agreed design, not an implementation claim.",
+  "actors": [
+   "ui",
+   "owner",
+   "cache",
+   "control",
+   "lib",
+   "peer",
+   "teamdo"
+  ],
+  "refs": [
+   "host",
+   "control"
+  ],
+  "steps": [
+   {
+    "note": "Applies to enabled Mac hosting and activated iOS pairing. Mac listens; iOS initiates a connection to the selected permitted Mac. Team and user context isolate identity, cached credentials and pending work."
+   },
+   {
+    "note": "Implementation scope: remove incompatible legacy Mac/iOS routes, fallback adapters, timers, flags and models. Upgrade and failure paths must use v2 only. Preserve supported v2 schemas and the accepted v2 HTTP recovery path; old cached authority does not establish v2 trust."
+   },
+   {
+    "from": "ui",
+    "to": "owner",
+    "text": "Launch, wake, enable pairing, or open a saved Mac",
+    "detail": "All entry points join the same lifecycle owner. Opening another terminal joins the existing peer session instead of starting competing setup.",
+    "payload": "Event: launch | wake | pairingEnabled | connectSelectedPeer\nContext: environment, projectId, teamId, userId, selectedPeerId?",
+    "type": "request"
+   },
+   {
+    "from": "owner",
+    "to": "cache",
+    "text": "Read pairing setting and selected identity context",
+    "detail": "Read local state before any IROH endpoint initialization, relay contact or backend setup. A new run ID protects asynchronous callbacks; it is separate from identity generation.",
+    "payload": "Local read: pairingEnabled, onboardingActivated, device/build identity, selected team/user\nLocal state: current runId; no network side effect",
+    "type": "request"
+   },
+   {
+    "from": "owner",
+    "to": "ui",
+    "text": "If inactive: stay off and show setup instructions",
+    "detail": "When Mac pairing is disabled, stop here. On iOS, present setup until the user continues. Signing in alone cannot turn Mac pairing on.",
+    "payload": "Condition: pairing inactive\nUI: enable iOS pairing in Mac Settings; select the appropriate team\nState: inactive; no IROH listener or backend tasks",
+    "type": "return"
+   },
+   {
+    "note": "Only the active branch below proceeds. Start A and B together. A never waits for backend setup when cached data is usable; first setup or missing trust waits only for its missing prerequisites."
+   },
+   {
+    "group": "parallel",
+    "title": "Concurrent application startup",
+    "summary": "Read each thread in order. The local connection task and backend task do not wait for each other to finish.",
+    "steps": [
+     {
+      "group": "thread",
+      "thread": "A",
+      "title": "IROH connection and usable application session",
+      "summary": "Starts immediately with valid cached data. Preserve an existing healthy session.",
+      "steps": [
+       {
+        "from": "owner",
+        "to": "cache",
+        "text": "Load the matching endpoint key and cached connection state",
+        "detail": "Use only the current environment/team/user/device identity. Expired or known-revoked permissions cannot authorize the peer. Key material stays in secure local storage.",
+        "payload": "Read: key reference, EndpointID, identityGeneration, relay credential/expiry, relay URLs, peer permissions/expiry\nCache key: environment + projectId + teamId + userId + device/build",
+        "type": "request"
+       },
+       {
+        "from": "owner",
+        "to": "lib",
+        "text": "Start or resume endpoint; listen or dial immediately",
+        "detail": "Mac starts its enabled host endpoint; iOS dials the selected peer. IROH can race direct and relay paths. If required credentials are missing, prepare local state and resume when B installs them. Do not add a backend barrier.",
+        "payload": "Input: key reference, usable relay credential, peer EndpointID, relay URL, local transport options\nOwner: one current endpoint/peer task for this runId",
+        "type": "request"
+       },
+       {
+        "from": "lib",
+        "to": "peer",
+        "text": "Establish encrypted transport and exchange admission proof",
+        "detail": "The transport proves endpoint keys. Application permission must also match the team, user/device authority and supported protocol. A relay token alone does not authorize a terminal.",
+        "payload": "Peer handshake: EndpointIDs, supported protocol, signed team-scoped admission authority\nChecks: signature, peer identity, team scope, generation, expiry and known revocation",
+        "type": "request"
+       },
+       {
+        "from": "peer",
+        "to": "owner",
+        "text": "Authorized session and initial application request become usable",
+        "detail": "Connected UI requires usable application admission and response. Transport keepalives detect loss; request deadlines catch a stuck application handler. Do not add a scheduled DO presence heartbeat.",
+        "payload": "Result: peerId, connectionId, runId, admission outcome, initial RPC ready/error\nMeasure: connect duration, admission duration, time to usable session",
+        "type": "return"
+       },
+       {
+        "from": "owner",
+        "to": "ui",
+        "text": "Show connected and attach terminal streams",
+        "detail": "Apply the result only if its run and peer are still current. Publish meaningful state changes rather than backend online flags. Backend logs cannot independently confirm this direct-peer outcome.",
+        "payload": "UI state: connected(peerId, connectionId)\nFailure states: connecting | retrying | needsSetup | denied | unavailable\nTerminal bytes stay on the peer transport",
+        "type": "return"
+       }
+      ]
+     },
+     {
+      "group": "thread",
+      "thread": "B",
+      "title": "Backend setup, enrollment when needed and refresh",
+      "summary": "Runs alongside A. A useful response is applied immediately, without a wait-for-all step.",
+      "steps": [
+       {
+        "from": "owner",
+        "to": "control",
+        "text": "Resume control socket and refresh due credentials",
+        "detail": "Use the current team/user scoped ticket or obtain current Stack authority if needed. One owner schedules ticket/relay renewal. Use HTTP fallback only if the control socket cannot be established.",
+        "payload": "Start: runId, environment, projectId, teamId, userId, cached ticket, EndpointID proof, lastTeamRevision\nNo new enrollment challenge for normal resume",
+        "type": "request"
+       },
+       {
+        "from": "control",
+        "to": "teamdo",
+        "text": "Worker routes the verified team control handshake",
+        "detail": "The Worker validates user and team context, then routes to the team DO. Exact cross-team user quota coordination is still to be implemented.",
+        "payload": "Handshake: schemaId, requestId, selected team, device tuple, proof, last revision\nVerified internal scope: environment/project/team/user/permissions\nUser allowance: socket opening plus only issuance operations performed",
+        "type": "request"
+       },
+       {
+        "from": "teamdo",
+        "to": "control",
+        "text": "Ready, directory revision, optional ticket and challenge",
+        "detail": "Return a challenge only when trust enrollment is missing or approved recovery requires it. Ordered team updates are filtered by permission; they cannot broaden access by accident.",
+        "payload": "Response: sessionId, teamRevision, required setup, ticket? + expiresAt, challenge? + expiresAt\nOrdinary resume: no challenge",
+        "type": "return"
+       },
+       {
+        "from": "control",
+        "to": "cache",
+        "text": "If enrollment needed: sign the challenge with the local key",
+        "detail": "The complete enrollment exchange is shown in flow 1. The canonical proof binds the intended team/user/device generation. Never silently replace a revoked identity.",
+        "payload": "Conditional input: challengeId, nonce, payload hash, team/user/device context\nLocal output: signature; no private key export",
+        "type": "request"
+       },
+       {
+        "from": "control",
+        "to": "teamdo",
+        "text": "Submit enrollment only if needed; otherwise resume",
+        "detail": "Skip this operation on a matching trusted identity. Retrying a lost response uses the original request ID. Proof and global EndpointID reservation must complete before trusted enrollment is declared.",
+        "payload": "Conditional device.register: schemaId, requestId, challengeId, nonce, canonical payload, signature\nResponse: registered identity or stable setup/recovery error",
+        "type": "request"
+       },
+       {
+        "from": "control",
+        "to": "cache",
+        "text": "Install each current result as it arrives",
+        "detail": "Decode generated types, check context/runId and store a newer relevant result. Keep old credentials only while still valid and only until replacement is usable. This is normal decoding and authority checks, not a client schema-validation framework.",
+        "payload": "Update: fresh ticket or relay credential, directory revision, permission change\nDiscard: stale runId, wrong scope, older superseded revision",
+        "type": "request"
+       },
+       {
+        "from": "control",
+        "to": "owner",
+        "text": "Notify ready data or a precise operation failure",
+        "detail": "Wake only a peer task blocked by newly available prerequisites. A healthy connection survives successful refresh and recoverable backend outages.",
+        "payload": "Event: credentialsReady | directoryChanged | operationFailed\nFields: runId, operation, requestId, code, retryAfter?, affectedPeer?",
+        "type": "return"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "note": "The following events can occur after startup or during it. They are separate conditional paths; reaching the bottom of one does not trigger another."
+   },
+   {
+    "group": "parallel",
+    "title": "Ongoing events and cancellation",
+    "summary": "Renewal, changes and retries are handled by the same lifecycle owner. Stop or revocation can interrupt any in-flight operation.",
+    "steps": [
+     {
+      "group": "thread",
+      "thread": "R",
+      "title": "Renewal and retry rules",
+      "summary": "Client timers run only while active; no automatic renewal timer per client in the DO.",
+      "steps": [
+       {
+        "from": "owner",
+        "to": "control",
+        "text": "Request replacement before expiry, or retry a failed operation",
+        "detail": "Proposed renewal times remain ticket minute 55 and relay minute 25. Coalesce callers for each operation and peer. A protocol error does not trigger mass reconnect or re-enrollment.",
+        "payload": "Input: operation, current credential expiry, requestId, runId\nRetry ID: preserve for uncertain mutations; reconcile before replay",
+        "type": "request"
+       },
+       {
+        "from": "control",
+        "to": "owner",
+        "text": "Classify HTTP status or socket error",
+        "detail": "HTTP 401 ticket_expired joins one refresh; 429/rate_limited cools down that operation. Invalid request does not retry unchanged. Revocation denies affected access. 5xx/network failure backs off. Retired schema uses 1h/6h/24h backoff with explicit user retry.",
+        "payload": "Result: status? (HTTP only), code, retryAfterMs?, retryable, operation, requestId\nPolicy: preserve healthy authorized peers; never refresh Stack indefinitely for a denial",
+        "type": "return"
+       },
+       {
+        "from": "owner",
+        "to": "lib",
+        "text": "Retry only the affected disconnected peer when eligible",
+        "detail": "On credential installation, resume a blocked attempt promptly unless a server-directed cooldown still applies. Bound exponential delay with jitter. Different peers and transport paths remain independent.",
+        "payload": "Condition: current runId, permission valid, peer disconnected, prerequisites ready, cooldown elapsed\nAction: one coordinated attempt; retain healthy current session",
+        "type": "request"
+       }
+      ]
+     },
+     {
+      "group": "thread",
+      "thread": "M",
+      "title": "Device changes and ordered team updates",
+      "summary": "Changes use existing identity; backend connection state is not peer reachability.",
+      "steps": [
+       {
+        "from": "lib",
+        "to": "owner",
+        "text": "Selected relay or local route changes",
+        "detail": "Only server-visible relay URL/name/capability changes need metadata publication. Private direct paths stay local or between peers. Credential renewal by itself is not registration.",
+        "payload": "Event: routeChanged\nLocal: direct addresses/ports\nPublishable: changed relay URL and allowed metadata",
+        "type": "return"
+       },
+       {
+        "from": "owner",
+        "to": "control",
+        "text": "Coalesce and publish changed metadata",
+        "detail": "Use device.metadata.update on the existing socket. A repeated callback with identical server-visible data makes no new mutation.",
+        "payload": "Message: schemaId, requestId, teamId, EndpointID, generation, deviceRevision, changed fields, proof\nNo device.register",
+        "type": "request"
+       },
+       {
+        "from": "control",
+        "to": "owner",
+        "text": "Apply ordered team changes and permission removals",
+        "detail": "Apply server-provided revision/cursor progress; permission filtering must not turn hidden events into false gap errors. A true gap triggers resume/snapshot. Removal takes priority over pending renewal.",
+        "payload": "Event: teamRevision, changed visible devices, permission removals, resume status\nAction: update cache and stop any now-unauthorized peer",
+        "type": "return"
+       }
+      ]
+     },
+     {
+      "group": "thread",
+      "thread": "S",
+      "title": "Disable, sign out, change team, or revoke access",
+      "summary": "Invalidate the old run first. No callback from that run may restart networking.",
+      "steps": [
+       {
+        "from": "ui",
+        "to": "owner",
+        "text": "Disable pairing or change account/team context",
+        "detail": "On revocation, the trigger may be a control update rather than UI. Preserve unrelated teams only when their separate authorized runtime is intentionally active. Switching context never silently exposes the Mac in the new team.",
+        "payload": "Trigger: pairingDisabled | signOut | teamChanged | accessRevoked\nScope: affected user/team/device; next selected context?",
+        "type": "request"
+       },
+       {
+        "from": "owner",
+        "to": "control",
+        "text": "Invalidate run and cancel setup, refresh, retry and subscriptions",
+        "detail": "Increment the local runId before cancellation. Abort pending work, stop timers and close the old control session. A best-effort clean goodbye is not a presence update or a prerequisite for local shutdown.",
+        "payload": "Cancel: tasks and timers owned by previous runId\nRule: late responses are ignored, even if cancellation cannot stop their arrival",
+        "type": "request"
+       },
+       {
+        "from": "owner",
+        "to": "lib",
+        "text": "Close affected listeners, peer sessions and relay connection",
+        "detail": "Pairing off closes the entire pairing runtime on that Mac. Known removal closes affected authorization promptly. Routine renewal follows make-before-break; explicit disable/revocation intentionally stops access.",
+        "payload": "Input: stopReason, affected scope, old runId\nOutcome: no listener, relay connection or reconnect work for disabled scope",
+        "type": "request"
+       },
+       {
+        "from": "owner",
+        "to": "cache",
+        "text": "Retain identity or clear authority according to the event",
+        "detail": "Disabling pairing alone retains the trusted identity for re-enable. Sign-out/team removal clears that scope’s active credentials and permissions as required. Do not delete another team’s state or accept an old callback into a new cache scope.",
+        "payload": "Mutation: pairing preference; active credential/permission invalidation as appropriate\nPreserve: existing identity when policy permits; unique keys per scope",
+        "type": "request"
+       },
+       {
+        "from": "owner",
+        "to": "ui",
+        "text": "Show inactive, signed out, or access removed",
+        "detail": "A future explicit enable starts a new run through the same gate. No background callback can act as an implicit enable.",
+        "payload": "UI state: inactive | signedOut | permissionRemoved\nRe-enable: new runId, same intact trusted identity when applicable",
+        "type": "return"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "note": "Observability: record lifecycle transitions, connect/admission/RPC timings, renewal/retry decisions and stale-callback rejection without logging terminal content or credentials. Backend operation events are captured separately; correlation IDs link the two when client telemetry is enabled."
+   }
+  ]
+ },
+ "backend": {
+  "title": "v2: backend operations and storage lifecycle",
+  "summary": "Accepted Lawrence patterns adapted to team-owned state and user allowances. HTTP and socket operations share one local broker. Schema activation happens before requests are served; expiry checks run within the relevant operation.",
+  "actors": [
+   "caller",
+   "adapter",
+   "teamdo",
+   "broker",
+   "teamdb",
+   "observe"
+  ],
+  "refs": [],
+  "steps": [
+   {
+    "note": "Team scope is verified before state access. These are separate conditional paths, not extra steps on every request. Clients can keep a healthy authorized IROH session while this backend work runs."
+   },
+   {
+    "group": "thread",
+    "thread": "G",
+    "title": "Activation and schema readiness",
+    "summary": "Runs when the DO activates. Check applied versions; execute only missing migrations. Requests wait for schema readiness.",
+    "steps": [
+     {
+      "from": "teamdo",
+      "to": "teamdb",
+      "text": "Read schema history and supported version",
+      "detail": "Initialize through Drizzle durable-sqlite. Reject a changed shipped migration or a schema the running worker cannot safely serve. The supported-schema policy must also cover allowed worker rollback.",
+      "payload": "Read: applied migration IDs/definitions, current schema version\nGuard: blockConcurrencyWhile gates event handling",
+      "type": "request"
+     },
+     {
+      "from": "teamdo",
+      "to": "teamdb",
+      "text": "Apply missing bounded migrations atomically",
+      "detail": "Use the supported storage transaction API. A failure rolls back the affected migration transaction and does not release the readiness gate as a successful setup. Large data rewrites use a separate staged backfill.",
+      "payload": "Transaction: missing generated migrations + applied-version markers\nFailure: no partially migrated request handling; record schema error",
+      "type": "request"
+     },
+     {
+      "from": "teamdb",
+      "to": "teamdo",
+      "text": "Schema ready, or activation failure",
+      "detail": "Repeated activation preserves existing records and does not rerun applied migrations. Continue normal operations only with a supported ready schema.",
+      "payload": "Result: schemaVersion, appliedMigrationCount, duration, ready/error",
+      "type": "return"
+     },
+     {
+      "from": "teamdo",
+      "to": "observe",
+      "text": "Record activation outcome and migration version",
+      "detail": "Capture success/failure and duration without SQL values or stored payloads. Delivery runs outside the request-critical path and is bounded.",
+      "payload": "Event: schema.activation or schema.migration\nFields: teamRef, environment, workerRelease, schemaVersion, outcome, duration",
+      "type": "request"
+     }
+    ]
+   },
+   {
+    "group": "thread",
+    "thread": "Q",
+    "title": "One shared path for HTTP and socket operations",
+    "summary": "Runs after schema readiness for each logical operation. Its own per-user allowance is spent once; internal calls do not consume another logical allowance.",
+    "steps": [
+     {
+      "from": "caller",
+      "to": "adapter",
+      "text": "Send versioned operation over socket or HTTP fallback",
+      "detail": "The adapter preserves the same logical operation identity across transports and schema versions. Bound raw input before parsing. The HTTP Worker verifies user/team before routing; established sockets reuse verified context.",
+      "payload": "Input: schemaId, requestId, operation, team context, typed payload\nAuth: scoped ticket/session and required endpoint proof",
+      "type": "request"
+     },
+     {
+      "from": "adapter",
+      "to": "teamdo",
+      "text": "Validate input and verify current authority and allowance",
+      "detail": "Zod checks the wire shape; explicit policy checks user/team membership, device authority and permissions. Reject malformed input, known revocation or exhausted user allowance with stable errors. Cross-team user counter coordination remains required.",
+      "payload": "Checks: schema, verified environment/project/team/user, current permission, device generation\nRate key: environment + projectId + userId + operation\nOutcome: allowed or typed denial; never charge an unverified user claim",
+      "type": "request"
+     },
+     {
+      "from": "teamdo",
+      "to": "broker",
+      "text": "Dispatch to the local broker",
+      "detail": "Both transports call this same operation implementation. No separate Vercel repository path. The shared PlanetScale service is contacted only for operations that require global ownership work.",
+      "payload": "Call: operation, validated input, verified actor context, requestId\nServices: team SQLite plus explicit global-ownership interface when required",
+      "type": "request"
+     },
+     {
+      "from": "broker",
+      "to": "teamdb",
+      "text": "Read or commit bounded state with database guards",
+      "detail": "Reads use indexed bounded queries. Mutations update data, usage totals, required audit/revision state and quota checks in one supported transaction. Per-user global allowance coordination does not become atomic merely because this team transaction is atomic.",
+      "payload": "Read: indexed team state needed by the operation\nMutation: state + user-attributed local usage + team revision/audit\nSQL constraints/triggers: payload bytes, records, live bindings; reject excess atomically",
+      "type": "request"
+     },
+     {
+      "from": "teamdb",
+      "to": "broker",
+      "text": "Return result or typed storage failure",
+      "detail": "A quota failure rolls back its write and usage increment. Map expected limits, conflicts and unavailable storage to explicit client errors; do not turn them into successful responses or retry forever. Physical-full recovery may run bounded safe cleanup, with operator visibility if still full.",
+      "payload": "Result: committed revision or read result; operation statistics\nFailure: payload/storage/device limit, conflict, or storage unavailable",
+      "type": "return"
+     },
+     {
+      "from": "broker",
+      "to": "teamdo",
+      "text": "Return the operation result",
+      "detail": "Persist before broadcasting state changes. A failed mutation cannot produce a success acknowledgment or a committed-change push. Retry-safe requests return or reconcile the prior outcome.",
+      "payload": "Result: typed operation data or stable error, requestId, teamRevision?",
+      "type": "return"
+     },
+     {
+      "from": "teamdo",
+      "to": "adapter",
+      "text": "Validate output and prepare the response",
+      "detail": "Zod validates the selected response schema. Invalid server output produces a controlled server error and telemetry rather than leaking malformed data to a supported client.",
+      "payload": "Output: response schemaId, requestId, result/error\nProtocol: actual HTTP status or socket application error; never invent an HTTP status per socket frame",
+      "type": "return"
+     },
+     {
+      "from": "adapter",
+      "to": "observe",
+      "text": "Record completion and phase outcomes",
+      "detail": "Record every outcome, including success, validation errors, rate-limit decisions and storage errors. Link internal phases to one operation ID. Queue bounded background delivery; network export must not delay the response.",
+      "payload": "Event: operation.completed\nFields: operation/schema, requestId/traceId, userRef/teamRef, status?, code, limit decision, phase timings\nExclude: tokens, credentials, bodies, terminal content",
+      "type": "request"
+     },
+     {
+      "from": "adapter",
+      "to": "caller",
+      "text": "Return response and retry guidance",
+      "detail": "Clients handle the stable error and actual status, honor operation cooldowns and retain healthy independently authorized peer sessions on recoverable backend failures.",
+      "payload": "Response: requestId, schemaId, result or {code, retryable, retryAfterMs?}\nHTTP fallback: status + Retry-After where relevant",
+      "type": "return"
+     }
+    ]
+   },
+   {
+    "note": "No challenge or issued-credential cleanup job. Each identity has one pending challenge slot: replace it on request, consume it on success, and reject it after 30 minutes. Signed API/relay credentials expire through validation and need no row per issuance. Separate retained-history policies remain open."
+   },
+   {
+    "note": "Required release checks: generate/check Drizzle migrations; compile generated Swift/TS contracts; run actual workerd persistence, rollback, isolation and hibernation tests; invoke the no-Vercel boundary check; dry-run the Worker; canary one team and promote the same build. Verify Mac/iOS launch, upgrade, wake and failure paths cannot call retired IROH routes or restart removed behavior. This diagram records requirements, not a deployment."
+   }
+  ]
+ }
+}};
+let mode='target',flow='enroll',selectedStep=null;
+const ns='http://www.w3.org/2000/svg';
+function el(name,attrs={},text){const n=document.createElementNS(ns,name);Object.entries(attrs).forEach(([k,v])=>n.setAttribute(k,v));if(text!==undefined)n.textContent=text;return n}
+function wrap(text,limit){let lines=[],line='';for(const word of text.split(' ')){if(line&&line.length+word.length+1>limit){lines.push(line);line=word}else line+=(line?' ':'')+word}if(line)lines.push(line);return lines}
+function expandedLines(step, limit) {
+  const payloadLabel = step.type === 'return' ? 'Response payload' : 'Request or operation payload';
+  return [
+    { text: 'Operation details', heading: true },
+    ...wrap(step.detail, limit).map(text => ({ text })),
+    { text: payloadLabel, heading: true },
+    ...step.payload.split('\n').flatMap(line => wrap(line, limit).map(text => ({ text })))
+  ];
+}
+function render() {
+  if (!flows[mode][flow]) { flow="enroll"; selectedStep=null; }
+  document.querySelectorAll("[data-flow]").forEach(b=>{b.hidden=!flows[mode][b.dataset.flow]});
+  const f = flows[mode][flow];
+  document.querySelector('#flow-title').textContent = f.title;
+  document.querySelector('#flow-summary').textContent = f.summary;
+  document.querySelector('#scope').textContent = mode === 'target'
+    ? 'PROPOSED · endpoint names and unspecified policies remain open'
+    : 'SOURCE BASELINE · 9b98fb04 · default IRX path';
+  document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
+  document.querySelectorAll('[data-flow]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.flow === flow)));
+  const viewport = document.querySelector('#viewport');
+  const scrollLeft = viewport.scrollLeft;
+  const width = Math.max(920, f.actors.length * 190);
+  const margin = 85, spacing = (width - 2 * margin) / (f.actors.length - 1);
+  let y = 100, count = 0;
+  function layout(items, depth = 0, sequence = { id: '', count: 0 }) {
+    return items.map(step => {
+      const inset = 12 + depth * 8;
+      if (step.group) {
+        const top = y;
+        const groupWidth = width - 2 * inset;
+        const titleLines = wrap(step.title, Math.max(24, Math.floor((groupWidth - 150) / 7)));
+        const summaryLines = wrap(step.summary, Math.floor((groupWidth - 34) / 6.7));
+        const headerHeight = 22 + titleLines.length * 19 + summaryLines.length * 17 + 12;
+        y += headerHeight + 12;
+        const scope = step.group === 'thread' ? { id: step.thread, count: 0 } : sequence;
+        const children = layout(step.steps, depth + 1, scope);
+        y += 10;
+        const height = y - top;
+        y += 18;
+        return { ...step, inset, top, width: groupWidth, height, headerHeight, titleLines, summaryLines, children };
+      }
+      const index = step.note ? null : ++count;
+      const label = step.note ? null : sequence.id + (++sequence.count);
+      const noteLines = step.note ? wrap(step.note, Math.floor((width - 2 * inset - 30) / 6.7)) : [];
+      const noteHeight = Math.max(48, noteLines.length * 17 + 18);
+      const labelWidth = step.note ? 0 : Math.max(250, Math.abs(f.actors.indexOf(step.to) - f.actors.indexOf(step.from)) * spacing - 20);
+      const labelLines = step.note ? [] : wrap(step.text, Math.floor(labelWidth / 6.5));
+      const labelHeight = labelLines.length * 16 + 26;
+      const panelWidth = Math.max(230, Math.min(width - 2 * inset - 24, viewport.clientWidth - 2 * inset - 24));
+      const panelX = Math.min(width - panelWidth - inset - 12, scrollLeft + inset + 12);
+      const lineLimit = Math.floor((panelWidth - 30) / 7);
+      const top = y, arrowY = top + (step.note ? 0 : labelHeight);
+      const details = index === selectedStep && index !== null ? expandedLines(step, lineLimit) : [];
+      const detailHeight = details.length ? details.length * 18 + 26 : 0;
+      y += step.note ? noteHeight + 18 : labelHeight + 34 + detailHeight + (details.length ? 20 : 0);
+      return { ...step, index, label, inset, top, arrowY, labelWidth, labelLines, noteLines, noteHeight, details, detailHeight, panelWidth, panelX };
+    });
+  }
+  const rows = layout(f.steps), height = y + 30;
+  const svg = el('svg', { width, height, viewBox: '0 0 ' + width + ' ' + height, role: 'group', 'aria-label': f.title });
+  const defs = el('defs');
+  for (const [id, color] of [['req', '#83b8ff'], ['ret', '#71d6b1']]) {
+    const marker = el('marker', { id, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' });
+    marker.append(el('path', { d: 'M 0 0 L 10 5 L 0 10 z', fill: color }));
+    defs.append(marker);
+  }
+  svg.append(defs);
+  function drawFrames(items) {
+    items.forEach(row => {
+      if (!row.group) return;
+      const parallel = row.group === 'parallel';
+      svg.append(el('rect', { class: 'sequence-frame', 'data-frame': row.group, x: row.inset, y: row.top, width: row.width, height: row.height, rx: 7, fill: parallel ? '#13251f' : '#152131', stroke: parallel ? '#598d7c' : '#3f5a77', 'stroke-width': parallel ? 1.8 : 1 }));
+      drawFrames(row.children);
+    });
+  }
+  drawFrames(rows);
+  const xs = {};
+  f.actors.forEach((id, i) => {
+    const x = margin + i * spacing;
+    xs[id] = x;
+    svg.append(el('line', { x1: x, x2: x, y1: 78, y2: height - 22, stroke: '#3c4b60', 'stroke-dasharray': '4 5' }));
+    svg.append(el('rect', { x: x - 80, y: 16, width: 160, height: 62, rx: 6, fill: '#202d40', stroke: '#475d7d' }));
+    svg.append(el('text', { x, y: 41, 'text-anchor': 'middle', fill: '#edf2fa', 'font-size': 13, 'font-weight': 650 }, actor[id][0]));
+    svg.append(el('text', { x, y: 61, 'text-anchor': 'middle', fill: '#aab8ca', 'font-size': 11 }, actor[id][1]));
+  });
+  function drawRows(items, parent) {
+    for (const row of items) {
+      if (row.group) {
+        const parallel = row.group === 'parallel';
+        const container = el('g', { class: 'sequence-container', role: 'group', 'data-group': row.group, 'data-thread': row.thread || '', 'aria-label': (parallel ? 'Parallel: ' : 'Sequential thread ' + row.thread + ': ') + row.title });
+        container.append(el('rect', { x: row.inset + 1, y: row.top + 1, width: row.width - 2, height: row.headerHeight, rx: 6, fill: parallel ? '#1a362c' : '#20344b' }));
+        container.append(el('rect', { x: row.inset + 12, y: row.top + 12, width: 100, height: 22, rx: 4, fill: parallel ? '#2b5b4a' : '#345674' }));
+        container.append(el('text', { x: row.inset + 62, y: row.top + 27, 'text-anchor': 'middle', fill: '#eef6f3', 'font-size': 11, 'font-weight': 700 }, parallel ? 'PARALLEL' : 'THREAD ' + row.thread));
+        row.titleLines.forEach((line, i) => container.append(el('text', { x: row.inset + 126, y: row.top + 28 + i * 19, fill: '#edf2fa', 'font-size': 13, 'font-weight': 650 }, line)));
+        row.summaryLines.forEach((line, i) => container.append(el('text', { x: row.inset + 16, y: row.top + 28 + row.titleLines.length * 19 + i * 17, fill: '#c2d3da', 'font-size': 12 }, line)));
+        drawRows(row.children, container);
+        parent.append(container);
+        continue;
+      }
+      if (row.note) {
+        parent.append(el('rect', { x: row.inset, y: row.top, width: width - 2 * row.inset, height: row.noteHeight, rx: 6, fill: '#322e28', stroke: '#64563e' }));
+        row.noteLines.forEach((line, i) => parent.append(el('text', { x: row.inset + 15, y: row.top + 22 + i * 17, fill: '#f5c481', 'font-size': 12 }, line)));
+        continue;
+      }
+      const x1 = xs[row.from], x2 = xs[row.to], isSelected = row.index === selectedStep;
+      const panelId = 'step-details-' + row.index;
+      const group = el('g', { class: 'step', role: 'button', tabindex: 0, 'data-step': row.index, 'data-step-label': row.label, 'aria-expanded': String(isSelected), 'aria-controls': panelId, 'aria-label': 'Step ' + row.label + '. ' + row.text });
+      group.append(el('rect', { class: 'rowbg', x: row.inset, y: row.top, width: width - 2 * row.inset, height: row.arrowY - row.top + 25, fill: isSelected ? '#22334a' : 'transparent' }));
+      const numberX = row.inset + 16;
+      group.append(el('circle', { cx: numberX, cy: row.arrowY - 4, r: 13, fill: isSelected ? '#355b86' : '#233047' }));
+      group.append(el('text', { x: numberX, y: row.arrowY, 'text-anchor': 'middle', fill: '#c9d9f0', 'font-size': 10 }, row.label));
+      group.append(el('text', { x: width - row.inset - 16, y: row.arrowY, 'text-anchor': 'middle', fill: '#83b8ff', 'font-size': 16 }, isSelected ? '−' : '+'));
+      const type = row.type === 'return' ? 'ret' : 'req';
+      group.append(el('line', { x1, x2, y1: row.arrowY, y2: row.arrowY, stroke: type === 'ret' ? '#71d6b1' : '#83b8ff', 'stroke-width': 1.8, 'stroke-dasharray': type === 'ret' ? '5 4' : 'none', 'marker-end': 'url(#' + type + ')' }));
+      const labelX = Math.min(width - row.labelWidth - row.inset - 8, Math.max(row.inset + 34, (x1 + x2 - row.labelWidth) / 2));
+      group.append(el('rect', { x: labelX - 5, y: row.top + 3, width: row.labelWidth + 10, height: row.labelLines.length * 16 + 7, fill: '#121a26', rx: 3 }));
+      row.labelLines.forEach((line, i) => group.append(el('text', { x: labelX, y: row.top + 18 + i * 16, fill: '#e2ecfa', 'font-size': 12 }, line)));
+      const toggle = () => {
+        selectedStep = isSelected ? null : row.index;
+        render();
+        viewport.querySelector('[data-step="' + row.index + '"]').focus({ preventScroll: true });
+      };
+      group.addEventListener('click', toggle);
+      group.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggle(); }
+      });
+      parent.append(group);
+      if (isSelected) {
+        const detailY = row.arrowY + 30;
+        const panel = el('g', { id: panelId, class: 'expanded-detail', role: 'group', 'aria-label': 'Details for step ' + row.label });
+        panel.append(el('rect', { x: row.panelX, y: detailY, width: row.panelWidth, height: row.detailHeight, rx: 6, fill: '#152135', stroke: '#456486' }));
+        row.details.forEach((line, i) => panel.append(el('text', { x: row.panelX + 15, y: detailY + 22 + i * 18, fill: line.heading ? '#83b8ff' : '#d9e6f7', 'font-size': 12, 'font-weight': line.heading ? 650 : 400 }, line.text)));
+        parent.append(panel);
+      }
+    }
+  }
+  drawRows(rows, svg);
+  viewport.replaceChildren(svg);
+  viewport.scrollLeft = scrollLeft;
+  const src = document.querySelector('#sources');
+  src.replaceChildren();
+  const caption = document.createElement('b');
+  caption.textContent = 'Source references for the retained behavior';
+  src.append(caption);
+  f.refs.forEach(id => {
+    const anchor = document.createElement('a');
+    anchor.href = sources[id];
+    anchor.textContent = ({ host: 'Mac IRX lifecycle and admission', broker: 'Registration refresh conditions', client: 'Challenge + signed registration', repo: 'Challenge issuance and binding storage', challenge: 'Challenge lifetime', relay: 'Managed relay token lifetime', presence: 'Presence timing', control: 'Account control channel', readme: 'Presence and control architecture' })[id];
+    src.append(anchor);
+  });
+}
+
+document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>{mode=b.dataset.mode;selectedStep=null;render()}));document.querySelectorAll('[data-flow]').forEach(b=>b.addEventListener('click',()=>{flow=b.dataset.flow;selectedStep=null;render()}));render();
+</script></body></html>

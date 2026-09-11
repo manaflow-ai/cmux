@@ -328165,55 +328165,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Saved. The pairing listener will use port %lld when iOS Pairing is on."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存しました。iOS ペアリングを有効にするとペアリングリスナーはポート %lld を使用します。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已保存。开启 iOS 配对后，配对监听器将使用端口 %lld。"
+            "value": "Saved port %lld. It takes effect the next time iOS Pairing starts."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gespeichert. Der Kopplungs-Listener verwendet Port %lld, wenn die iOS-Kopplung aktiviert ist."
+            "value": "Port %lld gespeichert. Er wird beim nächsten Start der iOS-Kopplung verwendet."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enregistré. L’écouteur de jumelage utilisera le port %lld lorsque le jumelage iOS sera activé."
+            "value": "Port %lld enregistré. Il sera utilisé au prochain démarrage du jumelage iOS."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تم الحفظ. سيستخدم مستمع الاقتران المنفذ %lld عندما يكون اقتران iOS قيد التشغيل."
+            "value": "تم حفظ المنفذ %lld. سيُستخدم عند بدء اقتران iOS في المرة القادمة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Guardado. El receptor de vinculación usará el puerto %lld cuando la vinculación con iOS esté activada."
+            "value": "Se guardó el puerto %lld. Se usará la próxima vez que se inicie la vinculación con iOS."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已保存端口 %lld。下次启动 iOS 配对时生效。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "已儲存。啟用 iOS 配對時，配對接聽程式將會使用連接埠 %lld。"
+            "value": "已儲存連接埠 %lld。下次啟動 iOS 配對時生效。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "저장되었습니다. iOS 페어링이 활성화되면 페어링 리스너가 %lld 포트를 사용합니다."
+            "value": "%lld 포트를 저장했습니다. 다음에 iOS 페어링을 시작할 때 적용됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポート %lld を保存しました。次回 iOS ペアリングを開始すると適用されます。"
           }
         }
       }
@@ -328224,55 +328224,114 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Click Apply to change the port. cmux checks the port is free first: if it's in use, the current listener keeps running untouched; if it's free, the pairing listener rebinds now and connected devices reconnect. The Iroh endpoint adopts the new port the next time cmux starts."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ポートを変更するには「適用」をクリックします。cmux はまずポートが空いているか確認します。使用中の場合は現在のリスナーをそのまま維持し、空いている場合はペアリングリスナーを直ちに再バインドして、接続中のデバイスは新しいポートで再接続します。Iroh エンドポイントは次回の cmux 起動時に新しいポートを使用します。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "点按「应用」以更改端口。cmux 会先检查端口是否空闲：若已被占用，当前监听器保持原样继续运行；若空闲，配对监听器会立即重新绑定，已连接的设备会重新连接。Iroh 端点会在 cmux 下次启动时采用新端口。"
+            "value": "Apply saves the port for the next pairing start. Current connections continue. To use the new port, turn iOS Pairing off and on. If the port is unavailable, cmux chooses an available port."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klicken Sie auf „Anwenden“, um den Port zu ändern. cmux prüft zuerst, ob der Port frei ist: Wenn er belegt ist, läuft der aktuelle Listener unverändert weiter; wenn er frei ist, bindet sich der Kopplungs-Listener jetzt neu und verbundene Geräte verbinden sich wieder. Der Iroh-Endpunkt übernimmt den neuen Port beim nächsten Start von cmux."
+            "value": "Anwenden speichert den Port für den nächsten Kopplungsstart. Bestehende Verbindungen bleiben erhalten. Um den neuen Port zu verwenden, schalten Sie die iOS-Kopplung aus und wieder ein. Ist der Port nicht verfügbar, wählt cmux einen verfügbaren Port."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cliquez sur Appliquer pour changer le port. cmux vérifie d’abord que le port est libre : s’il est utilisé, l’écouteur actuel continue de fonctionner sans modification ; s’il est libre, l’écouteur de jumelage se relie immédiatement et les appareils connectés se reconnectent. Le point de terminaison Iroh adoptera le nouveau port au prochain démarrage de cmux."
+            "value": "Appliquer enregistre le port pour le prochain démarrage du jumelage. Les connexions actuelles restent actives. Pour utiliser le nouveau port, désactivez puis réactivez le jumelage iOS. Si le port est indisponible, cmux en choisit un disponible."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "انقر على \"تطبيق\" لتغيير المنفذ. يتحقق cmux أولاً من أن المنفذ فارغ: إذا كان قيد الاستخدام، يستمر المستمع الحالي في العمل دون تغيير؛ وإذا كان فارغًا، يعيد مستمع الاقتران الارتباط الآن وتتصل الأجهزة المتصلة مجددًا. تتبنى نقطة نهاية Iroh المنفذ الجديد في المرة التالية التي يبدأ فيها تشغيل cmux."
+            "value": "يحفظ تطبيق المنفذ لبدء الاقتران القادم. تستمر الاتصالات الحالية. لاستخدام المنفذ الجديد، أوقف اقتران iOS ثم شغّله مجددًا. إذا لم يكن المنفذ متاحًا، يختار cmux منفذًا متاحًا."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Haz clic en Aplicar para cambiar el puerto. cmux comprueba primero si el puerto está libre: si está en uso, el receptor actual sigue funcionando sin cambios; si está libre, el receptor de vinculación se vuelve a enlazar ahora y los dispositivos conectados se vuelven a conectar. El punto de conexión de Iroh adoptará el nuevo puerto la próxima vez que se inicie cmux."
+            "value": "Aplicar guarda el puerto para el próximo inicio de la vinculación. Las conexiones actuales continúan. Para usar el nuevo puerto, desactiva y vuelve a activar la vinculación con iOS. Si el puerto no está disponible, cmux elige uno disponible."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点按“应用”会保存端口，在下次启动配对时生效。当前连接会保持。要使用新端口，请关闭再开启 iOS 配对。如果端口不可用，cmux 会选择一个可用端口。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "按一下套用以變更連接埠。cmux 會先檢查該連接埠是否可用：若已被佔用，目前的接聽程式將繼續執行且不受影響；若為可用，配對接聽程式會立即重新繫結，且已連線的裝置將會重新連線。Iroh 端點將在下次 cmux 啟動時採用新的連接埠。"
+            "value": "按一下「套用」會儲存連接埠，在下次啟動配對時生效。目前的連線會維持。若要使用新連接埠，請關閉再開啟 iOS 配對。如果連接埠無法使用，cmux 會選擇可用的連接埠。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "포트를 변경하려면 적용을 클릭하세요. cmux는 먼저 포트가 비어 있는지 확인합니다. 사용 중인 경우 현재 리스너가 변경 없이 계속 실행되고, 비어 있는 경우 페어링 리스너가 지금 다시 바인딩되며 연결된 기기가 다시 연결됩니다. Iroh 엔드포인트는 다음 번에 cmux가 시작될 때 새 포트를 적용합니다."
+            "value": "적용을 누르면 다음 페어링 시작에 사용할 포트가 저장됩니다. 현재 연결은 유지됩니다. 새 포트를 사용하려면 iOS 페어링을 껐다가 다시 켜세요. 해당 포트를 사용할 수 없으면 cmux가 사용 가능한 포트를 선택합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「適用」で次回のペアリング開始用のポートを保存します。現在の接続は維持されます。新しいポートを使うには、iOS ペアリングをオフにしてからオンにしてください。ポートが使用できない場合、cmux が使用可能なポートを選択します。"
+          }
+        }
+      }
+    },
+    "settings.mobile.port.pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port %lld is saved for the next pairing start. Currently using port %lld."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port %lld ist für den nächsten Kopplungsstart gespeichert. Aktuell wird Port %lld verwendet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le port %lld est enregistré pour le prochain démarrage du jumelage. Le port %lld est actuellement utilisé."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم حفظ المنفذ %lld لبدء الاقتران القادم. يُستخدم المنفذ %lld حاليًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El puerto %lld se guardó para el próximo inicio de la vinculación. Actualmente se usa el puerto %lld."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已保存端口 %lld，下次启动配对时生效。当前使用端口 %lld。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已儲存連接埠 %lld，下次啟動配對時生效。目前使用連接埠 %lld。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음 페어링 시작에 사용할 %lld 포트를 저장했습니다. 현재는 %lld 포트를 사용 중입니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次回のペアリング開始用にポート %lld を保存しました。現在はポート %lld を使用しています。"
           }
         }
       }
@@ -328519,55 +328578,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Preferred port for the iOS pairing listener (TCP) and the Iroh endpoint that Direct addresses dial (UDP), 1–65535."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "iOS ペアリングリスナー（TCP）と、Direct アドレスの接続先となる Iroh エンドポイント（UDP）の優先ポート（1〜65535）。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "iOS 配对监听器（TCP）以及 Direct 地址所拨的 Iroh 端点（UDP）首选的端口，取值 1–65535。"
+            "value": "Preferred port for IROH connections, 1–65535."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bevorzugter Port für den iOS-Kopplungs-Listener (TCP) und den Iroh-Endpunkt, den Direkt-Adressen anwählen (UDP), 1–65535."
+            "value": "Bevorzugter Port für IROH-Verbindungen, 1–65535."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Port préféré pour l’écouteur de jumelage iOS (TCP) et le point de terminaison Iroh composé par les adresses directes (UDP), 1–65535."
+            "value": "Port préféré pour les connexions IROH, de 1 à 65535."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "المنفذ المفضل لمستمع اقتران iOS ‏(TCP) ونقطة نهاية Iroh التي تطلبها العناوين المباشرة (UDP)، من 1 إلى 65535."
+            "value": "المنفذ المفضل لاتصالات IROH، من 1 إلى 65535."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Puerto preferido para el receptor de vinculación de iOS (TCP) y el punto de conexión de Iroh al que llaman las direcciones directas (UDP), de 1 a 65535."
+            "value": "Puerto preferido para conexiones IROH, entre 1 y 65535."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IROH 连接的首选端口，范围为 1–65535。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS 配對接聽程式 (TCP) 以及直接地址撥號之 Iroh 端點 (UDP) 的偏好連接埠，範圍為 1–65535。"
+            "value": "IROH 連線的偏好連接埠，範圍為 1–65535。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS 페어링 리스너(TCP) 및 직접 주소가 연결하는 Iroh 엔드포인트(UDP)가 선호하는 포트(1~65535)입니다."
+            "value": "IROH 연결에 사용할 기본 포트(1–65535)입니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IROH 接続に使用する優先ポート（1〜65535）。"
           }
         }
       }

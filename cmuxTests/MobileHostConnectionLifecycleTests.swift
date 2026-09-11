@@ -442,24 +442,6 @@ extension MobileHostAuthorizationTests {
         )
     }
 
-    @Test func testIrohEventWriterTimesOutBackpressureWithInjectedClock() async {
-        let stream = BlockingMobileHostIrohSendStream()
-        let writer = MobileHostIrohServerEventWriter(
-            openStream: { stream },
-            clock: ImmediateMobileHostIrohClock(),
-            sendTimeout: 3
-        )
-
-        do {
-            try await writer.send(Data("framed-event".utf8))
-            Issue.record("Expected independent event backpressure to time out")
-        } catch {}
-
-        let resetCodes = await stream.observedResetCodes()
-        #expect(!resetCodes.isEmpty)
-        #expect(resetCodes.allSatisfy { $0 == 1 })
-        await writer.close()
-    }
     @Test func testTerminalRenderObserverRetainsGhosttyDemandOnlyWithTerminalSubscriber() async throws {
         let service = MobileHostService.shared
         service.debugResetMobileLifecycleStateForTesting()

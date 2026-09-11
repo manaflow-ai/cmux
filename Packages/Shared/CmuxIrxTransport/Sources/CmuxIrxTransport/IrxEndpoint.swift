@@ -5,6 +5,7 @@ public enum IrxEndpointError: Error, Sendable {
     case noUsableRelayCredential
     case endpointClosed
     case bindFailed(String)
+    case noDirectAddress
 }
 
 /// How the endpoint constrains paths. `relayOnly` is the soak/reliability
@@ -13,6 +14,8 @@ public enum IrxEndpointError: Error, Sendable {
 public enum IrxPathMode: String, Sendable {
     case automatic
     case relayOnly = "relay-only"
+    /// Explicit local routes use an endpoint with all relay transport disabled.
+    case directOnly = "direct-only"
 }
 
 public struct IrxEndpointConfiguration: Sendable {
@@ -60,7 +63,10 @@ public actor IrxEndpointSupervisor {
     private var onlineReached = false
     private var closeWatcher: Task<Void, Never>?
     private var installedRelayURLs: Set<String> = []
+    private var desiredRelayCredentials: [IrxRelayCredential]?
+    private var relayInstaller: IrxRelayCredentialInstaller?
     private var bindInFlight: Task<Endpoint, any Error>?
+    private var bindID: UUID?
     /// Sign-out invalidates this supervisor permanently. A cancelled bind can
     /// still resume after URLSession/iroh returns, so the epoch is checked
     /// before that stale endpoint is published or advertised.
@@ -76,7 +82,8 @@ public actor IrxEndpointSupervisor {
 
     public func identity() -> IrxIdentity { configuration.identity }
 
-    /// Returns a bound, relay-online endpoint, binding one if needed.
+    /// Returns a ready endpoint, binding one if needed. Direct-only mode is
+    /// ready after the UDP bind and never requires a relay credential.
     /// Single-flight: concurrent callers join the in-progress bind.
     public func readyEndpoint(credentials: [IrxRelayCredential]) async throws -> Endpoint {
         guard !deactivated else { throw IrxEndpointError.endpointClosed }
@@ -87,11 +94,15 @@ public actor IrxEndpointSupervisor {
             return try await bindInFlight.value
         }
         let epoch = lifecycleEpoch
+        let id = UUID()
         let task = Task<Endpoint, any Error> {
             try await bindGeneration(credentials: credentials, epoch: epoch)
         }
         bindInFlight = task
-        defer { bindInFlight = nil }
+        bindID = id
+        defer {
+            if bindID == id { bindInFlight = nil; bindID = nil }
+        }
         return try await task.value
     }
 
@@ -99,6 +110,14 @@ public actor IrxEndpointSupervisor {
     public func boundEndpoint() -> Endpoint? {
         guard let driver, !driver.isClosed() else { return nil }
         return driver
+    }
+
+    /// Actual UDP port, including a fallback bind. Used only for local settings.
+    public func boundPort() -> Int? {
+        guard let driver, !driver.isClosed() else { return nil }
+        return driver.boundSockets().compactMap { address in
+            URLComponents(string: "udp://" + address)?.port
+        }.first { (1...65535).contains($0) }
     }
 
     /// The relay this endpoint actually homes on (post-`online`), the URL
@@ -109,10 +128,8 @@ public actor IrxEndpointSupervisor {
     }
 
     /// Returns the endpoint's current direct candidates. Iroh owns candidate
-    /// discovery and NAT traversal; IRX only exposes the observed values so
-    /// the host can publish safe public hints and the client can seed the
-    /// authenticated LAN fallback. The relay-only policy deliberately returns
-    /// no candidates.
+    /// discovery and NAT traversal. These addresses remain on the devices;
+    /// the backend stores only relay URLs. Relay-only mode returns no candidates.
     public func localDirectAddresses() -> [String] {
         guard configuration.pathMode != .relayOnly,
               let driver,
@@ -158,34 +175,12 @@ public actor IrxEndpointSupervisor {
     /// the forked iroh authenticates a replacement relay connection before
     /// swapping routes, so live sessions continue. Never removeRelay for a
     /// URL being rotated - remove tears the active relay down instantly.
+    /// Queues a serialized installation and retries local failures independently
+    /// of credential minting. Native installation emits its own outcome event.
     public func rotateCredentials(_ credentials: [IrxRelayCredential]) async {
-        guard !deactivated else { return }
-        guard let driver, !driver.isClosed() else { return }
-        for credential in credentials {
-            do {
-                try await driver.insertRelay(
-                    config: RelayConfig(
-                        url: credential.relayURL,
-                        quicPort: nil,
-                        authToken: credential.token
-                    )
-                )
-                installedRelayURLs.insert(credential.relayURL)
-                journal.record(
-                    "endpoint", "relay-credential-rotated",
-                    [
-                        "relay": credential.relayURL,
-                        "expires_at": ISO8601DateFormatter().string(from: credential.expiresAt),
-                        "generation": String(generation),
-                    ]
-                )
-            } catch {
-                journal.record(
-                    "endpoint", "relay-credential-rotation-failed",
-                    ["relay": credential.relayURL, "error": String(describing: error)]
-                )
-            }
-        }
+        guard !deactivated, configuration.pathMode != .directOnly else { return }
+        desiredRelayCredentials = credentials
+        await relayInstaller?.replace(with: credentials)
     }
 
     /// Rotates relay credentials only while the caller still owns the current
@@ -197,6 +192,7 @@ public actor IrxEndpointSupervisor {
         rotationGeneration: UInt64,
         gate: IrxRelayCredentialRotationGate
     ) async {
+        guard configuration.pathMode != .directOnly else { return }
         guard await gate.isCurrent(rotationGeneration) else { return }
         guard !deactivated else { return }
         guard let driver, !driver.isClosed() else { return }
@@ -254,26 +250,41 @@ public actor IrxEndpointSupervisor {
     }
 
     public func close() async {
+        lifecycleEpoch &+= 1
+        bindInFlight?.cancel()
+        bindInFlight = nil
+        bindID = nil
         closeWatcher?.cancel()
         closeWatcher = nil
-        if let driver {
-            try? await driver.close()
-        }
+        let installer = relayInstaller
+        relayInstaller = nil
+        let old = driver
         driver = nil
         onlineReached = false
+        await installer?.stop()
+        if let old { try? await old.close() }
         journal.record("endpoint", "closed", ["generation": String(generation)])
     }
 
-    /// Permanently invalidates this endpoint generation during sign-out.
-    /// ``close()`` remains a reusable shutdown for callers that only need to
-    /// rebind; this method additionally fences all stale bind completions.
+    /// Sign-out permanently prevents this supervisor from accepting more work.
     public func deactivate() async {
-        lifecycleEpoch &+= 1
         deactivated = true
-        bindInFlight?.cancel()
-        bindInFlight = nil
+        desiredRelayCredentials = nil
         await close()
         journal.record("endpoint", "deactivated")
+    }
+
+    private func discardBinding(_ bound: Endpoint) async {
+        if driver === bound {
+            let installer = relayInstaller
+            relayInstaller = nil
+            driver = nil
+            onlineReached = false
+            closeWatcher?.cancel()
+            closeWatcher = nil
+            await installer?.stop()
+        }
+        try? await bound.close()
     }
 
     private func bindGeneration(
@@ -284,13 +295,13 @@ public actor IrxEndpointSupervisor {
             throw IrxEndpointError.endpointClosed
         }
         if let old = driver {
-            try? await old.close()
-            driver = nil
-            onlineReached = false
+            await discardBinding(old)
+            guard !deactivated, epoch == lifecycleEpoch else { throw IrxEndpointError.endpointClosed }
         }
         let now = Date()
-        let usable = credentials.filter { $0.isUsable(at: now) }
-        guard !usable.isEmpty else {
+        let directOnly = configuration.pathMode == .directOnly
+        let usable = directOnly ? [] : (desiredRelayCredentials ?? credentials).filter { $0.isUsable(at: now) }
+        guard directOnly || !usable.isEmpty else {
             journal.record("endpoint", "bind-refused-no-credential")
             throw IrxEndpointError.noUsableRelayCredential
         }
@@ -309,7 +320,7 @@ public actor IrxEndpointSupervisor {
         var options = EndpointOptions(preset: presetMinimal())
         options.secretKey = configuration.identity.privateKeyData
         options.alpns = [IrxProtocol.alpnData] + configuration.additionalALPNs
-        options.relayMode = RelayMode.custom(map: relayMap)
+        options.relayMode = directOnly ? RelayMode.disabled() : RelayMode.custom(map: relayMap)
         options.portMappingEnabled = false
         // NAT traversal stays unauthorized until admission (automatic mode) or
         // forever (relay-only mode); the authorize call is per-connection.
@@ -323,6 +334,9 @@ public actor IrxEndpointSupervisor {
         do {
             bound = try await Endpoint.bind(options: options)
         } catch where configuration.preferredBindAddress != nil {
+            guard !Task.isCancelled, !deactivated, epoch == lifecycleEpoch else {
+                throw IrxEndpointError.endpointClosed
+            }
             // Preferred-port squatting falls back to an ephemeral bind; the
             // advertised route always reflects the port actually bound.
             options.bindAddr = nil
@@ -333,6 +347,19 @@ public actor IrxEndpointSupervisor {
             throw IrxEndpointError.endpointClosed
         }
         driver = bound
+        if !directOnly {
+            let installer = IrxRelayCredentialInstaller(installed: usable, journal: journal) { credential in
+                try await bound.insertRelay(config: RelayConfig(
+                    url: credential.relayURL, quicPort: nil, authToken: credential.token))
+            }
+            relayInstaller = installer
+            await installer.replace(with: desiredRelayCredentials ?? usable)
+            guard !deactivated, epoch == lifecycleEpoch else {
+                await installer.stop()
+                try? await bound.close()
+                throw IrxEndpointError.endpointClosed
+            }
+        }
         installedRelayURLs = Set(usable.map(\.relayURL))
         journal.record(
             "endpoint", "bound",
@@ -343,19 +370,30 @@ public actor IrxEndpointSupervisor {
                 "path_mode": configuration.pathMode.rawValue,
             ]
         )
+        if directOnly {
+            onlineReached = true
+            watchClosure(of: bound, generation: generation)
+            journal.record("endpoint", "direct-ready", ["generation": String(generation)])
+            return bound
+        }
         // Readiness = the relay link is up. Dials before this point are the
         // old stack's launch race; callers await readiness instead. Bounded:
         // a relay that never admits us (e.g. a silently refused wrong-key
         // token) must fail the bind loudly, not hang activation forever.
-        let cameOnline = try await withIrxDeadline(.seconds(20), onTimeout: {
-            try? await bound.close()
-        }) {
-            await bound.online()
-            return true
+        let cameOnline: Bool?
+        do {
+            cameOnline = try await withIrxDeadline(.seconds(20), onTimeout: {
+                try? await bound.close()
+            }) {
+                await bound.online()
+                return true
+            }
+        } catch {
+            await discardBinding(bound)
+            throw error
         }
         guard !deactivated, epoch == lifecycleEpoch else {
-            try? await bound.close()
-            driver = nil
+            await discardBinding(bound)
             throw IrxEndpointError.endpointClosed
         }
         guard cameOnline == true else {
@@ -363,8 +401,7 @@ public actor IrxEndpointSupervisor {
                 "endpoint", "online-timeout",
                 ["generation": String(generation)]
             )
-            try? await bound.close()
-            driver = nil
+            await discardBinding(bound)
             throw IrxEndpointError.bindFailed("relay link never came up (20s)")
         }
         onlineReached = true
@@ -387,14 +424,14 @@ public actor IrxEndpointSupervisor {
         }
     }
 
-    private func driverDidClose(generation closedGeneration: Int) {
+    private func driverDidClose(generation closedGeneration: Int) async {
         guard closedGeneration == generation else { return }
-        journal.record(
-            "endpoint", "closed-unexpectedly",
-            ["generation": String(closedGeneration)]
-        )
+        let installer = relayInstaller
+        relayInstaller = nil
         driver = nil
         onlineReached = false
+        journal.record("endpoint", "closed-unexpectedly", ["generation": String(closedGeneration)])
+        await installer?.stop()
     }
 }
 
@@ -413,6 +450,9 @@ extension IrxEndpointSupervisor {
             return EndpointAddr(id: id, relayUrl: relayURL, addresses: [])
         case .automatic:
             return EndpointAddr(id: id, relayUrl: relayURL, addresses: directAddresses)
+        case .directOnly:
+            guard !directAddresses.isEmpty else { throw IrxEndpointError.noDirectAddress }
+            return EndpointAddr(id: id, relayUrl: nil, addresses: directAddresses)
         }
     }
 
@@ -423,10 +463,15 @@ extension IrxEndpointSupervisor {
         address: EndpointAddr,
         credentials: [IrxRelayCredential]
     ) async throws -> IrxConnection {
+        let target: EndpointAddr
+        if configuration.pathMode == .directOnly {
+            guard !address.directAddresses().isEmpty else { throw IrxEndpointError.noDirectAddress }
+            target = EndpointAddr(id: address.id(), relayUrl: nil, addresses: address.directAddresses())
+        } else { target = address }
         let endpoint = try await readyEndpoint(credentials: credentials)
         let startedAt = DispatchTime.now()
         let connection = try await endpoint.connect(
-            addr: address, alpn: IrxProtocol.alpnData)
+            addr: target, alpn: IrxProtocol.alpnData)
         let elapsedMs =
             (DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000
         let irx = IrxConnection(connection: connection, role: .dialer, journal: journal)

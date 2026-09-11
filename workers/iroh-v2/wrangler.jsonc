@@ -1,0 +1,156 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "cmux-iroh-v2-local",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-10",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": {
+    "ENVIRONMENT": "local",
+    "STACK_API_URL": "https://api.stack-auth.com"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "TEAM_CONTROL",
+        "class_name": "TeamControl"
+      },
+      {
+        "name": "USER_USAGE",
+        "class_name": "UserUsage"
+      }
+    ]
+  },
+  "secrets": {
+    "required": [
+      "STACK_PROJECT_ID",
+      "STACK_PUBLISHABLE_KEY",
+      "STACK_SERVER_KEY",
+      "API_TICKET_KEYS",
+      "API_TICKET_CURRENT_KEY_ID",
+      "RELAY_SIGNING_KEY",
+      "RELAY_KEY_ID",
+      "RELAY_URLS",
+      "PLANETSCALE_DATABASE_URL"
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "iroh-v2-fresh-storage-1",
+      "new_sqlite_classes": [
+        "TeamControl",
+        "UserUsage"
+      ]
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "redact_query_string": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
+  },
+  "env": {
+    "development": {
+      "name": "cmux-iroh-v2-development",
+      "vars": {
+        "ENVIRONMENT": "development",
+        "STACK_API_URL": "https://api.stack-auth.com"
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "TEAM_CONTROL",
+            "class_name": "TeamControl"
+          },
+          {
+            "name": "USER_USAGE",
+            "class_name": "UserUsage"
+          }
+        ]
+      },
+      "secrets": {
+        "required": [
+          "STACK_PROJECT_ID",
+          "STACK_PUBLISHABLE_KEY",
+          "STACK_SERVER_KEY",
+          "API_TICKET_KEYS",
+          "API_TICKET_CURRENT_KEY_ID",
+          "RELAY_SIGNING_KEY",
+          "RELAY_KEY_ID",
+          "RELAY_URLS",
+          "PLANETSCALE_DATABASE_URL"
+        ]
+      }
+    },
+    "staging": {
+      "name": "cmux-iroh-v2-staging",
+      "vars": {
+        "ENVIRONMENT": "staging",
+        "STACK_API_URL": "https://api.stack-auth.com"
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "TEAM_CONTROL",
+            "class_name": "TeamControl"
+          },
+          {
+            "name": "USER_USAGE",
+            "class_name": "UserUsage"
+          }
+        ]
+      },
+      "secrets": {
+        "required": [
+          "STACK_PROJECT_ID",
+          "STACK_PUBLISHABLE_KEY",
+          "STACK_SERVER_KEY",
+          "API_TICKET_KEYS",
+          "API_TICKET_CURRENT_KEY_ID",
+          "RELAY_SIGNING_KEY",
+          "RELAY_KEY_ID",
+          "RELAY_URLS",
+          "PLANETSCALE_DATABASE_URL"
+        ]
+      }
+    },
+    "production": {
+      "name": "cmux-iroh-v2",
+      "vars": {
+        "ENVIRONMENT": "production",
+        "STACK_API_URL": "https://api.stack-auth.com"
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "TEAM_CONTROL",
+            "class_name": "TeamControl"
+          },
+          {
+            "name": "USER_USAGE",
+            "class_name": "UserUsage"
+          }
+        ]
+      },
+      "secrets": {
+        "required": [
+          "STACK_PROJECT_ID",
+          "STACK_PUBLISHABLE_KEY",
+          "STACK_SERVER_KEY",
+          "API_TICKET_KEYS",
+          "API_TICKET_CURRENT_KEY_ID",
+          "RELAY_SIGNING_KEY",
+          "RELAY_KEY_ID",
+          "RELAY_URLS",
+          "PLANETSCALE_DATABASE_URL"
+        ]
+      }
+    }
+  }
+}

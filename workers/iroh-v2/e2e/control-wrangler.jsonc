@@ -1,0 +1,14 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "cmux-iroh-v2-control-test",
+  "main": "control-worker.ts",
+  "compatibility_date": "2026-09-10",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "TEAM_CONTROL", "class_name": "TestTeamControl" },
+      { "name": "USER_USAGE", "class_name": "TestUserUsage" }
+    ]
+  },
+  "migrations": [{ "tag": "test", "new_sqlite_classes": ["TestTeamControl", "TestUserUsage"] }]
+}

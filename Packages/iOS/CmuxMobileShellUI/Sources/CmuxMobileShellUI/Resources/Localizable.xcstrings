@@ -12665,6 +12665,478 @@
           }
         }
       }
+    },
+    "mobile.onboarding.v2.connect.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On your Mac, turn on Enable iOS pairing in cmux Settings. Select the same team on both devices, then keep cmux running."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiviere auf deinem Mac „iOS-Kopplung aktivieren“ in den cmux-Einstellungen. Wähle auf beiden Geräten dasselbe Team und lasse cmux geöffnet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur votre Mac, activez « Activer le jumelage iOS » dans les réglages de cmux. Sélectionnez la même équipe sur les deux appareils et laissez cmux ouvert."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "على جهاز Mac، شغّل «تمكين الاقتران مع iOS» في إعدادات cmux. اختر الفريق نفسه على الجهازين، ثم أبقِ cmux قيد التشغيل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En tu Mac, activa «Activar enlace con iOS» en los ajustes de cmux. Selecciona el mismo equipo en ambos dispositivos y mantén cmux abierto."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Mac 的 cmux 設定中開啟「啟用 iOS 配對」。在兩部裝置上選擇相同的團隊，並保持 cmux 運行。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Mac 的 cmux 设置中打开“启用 iOS 配对”。在两台设备上选择相同的团队，并保持 cmux 运行。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac의 cmux 설정에서 ‘iOS 페어링 활성화’를 켜세요. 두 기기에서 같은 팀을 선택하고 cmux를 계속 실행해 두세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macのcmux設定で「iOSペアリングを有効にする」をオンにしてください。両方のデバイスで同じチームを選び、cmuxを起動したままにしてください。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.v2.connect.bodyWithMinVersionFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On your Mac, turn on Enable iOS pairing in cmux Settings. Select the same team on both devices. Requires cmux %1$@ or newer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiviere auf deinem Mac „iOS-Kopplung aktivieren“ in den cmux-Einstellungen. Wähle auf beiden Geräten dasselbe Team. Erfordert cmux %1$@ oder neuer."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur votre Mac, activez « Activer le jumelage iOS » dans les réglages de cmux. Sélectionnez la même équipe sur les deux appareils. Nécessite cmux %1$@ ou une version ultérieure."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "على جهاز Mac، شغّل «تمكين الاقتران مع iOS» في إعدادات cmux. اختر الفريق نفسه على الجهازين. يتطلب cmux %1$@ أو أحدث."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En tu Mac, activa «Activar enlace con iOS» en los ajustes de cmux. Selecciona el mismo equipo en ambos dispositivos. Requiere cmux %1$@ o posterior."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Mac 的 cmux 設定中開啟「啟用 iOS 配對」。在兩部裝置上選擇相同的團隊。需要 cmux %1$@ 或更新版本。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Mac 的 cmux 设置中打开“启用 iOS 配对”。在两台设备上选择相同的团队。需要 cmux %1$@ 或更新版本。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac의 cmux 설정에서 ‘iOS 페어링 활성화’를 켜세요. 두 기기에서 같은 팀을 선택하세요. cmux %1$@ 이상이 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macのcmux設定で「iOSペアリングを有効にする」をオンにしてください。両方のデバイスで同じチームを選んでください。cmux %1$@以降が必要です。"
+          }
+        }
+      }
+    },
+    "mobile.v2.devices.emptyDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On your Mac, turn on Enable iOS pairing in cmux Settings. Select the same team on both devices and keep cmux running. Only Macs you own or have permission to connect to appear here."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiviere auf deinem Mac „iOS-Kopplung aktivieren“ in den cmux-Einstellungen. Wähle auf beiden Geräten dasselbe Team und lasse cmux geöffnet. Hier erscheinen nur deine Macs oder Macs, für die du eine Verbindungsberechtigung hast."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur votre Mac, activez « Activer le jumelage iOS » dans les réglages de cmux. Sélectionnez la même équipe sur les deux appareils et laissez cmux ouvert. Seuls vos Mac et ceux auxquels vous avez le droit de vous connecter apparaissent ici."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "على جهاز Mac، شغّل «تمكين الاقتران مع iOS» في إعدادات cmux. اختر الفريق نفسه على الجهازين وأبقِ cmux قيد التشغيل. تظهر هنا فقط أجهزة Mac التي تملكها أو لديك إذن بالاتصال بها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En tu Mac, activa «Activar enlace con iOS» en los ajustes de cmux. Selecciona el mismo equipo en ambos dispositivos y mantén cmux abierto. Aquí solo aparecen los Mac que te pertenecen o a los que tienes permiso para conectarte."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Mac 的 cmux 設定中開啟「啟用 iOS 配對」。在兩部裝置上選擇相同的團隊，並保持 cmux 運行。這裡只會顯示你擁有或獲准連線的 Mac。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Mac 的 cmux 设置中打开“启用 iOS 配对”。在两台设备上选择相同的团队，并保持 cmux 运行。这里只会显示你拥有或获准连接的 Mac。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac의 cmux 설정에서 ‘iOS 페어링 활성화’를 켜세요. 두 기기에서 같은 팀을 선택하고 cmux를 계속 실행해 두세요. 소유하거나 연결 권한이 있는 Mac만 여기에 표시됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macのcmux設定で「iOSペアリングを有効にする」をオンにしてください。両方のデバイスで同じチームを選び、cmuxを起動したままにしてください。所有するMacまたは接続を許可されたMacのみが表示されます。"
+          }
+        }
+      }
+    },
+    "mobile.iroh.v2.private.addresses": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP Addresses and Ports"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP-Adressen und Ports"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adresses IP et ports"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عناوين IP والمنافذ"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direcciones IP y puertos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 位址與連接埠"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 地址和端口"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 주소 및 포트"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IPアドレスとポート"
+          }
+        }
+      }
+    },
+    "mobile.iroh.v2.private.addresses.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter one address and port per line, such as 192.168.1.5:58470 or [fd00::5]:58470. These addresses stay on this iPhone."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib pro Zeile eine Adresse mit Port ein, etwa 192.168.1.5:58470 oder [fd00::5]:58470. Diese Adressen bleiben auf diesem iPhone."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez une adresse et un port par ligne, par exemple 192.168.1.5:58470 ou [fd00::5]:58470. Ces adresses restent sur cet iPhone."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدخل عنوانًا ومنفذًا واحدًا في كل سطر، مثل 192.168.1.5:58470 أو [fd00::5]:58470. تبقى هذه العناوين على هذا الـ iPhone."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Introduce una dirección y un puerto por línea, como 192.168.1.5:58470 o [fd00::5]:58470. Estas direcciones se guardan solo en este iPhone."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每行輸入一組位址與連接埠，例如 192.168.1.5:58470 或 [fd00::5]:58470。這些位址只會儲存在這部 iPhone 上。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每行输入一组地址和端口，例如 192.168.1.5:58470 或 [fd00::5]:58470。这些地址只会保存在这台 iPhone 上。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한 줄에 주소와 포트를 하나씩 입력하세요. 예: 192.168.1.5:58470 또는 [fd00::5]:58470. 이 주소는 이 iPhone에만 저장됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1行にアドレスとポートを1つずつ入力してください。例：192.168.1.5:58470、[fd00::5]:58470。これらのアドレスはこのiPhoneにのみ保存されます。"
+          }
+        }
+      }
+    },
+    "mobile.v2.connections.direct.addPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "192.168.1.5:58470 or [fd00::5]:58470"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "192.168.1.5:58470 oder [fd00::5]:58470"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "192.168.1.5:58470 ou [fd00::5]:58470"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "192.168.1.5:58470 أو [fd00::5]:58470"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "192.168.1.5:58470 o [fd00::5]:58470"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "192.168.1.5:58470 或 [fd00::5]:58470"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "192.168.1.5:58470 或 [fd00::5]:58470"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "192.168.1.5:58470 또는 [fd00::5]:58470"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "192.168.1.5:58470 または [fd00::5]:58470"
+          }
+        }
+      }
+    },
+    "mobile.v2.connections.direct.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter each address with its port. These routes stay on this iPhone. The encrypted connection verifies the Mac’s identity."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib jede Adresse mit ihrem Port ein. Diese Routen bleiben auf diesem iPhone. Die verschlüsselte Verbindung überprüft die Identität des Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez chaque adresse avec son port. Ces routes restent sur cet iPhone. La connexion chiffrée vérifie l’identité du Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدخل كل عنوان مع منفذه. تبقى هذه المسارات على هذا الـ iPhone. يتحقق الاتصال المشفّر من هوية جهاز Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Introduce cada dirección con su puerto. Estas rutas se guardan solo en este iPhone. La conexión cifrada verifica la identidad del Mac."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入每個位址及其連接埠。這些路徑只會儲存在這部 iPhone 上。加密連線會驗證 Mac 的身分。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入每个地址及其端口。这些路径只会保存在这台 iPhone 上。加密连接会验证 Mac 的身份。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 주소와 포트를 입력하세요. 이 경로는 이 iPhone에만 저장됩니다. 암호화된 연결이 Mac의 신원을 확인합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各アドレスをポートとともに入力してください。これらの経路はこのiPhoneにのみ保存されます。暗号化された接続がMacの識別情報を検証します。"
+          }
+        }
+      }
+    },
+    "mobile.v2.connections.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On your Mac, turn on Enable iOS pairing in cmux Settings. Select the same team on both devices and keep cmux running. Only Macs you own or have permission to connect to appear here."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiviere auf deinem Mac „iOS-Kopplung aktivieren“ in den cmux-Einstellungen. Wähle auf beiden Geräten dasselbe Team und lasse cmux geöffnet. Hier erscheinen nur deine Macs oder Macs, für die du eine Verbindungsberechtigung hast."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur votre Mac, activez « Activer le jumelage iOS » dans les réglages de cmux. Sélectionnez la même équipe sur les deux appareils et laissez cmux ouvert. Seuls vos Mac et ceux auxquels vous avez le droit de vous connecter apparaissent ici."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "على جهاز Mac، شغّل «تمكين الاقتران مع iOS» في إعدادات cmux. اختر الفريق نفسه على الجهازين وأبقِ cmux قيد التشغيل. تظهر هنا فقط أجهزة Mac التي تملكها أو لديك إذن بالاتصال بها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En tu Mac, activa «Activar enlace con iOS» en los ajustes de cmux. Selecciona el mismo equipo en ambos dispositivos y mantén cmux abierto. Aquí solo aparecen los Mac que te pertenecen o a los que tienes permiso para conectarte."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Mac 的 cmux 設定中開啟「啟用 iOS 配對」。在兩部裝置上選擇相同的團隊，並保持 cmux 運行。這裡只會顯示你擁有或獲准連線的 Mac。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Mac 的 cmux 设置中打开“启用 iOS 配对”。在两台设备上选择相同的团队，并保持 cmux 运行。这里只会显示你拥有或获准连接的 Mac。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac의 cmux 설정에서 ‘iOS 페어링 활성화’를 켜세요. 두 기기에서 같은 팀을 선택하고 cmux를 계속 실행해 두세요. 소유하거나 연결 권한이 있는 Mac만 여기에 표시됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macのcmux設定で「iOSペアリングを有効にする」をオンにしてください。両方のデバイスで同じチームを選び、cmuxを起動したままにしてください。所有するMacまたは接続を許可されたMacのみが表示されます。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -1,0 +1,41 @@
+{
+  "capturedAtUTC": "2026-09-11",
+  "role": "interaction/profiling agent",
+  "sourceSHA": "17f823006b2",
+  "tag": "v2s3",
+  "status": "partial-pass",
+  "acceptanceStatus": "not-confirmed",
+  "backend": {
+    "environment": "staging",
+    "origin": "https://cmux-iroh-v2-staging.cmux-presence-worker.workers.dev",
+    "workerVersion": "4bdddd87-8cd4-4dcc-a125-08c9a9ea5864",
+    "observed": [
+      "POST /v2/control/session reached the team Durable Object",
+      "GET /v2/control/socket completed with HTTP 101 during the smoke session",
+      "TeamControl accepted a directory request with status 200",
+      "UserUsage reserve, consume, setOutput, and release calls completed"
+    ]
+  },
+  "client": {
+    "macTag": "v2s3",
+    "iosTag": "v2s3",
+    "simulatorUDID": "BE3D4073-59DD-489A-8A1F-DA77BBAB9C06",
+    "simulatorName": "cmux-dev-v2s3",
+    "macBuild": "installed and launched",
+    "iosBuild": "installed and launched"
+  },
+  "configurationCorrection": {
+    "earlierIssue": "An earlier launch had CMUXApiBaseURL pointed at the v2 Worker, producing typed 404s for legacy compatibility calls.",
+    "correction": "The installed simulator app was relaunched with CMUXApiBaseURL set to https://cmux-staging.vercel.app while CMUX_IROH_V2_BASE_URL remained the staging Worker.",
+    "followUpObservation": "The corrected smoke produced no legacy /api calls on the v2 Worker. This is a smoke result, not proof that the legacy client code has been retired."
+  },
+  "notRun": [
+    "two complete 3600 second foreground runs",
+    "production relay-only run",
+    "staging relay-only and production automatic smoke",
+    "five-workspace and three-Codex workload",
+    "credential renewal across 30 minute relay and 1 hour API ticket lifetimes",
+    "background/resume timing",
+    "screenshots, video, and Instruments profile"
+  ]
+}
