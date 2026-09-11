@@ -178,8 +178,7 @@ struct MacComputerRow: View {
     /// this session. Keep the warning visible until a hello establishes that
     /// the Mac meets the current floor.
     private var hasUnverifiedVersionWarning: Bool {
-        guard MobileMacListAuthState.shared.hasSnapshot,
-              MobileMacListAuthState.shared.minimumSupportedMacVersion != nil
+        guard MobileMacListAuthState.shared.minimumSupportedMacVersion != nil
         else { return false }
         return MobileMacListAuthState.shared.entry(deviceID: computer.deviceId) == nil
     }
