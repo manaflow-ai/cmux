@@ -360,6 +360,29 @@ describe("hello fact streaming", () => {
     expect(socket.getAttachment()?.snapshotPending).toBe(false);
   });
 
+  it("does not re-fetch a rate-limited directory before the upstream deadline", async () => {
+    const harness = new Harness();
+    harness.routes.set("/api/devices/iroh", () => ({
+      status: 429,
+      json: { error: "rate_limited" },
+      retryAfterSeconds: 120,
+    } as CtlUpstreamResult & { retryAfterSeconds: number }));
+
+    const socket = await harness.connect("s1");
+    await harness.hello(socket, { endpointId: ENDPOINT_A, haveRev: null, wantPasses: false });
+    expect(harness.discoveryCalls()).toHaveLength(1);
+
+    harness.now += 60_000;
+    await harness.core.handleAlarm();
+    expect(harness.discoveryCalls()).toHaveLength(1);
+
+    harness.now += 60_000;
+    harness.serveDiscovery(() => discoveryResponse(42));
+    await harness.core.handleAlarm();
+    expect(harness.discoveryCalls()).toHaveLength(2);
+    expect(socket.types()).toContain("snapshot_complete");
+  });
+
   it("answers the application heartbeat without routing it as a durable fact", async () => {
     const harness = new Harness();
     harness.serveDiscovery(() => discoveryResponse(42));
@@ -511,6 +534,28 @@ describe("mint_request proxying", () => {
     expect(socket.frame("error")?.payload).toMatchObject({ code: "mint_rejected", retryable: false });
   });
 
+  it("suppresses repeated mint requests during an upstream rate-limit deadline", async () => {
+    const harness = new Harness();
+    seed(harness);
+    harness.serveMint(() => ({
+      status: 429,
+      json: { error: "rate_limited" },
+      retryAfterSeconds: 120,
+    } as CtlUpstreamResult & { retryAfterSeconds: number }));
+    const socket = await snapshotted(harness, "s1");
+    const request = { v: 1, type: "mint_request", payload: { endpointId: ENDPOINT_A } };
+
+    await harness.send(socket, request);
+    await harness.send(socket, request);
+    expect(harness.mintCalls()).toHaveLength(1);
+
+    harness.now += 120_000;
+    harness.serveMint(() => ({ status: 200, json: mintResponse(ENDPOINT_A) }));
+    await harness.send(socket, request);
+    expect(harness.mintCalls()).toHaveLength(2);
+    expect(socket.types()).toContain("relay_passes");
+  });
+
   it("uses each socket's own bearer, never another socket's", async () => {
     const harness = new Harness();
     seed(harness);
@@ -523,6 +568,28 @@ describe("mint_request proxying", () => {
     const mint = harness.mintCalls();
     expect(mint).toHaveLength(1);
     expect(mint[0]?.init.headers.authorization).toBe("Bearer token-s2");
+  });
+
+  it("isolates mint cooldowns by endpoint and namespace across object recreation", async () => {
+    const harness = new Harness();
+    seed(harness);
+    harness.serveMint(() => ({ status: 429, json: {}, retryAfterSeconds: 120 }));
+    const first = await harness.connect("limited", "mac:dev.cmux.app");
+    const same = await harness.connect("same", "mac:dev.cmux.app");
+    const other = await harness.connect("other", "ios:dev.cmux.app");
+    const mint = (endpointId: string) => ({ v: 1, type: "mint_request", payload: { endpointId } });
+    await harness.send(first, mint(ENDPOINT_A));
+    const restored = new Harness();
+    for (const [key, value] of harness.map) restored.map.set(key, value);
+    restored.socketList = harness.socketList;
+    restored.serveMint(init => ({ status: 200, json: mintResponse(JSON.parse(init.body!).endpointId) }));
+    await restored.send(same, mint(ENDPOINT_A.toUpperCase()));
+    expect(restored.mintCalls()).toHaveLength(0);
+    await restored.send(same, mint(ENDPOINT_B));
+    await restored.send(other, mint(ENDPOINT_A));
+    expect(restored.mintCalls()).toHaveLength(2);
+    await restored.send(first, mint(ENDPOINT_A));
+    expect(restored.mintCalls()).toHaveLength(2);
   });
 
   it("bumps the per-endpoint generation on every successful mint", async () => {

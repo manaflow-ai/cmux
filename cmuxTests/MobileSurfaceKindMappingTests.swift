@@ -24,6 +24,11 @@ import Testing
         .extensionBrowser: "extensionBrowser",
         .workspaceTodo: "todo",
         .cloudVMLoading: "cloudVMLoading",
+        .cloudVPNSetup: "cloud_vpn_setup",
+        .notifications: "notifications",
+        .simulator: "simulator",
+        .mobilePairing: "mobilePairing",
+        .accountSignIn: "accountSignIn",
     ]
 
     @Test func everyPanelTypeMapsToItsCanonicalWireKind() throws {

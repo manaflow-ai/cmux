@@ -134,10 +134,10 @@ extension Workspace {
         }
 
         if didMutatePanelTitle || isRemoteTmuxMirror {
-            _ = reconcileTabTitlePresentation(
+            didMutate = reconcileTabTitlePresentation(
                 panelId: panelId,
                 fallback: panelTitles[panelId]
-            )
+            ) || didMutate
         }
 
         let previousWorkspaceTitle = self.title
