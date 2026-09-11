@@ -1996,6 +1996,18 @@ final class MobileHostService {
     }
 }
 
+extension MobileHostService {
+    /// Pure gate for composition-root runtime setup. A signed-in account or a
+    /// wake event cannot configure the Iroh transport while pairing is off.
+    nonisolated static func shouldConfigurePairingRuntime(
+        pairingEnabled: Bool,
+        remoteControlEnabled: Bool,
+        runtimeAlreadyConfigured: Bool
+    ) -> Bool {
+        pairingEnabled && remoteControlEnabled && !runtimeAlreadyConfigured
+    }
+}
+
 
 #if DEBUG
 extension MobileHostService {
@@ -2534,16 +2546,6 @@ actor MobileHostConnection {
                 failure: .timedOut
             )
         )
-    }
-
-    /// Pure gate for composition-root runtime setup. A signed-in account or a
-    /// wake event cannot configure the Iroh transport while pairing is off.
-    nonisolated static func shouldConfigurePairingRuntime(
-        pairingEnabled: Bool,
-        remoteControlEnabled: Bool,
-        runtimeAlreadyConfigured: Bool
-    ) -> Bool {
-        pairingEnabled && remoteControlEnabled && !runtimeAlreadyConfigured
     }
 
     private func startIdleTimeout() {
