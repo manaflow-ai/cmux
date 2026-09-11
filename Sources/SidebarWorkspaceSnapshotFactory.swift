@@ -81,6 +81,9 @@ struct SidebarWorkspaceSnapshotFactory {
             isPinned: workspace.isPinned,
             isMuted: workspace.isMuted,
             customColorHex: workspace.customColor,
+            cloudWorkspaceLabel: workspace.cloudVMID.map { machine in
+                String(localized: "sidebar.cloudWorkspace.label", defaultValue: "Cloud workspace on \(machine)")
+            },
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,

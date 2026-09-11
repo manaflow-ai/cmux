@@ -254544,6 +254544,18 @@
         }
       }
     },
+    "sidebar.cloudWorkspace.label" : {
+      "comment" : "Tooltip and workspace-row accessibility label for a Cloud-bound workspace. The placeholder is the authoritative machine identifier.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud workspace on %@"
+          }
+        }
+      }
+    },
     "sidebar.custom.error": {
       "extractionState": "manual",
       "localizations": {

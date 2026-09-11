@@ -27,6 +27,7 @@ struct SidebarAppKitRowCellTests {
             isPinned: isPinned,
             isMuted: false,
             customColorHex: nil,
+            cloudWorkspaceLabel: nil,
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: "",
             remoteStateHelpText: "",
@@ -154,6 +155,7 @@ struct SidebarAppKitRowCellTests {
     func cloudBadgeIsSecondaryAndKeepsNarrowTitlesVisible(dark: Bool, width: Double) throws {
         let defaults = Self.makeDefaults()
         defaults.set(false, forKey: "sidebarWrapWorkspaceTitles")
+        defaults.set(true, forKey: "sidebarHideAllDetails")
         let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
         let workspace = Workspace(title: "Same project with a long workspace name", initialSurface: .cloudVMLoading)
         let factory = SidebarWorkspaceSnapshotFactory(workspace: workspace, settings: settings, showsAgentActivity: false)

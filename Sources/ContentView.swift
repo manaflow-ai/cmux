@@ -16080,6 +16080,13 @@ struct TabItemView: View, Equatable {
                         .layoutPriority(1)
                 }
 
+                if let cloudLabel = workspaceSnapshot.cloudWorkspaceLabel {
+                    CmuxSystemSymbolImage(magnified: "cloud", pointSize: scaledFontSize(10), weight: .regular, tint: activeSecondaryColor(0.7))
+                        .fixedSize()
+                        .safeHelp(cloudLabel)
+                        .accessibilityHidden(true)
+                }
+
                 if trailingStatusActive || canCloseWorkspace {
                     SidebarWorkspaceTrailingStatusSlot(showsSpinner: spinnerOnTrailing, showsBadge: badgeOnTrailing, unreadCount: unreadCount, side: scaledUnreadBadgeSize, width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, badgeFont: badgeFont, badgeFillColor: activeUnreadBadgeFillColor, badgeTextColor: activeUnreadBadgeTextColor, spinnerColor: spinnerColor, spinnerTooltip: spinnerTooltip, canCloseWorkspace: canCloseWorkspace, showsCloseButton: showCloseButton, closeButtonTooltip: closeButtonTooltip, closeButtonColor: activeSecondaryColor(0.7), closeButtonFontSize: scaledFontSize(9), closeAction: actions.closeWorkspace)
                 }
@@ -16499,7 +16506,7 @@ struct TabItemView: View, Equatable {
     private func accessibilityTitle(
         for workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
     ) -> String {
-        String(localized: "accessibility.workspacePosition", defaultValue: "\(workspaceSnapshot.title), workspace \(index + 1) of \(accessibilityWorkspaceCount)")
+        workspaceSnapshot.accessibilityLabel(index: index, workspaceCount: accessibilityWorkspaceCount)
     }
 
     func moveBy(_ delta: Int) {

@@ -33,6 +33,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private let mediaCameraView = NSImageView()
     private let statusGlyphButton = SidebarRowTaskStatusGlyphButton()
     private let titleView = SidebarRowTextView(lines: 1)
+    private let cloudImageView = NSImageView()
     private let trailingBadge = SidebarRowUnreadBadgeView()
     private var trailingSpinner: GPUSpinnerNSView?
     private let closeButton = SidebarHeaderGlyphButton()
@@ -212,6 +213,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         contentContainer.addSubview(statusGlyphButton)
         contentContainer.addSubview(leadingBadge)
         contentContainer.addSubview(titleView)
+        cloudImageView.imageScaling = .scaleProportionallyDown
+        cloudImageView.setAccessibilityIdentifier("sidebarCloudBadge")
+        cloudImageView.setAccessibilityElement(false)
+        contentContainer.addSubview(cloudImageView)
         contentContainer.addSubview(trailingBadge)
         closeButton.onClick = { [weak self] in self?.actions?.commands.closeWorkspace() }
         contentContainer.addSubview(closeButton)
@@ -413,6 +418,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
 
         // Title line
+        cloudImageView.isHidden = snapshot.cloudWorkspaceLabel == nil
+        cloudImageView.toolTip = snapshot.cloudWorkspaceLabel
+        if snapshot.cloudWorkspaceLabel != nil {
+            cloudImageView.image = RenderableSystemSymbol.configuredAppKitImage(
+                systemName: "cloud", pointSize: model.scaled(10), weight: .regular
+            )
+            cloudImageView.contentTintColor = palette.secondary(0.7)
+        }
         pinImageView.isHidden = !snapshot.isPinned
         if snapshot.isPinned {
             pinImageView.image = RenderableSystemSymbol.configuredAppKitImage(
@@ -606,9 +619,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         contentContainer.alphaValue = snapshot.taskStatus == .done ? 0.6 : 1
 
         setAccessibilityIdentifier("sidebarWorkspace.\(model.workspaceId.uuidString)")
-        setAccessibilityLabel(String(
-            localized: "accessibility.workspacePosition",
-            defaultValue: "\(snapshot.title), workspace \(model.index + 1) of \(model.accessibilityWorkspaceCount)"
+        setAccessibilityLabel(snapshot.accessibilityLabel(
+            index: model.index, workspaceCount: model.accessibilityWorkspaceCount
         ))
     }
 
@@ -1157,7 +1169,15 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let closeHit = max(16, 16 * model.fontScale)
         let closeWidth = max(16, closeHit)
         let trailingSlotActive = !trailingBadge.isHidden || (trailingSpinner?.isHidden == false) || model.canCloseWorkspace
-        let titleMaxX = trailingSlotActive ? (trailing - closeWidth - titleRowSpacing) : trailing
+        let accessoryMaxX = trailingSlotActive ? (trailing - closeWidth - titleRowSpacing) : trailing
+        let cloudSide = model.scaled(10) + 4
+        let titleMaxX = cloudImageView.isHidden ? accessoryMaxX : accessoryMaxX - cloudSide - titleRowSpacing
+        if apply, !cloudImageView.isHidden {
+            cloudImageView.frame = NSRect(
+                x: accessoryMaxX - cloudSide, y: firstLineCenter - cloudSide / 2,
+                width: cloudSide, height: cloudSide
+            )
+        }
         let titleWidth = max(10, titleMaxX - x)
         let renameField = renameSession?.field
         let titleHeight = renameField.map { ceil($0.intrinsicContentSize.height) }

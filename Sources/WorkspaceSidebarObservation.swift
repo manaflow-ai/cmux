@@ -166,6 +166,7 @@ private struct SidebarImmediateObservationState: Equatable {
     let isPinned: Bool
     let isMuted: Bool
     let customColor: String?
+    let cloudVMBinding: WorkspaceCloudVMBinding?
     let latestConversationMessage: String?
     let latestSubmittedMessage: String?
     let latestSubmittedAt: Date?
@@ -217,7 +218,7 @@ extension Workspace {
             $isPinned,
             $customColor
         )
-        .combineLatest($isMuted)
+        .combineLatest($isMuted, $cloudVMBinding)
         let conversationFields = Publishers.CombineLatest3(
             $latestConversationMessage,
             $latestSubmittedMessage,
@@ -241,6 +242,7 @@ extension Workspace {
                     isPinned: workspaceFields.0.2,
                     isMuted: workspaceFields.1,
                     customColor: workspaceFields.0.3,
+                    cloudVMBinding: workspaceFields.2,
                     latestConversationMessage: conversationFields.0,
                     latestSubmittedMessage: conversationFields.1,
                     latestSubmittedAt: conversationFields.2,

@@ -118,6 +118,16 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func cloudBindingChangeImmediatelyInvalidatesSidebar() {
+        let workspace = Workspace(initialSurface: .cloudVMLoading)
+        var publishCount = 0
+        let cancellable = workspace.sidebarImmediateObservationPublisher.sink { publishCount += 1 }
+        defer { cancellable.cancel() }
+        publishCount = 0
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
+        #expect(publishCount == 1)
+    }
+
     @Test func sidebarImmediateObservationPublisherDeliversManualTitleChangeSynchronously() {
         let workspace = Workspace()
 
