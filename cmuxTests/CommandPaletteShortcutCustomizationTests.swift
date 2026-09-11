@@ -205,7 +205,8 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
         )
     }
 
-    func testRemappedCommandPalettePreviousShortcutDoesNotConsumeControlP() {
+    func testRemappedCommandPalettePreviousShortcutDoesNotConsumeControlP() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -286,6 +287,7 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
                 wait(for: [controlUExpectation], timeout: 1.0)
                 XCTAssertEqual(observedDelta, -1)
             }
+        }
         }
     }
 
@@ -521,6 +523,18 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
         contentView.layoutSubtreeIfNeeded()
+
+        // `createMainWindow` commits its context on the main queue.  Synthetic
+        // key events must be sent only after that registration is visible;
+        // otherwise `setCommandPaletteVisible` silently has no window id and
+        // the router quite correctly treats the event as ordinary field-editor
+        // input.
+        let registrationDeadline = Date(timeIntervalSinceNow: 1)
+        while appDelegate.contextForMainWindow(window) == nil,
+              Date() < registrationDeadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        }
+        XCTAssertNotNil(appDelegate.contextForMainWindow(window), "Expected test window registration")
 
         let overlayContainer = NSView(frame: contentView.bounds)
         overlayContainer.identifier = commandPaletteOverlayContainerIdentifier

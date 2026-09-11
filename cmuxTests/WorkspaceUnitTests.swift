@@ -507,9 +507,23 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     }
 
     func testRightSidebarModeSwitchesHavePrivateControlDigitDefaults() {
-        let defaults = UserDefaults(suiteName: "cmux.tests.right-sidebar-defaults")!
-        defaults.removePersistentDomain(forName: "cmux.tests.right-sidebar-defaults")
-        defer { defaults.removePersistentDomain(forName: "cmux.tests.right-sidebar-defaults") }
+        let suiteName = "cmux.tests.right-sidebar-defaults-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(false, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+        defaults.set(false, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+        defaults.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+
+        XCTAssertEqual(
+            RightSidebarMode.availableModes(defaults: defaults),
+            [.files, .find, .sessions, .machines],
+            "The fixture should expose exactly the modes whose positional defaults are asserted"
+        )
+        XCTAssertEqual(
+            RightSidebarMode.visibleModes(defaults: defaults),
+            [.files, .find, .sessions, .machines]
+        )
         let modeSwitchActions: [(KeyboardShortcutSettings.Action, String)] = [
             (.switchRightSidebarToFiles, "1"),
             (.switchRightSidebarToFind, "2"),
@@ -520,15 +534,15 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
 
         for (action, key) in modeSwitchActions {
             let mode = RightSidebarMode.allCases.first { $0.shortcutAction == Optional(action) }
-            let digit = mode.flatMap { RightSidebarMode.positionalDigit(for: $0, defaults: defaults) }
-            if let digit {
-                XCTAssertEqual(String(digit), key)
-            }
-            let shortcut = action.defaultShortcut
+            XCTAssertNotNil(mode, "Every private mode-switch action must map to a sidebar mode")
+            let shortcut = mode.map {
+                KeyboardShortcutSettings.rightSidebarPositionalDefaultShortcut(for: $0, defaults: defaults)
+            } ?? .unbound
+            XCTAssertEqual(shortcut.key, key)
             XCTAssertFalse(shortcut.command)
             XCTAssertFalse(shortcut.shift)
             XCTAssertFalse(shortcut.option)
-            XCTAssertTrue(shortcut.control || shortcut.key.isEmpty)
+            XCTAssertTrue(shortcut.control)
             XCTAssertFalse(action.isPublicShortcutAction)
             XCTAssertFalse(KeyboardShortcutSettings.publicShortcutActions.contains(action))
             XCTAssertFalse(KeyboardShortcutSettings.settingsVisibleActions.contains(action))
@@ -5010,6 +5024,19 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
                 focusTransactionId: transactionId
             )
             FocusSurfaceBroadcaster.shared.flush()
+
+            // Selection applies focus through the AppKit event queue.  Drain the
+            // queue before inspecting callbacks so this assertion observes the
+            // same first-responder transition as the hosted app.
+            let firstResponderFeedbackObserved = await AppKitTestEventPump().waitUntil(
+                timeout: .seconds(5)
+            ) {
+                firstResponderFeedbackCount > 0
+            }
+            XCTAssertTrue(
+                firstResponderFeedbackObserved,
+                "Expected AppKit first-responder focus to feed back through workspace.focusPanel"
+            )
 
             XCTAssertGreaterThan(
                 firstResponderFeedbackCount,

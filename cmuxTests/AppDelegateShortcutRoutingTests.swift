@@ -1742,7 +1742,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertNil(appDelegate.tabManagerFor(windowId: orphanWindowId), "Orphaned context should be pruned after failed resolution")
     }
 
-    func testCustomCmdTNewWorkspacePrunesOrphanedContextWithoutLiveWindow() {
+    func testCustomCmdTNewWorkspacePrunesOrphanedContextWithoutLiveWindow() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -1825,6 +1826,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let createdWindowIds = mainWindowIds().subtracting(existingWindowIds)
         for windowId in createdWindowIds {
             closeWindow(withId: windowId)
+        }
         }
     }
 
@@ -8403,9 +8405,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
-    func testTextBoxSubmitSerializesPasteboardRunsAcrossSurfaces() throws {
+    func testTextBoxSubmitSerializesPasteboardRunsAcrossSurfaces() async throws {
 #if DEBUG
-        try withPreservedGeneralPasteboard {
+        try await AppContextSerialGate.withExclusiveAppContext {
+        try await withPreservedGeneralPasteboard {
             let firstSurface = FakeTextBoxSubmitSurface()
             let secondSurface = FakeTextBoxSubmitSurface()
             let pasteboard = NSPasteboard.general
@@ -8465,6 +8468,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTAssertEqual(secondSurface.sentText, ["second"])
             XCTAssertEqual(completions, ["first", "second"])
             XCTAssertEqual(pasteboard.string(forType: .string), "user clipboard")
+        }
         }
 #else
         throw XCTSkip("debugRunDispatchEvents is only available in DEBUG")

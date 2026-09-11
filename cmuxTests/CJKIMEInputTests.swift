@@ -1499,7 +1499,7 @@ final class AccessibilityInsertTextRegressionTests: XCTestCase {
 
 @MainActor
 final class GhosttyBackquoteRegressionTests: XCTestCase {
-    func testShiftBackquoteEscFallbackSendsLiteralTilde() {
+    func testShiftBackquoteEscFallbackSendsLiteralTilde() async {
         _ = NSApplication.shared
 
         let surface = TerminalSurface(
@@ -1537,7 +1537,9 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         hostedView.setVisibleInUI(true)
         hostedView.setActive(true)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        await AppKitTestEventPump().startSurface(surface)
+        hostedView.reconcileGeometryNow()
+        XCTAssertNotNil(surface.surface, "Expected native surface before synthetic key dispatch")
 
         // In a host without an active input context, interpretKeyEvents consumes the
         // synthetic ESC as insertText("\u{1B}"); the lone control byte fills the key
@@ -2298,7 +2300,7 @@ final class DeadKeyCompositionRegressionTests: XCTestCase {
 
 @MainActor
 final class GhosttyOptionDeleteRegressionTests: XCTestCase {
-    func testOptionDeletePreservesAltAsModifierForWordDelete() {
+    func testOptionDeletePreservesAltAsModifierForWordDelete() async {
         _ = NSApplication.shared
 
         let surface = TerminalSurface(
@@ -2333,7 +2335,9 @@ final class GhosttyOptionDeleteRegressionTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         hostedView.setVisibleInUI(true)
         hostedView.setActive(true)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        await AppKitTestEventPump().startSurface(surface)
+        hostedView.reconcileGeometryNow()
+        XCTAssertNotNil(surface.surface, "Expected native surface before synthetic key dispatch")
 
         var pressEvent: ghostty_input_key_s?
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
