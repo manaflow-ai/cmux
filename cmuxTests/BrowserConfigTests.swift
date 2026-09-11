@@ -1224,7 +1224,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         field.stringValue = "abcdef"
         container.addSubview(field)
 
-        let webView = panel.webView
+        let webView = try XCTUnwrap(panel.webView as? CmuxWebView)
         webView.frame = NSRect(x: 0, y: 0, width: 640, height: 360)
         webView.allowsFirstResponderAcquisition = true
         container.addSubview(webView)
@@ -1317,7 +1317,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         field.stringValue = "abcdef"
         container.addSubview(field)
 
-        let webView = panel.webView
+        let webView = try XCTUnwrap(panel.webView as? CmuxWebView)
         webView.frame = NSRect(x: 0, y: 0, width: 640, height: 360)
         webView.allowsFirstResponderAcquisition = true
         container.addSubview(webView)
