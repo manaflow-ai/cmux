@@ -32,6 +32,8 @@ extension ContentView {
             return String(localized: "command.mobileConnect.subtitle", defaultValue: "Tailscale")
         case .accountSignIn:
             return String(localized: "settings.section.account", defaultValue: "Account")
+        case .cloudVPNSetup:
+            return String(localized: "cloud.vpn.setup.title", defaultValue: "Cloud VPN")
         }
     }
     func commandPaletteSurfaceKeywords(for panelType: PanelType) -> [String] {
@@ -65,6 +67,8 @@ extension ContentView {
             return ContentView.commandPaletteMobileConnectKeywords
         case .accountSignIn:
             return ["account", "auth", "profile", "sign in"]
+        case .cloudVPNSetup:
+            return ["cloud", "vpn", "wireguard", "private", "network", "freestyle"]
         }
     }
 }
