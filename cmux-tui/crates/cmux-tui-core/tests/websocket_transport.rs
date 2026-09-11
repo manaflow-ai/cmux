@@ -645,7 +645,10 @@ fn websocket_presence_pointer_fans_out_and_clears_on_disconnect() {
 
     // Pointer: names itself, then points at a cell with a laser highlight.
     let mut pointer = authenticated_connect(server.local_addr());
-    send_json(&mut pointer, json!({"id": 3, "cmd": "set-client-info", "name": "ada", "kind": "mac"}));
+    send_json(
+        &mut pointer,
+        json!({"id": 3, "cmd": "set-client-info", "name": "ada", "kind": "mac"}),
+    );
     assert_eq!(read_until(&mut pointer, |value| value["id"] == 3)["ok"], true);
     send_json(
         &mut pointer,
@@ -667,7 +670,10 @@ fn websocket_presence_pointer_fans_out_and_clears_on_disconnect() {
     assert_eq!(changed["name"], "ada");
     assert_eq!(changed["kind"], "mac");
     assert_eq!(changed["surface"], surface);
-    assert_eq!(changed["pointer"], json!({"kind": "cell", "row": 3, "col": 12, "scroll_offset": 0}));
+    assert_eq!(
+        changed["pointer"],
+        json!({"kind": "cell", "row": 3, "col": 12, "scroll_offset": 0})
+    );
     assert_eq!(changed["highlight"]["mode"], "laser");
     assert_eq!(changed["highlight"]["end"]["col"], 40);
     assert!(changed["color"].as_u64().unwrap() < 8);
@@ -696,7 +702,8 @@ fn websocket_presence_pointer_fans_out_and_clears_on_disconnect() {
     pointer.get_mut().shutdown(Shutdown::Both).unwrap();
     drop(pointer);
     let cleared = read_until(&mut viewer, |value| {
-        value["event"] == "presence-changed" && value["client"] == pointer_client
+        value["event"] == "presence-changed"
+            && value["client"] == pointer_client
             && value["surface"].is_null()
     });
     assert!(cleared["generation"].as_u64().unwrap() > generation);

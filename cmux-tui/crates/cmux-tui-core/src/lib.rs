@@ -69,9 +69,9 @@ pub use mux::{
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use presence::{
-    PresenceAnchor, PresenceEntry, PresenceHighlight, PresenceHighlightMode, PresenceHub,
-    PresenceUpdate, PresenceUpdateError, PRESENCE_MAX_CLIENTS, PRESENCE_MAX_UPDATES_PER_SECOND,
-    PRESENCE_PALETTE_SIZE, PRESENCE_POINTER_TTL,
+    PRESENCE_MAX_CLIENTS, PRESENCE_MAX_UPDATES_PER_SECOND, PRESENCE_PALETTE_SIZE,
+    PRESENCE_POINTER_TTL, PresenceAnchor, PresenceEntry, PresenceHighlight, PresenceHighlightMode,
+    PresenceHub, PresenceUpdate, PresenceUpdateError,
 };
 pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};
