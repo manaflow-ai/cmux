@@ -311487,6 +311487,62 @@
           }
         }
       }
+    },
+    "shortcut.newCloudWorkspace.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Cloud Workspace" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新規クラウドワークスペース" } }
+      }
+    },
+    "command.newCloudWorkspace.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Cloud Workspace" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新規クラウドワークスペース" } }
+      }
+    },
+    "menu.file.newCloudWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Cloud Workspace" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新規クラウドワークスペース" } }
+      }
+    },
+    "shortcut.newCloudMachine.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Cloud Machine" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新規クラウドマシン" } }
+      }
+    },
+    "machines.menu.defaultMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Default Machine" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デフォルトマシン" } }
+      }
+    },
+    "machines.menu.setDefaultMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Set as Default Machine" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デフォルトマシンに設定" } }
+      }
+    },
+    "machines.row.default.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Default machine for New Cloud Workspace" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新規クラウドワークスペースのデフォルトマシン" } }
+      }
+    },
+    "machines.row.default.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Default machine" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デフォルトマシン" } }
+      }
     }
   },
   "version": "1.0"

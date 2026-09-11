@@ -49,3 +49,43 @@ struct MachineCreateRequest: Equatable {
             : String(localized: "machines.pending.failed", defaultValue: "Couldn't create machine")
     }
 }
+
+/// Persists the machine targeted by the quick cloud-workspace shortcut.
+/// Selection is deterministic when no choice has been made: desktop machines
+/// (which can show the complete cloud experience) win, then display name and id.
+@MainActor
+final class DefaultCloudMachineStore {
+    static let shared = DefaultCloudMachineStore()
+    static let defaultsKey = "cloud.defaultMachineID"
+
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    var machineID: String? {
+        get { defaults.string(forKey: Self.defaultsKey) }
+        set {
+            if let newValue, !newValue.isEmpty { defaults.set(newValue, forKey: Self.defaultsKey) }
+            else { defaults.removeObject(forKey: Self.defaultsKey) }
+        }
+    }
+
+    func resolveMachineID(from machines: [MachineSnapshot]) -> String? {
+        let ids = Set(machines.map(\.id))
+        if let machineID, ids.contains(machineID) { return machineID }
+        let chosen = Self.chooseMachine(machines)
+        machineID = chosen?.id
+        return chosen?.id
+    }
+
+    nonisolated static func chooseMachine(_ machines: [MachineSnapshot]) -> MachineSnapshot? {
+        machines.sorted {
+            if $0.isDesktop != $1.isDesktop { return $0.isDesktop }
+            let left = $0.displayName.localizedCaseInsensitiveCompare($1.displayName)
+            if left != .orderedSame { return left == .orderedAscending }
+            return $0.id < $1.id
+        }.first
+    }
+}

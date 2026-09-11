@@ -104,6 +104,7 @@ extension AppDelegate {
         switch action {
         case .newCloudWorkspace, .cloudVM:
             return CloudMachinesFeature.isEnabled
+                && AppDelegate.shared?.auth?.accountFlow.isAuthenticated == true
         case .newBrowser, .newAgentChat:
             return BrowserAvailabilitySettings.isEnabled()
         case .newSimulator:

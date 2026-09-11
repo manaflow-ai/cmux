@@ -869,7 +869,7 @@ struct cmuxApp: App {
                     }
                 }
 
-                if CloudMachinesFeature.isEnabled {
+                if CloudMachinesFeature.isEnabled && AppDelegate.shared?.auth?.accountFlow.isAuthenticated == true {
                     splitCommandButton(title: String(localized: "menu.file.newCloudWorkspace", defaultValue: "New Cloud Workspace"), shortcut: menuShortcut(for: .newCloudWorkspace)) {
                         _ = AppDelegate.shared?.performNewCloudWorkspaceAction(
                             tabManager: activeTabManager,

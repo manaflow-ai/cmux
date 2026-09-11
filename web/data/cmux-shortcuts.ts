@@ -100,6 +100,7 @@ export const shortcutCategories: ShortcutCategory[] = [
           ja: "新規マシンシートを開きます。作成すると cmux Cloud マシンをプロビジョニングし、新しいワークスペースとして接続します",
         },
       },
+      { id: "newCloudMachine", combos: [["⇧", "⌘", "Y"]], description: { en: "New cloud machine", ja: "新規クラウドマシン" } },
       { id: "saveLayoutTemplate", combos: [["⌃", "⌘", "S"]], description: { en: "Save current workspace layout as a template", ja: "現在のワークスペースレイアウトをテンプレートとして保存" } },
       { id: "openFolder", combos: [["⌘", "O"]], description: { en: "Open folder", ja: "フォルダを開く" } },
       {

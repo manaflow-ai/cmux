@@ -75,7 +75,8 @@ extension ContentView {
     static func commandPaletteCloudCommandContributions() -> [CommandPaletteCommandContribution] {
         // Feature-gated: hide every Cloud VM command from the palette when the
         // Cloud VM UI flag is off, matching the dropdown and shortcut gates.
-        guard CloudMachinesFeature.isEnabled else { return [] }
+        guard CloudMachinesFeature.isEnabled,
+              AppDelegate.shared?.auth?.accountFlow.isAuthenticated == true else { return [] }
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
         }

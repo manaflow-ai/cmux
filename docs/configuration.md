@@ -171,7 +171,7 @@ Cmd+Ctrl+= and Cmd+Ctrl+- increase or decrease every terminal in the selected wo
 
 ## New Cloud Workspace shortcut and the plus-button menu
 
-Cmd+Y opens the New Machine sheet; Create provisions a cmux Cloud machine and attaches it as a new workspace. The same action backs File > New Cloud Workspace, the command palette's "New Cloud Machine…", the `cmux.newCloudWorkspace` action ID in `cmux.json`, and the plus-button menu row. Rebind or unbind it from Settings > Keyboard Shortcuts or with `shortcuts.bindings.newCloudWorkspace`. The row and the shortcut are available only when Cloud Machines is enabled (Settings > Beta Features or the remote rollout) and hidden otherwise.
+Cmd+Y creates a workspace on the starred default Cloud machine. Cmd+Shift+Y opens the New Machine flow to provision a new machine and attach its first workspace. Rebind or unbind these shortcuts from Settings > Keyboard Shortcuts or with `shortcuts.bindings.newCloudWorkspace` and `shortcuts.bindings.newCloudMachine`. Both are inert unless Cloud Machines is enabled and the account is signed in.
 
 When `ui.newWorkspace.contextMenu` is not set, the plus-button menu lists `cmux.newWorkspace` (Cmd+N), `cmux.newCloudWorkspace` (Cmd+Y), `cmux.newTerminal` (Cmd+T), and `cmux.newBrowser` (Cmd+Shift+L). Each row shows its current shortcut, so a rebind in Settings or `cmux.json` appears the next time the menu opens; unbound and chord shortcuts show no hint. A configured menu keeps your order and still shows hints for built-in rows and for actions with a `shortcut`.
 

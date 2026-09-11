@@ -650,6 +650,13 @@ struct CloudTreeMachineRowContent: View {
                             .foregroundStyle(.primary)
                             .lineLimit(1)
                             .truncationMode(.tail)
+                        if machine.isDefault {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .help(String(localized: "machines.row.default.help", defaultValue: "Default machine for New Cloud Workspace"))
+                                .accessibilityLabel(String(localized: "machines.row.default.accessibilityLabel", defaultValue: "Default machine"))
+                        }
                         if let fact = Self.inlineFact(machine, style: style) {
                             Text(fact)
                                 .cmuxFont(size: style.detailSize, design: style.fontDesign)
@@ -686,6 +693,13 @@ struct CloudTreeMachineRowContent: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .frame(height: style.machineNameLineHeight)
+                    if machine.isDefault {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .help(String(localized: "machines.row.default.help", defaultValue: "Default machine for New Cloud Workspace"))
+                            .accessibilityLabel(String(localized: "machines.row.default.accessibilityLabel", defaultValue: "Default machine"))
+                    }
                     Text(Self.subtitle(machine))
                         .cmuxFont(size: style.detailSize + 0.5, design: style.fontDesign)
                         .foregroundStyle(.secondary)

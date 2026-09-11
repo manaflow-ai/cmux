@@ -102,6 +102,12 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         }
     }
 
+    func testNewCloudMachineUsesCommandShiftY() {
+        let action = KeyboardShortcutSettings.Action.newCloudMachine
+        XCTAssertEqual(action.defaultShortcut, StoredShortcut(key: "y", command: true, shift: true, option: false, control: false))
+        XCTAssertEqual(action.label, "New Cloud Machine")
+    }
+
     func testSettingsPackageActionStaysAligned() throws {
         let settingsAction = try XCTUnwrap(
             ShortcutAction(rawValue: KeyboardShortcutSettings.Action.newCloudWorkspace.rawValue)
@@ -321,8 +327,8 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
             isARepeat: false,
             keyCode: 16 // kVK_ANSI_Y
         ))
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
-        XCTAssertEqual(presenter.presentCount, 1)
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+        XCTAssertEqual(presenter.presentCount, 0)
 #else
         throw XCTSkip("Shortcut routing seam is DEBUG-only")
 #endif
@@ -371,5 +377,20 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
             ContentView.commandPaletteShortcutAction(forCommandID: ContentView.commandPaletteCloudNewMachineCommandId),
             .newCloudWorkspace
         )
+    }
+
+    func testDefaultMachineSelectionPrefersDesktopAndPersists() {
+        func machine(_ id: String, desktop: Bool, name: String) -> MachineSnapshot {
+            MachineSnapshot(id: id, provider: "freestyle", image: "image", isDesktop: desktop, activity: .ready, createdAt: nil, label: name)
+        }
+        let machines = [machine("z", desktop: false, name: "alpha"), machine("b", desktop: true, name: "zeta"), machine("a", desktop: true, name: "alpha")]
+        XCTAssertEqual(DefaultCloudMachineStore.chooseMachine(machines)?.id, "a")
+        let suite = UserDefaults(suiteName: "DefaultCloudMachineStoreShortcutTests")!
+        suite.removePersistentDomain(forName: "DefaultCloudMachineStoreShortcutTests")
+        let store = DefaultCloudMachineStore(defaults: suite)
+        store.machineID = "b"
+        XCTAssertEqual(store.resolveMachineID(from: machines), "b")
+        store.machineID = "missing"
+        XCTAssertEqual(store.resolveMachineID(from: machines), "a")
     }
 }

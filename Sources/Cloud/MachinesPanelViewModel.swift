@@ -54,6 +54,8 @@ struct MachineSnapshot: Equatable, Identifiable {
     /// created before private networking. v4 preferred for copy (pasteable
     /// anywhere), v6 is the fallback.
     var privateAddress: String?
+    /// True when this is the machine used by the quick cloud-workspace shortcut.
+    var isDefault: Bool = false
 
     /// The label when set, else the generated name, else the machine id.
     var displayName: String {
@@ -422,6 +424,16 @@ final class MachinesPanelViewModel: ObservableObject {
     /// coordinator outlives this panel: a create started from one window shows
     /// in every Machines panel and survives the panel closing.
     var pendingCreates: [MachineCreateOperation] { createCoordinator.operations }
+
+    func setDefaultMachine(id: String) {
+        guard machines.contains(where: { $0.id == id }) else { return }
+        DefaultCloudMachineStore.shared.machineID = id
+        machines = machines.map { machine in
+            var next = machine
+            next.isDefault = machine.id == id
+            return next
+        }
+    }
     let createCoordinator: MachineCreateCoordinator
     /// How the view model reads local workspaces; injectable for tests.
     var localWorkspacesProvider: @MainActor () -> [CloudTreeLocalWorkspace] = {
@@ -787,6 +799,12 @@ final class MachinesPanelViewModel: ObservableObject {
                 )
             }
             snapshots = MachineSnapshotBuilder.applyingUsage(to: snapshots, usage: usageByMachineID)
+            let defaultMachineID = DefaultCloudMachineStore.shared.resolveMachineID(from: snapshots)
+            snapshots = snapshots.map { snapshot in
+                var next = snapshot
+                next.isDefault = snapshot.id == defaultMachineID
+                return next
+            }
             machines = snapshots
             lastLimits = page.limits
             scheduleFreeAccessTransition()
