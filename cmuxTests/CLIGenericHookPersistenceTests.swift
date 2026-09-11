@@ -156,6 +156,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
             GenericHookPersistenceScenario(
                 agent: "gemini",
                 subcommand: "session-start",
+                sessionId: "gemini-empty-argv-fallback-session-123",
+                executable: "/Users/example/.bun/bin/gemini",
+                launchArguments: ["/Users/example/.bun/bin/gemini"],
+                extraEnvironment: [
+                    "CMUX_AGENT_LAUNCH_ARGV_B64": "   ",
+                    "GEMINI_CLI_HOME": "/tmp/gemini empty argv home",
+                ],
+                expectedArguments: [],
+                expectedEnvironment: ["GEMINI_CLI_HOME": "/tmp/gemini empty argv home"],
+                expectedSource: "environment",
+                expectedRejectionReason: "argvUnavailable"
+            ),
+            GenericHookPersistenceScenario(
+                agent: "gemini",
+                subcommand: "session-start",
                 sessionId: "gemini-rejected-does-not-downgrade-session-123",
                 executable: "/Users/example/.bun/bin/gemini",
                 launchArguments: ["/Users/example/.bun/bin/gemini"],
