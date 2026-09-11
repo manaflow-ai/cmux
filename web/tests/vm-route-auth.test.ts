@@ -486,6 +486,18 @@ describe("VM REST auth", () => {
       image: "snapshot-test",
       kind: "base",
       createdAt: 1_777_000_000_000,
+      capabilities: {
+        snapshot: true,
+        restore: true,
+        fork: false,
+        exec: true,
+        stats: true,
+        ports: true,
+        desktop: true,
+        sizing: true,
+        persistentHome: false,
+        attachTransports: ["cmux-remote"],
+      },
     });
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "user-1",
@@ -1097,6 +1109,11 @@ describe("VM REST auth", () => {
         expect(response.status).toBe(200);
         expect(runVmWorkflow).toHaveBeenCalledTimes(1);
         expect(route.constructor).toHaveBeenCalledTimes(1);
+        const provisionInput = (route.constructor.mock.calls as unknown[][])[0]?.[0] as {
+          modelPlane?: { provision?: unknown; revoke?: unknown };
+        };
+        expect(typeof provisionInput.modelPlane?.provision).toBe("function");
+        expect(typeof provisionInput.modelPlane?.revoke).toBe("function");
       }
     }
   });

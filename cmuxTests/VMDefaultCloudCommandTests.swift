@@ -105,6 +105,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 XCTAssertNotEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
                 XCTAssertEqual(params["kind"] as? String, "desktop")
                 XCTAssertNil(params["image"])
+                XCTAssertNil(params["persistent_home"], "Freestyle does not support persistent home volumes")
+                XCTAssertNil(params["per_machine_home"], "Freestyle does not support per-machine home volumes")
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -235,7 +237,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let bindings = requests.filter { $0["method"] as? String == "workspace.cloud_vm_bind" }
         let lastBinding = bindings.last?["params"] as? [String: Any]
         XCTAssertEqual(lastBinding?["remote_workspace_id"] as? String, "ws_cloud")
-        XCTAssertEqual(methods.filter { $0 == "vm.desktop_open" }.count, 1)
+        XCTAssertFalse(methods.contains("vm.desktop_open"), "New workspaces start with only the seeded terminal")
 
         // Exercise consumption of the saved identity in a new CLI process,
         // not just persistence. The mock rejects any unhandled enrollment path.
@@ -257,7 +259,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(secondMethods.contains("vm.create"))
         XCTAssertFalse(secondMethods.contains("surface.new_terminal"))
         XCTAssertEqual(secondMethods.filter { $0 == "surface.project" }.count, 1)
-        XCTAssertEqual(secondMethods.filter { $0 == "vm.desktop_open" }.count, 1)
+        XCTAssertFalse(secondMethods.contains("vm.desktop_open"), "Reopening the shell must not add a VNC split")
     }
 
     func testVMNewExplicitFreestyleProviderCreatesSeparateDetachedVM() throws {
