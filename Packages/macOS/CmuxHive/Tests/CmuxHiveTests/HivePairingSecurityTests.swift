@@ -174,6 +174,25 @@ struct HivePairingSecurityTests {
     }
 
     @Test
+    func unpairHoldsThePairingLockUntilItsDeleteFinishes() async throws {
+        let fixture = try Fixture()
+        defer { fixture.removeFiles() }
+        let controller = fixture.controller(peer: PairingPeer())
+        let computer = try await controller.pair("100.64.0.1:7333")
+        let unpairing = Task { try await controller.unpair(id: computer.id) }
+        // Let the delete reach its store I/O suspension before a pair races it.
+        for _ in 0..<3 { await Task.yield() }
+        await #expect(throws: HivePairingError.busy) {
+            try await controller.pair("100.64.0.1:7444")
+        }
+        try await unpairing.value
+        #expect(controller.computers.isEmpty)
+        let repaired = try await controller.pair("100.64.0.1:7444")
+        #expect(controller.computers.map(\.id) == [repaired.id])
+        controller.stop()
+    }
+
+    @Test
     func cancelledDisconnectStillClosesItsTransport() async throws {
         let peer = PairingPeer()
         let runtime = PairingRuntime(transportFactory: PairingFactory(peer: peer))
