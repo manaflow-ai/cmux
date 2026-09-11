@@ -261,6 +261,7 @@ struct CloudTreeNativeDragOwnershipTests {
     }
 
     private static let machineActions = MachineRowActions(
+        setupVPN: { _ in },
         openShell: { _ in },
         openDesktop: { _ in },
         runCommand: { _, _ in },

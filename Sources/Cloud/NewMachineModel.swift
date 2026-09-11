@@ -68,7 +68,7 @@ struct MachineSizeOption: Equatable, Sendable {
 final class NewMachineModel {
     /// Which create flow the sheet fronts.
     enum Mode: Equatable {
-        /// `cmux vm new`: a fresh machine with its own persistent home.
+        /// `cmux vm new`: a fresh Freestyle machine with an ephemeral home.
         case newMachine
         /// `cmux vm base open --workspace <id>`: the persistent Base slot's
         /// first provisioning. Base has no size choice (the backend sizes it)
@@ -144,6 +144,13 @@ final class NewMachineModel {
             : Self.defaultMemoryMb(planId: plan?.planId, options: serverOptions)
     }
 
+    /// The one machine cmux Cloud provisions: the devbox with the shell
+    /// tooling, the coding agents and a VNC screen. One snapshot ladder serves
+    /// every kind the backend knows, so the kind is not something the sheet
+    /// asks about; the request carries it so the machine is recorded (and its
+    /// Displays row shown) as what it is.
+    static let machineKind: VMMachineKind = VMMachineKind.defaultKind
+
     static func defaultMemoryMb(planId: String?, options: [Int] = memoryOptionsMb) -> Int {
         let allowed = options.filter { $0 <= maxMemoryMb(planId: planId) }.sorted()
         if allowed.contains(planMachineMemoryMb) { return planMachineMemoryMb }
@@ -201,16 +208,17 @@ final class NewMachineModel {
         return String(format: format, mb)
     }
 
-    /// The exact CLI invocation the create runs. Freestyle's base snapshot is
-    /// selected by the requested size; no kind, name, or image is user input.
+    /// The exact CLI invocation the create runs. Only the size is user input:
+    /// the machine kind travels as ``machineKind``'s flag and the backend maps
+    /// kind and size to the snapshot, so no name or image id leaves the sheet.
     /// `--focus false` is what makes the sheet's create a background one: the
     /// machine still opens (its own workspace, the Base placeholder) but the
-    /// CLI never selects that workspace or moves keyboard focus out of the
-    /// one the person is working in when it lands.
+    /// CLI never selects that workspace or moves keyboard focus out of the one
+    /// the person is working in when it lands.
     var cliArguments: [String] {
         switch mode {
         case .newMachine:
-            var arguments = ["vm", "new", "--base"]
+            var arguments = ["vm", "new", Self.machineKind.cliFlag]
             if supportsSize { arguments += ["--size", String(memoryMb)] }
             arguments += ["--focus", "false"]
             return arguments
@@ -218,7 +226,7 @@ final class NewMachineModel {
             return [
                 "vm", "base", "open",
                 "--workspace", workspaceID.uuidString,
-                "--base",
+                Self.machineKind.cliFlag,
                 "--focus", "false",
             ]
         }
@@ -228,7 +236,7 @@ final class NewMachineModel {
     var createRequest: MachineCreateRequest {
         MachineCreateRequest(
             mode: mode,
-            kind: .base,
+            kind: Self.machineKind,
             name: nil,
             arguments: cliArguments
         )

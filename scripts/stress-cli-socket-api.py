@@ -44,6 +44,7 @@ MIN_SPINDUMP_FREE_BYTES = 2 * 1024 * 1024 * 1024
 
 
 TOP_LEVEL_COMMANDS = {
+    "agent",
     "welcome",
     "docs",
     "settings",
@@ -870,6 +871,7 @@ def build_cli_cases(ctx: StressContext) -> list[CliCase]:
         CliCase("help-flag", argv("--help"), no_socket=True, covered_command="help"),
         CliCase("help-command", argv("help"), no_socket=True, covered_command="help"),
         CliCase("welcome", argv("welcome"), no_socket=True, covered_command="welcome"),
+        CliCase("agent-help", argv("agent", "--help"), no_socket=True, covered_command="agent"),
         CliCase("docs", argv("docs"), no_socket=True, covered_command="docs"),
         CliCase("docs-settings", argv("docs", "settings"), no_socket=True, covered_command="docs"),
         CliCase("settings-path", argv("settings", "path"), no_socket=True, covered_command="settings"),

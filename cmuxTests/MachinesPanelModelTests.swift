@@ -453,7 +453,7 @@ final class MachinesPanelModelTests: XCTestCase {
             "machine:vivid-newt/ws/ws_main/resource:vivid-newt/display/display:1",
             "machine:vivid-newt/ws/ws_side",
             "machine:vivid-newt/ws/ws_side/resource:vivid-newt/terminal/term_1/tab:tab_9",
-            "machine:vivid-newt/ws/ws_side/resource:vivid-newt/display/display:1",
+            "machine:vivid-newt/ws/ws_side/resource:vivid-newt/display/display:1/tab:tab_desk",
             "machine:vivid-newt/ws/ws_empty",
             "machine:vivid-newt/ws/ws_empty/resource:vivid-newt/display/display:1",
             "machine:vivid-newt/ports",
@@ -497,13 +497,13 @@ final class MachinesPanelModelTests: XCTestCase {
             includeLocalMachine: true
         )
         let openByID = Dictionary(CloudTreeNodeBuilder.flattened(openNodes).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        if case .workspace(_, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_main"]!.kind {
+        if case .workspace(_, _, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_main"]!.kind {
             XCTAssertEqual(openIn, local, "term_1's pane lives in the local workspace")
         } else { XCTFail("expected ws_main row") }
-        if case .workspace(_, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_side"]!.kind {
+        if case .workspace(_, _, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_side"]!.kind {
             XCTAssertEqual(openIn, remoteSideLocalWorkspace, "term_1's second remote view uses its own local workspace")
         } else { XCTFail("expected ws_side row") }
-        if case .workspace(_, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_empty"]!.kind {
+        if case .workspace(_, _, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_empty"]!.kind {
             XCTAssertNil(openIn, "nothing of it is open anywhere")
         } else { XCTFail("expected ws_empty row") }
         // Desktop rows: a workspace's own display pointer opens inside the local
@@ -556,7 +556,7 @@ final class MachinesPanelModelTests: XCTestCase {
             XCTAssertEqual(row.remoteView?.tabID, "tab_9")
         } else { XCTFail("expected pointer row") }
         // The empty workspace still gets a row (from the machine info), with no pointers.
-        if case .workspace(_, let workspace, let count, _) = byID["machine:vivid-newt/ws/ws_empty"]!.kind {
+        if case .workspace(_, let workspace, let count, _, _) = byID["machine:vivid-newt/ws/ws_empty"]!.kind {
             XCTAssertEqual(workspace.name, "scratch")
             XCTAssertEqual(count, 0)
         } else { XCTFail("expected empty workspace row") }
@@ -652,16 +652,122 @@ final class MachinesPanelModelTests: XCTestCase {
             SurfaceRemoteView(tabID: "tab_b", workspace: workspace, index: 1),
         ]
         let catalog = SurfaceCatalog()
-        catalog.replaceResources(
-            [terminalResource],
-            on: machine,
-            info: machineInfo(machine, hasDesktop: false, remoteWorkspaces: [workspace])
-        )
+        // The catalog drops writes for a cloud machine with no registered provider.
+        let provider = GroupFakeProvider(machine: machine)
+        provider.info = machineInfo(machine, hasDesktop: false, remoteWorkspaces: [workspace])
+        catalog.register(provider)
+        XCTAssertTrue(catalog.replaceResources([terminalResource], on: machine, info: provider.info, from: provider))
 
         let group = try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace.id)
         XCTAssertEqual(group.title, "main")
         XCTAssertEqual(group.resources, [terminalResource.id, terminalResource.id])
         XCTAssertEqual(group.placements.map(\.remoteTabID), ["tab_a", "tab_b"])
+    }
+
+    @MainActor
+    func testCatalogWorkspaceGroupFollowsLayoutOrderNotKindBuckets() throws {
+        let machine = SurfaceMachineID.cloud("group-layout")
+        let workspace = SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: true)
+        var browser = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .browser, key: "docs"),
+            title: "Docs",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: workspace,
+            port: nil,
+            url: "https://example.com"
+        )
+        browser.remoteViews = [SurfaceRemoteView(
+            tabID: "tab_docs",
+            workspace: workspace,
+            screenID: "screen_1",
+            paneID: "pane_left",
+            name: nil,
+            index: 0,
+            focused: true,
+            screenIndex: 0,
+            paneIndex: 0
+        )]
+        var terminalResource = terminal(machine, "term_1", title: "shell")
+        terminalResource.remoteWorkspace = workspace
+        terminalResource.remoteViews = [SurfaceRemoteView(
+            tabID: "tab_shell",
+            workspace: workspace,
+            screenID: "screen_1",
+            paneID: "pane_right",
+            name: nil,
+            index: 0,
+            focused: true,
+            screenIndex: 0,
+            paneIndex: 1
+        )]
+        let catalog = SurfaceCatalog()
+        catalog.register(GroupFakeProvider(machine: machine))
+        catalog.replaceResources(
+            [terminalResource, browser],
+            on: machine,
+            info: machineInfo(machine, hasDesktop: false, remoteWorkspaces: [workspace])
+        )
+
+        let group = try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace.id)
+        XCTAssertEqual(group.placements.map(\.remoteTabID), ["tab_docs", "tab_shell"])
+        XCTAssertEqual(group.resources.map(\.kind), [.browser, .terminal])
+
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [machineSnapshot(id: machine.rawValue)],
+            snapshot: catalog.snapshot,
+            localWorkspaces: [],
+            includeLocalMachine: false
+        )
+        let workspaceNode = CloudTreeNodeBuilder.flattened(nodes).first { $0.id == "machine:group-layout/ws/ws_main" }
+        XCTAssertEqual(
+            workspaceNode?.dragGroup?.placements.map(\.remoteTabID),
+            group.placements.map(\.remoteTabID),
+            "the sidebar row and `vm workspace open` must open in the same order"
+        )
+    }
+
+    @MainActor
+    func testCatalogWorkspaceGroupListsTheShownTabBeforeHiddenTabs() throws {
+        let machine = SurfaceMachineID.cloud("group-shown-tab")
+        let workspace = SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: true)
+        var first = terminal(machine, "term_a", title: "build")
+        first.remoteWorkspace = workspace
+        first.remoteViews = [SurfaceRemoteView(
+            tabID: "tab_a",
+            workspace: workspace,
+            screenID: "screen_1",
+            paneID: "pane_1",
+            name: "build",
+            index: 0,
+            focused: false,
+            screenIndex: 0,
+            paneIndex: 0
+        )]
+        var second = terminal(machine, "term_b", title: "shell")
+        second.remoteWorkspace = workspace
+        second.remoteViews = [SurfaceRemoteView(
+            tabID: "tab_b",
+            workspace: workspace,
+            screenID: "screen_1",
+            paneID: "pane_1",
+            name: "shell",
+            index: 1,
+            focused: true,
+            screenIndex: 0,
+            paneIndex: 0
+        )]
+        let catalog = SurfaceCatalog()
+        catalog.register(GroupFakeProvider(machine: machine))
+        catalog.replaceResources(
+            [first, second],
+            on: machine,
+            info: machineInfo(machine, hasDesktop: false, remoteWorkspaces: [workspace])
+        )
+
+        let group = try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace.id)
+        XCTAssertEqual(group.placements.map(\.remoteTabID), ["tab_b", "tab_a"])
     }
 
     @MainActor
@@ -674,11 +780,11 @@ final class MachinesPanelModelTests: XCTestCase {
         resource.remoteWorkspace = workspace
         resource.remoteViews = []
         let catalog = SurfaceCatalog()
-        catalog.replaceResources(
-            [resource],
-            on: machine,
-            info: machineInfo(machine, hasDesktop: false, remoteWorkspaces: [workspace])
-        )
+        // The catalog drops writes for a cloud machine with no registered provider.
+        let provider = GroupFakeProvider(machine: machine)
+        provider.info = machineInfo(machine, hasDesktop: false, remoteWorkspaces: [workspace])
+        catalog.register(provider)
+        XCTAssertTrue(catalog.replaceResources([resource], on: machine, info: provider.info, from: provider))
 
         let group = try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace.id)
         XCTAssertEqual(group.resources, [resource.id])
@@ -709,8 +815,14 @@ final class MachinesPanelModelTests: XCTestCase {
             snapshot: SurfaceCatalogSnapshot(machines: [machineInfo(.cloud("quiet-owl"), linkState: .asleep, hasDesktop: false)], resources: [], projections: []),
             localWorkspaces: []
         )
-        XCTAssertEqual(CloudTreeNodeBuilder.flattened(asleep).map(\.id), ["machine:quiet-owl", "machine:quiet-owl/placeholder"])
+        // The link placeholder leads; the Ports group stays reachable so a sleeping
+        // machine can still explain how to discover its ports (see emptyPorts(info:)).
+        XCTAssertEqual(
+            CloudTreeNodeBuilder.flattened(asleep).map(\.id),
+            ["machine:quiet-owl", "machine:quiet-owl/placeholder", "machine:quiet-owl/ports", "machine:quiet-owl/ports/status"]
+        )
         if case .placeholder(_, let placeholder) = asleep[0].children[0].kind { XCTAssertEqual(placeholder.style, .dimmed) } else { XCTFail() }
+        if case .placeholder(_, let ports) = asleep[0].children[1].children[0].kind { XCTAssertEqual(ports.style, .dimmed) } else { XCTFail() }
 
         let broken = CloudTreeNodeBuilder.nodes(
             machines: [machineSnapshot(id: "broken-elk")],
@@ -721,8 +833,10 @@ final class MachinesPanelModelTests: XCTestCase {
             XCTAssertEqual(placeholder.style, .error)
             XCTAssertEqual(placeholder.text, "timed out")
         } else { XCTFail() }
-        // A machine the catalog has not registered yet has nothing to expand.
-        XCTAssertNil(CloudTreeNodeBuilder.nodes(machines: [machineSnapshot(id: "new")], snapshot: .empty, localWorkspaces: [])[0].children.first)
+        // A machine the catalog has not registered yet only shows that it is connecting.
+        let unregistered = CloudTreeNodeBuilder.nodes(machines: [machineSnapshot(id: "new")], snapshot: .empty, localWorkspaces: [])
+        XCTAssertEqual(unregistered[0].children.map(\.id), ["machine:new/placeholder"])
+        if case .placeholder(_, let placeholder) = unregistered[0].children[0].kind { XCTAssertEqual(placeholder.style, .connecting) } else { XCTFail() }
         // A machine only the catalog knows still gets a row.
         let catalogOnly = CloudTreeNodeBuilder.nodes(
             machines: [],
