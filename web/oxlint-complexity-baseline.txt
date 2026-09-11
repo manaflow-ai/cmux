@@ -21,7 +21,6 @@ app/handler/after-sign-in/handler.ts	2ed6972f1468f3daf7f2096a316faa3d5341d83263a
 app/handler/app-session-handoff/route.ts	b00db532cf0982aa7f35823e3c7a01313537a82320880e91c3338ffb41e22cdd	async function `POST` has a complexity of 25. Maximum allowed is 20.
 app/lib/browser-nightly-download.ts	cb98c6c83aaa369ce81b790afa7b8fb39d24768143d6ad530a2285f706838d2c	function `verifiedAssetLocation` has a complexity of 26. Maximum allowed is 20.
 app/lib/direct-dev-backend-origin.ts	cf7b4a29151651923eb58809508a9cedcb19685a9399788e8e29e81e7174934a	function `directDevBackendOrigin` has a complexity of 22. Maximum allowed is 20.
-proxy.ts	2a13a700512e3fd517e4ed5ebc601668ec7072a98ce2babb9fac46b421e559b9	function `middleware` has a complexity of 69. Maximum allowed is 20.
 services/admin/proGrants.ts	02ae16bbcdb14faaa27a9785b42ce352f587383991bd9e5df7387cc4a829102d	async function `applyPendingEmailGrants` has a complexity of 21. Maximum allowed is 20.
 services/apns/payload.ts	786bfe796e1806b16dd802099a961cd734958083f1c0eefcb6f485425775bc6c	function `buildApnsPayload` has a complexity of 21. Maximum allowed is 20.
 services/apns/pushDeliveryService.ts	6258d03114757eafd0088eeb085e109c03252d7c17a53906ff224a9381db1f09	async function `executePushDeliveryWithTargets` has a complexity of 26. Maximum allowed is 20.

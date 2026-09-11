@@ -60,6 +60,7 @@ export type CoderouterSurface =
   | "session"
   | "claude_upstream"
   | "vm_usage"
+  | "vm_reflection"
   | "analytics"
   | "health";
 

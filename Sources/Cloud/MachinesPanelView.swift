@@ -809,7 +809,7 @@ struct MachineRowActions {
         onCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil,
         onCancellationReady: ((CloudVMActionLauncher.CancellationHandle) -> Void)? = nil
     ) -> Bool {
-        // `vm new` mints a fresh machine with its own persistent home and
+        // `vm new` mints a fresh machine with an ephemeral home and
         // attaches it; the base slot stays reachable via the ＋ menu's Open Base.
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
@@ -845,11 +845,12 @@ struct MachineRowActions {
             presentOutputOnSuccess: presentOutputOnSuccess,
             onCancellationReady: onCancellationReady,
             onCompletion: { completion in
-            if completion.terminationStatus == 0 {
-                onSuccess?()
+                if completion.terminationStatus == 0 {
+                    onSuccess?()
+                }
+                onDidMutate()
             }
-            onDidMutate()
-        })
+        )
     }
 
     @MainActor

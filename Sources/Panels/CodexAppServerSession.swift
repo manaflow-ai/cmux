@@ -124,7 +124,7 @@ final class CodexAppServerSession {
         guard let data = line.data(using: .utf8),
               let decoded = try? JSONSerialization.jsonObject(with: data),
               let object = decoded as? [String: Any] else {
-            outputSink("stderr", String(localized: "agentSession.codex.error.invalidJSON", defaultValue: "Codex app-server response was not valid JSON."))
+            outputSink("stderr", String(localized: "agentSession.codex.error.invalidJSON", defaultValue: "cmux could not read the response from Codex. Try again."))
             return
         }
 
@@ -679,10 +679,10 @@ final class CodexAppServerSession {
     }
 
     private static func rpcFailedMessage() -> String {
-        String(localized: "agentSession.codex.error.rpcFailed", defaultValue: "Codex app-server request failed.")
+        String(localized: "agentSession.codex.error.rpcFailed", defaultValue: "The Codex request failed. Try again.")
     }
 
     private static func unknownWarningMessage() -> String {
-        String(localized: "agentSession.codex.warning.unknown", defaultValue: "Codex app-server reported a warning.")
+        String(localized: "agentSession.codex.warning.unknown", defaultValue: "Codex reported a warning.")
     }
 }

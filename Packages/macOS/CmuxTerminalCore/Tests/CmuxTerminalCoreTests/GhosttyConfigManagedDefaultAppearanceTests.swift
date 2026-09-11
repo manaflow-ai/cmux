@@ -6,10 +6,55 @@ import Testing
 /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/7161
 /// and https://github.com/manaflow-ai/cmux/issues/10199.
 ///
-/// cmux's managed default terminal theme ("Apple System Colors") applies only
+/// cmux's managed default terminal theme (Catppuccin Latte/Mocha) applies only
 /// when enabled and the user has no effective Ghostty settings. Any configured
 /// directive preserves Ghostty's own resolved base and user overrides.
 @Suite(.serialized) struct GhosttyConfigManagedDefaultAppearanceTests {
+    @Test("managed defaults match the Codex dark and light palettes")
+    func managedDefaultsMatchCodexThemePair() {
+        #expect(GhosttyConfig.cmuxDefaultLightThemeName == "Catppuccin Latte")
+        #expect(GhosttyConfig.cmuxDefaultDarkThemeName == "Catppuccin Mocha")
+    }
+
+    @Test(arguments: [GhosttyConfig.ColorSchemePreference.light, .dark])
+    func managedFallbackPreservesCatppuccinColors(
+        colorScheme: GhosttyConfig.ColorSchemePreference
+    ) {
+        // Exercise the missing-resource fallback directly so installed theme
+        // files cannot hide a stale built-in palette.
+        var config = GhosttyConfig()
+        config.parse(GhosttyConfig.cmuxDefaultFallbackConfigContents(
+            preferredColorScheme: colorScheme
+        ))
+        let expected: [String]
+        switch colorScheme {
+        case .light:
+            expected = [
+                "#5C5F77", "#D20F39", "#40A02B", "#DF8E1D",
+                "#1E66F5", "#EA76CB", "#179299", "#ACB0BE",
+                "#6C6F85", "#DE293E", "#49AF3D", "#EEA02D",
+                "#456EFF", "#FE85D8", "#2D9FA8", "#BCC0CC",
+                "#EFF1F5", "#4C4F69", "#DC8A78", "#EFF1F5",
+                "#ACB0BE", "#4C4F69"
+            ]
+        case .dark:
+            expected = [
+                "#45475A", "#F38BA8", "#A6E3A1", "#F9E2AF",
+                "#89B4FA", "#F5C2E7", "#94E2D5", "#A6ADC8",
+                "#585B70", "#F37799", "#89D88B", "#EBD391",
+                "#74A8FC", "#F2AEDE", "#6BD7CA", "#BAC2DE",
+                "#1E1E2E", "#CDD6F4", "#F5E0DC", "#1E1E2E",
+                "#585B70", "#CDD6F4"
+            ]
+        }
+        let actual = (0..<16).map { config.palette[$0]?.hexString() } + [
+            config.backgroundColor.hexString(), config.foregroundColor.hexString(),
+            config.cursorColor.hexString(), config.cursorTextColor.hexString(),
+            config.selectionBackground.hexString(), config.selectionForeground.hexString()
+        ]
+        #expect(actual == expected.map(Optional.some))
+    }
+
     private func withTempConfigDir(
         body: (_ dir: URL) throws -> Void
     ) throws {
@@ -171,7 +216,7 @@ import Testing
 
     // MARK: Managed base + user override precedence
 
-    /// Writes sentinel "Apple System Colors" theme files into a themes root the
+    /// Writes sentinel managed theme files into a themes root the
     /// managed-default resolution finds via `GHOSTTY_RESOURCES_DIR`, keeping the
     /// resolved managed colors deterministic on machines with Ghostty installed.
     private func makeManagedThemesRoot(in dir: URL) throws -> URL {

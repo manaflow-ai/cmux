@@ -159,6 +159,15 @@ jobs:
       - name: Validate Python test harness syntax
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
+      - name: Test macOS localization catalog tooling
+        run: python3 tests/test_localization_catalog.py
+
+      - name: Validate macOS localization parity
+        run: python3 scripts/localization_catalog.py check
+
+      - name: Validate cmux-cloud-vm skill covers the vm CLI
+        run: python3 tests/test_cloud_vm_skill_coverage.py
+
       - name: Test XCStrings catalog lint
         run: python3 tests/test_lint_xcstrings.py
 
@@ -639,6 +648,10 @@ jobs:
       # selectors. Six-way packing keeps each broad shard near 13 minutes of
       # measured work; allow focused gates and one app-host restart headroom.
       CMUX_UNIT_TEST_TIMEOUT_SECONDS: "1800"
+      # The broad shard can spend several minutes in XCTest's post-suite
+      # teardown while native UI processes drain. Allow that quiet period
+      # within the job's 75-minute cap instead of restarting a healthy batch.
+      CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS: "1200"
       # XCTest app-host crashes can leave xcodebuild waiting in Swift's crash
       # backtracer until the job timeout. Keep crash handling non-interactive
       # and cheap so xcodebuild can restart/finish the suite.
@@ -979,6 +992,7 @@ jobs:
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           for suite in \
             RemoteTmuxMirrorCloseDetachTests \
+            RemoteTmuxMirrorFocusPolicyTests \
             RemoteTmuxMirrorDedicatedPlacementTests
           do
             for attempt in 1 2; do
@@ -1317,6 +1331,36 @@ jobs:
             CMUX_SKIP_ZIG_BUILD=1 \
             test
 
+      - name: Run global search shortcut regressions
+        if: ${{ matrix.shard == 1 }}
+        timeout-minutes: 40
+        run: |
+          # This serialized container owns global shortcut settings. Keep its
+          # mutations out of unrelated UI suites' retained window graphs; it
+          # exceeded thirteen minutes in a shared app host. Run the whole
+          # container in its own non-tolerant app host, including every nested
+          # test, as a plain `xcodebuild test` gate like every other focused
+          # gate: a build-for-testing + test-without-building pair ahead of the
+          # sharded batches left the next `xcodebuild test` silent until the
+          # job cap (runs 34436816921 and 34448986837). The first invocation on
+          # this shard also builds, so the budget covers build plus ~9 minutes
+          # of tests.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          test_log="$RUNNER_TEMP/cmux-global-search-shortcuts.txt"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/GlobalSearchShortcutBehaviorTests \
+            test 2>&1 | tee "$test_log"
+          scripts/ci/require_selected_test_execution.sh \
+            "$test_log" cmuxTests/GlobalSearchShortcutBehaviorTests
+
       - name: Run unit tests
         run: |
           set -euo pipefail
@@ -1557,6 +1601,7 @@ jobs:
 
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_vm_transfer_progress.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_layout_focus_contract.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_simulator_contract.py
@@ -1874,6 +1919,8 @@ jobs:
             CmuxNotifications
             CmuxSettings
             CmuxSettingsUI
+            CmuxSudoBroker
+            CmuxSudoBrokerUI
             CmuxTerminal
             CmuxTerminalCore
             CmuxUpdater

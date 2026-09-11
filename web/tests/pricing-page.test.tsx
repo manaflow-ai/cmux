@@ -28,7 +28,22 @@ const redirect = mock((href: unknown) => {
 });
 const originalVaultEnabled = process.env.CMUX_VAULT_ENABLED;
 
-mock.module("next/navigation", () => createNextNavigationMock(redirect));
+const nextNavigationMock = createNextNavigationMock(redirect);
+
+mock.module("next/navigation", () => nextNavigationMock);
+
+// The pricing page uses the locale-aware Link returned by createNavigation.
+// Bun module mocks are process-global, so mock the package's complete export
+// surface and return every navigation function our shared wrapper exposes.
+mock.module("next-intl/navigation", () => ({
+  createNavigation: () => ({
+    Link: (props: React.ComponentProps<"a">) => <a {...props} />,
+    redirect: nextNavigationMock.redirect,
+    usePathname: nextNavigationMock.usePathname,
+    useRouter: nextNavigationMock.useRouter,
+    getPathname: ({ href }: { href: string }) => href,
+  }),
+}));
 
 mock.module("next-intl", () => ({
   NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
