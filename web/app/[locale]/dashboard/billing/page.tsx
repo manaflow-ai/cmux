@@ -458,7 +458,8 @@ function StripePlan({
   canManageBilling: boolean;
 }) {
   const plan = subscription.plan === "max" ? "max" : "pro";
-  const price = priceCopy(subscription, t, "pro");
+  const plan = subscription.plan === "max" ? "max" : "pro";
+  const price = priceCopy(subscription, t, plan);
   const periodDate = subscription.currentPeriodEnd
     ? formatBillingDate(subscription.currentPeriodEnd, locale)
     : t("dates.unknown");
@@ -651,7 +652,7 @@ function billingBanner(value: string | undefined) {
 function priceCopy(
   subscription: StripeSubscriptionRow,
   t: Awaited<ReturnType<typeof getTranslations>>,
-  plan: "pro" | "team",
+  plan: "pro" | "max" | "team",
 ): string | null {
   const price = stripePrice(subscription);
   const unitAmount = price?.unit_amount;
