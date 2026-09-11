@@ -170,6 +170,7 @@ struct MacComputerRow: View {
     /// records the build version in the durable overlay.
     private var showsListAuthWarning: Bool {
         hasVersionGateWarning
+            || MobileMacListAuthState.shared.entry(deviceID: computer.deviceId)?.isOutdated == true
             || hasUnverifiedVersionWarning
     }
 
