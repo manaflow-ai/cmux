@@ -59,15 +59,15 @@ public struct ReadAloudSettingsView: View {
     private var speechSettings: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 12) {
-                Picker(String(localized: "model.label", defaultValue: "Model", table: "ReadAloudSettings", bundle: .module), selection: $model.configuration.model) {
+                Picker(String(localized: "model.label", defaultValue: "Model", table: "ReadAloudSettings", bundle: .module), selection: $model.selectedModel) {
                     Text(String(localized: "model.turbo", defaultValue: "Turbo (speech-2.8-turbo)", table: "ReadAloudSettings", bundle: .module))
-                        .tag("speech-2.8-turbo")
+                        .tag(ReadAloudConfiguration.Model.turbo)
                     Text(String(localized: "model.hd", defaultValue: "HD (speech-2.8-hd)", table: "ReadAloudSettings", bundle: .module))
-                        .tag("speech-2.8-hd")
+                        .tag(ReadAloudConfiguration.Model.hd)
                 }
                 .accessibilityIdentifier("ReadAloudModel")
 
-                TextField(String(localized: "voice.label", defaultValue: "Voice ID", table: "ReadAloudSettings", bundle: .module), text: $model.configuration.voiceID)
+                TextField(String(localized: "voice.label", defaultValue: "Voice ID", table: "ReadAloudSettings", bundle: .module), text: $model.voiceID)
                     .textFieldStyle(.roundedBorder)
                     .autocorrectionDisabled()
                     .accessibilityIdentifier("ReadAloudVoiceID")
@@ -76,11 +76,11 @@ public struct ReadAloudSettingsView: View {
                     .foregroundStyle(.secondary)
 
                 HStack {
-                    Slider(value: $model.configuration.speed, in: 0.5...2, step: 0.1) {
+                    Slider(value: $model.speed, in: 0.5...2, step: 0.1) {
                         Text(String(localized: "speed.label", defaultValue: "Speed", table: "ReadAloudSettings", bundle: .module))
                     }
                     .accessibilityIdentifier("ReadAloudSpeed")
-                    Text(String(localized: "speed.value", defaultValue: "\(model.configuration.speed.formatted(.number.precision(.fractionLength(1))))×", table: "ReadAloudSettings", bundle: .module))
+                    Text(String(localized: "speed.value", defaultValue: "\(model.speed.formatted(.number.precision(.fractionLength(1))))×", table: "ReadAloudSettings", bundle: .module))
                         .monospacedDigit()
                         .frame(minWidth: 44, alignment: .trailing)
                 }

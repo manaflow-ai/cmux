@@ -25,8 +25,8 @@ enum ReadAloudPreferencesError: LocalizedError {
             String(localized: "error.invalidCredential", defaultValue: "The saved API key cannot be read. Replace or remove it in Read Aloud settings.", table: "ReadAloudSettings", bundle: .module)
         case .invalidService:
             String(localized: "error.invalidService", defaultValue: "The app has not configured a Keychain service for Read Aloud.", table: "ReadAloudSettings", bundle: .module)
-        case .keychain(let status):
-            String(localized: "error.keychain", defaultValue: "Keychain could not complete the operation (status \(status)). Your requested change was not confirmed.", table: "ReadAloudSettings", bundle: .module)
+        case .keychain:
+            String(localized: "error.keychain", defaultValue: "Keychain could not complete the operation. Your requested change was not confirmed. Try again.", table: "ReadAloudSettings", bundle: .module)
         }
     }
 }

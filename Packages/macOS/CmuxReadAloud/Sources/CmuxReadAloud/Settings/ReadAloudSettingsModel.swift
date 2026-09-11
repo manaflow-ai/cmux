@@ -9,7 +9,9 @@ import Observation
 @MainActor
 @Observable
 public final class ReadAloudSettingsModel {
-    var configuration = ReadAloudConfiguration()
+    var selectedModel = ReadAloudConfiguration().model
+    var voiceID = ReadAloudConfiguration().voiceID
+    var speed = ReadAloudConfiguration().speed
     var apiKeyDraft = ""
     private(set) var consentGranted = false
     private(set) var hasSavedAPIKey: Bool?
@@ -27,7 +29,9 @@ public final class ReadAloudSettingsModel {
     }
 
     var hasUnsavedConfiguration: Bool {
-        configuration != savedConfiguration
+        selectedModel != savedConfiguration.model
+            || voiceID != savedConfiguration.voiceID
+            || speed != savedConfiguration.speed
     }
 
     var canSaveAPIKey: Bool {
@@ -53,14 +57,16 @@ public final class ReadAloudSettingsModel {
         do {
             switch action {
             case .load:
-                configuration = await preferences.configuration()
-                savedConfiguration = configuration
+                savedConfiguration = await preferences.configuration()
+                selectedModel = savedConfiguration.model
+                voiceID = savedConfiguration.voiceID
+                speed = savedConfiguration.speed
                 consentGranted = await preferences.consentGranted()
                 isLoaded = true
                 hasSavedAPIKey = nil
                 hasSavedAPIKey = try await preferences.hasAPIKey()
             case .saveConfiguration:
-                let requested = configuration
+                let requested = try ReadAloudConfiguration(model: selectedModel, voiceID: voiceID, speed: speed)
                 try await preferences.save(configuration: requested)
                 savedConfiguration = requested
                 statusMessage = String(localized: "status.settingsSaved", defaultValue: "Speech settings saved.", table: "ReadAloudSettings", bundle: .module)

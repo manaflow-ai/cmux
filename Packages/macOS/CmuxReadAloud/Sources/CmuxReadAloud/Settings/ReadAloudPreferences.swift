@@ -32,8 +32,7 @@ public actor ReadAloudPreferences {
     /// - Returns: A supported configuration with a nonempty voice and speed from 0.5 through 2.
     public func configuration() -> ReadAloudConfiguration {
         guard let data = defaults.data(forKey: configurationKey),
-              let configuration = try? JSONDecoder().decode(ReadAloudConfiguration.self, from: data),
-              (try? validate(configuration)) != nil else {
+              let configuration = try? JSONDecoder().decode(ReadAloudConfiguration.self, from: data) else {
             return ReadAloudConfiguration()
         }
         return configuration
@@ -43,7 +42,6 @@ public actor ReadAloudPreferences {
     /// - Parameter configuration: Turbo or HD speech-2.8 settings with a nonempty voice and finite speed in 0.5...2.
     /// - Throws: A localized validation error or a configuration encoding error.
     public func save(configuration: ReadAloudConfiguration) throws {
-        try configuration.validate()
         let data = try JSONEncoder().encode(configuration)
         defaults.set(data, forKey: configurationKey)
     }

@@ -43,7 +43,6 @@ public actor MiniMaxSpeechClient: ReadAloudSynthesizing {
     ) async throws {
         try Task.checkCancellation()
         guard text.contains(where: { !$0.isWhitespace }) else { return }
-        try configuration.validate()
         guard !apiKey.isEmpty, apiKey.utf8.allSatisfy({ (0x21...0x7E).contains($0) }) else { throw ReadAloudTransportError.invalidCredential }
         var chunks = ReadAloudTextChunks(text: text)
         while let chunk = try chunks.next() {
@@ -150,7 +149,7 @@ public actor MiniMaxSpeechClient: ReadAloudSynthesizing {
         request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: [
-                "model": configuration.model,
+                "model": configuration.model.rawValue,
                 "text": text,
                 "stream": true,
                 "stream_options": ["exclude_aggregated_audio": true],

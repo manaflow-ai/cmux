@@ -64,6 +64,7 @@ final class ReadAloudPresentation {
         let model = ReadAloudSettingsModel(preferences: preferences)
         let content = NSHostingController(rootView: ReadAloudSettingsView(model: model))
         let window = NSWindow(contentViewController: content)
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.readAloudSettings")
         window.title = String(localized: "readAloud.settingsTitle", defaultValue: "Read Aloud Settings")
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.isReleasedWhenClosed = false

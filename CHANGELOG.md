@@ -2,11 +2,6 @@
 
 All notable changes to cmux are documented here.
 
-## [Unreleased]
-
-### Added
-- Read selected terminal text aloud with MiniMax streaming speech, a Stop Speaking action, and native voice, speed, and API-key settings.
-
 ## [0.64.22] - 2026-08-03
 
 ### Fixed

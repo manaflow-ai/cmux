@@ -4257,13 +4257,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keychain could not complete the operation (status %d). Your requested change was not confirmed."
+            "value": "Keychain could not complete the operation. Your requested change was not confirmed."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "キーチェーンの操作を完了できませんでした（ステータス %d）。変更は確認されていません。"
+            "value": "キーチェーンの操作を完了できませんでした。変更は確認されていません。"
           }
         },
         "ar": {
@@ -4275,13 +4275,13 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Privjesak ključeva (Keychain) nije mogao dovršiti radnju (status %d). Tražena izmjena nije potvrđena."
+            "value": "Privjesak ključeva (Keychain) nije mogao dovršiti radnju. Tražena izmjena nije potvrđena."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nøgleringen kunne ikke fuldføre handlingen (status %d). Den ønskede ændring blev ikke bekræftet."
+            "value": "Nøgleringen kunne ikke fuldføre handlingen. Den ønskede ændring blev ikke bekræftet."
           }
         },
         "de": {
@@ -4293,19 +4293,19 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El llavero no ha podido completar la operación (estado %d). No se ha confirmado el cambio solicitado."
+            "value": "El llavero no ha podido completar la operación . No se ha confirmado el cambio solicitado."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le trousseau n’a pas pu terminer l’opération (statut %d). La modification demandée n’a pas été confirmée."
+            "value": "Le trousseau n’a pas pu terminer l’opération . La modification demandée n’a pas été confirmée."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il Portachiavi non ha potuto completare l'operazione (stato %d). La modifica richiesta non è stata confermata."
+            "value": "Il Portachiavi non ha potuto completare l'operazione. La modifica richiesta non è stata confermata."
           }
         },
         "km": {
@@ -4317,55 +4317,55 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "키체인에서 작업을 완료하지 못했습니다(상태 %d). 요청한 변경 사항이 적용되었는지 확인되지 않았습니다."
+            "value": "키체인에서 작업을 완료하지 못했습니다. 요청한 변경 사항이 적용되었는지 확인되지 않았습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nøkkelringen kunne ikke fullføre operasjonen (status %d). Den forespurte endringen ble ikke bekreftet."
+            "value": "Nøkkelringen kunne ikke fullføre operasjonen. Den forespurte endringen ble ikke bekreftet."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pęk kluczy nie mógł ukończyć operacji (status %d). Żądana zmiana nie została potwierdzona."
+            "value": "Pęk kluczy nie mógł ukończyć operacji. Żądana zmiana nie została potwierdzona."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "As Chaves não conseguiram concluir a operação (status %d). A alteração solicitada não foi confirmada."
+            "value": "As Chaves não conseguiram concluir a operação. A alteração solicitada não foi confirmada."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Связке ключей не удалось завершить операцию (статус %d). Запрошенное изменение не подтверждено."
+            "value": "Связке ключей не удалось завершить операцию . Запрошенное изменение не подтверждено."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "พวงกุญแจไม่สามารถดำเนินการให้เสร็จสมบูรณ์ได้ (สถานะ %d) การเปลี่ยนแปลงที่คุณร้องขอยังไม่ได้รับการยืนยัน"
+            "value": "พวงกุญแจไม่สามารถดำเนินการให้เสร็จสมบูรณ์ได้  การเปลี่ยนแปลงที่คุณร้องขอยังไม่ได้รับการยืนยัน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Anahtar Zinciri işlemi tamamlayamadı (durum %d). İstediğiniz değişiklik doğrulanamadı."
+            "value": "Anahtar Zinciri işlemi tamamlayamadı . İstediğiniz değişiklik doğrulanamadı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "В’язці ключів не вдалося завершити операцію (статус %d). Запитану вами зміну не підтверджено."
+            "value": "В’язці ключів не вдалося завершити операцію . Запитану вами зміну не підтверджено."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "钥匙串无法完成操作（状态 %d）。你请求的更改尚未确认。"
+            "value": "钥匙串无法完成操作。你请求的更改尚未确认。"
           }
         },
         "zh-Hant": {
