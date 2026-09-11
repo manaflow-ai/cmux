@@ -34,9 +34,10 @@ Build layout additively in one shot, using commands that create a pane already p
 ```bash
 cmux new-pane --workspace "${CMUX_WORKSPACE_ID}" --type browser --direction right --url "http://127.0.0.1:8765"
 cmux new-pane --workspace "${CMUX_WORKSPACE_ID}" --type terminal --direction down
+cmux new-pane --workspace "${CMUX_WORKSPACE_ID}" --type terminal --direction down --command "npm run dev"
 ```
 
-Avoid create-then-move-then-focus chains. Pass `--focus false` wherever the verb supports it (`move-surface --focus false` preserves the user's attention; more commands may grow the flag, see https://github.com/manaflow-ai/cmux/issues/1418 and https://github.com/manaflow-ai/cmux/issues/2820). If a layout command rejects a valid `surface:` or `pane:` ref, report the bug and stop rather than working around it by focusing.
+When the first command for a new terminal is known, pass `--command <text>` so it starts at spawn instead of a later `send`. Avoid create-then-move-then-focus chains. Pass `--focus false` wherever the verb supports it (`move-surface --focus false` preserves the user's attention; more commands may grow the flag, see https://github.com/manaflow-ai/cmux/issues/1418 and https://github.com/manaflow-ai/cmux/issues/2820). If a layout command rejects a valid `surface:` or `pane:` ref, report the bug and stop rather than working around it by focusing.
 
 ## Right-side helper pane
 
@@ -52,7 +53,7 @@ For auxiliary output (preview apps, TUIs, logs, one-off shells, browser checks),
   ```
 - Multiple obvious stale helper panes from this same automation, and the user asked to tidy: keep one and clean up duplicates. Never close a pane you cannot confidently identify as stale helper output.
 
-Send commands to the new or reused surface by explicit surface ref. Repeated "open it" requests create tabs inside the existing right helper pane, not more splits.
+Send commands to the new or reused surface by explicit surface ref, or pass `--command <text>` at creation when the first command is already known. Repeated "open it" requests create tabs inside the existing right helper pane, not more splits.
 
 ## Caller terminal
 
@@ -105,7 +106,7 @@ Use the socket path cmux provided before any default: `SOCK="${CMUX_SOCKET_PATH:
 - Work in the caller workspace by default; prefer explicit `--workspace` and `--surface` flags for mutating actions even when env vars are set, so automation is auditable.
 - Never call `focus-pane`, `focus-panel`, `select-workspace`, or focus-changing `tab-action` verbs unless the user explicitly asked.
 - Pass `--focus false` on `move-surface` and any creation verb that supports it.
-- Build layout additively with `new-pane --type ... --url ...`, not create-then-move-then-focus.
+- Build layout additively with `new-pane --type ... --url ...` or `--command ...`, not create-then-move-then-focus.
 - If a CLI command rejects a valid surface or pane ref, report it. Do not work around by focusing.
 - Do not close, focus, move, or send input to another workspace unless the user names that target.
 - Use short refs in chat and examples; UUIDs only for logs, persistence, or debugging.

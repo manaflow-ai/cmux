@@ -1,8 +1,14 @@
 import { AccountSettings } from "@stackframe/stack";
 import { redirect } from "next/navigation";
-import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
-import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
+import { Suspense } from "react";
+import { loadDashboardSection } from "@/app/lib/dashboard-auth";
+import { isStackConfigured } from "@/app/lib/stack";
+import { DashboardAuthRecovery } from "../components/dashboard-auth-recovery";
+import { DashboardSectionSkeleton } from "../components/dashboard-skeleton";
 
+const RETURN_PATH = "/dashboard/team";
+
+export const instant = true;
 
 export default async function DashboardTeamPage({
   params,
@@ -13,14 +19,20 @@ export default async function DashboardTeamPage({
   if (!isStackConfigured()) {
     redirect(`/${locale}`);
   }
-  const user = await getStackServerApp().getUser({ or: "return-null" });
-  if (!user) {
-    redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/team")));
-  }
 
   return (
     <div className="w-full px-3 py-4">
-      <AccountSettings />
+      <Suspense fallback={<DashboardSectionSkeleton variant="rows" />}>
+        <TeamSettingsSection locale={locale} />
+      </Suspense>
     </div>
   );
+}
+
+async function TeamSettingsSection({ locale }: { locale: string }) {
+  const section = await loadDashboardSection(locale, RETURN_PATH);
+  if (section.kind === "unavailable") {
+    return <DashboardAuthRecovery locale={locale} returnPath={RETURN_PATH} />;
+  }
+  return <AccountSettings />;
 }

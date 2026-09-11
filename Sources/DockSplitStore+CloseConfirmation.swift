@@ -197,7 +197,11 @@ extension DockSplitStore {
 
     func splitTabBar(_ controller: BonsplitController, didRequestNewTab kind: String, inPane pane: PaneID) {
         let surfaceKind: DockSurfaceKind = (kind == "browser") ? .browser : .terminal
-        _ = newSurface(kind: surfaceKind, inPane: pane, focus: true)
+        _ = newSurfaceFromDockAffordance(
+            kind: surfaceKind,
+            inPane: pane,
+            window: NSApp.keyWindow ?? NSApp.mainWindow
+        )
     }
 
     func dockPanelNeedsConfirmClose(_ panel: any Panel) -> Bool {

@@ -583,6 +583,151 @@ fn keep_on_exit_retains_tab_and_final_screen_until_close_and_degrades_on_restart
     assert_eq!(detached_tab["ok"], false, "restart left a kept tab behind: {detached_tab}");
 }
 
+/// Regression for https://github.com/manaflow-ai/cmux/issues/11974.
+///
+/// The issue's Linux reproduction is intentionally kept verbatim here:
+///
+/// ```sh
+/// cmux server start --session repro --state /tmp/repro-state &
+///
+/// cmux --session repro workspace create --name w1   # creates screen+pane+tab+terminal
+/// cmux --session repro tab create terminal          # second tab, note its tab_id + terminal_id
+///
+/// # 1) detach the only view (documented behaviour: the terminal survives)
+/// cmux --session repro tab <tab_id> close
+/// cmux --session repro terminal list                # -> that terminal now has "tab_id": null
+///
+/// # 2) close the now view-less terminal -> session breaks
+/// cmux --session repro terminal <terminal_id> close # reports success, revision advances
+/// ```
+///
+/// Exercise the same lifecycle through the public resource API, then stop and
+/// restart the durable owner. Every list must remain usable and the unrelated
+/// first terminal must survive both the close and restart.
+#[test]
+fn tabless_terminal_close_tombstones_every_resource_row_and_restarts() {
+    let mut harness = RecoveryHarness::start("tabless-terminal-close");
+    let created = resource_request(
+        &harness.socket,
+        "tabless-workspace-create",
+        "workspace.create",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "name":"w1",
+            "initial_content":"terminal",
+        }),
+        Some("tabless-workspace-create"),
+    );
+    let surviving_terminal = created["value"]["terminal_id"].as_str().unwrap().to_string();
+    let second = resource_request(
+        &harness.socket,
+        "tabless-tab-create",
+        "tab.create_terminal",
+        serde_json::json!({"machine":"current","session":"current"}),
+        Some("tabless-tab-create"),
+    );
+    let tab = second["value"]["tab_id"].as_str().unwrap().to_string();
+    let closing_terminal = second["value"]["terminal_id"].as_str().unwrap().to_string();
+
+    resource_request(
+        &harness.socket,
+        "tabless-tab-close",
+        "tab.close",
+        serde_json::json!({"machine":"current","session":"current","tab":tab}),
+        Some("tabless-tab-close"),
+    );
+    let terminals = resource_request(
+        &harness.socket,
+        "tabless-terminal-list-before-close",
+        "terminal.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    let detached = terminals
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|terminal| terminal["id"] == closing_terminal)
+        .expect("detached terminal disappeared before explicit close");
+    assert!(
+        detached["tab_ids"].as_array().is_none_or(Vec::is_empty),
+        "terminal still had a tab view after tab.close: {detached}"
+    );
+
+    resource_request(
+        &harness.socket,
+        "tabless-terminal-close",
+        "terminal.close",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":closing_terminal,
+        }),
+        Some("tabless-terminal-close"),
+    );
+
+    for (index, operation) in [
+        "workspace.list",
+        "screen.list",
+        "pane.list",
+        "tab.list",
+        "terminal.list",
+        "notification.list",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let listed = resource_request(
+            &harness.socket,
+            &format!("tabless-list-{index}"),
+            operation,
+            serde_json::json!({"machine":"current","session":"current"}),
+            None,
+        );
+        assert!(listed.is_array(), "{operation} failed after tab-less close: {listed}");
+    }
+    let terminals = resource_request(
+        &harness.socket,
+        "tabless-survivor-before-restart",
+        "terminal.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    assert!(
+        terminals.as_array().unwrap().iter().any(|terminal| terminal["id"] == surviving_terminal),
+        "surviving terminal disappeared after tab-less close: {terminals}"
+    );
+    assert!(
+        !terminals.as_array().unwrap().iter().any(|terminal| terminal["id"] == closing_terminal)
+    );
+
+    let stop = Command::new(bin())
+        .args(["--json", "--session", &harness.session, "server", "stop", "--socket"])
+        .arg(&harness.socket)
+        .output()
+        .unwrap();
+    assert!(stop.status.success(), "server stop failed: {}", String::from_utf8_lossy(&stop.stderr));
+    let mut child = harness.child.take().unwrap();
+    child.wait().unwrap();
+    harness.restart();
+
+    let restarted = resource_request(
+        &harness.socket,
+        "tabless-survivor-after-restart",
+        "terminal.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    assert!(
+        restarted.as_array().unwrap().iter().any(|terminal| terminal["id"] == surviving_terminal),
+        "surviving terminal did not recover after restart: {restarted}"
+    );
+    assert!(
+        !restarted.as_array().unwrap().iter().any(|terminal| terminal["id"] == closing_terminal)
+    );
+}
+
 #[test]
 fn keep_on_exit_terminal_close_cleans_up_the_live_tab_and_surface() {
     let harness = RecoveryHarness::start("keep-on-exit-close");

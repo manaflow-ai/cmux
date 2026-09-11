@@ -103,6 +103,37 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
         )
     }
 
+    @discardableResult
+    public func removeRouteIfAuthorized(
+        macDeviceID: String,
+        route: CmxAttachRoute,
+        condition: MobilePairedMacRouteWriteCondition,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws -> Bool {
+        let team = await resolvedTeam(teamID)
+        let instanceTag: String?
+        switch condition {
+        case .matchingInstanceTag(let tag): instanceTag = tag
+        case .unclaimed: instanceTag = nil
+        }
+        let scope = try await visibleScope(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: team
+        )
+        return try await inner.removeRouteIfAuthorized(
+            macDeviceID: macDeviceID,
+            route: route,
+            condition: condition,
+            stackUserID: scope.stackUserID,
+            teamID: scope.teamID,
+            now: now
+        )
+    }
+
     /// Load paired Macs scoped to the explicit team when present or the
     /// currently-selected team otherwise.
     public func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {

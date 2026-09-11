@@ -60,7 +60,7 @@ describe("coderouter credential refresh coordination", () => {
     await didClaim;
     await expect(refresh(input())).rejects.toBeInstanceOf(CodeRouterRefreshBusy);
     releaseProvider();
-    expect((await first).refreshToken).toBe("new-refresh");
+    expect(((await first) as CodexCredential).refreshToken).toBe("new-refresh");
   });
 
   test("an abandoned lease becomes claimable after expiry", async () => {
@@ -76,7 +76,7 @@ describe("coderouter credential refresh coordination", () => {
     const refresh = createCredentialRefresher(dependencies);
     await expect(refresh(input())).rejects.toBeInstanceOf(CodeRouterRefreshBusy);
     now = 1_001;
-    expect((await refresh(input())).accessToken).toBe("new-access");
+    expect(((await refresh(input())) as CodexCredential).accessToken).toBe("new-access");
   });
 
   test("persists a rotated provider refresh token at the next revision", async () => {
@@ -88,9 +88,9 @@ describe("coderouter credential refresh coordination", () => {
         completed = value;
       },
     }));
-    const result = await refresh(input());
+    const result = (await refresh(input())) as CodexCredential;
     expect(result.refreshToken).toBe("new-refresh");
-    expect(completed?.credential.refreshToken).toBe("new-refresh");
+    expect((completed?.credential as CodexCredential | undefined)?.refreshToken).toBe("new-refresh");
     expect(completed?.encrypted.credentialRevision).toBe(2);
   });
 

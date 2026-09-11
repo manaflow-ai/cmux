@@ -5,6 +5,10 @@ import {
 
 
 const DEFAULT_STACK_API_URL = "https://api.stack-auth.com/api/v1";
+const PRODUCTION_CODEROUTER_HOSTS = new Set([
+  "coderouter.dev",
+  "www.coderouter.dev",
+]);
 
 // This metadata is informational for now. Keep the legacy `version` field
 // below for clients that already consume the config response, and do not gate
@@ -45,7 +49,7 @@ export function GET(request: Request): Response {
         publishableClientKey,
         // Start and complete the CLI login against the same deployment so the
         // confirmation page uses the Stack project that issued the login code.
-        confirmUrl: new URL("/handler/cli-auth-confirm", request.url).toString(),
+        confirmUrl: cliAuthConfirmationURL(request),
       },
       coderouter: {
         sessionUrl: new URL("/api/coderouter/session", request.url).toString(),
@@ -72,6 +76,24 @@ export function GET(request: Request): Response {
       },
     },
   );
+}
+
+/**
+ * Keep the CodeRouter data plane on its dedicated host while sending browser
+ * sign-in through cmux.com's canonical auth surface. The Stack login code is
+ * issued by the same deployment and remains in the CLI confirmation query.
+ * Non-production and explicitly configured hosts stay on their own origin.
+ */
+function cliAuthConfirmationURL(request: Request): string {
+  const url = new URL("/handler/cli-auth-confirm", request.url);
+  if (
+    url.protocol === "https:" &&
+    PRODUCTION_CODEROUTER_HOSTS.has(url.hostname)
+  ) {
+    url.hostname = "cmux.com";
+    url.port = "";
+  }
+  return url.toString();
 }
 
 function unavailableResponse(): Response {

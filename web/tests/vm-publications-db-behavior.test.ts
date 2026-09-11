@@ -82,7 +82,7 @@ async function createActivePublication(input: {
   readonly ownerUserId?: string;
   readonly accessMode?: "personal" | "team" | "public";
   readonly teamId?: string | null;
-}): Promise<CloudVmPublicationTarget> {
+}): Promise<CloudVmPublicationTarget & { readonly domain: NonNullable<CloudVmPublicationTarget["domain"]> }> {
   const repo = requiredRepository();
   const ownerUserId = input.ownerUserId ?? `owner-${input.suffix}`;
   const accessMode = input.accessMode ?? "personal";

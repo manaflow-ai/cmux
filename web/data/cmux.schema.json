@@ -1415,29 +1415,6 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "defaultEngine": {
-          "type": "string",
-          "enum": ["auto", "webkit", "chromium"],
-          "default": "auto",
-          "descriptionKey": "schemaDescriptions.browser.defaultEngine",
-          "description": "Rendering engine for newly-created embedded browser panes. Auto follows the system default browser; explicit WebKit or Chromium choices override it. Chromium runs out of process."
-        },
-        "chromiumExtensionDirectories": {
-          "type": "string",
-          "default": "",
-          "descriptionKey": "schemaDescriptions.browser.chromiumExtensionDirectories",
-          "description": "Newline-separated absolute paths to unpacked Chromium extension directories loaded into new Chromium panes."
-        },
-        "remoteDebuggingPort": {
-          "type": "integer",
-          "oneOf": [
-            { "const": 0 },
-            { "minimum": 1024, "maximum": 65535 }
-          ],
-          "default": 0,
-          "descriptionKey": "schemaDescriptions.browser.remoteDebuggingPort",
-          "description": "Loopback-only Chromium CDP port. Zero disables external CDP attachment; otherwise use a port from 1024 through 65535."
-        },
         "defaultSearchEngine": {
           "type": "string",
           "enum": ["google", "duckduckgo", "bing", "kagi", "startpage", "brave", "perplexity", "exa", "yahoo", "ecosia", "qwant", "mojeek", "wikipedia", "github", "baidu", "yandex", "custom"],
@@ -1631,7 +1608,7 @@
     },
     "fileEditor": {
       "title": "fileEditor",
-      "description": "Built-in plain-text file editor settings.",
+      "description": "Built-in file editor settings.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -1640,6 +1617,38 @@
           "default": false,
           "description": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
           "descriptionKey": "schemaDescriptions.fileEditor.wordWrap"
+        },
+        "syntaxHighlighting": {
+          "type": "boolean",
+          "default": true,
+          "description": "Color source tokens in the built-in file editor.",
+          "descriptionKey": "schemaDescriptions.fileEditor.syntaxHighlighting"
+        },
+        "lineNumbers": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a line-number gutter in the built-in file editor.",
+          "descriptionKey": "schemaDescriptions.fileEditor.lineNumbers"
+        },
+        "indentGuides": {
+          "type": "boolean",
+          "default": true,
+          "description": "Draw vertical indent guides in the built-in file editor.",
+          "descriptionKey": "schemaDescriptions.fileEditor.indentGuides"
+        },
+        "currentLineHighlight": {
+          "type": "boolean",
+          "default": true,
+          "description": "Highlight the caret's line when the selection is empty.",
+          "descriptionKey": "schemaDescriptions.fileEditor.currentLineHighlight"
+        },
+        "tabWidth": {
+          "type": "integer",
+          "default": 4,
+          "minimum": 1,
+          "maximum": 8,
+          "description": "Columns per tab stop for indent guides.",
+          "descriptionKey": "schemaDescriptions.fileEditor.tabWidth"
         }
       }
     },

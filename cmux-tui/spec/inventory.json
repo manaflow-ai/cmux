@@ -31,6 +31,8 @@
     "frontend_projection.put",
     "machine.get",
     "machine.list",
+    "notification.ack",
+    "notification.clear",
     "notification.create",
     "notification.list",
     "pairing_request.list",
@@ -162,6 +164,7 @@
       "list-clients",
       "list-terminals",
       "list-workspaces",
+      "machine-listening-tcp",
       "machine-usage",
       "move-tab",
       "move-terminal",
@@ -304,6 +307,12 @@
       "name": "config-reload-requested",
       "streams": [
         "subscribe"
+      ]
+    },
+    {
+      "name": "daemon-shutdown",
+      "streams": [
+        "control"
       ]
     },
     {

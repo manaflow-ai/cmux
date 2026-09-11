@@ -51,6 +51,19 @@ if ! command -v cargo &> /dev/null || ! cargo --version &> /dev/null; then
     exit 1
 fi
 
+# The Cloud tunnel system extension embeds wireguard-go, built by
+# scripts/build-wireguard-go.sh. Release builds require Go; a Debug build
+# without it gets a stub engine (the extension cannot load in a Debug build
+# anyway), so this is advisory rather than fatal.
+echo "==> Checking for Go (Cloud tunnel extension)..."
+export PATH="/usr/local/go/bin:${HOME}/go/bin:${PATH}"
+if command -v go &> /dev/null; then
+    go version
+else
+    echo "Note: go is not installed; Debug builds will use a stub WireGuard engine."
+    echo "Install via: brew install go (required for Release builds)"
+fi
+
 "$SCRIPT_DIR/ensure-ghosttykit.sh"
 
 "$SCRIPT_DIR/install-git-hooks.sh"

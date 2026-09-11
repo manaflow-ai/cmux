@@ -94,8 +94,11 @@ public struct CMUXMobileRootScene: View {
     /// store and the in-app diagnostics exporter.
     #if os(iOS)
     private let diagnosticLog: DiagnosticLog
+    /// App-wide durable logs used by Settings' single ZIP export.
+    private let appLog: AppLog?
     #else
     private let diagnosticLog: DiagnosticLog?
+    private let appLog: AppLog?
     #endif
 
     #if os(iOS)
@@ -129,6 +132,8 @@ public struct CMUXMobileRootScene: View {
     ///     by Iroh discovery, persistence, and connection validation.
     ///   - signOutHook: Ordered local and remote service teardown for sign-out.
     ///   - diagnosticLog: The privacy-safe structured connection log.
+    ///   - appLog: The durable app and networking log used by the unified
+    ///     Diagnostics export.
     public init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
@@ -146,7 +151,8 @@ public struct CMUXMobileRootScene: View {
         personalIrohForget: (any MobileIrohMacForgetting)? = nil,
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         signOutHook: MobileSignOutHook,
-        diagnosticLog: DiagnosticLog
+        diagnosticLog: DiagnosticLog,
+        appLog: AppLog? = nil
     ) {
         self.runtime = runtime
         self.auth = auth
@@ -167,6 +173,7 @@ public struct CMUXMobileRootScene: View {
         self.pairedMacStore = Self.openPairedMacStore(diagnosticLog: diagnosticLog)
         self.draftStore = InMemoryTerminalDraftStore()
         self.diagnosticLog = diagnosticLog
+        self.appLog = appLog
         _toastCenter = State(initialValue: ToastCenter(diagnosticLog: diagnosticLog))
         _whatsNewCenter = State(
             initialValue: MobileWhatsNewCenter(apiBaseURL: auth.config.apiBaseURL)
@@ -203,6 +210,7 @@ public struct CMUXMobileRootScene: View {
         self.pairedMacStore = Self.openPairedMacStore(diagnosticLog: nil)
         self.draftStore = InMemoryTerminalDraftStore()
         self.diagnosticLog = nil
+        self.appLog = nil
         _toastCenter = State(initialValue: ToastCenter())
     }
     #endif
@@ -398,6 +406,7 @@ public struct CMUXMobileRootScene: View {
             .environment(auth.coordinator)
             .analytics(analytics)
             .environment(\.mobileDiagnosticLog, diagnosticLog)
+            .environment(\.mobileAppLog, appLog)
             .tailscaleStatusMonitor(tailscaleStatusMonitor)
             #if os(iOS)
             .environment(pushCoordinator)
@@ -547,7 +556,7 @@ public struct CMUXMobileRootScene: View {
         // never race the root view's async policy push and admit a Mac under
         // a stale floor. The root view still refreshes from the network and
         // pushes updates.
-        store.macCompatPolicy = macCompatCenter.policy
+        store.applyMacCompatibilityPolicy(macCompatCenter.policy)
         #endif
         return store
     }

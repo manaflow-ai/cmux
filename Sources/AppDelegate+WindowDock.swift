@@ -2,6 +2,12 @@ import AppKit
 import CmuxTerminal
 
 extension AppDelegate.MainWindowContext {
+    /// Cancels work scoped to this context before the window owner releases it.
+    func teardownWindowOwnedWork() {
+        tabManager.workspaceSwitchCoordinator.cancel()
+        teardownWindowDock()
+    }
+
     /// The Dock for this window, created on first access and retained through
     /// context replacement. Session restore wins; otherwise global config seeds it.
     func windowDockStore(notificationStore: TerminalNotificationStore?) -> DockSplitStore {

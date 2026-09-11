@@ -1,24 +1,29 @@
 import CmuxSettings
 import Foundation
 
-/// Whether the Cloud Machines surfaces are available: the remote rollout flag
-/// or the local Beta Features opt-in. Every entry point (right-sidebar Cloud
-/// tab, Settings section, command palette, titlebar button, new-workspace
-/// menu) funnels through this gate so a nightly user who flips the beta
-/// toggle gets exactly the surfaces a remote rollout would enable.
+/// Whether the Cloud Machines surfaces are available: the local Beta Features
+/// opt-in (`Settings › Beta Features › Cloud Machines`, also
+/// `cloud.beta.machines.enabled` in `cmux.json`), unless a managed profile
+/// disables Cloud. Off by default on every build. Every entry point
+/// (right-sidebar Cloud tab, Settings section, command palette) and every
+/// launch-time Cloud subsystem (``CloudActivationPolicy``) funnels through
+/// this gate, so the toggle is the only way in.
 enum CloudMachinesFeature {
-    @MainActor
     static var isEnabled: Bool {
-        isEnabled(defaults: .standard, remoteEnabled: CmuxFeatureFlags.shared.isCloudVMUIEnabled)
+        offMainIsEnabled()
     }
 
-    /// Off-main mirror for the right-sidebar mode availability path.
+    /// The same answer from any isolation (right-sidebar mode availability,
+    /// the activation policy).
     nonisolated static func offMainIsEnabled(defaults: UserDefaults = .standard) -> Bool {
-        CmuxFeatureFlags.offMainIsCloudVMUIEnabled || localOptIn(defaults: defaults)
+        guard !ManagedDevicePolicy().isEnforced(.disableCloud) else { return false }
+        return localOptIn(defaults: defaults)
     }
 
-    nonisolated static func isEnabled(defaults: UserDefaults, remoteEnabled: Bool) -> Bool {
-        remoteEnabled || localOptIn(defaults: defaults)
+    /// The gate over an explicit managed-policy resolver and defaults, for tests.
+    nonisolated static func isEnabled(defaults: UserDefaults, policy: ManagedDevicePolicy) -> Bool {
+        guard !policy.isEnforced(.disableCloud) else { return false }
+        return localOptIn(defaults: defaults)
     }
 
     nonisolated static func localOptIn(defaults: UserDefaults) -> Bool {

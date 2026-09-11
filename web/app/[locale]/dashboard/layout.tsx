@@ -1,19 +1,25 @@
 import { StackProvider, StackTheme } from "@stackframe/stack";
-import { getTranslations } from "next-intl/server";
+import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import {
   DashboardAuthorizationUnavailableError,
-  dashboardAuthorizationSignInHref,
   dashboardReturnPath,
+  optionalDashboardUser,
   requireDashboardUser,
 } from "@/app/lib/dashboard-auth";
-import { getStackServerApp } from "@/app/lib/stack";
+import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { isVaultEnabled } from "@/services/vault/config";
 import { DashboardQueryProvider } from "./components/query-provider";
+import {
+  DashboardAccountMenu,
+  DashboardAccountMenuFallback,
+} from "./dashboard-account-menu";
 import { DashboardShell } from "./dashboard-shell";
 
-// A cold entry must finish the server session check before any dashboard UI.
-// Sibling pages below this layout can still use instant navigation.
-export const instant = false;
+// The shell is static. Every session read sits behind its own Suspense
+// boundary, so navigations into and between dashboard pages paint the
+// sidebar and page frames from the prefetched app shell.
+export const instant = true;
 
 export default async function DashboardLayout({
   children,
@@ -23,41 +29,49 @@ export default async function DashboardLayout({
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await params;
-  const returnPath = await dashboardReturnPath();
-  try {
-    await requireDashboardUser(locale, returnPath);
-  } catch (error) {
-    if (!(error instanceof DashboardAuthorizationUnavailableError)) {
-      throw error;
-    }
-    // Keep the private shell out of the response when Stack is unavailable.
-    // The recovery link preserves the exact dashboard destination.
-    const t = await getTranslations({ locale, namespace: "authError" });
-    return (
-      <main className="mx-auto w-full max-w-5xl px-3 py-8">
-        <section className="max-w-xl border border-border p-4">
-          <h1 className="text-sm font-medium">{t("genericTitle")}</h1>
-          <p className="mt-2 text-sm text-muted">{t("genericBody")}</p>
-          <a
-            href={dashboardAuthorizationSignInHref(locale, returnPath)}
-            className="mt-4 inline-block border border-border bg-foreground px-3 py-1.5 text-sm text-background focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
-          >
-            {t("backToSignIn")}
-          </a>
-        </section>
-      </main>
-    );
-  }
+  if (!isStackConfigured()) redirect("/");
 
   return (
     <StackProvider app={getStackServerApp()}>
       <StackTheme>
         <DashboardQueryProvider>
-          <DashboardShell vaultEnabled={isVaultEnabled()}>
+          <DashboardShell
+            vaultEnabled={isVaultEnabled()}
+            account={
+              <Suspense fallback={<DashboardAccountMenuFallback />}>
+                <DashboardAccountSlot />
+              </Suspense>
+            }
+          >
+            <Suspense fallback={null}>
+              <DashboardSessionGuard locale={locale} />
+            </Suspense>
             {children}
           </DashboardShell>
         </DashboardQueryProvider>
       </StackTheme>
     </StackProvider>
   );
+}
+
+// Streams the identity row once the session resolves; signed-out visitors
+// get the sign-in control while the middleware redirect completes. Every
+// other server read in this render shares the same cached session.
+async function DashboardAccountSlot() {
+  const user = await optionalDashboardUser();
+  return <DashboardAccountMenu user={user} />;
+}
+
+// Middleware already turns away requests with no session cookie. This covers
+// a cookie whose session Stack rejects, for pages with no private section of
+// their own, without holding the page content behind the check.
+async function DashboardSessionGuard({ locale }: { locale: string }) {
+  try {
+    await requireDashboardUser(locale, await dashboardReturnPath());
+  } catch (error) {
+    // An outage is reported inside each private section. Redirects and
+    // unknown failures still propagate.
+    if (!(error instanceof DashboardAuthorizationUnavailableError)) throw error;
+  }
+  return null;
 }

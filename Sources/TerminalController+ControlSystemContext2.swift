@@ -263,8 +263,7 @@ extension TerminalController {
                 inPane: paneId,
                 url: url,
                 focus: focus,
-                creationPolicy: .automationPreload,
-                engine: workspace.browserPanel(for: panelId)?.engineKind
+                creationPolicy: .automationPreload
             ) else {
                 return .createFailed
             }

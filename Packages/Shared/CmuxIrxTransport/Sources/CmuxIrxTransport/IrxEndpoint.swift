@@ -108,6 +108,18 @@ public actor IrxEndpointSupervisor {
         return driver.addr().relayUrl()
     }
 
+    /// Returns the endpoint's current direct candidates. Iroh owns candidate
+    /// discovery and NAT traversal; IRX only exposes the observed values so
+    /// the host can publish safe public hints and the client can seed the
+    /// authenticated LAN fallback. The relay-only policy deliberately returns
+    /// no candidates.
+    public func localDirectAddresses() -> [String] {
+        guard configuration.pathMode != .relayOnly,
+              let driver,
+              !driver.isClosed() else { return [] }
+        return driver.addr().directAddresses()
+    }
+
     /// One accepted inbound connection, routed by the ALPN the dialer spoke.
     public enum AcceptedInbound: Sendable {
         case irx(IrxConnection)
@@ -171,6 +183,64 @@ public actor IrxEndpointSupervisor {
                 journal.record(
                     "endpoint", "relay-credential-rotation-failed",
                     ["relay": credential.relayURL, "error": String(describing: error)]
+                )
+            }
+        }
+    }
+
+    /// Rotates relay credentials only while the caller still owns the current
+    /// autopilot lifecycle. The ownership check is deliberately inside this
+    /// actor, after any broker await in the caller, so an older refresh task
+    /// cannot mutate a newer endpoint lifecycle.
+    func rotateCredentialsIfCurrent(
+        _ credentials: [IrxRelayCredential],
+        rotationGeneration: UInt64,
+        gate: IrxRelayCredentialRotationGate
+    ) async {
+        guard await gate.isCurrent(rotationGeneration) else { return }
+        guard !deactivated else { return }
+        guard let driver, !driver.isClosed() else { return }
+        let endpointGeneration = generation
+        for credential in credentials {
+            let result = await gate.withCurrentMutation(rotationGeneration) {
+                do {
+                    try await driver.insertRelay(
+                        config: RelayConfig(
+                            url: credential.relayURL,
+                            quicPort: nil,
+                            authToken: credential.token
+                        )
+                    )
+                    return IrxRelayCredentialMutationResult.success
+                } catch {
+                    return IrxRelayCredentialMutationResult.failure(
+                        String(describing: error)
+                    )
+                }
+            }
+            guard let result else { return }
+            switch result {
+            case .success:
+                guard await gate.isCurrent(rotationGeneration),
+                      !deactivated,
+                      generation == endpointGeneration,
+                      let currentDriver = self.driver,
+                      !currentDriver.isClosed()
+                else { return }
+                installedRelayURLs.insert(credential.relayURL)
+                journal.record(
+                    "endpoint", "relay-credential-rotated",
+                    [
+                        "relay": credential.relayURL,
+                        "expires_at": ISO8601DateFormatter().string(from: credential.expiresAt),
+                        "generation": String(generation),
+                    ]
+                )
+            case .failure(let error):
+                guard await gate.isCurrent(rotationGeneration) else { return }
+                journal.record(
+                    "endpoint", "relay-credential-rotation-failed",
+                    ["relay": credential.relayURL, "error": error]
                 )
             }
         }
@@ -277,7 +347,9 @@ public actor IrxEndpointSupervisor {
         // old stack's launch race; callers await readiness instead. Bounded:
         // a relay that never admits us (e.g. a silently refused wrong-key
         // token) must fail the bind loudly, not hang activation forever.
-        let cameOnline = try await withIrxDeadline(.seconds(20)) {
+        let cameOnline = try await withIrxDeadline(.seconds(20), onTimeout: {
+            try? await bound.close()
+        }) {
             await bound.online()
             return true
         }

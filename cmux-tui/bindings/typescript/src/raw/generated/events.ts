@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8. */
+/* cmux-tui mux protocol 12, IR 8ff10c20fef75f9aaa1498eaf5e1107f084bdcf3febdcf8806fb4e7fc1c90b86. */
 
 
 import type * as T from "./types.js";
@@ -71,6 +71,10 @@ export type ColorsChangedEvent = { event: "colors-changed" } & {
 
 /** Protocol v6; emission: emitted; streams: subscribe. */
 export type ConfigReloadRequestedEvent = { event: "config-reload-requested" } & {
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type DaemonShutdownEvent = { event: "daemon-shutdown" } & {
 };
 
 /** Protocol v5; emission: emitted; streams: attach-byte, attach-render, attach-browser. */
@@ -406,6 +410,7 @@ export type KnownCmuxEvent =
   | ClientDetachedEvent
   | ColorsChangedEvent
   | ConfigReloadRequestedEvent
+  | DaemonShutdownEvent
   | DetachedEvent
   | EmptyEvent
   | FrameEvent

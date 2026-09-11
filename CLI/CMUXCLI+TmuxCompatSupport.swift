@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CmuxFoundation
 import Foundation
 
 extension CMUXCLI {
@@ -421,14 +422,7 @@ extension CMUXCLI {
     }
 
     func prependPathEntries(_ newEntries: [String], to currentPath: String?) -> String {
-        var ordered: [String] = []
-        var seen: Set<String> = []
-        for entry in newEntries + (currentPath?.split(separator: ":").map(String.init) ?? []) where !entry.isEmpty {
-            if seen.insert(entry).inserted {
-                ordered.append(entry)
-            }
-        }
-        return ordered.joined(separator: ":")
+        CmuxPathEnvironment.prependingUniqueEntries(newEntries, to: currentPath)
     }
 
 }

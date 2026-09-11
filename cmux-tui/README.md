@@ -77,6 +77,13 @@ The old top-level remote commands and `remote-stop` remain compatibility
 aliases for one release cycle. Detached local startup is deferred until cmux
 has an explicit supervisor and readiness contract.
 
+Cloud links can share one user-space WireGuard peer through `cmux wg hub`.
+The hub reads an owner-only WireGuard config, exposes an owner-only Unix SOCKS5
+socket, and accepts only literal IP addresses inside `AllowedIPs`. Clients use
+`remote connect --wireguard-hub <socket>`. Packagers must check that
+`remote-probe --json` reports the `wireguard-hub` capability before they ship a
+desktop build that requires private Cloud routes.
+
 Resource IDs are opaque typed strings. Selectors also accept `current` or an exact name. Duplicate names return `selector.ambiguous` with every candidate ID; use an ID to choose one. Prefix a reserved or ID-shaped name with `name:`.
 
 Packaged builds can run as `npx cmux`. The optional machine rail lets that local client switch among the current session, Unix sockets, and SSH sessions. It is disabled by default and activates when machine sidebar settings or a valid `machines` entry enable it. Packaged releases install a pinned remote binary when needed; source builds require the exact matching binary remotely. SSH remains noninteractive with strict host-key checking and disabled forwarding. See [Machines and remote sessions](docs/machines.md).

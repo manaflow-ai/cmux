@@ -606,6 +606,14 @@ def runtime_event_stream_hints() -> dict[str, set[str]]:
 
     add(function_event_names(server, "subscribed_event_json"), "subscribe")
     add(function_event_names(server, "tree_delta_json"), "subscribe-deltas")
+    if re.search(
+        r"\bfn\s+complete_daemon_shutdown_after_ack(?:\s*<[^>]*>)?\s*\(",
+        server,
+    ):
+        add(
+            function_event_names(server, "complete_daemon_shutdown_after_ack"),
+            "control",
+        )
     add(
         first_function_event_names(server, "render_state_message", "render_state_json"),
         "attach-render",

@@ -78,7 +78,10 @@ struct DisconnectedWorkspaceShellView: View {
                     if let showComputers {
                         ToolbarItem(placement: .topBarLeading) {
                             Button(action: showComputers) {
-                                Image(systemName: "desktopcomputer")
+                                MobileDevicesToolbarLabel(
+                                    gateWarningDeviceIDs: store?.macVersionUpdateRequiredDeviceIDs ?? [],
+                                    computerDeviceIDs: savedComputerDeviceIDs
+                                )
                             }
                             .accessibilityLabel(L10n.string(
                                 "mobile.connections.title",
@@ -105,15 +108,17 @@ struct DisconnectedWorkspaceShellView: View {
                     // known/restored Mac shows up here for one-tap reconnect.
                     // Same-account discovery is the primary path. Manual pairing
                     // is available only when the root supplies its Tailscale action.
-                    await store?.loadPairedMacs()
+                    async let pairedMacs: Void = store?.loadPairedMacs() ?? ()
+                    await pairedMacs
                     #if os(iOS)
+                    async let registryDevices: Void = store?.loadRegistryDevices() ?? ()
                     // Registry + presence enrich the rows (online dots, build
                     // labels). The loop then keeps presence and last-seen fresh
                     // while the app is parked on this screen; like the Computers
                     // screen it deliberately does NOT dial offline Macs (see
                     // `refreshComputersScreen()`), so no reconnect storm.
                     // Cancellation is wired to this `.task`'s lifecycle.
-                    await store?.loadRegistryDevices()
+                    await registryDevices
                     while !Task.isCancelled {
                         try? await Task.sleep(for: .seconds(10))
                         guard !Task.isCancelled else { break }
@@ -155,6 +160,15 @@ struct DisconnectedWorkspaceShellView: View {
     /// shows, so a Mac paired under several stored ids is one row here too.
     private var savedComputers: [MacComputerSnapshot] {
         store.map { MacComputerSnapshot.snapshots(from: $0) } ?? []
+    }
+
+    /// The Computers sheet includes both shown and hidden rows, so both sets
+    /// participate in the toolbar warning scope while this screen is open.
+    private var savedComputerDeviceIDs: Set<String> {
+        Set(
+            savedComputers.map(\.deviceId)
+                + (store?.hiddenComputers.map(\.macDeviceID) ?? [])
+        )
     }
 
     @ViewBuilder

@@ -330,6 +330,9 @@ extension ControlCommandCoordinator {
 
     /// `surface.split` — split a surface into a new pane.
     func surfaceSplit(_ params: [String: JSONValue]) -> ControlCallResult {
+        if let error = incompatibleTerminalCreationInputError(params) {
+            return error
+        }
         let routing = routingSelectors(params)
         guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -355,17 +358,15 @@ extension ControlCommandCoordinator {
         }
         let parsedDivider = initialDividerPosition(params)
         if let error = parsedDivider.error { return error }
-        let parsedEngine = browserEngineParameter(params)
-        if let error = parsedEngine.error { return error }
 
         let inputs = ControlSurfaceSplitInputs(
             directionRaw: directionRaw,
             typeRaw: string(params, "type"),
             urlRaw: string(params, "url"),
-            engine: parsedEngine.engine,
             requestedSourceSurfaceID: uuid(params, "surface_id"),
             workingDirectory: optionalTrimmedRawString(params, "working_directory"),
             initialCommand: optionalTrimmedRawString(params, "initial_command"),
+            initialInput: nonBlankRawString(params, "initial_input"),
             tmuxStartCommand: optionalTrimmedRawString(params, "tmux_start_command"),
             remotePTYSessionID: optionalTrimmedRawString(params, "remote_pty_session_id"),
             remoteContextRaw: optionalTrimmedRawString(params, "remote_context"),
@@ -516,22 +517,22 @@ extension ControlCommandCoordinator {
 
     /// `surface.create` — create a surface in a pane.
     func surfaceCreate(_ params: [String: JSONValue]) -> ControlCallResult {
+        if let error = incompatibleTerminalCreationInputError(params) {
+            return error
+        }
         let routing = routingSelectors(params)
         guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-
-        let parsedEngine = browserEngineParameter(params)
-        if let error = parsedEngine.error { return error }
 
         let inputs = ControlSurfaceCreateInputs(
             typeRaw: string(params, "type"),
             providerRaw: string(params, "provider_id") ?? string(params, "provider"),
             rendererRaw: string(params, "renderer_kind") ?? string(params, "renderer"),
             urlRaw: string(params, "url"),
-            engine: parsedEngine.engine,
             workingDirectory: optionalTrimmedRawString(params, "working_directory"),
             initialCommand: optionalTrimmedRawString(params, "initial_command"),
+            initialInput: nonBlankRawString(params, "initial_input"),
             tmuxStartCommand: optionalTrimmedRawString(params, "tmux_start_command"),
             remotePTYSessionID: optionalTrimmedRawString(params, "remote_pty_session_id"),
             remoteContextRaw: optionalTrimmedRawString(params, "remote_context"),

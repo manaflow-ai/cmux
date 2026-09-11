@@ -586,10 +586,10 @@ extension MobileShellComposite {
     /// Reconnects an already-paired Mac through its full route set.
     ///
     /// This path is used only when the set contains an authenticated Iroh peer
-    /// route or an exact locally grandfathered Tailscale route. Iroh pins the
-    /// pairing and removes raw fallbacks; the Tailscale exception is bound to
-    /// the previously paired device, address, and port. The synthetic ticket
-    /// names the already-paired device and never creates a new pairing.
+    /// route or an exact locally authorized Tailscale route. Automatic and
+    /// Direct use Iroh; Tailscale uses only the authorized Tailscale endpoint.
+    /// The synthetic ticket names the already-paired device and never creates a
+    /// new pairing.
     func connectStoredMacRoutes(
         name: String,
         routes: [CmxAttachRoute],
@@ -622,9 +622,9 @@ extension MobileShellComposite {
         }
     }
 
-    /// Connects an existing pairing through its strongest supported transport.
-    /// A supported Iroh identity pins the attempt to Iroh. Raw Tailscale/custom
-    /// host routes remain available only for legacy pairings without Iroh.
+    /// Connects an existing pairing through its selected transport. Automatic
+    /// and Direct may use Iroh. Tailscale uses only an exact locally authorized
+    /// Tailscale route, even when the pairing also advertises Iroh.
     @discardableResult
     func connectStoredMac(
         name: String,
@@ -653,7 +653,7 @@ extension MobileShellComposite {
         instanceTag: String? = nil,
         ifStillCurrent: (() -> Bool)? = nil
     ) async {
-        await connectManualHost(
+        _ = await connectManualHost(
             name: name,
             host: host,
             port: port,
@@ -741,22 +741,22 @@ extension MobileShellComposite {
                 forMacDeviceID: pairedMacDeviceID,
                 instanceTag: instanceTagExpectation.expectedTag
             )
-        // Direct and Tailscale Only ride the Iroh lane below: identity-checked
-        // and encrypted, with transport admission as the single auth
-        // authority. The method's addresses (user-enabled Direct entries, or
-        // the pairing's numeric Tailscale addresses) are the COMPLETE per-dial
-        // path allowlist (no relay, no advertised or discovered paths), so
-        // resolve them from the caller's fresh row first for the same
-        // startup-restore reason as the method above, and fail closed when
-        // nothing is dialable. Raw host/port dialing cannot carry the account
-        // credential (plaintext TCP), so it stays reserved for legacy
-        // pairings without an Iroh identity (nil candidates below).
-        let methodPinnedCandidates = irohMethodPinnedDialCandidates(
-            forMacDeviceID: pairedMacDeviceID,
-            instanceTag: instanceTagExpectation.expectedTag,
-            knownPairing: knownPairing
-        ) ?? (resolvedMethod == .direct ? [] : nil)
+        // Direct is the only method that supplies an Iroh address allowlist.
+        // Tailscale selects an authorized raw Tailscale route below and must
+        // never be converted into an Iroh dial, even when both route kinds are
+        // advertised by the pairing.
+        let methodPinnedCandidates: [CmxIrohDirectDialCandidate]?
+        if resolvedMethod == .direct {
+            methodPinnedCandidates = irohMethodPinnedDialCandidates(
+                forMacDeviceID: pairedMacDeviceID,
+                instanceTag: instanceTagExpectation.expectedTag,
+                knownPairing: knownPairing
+            ) ?? []
+        } else {
+            methodPinnedCandidates = nil
+        }
         if let methodPinnedCandidates, methodPinnedCandidates.isEmpty {
+            applyOperationalError(MobileShellConnectionError.insecureManualRoute)
             return .failed(.unsupportedRoute)
         }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
@@ -765,7 +765,6 @@ extension MobileShellComposite {
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes,
             tailscaleRequirement: resolvedMethod == .tailscale
-                && methodPinnedCandidates == nil
                 ? Self.TailscaleRouteRequirement(
                     macDeviceID: pairedMacDeviceID,
                     grantRoutes: legacyTailscaleRoutes
@@ -773,11 +772,14 @@ extension MobileShellComposite {
                 : nil
         )
         if methodPinnedCandidates != nil {
-            // A pinned method never rides the dev loopback or any host/port
-            // lane: the allowlist constrains the Iroh dial exclusively.
+            // Direct never rides the dev loopback or any host/port lane: the
+            // allowlist constrains the Iroh dial exclusively.
             pinnedRoutes = pinnedRoutes.filter { $0.kind == .iroh }
         }
-        guard let firstRoute = pinnedRoutes.first else { return .failed(.unsupportedRoute) }
+        guard let firstRoute = pinnedRoutes.first else {
+            applyOperationalError(MobileShellConnectionError.insecureManualRoute)
+            return .failed(.unsupportedRoute)
+        }
 
         var outcome: StoredMacReconnectOutcome = .failed(.unknown)
 
@@ -817,6 +819,7 @@ extension MobileShellComposite {
                     )
                 }
                 if !disconnectForAuthorizationFailureIfNeeded(error) {
+                    applyOperationalError(error)
                     connectionState = .disconnected
                     macConnectionStatus = .unavailable
                     clearRemoteConnectionContext()
@@ -830,7 +833,7 @@ extension MobileShellComposite {
             )
             for route in candidates {
                 guard ifStillCurrent?() ?? true else { return .superseded }
-                await connectManualHost(
+                _ = await connectManualHost(
                     name: name,
                     host: route.host,
                     port: route.port,

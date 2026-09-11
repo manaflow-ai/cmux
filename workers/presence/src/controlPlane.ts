@@ -36,6 +36,7 @@ import type {
   ReleaseTrack,
   Status,
 } from "./generated/controlPlane";
+import { DEFAULT_RETRY_AFTER_SECONDS } from "./retryAfterResponse";
 
 export const CONTROL_PROTOCOL_VERSION = 1;
 
@@ -107,6 +108,10 @@ export const REV_KEY = "ctl:rev";
  * Broker truth only: publish_hint announcements are never folded in, and the
  * DO-owned device overlay is joined in at directory build time, not here. */
 export const DIR_KEY = "ctl:dir";
+/** Account-wide upstream cooldowns survive DO hibernation and prevent a
+ * reconnecting fleet from replaying a Vercel 429 before its deadline. */
+export const DIRECTORY_RETRY_AT_KEY = "ctl:retry:directory";
+export const MINT_RETRY_AT_KEY = "ctl:retry:mint";
 /** Per-endpoint relay-pass mint generation counter (`ctl:gen:<endpointId>`).
  * The broker response carries no generation; passes minted in one batch share
  * one monotonically increasing number so clients can order credential sets. */
@@ -810,6 +815,9 @@ export interface CtlUpstreamInit {
 export interface CtlUpstreamResult {
   status: number;
   json: unknown;
+  /** Parsed Retry-After response header for HTTP 429, with a conservative
+   * fallback supplied by the adapter when the upstream omitted it. */
+  retryAfterSeconds?: number;
 }
 
 export interface CtlDeps {
@@ -984,6 +992,25 @@ export class ControlPlaneCore {
     attachment.wantPasses = payload.wantPasses;
     socket.setAttachment(attachment);
 
+    // One control socket owns an endpoint identity. App and notification
+    // extension lifecycles can race to reconnect with the same identity; let
+    // the new, already-authenticated hello win and close only the older
+    // handshaken socket. Without this ownership rule both sockets continue to
+    // receive directory revisions and each client can tear down the other's
+    // session while trying to recover.
+    for (const candidate of this.deps.sockets()) {
+      if (candidate === socket) continue;
+      const candidateAttachment = candidate.getAttachment();
+      if (!candidateAttachment?.helloed
+        || candidateAttachment.endpointId !== payload.endpointId) continue;
+      try {
+        candidate.close(1000, "superseded");
+      } catch {
+        // already closed
+      }
+      await this.deps.storage.delete(BEARER_PREFIX + candidateAttachment.sessionId);
+    }
+
     // Confirm-on-hello BEFORE reading the head revision: the overlay flip
     // (seeded -> active, plus version/track/capabilities) bumps the revision
     // and broadcasts to peers, and the snapshot this client is about to
@@ -1030,7 +1057,15 @@ export class ControlPlaneCore {
       } else {
         attachment.snapshotPending = true;
         socket.setAttachment(attachment);
-        await this.deps.scheduleAlarmAt(this.deps.now() + SNAPSHOT_RETRY_DELAY_MS);
+        const serverFloor = await this.upstreamCooldownRemainingSeconds(
+          DIRECTORY_RETRY_AT_KEY,
+        );
+        await this.deps.scheduleAlarmAt(
+          this.deps.now() + Math.max(
+            SNAPSHOT_RETRY_DELAY_MS,
+            (serverFloor ?? 0) * 1_000,
+          ),
+        );
       }
       return;
     }
@@ -1205,6 +1240,20 @@ export class ControlPlaneCore {
       ));
       return;
     }
+    // Account and deployment are isolated by the DO. Preserve the upstream
+    // namespace/endpoint boundary across reconnects and hibernation as well.
+    const mintRetryKey = `${MINT_RETRY_AT_KEY}:${JSON.stringify([
+      attachment.namespace ?? "legacy", endpointId.trim().toLowerCase(),
+    ])}`;
+    const activeCooldown = await this.upstreamCooldownRemainingSeconds(mintRetryKey);
+    if (activeCooldown !== null) {
+      this.sendFrame(socket, attachment, errorFrame(
+        "mint_upstream_unavailable",
+        `relay token mint rate limited; retry after ${activeCooldown}s`,
+        true,
+      ));
+      return;
+    }
     const result = await this.upstreamOnceRetry(MINT_PATH, {
       method: "POST",
       headers: upstreamHeaders(credentials, attachment.namespace, true),
@@ -1219,6 +1268,7 @@ export class ControlPlaneCore {
       return;
     }
     if (result.status < 200 || result.status >= 300) {
+      await this.recordUpstreamCooldown(mintRetryKey, result);
       const retryable = result.status >= 500 || result.status === 429;
       this.sendFrame(socket, attachment, errorFrame(
         retryable ? "mint_upstream_unavailable" : "mint_rejected",
@@ -1227,6 +1277,7 @@ export class ControlPlaneCore {
       ));
       return;
     }
+    // An older in-flight success must not erase a newer request's cooldown.
     const generation = ((await this.deps.storage.get<number>(GEN_PREFIX + endpointId)) ?? 0) + 1;
     const passes = passesFromMintResponse(result.json, generation);
     if (passes === null) {
@@ -1570,6 +1621,9 @@ export class ControlPlaneCore {
   private async fetchDirectory(
     attachment: CtlAttachment,
   ): Promise<{ revision: number | null; payload: BrokerDirectoryPayload } | null> {
+    if (await this.upstreamCooldownRemainingSeconds(DIRECTORY_RETRY_AT_KEY) !== null) {
+      return null;
+    }
     const credentials = decodeStoredCredentials(
       await this.deps.storage.get<string>(BEARER_PREFIX + attachment.sessionId),
     );
@@ -1585,8 +1639,38 @@ export class ControlPlaneCore {
       // mutation/relay requests.
       headers: upstreamHeaders(credentials, "legacy", false),
     });
-    if (result === null || result.status < 200 || result.status >= 300) return null;
+    if (result === null) return null;
+    if (result.status < 200 || result.status >= 300) {
+      await this.recordUpstreamCooldown(DIRECTORY_RETRY_AT_KEY, result);
+      return null;
+    }
+    await this.deps.storage.delete(DIRECTORY_RETRY_AT_KEY);
     return directoryPayloadFromDiscovery(result.json);
+  }
+
+  private async recordUpstreamCooldown(
+    key: string,
+    result: CtlUpstreamResult,
+  ): Promise<void> {
+    if (result.status !== 429) return;
+    const seconds = Math.max(
+      1,
+      result.retryAfterSeconds ?? DEFAULT_RETRY_AFTER_SECONDS,
+    );
+    const retryAt = this.deps.now() + seconds * 1_000;
+    const current = await this.deps.storage.get<number>(key);
+    if (current === undefined || retryAt > current) {
+      await this.deps.storage.put(key, retryAt);
+    }
+  }
+
+  private async upstreamCooldownRemainingSeconds(key: string): Promise<number | null> {
+    const retryAt = await this.deps.storage.get<number>(key);
+    if (retryAt === undefined) return null;
+    const remaining = Math.ceil((retryAt - this.deps.now()) / 1_000);
+    if (remaining > 0) return remaining;
+    await this.deps.storage.delete(key);
+    return null;
   }
 
   private async storeDirectory(

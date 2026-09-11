@@ -3,7 +3,7 @@ import Dispatch
 import Foundation
 
 /// Reads repository-controlled Git config files through bounded regular-file I/O.
-nonisolated struct GitConfigFileReader: Sendable {
+struct GitConfigFileReader: Sendable {
     /// The result distinguishes an oversized file from an unavailable path.
     enum ReadResult: Sendable {
         case contents(String, consumedByteCount: Int)
@@ -59,7 +59,7 @@ nonisolated struct GitConfigFileReader: Sendable {
         }
         defer { Darwin.close(descriptor) }
 
-        var metadata = Darwin.stat()
+        var metadata = stat()
         guard Darwin.fstat(descriptor, &metadata) == 0,
               metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG) else {
             return .unavailable(consumedByteCount: 0)
@@ -118,7 +118,7 @@ nonisolated struct GitConfigFileReader: Sendable {
         guard descriptor >= 0 else { return nil }
         defer { Darwin.close(descriptor) }
 
-        var metadata = Darwin.stat()
+        var metadata = stat()
         guard Darwin.fstat(descriptor, &metadata) == 0 else { return nil }
         let kind = metadata.st_mode & mode_t(S_IFMT)
         guard kind == mode_t(S_IFREG) || kind == mode_t(S_IFDIR) else { return nil }

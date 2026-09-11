@@ -457,6 +457,31 @@ Example:
 {"id":4,"ok":true,"data":[{"client":1,"transport":"unix","name":"host","kind":"tui","connected_seconds":12,"attached":[7],"sizes":[{"surface":7,"cols":120,"rows":36,"size_participating":true}],"self":true}]}
 ```
 
+### machine-listening-tcp
+
+| Field | Value |
+| --- | --- |
+| name | `machine-listening-tcp` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `machine-listening-tcp-v1` |
+
+Returns the host's listening TCP socket table. The daemon runs a fixed `ss -H -ltn` command, with fixed `netstat -ltn` compatibility when `ss` is absent. The request accepts no command text. A Cloud client uses this command through its authenticated private cmux-tui link. Routine port discovery does not call the web control plane or the VM provider.
+
+Params: none.
+
+Result:
+
+```text
+object{stdout:string}
+```
+
+Example:
+
+```json
+{"id":8,"cmd":"machine-listening-tcp"}
+{"id":8,"ok":true,"data":{"stdout":"LISTEN 0 128 0.0.0.0:3000 0.0.0.0:*\\n"}}
+```
+
 ### machine-usage
 
 | Field | Value |
