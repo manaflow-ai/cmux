@@ -194,6 +194,89 @@ struct CodexTurnCompletionOwnershipTests {
     }
 
     @Test
+    func transcriptTerminalChildrenSettleMissingNativeStopsWithoutClearingLiveChildren() throws {
+        let harness = try makeHarness(name: "codex-transcript-child-settlement")
+        defer { harness.context.cleanup() }
+
+        try runHook(
+            harness,
+            subcommand: "session-start",
+            input: sessionStartPayload(harness)
+        )
+        try writeCodexLedger(
+            harness,
+            activeChildrenByTurn: [
+                "child-turn-a": ["child-a"],
+                "child-turn-b": ["child-b"],
+            ]
+        )
+
+        let transcriptPath = try writeSubagentTranscript(
+            harness,
+            activities: [
+                (id: "child-a", kind: "interrupted"),
+                (id: "child-b", kind: "started"),
+                (id: "child-b", kind: "interrupted"),
+                (id: "child-b", kind: "interacted"),
+            ]
+        )
+        let beforeLiveChildStop = harness.context.state.snapshot().count
+        try runHook(
+            harness,
+            subcommand: "stop",
+            input: stopPayload(
+                harness,
+                turnId: "turn-1",
+                transcriptPath: transcriptPath
+            )
+        )
+        let liveChildCommands = Array(
+            harness.context.state.snapshot().dropFirst(beforeLiveChildStop)
+        )
+        #expect(
+            !liveChildCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "A restarted or interacting child must continue to suppress completion: \(liveChildCommands)"
+        )
+        #expect(
+            liveChildCommands.contains { $0.hasPrefix("set_status codex Running ") },
+            "A nonterminal transcript child must keep the pane Running: \(liveChildCommands)"
+        )
+
+        _ = try writeSubagentTranscript(
+            harness,
+            activities: [
+                (id: "child-a", kind: "interrupted"),
+                (id: "child-b", kind: "started"),
+                (id: "child-b", kind: "interrupted"),
+                (id: "child-b", kind: "interacted"),
+                (id: "child-b", kind: "interrupted"),
+            ]
+        )
+        let beforeSettledStop = harness.context.state.snapshot().count
+        try runHook(
+            harness,
+            subcommand: "stop",
+            input: stopPayload(
+                harness,
+                turnId: "turn-1",
+                transcriptPath: transcriptPath
+            )
+        )
+        let settledCommands = Array(
+            harness.context.state.snapshot().dropFirst(beforeSettledStop)
+        )
+        #expect(settledCommands.filter { $0.hasPrefix("notify_target_async ") }.count == 1)
+        #expect(settledCommands.contains { $0.hasPrefix("set_status codex Idle ") })
+        #expect(!settledCommands.contains { $0.hasPrefix("set_status codex Running ") })
+        #expect(
+            AgentJournalAppendCapture.captures(in: settledCommands).contains {
+                $0.kind == "agent.turn.completed" && !$0.pendingWork
+            },
+            "Transcript-terminal children must clear pending work: \(settledCommands)"
+        )
+    }
+
+    @Test
     func normalTopLevelStopStillNotifiesAndBecomesIdle() throws {
         let harness = try makeHarness(name: "codex-normal-top-level-stop")
         defer { harness.context.cleanup() }
@@ -315,7 +398,67 @@ struct CodexTurnCompletionOwnershipTests {
         #"{"session_id":"\#(harness.sessionId)","turn_id":"\#(turnId)","cwd":"\#(harness.context.root.path)","hook_event_name":"UserPromptSubmit"}"#
     }
 
-    private func stopPayload(_ harness: Harness, turnId: String) -> String {
-        #"{"session_id":"\#(harness.sessionId)","turn_id":"\#(turnId)","cwd":"\#(harness.context.root.path)","hook_event_name":"Stop","last_assistant_message":"done"}"#
+    private func writeSubagentTranscript(
+        _ harness: Harness,
+        activities: [(id: String, kind: String)]
+    ) throws -> String {
+        let transcriptURL = harness.context.root.appendingPathComponent("parent-rollout.jsonl")
+        let lines = activities.enumerated().map { index, activity in
+            #"{"ordinal":\#(index),"type":"event_msg","payload":{"type":"item_completed","turn_id":"turn-1","item":{"type":"SubAgentActivity","kind":"\#(activity.kind)","agent_thread_id":"\#(activity.id)"}}}"#
+        }
+        try (lines.joined(separator: "\n") + "\n").write(
+            to: transcriptURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        return transcriptURL.path
+    }
+
+    private func writeCodexLedger(
+        _ harness: Harness,
+        activeChildrenByTurn: [String: [String]]
+    ) throws {
+        let record: [String: Any] = [
+            "workspaceID": harness.context.workspaceId,
+            "surfaceID": harness.context.surfaceId,
+            "owner": [
+                "token": harness.token,
+                "pid": 4242,
+            ],
+            "activeTurnID": "turn-1",
+            "activeChildrenByTurn": activeChildrenByTurn,
+            "unknownChildrenByTurn": [:],
+            "terminalChildrenByTurn": [:],
+            "pendingTurns": [:],
+            "settledTurnIDs": [],
+            "notifiedTurnIDs": [],
+            "updatedAt": Date.now.timeIntervalSince1970,
+        ]
+        let object: [String: Any] = [
+            "records": [harness.sessionId: record],
+            "surfaceOwners": [harness.context.surfaceId: harness.sessionId],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        let path = try #require(harness.environment["CMUX_CODEX_TURN_LEDGER_PATH"])
+        try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
+    private func stopPayload(
+        _ harness: Harness,
+        turnId: String,
+        transcriptPath: String? = nil
+    ) -> String {
+        var payload: [String: Any] = [
+            "session_id": harness.sessionId,
+            "turn_id": turnId,
+            "cwd": harness.context.root.path,
+            "hook_event_name": "Stop",
+            "last_assistant_message": "done",
+        ]
+        if let transcriptPath {
+            payload["transcript_path"] = transcriptPath
+        }
+        let data = try! JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        return String(decoding: data, as: UTF8.self)
     }
 }
