@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import CmuxUpdater
 import QuartzCore
 import SwiftUI
@@ -277,8 +278,18 @@ struct SidebarHiddenPresentationTests {
             initialContainer.tableView.numberOfRows == initialRowCount,
             "The retained native table must not apply workspace updates while hidden."
         )
+        let cloudChanges = AsyncStream<Void>.makeStream()
+        let cloudChangeCancellable = focusedWorkspace.sidebarImmediateObservationPublisher.sink {
+            cloudChanges.continuation.yield(())
+        }
+        defer {
+            cloudChangeCancellable.cancel()
+            cloudChanges.continuation.finish()
+        }
+        var cloudChangeIterator = cloudChanges.stream.makeAsyncIterator()
+        _ = await cloudChangeIterator.next()
         focusedWorkspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
-        await drainMainRunLoop(for: window)
+        _ = await cloudChangeIterator.next()
 
         revealRowInputProjections = 0
         sidebarState.toggle()
@@ -300,10 +311,17 @@ struct SidebarHiddenPresentationTests {
             revealRowInputProjections == tabManager.tabs.count,
             "Reopening must project each current workspace row exactly once."
         )
-        let cloudRow = descendants(
-            of: SidebarWorkspaceRowTableCellView.self,
-            in: initialContainer
-        ).first { $0.accessibilityLabel()?.contains("Cloud workspace on vivid-newt") == true }
+        var cloudRow: SidebarWorkspaceRowTableCellView?
+        let deadline = Date(timeIntervalSinceNow: 1)
+        while cloudRow == nil, Date() < deadline {
+            cloudRow = descendants(
+                of: SidebarWorkspaceRowTableCellView.self,
+                in: initialContainer
+            ).first { $0.accessibilityLabel()?.contains("Cloud workspace on vivid-newt") == true }
+            if cloudRow == nil {
+                await drainMainRunLoop(for: window, iterations: 1)
+            }
+        }
         #expect(
             cloudRow != nil,
             "Reopening must rebuild retained AppKit rows from the current Cloud identity after a hidden update."
