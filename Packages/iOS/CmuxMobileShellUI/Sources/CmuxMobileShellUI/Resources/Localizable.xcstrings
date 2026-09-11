@@ -800,6 +800,20 @@
         }
       }
     },
+    "mobile.agentFeed.reply.sending" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sending…" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "送信中…" } }
+      }
+    },
+    "mobile.agentFeed.reply.replied" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Replied" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "返信済み" } }
+      }
+    },
     "mobile.agentFeed.requiresUpdate.description" : {
       "extractionState" : "manual",
       "localizations" : {

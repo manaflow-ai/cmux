@@ -146,6 +146,7 @@ private struct WorkspaceShellRenderPresentation {
     let agentFeedStatus: MobileNotificationFeedStatus
     let agentFeedNeedsInputCount: Int
     let agentFeedPendingReplyRequestIDs: Set<String>
+    let agentFeedPendingTerminalReplyItemIDs: Set<MobileAgentFeedItemID>
     let toolbarMachineSnapshots: WorkspaceMachineSnapshots
     let canCreateWorkspaceForSelection: Bool
 }
@@ -269,12 +270,7 @@ struct WorkspaceShellView: View {
                 )
             } feed: {
                 NavigationStack {
-                    AgentFeedStoreView(
-                        store: store,
-                        items: presentation.agentFeedItems,
-                        status: presentation.agentFeedStatus,
-                        pendingReplyRequestIDs: presentation.agentFeedPendingReplyRequestIDs
-                    )
+                    agentFeedStoreView(for: presentation)
                 }
             } notifications: {
                 NavigationStack(path: $notificationNavigationPath) {
@@ -879,11 +875,22 @@ struct WorkspaceShellView: View {
             agentFeedStatus: store.agentFeedStatus,
             agentFeedNeedsInputCount: store.agentFeedNeedsInputCount,
             agentFeedPendingReplyRequestIDs: store.agentFeedPendingReplyRequestIDs,
+            agentFeedPendingTerminalReplyItemIDs: store.agentFeedPendingTerminalReplyItemIDs,
             toolbarMachineSnapshots: toolbarMachineSnapshots,
             canCreateWorkspaceForSelection: scope.canCreateWorkspace(
                 base: canCreateWorkspace,
                 switchPending: pendingMacSwitchID != nil
             )
+        )
+    }
+
+    private func agentFeedStoreView(for presentation: WorkspaceShellRenderPresentation) -> AgentFeedStoreView {
+        AgentFeedStoreView(
+            store: store,
+            items: presentation.agentFeedItems,
+            status: presentation.agentFeedStatus,
+            pendingReplyRequestIDs: presentation.agentFeedPendingReplyRequestIDs,
+            pendingTerminalReplyItemIDs: presentation.agentFeedPendingTerminalReplyItemIDs
         )
     }
 

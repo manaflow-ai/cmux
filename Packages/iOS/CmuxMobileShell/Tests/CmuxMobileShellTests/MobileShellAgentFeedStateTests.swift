@@ -194,6 +194,42 @@ struct MobileShellAgentFeedStateTests {
         #expect(store.agentFeedLocalRepliesByItemID.isEmpty)
     }
 
+    @Test("Duplicate stop boundaries collapse while preserving a reply marker")
+    func duplicateStopsCollapse() throws {
+        let store = MobileShellComposite()
+        #expect(store.applyAgentFeedSnapshot(
+            try response(revision: 1, rows: [
+                row(
+                    id: "stop-new",
+                    kind: "stop",
+                    status: "telemetry",
+                    requestID: nil,
+                    createdAt: "2026-08-14T10:00:01Z",
+                    extra: ["reason": "Stopped.", "context": ["last_user_message": "Tell me a story"]]
+                ),
+                row(
+                    id: "stop-old",
+                    kind: "stop",
+                    status: "telemetry",
+                    requestID: nil,
+                    createdAt: "2026-08-14T10:00:00Z",
+                    extra: ["reason": "Stopped.", "context": ["last_user_message": "Tell me a story"]]
+                ),
+            ]),
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac"
+        ))
+        #expect(store.agentFeedItems.map(\.itemID) == ["stop-new"])
+
+        let oldID = try #require(
+            store.agentFeedSnapshotsByMac["mac-a"]?.items.first { $0.itemID == "stop-old" }?.id
+        )
+        store.agentFeedLocalRepliesByItemID[oldID] = "keep going"
+        store.recomputeAgentFeedItems()
+        #expect(store.agentFeedItems.count == 1)
+        #expect(store.agentFeedItems.first?.userReply == "keep going")
+    }
+
     @Test("Needs-input triage overrides the badge and survives refreshes")
     func triageOverride() throws {
         let store = MobileShellComposite()

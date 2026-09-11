@@ -10,12 +10,14 @@ struct AgentFeedStoreView: View {
     let items: [MobileAgentFeedItem]
     let status: MobileNotificationFeedStatus
     let pendingReplyRequestIDs: Set<String>
+    let pendingTerminalReplyItemIDs: Set<MobileAgentFeedItemID>
 
     var body: some View {
         AgentFeedView(
             items: items,
             status: status,
             pendingReplyRequestIDs: pendingReplyRequestIDs,
+            pendingTerminalReplyItemIDs: pendingTerminalReplyItemIDs,
             refreshesOnAppear: true,
             actions: actions
         )

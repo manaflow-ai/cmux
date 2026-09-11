@@ -443,6 +443,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public private(set) var agentFeedNeedsInputCount: Int = 0
     /// Request ids with an in-flight feed reply, so rows disable their controls.
     public internal(set) var agentFeedPendingReplyRequestIDs: Set<String> = []
+    /// Completed-turn rows with a terminal reply currently being delivered.
+    public internal(set) var agentFeedPendingTerminalReplyItemIDs: Set<MobileAgentFeedItemID> = []
     var agentFeedSnapshotsByMac: [String: AgentFeedMacSnapshot] = [:]
     var agentFeedKnownRevisionsByMac: [String: Int] = [:]
     /// Free-text terminal replies this device sent, keyed by the replied row,

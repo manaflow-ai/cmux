@@ -196,27 +196,54 @@ struct AgentFeedRow: View, Equatable {
             actions.beginCompose(model.item, .terminalReply)
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: "arrowshape.turn.up.left.fill")
-                    .font(.footnote)
-                Text(String(
-                    localized: "mobile.agentFeed.compose.reply",
-                    defaultValue: "Reply",
-                    bundle: .module
-                ))
-                .font(.subheadline.weight(.semibold))
+                if isReplyPending {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: model.item.userReply == nil
+                        ? "arrowshape.turn.up.left.fill"
+                        : "checkmark.circle.fill")
+                        .font(.footnote)
+                }
+                Text(replyButtonTitle)
+                    .font(.subheadline.weight(.semibold))
             }
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(model.item.userReply == nil ? Color.accentColor : Color.secondary)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(Color.accentColor.opacity(0.12))
+                    .fill(model.item.userReply == nil
+                        ? Color.accentColor.opacity(0.12)
+                        : Color.secondary.opacity(0.12))
             )
         }
         .buttonStyle(.plain)
-        .disabled(isReplyPending)
+        .disabled(isReplyPending || model.item.userReply != nil)
         .padding(.top, 2)
         .accessibilityIdentifier("MobileAgentFeedReplyButton")
+    }
+
+    private var replyButtonTitle: String {
+        if isReplyPending {
+            return String(
+                localized: "mobile.agentFeed.reply.sending",
+                defaultValue: "Sending…",
+                bundle: .module
+            )
+        }
+        if model.item.userReply != nil {
+            return String(
+                localized: "mobile.agentFeed.reply.replied",
+                defaultValue: "Replied",
+                bundle: .module
+            )
+        }
+        return String(
+            localized: "mobile.agentFeed.compose.reply",
+            defaultValue: "Reply",
+            bundle: .module
+        )
     }
 
     /// The user's recorded reply, quote-referencing the message it answered.

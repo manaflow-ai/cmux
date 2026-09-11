@@ -16,6 +16,20 @@ nonisolated private let mobileShellAgentFeedSecondaryTextByteLimit = 2_048
 nonisolated private let mobileShellAgentFeedMetadataByteLimit = 512
 nonisolated private let mobileShellAgentFeedMaxItemCount = 400
 
+private struct AgentFeedStopDuplicateKey: Hashable {
+    let macDeviceID: String
+    let workstreamID: String
+    let source: String
+    let reason: String?
+
+    init(item: MobileAgentFeedItem) {
+        macDeviceID = item.macDeviceID
+        workstreamID = item.workstreamID
+        source = item.source
+        reason = item.stopReason
+    }
+}
+
 /// The phone-side mirror of the Mac's workstream Feed (`feed.list` +
 /// `feed.changed` + the reply verbs). Mirrors the notification feed's
 /// per-Mac snapshot/revision discipline with a simpler refresh ladder:
@@ -128,6 +142,7 @@ extension MobileShellComposite {
         agentFeedSuccessfulMacIDs = []
         agentFeedSnapshotsByMac = [:]
         agentFeedPendingReplyRequestIDs = []
+        agentFeedPendingTerminalReplyItemIDs = []
         agentFeedLocalRepliesByItemID = [:]
         agentFeedTriageOverridesByItemID = [:]
         agentFeedItems = []
@@ -312,10 +327,39 @@ extension MobileShellComposite {
             }
             return lhs.id < rhs.id
         }
+        merged = deduplicatedStopRows(merged)
         if merged.count > mobileShellAgentFeedMaxItemCount {
             merged.removeSubrange(mobileShellAgentFeedMaxItemCount...)
         }
         agentFeedItems = merged
+    }
+
+    /// Hook delivery can report the same stop boundary twice within a short
+    /// window. Keep one timeline row for that boundary, preferring the row
+    /// carrying a locally recorded reply so the user's acknowledgement stays
+    /// visible.
+    private func deduplicatedStopRows(
+        _ items: [MobileAgentFeedItem]
+    ) -> [MobileAgentFeedItem] {
+        var result: [MobileAgentFeedItem] = []
+        var indexByKey: [AgentFeedStopDuplicateKey: Int] = [:]
+        for item in items {
+            guard item.kind == .stop else {
+                result.append(item)
+                continue
+            }
+            let key = AgentFeedStopDuplicateKey(item: item)
+            if let index = indexByKey[key],
+               abs(result[index].createdAt.timeIntervalSince(item.createdAt)) <= 2 {
+                if result[index].userReply == nil, let reply = item.userReply {
+                    result[index] = result[index].updating(userReply: reply)
+                }
+                continue
+            }
+            indexByKey[key] = result.count
+            result.append(item)
+        }
+        return result
     }
 
     // MARK: - Replies
@@ -386,16 +430,29 @@ extension MobileShellComposite {
               let target = agentFeedTarget(for: agentFeedOwnerKey(for: item)) else {
             return false
         }
+        guard !agentFeedPendingTerminalReplyItemIDs.contains(item.id) else { return false }
+        agentFeedPendingTerminalReplyItemIDs.insert(item.id)
+        defer { agentFeedPendingTerminalReplyItemIDs.remove(item.id) }
         do {
             let request = try MobileCoreRPCClient.requestData(
-                method: "mobile.terminal.input",
+                method: "mobile.terminal.paste",
                 params: [
                     "workspace_id": workspaceID,
                     "surface_id": surfaceID,
-                    "text": trimmed + "\r",
+                    "text": trimmed,
+                    "submit_key": "return",
                 ]
             )
-            _ = try await target.client.sendRequest(request)
+            let responseData = try await target.client.sendRequest(request)
+            guard try MobileTerminalPasteResponse.decode(responseData).submitted else {
+                agentFeedLog.error(
+                    "terminal reply accepted text but submit key failed mac=\(item.macDeviceID, privacy: .public)"
+                )
+                return false
+            }
+            // Keep the acknowledgement animation legible even when the Mac
+            // answers from an already-warm terminal surface.
+            try? await Task.sleep(for: .milliseconds(350))
             // Record the reply against the row so the feed shows what was
             // said in response to this specific message.
             agentFeedLocalRepliesByItemID[item.id] = trimmed

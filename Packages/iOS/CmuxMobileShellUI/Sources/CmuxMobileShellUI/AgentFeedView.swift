@@ -15,6 +15,7 @@ struct AgentFeedView: View {
     let items: [MobileAgentFeedItem]
     let status: MobileNotificationFeedStatus
     let pendingReplyRequestIDs: Set<String>
+    let pendingTerminalReplyItemIDs: Set<MobileAgentFeedItemID>
     let refreshesOnAppear: Bool
     let actions: AgentFeedActions
     @State private var filter: AgentFeedFilter = .all
@@ -103,9 +104,8 @@ struct AgentFeedView: View {
                     ForEach(visibleItems, id: \.id) { item in
                         AgentFeedRow(
                             model: AgentFeedRowModel(item: item),
-                            isReplyPending: item.requestID.map {
-                                pendingReplyRequestIDs.contains($0)
-                            } ?? false,
+                            isReplyPending: pendingTerminalReplyItemIDs.contains(item.id)
+                                || item.requestID.map { pendingReplyRequestIDs.contains($0) } ?? false,
                             now: now,
                             actions: rowActions
                         )
