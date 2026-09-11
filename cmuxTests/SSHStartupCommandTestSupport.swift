@@ -6,10 +6,17 @@ enum SSHStartupCommandTestSupport {
         decodedPayload(in: command)?.script
     }
 
-    static func replacingPinnedSSH(in command: String, with executablePath: String) -> String? {
+    static func replacingPinnedSSH(
+        in command: String,
+        with executablePath: String,
+        additionalReplacements: [String: String] = [:]
+    ) -> String? {
         guard let payload = decodedPayload(in: command),
               payload.script.contains("/usr/bin/ssh") else { return nil }
-        let rewritten = payload.script.replacingOccurrences(of: "/usr/bin/ssh", with: executablePath)
+        var rewritten = payload.script.replacingOccurrences(of: "/usr/bin/ssh", with: executablePath)
+        for (original, replacement) in additionalReplacements {
+            rewritten = rewritten.replacingOccurrences(of: original, with: replacement)
+        }
         // Replace both copies in legacy wrappers, including the decoder fallback.
         return command.replacingOccurrences(
             of: String(command[payload.range]), with: Data(rewritten.utf8).base64EncodedString()

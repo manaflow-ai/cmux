@@ -12,27 +12,11 @@ import Testing
 
 @Suite(.serialized)
 struct SSHStartupManualReconnectTests {
-    private final class BundleToken {}
-
     struct ProcessRunResult {
         let status: Int32
         let stdout: String
         let stderr: String
         let timedOut: Bool
-    }
-
-    private struct TerminalExitPromptFixture {
-        let startupCommand: String
-        let environment: [String: String]
-        let temporaryDirectory: URL
-    }
-
-    private struct TerminalExitPromptProcess {
-        let process: Process
-        let standardInput: Pipe
-        let transcriptURL: URL
-        let transcriptHandle: FileHandle
-        let temporaryDirectory: URL
     }
 
     final class MockSocketServerState: @unchecked Sendable {
@@ -99,11 +83,7 @@ struct SSHStartupManualReconnectTests {
             temporaryDirectory: root
         ))
         defer { Self.stopAndCleanUp(prompt) }
-        try #require(Self.waitForFile(
-            at: prompt.transcriptURL,
-            containing: "press Enter to close this pane",
-            timeout: 3
-        ), "the failed VM connection must reach its dismissal prompt")
+        try #require(Self.waitForTerminalExitPrompt(prompt), "the failed VM connection must reach its dismissal prompt")
 
         // Startup no longer owns manual reconnect. The old retry character is
         // ordinary input; Enter dismisses this failed attempt without an RPC.
@@ -158,11 +138,7 @@ struct SSHStartupManualReconnectTests {
             temporaryDirectory: root
         ))
         defer { Self.stopAndCleanUp(prompt) }
-        try #require(Self.waitForFile(
-            at: prompt.transcriptURL,
-            containing: "press Enter to close this pane",
-            timeout: 3
-        ))
+        try #require(Self.waitForTerminalExitPrompt(prompt))
         try prompt.standardInput.fileHandleForWriting.write(contentsOf: Data([0x0A]))
         try #require(Self.waitForExit(prompt.process, timeout: 3))
         #expect(prompt.process.terminationStatus == 7)
@@ -187,14 +163,14 @@ struct SSHStartupManualReconnectTests {
         }
     }
 
-    @Test func directSignalTerminatesForegroundAuthenticationProcessTree() throws {
+    @Test func directSignalTerminatesPersistentAttachAuthenticationProcessTree() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-foreground-auth-tree-\(UUID().uuidString)", isDirectory: true)
         let fakeCLI = root.appendingPathComponent("cmux")
         let fakeSSH = root.appendingPathComponent("ssh")
         let childPIDFile = root.appendingPathComponent("auth-child-pid")
-        let childSignalLog = root.appendingPathComponent("auth-child-signal")
+        let grandchildPIDFile = root.appendingPathComponent("auth-grandchild-pid")
 
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
@@ -202,19 +178,17 @@ struct SSHStartupManualReconnectTests {
         try Self.writeShellFile(at: fakeCLI, lines: ["#!/bin/sh", "exit 0"])
         try Self.writeShellFile(at: fakeSSH, lines: [
             "#!/bin/sh",
-            "trap '' HUP INT",
-            "trap 'printf \"%s\\n\" term > \"${CMUX_TEST_AUTH_CHILD_SIGNAL:?}\"; exit 143' TERM",
+            "trap '' HUP INT TERM",
             "printf '%s\\n' \"$$\" > \"${CMUX_TEST_AUTH_CHILD_PID:?}\"",
-            "kill -INT \"${CMUX_SSH_STARTUP_PID:?}\"",
-            "while :; do /bin/sleep 30; done",
+            "/bin/sleep 30 &",
+            "printf '%s\\n' \"$!\" > \"${CMUX_TEST_AUTH_GRANDCHILD_PID:?}\"",
+            "wait $!",
         ])
         for executable in [fakeCLI, fakeSSH] {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         }
 
-        let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
-            replacingSystemSSHWith: fakeSSH
-        )
+        let startupCommand = Self.persistentAttachSupervisorCommand(replacingSystemSSHWith: fakeSSH)
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
@@ -222,27 +196,46 @@ struct SSHStartupManualReconnectTests {
         environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
         environment["CMUX_TEST_AUTH_CHILD_PID"] = childPIDFile.path
-        environment["CMUX_TEST_AUTH_CHILD_SIGNAL"] = childSignalLog.path
+        environment["CMUX_TEST_AUTH_GRANDCHILD_PID"] = grandchildPIDFile.path
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
 
-        let result = Self.runProcess(
-            executablePath: "/bin/sh",
-            arguments: ["-c", startupCommand],
-            environment: environment,
-            timeout: 5
-        )
-        let childPID = try #require(Int32(
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "exec " + startupCommand]
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        var childPID: Int32?
+        var grandchildPID: Int32?
+        defer {
+            if let childPID { Darwin.kill(childPID, SIGKILL) }
+            if let grandchildPID { Darwin.kill(grandchildPID, SIGKILL) }
+            if process.isRunning {
+                Darwin.kill(process.processIdentifier, SIGKILL)
+                process.waitUntilExit()
+            }
+        }
+        try SSHStartupCommandTestSupport.startProcess(process)
+        try #require(Self.waitForFile(at: childPIDFile, containing: "\n", timeout: 3))
+        let readyChildPID = try #require(Int32(
             String(contentsOf: childPIDFile, encoding: .utf8)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         ))
-        defer { Darwin.kill(childPID, SIGKILL) }
-
-        #expect(!result.timedOut, Comment(rawValue: result.stderr))
-        #expect(result.status == 130, Comment(rawValue: result.stderr))
-        #expect(
-            Self.waitForFile(at: childSignalLog, containing: "term", timeout: 3),
-            "Direct startup signals must terminate the nested authentication process tree"
-        )
+        childPID = readyChildPID
+        try #require(Self.waitForFile(at: grandchildPIDFile, containing: "\n", timeout: 3))
+        let readyGrandchildPID = try #require(Int32(
+            String(contentsOf: grandchildPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        grandchildPID = readyGrandchildPID
+        Darwin.kill(process.processIdentifier, SIGINT)
+        try #require(Self.waitForExit(process, timeout: 3))
+        #expect(process.terminationStatus == 130)
+        // A bounded cleanup may escalate to SIGKILL. Verify the processes are
+        // gone, rather than requiring a particular signal handler to run.
+        #expect(Self.processIsRunning(readyChildPID) == false)
+        #expect(Self.processIsRunning(readyGrandchildPID) == false)
     }
 
     @Test func controlCThroughForegroundAuthenticationPTYExitsWithoutWaitingForInput() throws {
@@ -267,9 +260,11 @@ struct SSHStartupManualReconnectTests {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         }
 
-        let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
+        let startup = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
             replacingSystemSSHWith: fakeSSH
         )
+        defer { Self.removeFixturePaths(startup.cleanupPaths) }
+        let startupCommand = startup.command
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
@@ -320,7 +315,7 @@ struct SSHStartupManualReconnectTests {
         #expect(process.terminationStatus == 130)
     }
 
-    @Test func directSignalInterruptsInitialAuthenticationBackoff() throws {
+    @Test func directSignalInterruptsPersistentAttachAuthenticationBackoff() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-foreground-auth-backoff-signal-\(UUID().uuidString)", isDirectory: true)
@@ -349,9 +344,7 @@ struct SSHStartupManualReconnectTests {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         }
 
-        let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
-            replacingSystemSSHWith: fakeSSH
-        )
+        let startupCommand = Self.persistentAttachSupervisorCommand(replacingSystemSSHWith: fakeSSH)
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
@@ -365,7 +358,7 @@ struct SSHStartupManualReconnectTests {
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", startupCommand]
+        process.arguments = ["-c", "exec " + startupCommand]
         process.environment = environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
@@ -407,7 +400,7 @@ struct SSHStartupManualReconnectTests {
         #expect(process.terminationStatus == 130)
     }
 
-    @Test func initialStartupStopsAtForegroundAuthenticationFailureLimit() throws {
+    @Test func persistentAttachExitsAtForegroundAuthenticationFailureLimit() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-foreground-auth-limit-\(UUID().uuidString)", isDirectory: true)
@@ -433,9 +426,11 @@ struct SSHStartupManualReconnectTests {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         }
 
-        let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
+        let startup = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
             replacingSystemSSHWith: fakeSSH
         )
+        defer { Self.removeFixturePaths(startup.cleanupPaths) }
+        let startupCommand = startup.command
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
@@ -450,11 +445,13 @@ struct SSHStartupManualReconnectTests {
             executablePath: "/bin/sh",
             arguments: ["-c", startupCommand],
             environment: environment,
-            timeout: 2
+            timeout: 10
         )
 
-        #expect(result.timedOut, "closed stdin must not dismiss the terminal failure prompt")
-        #expect(try String(contentsOf: attemptFile, encoding: .utf8) == "20")
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 255, Comment(rawValue: result.stderr))
+        let attempts = try String(contentsOf: attemptFile, encoding: .utf8)
+        #expect(attempts == "20", Comment(rawValue: result.stderr))
     }
 
     @Test func establishedStartupRetriesUnclassifiedReauthenticationFailure() throws {
@@ -465,11 +462,22 @@ struct SSHStartupManualReconnectTests {
         let fakeSSH = root.appendingPathComponent("ssh")
         let fakeSleep = root.appendingPathComponent("sleep")
         let attemptFile = root.appendingPathComponent("ssh-attempts.txt")
+        let attachFile = root.appendingPathComponent("attach-attempts.txt")
 
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        try Self.writeShellFile(at: fakeCLI, lines: ["#!/bin/sh", "exit 0"])
+        try Self.writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "case \" $* \" in",
+            "  *\" ssh-pty-attach \"*)",
+            "    count=$(cat \"${CMUX_TEST_ATTACH_FILE}\" 2>/dev/null || printf 0)",
+            "    count=$((count + 1))",
+            "    printf '%s' \"$count\" > \"${CMUX_TEST_ATTACH_FILE}\"",
+            "    if [ \"$count\" -eq 1 ]; then exit 255; fi ;;",
+            "esac",
+            "exit 0",
+        ])
         try Self.writeShellFile(at: fakeSSH, lines: [
             "#!/bin/sh",
             "count=$(cat \"${CMUX_TEST_ATTEMPT_FILE}\" 2>/dev/null || printf 0)",
@@ -477,8 +485,7 @@ struct SSHStartupManualReconnectTests {
             "printf '%s' \"$count\" > \"${CMUX_TEST_ATTEMPT_FILE}\"",
             "case \"$count\" in",
             "  1) exit 0 ;;",
-            "  2) exit 255 ;;",
-            "  3) printf '%s\\n' 'Connection closed by UNKNOWN port 65535' >&2; exit 255 ;;",
+            "  2) printf '%s\\n' 'unclassified authentication failure' >&2; exit 255 ;;",
             "  *) exit 0 ;;",
             "esac",
         ])
@@ -487,9 +494,11 @@ struct SSHStartupManualReconnectTests {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         }
 
-        let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
+        let startup = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
             replacingSystemSSHWith: fakeSSH
         )
+        defer { Self.removeFixturePaths(startup.cleanupPaths) }
+        let startupCommand = startup.command
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
@@ -497,6 +506,7 @@ struct SSHStartupManualReconnectTests {
         environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
         environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
+        environment["CMUX_TEST_ATTACH_FILE"] = attachFile.path
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
         environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "2"
 
@@ -509,7 +519,10 @@ struct SSHStartupManualReconnectTests {
 
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
-        #expect(try String(contentsOf: attemptFile, encoding: .utf8) == "5")
+        let authenticationAttempts = try String(contentsOf: attemptFile, encoding: .utf8)
+        let attachAttempts = try String(contentsOf: attachFile, encoding: .utf8)
+        #expect(authenticationAttempts == "3")
+        #expect(attachAttempts == "2")
     }
 
     @Test func terminalExitPromptIgnoresQueuedWakeReportsAndEOTUntilFreshEnter() throws {
@@ -519,11 +532,7 @@ struct SSHStartupManualReconnectTests {
         let queuedWakeInput = Data("\u{1B}[I\u{1B}[O\u{1B}[13;2u".utf8) + Data([0x04])
         try prompt.standardInput.fileHandleForWriting.write(contentsOf: queuedWakeInput)
         #expect(
-            Self.waitForFile(
-                at: prompt.transcriptURL,
-                containing: "press Enter to close this pane",
-                timeout: 3
-            ),
+            Self.waitForTerminalExitPrompt(prompt),
             "terminal exit prompt was not emitted"
         )
 
@@ -546,11 +555,7 @@ struct SSHStartupManualReconnectTests {
         defer { Self.stopAndCleanUp(prompt) }
 
         #expect(
-            Self.waitForFile(
-                at: prompt.transcriptURL,
-                containing: "press Enter to close this pane",
-                timeout: 3
-            ),
+            Self.waitForTerminalExitPrompt(prompt),
             "terminal exit prompt was not emitted"
         )
         try prompt.standardInput.fileHandleForWriting.close()
@@ -584,9 +589,11 @@ struct SSHStartupManualReconnectTests {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         }
 
-        let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
+        let startup = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
             replacingSystemSSHWith: fakeSSH
         )
+        defer { Self.removeFixturePaths(startup.cleanupPaths) }
+        let startupCommand = startup.command
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
@@ -596,6 +603,8 @@ struct SSHStartupManualReconnectTests {
         environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
         environment["CMUX_SSH_PENDING_SIGNAL"] = "130"
         environment["CMUX_SSH_PENDING_SIGNAL_NAME"] = "INT"
+        environment["cmux_ssh_attach_pending_signal"] = "130"
+        environment["cmux_ssh_attach_pending_signal_name"] = "INT"
 
         let result = Self.runProcess(
             executablePath: "/bin/sh",
@@ -606,7 +615,8 @@ struct SSHStartupManualReconnectTests {
 
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
-        #expect(try String(contentsOf: attemptFile, encoding: .utf8) == "2")
+        let authenticationAttempts = try String(contentsOf: attemptFile, encoding: .utf8)
+        #expect(authenticationAttempts == "1")
     }
 
     @MainActor
@@ -673,8 +683,10 @@ struct SSHStartupManualReconnectTests {
     }
 
     @MainActor
-    @Test func reconnectingConfirmedSurfaceStartsANewLivenessGeneration() throws {
+    @Test(arguments: [true, false])
+    func reconnectingConfirmedSurfaceStartsANewLivenessGeneration(targetsSurface: Bool) throws {
         let workspace = Workspace()
+        defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
         let configuration = Self.makeRemoteConfiguration()
         workspace.configureRemoteConnection(configuration, autoConnect: false)
         workspace.applyRemoteConnectionStateUpdate(
@@ -691,8 +703,11 @@ struct SSHStartupManualReconnectTests {
         )
         #expect(workspace.hasAuthoritativelyConnectedRemoteTerminal)
 
-        #expect(workspace.reconnectRemoteConnection(surfaceId: panelId))
+        #expect(workspace.reconnectRemoteConnection(surfaceId: targetsSurface ? panelId : nil))
 
+        #expect(workspace.remoteConfiguration != nil)
+        #expect(workspace.remoteConnectionState == .connected)
+        #expect(workspace.activeRemoteTerminalSessionCount == 1)
         #expect(workspace.remoteTerminalSessionStatesBySurfaceId[panelId]?.phase == .launching)
         #expect(!workspace.hasAuthoritativelyConnectedRemoteTerminal)
         workspace.applyRemoteConnectionStateUpdate(
@@ -765,309 +780,7 @@ struct SSHStartupManualReconnectTests {
         #expect(!FileManager.default.fileExists(atPath: replayPath))
     }
 
-    private static func makeRemoteConfiguration() -> WorkspaceRemoteConfiguration {
-        WorkspaceRemoteConfiguration(
-            destination: "cmux-macmini",
-            port: nil,
-            identityFile: nil,
-            sshOptions: [],
-            localProxyPort: nil,
-            relayPort: 64007,
-            relayID: String(repeating: "a", count: 16),
-            relayToken: String(repeating: "b", count: 64),
-            localSocketPath: "/tmp/cmux-debug-test.sock",
-            terminalStartupCommand: "ssh cmux-macmini"
-        )
-    }
-
-    private static func generatedPersistentSSHForegroundAuthenticationStartupCommand(
-        replacingSystemSSHWith fakeSSH: URL
-    ) throws -> String {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundleToken.self)
-        let socketPath = makeSocketPath("ssh-foreground-auth")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let state = MockSocketServerState()
-        let workspaceID = "11111111-1111-1111-1111-111111111111"
-        let workspaceRef = "workspace:9"
-
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
-        }
-
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            guard let payload = jsonObject(line),
-                  let id = payload["id"] as? String,
-                  let method = payload["method"] as? String else {
-                return malformedRequestResponse(raw: line)
-            }
-
-            switch method {
-            case "workspace.create":
-                return v2Response(
-                    id: id,
-                    ok: true,
-                    result: [
-                        "workspace_id": workspaceID,
-                        "surface_id": "surface:1",
-                    ]
-                )
-            case "workspace.remote.configure":
-                return v2Response(
-                    id: id,
-                    ok: true,
-                    result: [
-                        "workspace_id": workspaceID,
-                        "workspace_ref": workspaceRef,
-                        "remote": [
-                            "enabled": true,
-                            "state": "connecting",
-                        ],
-                    ]
-                )
-            default:
-                return v2Response(
-                    id: id,
-                    ok: false,
-                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
-                )
-            }
-        }
-
-        var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
-
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: [
-                "ssh",
-                "--no-focus",
-                "--port", "2222",
-                "--ssh-option", "ControlMaster auto",
-                "--ssh-option", "ControlPersist 600",
-                "--ssh-option", "ControlPath \(SSHConnectionSharingOptions().defaultControlPath)",
-                "cmux-macmini",
-            ],
-            environment: environment,
-            timeout: 5
-        )
-
-        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
-        #expect(!result.timedOut, Comment(rawValue: result.stderr))
-        #expect(result.status == 0, Comment(rawValue: result.stderr))
-        #expect(result.stderr.isEmpty, Comment(rawValue: result.stderr))
-
-        let requests = state.snapshot().compactMap(jsonObject)
-        let configureRequest = try #require(
-            requests.first { ($0["method"] as? String) == "workspace.remote.configure" }
-        )
-        let configureParams = try #require(configureRequest["params"] as? [String: Any])
-        let startupCommand = try #require(configureParams["terminal_startup_command"] as? String)
-        return try rewritingSystemSSH(in: startupCommand, with: fakeSSH)
-    }
-
-    private static func generatedVMSSHInitialStartupCommand(
-        replacingSystemSSHWith fakeSSH: URL
-    ) throws -> String {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundleToken.self)
-        let socketPath = makeSocketPath("vm-ssh-startup")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let state = MockSocketServerState()
-        let vmID = "vm-test-startup"
-        let workspaceID = "11111111-1111-1111-1111-111111111111"
-        let workspaceRef = "workspace:vm-startup"
-
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
-        }
-
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            guard let payload = jsonObject(line),
-                  let id = payload["id"] as? String,
-                  let method = payload["method"] as? String else {
-                return malformedRequestResponse(raw: line)
-            }
-
-            switch method {
-            case "vm.ssh_info":
-                let params = payload["params"] as? [String: Any] ?? [:]
-                guard params["id"] as? String == vmID else {
-                    return v2Response(id: id, ok: false, error: ["code": "invalid_params", "message": "unexpected attach params"])
-                }
-                return v2Response(
-                    id: id,
-                    ok: true,
-                    result: [
-                        "transport": "ssh",
-                        "host": "gateway.freestyle.sh",
-                        "port": 2222,
-                        "username": "cmux",
-                        "credential": [
-                            "kind": "password",
-                            "value": "lease-token",
-                        ],
-                    ]
-                )
-            case "workspace.create":
-                return v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
-            case "workspace.rename":
-                return v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
-            case "workspace.remote.configure":
-                return v2Response(
-                    id: id,
-                    ok: true,
-                    result: [
-                        "workspace_id": workspaceID,
-                        "workspace_ref": workspaceRef,
-                        "remote": [
-                            "enabled": true,
-                            "state": "connecting",
-                        ],
-                    ]
-                )
-            case "workspace.select":
-                return v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
-            default:
-                return v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "Unexpected method \(method)"])
-            }
-        }
-
-        var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
-
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["vm", "ssh", vmID],
-            environment: environment,
-            timeout: 5
-        )
-
-        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
-        #expect(!result.timedOut, Comment(rawValue: result.stderr))
-        #expect(result.status == 0, Comment(rawValue: result.stderr))
-        #expect(result.stderr.isEmpty, Comment(rawValue: result.stderr))
-
-        let requests = state.snapshot().compactMap(jsonObject)
-        let createRequest = try #require(
-            requests.first { ($0["method"] as? String) == "workspace.create" }
-        )
-        let createParams = try #require(createRequest["params"] as? [String: Any])
-        let startupCommand = try #require(createParams["initial_command"] as? String)
-        return try rewritingSystemSSH(in: startupCommand, with: fakeSSH)
-    }
-
-    private static func rewritingSystemSSH(
-        in startupCommand: String,
-        with fakeSSH: URL
-    ) throws -> String {
-        let systemSSHPath = "/usr/bin/ssh"
-        let commandURL = URL(
-            fileURLWithPath: startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
-        var isDirectory: ObjCBool = false
-        if FileManager.default.fileExists(atPath: commandURL.path, isDirectory: &isDirectory),
-           !isDirectory.boolValue {
-            let script = try String(contentsOf: commandURL, encoding: .utf8)
-            try #require(script.contains(systemSSHPath))
-            try script
-                .replacingOccurrences(of: systemSSHPath, with: fakeSSH.path)
-                .write(to: commandURL, atomically: true, encoding: .utf8)
-            try FileManager.default.setAttributes(
-                [.posixPermissions: 0o700],
-                ofItemAtPath: commandURL.path
-            )
-            return startupCommand
-        }
-
-        if startupCommand.contains(systemSSHPath) {
-            return startupCommand.replacingOccurrences(of: systemSSHPath, with: fakeSSH.path)
-        }
-
-        return try #require(SSHStartupCommandTestSupport.replacingPinnedSSH(
-            in: startupCommand, with: fakeSSH.path
-        ))
-    }
-
-    private static func makeTerminalExitPromptFixture() throws -> TerminalExitPromptFixture {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-ssh-exit-prompt-fixture-\(UUID().uuidString)", isDirectory: true)
-        let fakeCLI = root.appendingPathComponent("cmux")
-        let fakeSSH = root.appendingPathComponent("ssh")
-        let fakeSleep = root.appendingPathComponent("sleep")
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-
-        do {
-            try writeShellFile(at: fakeCLI, lines: ["#!/bin/sh", "exit 0"])
-            try writeShellFile(at: fakeSSH, lines: [
-                "#!/bin/sh",
-                "printf '%s\\n' 'Permission denied (publickey).' >&2",
-                "exit 255",
-            ])
-            try writeShellFile(at: fakeSleep, lines: ["#!/bin/sh", "exit 0"])
-            for executable in [fakeCLI, fakeSSH, fakeSleep] {
-                try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
-            }
-
-            let startupCommand = try generatedPersistentSSHForegroundAuthenticationStartupCommand(
-                replacingSystemSSHWith: fakeSSH
-            )
-            var environment = ProcessInfo.processInfo.environment
-            environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
-            environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
-            environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
-            environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
-            environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
-            environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
-            environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "2"
-            return TerminalExitPromptFixture(
-                startupCommand: startupCommand,
-                environment: environment,
-                temporaryDirectory: root
-            )
-        } catch {
-            try? fileManager.removeItem(at: root)
-            throw error
-        }
-    }
-
-    private static func makeTerminalExitPromptProcess(
-        _ suppliedFixture: TerminalExitPromptFixture? = nil
-    ) throws -> TerminalExitPromptProcess {
-        let fixture = try suppliedFixture ?? makeTerminalExitPromptFixture()
-        let transcriptURL = fixture.temporaryDirectory.appendingPathComponent("transcript.txt")
-        try Data().write(to: transcriptURL)
-        let transcriptHandle = try FileHandle(forWritingTo: transcriptURL)
-        let process = Process()
-        let standardInput = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/script")
-        process.arguments = ["-q", "-F", "/dev/null", "/bin/sh", "-c", fixture.startupCommand]
-        process.environment = fixture.environment
-        process.standardInput = standardInput
-        process.standardOutput = transcriptHandle
-        process.standardError = FileHandle.nullDevice
-        do {
-            try SSHStartupCommandTestSupport.startProcess(process)
-        } catch {
-            try? transcriptHandle.close()
-            try? FileManager.default.removeItem(at: fixture.temporaryDirectory)
-            throw error
-        }
-        return TerminalExitPromptProcess(
-            process: process,
-            standardInput: standardInput,
-            transcriptURL: transcriptURL,
-            transcriptHandle: transcriptHandle,
-            temporaryDirectory: fixture.temporaryDirectory
-        )
-    }
-
-    private static func startMockServer(
+    static func startMockServer(
         listenerFD: Int32,
         state: MockSocketServerState,
         handler: @escaping @Sendable (String) -> String
@@ -1121,6 +834,8 @@ struct SSHStartupManualReconnectTests {
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
+        let exitSignal = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exitSignal.signal() }
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
         process.environment = environment
@@ -1134,16 +849,14 @@ struct SSHStartupManualReconnectTests {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-
         let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
             process.terminate()
             _ = exitSignal.wait(timeout: .now() + 1)
+            if process.isRunning {
+                Darwin.kill(process.processIdentifier, SIGKILL)
+                process.waitUntilExit()
+            }
         }
 
         let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
@@ -1174,6 +887,15 @@ struct SSHStartupManualReconnectTests {
         return contents.contains(expectedContents)
     }
 
+    private static func processIsRunning(_ pid: Int32) -> Bool? {
+        var info = proc_bsdinfo()
+        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
+        let size = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(expectedSize))
+        if Int(size) == expectedSize { return info.pbi_status != UInt32(SZOMB) }
+        if size <= 0, errno == ESRCH { return false }
+        return nil
+    }
+
     private static func waitForExit(_ process: Process, timeout: TimeInterval) -> Bool {
         let deadline = Date.now.addingTimeInterval(timeout)
         while process.isRunning, Date.now < deadline {
@@ -1186,9 +908,46 @@ struct SSHStartupManualReconnectTests {
         return false
     }
 
+    private static func waitForTerminalExitPrompt(_ prompt: TerminalExitPromptProcess) -> Bool {
+        guard waitForFile(
+            at: prompt.transcriptURL,
+            containing: "press Enter to close this pane",
+            timeout: 3
+        ), let path = try? String(contentsOf: prompt.terminalPathURL, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines) else { return false }
+        let fd = Darwin.open(path, O_RDONLY | O_NOCTTY | O_NONBLOCK)
+        guard fd >= 0 else { return false }
+        defer { Darwin.close(fd) }
+        let deadline = Date.now.addingTimeInterval(3)
+        while prompt.process.isRunning, Date.now < deadline {
+            var state = termios()
+            // The prompt text precedes the CLI helper. Raw input with ISIG is
+            // observable only after that helper's atomic TCSAFLUSH boundary.
+            if tcgetattr(fd, &state) == 0,
+               state.c_lflag & tcflag_t(ICANON | ECHO) == 0,
+               state.c_lflag & tcflag_t(ISIG) != 0 {
+                return true
+            }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        return false
+    }
+
     private static func stopAndCleanUp(_ prompt: TerminalExitPromptProcess) {
         if prompt.process.isRunning {
-            prompt.process.terminate()
+            // `script` can exit while its EOF-parked CLI child stays alive.
+            // Retire the owned tree before losing the root's parent identity.
+            let cleanupCommand = SSHForegroundAuthenticationRetryPolicy()
+                .processTreeTerminationShellFunction()
+                + "\ncmux_ssh_terminate_auth_process_tree \(prompt.process.processIdentifier) \(getpid())"
+            let cleanup = runProcess(
+                executablePath: "/bin/sh",
+                arguments: ["-c", cleanupCommand],
+                environment: ProcessInfo.processInfo.environment,
+                timeout: 5
+            )
+            #expect(!cleanup.timedOut, Comment(rawValue: cleanup.stderr))
+            #expect(cleanup.status == 0, Comment(rawValue: cleanup.stderr))
             if !waitForExit(prompt.process, timeout: 1) {
                 Darwin.kill(prompt.process.processIdentifier, SIGKILL)
                 prompt.process.waitUntilExit()

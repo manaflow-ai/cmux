@@ -6,27 +6,6 @@ import Testing
 
 @Suite(.serialized)
 struct SSHForegroundAuthenticationRetryPolicyTests {
-    @Test func mapsBootTimeTransportFailureToRetryableStatus() throws {
-        let result = try run(
-            "printf '%s\\n' 'ssh: connect to host example.test port 22: Network is unreachable' >&2; exit 255"
-        )
-
-        #expect(result.status == 254)
-        #expect(result.stderr.contains("Network is unreachable"))
-        #expect(result.temporaryFiles.isEmpty)
-    }
-
-    @Test func eventMarkedAuthenticationPreservesStderrAndRetryableStatus() throws {
-        let result = try run(
-            "printf '%s\\n' 'ssh: connect to host example.test port 22: Network is unreachable' >&2; exit 255",
-            authEventToken: UUID().uuidString.lowercased()
-        )
-
-        #expect(result.status == 254)
-        #expect(result.stderr.contains("Network is unreachable"))
-        #expect(result.temporaryFiles.isEmpty)
-    }
-
     @Test(arguments: [
         "user@example.test: Permission denied (publickey,password).",
         "Bad owner or permissions on /Users/test/.ssh/config",
@@ -811,7 +790,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(process.terminationStatus == 254)
     }
 
-    private func run(_ command: String, authEventToken: String? = nil) throws -> (
+    func run(_ command: String, authEventToken: String? = nil) throws -> (
         status: Int32,
         stderr: String,
         temporaryFiles: [String]
