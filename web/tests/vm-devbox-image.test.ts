@@ -5,6 +5,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   CMUX_TUI_PORT,
   CMUX_TUI_SESSION,
@@ -126,6 +127,38 @@ describe("devbox image template", () => {
     expect(devboxGhosttyVersion()).toMatch(/^\d+\.\d+\.\d+$/);
     expect(devboxGhosttyVersion("ARG CMUX_IMAGE_GHOSTTY_DEB_URL=https://x/ghostty_1.2.3-0.ppa2_amd64_24.04.deb\n")).toBe("1.2.3");
     expect(() => devboxGhosttyVersion("ARG CMUX_IMAGE_GHOSTTY_DEB_URL=https://x/ghostty.deb\n")).toThrow(/ghostty_<x.y.z>/);
+  });
+
+  test("agent-config.sh carries the cmux workspace and terminal ids as usage headers", () => {
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-agent-config-origin-"));
+    try {
+      const run = (extraEnv: Record<string, string>) =>
+        spawnSync("bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; printf '%s' "\${ANTHROPIC_CUSTOM_HEADERS-}"`], {
+          encoding: "utf8",
+          env: {
+            NODE_ENV: "test",
+            PATH: process.env.PATH ?? "/usr/bin:/bin",
+            HOME: home,
+            OPENAI_BASE_URL: "https://coderouter.cmux.test/v1",
+            OPENAI_API_KEY: "cmux-vm-edge-placeholder",
+            CMUX_CODEROUTER_URL: "https://coderouter.cmux.test",
+            ...extraEnv,
+          },
+        });
+      expect(run({}).stdout).toBe("");
+      expect(run({ CMUX_WORKSPACE_ID: "ws_abc" }).stdout).toBe("x-cmux-workspace-id: ws_abc");
+      expect(run({ CMUX_WORKSPACE_ID: "ws_abc", CMUX_SURFACE_ID: "sf_1" }).stdout).toBe(
+        "x-cmux-workspace-id: ws_abc\nx-cmux-surface-id: sf_1",
+      );
+      expect(run({ CMUX_WORKSPACE_ID: "ws_abc", ANTHROPIC_CUSTOM_HEADERS: "x-mine: 1" }).stdout).toBe("x-mine: 1");
+      const codexConfig = readFileSync(path.join(home, ".codex", "config.toml"), "utf8");
+      expect(codexConfig).toContain("[model_providers.cmux.env_http_headers]");
+      expect(codexConfig).toContain('"x-cmux-workspace-id" = "CMUX_WORKSPACE_ID"');
+      expect(codexConfig).toContain('"x-cmux-surface-id" = "CMUX_SURFACE_ID"');
+      expect(codexConfig.indexOf("[model_providers.cmux.env_http_headers]")).toBeLessThan(codexConfig.indexOf("[history]"));
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   test("every shell file parses", () => {
@@ -592,11 +625,11 @@ describe("devbox image template", () => {
   });
 
   test("agent PTY readiness handles output, gates, exit, timeout and cancellation", () => {
-    const result = spawnSync("python3", [path.join(import.meta.dirname, "devbox-agent-launch-test.py")], {
+    const result = spawnSync("python3", [fileURLToPath(new URL("./devbox-agent-launch-test.py", import.meta.url))], {
       encoding: "utf8", timeout: 30_000,
     });
     expect({ status: result.status, output: result.stderr }).toEqual({ status: 0, output: expect.stringContaining("OK") });
-  });
+  }, 35_000);
 
   test("one public-platform SDK serves the bake, the verifier, and the driver", () => {
     // There is a single Freestyle arm now: the public platform on freestyle@0.2.x.

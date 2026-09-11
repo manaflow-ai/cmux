@@ -57,6 +57,8 @@ final class CloudTreeNode: NSObject {
         case port(SurfaceResource, url: String?, openIn: UUID?)
         /// A single explanatory line (asleep, connecting, link error, empty).
         case placeholder(machine: SurfaceMachineID, CloudTreePlaceholder)
+        /// Port discovery is demand-driven when the user opens the Ports group.
+        var refreshesOnExpansion: Bool { if case .portsGroup = self { true } else { false } }
     }
 
     let id: String
@@ -96,7 +98,6 @@ final class CloudTreeNode: NSObject {
         case .placeholder: return "placeholder"
         }
     }
-
     /// Copies the values of an equal-structure rebuild into this node (NSOutlineView keeps
     /// the object it was handed; updating it in place keeps rows, expansion and the
     /// selection untouched). Children are adopted pairwise — callers guarantee the
@@ -108,7 +109,6 @@ final class CloudTreeNode: NSObject {
             child.adopt(from: replacement)
         }
     }
-
     var machine: SurfaceMachineID {
         switch kind {
         case .machine(let snapshot, _): return .cloud(snapshot.id)
@@ -892,7 +892,6 @@ enum CloudTreeNodeBuilder {
         snapshot: SurfaceCatalogSnapshot,
         projectionIndex: LocalProjectionIndex
     ) -> CloudTreeNode {
-        let displays = resources.filter { $0.kind == .display }
         var byWorkspace: [String: RemoteWorkspaceRows] = [:]
         for workspace in info.remoteWorkspaces ?? [] {
             byWorkspace[workspace.id] = RemoteWorkspaceRows(workspace: workspace)
@@ -907,6 +906,11 @@ enum CloudTreeNodeBuilder {
                 }
                 byWorkspace[placement.workspace.id] = rows
             }
+        }
+        for member in SurfaceProjection.localDisplayMembers(resources: resources, projections: snapshot.projections) {
+            guard var rows = byWorkspace[member.workspaceID] else { continue }
+            rows.displays.append(RemoteResourcePlacement(resource: member.resource, workspace: rows.workspace, view: nil))
+            byWorkspace[member.workspaceID] = rows
         }
         let workspaces = byWorkspace.values.sorted { lhs, rhs in
             lhs.workspace.index != rhs.workspace.index ? lhs.workspace.index < rhs.workspace.index : lhs.workspace.id < rhs.workspace.id
@@ -923,15 +927,12 @@ enum CloudTreeNodeBuilder {
                     remoteWorkspaceID: workspace.id
                 )
             }
-            let shownDisplayPlacements: [RemoteResourcePlacement] = displayPlacements.isEmpty
-                ? displays.map { RemoteResourcePlacement(resource: $0, workspace: workspace, view: nil) }
-                : displayPlacements
             let openInLocal = projectionIndex.localWorkspaceShowing(
                 remoteWorkspaceID: workspace.id,
                 placements: realPlacements
             )
             let layout = layoutRows(
-                placements: terminalPlacements + browserPlacements + shownDisplayPlacements,
+                placements: terminalPlacements + browserPlacements + displayPlacements,
                 workspace: workspace,
                 machine: machine,
                 info: info,
@@ -939,16 +940,14 @@ enum CloudTreeNodeBuilder {
                 projectionIndex: projectionIndex,
                 openInLocal: openInLocal
             )
-            // The group keeps its members (a workspace's own placements; the implicit
-            // pool display stays out) but takes the rows' order.
-            let realPlacementSet = Set(realPlacements)
+            // Open and drag use the same actual placements in the rows' order.
             let orderedRealPlacements = layout.placements.map { placement in
                 SurfaceResourcePlacement(
                     resource: placement.resource.id,
                     remoteView: placement.view,
                     remoteWorkspaceID: workspace.id
                 )
-            }.filter { realPlacementSet.contains($0) }
+            }
             return CloudTreeNode(
                 id: nodeID(workspace: workspace.id, machine: machine),
                 kind: .workspace(
@@ -1141,6 +1140,18 @@ enum CloudTreeNodeBuilder {
                 hiddenTabCount: hiddenTabCount
             ))
         )
+    }
+
+    /// Returns canonical forwarded-port resources in stable port/key order.
+    ///
+    /// The tree treats any orphan browser resource with a listening port as a
+    /// port row; this narrower helper is retained for callers that need to
+    /// distinguish provider-minted `port:<n>` resources from ordinary daemon
+    /// browser tabs that happen to point at localhost.
+    static func portResources(_ resources: [SurfaceResource]) -> [SurfaceResource] {
+        resources
+            .filter { $0.kind == .browser && $0.port != nil && $0.id.key.hasPrefix("port:") }
+            .sorted { ($0.port ?? 0, $0.id.key) < ($1.port ?? 0, $1.id.key) }
     }
 
     private static func placeholder(

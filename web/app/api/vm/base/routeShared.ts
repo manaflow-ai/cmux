@@ -1,7 +1,7 @@
 import type { AuthedUser } from "../../../../services/vms/auth";
 import { defaultMemoryMbForPlan } from "../../../../services/vms/entitlements";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
-import { defaultProviderId, isProviderId, type ProviderId } from "../../../../services/vms/drivers";
+import { defaultProviderId, isProviderId, vmCapabilitiesFor, type ProviderId } from "../../../../services/vms/drivers";
 import {
   isVmCreateDisabledError,
   isVmImageConfigError,
@@ -129,6 +129,7 @@ export async function runBaseRoute(input: {
     kind: vmImageKindFor(entry.provider, entry.image),
     status: entry.status,
     createdAt: entry.createdAt,
+    capabilities: vmCapabilitiesFor(entry.provider),
     base: {
       id: entry.baseId,
       name: entry.baseName,

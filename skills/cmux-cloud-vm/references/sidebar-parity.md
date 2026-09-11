@@ -21,7 +21,7 @@ Machine row › **Delete…** | `cmux vm rm <m>` | `vm.destroy` | ✅
 Terminals / Workspaces group › **New Terminal** | `cmux surface new-terminal --machine <m> [-- <cmd>]` | `vm.terminal_new` | ✅
 Workspace row › **New Terminal Here** | `cmux surface new-terminal --machine <m> --remote-workspace <ws>` | `vm.terminal_new {workspace_id}` | ✅
 Workspace row › **Go to Workspace** (the open verb's label once the workspace is showing locally), click, Return | `cmux workspace select <local-id>` (the local workspace from `vm tree --json` projections) | `workspace.select` | ✅ one open verb; never opens a second copy
-Workspace row › **Open Workspace** (not open yet), click, Return | `cmux vm workspace open <m> <ws>` — every member of the workspace (terminals, browsers, pinned displays) as its own local workspace | `vm.workspace_open` | ✅ resolved exactly like the row (`ws_…` id or an unambiguous name; every view counted, so a terminal viewed in two workspaces opens from both); an empty workspace opens nothing (D9) — the CLI says so and names `cmux vm open <m>/<ws>`
+Workspace row › **Open Workspace** (not open yet), click, Return | `cmux vm workspace open <m> <ws>` — every member of the workspace (terminals, browsers, pinned displays) as its own local workspace | `vm.workspace_open` | ✅ resolved exactly like the row (`ws_…` id or an unambiguous name; every view counted, so a terminal viewed in two workspaces opens from both); an empty workspace opens nothing (D9) — the CLI says so and names `cmux vm open <m>/<ws>` — and **with the machine screen's geometry**: split directions, divider ratios and the tabs of each pane come from the daemon's LayoutDocument (`screens[].layout`), so what the agent arranged in the cloud is what appears; a workspace with no layout falls back to one pane per terminal (right/down alternation)
 (no menu verb — one terminal, not the whole workspace) | `cmux vm open <m>/<ws>` — the workspace's focused/first live terminal, or a new shell in it when nothing is running | `surface.project` / `surface.new_terminal` | ✅ same id-or-unambiguous-name resolution; this is the verb that creates in an empty workspace
 (no menu verb — drop onto the current pane) | `cmux vm workspace open <m> <ws> --here [--workspace <local>]` | `vm.workspace_open {here}` | ✅
 (no menu verb — CLI placement only) | `cmux vm workspace open <m> <ws> --tabs [--pane <p>]` | `vm.workspace_open {here, placement: tab}` | ✅
@@ -39,6 +39,11 @@ Terminal row › **Kill Terminal…**, hover × | `cmux vm terminal close <m> <t
 Terminals › detached row (greyed, "detached": still running, no tab on the machine shows it, so it is in no workspace folder); click re-attaches it in a pane, right-click › **Kill Terminal…** | `cmux vm tree` lists it in the final `terminals/` section, under its `(detached — …)` subgroup (`remote_views: []` in `--json`), `cmux surface open <m>/terminal/<term>` / `cmux vm terminal close <m> <term>` | `surface.project` / `vm.terminal_close` | ✅
 Row › **Copy Surface ID** / **Copy Port** | `cmux surface ls --json` (`id`, `port`) | `surface.ls` | ✅
 Port row (when shown) click | `cmux vm open <m>:port/<n>` / `cmux vm open <m> <n> [--print]` | `vm.port_open` | ✅
+(no menu verb — the workspace's shape as data) | `cmux vm layout export <m> <ws>` | `vm.exec` → in-VM `cmux layout export` | ✅ the same LayoutDocument the row renders, in the `cmux new-workspace --layout` / `cmux layout get` schema
+(no menu verb — an agent builds the workspace the row will open) | `cmux vm layout apply <m> <file> [--name n] [--open]` | `vm.exec` → in-VM `cmux layout apply`, then `vm.workspace_open` for `--open` | ✅ builds panes/splits/tabs on the machine; `--open` is exactly the row click
+(no menu verb — project secrets) | `cmux vm env set\|ls\|rm <m> …` | `vm.exec` → in-VM `cmux env` | ✅ machine-local, sourced by every shell cmux starts
+(no menu verb — CLI only) | `cmux vm pause <m>` / `cmux vm resume <m>` | `vm.pause` / `vm.resume` | ✅ parks and wakes a machine; the sidebar shows the state
+(no menu verb — agent-only) | `cmux vm terminal wait-exit\|output <m> <term> …` | `vm.terminal_wait_exit` / `vm.terminal_output` | ✅ exit code and full output stream, headless
 
 Rules that keep it 1:1:
 
@@ -49,4 +54,14 @@ Rules that keep it 1:1:
 - `--focus false` means the same on `vm new`, `vm base open`, and `vm open`: open the surface where it belongs, never select its workspace or move keyboard focus out of the workspace the person is in (a pane is still focused when its workspace is the one already on screen). The New Machine / Set Up Base sheets always create this way; the success notification's click goes to the new workspace.
 - Placement flags mean the same everywhere: `--pane <p>` + side = split that pane on that side; `--tab` / `--tabs` = tabs in that pane; nothing = the focused pane of the current (or `--workspace`) local workspace; `--new` = never reuse a pane that already shows the surface.
 - Ports are a first-class group in the tree when a machine exposes listening ports; the CLI and sidebar use the same port-open path. A canonical `browser/port:<n>` resource stays in the owning machine's Ports group even when the daemon also reports it inside a cloud workspace, where the workspace pointer uses the same resource id.
-- Agent-only primitives (`cmux vm terminal send|read|wait` → `vm.terminal_write|read|wait`, plus `exec`, `push`, `pull`, `route`, `run`, `agent`) have no sidebar verb by design: a person does those things by typing into a pane. They still go through the machine's `CmuxTuiSurfaceProvider`, so what an agent types headlessly shows up in every pane projecting that terminal.
+- Agent-only primitives (`cmux vm terminal send|read|wait` → `vm.terminal_write|read|wait`, plus `exec`, `push`, `pull`, `route`, `run`, `agent`, `layout export|apply`, `env`) have no sidebar verb by design: a person does those things by typing into a pane or by arranging panes. They still go through the machine's `CmuxTuiSurfaceProvider`, so what an agent types headlessly shows up in every pane projecting that terminal.
+
+Existing machine-to-machine links are agent-only: the source machine's in-VM
+`cmux vm` shim uses the remote-daemon verbs without a control-plane credential.
+This build cannot create new peer grants; the old `vm link` enrollment broker
+is not part of the trusted private-network listener flow.
+Inside a machine the shim also speaks the Mac's own
+spellings for its local session (`cmux send-key`, `cmux terminal send|read|wait`,
+`cmux new-workspace`, `cmux layout …`, `cmux env …`, `cmux tree`), so an agent in the
+cloud drives its machine — and, through a link, a peer machine — with the verbs it
+already knows from the Mac.

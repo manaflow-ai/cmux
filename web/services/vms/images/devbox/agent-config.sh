@@ -77,6 +77,12 @@ cmux_write_agent_configs() {
       echo "requires_openai_auth = false"
       echo "supports_websockets = false"
       echo ""
+      echo "# usage attribution per cmux workspace/terminal; env_http_headers"
+      echo "# skips a header whose variable is unset (plain SSH, exec API)"
+      echo "[model_providers.cmux.env_http_headers]"
+      echo "\"x-cmux-workspace-id\" = \"CMUX_WORKSPACE_ID\""
+      echo "\"x-cmux-surface-id\" = \"CMUX_SURFACE_ID\""
+      echo ""
       echo "[history]"
       echo "persistence = \"save-all\""
     } > "$HOME/.codex/config.toml" 2>/dev/null
@@ -226,6 +232,22 @@ codex() {
     command codex "$@"
   fi
 }
+
+# usage attribution: cmux-tui exports CMUX_WORKSPACE_ID and CMUX_SURFACE_ID
+# into every terminal it opens; the coderouter ledger keys usage by them so
+# `cmux coderouter usage` can break spend down per workspace and terminal.
+# Claude Code takes extra request headers from ANTHROPIC_CUSTOM_HEADERS (one
+# "Name: value" per line); codex reads the same ids through the
+# env_http_headers table generated above. A user-set value wins. Outside a
+# cmux-tui terminal the variables are unset and no header is sent.
+if [ -n "${CMUX_WORKSPACE_ID-}" ] && [ -z "${ANTHROPIC_CUSTOM_HEADERS-}" ]; then
+  ANTHROPIC_CUSTOM_HEADERS="x-cmux-workspace-id: $CMUX_WORKSPACE_ID"
+  if [ -n "${CMUX_SURFACE_ID-}" ]; then
+    ANTHROPIC_CUSTOM_HEADERS="$ANTHROPIC_CUSTOM_HEADERS
+x-cmux-surface-id: $CMUX_SURFACE_ID"
+  fi
+  export ANTHROPIC_CUSTOM_HEADERS
+fi
 
 cmux_write_agent_configs
 unset -f cmux_write_agent_configs

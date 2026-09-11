@@ -8,29 +8,39 @@ import Foundation
 /// utility queue so Ghostty's main actor and input path never wait on a file
 /// descriptor or parse a large output burst.
 // @unchecked Sendable is safe here because every mutable descriptor/source/
-// framing field is accessed only on `queue`; the AsyncStream continuation is
-// the sole cross-thread handoff and carries immutable `Data` values.
+// framing field and pending demand are accessed only on `queue`. Continuations
+// hand immutable frames back to the single async consumer.
 final class CloudTuiManualIOConnection: @unchecked Sendable {
     private static let maximumLineBytes = 16 * 1024 * 1024
-    // One frame can be a protocol-sized replay. Keep the stream's retained
-    // payload bounded to four such frames; a fifth frame closes the attachment
-    // and lets the owner reconnect from a fresh snapshot instead of growing
-    // memory while the main actor is stalled.
-    private static let maximumBufferedFrames = 4
+    private static let readChunkBytes = 16 * 1024
 
     private let socketPath: String
     private let queue: DispatchQueue
     private let commandBuilder: CloudTuiManualIOCommand
-    let events: AsyncStream<CloudTuiManualIOFrame>
-    private let eventsContinuation: AsyncStream<CloudTuiManualIOFrame>.Continuation
+
+    /// Single-consumer stream. Each next() requests one frame, so a busy renderer
+    /// applies socket backpressure instead of overflowing a decoded-frame queue.
+    var events: AsyncStream<CloudTuiManualIOFrame> {
+        AsyncStream(unfolding: { [weak self] in
+            await self?.nextFrame()
+        }, onCancel: { [weak self] in
+            self?.close()
+        })
+    }
+
+    private var nextFrameContinuation: CheckedContinuation<CloudTuiManualIOFrame?, Never>?
     private var descriptor: Int32 = -1
     private var isConnected = false
     private var readSource: DispatchSourceRead?
+    private var readSourceSuspended = false
     private var writeSource: DispatchSourceWrite?
     private var writeSourceSuspended = true
     private var descriptorLease: CloudTuiManualIODescriptorLease?
     private var startContinuation: CheckedContinuation<Void, Error>?
     private var pendingLine = Data()
+    private var pendingLineSearchOffset = 0
+    // This storage is queue-owned and reused for every socket read.
+    private var readBuffer = [UInt8](repeating: 0, count: CloudTuiManualIOConnection.readChunkBytes)
     private var pendingWrites: [Data] = []
     private var pendingWriteOffset = 0
     private var pendingWriteBytes = 0
@@ -48,15 +58,25 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
         self.socketPath = socketPath
         self.queue = queue
         self.commandBuilder = commandBuilder
-        // A stalled Ghostty parser must not let a remote output burst grow an
-        // unbounded in-memory queue. Dropping a frame would corrupt the VT
-        // stream, so the bounded overflow edge closes this attachment and lets
-        // the owner reconnect from a fresh snapshot.
-        (events, eventsContinuation) = AsyncStream<CloudTuiManualIOFrame>.makeStream(
-            bufferingPolicy: .bufferingOldest(Self.maximumBufferedFrames)
-        )
-        eventsContinuation.onTermination = { [weak self] _ in
-            self?.close()
+    }
+
+    private func nextFrame() async -> CloudTuiManualIOFrame? {
+        guard !Task.isCancelled else {
+            close()
+            return nil
+        }
+        return await withCheckedContinuation { continuation in
+            queue.async { [self] in
+                guard !closed, nextFrameContinuation == nil else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                nextFrameContinuation = continuation
+                resumeReadSourceLocked()
+                // A previous read may already contain the next complete line;
+                // do not depend on another socket-readability notification.
+                readAvailableLocked()
+            }
         }
     }
 
@@ -169,6 +189,9 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
         // descriptor and close it exactly once.
         source.activate()
         writeSource.activate()
+        if nextFrameContinuation == nil {
+            suspendReadSourceLocked()
+        }
 
         var address = try Self.unixAddress(path: socketPath)
         let addressLength = socklen_t(Self.unixAddressLength(address: address))
@@ -214,6 +237,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
         let continuation = startContinuation
         startContinuation = nil
         continuation?.resume()
+        readAvailableLocked()
     }
 
     private func failStartLocked(_ error: Error) {
@@ -224,35 +248,40 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     }
 
     private func readAvailableLocked() {
-        guard !closed, isConnected, descriptor >= 0 else { return }
-        var bytes = [UInt8](repeating: 0, count: 16 * 1024)
+        guard !closed, isConnected, descriptor >= 0, nextFrameContinuation != nil else { return }
         while !closed {
-            let count = Darwin.read(descriptor, &bytes, bytes.count)
-            if count > 0 {
-                pendingLine.append(bytes, count: count)
-                guard pendingLine.count <= Self.maximumLineBytes else {
+            while let newline = pendingLine[
+                pendingLine.index(pendingLine.startIndex, offsetBy: pendingLineSearchOffset)...
+            ].firstIndex(of: 0x0A) {
+                guard pendingLine.distance(from: pendingLine.startIndex, to: newline) <= Self.maximumLineBytes else {
                     closeLocked()
                     return
                 }
-                while let newline = pendingLine.firstIndex(of: 0x0A) {
-                    let line = Data(pendingLine[..<newline])
-                    pendingLine.removeSubrange(...newline)
-                    if !line.isEmpty {
-                        guard let frame = CloudTuiManualIOFrameDecoder().decode(line) else {
-                            continue
-                        }
-                        switch eventsContinuation.yield(frame) {
-                        case .enqueued:
-                            break
-                        case .dropped, .terminated:
-                            closeLocked()
-                            return
-                        @unknown default:
-                            closeLocked()
-                            return
-                        }
-                    }
-                }
+                let line = Data(pendingLine[..<newline])
+                pendingLine.removeSubrange(...newline)
+                pendingLineSearchOffset = 0
+                guard !line.isEmpty,
+                      let frame = CloudTuiManualIOFrameDecoder().decode(line) else { continue }
+                let continuation = nextFrameContinuation
+                nextFrameContinuation = nil
+                suspendReadSourceLocked()
+                continuation?.resume(returning: frame)
+                return
+            }
+            // Only newly read bytes need scanning while a large line arrives.
+            pendingLineSearchOffset = pendingLine.count
+            // Retain at most one protocol-sized unfinished line plus one read
+            // chunk. Complete frames stay in the socket until next() requests
+            // them; kernel/link backpressure bounds a stalled consumer's memory.
+            guard pendingLine.count <= Self.maximumLineBytes else {
+                closeLocked()
+                return
+            }
+            let count = readBuffer.withUnsafeMutableBytes { buffer in
+                Darwin.read(descriptor, buffer.baseAddress, buffer.count)
+            }
+            if count > 0 {
+                pendingLine.append(readBuffer, count: count)
                 continue
             }
             if count == 0 {
@@ -264,6 +293,18 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
             closeLocked()
             return
         }
+    }
+
+    private func resumeReadSourceLocked() {
+        guard readSourceSuspended, let readSource else { return }
+        readSourceSuspended = false
+        readSource.resume()
+    }
+
+    private func suspendReadSourceLocked() {
+        guard !readSourceSuspended, let readSource else { return }
+        readSourceSuspended = true
+        readSource.suspend()
     }
 
     private func flushWritesLocked() {
@@ -320,6 +361,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
         closed = true
         isConnected = false
         pendingLine.removeAll(keepingCapacity: false)
+        pendingLineSearchOffset = 0
         pendingWrites.removeAll(keepingCapacity: false)
         pendingWriteOffset = 0
         pendingWriteBytes = 0
@@ -334,6 +376,10 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
         }
         writeSource?.cancel()
         let source = readSource
+        if readSourceSuspended {
+            readSourceSuspended = false
+            source?.resume()
+        }
         readSource = nil
         self.descriptor = -1
         source?.cancel()
@@ -346,7 +392,9 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
         }
         let continuation = startContinuation
         startContinuation = nil
-        eventsContinuation.finish()
+        let frameContinuation = nextFrameContinuation
+        nextFrameContinuation = nil
+        frameContinuation?.resume(returning: nil)
         continuation?.resume(throwing: CancellationError())
     }
 
