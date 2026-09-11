@@ -1582,6 +1582,10 @@ export class FreestyleProvider implements VMProvider {
     }
     await this.execOrThrow(vm, vmId, freestyleStartDaemonCommand(), 60_000);
     await waitForCmuxTuiReady(this.cmuxTuiInvoke(vm), "freestyle", vmId);
+    // A repaired daemon whose binary was still pinned skipped the install
+    // (and with it the hooks); a resumed machine lands here while its
+    // supervisor re-keys the daemon. Same idempotent check as the healthy path.
+    await this.ensureAgentHooks(vm, vmId);
   }
 
   /**
