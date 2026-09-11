@@ -1974,11 +1974,11 @@
 		596100000000000000000001 /* NativeNotificationFallbackCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596100000000000000000002 /* NativeNotificationFallbackCommandTests.swift */; };
 		A6AC72030000000000000001 /* NativeSpinner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72030000000000000002 /* NativeSpinner.swift */; };
 		A1002000000000000000000F /* NativeTextSurfaceSelectionReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10020000000000000000010 /* NativeTextSurfaceSelectionReader.swift */; };
-		7A0CE1000000000000000041 /* NetworkExtensionTunnelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000015 /* NetworkExtensionTunnelController.swift */; };
 		BD02A4A1E51236230ADAB64C /* NestedSidebarSubtreeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF26E0915F2062EFC4CBE962 /* NestedSidebarSubtreeView.swift */; };
 		6564808223B9A5ED8E0ED8D8 /* NestedTopologyCapabilitiesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD3AA14B5C0493B87AC5DA4F /* NestedTopologyCapabilitiesTests.swift */; };
 		FCC87625D11097C386831B7E /* NestedTopologyController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68D1BA7A1504F9476EE1034B /* NestedTopologyController.swift */; };
 		C750N6RSTR0000000000002 /* NestedTopologyRestoreSessionSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C750N6RSTR0000000000001 /* NestedTopologyRestoreSessionSnapshotTests.swift */; };
+		7A0CE1000000000000000041 /* NetworkExtensionTunnelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000015 /* NetworkExtensionTunnelController.swift */; };
 		8B1B2AB6EC6ACDB2CD39A9BB /* NewBrowserWorkspaceShortcutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04698069140539D8495D6B9B /* NewBrowserWorkspaceShortcutUITests.swift */; };
 		5CA1AFB486DF86FAF22509F2 /* NewMachineModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 751BACEC44FF7CFC02CE9A57 /* NewMachineModel.swift */; };
 		D5EB22366F37AB2B52CD4B2A /* NewMachineModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5130177E80C2A18E09DBBBC4 /* NewMachineModelTests.swift */; };
@@ -5479,11 +5479,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		596100000000000000000002 /* NativeNotificationFallbackCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeNotificationFallbackCommandTests.swift; sourceTree = "<group>"; };
 		A6AC72030000000000000002 /* NativeSpinner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSpinner.swift; sourceTree = "<group>"; };
 		A10020000000000000000010 /* NativeTextSurfaceSelectionReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/NativeTextSurfaceSelectionReader.swift; sourceTree = "<group>"; };
-		7A0CE1000000000000000015 /* NetworkExtensionTunnelController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NetworkExtensionTunnelController.swift; sourceTree = "<group>"; };
 		EF26E0915F2062EFC4CBE962 /* NestedSidebarSubtreeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NestedSidebarSubtreeView.swift; sourceTree = "<group>"; };
 		AD3AA14B5C0493B87AC5DA4F /* NestedTopologyCapabilitiesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NestedTopologyCapabilitiesTests.swift; sourceTree = "<group>"; };
 		68D1BA7A1504F9476EE1034B /* NestedTopologyController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NestedTopologyController.swift; sourceTree = "<group>"; };
 		C750N6RSTR0000000000001 /* NestedTopologyRestoreSessionSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NestedTopologyRestoreSessionSnapshotTests.swift; sourceTree = "<group>"; };
+		7A0CE1000000000000000015 /* NetworkExtensionTunnelController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NetworkExtensionTunnelController.swift; sourceTree = "<group>"; };
 		04698069140539D8495D6B9B /* NewBrowserWorkspaceShortcutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewBrowserWorkspaceShortcutUITests.swift; sourceTree = "<group>"; };
 		751BACEC44FF7CFC02CE9A57 /* NewMachineModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NewMachineModel.swift; sourceTree = "<group>"; };
 		5130177E80C2A18E09DBBBC4 /* NewMachineModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NewMachineModelTests.swift; sourceTree = "<group>"; };
@@ -5680,10 +5680,10 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		791100040000000000000001 /* RemoteDisconnectLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteDisconnectLifecycleTests.swift; sourceTree = "<group>"; };
 		791102020000000000000001 /* RemoteDisconnectPreparationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteDisconnectPreparationService.swift; sourceTree = "<group>"; };
 		E30780000000000000000015 /* RemoteDropUploadError+LocalizedError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteDropUploadError+LocalizedError.swift"; sourceTree = "<group>"; };
-		RH10000100000000000000001 /* RemoteHerdrController+Attach.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHerdrController+Attach.swift; sourceTree = "<group>"; };
+		RH10000100000000000000001 /* RemoteHerdrController+Attach.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteHerdrController+Attach.swift"; sourceTree = "<group>"; };
 		RH10000000000000000000001 /* RemoteHerdrController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHerdrController.swift; sourceTree = "<group>"; };
 		RH10000200000000000000001 /* RemoteHerdrSessionHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHerdrSessionHost.swift; sourceTree = "<group>"; };
-		RH10000400000000000000001 /* RemoteHerdrWindowMirrorHost+Bonsplit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHerdrWindowMirrorHost+Bonsplit.swift; sourceTree = "<group>"; };
+		RH10000400000000000000001 /* RemoteHerdrWindowMirrorHost+Bonsplit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteHerdrWindowMirrorHost+Bonsplit.swift"; sourceTree = "<group>"; };
 		RH10000B00000000000000001 /* RemoteHerdrWindowMirrorHost+Configuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteHerdrWindowMirrorHost+Configuration.swift"; sourceTree = "<group>"; };
 		RH10000900000000000000001 /* RemoteHerdrWindowMirrorHost+ControlMutations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteHerdrWindowMirrorHost+ControlMutations.swift"; sourceTree = "<group>"; };
 		RH10000800000000000000001 /* RemoteHerdrWindowMirrorHost+DividerSizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteHerdrWindowMirrorHost+DividerSizing.swift"; sourceTree = "<group>"; };
@@ -6474,8 +6474,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		D1FF00010000000000000001 /* TerminalController+MobileWorkspaceChanges.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileWorkspaceChanges.swift"; sourceTree = "<group>"; };
 		C7A50B000000000000000011 /* TerminalController+MobileWorkspaceList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileWorkspaceList.swift"; sourceTree = "<group>"; };
 		D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
-		5814AB3D95071B3476D35AB9 /* TerminalController+NestedTopology.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalController+NestedTopology.swift; sourceTree = "<group>"; };
-		RH10000600000000000000001 /* TerminalController+RemoteHerdr.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalController+RemoteHerdr.swift; sourceTree = "<group>"; };
+		5814AB3D95071B3476D35AB9 /* TerminalController+NestedTopology.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+NestedTopology.swift"; sourceTree = "<group>"; };
+		RH10000600000000000000001 /* TerminalController+RemoteHerdr.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteHerdr.swift"; sourceTree = "<group>"; };
 		A19F4C0D0000000000000001 /* TerminalController+RemoteRelayAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteRelayAuthorization.swift"; sourceTree = "<group>"; };
 		81260000000000000000000A /* TerminalController+RemoteTerminalTransportErrors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteTerminalTransportErrors.swift"; sourceTree = "<group>"; };
 		95B11974CF8937E165A3FAEE /* TerminalController+RemoteTmux.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteTmux.swift"; sourceTree = "<group>"; };
@@ -12421,9 +12421,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				596100000000000000000003 /* NativeNotificationDeliveryHooks.swift in Sources */,
 					A6AC72030000000000000001 /* NativeSpinner.swift in Sources */,
 				A1002000000000000000000F /* NativeTextSurfaceSelectionReader.swift in Sources */,
-				7A0CE1000000000000000041 /* NetworkExtensionTunnelController.swift in Sources */,
 				BD02A4A1E51236230ADAB64C /* NestedSidebarSubtreeView.swift in Sources */,
 				FCC87625D11097C386831B7E /* NestedTopologyController.swift in Sources */,
+				7A0CE1000000000000000041 /* NetworkExtensionTunnelController.swift in Sources */,
 				5CA1AFB486DF86FAF22509F2 /* NewMachineModel.swift in Sources */,
 				DD3322FE8D4021EB0FAFE7F6 /* NewMachineSheet.swift in Sources */,
 				548D90758DB3CF890BFDC603 /* NewMachineSheetPresenter.swift in Sources */,
