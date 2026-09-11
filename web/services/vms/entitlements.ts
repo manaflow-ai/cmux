@@ -67,7 +67,7 @@ export function resolveVmEntitlements(
   options: VmEntitlementOptions = {},
 ): VmEntitlements {
   const billing = resolveBillingContext(user, options);
-  if (!user.isAnonymous && isDevelopmentProAccessEnabled(env)) {
+  if (!user.isAnonymous && isDevelopmentProAccessEnabled(env) && user.userBillingPlanId !== MAX_PLAN_ID) {
     return {
       planId: PRO_PLAN_ID,
       billingCustomerType: billing.billingCustomerType,
@@ -84,12 +84,16 @@ export function resolveVmEntitlements(
       (isVmFreeProvisioningAllowed(env) || !isPaidVmPlan(configuredDefaultPlan))
     ? configuredDefaultPlan
     : "free";
-  const planId = normalizedPlanId(billing.billingPlanId ?? defaultPlan);
+  const billingPlanId = normalizedPlanId(billing.billingPlanId ?? defaultPlan);
+  // Max belongs to the caller. It does not grant Max to other team members
+  // or replace the team's seat-based machine allowance.
+  const planId = normalizedPlanId(user.userBillingPlanId ?? "") === MAX_PLAN_ID
+    ? MAX_PLAN_ID : billingPlanId;
   return {
     planId,
     billingCustomerType: billing.billingCustomerType,
     billingTeamId: billing.billingTeamId,
-    maxActiveVms: maxActiveVmsForPlan(planId, env, { seats: billing.billingSeats }),
+    maxActiveVms: maxActiveVmsForPlan(billingPlanId === TEAM_PLAN_ID ? billingPlanId : planId, env, { seats: billing.billingSeats }),
   };
 }
 
@@ -179,21 +183,22 @@ export function maxMemoryMbForPlan(
   const normalized = normalizedPlanId(planId ?? "");
   const planKey = normalized.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
   const specific = env[`CMUX_VM_PLAN_${planKey}_MAX_MEMORY_MB`];
-  if (specific?.trim()) return positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_MEMORY_MB`);
+  const ceiling = normalized === MAX_PLAN_ID ? MAX_PLAN_MAX_MEMORY_MB : PLAN_MAX_MEMORY_MB;
+  if (specific?.trim()) return Math.min(ceiling, positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_MEMORY_MB`));
   if (normalized === MAX_PLAN_ID) return MAX_PLAN_MAX_MEMORY_MB;
   if (normalized === "free") {
     // The free machine is the product demo: the same computer Pro gets, not a
     // cut-down teaser. The paywall is the 7-day access window and the machine
     // count, never the machine's usefulness.
-    return positiveInteger(
+    return Math.min(ceiling, positiveInteger(
       env.CMUX_VM_FREE_MAX_MEMORY_MB ?? String(PLAN_MAX_MEMORY_MB),
       "CMUX_VM_FREE_MAX_MEMORY_MB",
-    );
+    ));
   }
-  return positiveInteger(
+  return Math.min(ceiling, positiveInteger(
     env.CMUX_VM_PAID_MAX_MEMORY_MB ?? String(PLAN_MAX_MEMORY_MB),
     "CMUX_VM_PAID_MAX_MEMORY_MB",
-  );
+  ));
 }
 
 /**

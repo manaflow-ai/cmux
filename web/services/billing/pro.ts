@@ -6,7 +6,7 @@
 // `cmuxVmPlan` takes precedence over `cmuxPlan` there and is left untouched
 // here so manual overrides survive.
 
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import { stripeCustomers, stripeSubscriptions } from "../../db/schema";
@@ -38,6 +38,12 @@ export const TEAM_PLAN_ID = "team";
 // Existing operator grants may still use `cmuxVmPlan: "founders"`.
 export const FOUNDERS_PLAN_ID = "founders";
 export const FREE_PLAN_ID = "free";
+
+export function isFounderSubscriptionRow(row: { readonly id?: string | null; readonly raw?: unknown }): boolean {
+  if (row.id?.startsWith("founders_")) return true;
+  const raw = row.raw as { metadata?: { founders_edition?: unknown } } | null | undefined;
+  return raw?.metadata?.founders_edition === "true";
+}
 /** Stack project used by the local cmux development server. */
 export const DEVELOPMENT_STACK_PROJECT_ID = "454ecd03-1db2-4050-845e-4ce5b0cd9895";
 
@@ -173,6 +179,8 @@ export type StripeBillingStatus = {
    * or null. Team snapshots leave this null; the Team plan is not personal.
    */
   readonly activePlanId: PersonalPlanId | null;
+  /** Lifetime purchases grant access but cannot be switched in Stripe. */
+  readonly hasRecurringSubscription?: boolean;
   /** Whether the newest subscription is scheduled to cancel at period end. */
   readonly cancelAtPeriodEnd: boolean;
   readonly hasCustomer: boolean;
@@ -364,6 +372,7 @@ function personalPlanIdForStatus(
   activeStripePlan: PersonalPlanId | null,
   manualOverride: string | null,
 ): ProPlanStatus["planId"] {
+  if (activeStripePlan === MAX_PLAN_ID || manualOverride === MAX_PLAN_ID) return MAX_PLAN_ID;
   if (activeStripePlan) return activeStripePlan;
   if (!isPaidPlanId(manualOverride)) return FREE_PLAN_ID;
   return manualOverride === MAX_PLAN_ID ? MAX_PLAN_ID : PRO_PLAN_ID;
@@ -599,6 +608,8 @@ export async function stripeBillingStatusForUser(
       .select({
         id: stripeSubscriptions.id,
         status: stripeSubscriptions.status,
+        plan: stripeSubscriptions.plan,
+        raw: stripeSubscriptions.raw,
         cancelAtPeriodEnd: stripeSubscriptions.cancelAtPeriodEnd,
         currentPeriodEnd: stripeSubscriptions.currentPeriodEnd,
         updatedAt: stripeSubscriptions.updatedAt,
@@ -610,12 +621,15 @@ export async function stripeBillingStatusForUser(
           isNull(stripeSubscriptions.stackTeamId),
           eq(stripeSubscriptions.scope, "user"),
           inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
+          sql`coalesce(${stripeSubscriptions.raw}->'metadata'->>'founders_edition', '') <> 'true'`,
         ),
       );
     // Keep the ordering in the real Drizzle query, while allowing lightweight
     // database doubles that expose only the common where/limit chain.
     const orderedSubscriptionQuery = typeof subscriptionQuery.orderBy === "function"
       ? subscriptionQuery.orderBy(
+          desc(sql`${stripeSubscriptions.status} in ('active', 'trialing')`),
+          desc(sql`${stripeSubscriptions.plan} = 'max'`),
           desc(stripeSubscriptions.updatedAt),
           desc(stripeSubscriptions.currentPeriodEnd),
         )
@@ -629,13 +643,19 @@ export async function stripeBillingStatusForUser(
       orderedSubscriptionQuery.limit(10),
       activePersonalPlanForUser(stackUserId),
     ]);
-    const subscription = pickPortalMetadataRow(subscriptionRows);
-    return stripeBillingStatusFromRows(
+    const recurringRows = subscriptionRows.filter((row) => !isFounderSubscriptionRow(row));
+    const subscription = recurringRows.find((row) =>
+      row.plan === activePlanId && (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status)
+    ) ?? pickPortalMetadataRow(recurringRows);
+    return { ...stripeBillingStatusFromRows(
       customerRows[0]?.id ?? null,
       subscription,
       activePlanId !== null,
       activePlanId,
-    );
+    ), subscriptionStatus: subscription?.status ?? null,
+    hasRecurringSubscription: recurringRows.some((row) =>
+      (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status)
+    ) };
   } catch (error) {
     if (isMissingDatabaseConfig(error)) return emptyStripeBillingStatus();
     throw error;

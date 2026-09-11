@@ -1,3 +1,5 @@
+import { personalPlanIdForSubscription } from "./subscriptionPlan";
+export { personalPlanIdForSubscription } from "./subscriptionPlan";
 import { findIdentitySnapshotUserIdsByEmail } from "../auth/identitySnapshot";
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type Stripe from "stripe";
@@ -2631,20 +2633,6 @@ async function updateExistingUserStripeSubscription(
  * `customer.subscription.updated`. Checkout metadata is the fallback for a
  * payload without a lookup key; anything else is Pro, the original plan.
  */
-export function personalPlanIdForSubscription(
-  subscription: Pick<Stripe.Subscription, "items" | "metadata">,
-  sessionMetadata?: Stripe.Metadata | null,
-): PersonalPlanId {
-  const lookupKey = subscription.items?.data?.[0]?.price?.lookup_key;
-  if (typeof lookupKey === "string") {
-    if (lookupKey === MAX_PRICING_USD.month.lookupKey || lookupKey.startsWith("cmux-max-")) {
-      return MAX_PLAN_ID;
-    }
-    if (lookupKey.startsWith("cmux-pro-")) return PRO_PLAN_ID;
-  }
-  const metadataPlan = subscription.metadata?.plan ?? sessionMetadata?.plan;
-  return isPersonalPlanId(metadataPlan) ? metadataPlan : PRO_PLAN_ID;
-}
 
 function stripeSubscriptionValues(input: StripeSubscriptionValuesInput) {
   const { subscription } = input;

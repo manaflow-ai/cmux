@@ -200,7 +200,7 @@ func defaultCloudVMAction(status: Int, errorCode: String) -> String {
     case "vm_memory_requires_plan":
         return String(
             localized: "cloudVM.error.memoryRequiresPlan.action",
-            defaultValue: "32 GB and 64 GB machines need cmux Max. Upgrade at https://cmux.com/pricing?plan=max&cmux_source=mac_vm_memory_requires_plan_error&cmux_client=mac, or pick a size up to 24 GB."
+            defaultValue: "32 GB and 64 GB machines need cmux Max. Run `cmux billing checkout --plan max` to upgrade, then retry. Or create a smaller machine with `cmux vm new --size 24g`."
         )
     case "vm_create_credits_insufficient":
         return "Ask a team admin to upgrade the plan or grant more Cloud VM create credits, then retry."
@@ -1238,6 +1238,21 @@ actor VMClient {
 
     /// Creates a machine. `kind` asks the backend for its desktop or shell image;
     /// `image` is the explicit override (`vm new --image`) and wins server-side.
+    /// Creates a payment confirmation URL for the signed-in app account.
+    func billingCheckout(plan: String) async throws -> [String: Any] {
+        let (data, http) = try await request("POST", path: "/api/billing/checkout", jsonBody: [
+            "plan": plan
+        ])
+        try ensureOK(http, data: data)
+        let result = try decodeJSONObject(data)
+        guard let rawURL = result["url"] as? String,
+              let url = URL(string: rawURL),
+              url.scheme == "https" || url.scheme == "http" else {
+            throw VMClientError.malformedResponse("Checkout URL is missing. Open https://cmux.com/pricing.")
+        }
+        return result
+    }
+
     func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, idempotencyKey: String) async throws -> VMSummary {
         var body: [String: Any] = [:]
         if let image { body["image"] = image }

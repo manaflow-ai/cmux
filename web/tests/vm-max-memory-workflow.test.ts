@@ -17,11 +17,11 @@ test("create, fork, and restore reject a 64 GB machine on Pro before provisionin
     beginCreate: () => Effect.sync(() => { creates++; throw new Error("must not create"); }),
   } as unknown as VmRepositoryShape;
   const providers = { getStats: () => Effect.succeed({ memoryTotalMb: 65536, cpus: 16, diskTotalMb: 131072 }) } as unknown as VmProviderGatewayShape;
-  const layer = Layer.mergeAll(Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, providers), Layer.succeed(VmBillingGateway, noOpVmBillingGateway));
+  const layer = Layer.mergeAll(Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, providers), Layer.succeed(VmBillingGateway, noOpVmBillingGateway()));
   const caller = { userId: "user", billingCustomerType: "team" as const, billingTeamId: "team", billingPlanId: "pro", maxActiveVms: 50 };
   for (const program of [
     createVm({ ...caller, provider: "freestyle", image: "snapshot", memoryMb: 65536 }),
-    forkVm({ ...caller, providerVmId: "vm" }),
+    forkVm({ ...caller, teamIds: ["team"], providerVmId: "vm" }),
     restoreVm({ ...caller, provider: "freestyle", snapshotId: "snapshot" }),
   ]) {
     try {

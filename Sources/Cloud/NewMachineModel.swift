@@ -140,15 +140,17 @@ final class NewMachineModel {
     }
 
     let mode: Mode
-    let plan: MachinePlanSnapshot?
+    private(set) var plan: MachinePlanSnapshot?
     /// Sizes the plan may start, in ascending order: the server's
     /// `memoryOptionsMb` minus anything it (or the mirror) locks.
-    let availableMemoryOptionsMb: [Int]
+    private(set) var availableMemoryOptionsMb: [Int]
     /// Ladder sizes the plan cannot start; shown as disabled rows with the
     /// plan that unlocks them, never hidden.
-    let lockedMemoryOptionsMb: [Int]
+    private(set) var lockedMemoryOptionsMb: [Int]
     /// The plan that sells the locked sizes; nil when nothing is locked.
-    let memoryUpgradePlanId: String?
+    private(set) var memoryUpgradePlanId: String?
+    var showsMaxUpgrade = false
+    var refreshPlan: (@MainActor () async -> Void)?
     private var storedMemoryMb: Int
     /// The selected size. A locked size never sticks: setting one snaps to
     /// the largest allowed size below it (or the smallest allowed size), so
@@ -167,6 +169,39 @@ final class NewMachineModel {
     var onFinished: (@MainActor (Outcome) -> Void)?
 
     private let submit: Submit
+
+    func selectSize(_ memoryMb: Int) {
+        if lockedMemoryOptionsMb.contains(memoryMb) {
+            guard memoryUpgradePlanId == Self.maxPlanId else { return }
+            showsMaxUpgrade = true
+            PostHogAnalytics.shared.capture("cmux_vm_size_upgrade_prompted", properties: [
+                "requested_memory_mb": memoryMb,
+                "plan": plan?.planId ?? "unknown",
+                "target_plan": Self.maxPlanId,
+                "source": "mac_new_machine_sheet",
+                "client": "mac"
+            ])
+            return
+        }
+        self.memoryMb = memoryMb
+    }
+
+    func applyPage(_ page: VMListPage) {
+        guard let limits = page.limits else { return }
+        let updated = NewMachineModel(
+            mode: mode,
+            plan: MachineSnapshotBuilder.planSnapshot(activeCount: page.vms.count, limits: limits),
+            memoryOptionsMb: limits.memoryOptionsMb,
+            lockedMemoryOptionsMb: limits.lockedMemoryOptionsMb,
+            memoryUpgradePlanId: limits.memoryUpgradePlanId,
+            submit: submit
+        )
+        plan = updated.plan
+        availableMemoryOptionsMb = updated.availableMemoryOptionsMb
+        lockedMemoryOptionsMb = updated.lockedMemoryOptionsMb
+        memoryUpgradePlanId = updated.memoryUpgradePlanId
+        if !availableMemoryOptionsMb.contains(storedMemoryMb) { storedMemoryMb = updated.memoryMb }
+    }
 
     /// `memoryOptionsMb`, `lockedMemoryOptionsMb` and `memoryUpgradePlanId`
     /// are the server's `limits` fields. A nil `lockedMemoryOptionsMb` means

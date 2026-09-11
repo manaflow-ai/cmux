@@ -40,8 +40,11 @@ import { captureBillingCheckoutStarted } from "../../../../services/analytics/st
 import {
   checkoutAttributionFromRequest,
   checkoutAttributionMetadata,
+  forwardCheckoutAttribution,
   type CheckoutAttribution,
 } from "../../../../services/analytics/checkoutAttribution";
+import { parseNativeStackTokens, verifyRequest } from "../../../../services/vms/auth";
+import { personalPortalSession } from "../../../../services/billing/personalPortal";
 
 
 type CheckoutStackServerApp = StackServerApp<true>;
@@ -62,6 +65,34 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   return NextResponse.json({
     url: location ?? new URL("/pricing?billing=error", requestOrigin(request)).toString(),
   });
+}
+
+/** Native/CLI checkout binds the purchaser to the app's authenticated account. */
+export async function POST(request: NextRequest): Promise<NextResponse> {
+  if (!parseNativeStackTokens(request)) return NextResponse.json({ error: "unauthorized", action: "Run `cmux auth login`, then retry." }, { status: 401 });
+  try {
+    const user = await verifyRequest(request);
+    if (!user || user.isAnonymous) return NextResponse.json({ error: "unauthorized", action: "Run `cmux auth login`, then retry." }, { status: 401 });
+    const body = await request.json();
+    if (body?.plan !== "max" && body?.plan !== "pro") return NextResponse.json({ error: "invalid_plan", action: "Use `cmux billing checkout --plan max` or `--plan pro`." }, { status: 400 });
+    const app = await checkoutStackServerApp();
+    if (!app || !isStripeBillingConfigured()) return NextResponse.json({ error: "billing_unavailable", action: "Try again later at https://cmux.com/pricing." }, { status: 503 });
+    const attribution = checkoutAttributionFromRequest({ searchParams: new URLSearchParams({ cmux_source: "cli_billing_checkout", cmux_client: "cli" }) });
+    const scheme = validatedNativeCallbackScheme(typeof body.cmux_scheme === "string" ? body.cmux_scheme : null, request);
+    const response = await stripePersonalCheckout(request, app, body.plan, "month", scheme, attribution, user.id);
+    const destination = response.headers.get("location");
+    if (!destination) throw new Error("Checkout destination is unavailable");
+    const url = new URL(destination);
+    if (url.pathname === "/api/billing/portal" && url.origin === requestOrigin(request)) {
+      const portal = await personalPortalSession({ userId: user.id, origin: requestOrigin(request), target: body.plan, attribution });
+      return NextResponse.json({ url: portal.url, plan: body.plan, flow: "portal" });
+    }
+    if (url.searchParams.has("billing")) return NextResponse.json({ error: "billing_unavailable", action: "Try again later at https://cmux.com/pricing." }, { status: 503 });
+    return NextResponse.json({ url: destination, plan: body.plan, flow: url.searchParams.has("welcome") ? "already_active" : "checkout" });
+  } catch (error) {
+    captureBillingError(error, { route: "/api/billing/checkout", method: "POST" });
+    return NextResponse.json({ error: "billing_unavailable", action: "Try again later at https://cmux.com/pricing." }, { status: 503 });
+  }
 }
 
 async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
@@ -169,11 +200,13 @@ async function stripePersonalCheckout(
   interval: BillingInterval,
   callbackScheme: string,
   attribution: CheckoutAttribution,
+  authenticatedUserId?: string,
 ) {
   try {
-    const user =
+    const user = authenticatedUserId ? await stackServerApp.getUser(authenticatedUserId) :
       (await stackServerApp.getUser({ or: "return-null" })) ??
       (await stackServerApp.getUser({ or: "anonymous" }));
+    if (!user) throw new Error("Checkout account is unavailable");
     if (isAccountDeletionInProgress(user)) {
       return accountDeletionCheckoutRedirect(request);
     }
@@ -188,7 +221,7 @@ async function stripePersonalCheckout(
     // is the right destination; the portal also recovers past-due/unpaid and
     // cancel-at-period-end states, but it cannot start a new subscription
     // after a terminal cancellation.
-    if (stripeBillingStatus.hasActiveSubscription || isStripePortalRecoverable(stripeBillingStatus)) {
+    if (stripeBillingStatus.hasRecurringSubscription || isStripePortalRecoverable(stripeBillingStatus)) {
       const portalURL = new URL("/api/billing/portal", requestOrigin(request));
       if (
         plan === MAX_PLAN_ID &&
@@ -198,9 +231,10 @@ async function stripePersonalCheckout(
         portalURL.searchParams.set("flow", "switch_plan");
         portalURL.searchParams.set("plan", MAX_PLAN_ID);
       }
+      forwardCheckoutAttribution(request.nextUrl.searchParams, portalURL);
       return NextResponse.redirect(portalURL);
     }
-    if (status.isPro) {
+    if (status.isPro && (plan !== MAX_PLAN_ID || status.planId === MAX_PLAN_ID)) {
       return NextResponse.redirect(new URL("/pricing?welcome=active", requestOrigin(request)));
     }
 

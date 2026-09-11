@@ -118,6 +118,7 @@ mock.module("../db/client", () => ({
 mock.module("../services/billing/stripe", () => ({
   isStripeBillingConfigured: () => stripeConfigured,
   resolveMaxPrice,
+  resolvePersonalPlanSwitchPortalConfiguration: async () => "bpc_switch",
   resolveProPrice,
   resolveTeamPrice,
   stripe: () => ({
@@ -153,7 +154,10 @@ mock.module("../services/analytics/stripeBilling", () => ({
   captureBillingCheckoutStarted,
 }));
 
-const { GET } = await import("../app/api/billing/checkout/route");
+const realVmAuth = await import("../services/vms/auth");
+const verifyCheckoutUser = mock(async () => ({ id: SIGNED_IN_USER_ID, isAnonymous: false }));
+mock.module("../services/vms/auth", () => ({ ...realVmAuth, verifyRequest: verifyCheckoutUser }));
+const { GET, POST } = await import("../app/api/billing/checkout/route");
 
 beforeAll(() => {
   useStubDb = true;
@@ -164,6 +168,24 @@ afterAll(() => {
 });
 
 describe("billing checkout route", () => {
+  test("CLI checkout rejects cookie-only requests before creating a session", async () => {
+    const response = await POST(new NextRequest("https://cmux.test/api/billing/checkout", { method: "POST", body: JSON.stringify({ plan: "max" }) }));
+    expect(response.status).toBe(401);
+    expect(createStripeSession).not.toHaveBeenCalled();
+  });
+
+  test("CLI checkout binds the Stripe purchase to the verified app account", async () => {
+    stripeConfigured = true;
+    userResponses = [{ ...signedInUser, clientReadOnlyMetadata: {} }];
+    const response = await POST(new NextRequest("https://cmux.test/api/billing/checkout", {
+      method: "POST", headers: { authorization: "Bearer app-access", "x-stack-refresh-token": "app-refresh", "content-type": "application/json" },
+      body: JSON.stringify({ plan: "max" }),
+    }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ url: "https://checkout.stripe.com/c/session", plan: "max", flow: "checkout" });
+    expect(getUser).toHaveBeenCalledWith(SIGNED_IN_USER_ID);
+    expect(createdStripeSessions[0]).toMatchObject({ client_reference_id: SIGNED_IN_USER_ID, metadata: expect.objectContaining({ cmuxSource: "cli_billing_checkout", cmuxClient: "cli", plan: "max" }) });
+  });
   beforeEach(() => {
     getUser.mockClear();
     signedInUser.update.mockClear();

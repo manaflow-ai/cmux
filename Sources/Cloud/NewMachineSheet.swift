@@ -24,6 +24,21 @@ struct NewMachineSheet: View {
         .padding(24)
         .frame(width: 500)
         .accessibilityIdentifier("NewMachineSheet")
+        .confirmationDialog(
+            String(localized: "machines.new.max.title", defaultValue: "Upgrade to cmux Max"),
+            isPresented: $model.showsMaxUpgrade,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "machines.new.max.checkout", defaultValue: "Continue to checkout")) {
+                ProUpgradePresenter.presentCheckout(source: .newMachineSheetMaxUpgrade, plan: .max)
+            }
+        } message: {
+            Text(String(localized: "machines.new.max.message", defaultValue: "Max is $200 per month, billed monthly. It unlocks 32 GB and 64 GB machines. Review the price before you confirm payment."))
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await model.refreshPlan?() }
+        }
+
     }
 
     private var header: some View {
@@ -61,27 +76,24 @@ struct NewMachineSheet: View {
             }
 
             if let selectedSize = model.selectedSize {
-                Picker(selection: $model.memoryMb) {
+                Menu {
                     ForEach(model.memoryOptions, id: \.self) { memoryMb in
                         if let size = MachineSizeOption(memoryMb: memoryMb) {
-                            Text(size.menuTitle).tag(memoryMb)
+                            Button(size.menuTitle) { model.selectSize(memoryMb) }
                         }
                     }
-                    // Locked rows stay visible so the ladder reads as one list;
-                    // they are disabled here and the model refuses them anyway.
                     ForEach(model.lockedMemoryOptions, id: \.self) { memoryMb in
                         if let size = MachineSizeOption(memoryMb: memoryMb) {
-                            Text(model.lockedSizeMenuTitle(size))
-                                .tag(memoryMb)
-                                .disabled(true)
-                                .accessibilityIdentifier("NewMachineSheet.size.locked.\(memoryMb)")
+                            Button { model.selectSize(memoryMb) } label: {
+                                Label(model.lockedSizeMenuTitle(size), systemImage: "lock.fill")
+                            }
+                            .disabled(model.memoryUpgradePlanId == nil)
+                            .accessibilityIdentifier("NewMachineSheet.size.locked.\(memoryMb)")
                         }
                     }
                 } label: {
                     Text(selectedSize.menuTitle)
                 }
-                .pickerStyle(.menu)
-                .labelsHidden()
                 .accessibilityIdentifier("NewMachineSheet.size")
                 .accessibilityLabel(String(localized: "machines.new.size.accessibilityLabel", defaultValue: "RAM size"))
                 .accessibilityValue(selectedSize.menuTitle)
@@ -96,7 +108,7 @@ struct NewMachineSheet: View {
                         .accessibilityIdentifier("NewMachineSheet.size.lockedNote")
                     Spacer(minLength: 0)
                     Button(upgradeTitle) {
-                        ProUpgradePresenter.presentCheckout(source: .newMachineSheetMaxUpgrade, plan: .max)
+                        model.showsMaxUpgrade = true
                     }
                     .controlSize(.small)
                     .buttonStyle(.bordered)

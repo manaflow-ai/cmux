@@ -470,6 +470,12 @@
         "free": "Free",
         "pro": "Pro",
         "loading": "Loading…"
+      },
+      "max": {
+        "name": "cmux Max",
+        "activeBody": "Your Max plan is active. It renews on {date}.",
+        "pendingBody": "Your Max plan ends on {date}.",
+        "upsell": "Start 32 GB and 64 GB machines with Max for $200 per month, billed monthly."
       }
     },
     "testflight": {

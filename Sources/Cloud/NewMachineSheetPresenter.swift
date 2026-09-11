@@ -100,6 +100,10 @@ final class NewMachineSheetPresenter {
                 })
             }
         )
+        model.refreshPlan = { [weak model] in
+            guard let client = VMClient.shared, let page = try? await client.listPage() else { return }
+            model?.applyPage(page)
+        }
         present(model: model, preferredWindow: preferredWindow)
     }
 

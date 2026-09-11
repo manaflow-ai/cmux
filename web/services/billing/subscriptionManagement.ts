@@ -30,6 +30,7 @@ export async function activeStripeSubscriptionForStackUser(stackUserId: string) 
         eq(stripeSubscriptions.stackUserId, stackUserId),
         eq(stripeSubscriptions.scope, "user"),
         inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
+        sql`coalesce(${stripeSubscriptions.raw}->'metadata'->>'founders_edition', '') <> 'true'`,
         inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
       ),
     )

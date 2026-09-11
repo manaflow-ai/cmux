@@ -219,6 +219,24 @@ function requestTelemetryProperties(
  * and an Axiom trace of one failure share one key. Reads only the status
  * and the `x-cmux-vm-error` header, never the body stream.
  */
+function addMemoryUpgradeProperties(requestProperties: PostHogProperties, errorCode: string | undefined, lastError: VmErrorResponseInput | undefined) {
+  if (errorCode === "vm_memory_requires_plan") {
+    requestProperties.requested_memory_mb = lastError?.details?.requestedMemoryMb ?? null;
+    requestProperties.max_memory_mb = lastError?.details?.maxMemoryMb ?? null;
+    requestProperties.upgrade_plan = lastError?.details?.upgradePlanId ?? "max";
+  }
+}
+
+function requestAnalyticsBatch(requestProperties: PostHogProperties, errorCode: string | undefined) {
+  const batch: Array<{ event: string; properties: PostHogProperties }> = [
+    { event: VM_REQUEST_POSTHOG_EVENT, properties: requestProperties },
+  ];
+  if (errorCode === "vm_memory_requires_plan") {
+    batch.push({ event: "cmux_vm_size_upgrade_required", properties: { ...requestProperties, $insert_id: randomUUID() } });
+  }
+  return batch;
+}
+
 export function captureVmRequestOutcome(
   input: {
     readonly context: VmRequestContext;
@@ -276,12 +294,11 @@ export function captureVmRequestOutcome(
   if (errorCode) requestProperties.error_code = errorCode;
   if (lastError?.phase) requestProperties.error_phase = lastError.phase;
   if (lastError?.retryable !== undefined) requestProperties.retryable = lastError.retryable;
+  addMemoryUpgradeProperties(requestProperties, errorCode, lastError);
   const provider = stringOrUndefined(lastError?.diagnostics?.provider);
   if (provider) requestProperties.provider = provider;
   const timestamp = new Date().toISOString();
-  const batch: Array<{ event: string; properties: PostHogProperties }> = [
-    { event: VM_REQUEST_POSTHOG_EVENT, properties: requestProperties },
-  ];
+  const batch = requestAnalyticsBatch(requestProperties, errorCode);
   if (!success) {
     const reason = scrubForAnalytics(lastError?.reason ?? lastError?.message ?? `HTTP ${status}`);
     batch.push({

@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 
@@ -53,6 +53,7 @@ type SearchParams = {
 
 type StripeSubscriptionRow = {
   id: string;
+  plan?: string;
   status: string;
   priceId: string | null;
   seats: number | null;
@@ -170,6 +171,8 @@ export default async function DashboardBillingPage({
         <FreePlan t={t} showBillingPortal={canManagePersonalBilling} />
       )}
 
+      <MaxUpsell isFreePlan={isFreePlan} planId={status.planId} t={t} pricingT={pricingT} />
+
       {billingTeam && teamSubscription ? (
         <TeamPlan
           t={t}
@@ -183,10 +186,26 @@ export default async function DashboardBillingPage({
   );
 }
 
+function MaxUpsell({ isFreePlan, planId, t, pricingT }: {
+  isFreePlan: boolean; planId: string;
+  t: Awaited<ReturnType<typeof getTranslations>>;
+  pricingT: Awaited<ReturnType<typeof getTranslations>>;
+}) {
+  if (isFreePlan || planId === "max") return null;
+  return (
+        <section className="mt-3 border border-border p-3">
+          <h2 className="text-sm font-medium">{pricingT("max.name")}</h2>
+          <p className="mt-2 text-muted">{t("max.upsell")}</p>
+          <a className="mt-3 inline-block underline" href={withCheckoutSource(MAX_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING)}>{pricingT("max.cta")}</a>
+        </section>
+  );
+}
+
 async function latestActiveStripeSubscription(stackUserId: string): Promise<StripeSubscriptionRow | null> {
   const rows = await cloudDb()
     .select({
       id: stripeSubscriptions.id,
+      plan: stripeSubscriptions.plan,
       status: stripeSubscriptions.status,
       priceId: stripeSubscriptions.priceId,
       seats: stripeSubscriptions.seats,
@@ -203,7 +222,7 @@ async function latestActiveStripeSubscription(stackUserId: string): Promise<Stri
         inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
       ),
     )
-    .orderBy(desc(stripeSubscriptions.currentPeriodEnd), desc(stripeSubscriptions.updatedAt))
+    .orderBy(desc(sql`${stripeSubscriptions.plan} = 'max'`), desc(stripeSubscriptions.currentPeriodEnd), desc(stripeSubscriptions.updatedAt))
     .limit(1);
   return rows[0] ?? null;
 }
@@ -212,6 +231,7 @@ async function latestActiveStripeSubscriptionForTeam(stackTeamId: string): Promi
   const rows = await cloudDb()
     .select({
       id: stripeSubscriptions.id,
+      plan: stripeSubscriptions.plan,
       status: stripeSubscriptions.status,
       priceId: stripeSubscriptions.priceId,
       seats: stripeSubscriptions.seats,
@@ -437,6 +457,7 @@ function StripePlan({
   subscription: StripeSubscriptionRow;
   canManageBilling: boolean;
 }) {
+  const plan = subscription.plan === "max" ? "max" : "pro";
   const price = priceCopy(subscription, t, "pro");
   const periodDate = subscription.currentPeriodEnd
     ? formatBillingDate(subscription.currentPeriodEnd, locale)
@@ -444,11 +465,11 @@ function StripePlan({
 
   return (
     <section className="border border-border p-3">
-      <h2 className="text-sm font-medium">{t("pro.name")}</h2>
+      <h2 className="text-sm font-medium">{t(`${plan}.name`)}</h2>
       <p className="mt-2 max-w-2xl text-muted">
         {subscription.cancelAtPeriodEnd
-          ? t("pro.pendingBody", { date: periodDate })
-          : t("pro.activeBody", { date: periodDate })}
+          ? t(`${plan}.pendingBody`, { date: periodDate })
+          : t(`${plan}.activeBody`, { date: periodDate })}
       </p>
 
       <div className="mt-4 grid border border-border sm:grid-cols-2">

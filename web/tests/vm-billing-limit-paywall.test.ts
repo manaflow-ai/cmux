@@ -125,7 +125,7 @@ describe("Cloud VM memory allowance", () => {
     // size never 400s after an override.
     expect(memoryOptionsMbForPlan("free", { CMUX_VM_FREE_DEFAULT_MEMORY_MB: "16384" })).toEqual([4096, 8192, 16384, 24576]);
     // A raised paid ceiling reopens the ladder for Pro without touching Max.
-    expect(memoryOptionsMbForPlan("pro", { CMUX_VM_PAID_MAX_MEMORY_MB: "65536" })).toEqual([4096, 8192, 16384, 24576, 32768, 65536]);
+    expect(memoryOptionsMbForPlan("pro", { CMUX_VM_PAID_MAX_MEMORY_MB: "65536" })).toEqual([4096, 8192, 16384, 24576]);
     // A lower ceiling trims the catalog and keeps the (clamped) default.
     expect(memoryOptionsMbForPlan("pro", { CMUX_VM_PLAN_PRO_MAX_MEMORY_MB: "16384" })).toEqual([4096, 8192, 16384]);
   });

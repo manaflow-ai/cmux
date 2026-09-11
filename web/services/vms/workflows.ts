@@ -49,6 +49,7 @@ import {
 } from "./machineSpec";
 import {
   VmBillingError,
+  VmMemoryPlanError,
   VmAccountDeletionIdentityRevocationError,
   VmAttachTransportUnsupportedError,
   VmCreateDisabledError,
@@ -72,6 +73,7 @@ import {
   isPaidVmPlan,
   isVmFreeAccessExpired,
   maxActiveVmsForPlan,
+  maxMemoryMbForPlan,
   vmFreeAccessWindowDays,
 } from "./entitlements";
 import { networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
@@ -461,6 +463,19 @@ function rollbackProviderCreate(
   });
 }
 
+/** Check the copied or requested shape before provisioning side effects. */
+function requireMemoryPlan(planId: string, memoryMb: number | null) {
+  const maxMemoryMb = maxMemoryMbForPlan(planId);
+  if (memoryMb === null ? maxMemoryMb < 65536 : memoryMb > maxMemoryMb) {
+    return Effect.fail(new VmMemoryPlanError({ planId, memoryMb, maxMemoryMb }));
+  }
+  return Effect.void;
+}
+
+function requestedCreateMemory(input: { memoryMb?: number; imageSize?: { memoryMb: number }; resourceReservation?: { memoryMb: number } }) {
+  return Math.max(input.memoryMb ?? 0, input.imageSize?.memoryMb ?? 0, input.resourceReservation?.memoryMb ?? 0);
+}
+
 export function createVm(input: {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
@@ -501,6 +516,7 @@ export function createVm(input: {
   readonly timing?: VmTimingSink;
 }): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
+    yield* requireMemoryPlan(input.billingPlanId, requestedCreateMemory(input));
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
@@ -1381,6 +1397,7 @@ export function restoreVm(input: {
         diskMb: VM_DISK_MB_MAX,
       })
       : undefined;
+    yield* requireMemoryPlan(input.billingPlanId, snapshotReservation?.memoryMb ?? null);
     return yield* createVm({
       userId: input.userId,
       billingCustomerType: input.billingCustomerType,
@@ -1503,6 +1520,21 @@ function finalizeNativeForkReservation(
   );
 }
 
+function requireForkMemoryPlan(source: CloudVmRow, providers: VmProviderGatewayShape, providerVmId: string, planId: string) {
+  return Effect.gen(function* () {
+    const sourceMemoryMb = hasVmResourceReservationMetadata(source.providerMetadata)
+      ? vmResourceReservationFromMetadata(source.providerMetadata).memoryMb
+      : yield* (providers.getStats
+        ? providers.getStats(source.provider, source.providerVmId ?? providerVmId).pipe(
+            Effect.timeout("5 seconds"),
+            Effect.map((stats) => vmProviderResourceSize("memoryMb", stats.memoryTotalMb)),
+            Effect.catchAll(() => Effect.succeed(null)),
+          )
+        : Effect.succeed(null));
+    yield* requireMemoryPlan(planId, sourceMemoryMb);
+  });
+}
+
 export function forkVm(input: {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
@@ -1521,6 +1553,7 @@ export function forkVm(input: {
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
     const source = yield* requireUserVm(input);
+    yield* requireForkMemoryPlan(source, providers, input.providerVmId, input.billingPlanId);
     // Kill-switch parity with POST /api/vm: fork provisions a brand-new
     // machine on the source VM's provider and spends the same provider money.
     // The check lives here rather than in the route because the provider is
