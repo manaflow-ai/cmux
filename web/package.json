@@ -18,6 +18,7 @@
     "billing:backfill-founders-lockout": "bun scripts/backfill-founders-lockout.ts",
     "cloud-vm:env:audit": "bun scripts/cloud-vm/audit-vercel-env.mjs",
     "cloud-vm:migrate": "bun scripts/cloud-vm/migrate-vercel-aurora-iam.mjs",
+    "cloud-vm:cleanup-iroh": "bun scripts/cloud-vm/cleanup-iroh-challenges.ts",
     "cloud-vm:preflight": "bash scripts/cloud-vm/verify-migration-preflight.sh",
     "cloud-vm:smoke": "bun scripts/cloud-vm/smoke-vm-api.mjs",
     "cloud-vm:stress": "bun scripts/cloud-vm/stress-vm-api.mjs",

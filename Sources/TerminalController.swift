@@ -2816,6 +2816,7 @@ class TerminalController {
         // surface.refresh/health/resume.set/get/clear, debug.terminals, surface.send_text/
         // send_key/report_tty/report_pwd/report_shell_state/ports_kick/clear_history/
         // trigger_flash/read_text handled by ControlCommandCoordinator.
+
         // Panes
         // pane.* handled by ControlCommandCoordinator.
 
@@ -3060,7 +3061,6 @@ class TerminalController {
             "vm.base_reset",
             "vm.status",
             "vm.stats",
-            "vm.resize",
             "vm.rename",
             "vm.snapshot",
             "vm.fork",
@@ -4108,6 +4108,7 @@ class TerminalController {
     nonisolated func v2VmCall(
         id: Any?,
         timeoutSeconds: TimeInterval = 17 * 60,
+        transportUnsupportedMachineID: String? = nil,
         _ work: @escaping () async throws -> [String: Any]
     ) -> String {
         let semaphore = DispatchSemaphore(value: 0)
@@ -4133,9 +4134,32 @@ class TerminalController {
             return v2Ok(id: id, result: payload)
         case .failure(let error):
             if case VMClientError.disabledByManagedPolicy = error {
-                // Same code the pre-flight socket gate uses, so a policy that
-                // activates between the gate and the service call reads alike.
                 return v2Error(id: id, code: "cloud_disabled", message: String(describing: error))
+            }
+            if let deliveryError = error as? CloudFileDelivery.DeliveryError {
+                return v2Error(id: id, code: "vm_file_delivery_failed", message: deliveryError.localizedDescription)
+            }
+            if let combinedError = error as? CloudFileDelivery.OperationAndCleanupError {
+                return v2Error(id: id, code: "vm_file_delivery_failed", message: combinedError.localizedDescription)
+            }
+            if case VMClientError.lifecycleUnsupported = error {
+                return v2Error(id: id, code: "vm_operation_unsupported", message: String(describing: error))
+            }
+            if let deliveryError = error as? CloudEnvDelivery.DeliveryError {
+                return v2Error(id: id, code: "vm_env_delivery_failed", message: deliveryError.localizedDescription)
+            }
+            if let combinedError = error as? CloudEnvDelivery.OperationAndCleanupError {
+                return v2Error(id: id, code: "vm_env_delivery_failed", message: combinedError.localizedDescription)
+            }
+            if let catalogError = error as? SurfaceCatalogError {
+                switch catalogError {
+                case .nothingToOpen:
+                    return v2Error(id: id, code: "not_ready", message: catalogError.localizedDescription)
+                case .destinationNotFound:
+                    return v2Error(id: id, code: "not_found", message: catalogError.localizedDescription)
+                default:
+                    break
+                }
             }
             if let vmError = error as? VMClientError,
                Self.isCloudVMAuthenticationError(vmError) {
@@ -4163,10 +4187,44 @@ class TerminalController {
                     message: message
                 )
             }
+            if let vmError = error as? VMClientError,
+               let machineID = transportUnsupportedMachineID,
+               Self.isCloudVMTransportUnsupportedError(vmError) {
+                // `vm.cmux_remote_info` is the shared attach path for `vm shell`,
+                // `vm open`, `vm tui`, and the sidebar, so the message names the
+                // machine and the missing transport rather than guessing the
+                // caller, and points at commands that do not need that transport.
+                let alternative = String(
+                    format: String(
+                        localized: "socket.cloudVM.transportUnsupported.useExec",
+                        defaultValue: "Use `cmux vm exec %1$@ -- <command>`; `cmux vm ssh %1$@` works where the provider offers SSH."
+                    ),
+                    machineID,
+                    machineID
+                )
+                let message = String(
+                    format: String(
+                        localized: "socket.cloudVM.transportUnsupported",
+                        defaultValue: "%1$@ offers no `%2$@` transport (its provider has no cmux-tui daemon route), so cmux cannot attach a terminal to it. %3$@"
+                    ),
+                    machineID,
+                    "cmux-remote",
+                    alternative
+                )
+                return v2Error(
+                    id: id,
+                    code: "transport_unsupported",
+                    message: message,
+                    data: Self.cloudVMBackendErrorData(error)
+                )
+            }
             return v2Error(
                 id: id,
                 code: "vm_error",
-                message: String(describing: error),
+                message: String(
+                    localized: "socket.cloudVM.requestFailed",
+                    defaultValue: "The Cloud VM request failed. Retry, or check the machine's status with `cmux vm ls`."
+                ),
                 data: Self.cloudVMBackendErrorData(error)
             )
         case nil:
@@ -4204,9 +4262,20 @@ class TerminalController {
             return true
         case .httpStatus(let status, _):
             return status == 401
-        case .sessionRefreshFailed, .backendUnreachable, .malformedResponse, .disabledByManagedPolicy:
+        case .sessionRefreshFailed, .backendUnreachable, .malformedResponse, .lifecycleUnsupported, .disabledByManagedPolicy:
             return false
         }
+    }
+
+    private nonisolated static func isCloudVMTransportUnsupportedError(_ error: VMClientError) -> Bool {
+        guard case let .httpStatus(status, body) = error, status == 501 else {
+            return false
+        }
+        guard let data = body.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+            return false
+        }
+        return object["error"] as? String == "vm_attach_transport_unsupported"
     }
 
     nonisolated func v2AsyncResultCall(
@@ -15247,15 +15316,6 @@ class TerminalController {
         // MobileHostRPCResult` type round-trip with no behavior change. The v2
         // control socket shares the same bodies through `handleMobileHost`, so the
         // wire bytes stay identical across both entrypoints without a bridge here.
-        // `DisableFileTransfer` (MDM): every phone↔Mac byte-moving method fails
-        // closed here, whichever lane carried it, with a stable code the phone
-        // can render.
-        if MobileHostService.methodTransfersFiles(request.method), ManagedFileTransferPolicy.isDisabled {
-            return .failure(MobileHostRPCError(
-                code: "file_transfer_disabled",
-                message: ManagedFileTransferPolicy.disabledMessage
-            ))
-        }
         let result: V2CallResult
         switch request.method {
         case "mobile.host.status":

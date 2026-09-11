@@ -1764,9 +1764,9 @@ export const irohEndpointBindings = pgTable(
 );
 
 /**
- * One-use registration challenges. Only a SHA-256 hash of the random nonce is
- * persisted. The payload hash binds all endpoint metadata before signature
- * verification and the consumed timestamp provides replay protection.
+ * Ephemeral registration challenges. Issuance replaces the user, namespace,
+ * device, and tag tuple under its database transaction lock. Only the nonce's
+ * SHA-256 hash is persisted; consumption deletes the row to prevent replay.
  */
 export const irohRegistrationChallenges = pgTable(
   "iroh_registration_challenges",

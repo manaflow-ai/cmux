@@ -263,7 +263,7 @@ extension CMUXCLI {
         if let windowRaw, !windowRaw.isEmpty {
             params["window_id"] = windowRaw
         }
-        guard let current = try? client.sendV2(method: "workspace.current", params: params) else { return false }
+        guard let current = try? client.sendV2(method: "workspace.current", params: params, responseTimeout: 0.25) else { return false }
         let candidates = [current["workspace_id"] as? String, current["workspace_ref"] as? String].compactMap { $0 }
         return candidates.contains { $0.caseInsensitiveCompare(workspaceRaw) == .orderedSame }
     }
@@ -513,7 +513,7 @@ extension CMUXCLI {
             if let windowId, !windowId.isEmpty {
                 selectParams["window_id"] = windowId
             }
-            _ = try? client.sendV2(method: "workspace.select", params: selectParams)
+            _ = try client.sendV2(method: "workspace.select", params: selectParams)
         }
         logVMTiming(
             "complete",
@@ -854,7 +854,14 @@ extension CMUXCLI {
 
     static let vmWorkspaceUsage = """
         Usage:
-          cmux vm workspace new <machine> [--name <name>]      Create a workspace on the machine (its ⌘N) and open it here.
+          cmux vm workspace new <machine> [--name <name>] [--reuse] [--no-open]
+                                                              Create a workspace on the machine (its ⌘N) and open it here.
+                                                              --no-open: stage it headlessly (it shows in `vm tree` and the
+                                                              sidebar; nothing opens locally) — the seat for
+                                                              `vm agent --remote-workspace <ws>`.
+                                                              --reuse: when a workspace with exactly that --name already
+                                                              exists, open it instead of creating a second one (get-or-create,
+                                                              so a script that runs twice leaves one `tests`, not two).
           cmux vm workspace open <machine> <workspace-id>     Open a machine workspace as a new local workspace, one pane per terminal.
               [--here] [--tabs] [--workspace <local>] [--pane <id|ref> [--left|--right|--up|--down]]
                                                               --here: into the current (or --workspace) local workspace instead — one pane
@@ -881,11 +888,22 @@ extension CMUXCLI {
           cmux vm terminal read <machine> <terminal-id>       Print the terminal's visible screen (--json adds cursor/size).
           cmux vm terminal wait <machine> <terminal-id> --pattern <regex> [--timeout <seconds>]
                                                               Block until the screen matches (default 30 s); exit 1 on timeout.
+          cmux vm terminal wait-exit <machine> <terminal-id> [--timeout <seconds>]
+                                                              Block until the terminal's PROCESS exits (default 30 s, max 3600):
+                                                              prints `exited code=<n>` or `exited signal=<n>`; prints `pending`
+                                                              and exits 1 while it is still running. An exit is a fact; a
+                                                              prompt regex is a guess — prefer this for "run to completion".
+          cmux vm terminal output <machine> <terminal-id> [--after <offset>] [--max-bytes <n>]
+                                                              Print the terminal's retained OUTPUT (the whole log), not just
+                                                              the visible screen. --json adds start_offset, next_offset and
+                                                              complete; pass next_offset back as --after to read only what
+                                                              arrived since (complete=false means call again).
           cmux vm terminal close <machine> <terminal-id>      End a terminal on the machine (the process and its tab).
           cmux vm terminal rename <machine> <terminal-id> <name>   Set or clear a terminal label for every client (use "" to clear).
 
         Terminal ids come from `cmux vm tree`. Add --json for the raw result.
-        A typical headless loop: `send … 'bun test' --keys enter`, `wait … --pattern 'pass|fail'`, `read …`.
+        Run to completion: `send … 'bun test' --keys enter`, `wait-exit …`, `output …`.
+        Interactive programs: `send …`, `wait … --pattern '<prompt>'`, `read …`.
         """
 
     static let vmTabUsage = """
@@ -909,6 +927,85 @@ extension CMUXCLI {
         return seconds
     }
 
+    static let vmExecUsage = """
+        Usage:
+          cmux vm exec [--timeout <seconds>] <machine> -- <command...>
+                                                              Run one command inside the machine and print its stdout/stderr;
+                                                              the remote exit code passes through. --timeout: 1…900 seconds
+                                                              (default 30). Longer work belongs in a durable terminal:
+                                                              `cmux surface new-terminal --machine <m> --no-open -- <cmd>`,
+                                                              then `cmux vm terminal wait-exit` / `output`, or `cmux vm agent`.
+
+        Each argv element is shell-quoted faithfully; wrap shell constructs as `-- sh -c '<script>'`.
+        Add --json for {stdout, stderr, exit_code}.
+        """
+
+    static let vmLifecycleUsage = """
+        Usage:
+          cmux vm pause <machine>                             Park the machine: compute stops (and stops billing); the volume,
+                                                              workspaces and terminal history stay. `vm ls` shows it paused.
+          cmux vm resume <machine>                            Wake a paused machine: the daemon, terminals and files come back.
+                                                              Opening or exec'ing a paused machine also wakes it.
+
+        A provider without pause says so; such machines stay available until `cmux vm rm`. Add --json for the raw result.
+        """
+
+    /// `--timeout` for `vm exec`, in whole seconds: 1…900 (the control plane's 15-minute
+    /// ceiling); nil is the 30 s default. Out of range is an error, not a silent clamp.
+    static func vmExecTimeoutSeconds(_ raw: String?) throws -> Int {
+        guard let raw else { return 30 }
+        guard let seconds = Int(raw), (1...900).contains(seconds) else {
+            throw CLIError(message: "vm exec: --timeout must be a whole number of seconds between 1 and 900 (got '\(raw)')\n\n\(Self.vmExecUsage)")
+        }
+        return seconds
+    }
+
+    /// The per-verb usage `cmux vm <verb> --help` prints instead of the whole family
+    /// (the family text is what `cmux vm --help` / `cmux help vm` print). Verbs without
+    /// their own usage fall back to the family text.
+    static func vmVerbUsage(_ verb: String) -> String? {
+        switch verb.lowercased() {
+        case "layout": return vmLayoutUsage
+        case "env": return vmEnvUsage
+        case "workspace": return vmWorkspaceUsage
+        case "terminal": return vmTerminalUsage
+        case "tab": return vmTabUsage
+        case "open", "port": return vmOpenUsage
+        case "tree": return vmTreeUsage
+        case "tui": return vmTuiUsage
+        case "exec": return vmExecUsage
+        case "pause", "resume": return vmLifecycleUsage
+        case "agent": return vmAgentUsage
+        case "run": return vmRunUsage
+        case "route": return vmRouteUsage
+        case "push", "upload": return vmPushUsage
+        case "pull", "download": return vmPullUsage
+        case "wait": return vmWaitUsage
+        case "self": return vmSelfUsage
+        case "dev": return vmDevUsage
+        case "snapshot", "checkpoint": return vmSnapshotUsage
+        default: return nil
+        }
+    }
+
+    /// One line for a `vm.terminal_wait_exit` result: `exited code=0`, `exited signal=9`,
+    /// `exited (unknown: <reason>)`, or `pending`.
+    static func vmTerminalExitSummary(_ response: [String: Any]) -> String {
+        guard (response["state"] as? String) == "exited" else { return "pending" }
+        let outcome = (response["outcome"] as? [String: Any]) ?? [:]
+        switch outcome["kind"] as? String {
+        case "exit":
+            return "exited code=\((outcome["code"] as? Int) ?? -1)"
+        case "signal":
+            let core = (outcome["core_dumped"] as? Bool) == true ? " core-dumped" : ""
+            return "exited signal=\((outcome["signal"] as? Int) ?? 0)\(core)"
+        case "unknown":
+            return "exited (unknown: \((outcome["reason"] as? String) ?? "no detail"))"
+        default:
+            return "exited"
+        }
+    }
+
     /// `cmux vm workspace new|open|rename|close|rm`: the sidebar's workspace verbs over the
     /// same socket methods (`vm.workspace_new|open|rename|close|delete`), so a row and an
     /// agent cannot disagree.
@@ -925,6 +1022,8 @@ extension CMUXCLI {
         var direction: String?
         var here = false
         var tabs = false
+        var reuse = false
+        var noOpen = false
         var index = 1
         while index < rest.count {
             let arg = rest[index]
@@ -968,6 +1067,14 @@ extension CMUXCLI {
                     pane = value
                 }
                 index += 2
+            case "--reuse":
+                guard verb == "new" else { throw CLIError(message: Self.vmWorkspaceUsage) }
+                reuse = true
+                index += 1
+            case "--no-open":
+                guard verb == "new" else { throw CLIError(message: Self.vmWorkspaceUsage) }
+                noOpen = true
+                index += 1
             case "--here":
                 guard verb == "open" else { throw CLIError(message: Self.vmWorkspaceUsage) }
                 here = true
@@ -998,11 +1105,24 @@ extension CMUXCLI {
             }
             var params: [String: Any] = ["id": machine]
             if let nameOpt, !nameOpt.isEmpty { params["name"] = nameOpt }
+            if reuse {
+                guard params["name"] != nil else {
+                    throw CLIError(message: "vm workspace new: --reuse needs --name <name> to look for\n\n\(Self.vmWorkspaceUsage)")
+                }
+                params["reuse"] = true
+            }
+            // --no-open: stage the workspace on the machine headlessly (it shows in
+            // `vm tree` and the sidebar; nothing opens or focuses locally).
+            if noOpen { params["open"] = false }
             let response = try client.sendV2(method: "vm.workspace_new", params: params, responseTimeout: 240)
             if jsonOutput { print(jsonString(response)); return }
             let remote = (response["remote_workspace_id"] as? String) ?? "?"
-            let local = (response["workspace_id"] as? String) ?? "?"
-            print("OK workspace=\(local) remote_workspace=\(remote) machine=\(machine)")
+            let existing = (response["existing"] as? Bool) == true ? " (existing)" : ""
+            if let local = response["workspace_id"] as? String, !local.isEmpty {
+                print("OK workspace=\(local) remote_workspace=\(remote) machine=\(machine)\(existing)")
+            } else {
+                print("OK remote_workspace=\(remote) machine=\(machine)\(existing) (staged; open with: cmux vm workspace open \(machine) \(remote))")
+            }
         case "open":
             guard positional.count == 2 else { throw CLIError(message: Self.vmWorkspaceUsage) }
             var params: [String: Any] = ["id": machine, "workspace_id": positional[1]]
@@ -1066,11 +1186,15 @@ extension CMUXCLI {
             literal = Array(tail[(terminator + 1)...])
             tail = Array(tail[..<terminator])
         }
+        let isWaitVerb = verb == "wait" || verb == "wait-exit"
         let (keysOpt, r1) = parseOption(tail, name: "--keys")
-        // `--pattern` / `--timeout` belong to `wait`; for `send` they are just text.
+        // `--pattern` / `--timeout` belong to the wait verbs, `--after` / `--max-bytes` to
+        // `output`; for `send` every dash token is just text.
         let (patternOpt, r2): (String?, [String]) = isSend ? (nil, r1) : parseOption(r1, name: "--pattern")
         let (timeoutOpt, r3): (String?, [String]) = isSend ? (nil, r2) : parseOption(r2, name: "--timeout")
-        let args = r3.filter { $0 != "--json" }
+        let (afterOpt, r4): (String?, [String]) = verb == "output" ? parseOption(r3, name: "--after") : (nil, r3)
+        let (maxBytesOpt, r5): (String?, [String]) = verb == "output" ? parseOption(r4, name: "--max-bytes") : (nil, r4)
+        let args = r5.filter { $0 != "--json" }
         // The two ids are never flags. After them, `send` types dash tokens verbatim
         // (`ls -la`, `git log --oneline`); the other verbs reject unknown flags anywhere.
         let misplaced = args.prefix(2).first(where: { $0.hasPrefix("-") })
@@ -1081,8 +1205,11 @@ extension CMUXCLI {
         if !isSend, keysOpt != nil {
             throw CLIError(message: "vm terminal \(verb): --keys belongs to `send`\n\n\(Self.vmTerminalUsage)")
         }
-        if verb != "wait", patternOpt != nil || timeoutOpt != nil {
-            throw CLIError(message: "vm terminal \(verb): --pattern/--timeout belong to `wait`\n\n\(Self.vmTerminalUsage)")
+        if verb != "wait", patternOpt != nil {
+            throw CLIError(message: "vm terminal \(verb): --pattern belongs to `wait`\n\n\(Self.vmTerminalUsage)")
+        }
+        if !isWaitVerb, timeoutOpt != nil {
+            throw CLIError(message: "vm terminal \(verb): --timeout belongs to `wait` / `wait-exit`\n\n\(Self.vmTerminalUsage)")
         }
         let machine = args[0]
         let terminalID = args[1]
@@ -1135,6 +1262,50 @@ extension CMUXCLI {
                 // terminal output. Keep the timeout diagnostic bounded to request context.
                 throw CLIError(message: "timed out after \(seconds)s waiting for /\(pattern)/ on \(terminalID)")
             }
+        case "wait-exit":
+            guard args.count == 2, literal.isEmpty else { throw CLIError(message: Self.vmTerminalUsage) }
+            let seconds = try Self.vmTerminalWaitSeconds(timeoutOpt)
+            let timeoutMs = max(1, Int((seconds * 1000).rounded()))
+            let response = try client.sendV2(
+                method: "vm.terminal_wait_exit",
+                params: ["id": machine, "terminal_id": terminalID, "timeout_ms": timeoutMs],
+                responseTimeout: TimeInterval(seconds + 20)
+            )
+            let exited = (response["state"] as? String) == "exited"
+            if jsonOutput {
+                print(jsonString(response))
+            } else {
+                print(Self.vmTerminalExitSummary(response))
+            }
+            // Still running is a failure in every output mode (the JSON still prints), so
+            // a script can `wait-exit … && vm terminal output …` without parsing.
+            if !exited {
+                throw CLIError(message: "\(terminalID) on \(machine) is still running after \(seconds)s (pass a longer --timeout, or `cmux vm terminal read` to see what it is doing)")
+            }
+        case "output":
+            guard args.count == 2, literal.isEmpty else { throw CLIError(message: Self.vmTerminalUsage) }
+            var params: [String: Any] = ["id": machine, "terminal_id": terminalID]
+            if let afterOpt {
+                guard let after = Int(afterOpt), after >= 0 else {
+                    throw CLIError(message: "vm terminal output: --after must be a non-negative offset (a next_offset from an earlier read)\n\n\(Self.vmTerminalUsage)")
+                }
+                params["after"] = after
+            }
+            if let maxBytesOpt {
+                guard let maxBytes = Int(maxBytesOpt), (1...4_194_304).contains(maxBytes) else {
+                    throw CLIError(message: "vm terminal output: --max-bytes must be between 1 and 4194304\n\n\(Self.vmTerminalUsage)")
+                }
+                params["max_bytes"] = maxBytes
+            }
+            if jsonOutput {
+                print(jsonString(try client.sendV2(method: "vm.terminal_output", params: params, responseTimeout: 120)))
+                return
+            }
+            let text = try readVMTerminalOutput(
+                machine: machine, terminalID: terminalID, client: client,
+                after: params["after"] as? Int ?? 0, maxBytes: params["max_bytes"] as? Int
+            )
+            print(text, terminator: "")
         case "rename":
             // A quoted shell argument is already one token. Requiring one token prevents
             // accidental unquoted words from being silently reassembled into a different
@@ -1809,8 +1980,16 @@ extension CMUXCLI {
             let (paneOpt, rest2) = parseOption(rest1, name: "--pane")
             let (focusOpt, rest3) = parseOption(rest2, name: "--focus")
             let sides: [String: String] = ["--left": "left", "--right": "right", "--up": "up", "--down": "down"]
-            let direction = rest3.compactMap { sides[$0] }.first
+            let directions = rest3.compactMap { sides[$0] }
+            guard directions.count <= 1 else { throw CLIError(message: Self.surfaceUsage) }
+            let direction = directions.first
             let tab = hasFlag(rest3, name: "--tab")
+            if tab && direction != nil {
+                throw CLIError(message: String(
+                    localized: "cli.surface.open.tabAndSide",
+                    defaultValue: "surface open: --tab and a pane side (--left/--right/--up/--down) are two different placements; pass one"
+                ))
+            }
             let new = hasFlag(rest3, name: "--new")
             let known = Set(sides.keys).union(["--tab", "--new", "--json"])
             if let unknown = rest3.first(where: { $0.hasPrefix("-") && !known.contains($0) }) {

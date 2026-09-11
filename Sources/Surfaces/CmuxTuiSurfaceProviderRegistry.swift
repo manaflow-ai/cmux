@@ -62,9 +62,9 @@ final class CmuxTuiSurfaceProviderRegistry {
 
     init(
         links: CloudMachineLinkManager,
-        wireGuardHub: CloudWireGuardHub?,
+        wireGuardHub: CloudWireGuardHub? = nil,
         allowsBackgroundWork: @escaping @MainActor () -> Bool = { true },
-        listPage: @escaping @MainActor () async -> VMListPage?,
+        listPage: @escaping @MainActor () async -> VMListPage? = { nil },
         refreshProvider: @escaping @MainActor (CmuxTuiSurfaceProvider, Bool) async -> Void = { provider, force in
             await provider.refresh(force: force)
         },
