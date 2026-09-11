@@ -434,7 +434,7 @@ public actor NestedTopologyAttachmentCoordinator {
 
         if let existing = attachments[hostStableSurfaceID] {
             switch existing.state {
-            case .connecting, .live, .stale:
+            case .live, .stale:
                 emit(
                     NestedAttachmentTelemetryEvent(
                         name: "restore_skipped_live",
@@ -445,6 +445,26 @@ public actor NestedTopologyAttachmentCoordinator {
                     )
                 )
                 return existing
+            case .connecting:
+                // A restore may be rescheduled while an earlier attempt is still
+                // `connecting`; the scheduler cancels that task first, so the in-flight
+                // attempt is already doomed. Skipping here would strand the surface:
+                // the cancelled attempt's `failAttachment(remove: true)` then deletes
+                // this record together with its pending intent, and nothing reconnects.
+                //
+                // Supersede instead. Invalidating the generation token now makes every
+                // failure path of the superseded attempt a no-op for this surface,
+                // including the early returns below that never reach the connect stage.
+                generationTokens[hostStableSurfaceID] = UUID()
+                emit(
+                    NestedAttachmentTelemetryEvent(
+                        name: "restore_superseded_connecting",
+                        state: existing.state,
+                        providerKind: existing.providerKind,
+                        hostStableSurfaceID: hostStableSurfaceID,
+                        attachmentID: existing.attachmentID
+                    )
+                )
             case .disconnected, .incompatible, .rejected:
                 await detach(
                     hostStableSurfaceID: hostStableSurfaceID,
@@ -699,13 +719,27 @@ public actor NestedTopologyAttachmentCoordinator {
                 hostStableSurfaceID: hostStableSurfaceID
             )
         }
-        return try await attach(
-            hostWorkspaceID: record.hostWorkspaceID,
-            hostStableSurfaceID: hostStableSurfaceID,
-            providerKind: intent.providerKind,
-            socketPath: locator.socketPath,
-            authorization: authorization
-        )
+        do {
+            return try await attach(
+                hostWorkspaceID: record.hostWorkspaceID,
+                hostStableSurfaceID: hostStableSurfaceID,
+                providerKind: intent.providerKind,
+                socketPath: locator.socketPath,
+                authorization: authorization
+            )
+        } catch {
+            // `attach` detaches the disconnected record — and its pending intent — before
+            // connecting. A failed connect would otherwise leave a record with no pending
+            // intent, so every later confirm throws `attachmentNotFound` and the user can
+            // only retry by restoring the whole session. Reinstate the intent so the
+            // confirm stays retryable.
+            reinstatePendingRestoreIntent(
+                intent,
+                hostStableSurfaceID: hostStableSurfaceID,
+                hostWorkspaceID: record.hostWorkspaceID
+            )
+            throw error
+        }
     }
 
     /// Detaches a host surface without stopping the provider or closing children.
@@ -894,6 +928,40 @@ public actor NestedTopologyAttachmentCoordinator {
         {
             throw NestedAttachmentError.oversizedField("authorization.request_id")
         }
+    }
+
+    /// Restores a pending restore intent after a failed confirm so it stays retryable.
+    ///
+    /// Only ever writes intent + state. Never rehydrates nested nodes, snapshots,
+    /// capabilities, or identity proof from the persisted intent.
+    private func reinstatePendingRestoreIntent(
+        _ intent: NestedAttachmentIntentDescriptor,
+        hostStableSurfaceID: UUID,
+        hostWorkspaceID: String
+    ) {
+        if var existing = attachments[hostStableSurfaceID] {
+            guard existing.pendingRestoreIntent == nil else { return }
+            // A live/connecting record means a later attach already owns this surface;
+            // reattaching a stale pending intent to it would be wrong.
+            switch existing.state {
+            case .connecting, .live, .stale:
+                return
+            case .disconnected, .incompatible, .rejected:
+                existing.pendingRestoreIntent = intent
+                attachments[hostStableSurfaceID] = existing
+            }
+            return
+        }
+        attachments[hostStableSurfaceID] = NestedAttachmentRecord(
+            hostWorkspaceID: hostWorkspaceID,
+            hostStableSurfaceID: hostStableSurfaceID,
+            providerKind: intent.providerKind,
+            state: .disconnected,
+            lastErrorClass: NestedAttachmentError.restoreRequiresConfirmation(
+                reason: .pending
+            ).telemetryErrorClass,
+            pendingRestoreIntent: intent
+        )
     }
 
     private func leaveRestoreDisconnected(

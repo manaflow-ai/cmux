@@ -490,4 +490,184 @@ import Testing
         #expect(live.state == .live)
         #expect(live.latestSnapshot != nil)
     }
+
+    /// Rescheduling a restore while one is still `connecting` must hand the surface to
+    /// the new attempt.
+    ///
+    /// The scheduler cancels the in-flight task first, so the earlier attempt is already
+    /// doomed. If the new restore skipped because the record reads `connecting`, the
+    /// cancelled attempt's `failAttachment(remove: true)` would then delete that record
+    /// together with its pending intent, leaving the surface permanently unattached.
+    @Test func rescheduledRestoreSupersedesInFlightConnectingAttempt() async throws {
+        let handoffDir = try AttachmentTestFixtures.makeHandoffDirectory()
+        defer { try? FileManager.default.removeItem(at: handoffDir) }
+
+        let gate = AsyncGate()
+        let firstClient = StubNestedTopologyProviderClient(
+            handshake: {
+                await gate.wait()
+                try Task.checkCancellation()
+                return AttachmentTestFixtures.handshake(instance: "durable-1")
+            },
+            snapshot: {
+                AttachmentTestFixtures.snapshot(
+                    attachmentID: UUID(),
+                    hostStableSurfaceID: AttachmentTestFixtures.surfaceA,
+                    instance: "durable-1"
+                )
+            }
+        )
+        let secondClient = StubNestedTopologyProviderClient(
+            handshake: { AttachmentTestFixtures.handshake(instance: "durable-1") },
+            snapshot: {
+                AttachmentTestFixtures.snapshot(
+                    attachmentID: UUID(),
+                    hostStableSurfaceID: AttachmentTestFixtures.surfaceA,
+                    instance: "durable-1"
+                )
+            },
+            events: {
+                AsyncThrowingStream { continuation in
+                    continuation.onTermination = { _ in }
+                }
+            }
+        )
+
+        let clients = ClientSequence(clients: [firstClient, secondClient])
+        let coordinator = NestedTopologyAttachmentCoordinator(
+            validator: StubEndpointValidator(preConnectResult: .success(AttachmentTestFixtures.endpoint)),
+            clientFactory: SequencingClientFactory { _ in clients.next() },
+            handoff: NestedPluginWriterHandoff(directoryURL: handoffDir)
+        )
+
+        let intent = NestedAttachmentIntentDescriptor(
+            providerKind: .herdr,
+            reattachPolicy: .autoIfProviderInstanceMatches,
+            endpointLocator: NestedAttachmentEndpointLocator(
+                socketPath: AttachmentTestFixtures.endpoint.canonicalPath
+            ),
+            lastVerifiedProviderInstanceID: NestedProviderInstanceID(rawValue: "durable-1"),
+            providerInstanceIdentityProofAvailable: true,
+            lastVerifiedFileIdentity: AttachmentTestFixtures.endpoint.fileIdentity
+        )
+
+        // First restore parks inside handshake, leaving the record `connecting`.
+        let firstTask = Task {
+            await coordinator.restoreFromIntent(
+                hostWorkspaceID: AttachmentTestFixtures.workspaceA,
+                hostStableSurfaceID: AttachmentTestFixtures.surfaceA,
+                intent: intent
+            )
+        }
+        var sawConnecting = false
+        for _ in 0..<200 {
+            if await coordinator.attachment(for: AttachmentTestFixtures.surfaceA)?.state == .connecting {
+                sawConnecting = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(sawConnecting)
+
+        // The scheduler cancels the in-flight attempt, then reschedules.
+        firstTask.cancel()
+        let second = await coordinator.restoreFromIntent(
+            hostWorkspaceID: AttachmentTestFixtures.workspaceA,
+            hostStableSurfaceID: AttachmentTestFixtures.surfaceA,
+            intent: intent
+        )
+        #expect(second.state == .live)
+
+        // Release the superseded attempt: its failure must not touch the live record.
+        await gate.open()
+        _ = await firstTask.value
+        let final = await coordinator.attachment(for: AttachmentTestFixtures.surfaceA)
+        #expect(final?.state == .live)
+        #expect(final != nil)
+    }
+
+    /// A failed confirm keeps the pending intent so the user can retry.
+    ///
+    /// `confirmPendingRestore` delegates to `attach`, which detaches the disconnected
+    /// record — and its intent — before connecting. Without reinstatement a failed
+    /// connect leaves nothing to confirm, and every retry throws `attachmentNotFound`.
+    @Test func failedConfirmKeepsPendingRestoreIntentRetryable() async throws {
+        let handoffDir = try AttachmentTestFixtures.makeHandoffDirectory()
+        defer { try? FileManager.default.removeItem(at: handoffDir) }
+
+        let failingClient = StubNestedTopologyProviderClient(
+            handshake: { throw NestedTopologyProviderError.connectTimeout },
+            snapshot: {
+                AttachmentTestFixtures.snapshot(
+                    attachmentID: UUID(),
+                    hostStableSurfaceID: AttachmentTestFixtures.surfaceA,
+                    instance: "durable-1"
+                )
+            }
+        )
+        let coordinator = NestedTopologyAttachmentCoordinator(
+            validator: StubEndpointValidator(preConnectResult: .success(AttachmentTestFixtures.endpoint)),
+            clientFactory: StubNestedTopologyProviderClientFactory(client: failingClient),
+            handoff: NestedPluginWriterHandoff(directoryURL: handoffDir)
+        )
+
+        let intent = NestedAttachmentIntentDescriptor(
+            providerKind: .herdr,
+            reattachPolicy: .requireConfirmation,
+            endpointLocator: NestedAttachmentEndpointLocator(
+                socketPath: AttachmentTestFixtures.endpoint.canonicalPath
+            ),
+            lastVerifiedProviderInstanceID: NestedProviderInstanceID(rawValue: "durable-1"),
+            providerInstanceIdentityProofAvailable: true,
+            lastVerifiedFileIdentity: AttachmentTestFixtures.endpoint.fileIdentity
+        )
+        let pending = await coordinator.restoreFromIntent(
+            hostWorkspaceID: AttachmentTestFixtures.workspaceA,
+            hostStableSurfaceID: AttachmentTestFixtures.surfaceA,
+            intent: intent
+        )
+        #expect(pending.pendingRestoreIntent != nil)
+
+        await #expect(throws: NestedAttachmentError.self) {
+            try await coordinator.confirmPendingRestore(
+                hostStableSurfaceID: AttachmentTestFixtures.surfaceA,
+                authorization: .userConfirmed
+            )
+        }
+
+        // Intent survived the failure, so confirming again is still possible.
+        let afterFailure = await coordinator.attachment(for: AttachmentTestFixtures.surfaceA)
+        #expect(afterFailure?.pendingRestoreIntent != nil)
+
+        // A second confirm reaches the provider again instead of `attachmentNotFound`.
+        do {
+            _ = try await coordinator.confirmPendingRestore(
+                hostStableSurfaceID: AttachmentTestFixtures.surfaceA,
+                authorization: .userConfirmed
+            )
+            Issue.record("expected the retried confirm to surface the provider failure")
+        } catch let error as NestedAttachmentError {
+            #expect(error != .attachmentNotFound(hostStableSurfaceID: AttachmentTestFixtures.surfaceA))
+        }
+    }
+}
+
+/// Hands out a fixed list of stub clients, one per attachment attempt.
+///
+/// Lets a test give the superseded and superseding attempts distinct clients so their
+/// handshakes can be released independently.
+private final class ClientSequence: @unchecked Sendable {
+    private let lock = NSLock()
+    private var clients: [any NestedTopologyProviderClient]
+
+    init(clients: [any NestedTopologyProviderClient]) {
+        self.clients = clients
+    }
+
+    func next() -> any NestedTopologyProviderClient {
+        lock.lock()
+        defer { lock.unlock() }
+        precondition(!clients.isEmpty, "requested more clients than the sequence provides")
+        return clients.removeFirst()
+    }
 }
