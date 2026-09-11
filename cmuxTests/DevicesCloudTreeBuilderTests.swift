@@ -80,6 +80,34 @@ struct DevicesCloudTreeBuilderTests {
     }
 
     @MainActor
+    @Test("An online device row with workspace or terminal counts is taller than a two-line row")
+    func deviceRowHeightGrowsWithResourceSummary() throws {
+        let suite = "DeviceRowHeight-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let coordinator = makeCoordinator(defaults: defaults)
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let outline = try #require(coordinator.outlineView)
+        func node(linkState: SurfaceLinkState, workspaces: Int, terminals: Int) -> CloudTreeNode {
+            let row = CloudTreeDeviceRow(
+                instance: studio, name: "Studio", presence: nil,
+                linkState: linkState, linkError: nil, workspaceCount: workspaces, terminalCount: terminals
+            )
+            return CloudTreeNode(id: CloudTreeNodeBuilder.nodeID(machine: row.machine), kind: .device(row))
+        }
+        let idle = node(linkState: .connected, workspaces: 0, terminals: 0)
+        let busy = node(linkState: .connected, workspaces: 2, terminals: 3)
+        let offline = node(linkState: .offline, workspaces: 2, terminals: 3)
+        coordinator.apply(nodes: [idle, busy, offline])
+        let idleHeight = coordinator.outlineView(outline, heightOfRowByItem: idle)
+        let busyHeight = coordinator.outlineView(outline, heightOfRowByItem: busy)
+        let offlineHeight = coordinator.outlineView(outline, heightOfRowByItem: offline)
+        #expect(busyHeight > idleHeight, "the third resource line needs room instead of clipping")
+        #expect(offlineHeight == idleHeight, "offline Macs hide their counts and keep the two-line row")
+        _ = container
+    }
+
+    @MainActor
     @Test("Hover and menu creation actions require a trusted connected device")
     func deviceCreationActionsRequireConnection() throws {
         let suite = "DeviceCreationActions-\(UUID().uuidString)"
