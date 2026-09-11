@@ -847,13 +847,103 @@ exec_real_claude_passthrough() {
 # Find real claude.
 REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
 
+CMUX_NODE_OPTIONS_MODULE_NAME="restore-node-options.cjs"
+CMUX_NODE_OPTIONS_MODULE_DIR_NAME="node-options"
+# The $TMPDIR directory older builds used; the remote daemon appends a random suffix to it.
+CMUX_NODE_OPTIONS_LEGACY_DIR_NAME="cmux-claude-node-options"
+CMUX_STATE_DIR_NAME="cmux"
+# The full tail below the home directory. Matching the whole tail rather than just
+# cmux/node-options keeps an unrelated preload at e.g. /opt/vendor/cmux/node-options from being
+# claimed as ours.
+CMUX_NODE_OPTIONS_STATE_TAIL=".local/state/$CMUX_STATE_DIR_NAME/$CMUX_NODE_OPTIONS_MODULE_DIR_NAME"
+# The V8 heap cap cmux injects for Claude, in MB. Named because the unwind path has to tell
+# cmux's own value apart from one the caller chose.
+CMUX_NODE_HEAP_CAP_MB="4096"
+
+# The CmuxStateDirectory, not $TMPDIR: macOS reaps $TMPDIR files after a few days of no access,
+# and a session that outlives the reaper keeps --require pointing at the deleted module, so every
+# child node exits with MODULE_NOT_FOUND before running any user code.
+cmux_node_options_dir() {
+    local override="${CMUX_NODE_OPTIONS_DIR:-}"
+    if [[ -n "$override" ]]; then
+        printf '%s' "${override%/}"
+        return 0
+    fi
+    if [[ -n "${HOME:-}" ]]; then
+        printf '%s' "$HOME/.local/state/$CMUX_STATE_DIR_NAME/$CMUX_NODE_OPTIONS_MODULE_DIR_NAME"
+        return 0
+    fi
+    local fallback="${TMPDIR:-/tmp}"
+    printf '%s' "${fallback%/}/$CMUX_NODE_OPTIONS_LEGACY_DIR_NAME"
+}
+
+# A --require for a cmux-written restore module, whose path may already be reaped and so must
+# never be carried into NODE_OPTIONS or the saved original. The file name alone is not enough — a
+# caller may preload their own module of the same name. Path shape alone is not enough either: it
+# is both too generous (an unrelated .../cmux/node-options/) and too mean (a configured directory
+# matching neither known shape). So the authoritative test is the directory we actually write to;
+# the name and tail checks only recognise copies left by another process or an older build. Only
+# the --require=<path> form is checked; cmux writes no other. Mirrors
+# ClaudeNodeOptionsRestoreModule.isCmuxOwnedPath — keep the two in step.
+is_cmux_restore_module_path() {
+    local module_path="$1"
+    # node consumes surrounding double quotes in NODE_OPTIONS, so an inherited value can carry
+    # them around the path. Trim them, matching ClaudeNodeOptionsRestoreModule.isCmuxOwnedPath.
+    module_path="${module_path#[\"\']}"
+    module_path="${module_path%[\"\']}"
+    [[ "$module_path" == */"$CMUX_NODE_OPTIONS_MODULE_NAME" ]] || return 1
+    local parent_dir="${module_path%/*}"
+    if [[ -n "${CMUX_NODE_OPTIONS_ACTIVE_DIR:-}" && "$parent_dir" == "$CMUX_NODE_OPTIONS_ACTIVE_DIR" ]]; then
+        return 0
+    fi
+    local parent_name="${parent_dir##*/}"
+    if [[ "$parent_name" == "$CMUX_NODE_OPTIONS_LEGACY_DIR_NAME" \
+       || "$parent_name" == "$CMUX_NODE_OPTIONS_LEGACY_DIR_NAME-"* ]]; then
+        return 0
+    fi
+    [[ "$parent_dir" == */"$CMUX_NODE_OPTIONS_STATE_TAIL" ]]
+}
+
+# Tokens occupied by a cmux-owned --require at this position, or 0. Both --require=<path> and
+# --require <path> (plus the -r spellings) count: a persisted launch environment can carry either,
+# and missing the space-separated one leaves a dead preload in NODE_OPTIONS — the very failure
+# this mechanism exists to avoid.
+cmux_owned_require_width() {
+    local token="${1:-}"
+    local next="${2:-}"
+    case "$token" in
+        --require=*|-r=*)
+            if is_cmux_restore_module_path "${token#*=}"; then printf 1; else printf 0; fi
+            ;;
+        --require|-r)
+            if [[ -n "$next" ]] && is_cmux_restore_module_path "$next"; then printf 2; else printf 0; fi
+            ;;
+        *)
+            printf 0
+            ;;
+    esac
+}
+
+# Resolved once: the predicate above runs per token, and this never changes within a launch.
+CMUX_NODE_OPTIONS_ACTIVE_DIR="$(cmux_node_options_dir)"
+
 ensure_node_options_restore_module() {
-    local guard_dir="${TMPDIR:-/tmp}"
-    guard_dir="${guard_dir%/}/cmux-claude-node-options"
-    local guard_path="$guard_dir/restore-node-options.cjs"
-    mkdir -p "$guard_dir" || return 1
+    local module_dir
+    module_dir="$(cmux_node_options_dir)"
+    local module_path="$module_dir/$CMUX_NODE_OPTIONS_MODULE_NAME"
+    # node splits NODE_OPTIONS on whitespace, so a path holding a space or a quote cannot be
+    # expressed there. Skip injection rather than emit a NODE_OPTIONS node cannot parse.
+    if [[ "$module_path" == *[[:space:]\"]* ]]; then
+        return 1
+    fi
+    # 0700, matching SocketControlPasswordStore: whichever component creates
+    # ~/.local/state/cmux sets its mode, and Foundation's createDirectory does NOT re-apply
+    # attributes to a directory that already exists. Creating it 0755 here would leave the socket
+    # control password sitting in a world-readable directory. umask only affects what we create,
+    # so an existing directory is never weakened.
+    (umask 077 && mkdir -p "$module_dir") || return 1
     local temp_path
-    temp_path="$(mktemp "$guard_dir/restore-node-options.cjs.XXXXXX")" || return 1
+    temp_path="$(mktemp "$module_dir/$CMUX_NODE_OPTIONS_MODULE_NAME.XXXXXX")" || return 1
     cat >"$temp_path" <<'EOF'
 const hadOriginalNodeOptions = process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT === "1";
 if (hadOriginalNodeOptions) {
@@ -868,46 +958,51 @@ EOF
         rm -f "$temp_path"
         return 1
     }
-    if [[ -f "$guard_path" ]] && cmp -s "$temp_path" "$guard_path"; then
+    if [[ -f "$module_path" ]] && cmp -s "$temp_path" "$module_path"; then
         rm -f "$temp_path" || return 1
     else
-        mv -f "$temp_path" "$guard_path" || {
+        mv -f "$temp_path" "$module_path" || {
             rm -f "$temp_path"
             return 1
         }
     fi
-    printf '%s' "$guard_path"
+    printf '%s' "$module_path"
 }
 
 merge_node_options() {
-    local guard_path="$1"
-    local require_flag="--require=$guard_path"
-    local memory_flag="--max-old-space-size=4096"
+    local module_path="$1"
+    local require_flag="--require=$module_path"
+    local memory_flag="--max-old-space-size=$CMUX_NODE_HEAP_CAP_MB"
     local existing="${NODE_OPTIONS:-}"
     local -a filtered=()
     local -a tokens=()
     local token
-    local skip_next=0
+    local index=0
+    local owned_require_width
 
-    if [[ -z "$guard_path" ]]; then
+    if [[ -z "$module_path" ]]; then
         printf '%s' "$existing"
         return 0
     fi
 
     read -r -a tokens <<<"$existing"
-    for token in "${tokens[@]}"; do
-        if (( skip_next )); then
-            skip_next=0
-            continue
-        fi
+    while (( index < ${#tokens[@]} )); do
+        token="${tokens[$index]}"
         if [[ "$token" == "--max-old-space-size" ]]; then
-            skip_next=1
+            index=$((index + 2))
             continue
         fi
         if [[ "$token" == --max-old-space-size=* ]]; then
+            index=$((index + 1))
+            continue
+        fi
+        owned_require_width="$(cmux_owned_require_width "$token" "${tokens[$((index + 1))]:-}")"
+        if (( owned_require_width > 0 )); then
+            index=$((index + owned_require_width))
             continue
         fi
         filtered+=("$token")
+        index=$((index + 1))
     done
 
     if (( ${#filtered[@]} == 0 )); then
@@ -924,6 +1019,7 @@ normalize_node_options_for_restore() {
     local -a normalized=()
     local token
     local index=0
+    local owned_require_width
 
     read -r -a tokens <<<"$existing"
     while (( index < ${#tokens[@]} )); do
@@ -931,6 +1027,20 @@ normalize_node_options_for_restore() {
         if [[ "$token" == "--max-old-space-size" && $((index + 1)) -lt ${#tokens[@]} ]]; then
             normalized+=("--max-old-space-size=${tokens[$((index + 1))]}")
             index=$((index + 2))
+            continue
+        fi
+        owned_require_width="$(cmux_owned_require_width "$token" "${tokens[$((index + 1))]:-}")"
+        if (( owned_require_width > 0 )); then
+            index=$((index + owned_require_width))
+            # cmux writes the restore module and its heap cap as a pair, so a cap sitting right
+            # after it is cmux's own. Restoring that to children would hand them cmux's 4GB as if
+            # the caller had asked for it; a cap the caller chose sits elsewhere and survives.
+            if [[ "${tokens[$index]:-}" == "--max-old-space-size=$CMUX_NODE_HEAP_CAP_MB" ]]; then
+                index=$((index + 1))
+            elif [[ "${tokens[$index]:-}" == "--max-old-space-size" \
+                 && "${tokens[$((index + 1))]:-}" == "$CMUX_NODE_HEAP_CAP_MB" ]]; then
+                index=$((index + 2))
+            fi
             continue
         fi
         normalized+=("$token")
@@ -947,9 +1057,9 @@ normalize_node_options_for_restore() {
 }
 
 install_cmux_node_options() {
-    local guard_path
-    if guard_path="$(ensure_node_options_restore_module)"; then
-        if [[ ${NODE_OPTIONS+x} && "${NODE_OPTIONS:-}" == *"--require=$guard_path"* ]]; then
+    local module_path
+    if module_path="$(ensure_node_options_restore_module)"; then
+        if [[ ${NODE_OPTIONS+x} && "${NODE_OPTIONS:-}" == *"--require=$module_path"* ]]; then
             return 0
         fi
         if [[ ${NODE_OPTIONS+x} ]]; then
@@ -959,7 +1069,7 @@ install_cmux_node_options() {
             export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=0
             unset CMUX_ORIGINAL_NODE_OPTIONS
         fi
-        export NODE_OPTIONS="$(merge_node_options "$guard_path")"
+        export NODE_OPTIONS="$(merge_node_options "$module_path")"
     fi
 }
 
