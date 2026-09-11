@@ -907,7 +907,7 @@ enum CloudTreeNodeBuilder {
                 byWorkspace[placement.workspace.id] = rows
             }
         }
-        for member in localDisplayMembers(resources: resources, projections: snapshot.projections) {
+        for member in SurfaceProjection.localDisplayMembers(resources: resources, projections: snapshot.projections) {
             guard var rows = byWorkspace[member.workspaceID] else { continue }
             rows.displays.append(RemoteResourcePlacement(resource: member.resource, workspace: rows.workspace, view: nil))
             byWorkspace[member.workspaceID] = rows
