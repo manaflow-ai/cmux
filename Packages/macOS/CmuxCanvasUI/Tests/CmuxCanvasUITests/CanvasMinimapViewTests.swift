@@ -50,6 +50,75 @@ struct CanvasMinimapViewTests {
         #expect(root.minimapAutoHideScheduler.hasPendingHide)
     }
 
+    @Test func paneDragDefersViewportGeometryCallbackUntilDrop() {
+        let panelA = UUID()
+        let panelB = UUID()
+        var viewportGeometryChangeCount = 0
+        let root = makeRootWithMinimapContent(
+            panelA: panelA,
+            panelB: panelB,
+            onViewportGeometryChanged: { _ in
+                viewportGeometryChangeCount += 1
+            }
+        )
+        defer {
+            root.teardown()
+        }
+        viewportGeometryChangeCount = 0
+
+        let paneID = root.model.paneID(containing: panelA)!
+        let paneView = root.paneViews[paneID]!
+        root.paneView(paneView, mouseDownAt: CGPoint(x: 20, y: 10), region: .titleBar)
+        root.paneView(paneView, draggedTo: CGPoint(x: 64, y: 18), modifiers: [])
+        root.paneView(paneView, draggedTo: CGPoint(x: 96, y: 30), modifiers: [])
+        root.paneView(paneView, draggedTo: CGPoint(x: 128, y: 44), modifiers: [])
+
+        #expect(viewportGeometryChangeCount == 0)
+
+        root.paneViewDidEndDrag(paneView)
+
+        #expect(viewportGeometryChangeCount > 0)
+    }
+
+    @Test func lowZoomPaneDragSuppressesContentUntilDrop() {
+        let panelA = UUID()
+        let panelB = UUID()
+        let root = makeRootWithMinimapContent(panelA: panelA, panelB: panelB)
+        defer {
+            root.teardown()
+        }
+        root.scrollView.magnification = CanvasRootView.dragContentSuppressionMagnificationThreshold - 0.01
+
+        let paneID = root.model.paneID(containing: panelA)!
+        let paneView = root.paneViews[paneID]!
+        root.paneView(paneView, mouseDownAt: CGPoint(x: 20, y: 10), region: .titleBar)
+
+        #expect(paneView.isContentSuppressedForDrag)
+        #expect(paneView.contentContainer.isHidden)
+
+        root.paneViewDidEndDrag(paneView)
+
+        #expect(!paneView.isContentSuppressedForDrag)
+        #expect(!paneView.contentContainer.isHidden)
+    }
+
+    @Test func normalZoomPaneDragKeepsContentVisible() {
+        let panelA = UUID()
+        let panelB = UUID()
+        let root = makeRootWithMinimapContent(panelA: panelA, panelB: panelB)
+        defer {
+            root.teardown()
+        }
+        root.scrollView.magnification = CanvasRootView.dragContentSuppressionMagnificationThreshold
+
+        let paneID = root.model.paneID(containing: panelA)!
+        let paneView = root.paneViews[paneID]!
+        root.paneView(paneView, mouseDownAt: CGPoint(x: 20, y: 10), region: .titleBar)
+
+        #expect(!paneView.isContentSuppressedForDrag)
+        #expect(!paneView.contentContainer.isHidden)
+    }
+
     @Test func minimapDragRecenterDoesNotScheduleAutoHideUntilRelease() {
         let panelA = UUID()
         let panelB = UUID()
@@ -217,12 +286,31 @@ struct CanvasMinimapViewTests {
     }
 
     private func makeRootWithMinimapContent(panelA: UUID, panelB: UUID) -> CanvasRootView {
-        makeRootWithMinimapContent(panelA: panelA, panelB: panelB, minimapClock: ContinuousClock())
+        makeRootWithMinimapContent(
+            panelA: panelA,
+            panelB: panelB,
+            onViewportGeometryChanged: { _ in },
+            minimapClock: ContinuousClock()
+        )
+    }
+
+    private func makeRootWithMinimapContent(
+        panelA: UUID,
+        panelB: UUID,
+        onViewportGeometryChanged: @escaping (NSWindow?) -> Void
+    ) -> CanvasRootView {
+        makeRootWithMinimapContent(
+            panelA: panelA,
+            panelB: panelB,
+            onViewportGeometryChanged: onViewportGeometryChanged,
+            minimapClock: ContinuousClock()
+        )
     }
 
     private func makeRootWithMinimapContent<C: Clock & Sendable>(
         panelA: UUID,
         panelB: UUID,
+        onViewportGeometryChanged: @escaping (NSWindow?) -> Void = { _ in },
         minimapClock: C
     ) -> CanvasRootView where C.Duration == Duration {
         let model = CanvasModel(metricsProvider: {
@@ -240,7 +328,8 @@ struct CanvasMinimapViewTests {
             callbacks: CanvasHostCallbacks(
                 onFocusPanel: { _ in },
                 onClosePanel: { _ in },
-                onLayoutChanged: {}
+                onLayoutChanged: {},
+                onViewportGeometryChanged: onViewportGeometryChanged
             ),
             themeProvider: {
                 CanvasTheme(canvasBackground: .windowBackgroundColor, paneBackground: .windowBackgroundColor)
