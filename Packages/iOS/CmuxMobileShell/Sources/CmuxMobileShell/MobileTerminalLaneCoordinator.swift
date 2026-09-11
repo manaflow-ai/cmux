@@ -126,15 +126,24 @@ actor MobileTerminalLaneCoordinator {
             return
         }
         let id = UUID()
+        let hasProvider: Bool
+        switch configuration.mode {
+        case .output:
+            hasProvider = provider != nil
+        case .inputOnly:
+            hasProvider = inputOnlyProvider != nil || provider != nil
+        }
         entriesByKey[key] = Entry(
             id: id,
             configuration: configuration,
-            phase: .opening,
+            phase: hasProvider ? .opening : .failed,
             lane: nil,
             task: nil,
             outputReady: false
         )
-        launch(key: key, id: id)
+        if hasProvider {
+            launch(key: key, id: id)
+        }
     }
 
     func resume(surfaceID: String) {

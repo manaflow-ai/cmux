@@ -48,7 +48,8 @@ extension Workspace {
         for binding: SurfaceResumeBindingSnapshot?,
         expectedWorkspaceID: UUID,
         expectedSurfaceID: UUID,
-        persistentPTYSessionID: String
+        persistentPTYSessionID: String,
+        restorableAgent: SessionRestorableAgentSnapshot? = nil
     ) -> String? {
         guard let binding,
               case .persistentSSH(let context) = binding.launchFlavor,
@@ -62,9 +63,50 @@ extension Workspace {
               configuration.preserveAfterTerminalExit,
               !configuration.skipDaemonBootstrap,
               configuration.persistentDaemonSlot != nil,
-              let relayPort = configuration.relayPort,
-              let startupInput = binding.remoteStartupInput() else {
+              let relayPort = configuration.relayPort else {
             return nil
+        }
+        // A binding with no launch recipe is an explicit transport-only
+        // reattach request. Do not resurrect a launch command from an older
+        // lifecycle snapshot just because one happens to be cached for the
+        // same session; doing so can replay stale/local cwd arguments. An
+        // explicitly supplied snapshot remains an intentional authority (the
+        // restore path passes one when it has validated it).
+        let candidateRestorableAgent = restorableAgent ?? (
+            binding.launchCommand == nil ? nil : restoredAgentSnapshotsByPanelId[expectedSurfaceID]
+        )
+        let matchingRestorableAgent = candidateRestorableAgent.flatMap {
+            Self.restorableAgentForSessionRestore($0, resumeBinding: binding)
+        }
+        let bindingForStartup: SurfaceResumeBindingSnapshot = if let selection =
+            binding.restoreWorkingDirectorySelection,
+            selection.discardsRecordedCwdOptions,
+            let matchingRestorableAgent {
+            binding.applyingRestoreWorkingDirectorySelection(
+                selection,
+                from: matchingRestorableAgent
+            )
+        } else {
+            binding
+        }
+        let startupInput: String?
+        if bindingForStartup.isAgentHookBinding {
+            // Persistent-SSH agent-hook startup is safe only after an
+            // authoritative remote cwd selection. Recorded-fallback, missing,
+            // and unavailable policies are transport-only so a captured local
+            // command can never be replayed on the remote host.
+            if case .exact = bindingForStartup.restoreWorkingDirectorySelection {
+                startupInput = bindingForStartup.remoteStartupInput(
+                    registration: matchingRestorableAgent?.registration
+                )
+            } else {
+                startupInput = nil
+            }
+        } else {
+            guard let input = bindingForStartup.remoteStartupInput(
+                registration: matchingRestorableAgent?.registration
+            ) else { return nil }
+            startupInput = input
         }
         return SSHPTYAttachStartupCommandBuilder.restoredRemoteShellCommand(
             relayPort: relayPort,

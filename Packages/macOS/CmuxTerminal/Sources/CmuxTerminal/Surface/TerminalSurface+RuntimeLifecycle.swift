@@ -163,35 +163,11 @@ extension TerminalSurface {
         let registeredOwnerId = registry.runtimeSurfaceOwnerId(surface)
         guard registeredOwnerId == id,
               GhosttySurfaceRuntimeProbe.surfacePointerAppearsLive(surface) else {
-            let callbackContext = surfaceCallbackContext
-            invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: false)
-            surfaceCallbackContext = nil
-            let manualIOContext = self.manualIOContext
-            self.manualIOContext = nil
-            let teeLease = mobileByteTeeLease
-            mobileByteTeeLease = nil
-            let retiredRemoteOutputLane = retireRemoteOutputLane()
-            let staleRuntimeResources = TerminalSurfaceStaleRuntimeResources(
-                callbackContext: callbackContext,
-                manualIOContext: manualIOContext,
-                byteTeeLease: teeLease
-            )
-            staleRuntimeResourceReleaseTicket = runtimeTeardown.enqueueRuntimeTeardownFence(
-                id: UUID(),
-                workspaceId: tabId,
-                reason: "stale",
-                fence: {
-                    await retiredRemoteOutputLane.drain()
-                },
-                onCompletion: {
-                    staleRuntimeResources.release()
-                }
-            )
+            retireRuntimeResourcesWithoutSurface(reason: "stale")
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
             activePortalHostLease = nil
             portalHostAuthority = nil
-            byteTee.dropSurface(surfaceID: id)
             recordTeardownRequest(reason: reason)
             markPortalLifecycleClosed(reason: reason)
 #if DEBUG
@@ -375,6 +351,15 @@ extension TerminalSurface {
     @discardableResult
     @MainActor
     public func suspendRuntimeSurfaceForAgentHibernation(reason: String) -> Bool {
+        // A terminal can be hibernated before its portal ever realizes a
+        // native Ghostty surface (for example while a restored window is still
+        // hidden). There is no native resource to free in that state, so do
+        // not consume one of the bounded teardown reservations or reject the
+        // hibernation solely because both slots are occupied by unrelated
+        // surfaces.
+        if surface == nil {
+            return suspendRuntimeSurfaceWithoutNativeSurface(reason: reason)
+        }
         guard let teardownReservation =
                 agentHibernationRuntimeTeardownReservation ??
                 runtimeTeardown.reserveIsolatedHibernationTeardown() else {

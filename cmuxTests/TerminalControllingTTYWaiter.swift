@@ -20,6 +20,7 @@ struct TerminalControllingTTYWaiter {
         self.pollInterval = pollInterval
     }
 
+    @MainActor
     func wait(
         for terminal: TerminalPanel,
         timeout: Duration = .seconds(5)

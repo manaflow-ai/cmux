@@ -31922,8 +31922,7 @@ struct CMUXCLI {
 
         let cwd = normalizedHookValue(workingDirectory)
         let sanitizedCommandParts = AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
-            from: commandParts,
-            workingDirectory: cwd
+            from: commandParts, workingDirectory: cwd, agentKind: kind
         )
         let resumeCommandParts = kind == "hermes-agent"
             ? hermesAgentArgumentsByReplacingOpenAICodexProvider(sanitizedCommandParts)

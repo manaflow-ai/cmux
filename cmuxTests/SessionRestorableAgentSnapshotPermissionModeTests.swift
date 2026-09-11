@@ -106,4 +106,48 @@ final class SessionRestorableAgentSnapshotPermissionModeTests: XCTestCase {
         let decoded = try JSONDecoder().decode(SessionRestorableAgentSnapshot.self, from: encoded)
         XCTAssertEqual(decoded.permissionMode, "acceptEdits")
     }
+
+    func testBuiltInKimiResumeDropsCapturedLocalWorkingDirectoryOption() throws {
+        let command = try XCTUnwrap(
+            SessionRestorableAgentSnapshot(
+                kind: .kimi,
+                sessionId: "kimi-session",
+                workingDirectory: "/remote/kimi",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "kimi",
+                    executablePath: "/opt/kimi/bin/kimi",
+                    arguments: ["/opt/kimi/bin/kimi", "-w", "/local/kimi", "--model", "kimi-k2"],
+                    workingDirectory: "/local/kimi",
+                    environment: nil,
+                    capturedAt: 123,
+                    source: "test"
+                )
+            ).resumeCommand
+        )
+        XCTAssertTrue(command.contains("cd -- '/remote/kimi'"), command)
+        XCTAssertFalse(command.contains("'-w'"), command)
+        XCTAssertFalse(command.contains("/local/kimi"), command)
+    }
+
+    func testBuiltInQoderResumeDropsCapturedLocalWorkingDirectoryOption() throws {
+        let command = try XCTUnwrap(
+            SessionRestorableAgentSnapshot(
+                kind: .qoder,
+                sessionId: "qoder-session",
+                workingDirectory: "/remote/qoder",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "qoder",
+                    executablePath: "/opt/qoder/bin/qodercli",
+                    arguments: ["/opt/qoder/bin/qodercli", "-w", "/local/qoder", "--model", "qoder-1"],
+                    workingDirectory: "/local/qoder",
+                    environment: nil,
+                    capturedAt: 123,
+                    source: "test"
+                )
+            ).resumeCommand
+        )
+        XCTAssertTrue(command.contains("cd -- '/remote/qoder'"), command)
+        XCTAssertFalse(command.contains("'-w'"), command)
+        XCTAssertFalse(command.contains("/local/qoder"), command)
+    }
 }
