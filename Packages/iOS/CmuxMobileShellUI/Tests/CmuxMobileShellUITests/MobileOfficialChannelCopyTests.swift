@@ -28,7 +28,7 @@ import Testing
             iosVersion: "1.0.5"
         )
         #expect(beta.contains("0.64.23"))
-        #expect(beta.contains("no minimum for this iOS build"))
+        #expect(beta.contains("0.64.22-nightly.3345650013202"))
 
         let prod = MobileWhatsNewCatalog.macUpdateFootnote(
             buildType: .prod,
