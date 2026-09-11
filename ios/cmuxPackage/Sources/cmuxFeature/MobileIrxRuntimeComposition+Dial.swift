@@ -78,10 +78,10 @@ extension MobileIrxRuntimeComposition {
         var direct: [String]
         switch intent {
         case .automatic:
-            // The directory's managed relay set is authoritative for the
-            // current server generation. Device metadata may omit it because
-            // the host does not persist connection hints on each device.
-            relay = directory.relayURLs.first ?? record.descriptor.metadata.relayURLs.first
+            // The Mac's current home relay is the useful route hint. The
+            // team fleet remains a safe fallback while a freshly registered
+            // Mac publishes that hint.
+            relay = record.descriptor.metadata.relayURLs.first ?? directory.relayURLs.first
             direct = []
             if !forceRelayOnly {
                 let paths = (try? await localPaths.load(identity: cache.identity)) ?? []

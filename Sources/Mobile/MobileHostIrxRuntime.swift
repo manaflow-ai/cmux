@@ -366,6 +366,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                     guard self.isCurrent(token), !Task.isCancelled else { return }
                     await self.refreshListenerState(token: token)
                     guard self.isCurrent(token), !Task.isCancelled else { return }
+                    await self.publishHomeRelayHintIfNeeded()
+                    guard self.isCurrent(token), !Task.isCancelled else { return }
                     self.startAcceptLoop(token: token)
                     self.setSettingsPhase(.active)
                     Self.journal.record("v2-host", "endpoint-ready", ["generation": String(await supervisor.currentGeneration)])
@@ -380,6 +382,29 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                     try? await Task.sleep(for: .seconds(delay))
                 }
             }
+        }
+    }
+
+    /// Publish only the public relay location needed by peers to address this
+    /// endpoint. Direct addresses stay local to the two clients.
+    private func publishHomeRelayHintIfNeeded() async {
+        guard let relay = await endpointSupervisor?.homeRelayURL(),
+              let metadata = cachedState?.device?.descriptor.metadata,
+              metadata.relayURLs != [relay],
+              let service = controlService else { return }
+        let next = V2DeviceMetadata(
+            appVersion: metadata.appVersion,
+            capabilities: metadata.capabilities,
+            displayName: metadata.displayName,
+            pairingEnabled: metadata.pairingEnabled,
+            platform: metadata.platform,
+            relayURLs: [relay]
+        )
+        do {
+            try await service.updateMetadata(next)
+            Self.journal.record("v2-host", "home-relay-published", ["relay": relay])
+        } catch {
+            Self.journal.record("v2-host", "home-relay-publish-failed", ["error": String(describing: type(of: error))])
         }
     }
 
