@@ -226,7 +226,10 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     /// notifications run their side effect; the rest focus their surface.
     /// Mirrors `AppDelegate.openTerminalNotification`.
     @discardableResult
-    public func openNotification(_ notification: NotificationNavSnapshot) -> Bool {
+    public func openNotification(
+        _ notification: NotificationNavSnapshot,
+        preferredWindowId: UUID? = nil
+    ) -> Bool {
         if notification.hasClickAction {
             // A click action exists; resolve and perform it via the router.
             // The router returns `false` when the action cannot be resolved or
@@ -241,7 +244,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             notificationId: notification.id,
             scrollRow: notification.scrollRow,
             scrollTotalRows: notification.scrollTotalRows,
-            scrollRowSpaceRevision: notification.scrollRowSpaceRevision
+            scrollRowSpaceRevision: notification.scrollRowSpaceRevision,
+            preferredWindowId: preferredWindowId
         )
     }
 
@@ -253,6 +257,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     ///   - id: Stable notification id used to find the stored snapshot.
     ///   - fallbackTabId: Workspace id from the delivered OS notification.
     ///   - fallbackSurfaceId: Surface id from the delivered OS notification.
+    ///   - fallbackWindowId: Window id captured when the OS notification was
+    ///     delivered, used to keep banner clicks in their originating window.
     ///   - fallbackRetargetsToLiveSurfaceOwner: Whether a missing stored
     ///     notification may follow its surface into another workspace.
     @discardableResult
@@ -260,10 +266,11 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         id: UUID,
         fallbackTabId: UUID,
         fallbackSurfaceId: UUID?,
+        fallbackWindowId: UUID? = nil,
         fallbackRetargetsToLiveSurfaceOwner: Bool = true
     ) -> Bool {
         if let notification = store.orderedNotifications.first(where: { $0.id == id }) {
-            return openNotification(notification)
+            return openNotification(notification, preferredWindowId: fallbackWindowId)
         }
         return open(
             tabId: fallbackTabId,
@@ -272,7 +279,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             retargetsToLiveSurfaceOwner: fallbackRetargetsToLiveSurfaceOwner,
             notificationId: id,
             scrollRow: nil,
-            scrollTotalRows: nil
+            scrollTotalRows: nil,
+            preferredWindowId: fallbackWindowId
         )
     }
 
@@ -290,7 +298,26 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     /// when no context owns the tab. Mirrors `AppDelegate.openNotification`
     /// (the routing decision and its `#if DEBUG` recorders live behind the seam).
     @discardableResult
-    public func open(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+    public func open(
+        tabId: UUID,
+        surfaceId: UUID?,
+        notificationId: UUID?
+    ) -> Bool {
+        open(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            notificationId: notificationId,
+            preferredWindowId: nil
+        )
+    }
+
+    @discardableResult
+    public func open(
+        tabId: UUID,
+        surfaceId: UUID?,
+        notificationId: UUID?,
+        preferredWindowId: UUID?
+    ) -> Bool {
         open(
             tabId: tabId,
             surfaceId: surfaceId,
@@ -298,7 +325,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             notificationId: notificationId,
             scrollRow: nil,
             scrollTotalRows: nil,
-            scrollRowSpaceRevision: nil
+            scrollRowSpaceRevision: nil,
+            preferredWindowId: preferredWindowId
         )
     }
 
@@ -318,6 +346,9 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     ///   - scrollTotalRows: Total terminal scrollback rows at capture time. The
     ///     app-side router uses this to adjust `scrollRow` for output appended
     ///     after the notification was recorded.
+    ///   - preferredWindowId: Window provenance captured for an OS banner click.
+    ///     When present, cross-window live-surface retargeting is constrained to
+    ///     the originating window.
     @discardableResult
     public func open(
         tabId: UUID,
@@ -327,7 +358,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         notificationId: UUID?,
         scrollRow: Int?,
         scrollTotalRows: Int?,
-        scrollRowSpaceRevision: UInt64? = nil
+        scrollRowSpaceRevision: UInt64? = nil,
+        preferredWindowId: UUID? = nil
     ) -> Bool {
         openRouting.openRouted(
             tabId: tabId,
@@ -337,7 +369,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             notificationId: notificationId,
             scrollRow: scrollRow,
             scrollTotalRows: scrollTotalRows,
-            scrollRowSpaceRevision: scrollRowSpaceRevision
+            scrollRowSpaceRevision: scrollRowSpaceRevision,
+            preferredWindowId: preferredWindowId
         )
     }
 

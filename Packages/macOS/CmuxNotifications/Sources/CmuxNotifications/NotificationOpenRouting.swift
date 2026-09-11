@@ -19,7 +19,8 @@ public protocol NotificationOpenRouting: AnyObject {
     /// focus succeeded. Mirrors the full `openNotification(tabId:surfaceId:notificationId:)`
     /// routing, including its `#if DEBUG` UI-test recorders, which the coordinator
     /// must not duplicate. `retargetsToLiveSurfaceOwner` controls whether the
-    /// app-side route may follow a moved surface across workspace boundaries.
+    /// app-side route may follow a moved surface across workspace boundaries;
+    /// `preferredWindowId` constrains that retargeting for an OS banner click.
     func openRouted(
         tabId: UUID,
         surfaceId: UUID?,
@@ -28,7 +29,8 @@ public protocol NotificationOpenRouting: AnyObject {
         notificationId: UUID?,
         scrollRow: Int?,
         scrollTotalRows: Int?,
-        scrollRowSpaceRevision: UInt64?
+        scrollRowSpaceRevision: UInt64?,
+        preferredWindowId: UUID?
     ) -> Bool
 
     /// Focus `tabId`/`surfaceId` in the specific registered window `windowId`,

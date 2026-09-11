@@ -111,7 +111,8 @@ final class NotificationNavSeamAdapter:
         notificationId: UUID?,
         scrollRow: Int?,
         scrollTotalRows: Int?,
-        scrollRowSpaceRevision: UInt64?
+        scrollRowSpaceRevision: UInt64?,
+        preferredWindowId: UUID?
     ) -> Bool {
         owner?.openRouted(
             tabId: tabId,
@@ -121,7 +122,8 @@ final class NotificationNavSeamAdapter:
             notificationId: notificationId,
             scrollRow: scrollRow,
             scrollTotalRows: scrollTotalRows,
-            scrollRowSpaceRevision: scrollRowSpaceRevision
+            scrollRowSpaceRevision: scrollRowSpaceRevision,
+            preferredWindowId: preferredWindowId
         ) ?? false
     }
 
@@ -417,7 +419,8 @@ extension AppDelegate {
         notificationId: UUID?,
         scrollRow: Int?,
         scrollTotalRows: Int?,
-        scrollRowSpaceRevision: UInt64?
+        scrollRowSpaceRevision: UInt64?,
+        preferredWindowId: UUID?
     ) -> Bool {
         openNotification(
             tabId: tabId,
@@ -429,7 +432,8 @@ extension AppDelegate {
                 row: scrollRow,
                 totalRows: scrollTotalRows,
                 rowSpaceRevision: scrollRowSpaceRevision
-            )
+            ),
+            preferredWindowId: preferredWindowId
         )
     }
 
