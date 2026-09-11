@@ -1,4 +1,6 @@
 import AppKit
+import CmuxSettings
+import CmuxTerminalCore
 import Testing
 
 #if canImport(cmux_DEV)
@@ -21,5 +23,136 @@ struct GhosttyScrollViewTests {
         #expect(scrollView.contentInsets.left == 0)
         #expect(scrollView.contentInsets.bottom == 0)
         #expect(scrollView.contentInsets.right == 0)
+    }
+
+    @Test func scrollbackMovesOnlyTheVirtualDocument() throws {
+        let surfaceView = GhosttyNSView(
+            frame: NSRect(x: 0, y: 0, width: 240, height: 120)
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = NSRect(x: 0, y: 0, width: 240, height: 120)
+        hostedView.layoutSubtreeIfNeeded()
+
+        let scrollView = try #require(
+            hostedView.subviews.compactMap { $0 as? GhosttyScrollView }.first
+        )
+        let documentView = try #require(scrollView.documentView)
+        scrollView.scrollerStyle = .legacy
+        scrollView.autohidesScrollers = false
+        scrollView.tile()
+        hostedView.layoutSubtreeIfNeeded()
+        surfaceView.cellSize = CGSize(width: 8, height: 10)
+        let rendererFrame = surfaceView.frame
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [
+                GhosttyNotificationKey.scrollbar: GhosttyScrollbar(
+                    total: 80,
+                    offset: 48,
+                    len: 12
+                )
+            ]
+        )
+
+        let didApplyScrollbar = waitForMainRunLoop {
+            abs(documentView.frame.height - 800) <= 0.5 &&
+                abs(scrollView.contentView.documentVisibleRect.origin.y - 200) <= 0.5
+        }
+        #expect(didApplyScrollbar, "the production scrollbar notification must settle before assertions")
+        #expect(
+            abs(surfaceView.frame.width - scrollView.contentView.bounds.width) <= 0.5,
+            "the renderer must stop at the clip view's content edge before a legacy scrollbar gutter"
+        )
+        #expect(
+            abs(documentView.frame.width - scrollView.contentView.bounds.width) <= 0.5,
+            "virtual scrollbar geometry must use the same content width as the renderer"
+        )
+        #expect(
+            surfaceView.frame == rendererFrame,
+            "scrollback must not relocate the viewport-sized Metal renderer"
+        )
+        #expect(
+            surfaceView.superview === hostedView,
+            "the renderer must stay outside AppKit's blit-scrolled document subtree"
+        )
+        #expect(
+            hostedView.hitTest(NSPoint(x: 40, y: 40)) === surfaceView,
+            "the transparent virtual scroll document must forward viewport hits to the renderer"
+        )
+    }
+
+    @Test func virtualDocumentForwardsHitsAcrossOffsetCoordinateSpaces() {
+        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 1_400, height: 800))
+        let surfaceView = GhosttyNSView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 240)
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = NSRect(x: 300, y: 200, width: 800, height: 240)
+        containerView.addSubview(hostedView)
+        hostedView.layoutSubtreeIfNeeded()
+        hostedView.setSessionContentWidthPresentation(SessionContentWidthPresentation(
+            storedMaximumWidth: 600,
+            storedAlignment: SessionContentAlignment.center.rawValue
+        ))
+
+        let pointInHostedView = NSPoint(x: 150, y: 50)
+        let pointInContainer = hostedView.convert(pointInHostedView, to: containerView)
+
+        #expect(surfaceView.frame.origin == NSPoint(x: 100, y: 0))
+        #expect(
+            containerView.hitTest(pointInContainer) === surfaceView,
+            "offset portal and renderer frames must preserve terminal pointer routing"
+        )
+    }
+
+    @Test func rendererTracksLeadingClipViewInset() throws {
+        let surfaceView = GhosttyNSView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 160)
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = NSRect(x: 0, y: 0, width: 320, height: 160)
+        hostedView.layoutSubtreeIfNeeded()
+
+        let scrollView = try #require(
+            hostedView.subviews.compactMap { $0 as? GhosttyScrollView }.first
+        )
+        scrollView.scrollerStyle = .legacy
+        scrollView.autohidesScrollers = false
+        scrollView.tile()
+        hostedView.layoutSubtreeIfNeeded()
+
+        // AppKit may inset the clip view when a leading-edge legacy scroller is
+        // present. Reproduce that viewport geometry without depending on the
+        // machine's global interface direction preference.
+        var clipViewFrame = scrollView.contentView.frame
+        clipViewFrame.origin.x += 11
+        scrollView.contentView.frame = clipViewFrame
+
+        hostedView.setSessionContentWidthPresentation(SessionContentWidthPresentation(
+            storedMaximumWidth: 319,
+            storedAlignment: SessionContentAlignment.left.rawValue
+        ))
+
+        let expectedOrigin = scrollView.convert(scrollView.contentView.frame.origin, to: hostedView)
+        #expect(
+            surfaceView.frame.origin == expectedOrigin,
+            "the renderer must follow the clip view's converted origin when AppKit insets the viewport"
+        )
+    }
+
+    private func waitForMainRunLoop(
+        timeout: TimeInterval = 1,
+        condition: () -> Bool
+    ) -> Bool {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while !condition(), Date() < deadline {
+            RunLoop.main.run(
+                mode: .default,
+                before: min(deadline, Date(timeIntervalSinceNow: 0.01))
+            )
+        }
+        return condition()
     }
 }
