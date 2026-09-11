@@ -742,10 +742,13 @@ describe("devbox image template", () => {
       // Idempotent: a second login sees the provider and rewrites nothing.
       expect(spawnSync("bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env }).status).toBe(0);
       expect(readFileSync(path.join(home, ".codex/config.toml"), "utf8")).toBe(merged);
-      // A config that already names a provider is the user's, even without ours.
-      writeFileSync(path.join(home, ".codex/config.toml"), 'model_provider = "openai"\n');
-      expect(spawnSync("bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env }).status).toBe(0);
-      expect(readFileSync(path.join(home, ".codex/config.toml"), "utf8")).toBe('model_provider = "openai"\n');
+      // A config that already names a provider is the user's, even without
+      // ours, however the key is spaced (TOML allows none around "=").
+      for (const theirs of ['model_provider = "openai"\n', 'model_provider="openai"\n', '  model_provider\t=  "openai"\n', '[ model_providers . cmux ]\nname = "x"\n', ' [history]\npersistence = "none"\n']) {
+        writeFileSync(path.join(home, ".codex/config.toml"), theirs);
+        expect(spawnSync("bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env }).status).toBe(0);
+        expect(readFileSync(path.join(home, ".codex/config.toml"), "utf8")).toBe(theirs);
+      }
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

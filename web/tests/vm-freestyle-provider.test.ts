@@ -844,6 +844,37 @@ describe("Freestyle openCmuxRemote: agent hooks on a healthy daemon", () => {
     expect(fake.execs.some((command) => command.includes("agent hook install claude codex"))).toBe(true);
   });
 
+  test("a daemon that only needed a restart still gets its hooks, and a hook failure never fails the heal", async () => {
+    // The first attach bundle reports the daemon not ready (exit 3); the heal
+    // finds the pin intact, restarts, and must still reconcile hooks. The hook
+    // install itself fails here, and the attach still returns its route.
+    const execs: string[] = [];
+    let bundles = 0;
+    const vm = {
+      data: async () => PRIVATE,
+      fs: { writeTextFile: async () => {}, remove: async () => {} },
+      exec: async ({ command }: { command: string }) => {
+        execs.push(command);
+        if (command.includes("__CMUX_PROBE__")) {
+          bundles += 1;
+          if (bundles === 1) return { statusCode: 3, stdout: "", stderr: "" };
+          return { statusCode: 0, stdout: ["__CMUX_PROBE__", JSON.stringify({ build_identity: "abc", remote_protocol: 12, version: "0.1.0" }), "__CMUX_DEVICES__", "[]", "__CMUX_TRUSTED__", "1", "__CMUX_END__"].join("\n"), stderr: "" };
+        }
+        if (command.includes("agent hook install")) return { statusCode: 1, stdout: "", stderr: "helper download failed" };
+        if (command.includes("cmux-tui-pin")) return { statusCode: 0, stdout: `${PIN_COMMIT}\n`, stderr: "" };
+        if (command.includes(".local/share/cmux-tui/bin/cmux-tui-hook")) return { statusCode: 1, stdout: "", stderr: "" };
+        if (command.includes("pgrep -f 'cmux-tui server [s]tart'") && !command.includes("systemctl restart")) return { statusCode: 1, stdout: "", stderr: "" };
+        return { statusCode: 0, stdout: "", stderr: "" };
+      },
+    };
+    const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client, resolveDaemonSource: async () => SOURCE });
+    const endpoint = await provider.openCmuxRemote(VM_ID, { clientCapabilities: [] });
+    expect(endpoint.trustedCarrier).toBe(true);
+    expect(execs.some((command) => command.includes("systemctl restart cmux-tui-daemon"))).toBe(true);
+    expect(execs.some((command) => command.includes("agent hook install claude codex"))).toBe(true);
+  });
+
   test("a pinned build published before the helper existed still attaches, without hooks", async () => {
     const fake = hooksFake({ hooksReady: 1, pin: PIN_COMMIT, manifest: "missing-helper" });
     const endpoint = await fake.provider.openCmuxRemote(VM_ID, { clientCapabilities: [] });

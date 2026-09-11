@@ -363,6 +363,13 @@ esac
       expect(reply.argv).toEqual(["--session", "cloud", "--quiet", "notify", "--title=T", "--reply"]);
     });
 
+    test("drops --quiet when the caller wants the JSON result, since the two output modes exclude each other", () => {
+      const json = runShim(["notify", "--title", "T", "--json"], { CMUX_TUI_TERMINAL_ID: TERMINAL_ID });
+      expect(json.argv).toEqual(["--session", "cloud", "notify", "--title", "T", "--json"]);
+      const jsonl = runShim(["notify", "--jsonl", "--title=T"], {});
+      expect(jsonl.argv).toEqual(["--session", "cloud", "notify", "--jsonl", "--title=T"]);
+    });
+
     test("never adds Mac socket identity from the environment", () => {
       const run = runShim(["notify", "--title", "T"], {
         CMUX_TUI_TERMINAL_ID: TERMINAL_ID,

@@ -719,7 +719,8 @@ the two writers of `config.toml` compose in either order. The bake's
 ## Notifications from a machine
 
 `cmux notify` inside a machine is the guest shim (`web/services/vms/guestCli.ts`)
-running `cmux-tui --session cloud notify …` with the arguments untouched; the
+running `cmux-tui --session cloud --quiet notify …` with the arguments untouched
+(`--quiet` is dropped when the caller passes `--json` or `--jsonl`); the
 daemon's `notify` verb owns the macOS signature (subtitle, scoped `--clear`,
 `--reply` refused, `CMUX_TUI_TERMINAL_ID` as the caller terminal). The daemon appends it to
 its durable notification ledger and the v2 `session.events` stream carries it

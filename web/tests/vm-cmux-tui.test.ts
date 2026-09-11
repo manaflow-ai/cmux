@@ -122,12 +122,21 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command.indexOf('"$CMUX_TUI_BIN" --version')).toBeLessThan(command.indexOf(install));
     // And proven, not assumed: helper installed and byte-equal to the pin,
     // every provider config carrying the cmux marker, codex trust state written.
-    expect(command).toContain(cmuxTuiHooksReadyCommand().split(" && ").slice(-5).join(" && "));
+    expect(command).toContain('test -x "$CMUX_TUI_HOME/.local/share/cmux-tui/bin/cmux-tui-hook"');
     expect(command).toContain('cmp -s "$CMUX_TUI_HOOK_BIN" "$CMUX_TUI_HOME/.local/share/cmux-tui/bin/cmux-tui-hook"');
-    expect(command).toContain('grep -q cmux-tui-journal-hook "$CMUX_TUI_HOME/.claude/settings.json"');
-    expect(command).toContain('grep -q cmux-tui-journal-hook "$CMUX_TUI_HOME/.codex/hooks.json"');
-    expect(command).toContain(`grep -q '^\\[hooks' "$CMUX_TUI_HOME/.codex/config.toml"`);
-    expect(command.endsWith('"$CMUX_TUI_HOME/.codex/config.toml"')).toBe(true);
+    // Structured status, not a text grep: a user-edited entry reports partial and is repaired.
+    expect(command).toContain(cmuxTuiAsDaemonUser('"$CMUX_TUI_BIN" --json agent hook status claude codex'));
+    expect(command).toContain('all(s.get(i) == "installed" for i in ["claude","codex"])');
+    expect(command).not.toContain("grep -q cmux-tui-journal-hook");
+  });
+
+  test("the pinned manifest URL keeps the mirror's origin and query and handles a root-level pointer", () => {
+    withEnv({ CMUX_VM_CMUX_TUI_MANIFEST_URL: "https://mirror.example/manifest.json?token=abc" }, () =>
+      expect(cmuxTuiPinnedManifestUrl(COMMIT)).toBe(`https://mirror.example/${COMMIT}/manifest.json?token=abc`));
+    withEnv({ CMUX_VM_CMUX_TUI_MANIFEST_URL: "https://files.example/tui/latest/manifest.json?x=1" }, () =>
+      expect(cmuxTuiPinnedManifestUrl(COMMIT)).toBe(`https://files.example/tui/${COMMIT}/manifest.json?x=1`));
+    withEnv({ CMUX_VM_CMUX_TUI_MANIFEST_URL: "https://files.example/tui/latest/index.json" }, () =>
+      expect(() => cmuxTuiPinnedManifestUrl(COMMIT)).toThrow(/manifest\.json/));
   });
 
   test("the hooks-only install never touches the daemon binary", () => {

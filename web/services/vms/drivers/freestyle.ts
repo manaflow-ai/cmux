@@ -1382,12 +1382,8 @@ export class FreestyleProvider implements VMProvider {
           if (!healed && bundleResult?.exitCode === 0) {
             // The healthy fast path skips the heal, so this is where a machine
             // that predates hook installation gets its Claude Code and Codex
-            // hooks. Best effort: a hook failure must not cost the attach.
-            try {
-              await this.ensureAgentHooks(vm, vmId);
-            } catch (hookErr) {
-              recordSpanError(span, hookErr);
-            }
+            // hooks (best effort inside).
+            await this.ensureAgentHooks(vm, vmId);
           }
           if (!bundleResult || bundleResult.exitCode !== 0) {
             throw new ProviderError(
@@ -1598,28 +1594,27 @@ export class FreestyleProvider implements VMProvider {
    * agents read hooks at their next launch.
    */
   private async ensureAgentHooks(vm: Vm, vmId: string): Promise<void> {
+    // Best effort throughout: a hook failure is logged and never costs the
+    // attach or the heal that called it.
+    try {
+      await this.installAgentHooks(vm, vmId);
+    } catch (err) {
+      console.warn(`[freestyle] ${vmId}: agent hooks not installed: ${errorMessage(err)}`);
+    }
+  }
+
+  private async installAgentHooks(vm: Vm, vmId: string): Promise<void> {
     const ready = await this.execResult(vm, cmuxTuiHooksReadyCommand());
     if (ready?.exitCode === 0) return;
     const pin = await this.execResult(vm, "cut -d' ' -f2 /etc/cmux/cmux-tui-pin 2>/dev/null");
     const commit = pin?.exitCode === 0 ? pin.stdout.trim() : "";
-    console.info(`[freestyle] ${vmId}: agent hooks missing (ready exit ${ready?.exitCode ?? "n/a"}); installing for daemon ${commit || "(live pin)"}`);
-    let source: CmuxTuiSource;
-    try {
-      source = /^[0-9a-f]{40}$/.test(commit)
-        ? await this.deps.resolveDaemonSource("freestyle", cmuxTuiPinnedManifestUrl(commit))
-        : await this.deps.resolveDaemonSource("freestyle");
-    } catch (err) {
-      // A pinned build published before the helper shipped: leave the daemon
-      // as it is rather than pair it with a helper from another generation.
-      console.warn(`[freestyle] ${vmId}: agent hooks skipped, no hook helper for daemon ${commit || "(live)"}: ${errorMessage(err)}`);
-      return;
-    }
-    await this.execOrThrow(vm, vmId, cmuxTuiAgentHooksInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS)
-      .catch((err: unknown) => {
-        console.warn(`[freestyle] ${vmId}: agent hook install failed: ${errorMessage(err)}`);
-        throw new ProviderError("freestyle", `cmux-tui agent hook install in ${vmId} failed: ${errorMessage(err)}`);
-      });
-    console.info(`[freestyle] ${vmId}: agent hooks installed for daemon ${source.commit}`);
+    // A pinned build published before the helper shipped throws here: the
+    // daemon is left as it is rather than paired with a helper from another
+    // generation.
+    const source = /^[0-9a-f]{40}$/.test(commit)
+      ? await this.deps.resolveDaemonSource("freestyle", cmuxTuiPinnedManifestUrl(commit))
+      : await this.deps.resolveDaemonSource("freestyle");
+    await this.execOrThrow(vm, vmId, cmuxTuiAgentHooksInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS);
   }
 
   /**

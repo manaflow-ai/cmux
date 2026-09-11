@@ -2562,7 +2562,12 @@ case "\${1:-}" in
     # knows the grammar. Nothing here can name a Mac workspace, surface, or
     # socket: those selectors are rejected by the daemon rather than mapped.
     shift
-    exec "\$CMUX_TUI_BIN" --session "\$LOCAL_SESSION" --quiet notify "\$@"
+    # Silent on success like the Mac CLI, unless the caller asked for the
+    # JSON result: --quiet and --json are exclusive global output modes.
+    case " \$* " in
+      *" --json "*|*" --jsonl "*) exec "\$CMUX_TUI_BIN" --session "\$LOCAL_SESSION" notify "\$@" ;;
+      *) exec "\$CMUX_TUI_BIN" --session "\$LOCAL_SESSION" --quiet notify "\$@" ;;
+    esac
     ;;
   *)
     # Local daemon session. cmux-tui's own grammar is \`cmux <resource> <action>\`.

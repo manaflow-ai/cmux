@@ -188,7 +188,17 @@ export function cmuxTuiPinnedManifestUrl(commit: string, provider: ProviderId = 
   if (!/^[0-9a-f]{40}$/.test(commit)) {
     throw new ProviderError(provider, `cmux-tui pin commit ${JSON.stringify(commit)} is not a full sha`);
   }
-  return cmuxTuiManifestUrl(provider).replace(/\/[^/]+\/manifest\.json$/, `/${commit}/manifest.json`);
+  const url = new URL(cmuxTuiManifestUrl(provider));
+  const segments = url.pathname.split("/");
+  if (segments.at(-1) !== "manifest.json") {
+    throw new ProviderError(provider, `cmux-tui manifest URL ${url.href} does not end in /manifest.json`);
+  }
+  // `<base>/<pointer>/manifest.json` -> `<base>/<commit>/manifest.json`; a
+  // root-level `/manifest.json` gains the commit segment. Origin and query survive.
+  if (segments.length >= 3) segments[segments.length - 2] = commit;
+  else segments.splice(segments.length - 1, 0, commit);
+  url.pathname = segments.join("/");
+  return url.href;
 }
 
 let cmuxTuiSourceCache: { url: string; fetchedAt: number; source: CmuxTuiSource } | null = null;
@@ -305,13 +315,20 @@ function agentHooksInstallSteps(): string[] {
   ];
 }
 
+/**
+ * Readiness comes from the installer's own structured status, so a hook entry
+ * a user edited or reordered (reported `partial`) is repaired instead of
+ * passing a text grep; plus the helper beside the daemon must be byte-equal
+ * to the one the daemon user runs.
+ */
 function cmuxTuiHooksReadyCheck(): string {
+  const providers = CMUX_TUI_HOOK_PROVIDERS.join(" ");
+  const installed = JSON.stringify([...CMUX_TUI_HOOK_PROVIDERS]);
   return [
     `test -x ${INSTALLED_HOOK}`,
     `cmp -s ${HOOK_BIN} ${INSTALLED_HOOK}`,
-    `grep -q ${CMUX_TUI_HOOK_MARKER} "$CMUX_TUI_HOME/.claude/settings.json"`,
-    `grep -q ${CMUX_TUI_HOOK_MARKER} "$CMUX_TUI_HOME/.codex/hooks.json"`,
-    `grep -q '^\\[hooks' "$CMUX_TUI_HOME/.codex/config.toml"`,
+    cmuxTuiAsDaemonUser(`"$CMUX_TUI_BIN" --json agent hook status ${providers}`) +
+      ` | python3 -c 'import json, sys; r = json.load(sys.stdin); s = {p["provider"]: p["state"] for p in r.get("providers", [])}; sys.exit(0 if all(s.get(i) == "installed" for i in ${installed}) else 1)'`,
   ].join(" && ");
 }
 
