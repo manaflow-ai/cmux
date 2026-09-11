@@ -569,7 +569,7 @@ guest_coderouter_usage_render() {
   fi
   # Anything that is not the ready contract (an error body, a future shape,
   # a non-numeric field) is passed through untouched rather than formatted.
-  if ! jq -e '.kind == "ready" and (.totals | type) == "object"
+  if ! jq -e '.kind == "ready" and (.totals | type) == "object" and (.periodDays | type) == "number" and (.asOf | type) == "string"
       and ([.totals.inputTokens, .totals.cachedInputTokens, .totals.outputTokens, .totals.totalTokens, .totals.apiEquivalentUsd] | all(type == "number"))
       and ((.days // []) | type) == "array"
       and ((.days // []) | all((.day | type) == "string" and (.totalTokens | type) == "number" and (.apiEquivalentUsd | type) == "number"))' \\

@@ -418,11 +418,17 @@ esac
       const errorBody = runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(JSON.stringify({ error: "vm_not_found" })));
       expect(errorBody.status).toBe(0);
       expect(JSON.parse(errorBody.stdout)).toEqual({ error: "vm_not_found" });
-      const malformed = JSON.parse(USAGE_BODY);
-      malformed.totals.totalTokens = "68612";
-      const badNumber = runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(JSON.stringify(malformed)));
-      expect(badNumber.status).toBe(0);
-      expect(JSON.parse(badNumber.stdout)).toEqual(malformed);
+      for (const mutate of [
+        (body: Record<string, unknown>) => { (body.totals as Record<string, unknown>).totalTokens = "68612"; },
+        (body: Record<string, unknown>) => { body.periodDays = "30 days"; },
+        (body: Record<string, unknown>) => { body.asOf = null; },
+      ]) {
+        const malformed = JSON.parse(USAGE_BODY);
+        mutate(malformed);
+        const passthrough = runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(JSON.stringify(malformed)));
+        expect(passthrough.status).toBe(0);
+        expect(JSON.parse(passthrough.stdout)).toEqual(malformed);
+      }
       const bad = runShim(["coderouter", "usage", "--tsv2"], USAGE_ENV, usageCurl(USAGE_BODY));
       expect(bad.status).toBe(2);
       expect(bad.stderr).toContain("coderouter usage: unknown option --tsv2");
