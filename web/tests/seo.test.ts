@@ -1026,6 +1026,16 @@ describe("SEO middleware", () => {
     expect(location.searchParams.has("cmux_open_in_browser")).toBe(false);
   });
 
+  test("passes through an internally rewritten English dashboard path", () => {
+    const response = middleware(
+      requestFor("/en/dashboard/devices", { "x-next-intl-locale": "en" }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
   test("does not advertise unsupported locale variants globally", () => {
     const response = middleware(requestFor("/ja/docs/remote-tmux"));
 
