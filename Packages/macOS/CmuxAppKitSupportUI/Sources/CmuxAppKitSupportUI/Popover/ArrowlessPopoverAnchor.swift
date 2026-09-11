@@ -10,7 +10,6 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
     @Binding public var isPresented: Bool
     public let preferredEdge: NSRectEdge
     public let detachedGap: CGFloat
-    public let anchorWidth: CGFloat?
     @ViewBuilder public let content: () -> PopoverContent
 
     /// Creates an arrowless popover anchor.
@@ -18,29 +17,21 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
     ///   - isPresented: Binding driving popover presentation.
     ///   - preferredEdge: The edge of the anchor the popover prefers to appear from.
     ///   - detachedGap: The gap, in points, between the anchor edge and the popover.
-    ///   - anchorWidth: For `.maxY`/`.minY` edges, the positioning rect's width,
-    ///     measured from the anchor's leading edge. AppKit centers a popover on
-    ///     its positioning rect, so a popover much wider than a corner button
-    ///     would otherwise center on the button and spill past the window;
-    ///     passing the popover's own width opens it flush with the button.
-    ///     `nil` uses the anchor's bounds.
     ///   - content: The SwiftUI content rendered inside the popover.
     public init(
         isPresented: Binding<Bool>,
         preferredEdge: NSRectEdge,
         detachedGap: CGFloat,
-        anchorWidth: CGFloat? = nil,
         @ViewBuilder content: @escaping () -> PopoverContent
     ) {
         self._isPresented = isPresented
         self.preferredEdge = preferredEdge
         self.detachedGap = detachedGap
-        self.anchorWidth = anchorWidth
         self.content = content
     }
 
     public func makeNSView(context: Context) -> NSView {
-        let view = NSView()
+        let view = ArrowlessPopoverAnchorNSView()
         context.coordinator.anchorView = view
         return view
     }
@@ -63,8 +54,7 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
         if isPresented {
             coordinator.present(
                 preferredEdge: preferredEdge,
-                detachedGap: detachedGap,
-                anchorWidth: anchorWidth
+                detachedGap: detachedGap
             )
         } else {
             coordinator.dismiss()
@@ -120,7 +110,7 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
             updateRootView(pendingVisibleRootView)
         }
 
-        func present(preferredEdge: NSRectEdge, detachedGap: CGFloat, anchorWidth: CGFloat? = nil) {
+        func present(preferredEdge: NSRectEdge, detachedGap: CGFloat) {
             guard let anchorView else {
                 isPresented = false
                 dismiss()
@@ -143,11 +133,10 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
             }
 
             popover.show(
-                relativeTo: ArrowlessPopoverPositioning.rect(
+                relativeTo: positioningRect(
                     for: anchorView.bounds,
                     preferredEdge: preferredEdge,
-                    detachedGap: detachedGap,
-                    anchorWidth: anchorWidth
+                    detachedGap: detachedGap
                 ),
                 of: anchorView,
                 preferredEdge: preferredEdge
@@ -178,53 +167,56 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
             self.popover = popover
             return popover
         }
+
+        private func positioningRect(
+            for bounds: CGRect,
+            preferredEdge: NSRectEdge,
+            detachedGap: CGFloat
+        ) -> CGRect {
+            let hiddenArrowInset: CGFloat = 13
+            let compensation = max(hiddenArrowInset - detachedGap, 0)
+
+            switch preferredEdge {
+            case .maxY:
+                return NSRect(
+                    x: bounds.minX,
+                    y: bounds.maxY - compensation,
+                    width: bounds.width,
+                    height: compensation
+                )
+            case .minY:
+                return NSRect(
+                    x: bounds.minX,
+                    y: bounds.minY,
+                    width: bounds.width,
+                    height: compensation
+                )
+            case .maxX:
+                return NSRect(
+                    x: bounds.maxX - compensation,
+                    y: bounds.minY,
+                    width: compensation,
+                    height: bounds.height
+                )
+            case .minX:
+                return NSRect(
+                    x: bounds.minX,
+                    y: bounds.minY,
+                    width: compensation,
+                    height: bounds.height
+                )
+            @unknown default:
+                return bounds
+            }
+        }
     }
 }
 
-/// Where the hidden-arrow popover attaches. Pure geometry, so the edge math is
-/// testable without an `NSPopover`.
-enum ArrowlessPopoverPositioning {
-    static func rect(
-        for bounds: CGRect,
-        preferredEdge: NSRectEdge,
-        detachedGap: CGFloat,
-        anchorWidth: CGFloat? = nil
-    ) -> CGRect {
-        let hiddenArrowInset: CGFloat = 13
-        let compensation = max(hiddenArrowInset - detachedGap, 0)
-        let width = anchorWidth.map { max($0, bounds.width) } ?? bounds.width
-
-        switch preferredEdge {
-        case .maxY:
-            return NSRect(
-                x: bounds.minX,
-                y: bounds.maxY - compensation,
-                width: width,
-                height: compensation
-            )
-        case .minY:
-            return NSRect(
-                x: bounds.minX,
-                y: bounds.minY,
-                width: width,
-                height: compensation
-            )
-        case .maxX:
-            return NSRect(
-                x: bounds.maxX - compensation,
-                y: bounds.minY,
-                width: compensation,
-                height: bounds.height
-            )
-        case .minX:
-            return NSRect(
-                x: bounds.minX,
-                y: bounds.minY,
-                width: compensation,
-                height: bounds.height
-            )
-        @unknown default:
-            return bounds
-        }
-    }
+/// The invisible AppKit view the popover positions against. It never takes a
+/// click: callers size it to the popover's footprint (a corner button anchors a
+/// popover wider than itself by extending the anchor across the footer), and
+/// AppKit clips the positioning rect to this view's bounds, so the width has
+/// to live on the view itself.
+final class ArrowlessPopoverAnchorNSView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

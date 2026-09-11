@@ -35,14 +35,21 @@ struct SidebarCloudWorkspacesButton: View {
         .buttonStyle(SidebarFooterIconButtonStyle())
         .frame(width: buttonSize, height: buttonSize)
         .background(TitlebarControlAnchorView { anchorView = $0 })
-        .background(ArrowlessPopoverAnchor(
-            isPresented: $isPopoverPresented,
-            preferredEdge: .maxY,
-            detachedGap: 4,
-            anchorWidth: SidebarCloudWorkspacesPopover.size.width
-        ) {
-            SidebarCloudWorkspacesPopover(tabManager: tabManager, dismiss: { setPresented(false) })
-        })
+        .background(alignment: .bottomLeading) {
+            // AppKit centers a popover on its anchor view, so a 320pt popover on a
+            // 22pt corner button would spill past the window. The anchor spans the
+            // popover's width from the button's leading edge; it is click-through.
+            Color.clear
+                .frame(width: SidebarCloudWorkspacesPopover.size.width, height: buttonSize)
+                .background(ArrowlessPopoverAnchor(
+                    isPresented: $isPopoverPresented,
+                    preferredEdge: .maxY,
+                    detachedGap: 4
+                ) {
+                    SidebarCloudWorkspacesPopover(tabManager: tabManager, dismiss: { setPresented(false) })
+                })
+                .allowsHitTesting(false)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .sidebarCloudWorkspacesPopoverRequested)) { notification in
             // One footer per main window: only the addressed (or key) window answers.
             guard ContentView.shouldHandleCommandPaletteRequest(
