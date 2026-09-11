@@ -1,4 +1,9 @@
 {
+  "cli.terminal.viewport.commandLine": {
+    "source": "terminal viewport <columns> <rows> [--surface <id>] | reset",
+    "class": "syntax",
+    "reason": "Literal CLI command, option names, and argument placeholders remain invariant across locales."
+  },
   "CFBundleDisplayName": {
     "source": "cmux Cloud Tunnel",
     "class": "brand"
