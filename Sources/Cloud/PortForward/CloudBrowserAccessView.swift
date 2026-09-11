@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// Native UI in the browser content area. A hidden WebKit portal cannot cover
-/// the connection panel because the web view only mounts after a page loads.
+/// Native UI in the browser content area. Explicitly hide retained portal
+/// content while showing controls; dismantling its SwiftUI host retains it.
 struct CloudBrowserAccessView<Content: View>: View {
     let panel: BrowserPanel
     let backgroundColor: NSColor
@@ -68,6 +68,14 @@ struct CloudBrowserAccessView<Content: View>: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: backgroundColor))
         .accessibilityIdentifier("CloudBrowserAccess")
+        .onChange(of: showsNativeContent, initial: true) { _, shown in
+            if shown { BrowserWindowPortalRegistry.hide(webView: panel.webView, source: "cloudConnection") }
+        }
+    }
+
+    private var showsNativeContent: Bool {
+        panel.cloudAccess.unavailable != nil ||
+            (panel.cloudAccess.model != nil && (showsVPNSetup || !panel.cloudAccess.showsPage))
     }
 
     private func navigateIfReady() {
