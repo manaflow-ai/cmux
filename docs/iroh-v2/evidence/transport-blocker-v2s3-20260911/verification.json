@@ -1,0 +1,28 @@
+{
+  "capturedAtUTC": "2026-09-11",
+  "role": "acceptance continuation run",
+  "status": "blocked-before-soak",
+  "tag": "v2s3",
+  "clientBuildSourceSHA": "8b3650bf371",
+  "currentDocumentationSourceSHA": "79caa3205cd",
+  "environment": "staging",
+  "workerOrigin": "https://cmux-iroh-v2-staging.cmux-presence-worker.workers.dev",
+  "workerVersion": "4bdddd87-8cd4-4dcc-a125-08c9a9ea5864",
+  "simulatorUDID": "BE3D4073-59DD-489A-8A1F-DA77BBAB9C06",
+  "observed": [
+    "The v2 control WebSocket upgraded successfully.",
+    "The TeamControl Durable Object installed the directory twice, including a revision change.",
+    "The Worker completed relay.request with status 200.",
+    "The iOS journal began a peer dial to the Mac endpoint.",
+    "The native endpoint bound, then failed after 20 seconds with relay link never came up (20s).",
+    "The dial entered backoff and repeated the same failure."
+  ],
+  "stoppedBefore": [
+    "foreground soak",
+    "workspace/Codex workload",
+    "credential rollover",
+    "background/resume cycles",
+    "production and relay-only acceptance runs"
+  ],
+  "blocker": "The deployed control plane returns relay credentials, but the native IROH relay handshake cannot establish a data path from the Mac/iOS simulator test hosts."
+}
