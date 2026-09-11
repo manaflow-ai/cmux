@@ -13,7 +13,10 @@ import {
   twitterSummary,
 } from "@/i18n/seo";
 
-export type JobRoleNamespace = "jobs" | "jobs.foundingDesigner";
+export type JobRoleNamespace =
+  | "jobs"
+  | "jobs.foundingDesigner"
+  | "jobs.foundingChromiumEngineer";
 
 const focusRingClass =
   "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-foreground";
@@ -35,7 +38,7 @@ export async function jobsMetadata({
   return buildJobMetadata({
     contentLocale,
     path,
-    title: `${t("title")} / ${t("foundingDesigner.title")} — ${t("section")}`,
+    title: `${t("title")} / ${t("foundingDesigner.title")} / ${t("foundingChromiumEngineer.title")} — ${t("section")}`,
     description: `${t("tagline")} ${t("intro")}`,
   });
 }
@@ -125,6 +128,10 @@ export function JobsPageContent() {
           <JobRoleSection
             namespace="jobs.foundingDesigner"
             roleId="founding-designer"
+          />
+          <JobRoleSection
+            namespace="jobs.foundingChromiumEngineer"
+            roleId="founding-chromium-engineer"
           />
         </div>
       </main>

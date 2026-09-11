@@ -88,6 +88,7 @@ describe("jobs page", () => {
 
     expect(html).toContain("Founding Engineer");
     expect(html).toContain("Founding Designer");
+    expect(html).toContain("Founding Chromium Engineer");
     expect(html).toContain(
       "Hundreds of thousands of developers use cmux to drive their agentic coding workflows.",
     );
@@ -111,7 +112,7 @@ describe("jobs page", () => {
     expect(html).toContain("San Francisco");
     expect(html).toContain('id="founding-engineer"');
     expect(html).toContain('id="founding-designer"');
-    expect(html.match(/>Email</g)).toHaveLength(2);
+    expect(html.match(/>Email</g)).toHaveLength(3);
     expect(html).not.toContain("Email founders@cmux.com");
     expect(html).toContain(
       `href="mailto:founders@cmux.com?subject=${encodeURIComponent(
@@ -133,7 +134,7 @@ describe("jobs page", () => {
     expect(html).not.toContain("border-y");
     expect(html).not.toMatch(/<p[^>]*>Jobs<\/p>/);
     expect(html).not.toContain("details-title");
-    expect(html.match(/<aside aria-label="Details"/g)).toHaveLength(2);
+    expect(html.match(/<aside aria-label="Details"/g)).toHaveLength(3);
     expect(html).toContain("focus-visible:outline-2");
     expect(html).toContain('aria-labelledby="jobs-title"');
   });
@@ -155,7 +156,7 @@ describe("jobs page", () => {
     );
     expect(html).toContain("デザインコンポーネントを知り尽くしている");
     expect(html).toContain("次のような経験や姿勢があると、特にうれしいです：");
-    expect(html.match(/>メールする</g)).toHaveLength(2);
+    expect(html.match(/>メールする</g)).toHaveLength(3);
     expect(html).not.toContain("founders@cmux.com にメールする");
     expect(html).toContain(
       `subject=${encodeURIComponent(jaMessages.jobs.applyEmailSubject)}`,
@@ -171,7 +172,7 @@ describe("jobs page", () => {
     expect(html).not.toContain("求める人物像");
     expect(html).not.toContain("必須条件はありません");
     expect(html).not.toMatch(/<p[^>]*>採用情報<\/p>/);
-    expect(html.match(/<aside aria-label="詳細"/g)).toHaveLength(2);
+    expect(html.match(/<aside aria-label="詳細"/g)).toHaveLength(3);
     expect(html).not.toContain("What you'll do");
   });
 
@@ -181,7 +182,7 @@ describe("jobs page", () => {
     expect(simplified).toContain("我们正在招聘");
     expect(simplified).toContain("Founding Designer");
     expect(simplified).toContain("设计覆盖整个技术栈的前沿开发者工具");
-    expect(simplified.match(/>发送邮件</g)).toHaveLength(2);
+    expect(simplified.match(/>发送邮件</g)).toHaveLength(3);
     expect(simplified).toContain(
       `href="mailto:founders@cmux.com?subject=${encodeURIComponent(
         messagesByLocale["zh-CN"].jobs.applyEmailSubject,
@@ -198,7 +199,7 @@ describe("jobs page", () => {
     expect(traditional).toContain("我們正在招募");
     expect(traditional).toContain("Founding Designer");
     expect(traditional).toContain("打造橫跨整個技術堆疊的前沿開發者工具");
-    expect(traditional.match(/>寄送電子郵件</g)).toHaveLength(2);
+    expect(traditional.match(/>寄送電子郵件</g)).toHaveLength(3);
     expect(traditional).toContain(
       `href="mailto:founders@cmux.com?subject=${encodeURIComponent(
         messagesByLocale["zh-TW"].jobs.applyEmailSubject,
@@ -267,7 +268,7 @@ describe("jobs page", () => {
       params: Promise.resolve({ locale: "en" }),
     });
     expect(english.title).toEqual({
-      absolute: "Founding Engineer / Founding Designer — Jobs",
+      absolute: "Founding Engineer / Founding Designer / Founding Chromium Engineer — Jobs",
     });
     expect(english.alternates).toEqual(expectedAlternates("/jobs", "en"));
     expect(english.description).toContain("Help us build the future of coding with AI.");
@@ -276,7 +277,7 @@ describe("jobs page", () => {
       params: Promise.resolve({ locale: "ja" }),
     });
     expect(japanese.title).toEqual({
-      absolute: "Founding Engineer / Founding Designer — 採用情報",
+      absolute: "Founding Engineer / Founding Designer / Founding Chromium Engineer — 採用情報",
     });
     expect(japanese.alternates).toMatchObject({
       canonical: "https://cmux.com/ja/jobs",
@@ -287,7 +288,7 @@ describe("jobs page", () => {
       params: Promise.resolve({ locale: "zh-CN" }),
     });
     expect(chinese.title).toEqual({
-      absolute: "Founding Engineer / Founding Designer — 招聘",
+      absolute: "Founding Engineer / Founding Designer / Founding Chromium Engineer — 招聘",
     });
     expect(chinese.alternates).toMatchObject({
       canonical: "https://cmux.com/zh-CN/jobs",
@@ -313,7 +314,7 @@ describe("jobs page", () => {
     );
     expect(html).toContain("Typography, motion, and systems thinking");
     expect(html).toContain("$130k–$170k + 0.5%–1.5% equity");
-    expect(html.match(/>Email</g)).toHaveLength(2);
+    expect(html.match(/>Email</g)).toHaveLength(3);
     expect(html).not.toContain("Email founders@cmux.com");
     expect(html).toContain(
       `subject=${encodeURIComponent(
@@ -332,7 +333,7 @@ describe("jobs page", () => {
     expect(html).toContain("Founding Designer");
     expect(html).toContain("デザインコンポーネントを知り尽くしている");
     expect(html).toContain("タイポグラフィ、モーション、システム思考");
-    expect(html.match(/>メールする</g)).toHaveLength(2);
+    expect(html.match(/>メールする</g)).toHaveLength(3);
     expect(html).not.toContain("founders@cmux.com にメールする");
     expect(html).toContain(
       `subject=${encodeURIComponent(
