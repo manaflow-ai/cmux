@@ -137,6 +137,14 @@ struct CmuxConfigLayoutEntryTests {
         #expect(config.commandDecodingIssues[0].description.contains("command"))
     }
 
+    @Test func decodeInvalidSplitReportsTheLayoutJSONPath() throws {
+        let config = try decode(#"{"commands":[{"name":"bad","workspace":{"layout":{"direction":"vertical","children":[{"pane":{"surfaces":[{"type":"terminal"}]}},{"pane":{"surfaces":[{"type":"terminal"}]}},{"pane":{"surfaces":[{"type":"terminal"}]}}]}}}]}"#)
+        #expect(config.commands.isEmpty)
+        #expect(config.commandDecodingIssues.count == 1)
+        #expect(config.commandDecodingIssues[0].description.contains("workspace.layout"))
+        #expect(config.commandDecodingIssues[0].description.contains("found 3"))
+    }
+
     @Test func decodeMalformedEntriesAreSkippedWithoutBlockingTheFile() throws {
         let fixtures = [
             #"{"commands":[{"name":"bad","workspace":{"layout":{"invalid":true}}}]}"#,

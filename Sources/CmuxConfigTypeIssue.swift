@@ -50,12 +50,13 @@ struct CmuxConfigTypeIssue: Equatable, Hashable, Sendable {
     private static func rawDecodingMessage(for error: Error) -> String {
         if let splitError = error as? CmuxSplitDecodingError {
             switch splitError {
-            case .invalidChildCount(let count):
+            case .invalidChildCount(let count, let path):
                 let format = String(
                     localized: "config.validation.splitChildCount",
                     defaultValue: "Split layout must contain exactly 2 children (found %@)"
                 )
-                return String(format: format, arguments: [String(count) as NSString])
+                let message = String(format: format, arguments: [String(count) as NSString])
+                return path.isEmpty ? message : "\(path): \(message)"
             }
         }
         switch error {

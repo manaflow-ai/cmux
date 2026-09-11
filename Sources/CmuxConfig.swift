@@ -7,6 +7,19 @@ import CmuxSettings
 import OSLog
 
 
+private func cmuxJSONPath(from codingPath: [any CodingKey]) -> String {
+    var path = ""
+    for key in codingPath {
+        if let index = key.intValue {
+            path += "[\(index)]"
+        } else {
+            if !path.isEmpty { path += "." }
+            path += key.stringValue
+        }
+    }
+    return path
+}
+
 private func cmuxFirstNonBlank(_ values: String?...) -> String? {
     for value in values {
         guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -1497,7 +1510,10 @@ indirect enum CmuxLayoutNode: Codable, Sendable, Hashable {
                     // one-child split. It is equivalent to its only child.
                     return children[0]
                 }
-                throw CmuxSplitDecodingError.invalidChildCount(children.count)
+                throw CmuxSplitDecodingError.invalidChildCount(
+                    children.count,
+                    path: cmuxJSONPath(from: decoder.codingPath)
+                )
             }
             return .split(CmuxSplitDefinition(direction: direction, split: split, children: children))
         } else {
@@ -1550,7 +1566,10 @@ struct CmuxSplitDefinition: Codable, Sendable, Hashable {
         split = try container.decodeIfPresent(Double.self, forKey: .split)
         children = try container.decode([CmuxLayoutNode].self, forKey: .children)
         if children.count != 2 {
-            throw CmuxSplitDecodingError.invalidChildCount(children.count)
+            throw CmuxSplitDecodingError.invalidChildCount(
+                children.count,
+                path: cmuxJSONPath(from: decoder.codingPath)
+            )
         }
     }
 
