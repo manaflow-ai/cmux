@@ -4367,13 +4367,6 @@ struct CMUXCLI {
         return VMMachineKind.defaultKind
     }
     private static let cloudVMDesktopPort = 6901
-    /// Whether a machine payload (`vm.create` / `vm.status` / `vm.base_open`
-    /// response) describes a machine with a screen: the backend's `kind` when it
-    /// sends one, otherwise the image name for older control planes.
-    static func cloudVMResponseHasDesktop(_ response: [String: Any]) -> Bool {
-        VMMachineKind.resolved(kind: response["kind"], image: response["image"]).hasDesktop
-    }
-
     /// `vm shell <id>` and `vm open <id>`: the shared cloud open path through the
     /// machine's cmux-tui remote daemon. Desktop panes are opened explicitly.
     func openVMWorkspaceShell(
