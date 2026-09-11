@@ -212,11 +212,19 @@ extension WorkspacesModel {
         }
         guard !promotedIdsByGroupId.isEmpty else { return }
 
+        var tabsByGroupId: [UUID: [Tab]] = [:]
+        for tab in tabs {
+            if let groupId = tab.groupId { tabsByGroupId[groupId, default: []].append(tab) }
+        }
+        var tabsByGroupId: [UUID: [Tab]] = [:]
+        for tab in tabs {
+            if let groupId = tab.groupId { tabsByGroupId[groupId, default: []].append(tab) }
+        }
         var replacementMembersByGroupId: [UUID: [Tab]] = [:]
         for (groupId, promotedIds) in promotedIdsByGroupId {
             guard let group = groupsById[groupId] else { continue }
             let orderedMembers = anchorFirst(
-                tabs.filter { $0.groupId == groupId },
+                tabsByGroupId[groupId] ?? [],
                 anchorId: group.anchorWorkspaceId
             )
             guard let anchor = orderedMembers.first(where: { $0.id == group.anchorWorkspaceId }) else { continue }
