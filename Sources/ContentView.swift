@@ -7612,6 +7612,13 @@ struct ContentView: View {
                 when: { !$0.bool(CommandPaletteContextKeys.mobileRemoteControlManagedByPolicy) }
             )
         )
+        contributions.append(CommandPaletteCommandContribution(
+            commandId: "palette.cloudVPNSetup",
+            title: constant(String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…")),
+            subtitle: constant(String(localized: "cloud.vpn.setup.title", defaultValue: "Cloud VPN")),
+            keywords: ["cloud", "vpn", "private", "network", "wireguard", "freestyle"],
+            when: { _ in CloudMachinesFeature.isEnabled }
+        ))
         contributions.append(contentsOf: Self.commandPaletteAuthCommandContributions() + Self.commandPaletteProCommandContributions())
         contributions.append(
             CommandPaletteCommandContribution(
@@ -8836,6 +8843,12 @@ struct ContentView: View {
                 preferredWindow: observedWindow,
                 enforceFeatureFlag: false,
                 debugSource: "palette.mobileConnect"
+            )
+        }
+        registry.register(commandId: "palette.cloudVPNSetup") {
+            _ = AppDelegate.shared?.openCloudVPNSetupWorkspace(
+                preferredTabManager: tabManager,
+                preferredWindow: observedWindow
             )
         }
         registerAuthCommandHandlers(&registry)

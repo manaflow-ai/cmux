@@ -75,7 +75,8 @@ public struct SettingsWindowRoot: View {
     // Mirrors BetaFeaturesCatalogSection.cloudMachines so flipping the Beta
     // Features toggle shows/hides the Cloud sidebar row without reopening
     // Settings; the host folds in the remote rollout flag.
-    @AppStorage(SettingsWindowRoot.cloudMachinesBetaDefaultsKey) private var cloudMachinesBetaEnabled = false
+    @AppStorage(SettingsWindowRoot.cloudMachinesBetaDefaultsKey)
+    private var cloudMachinesBetaEnabled = BetaFeaturesCatalogSection().cloudMachines.defaultValue
     // Legacy `SettingsRootView` binds `NavigationSplitView`'s
     // `columnVisibility` so the user can collapse the sidebar via the
     // toolbar button (or the SidebarCommands menu) and have that state
