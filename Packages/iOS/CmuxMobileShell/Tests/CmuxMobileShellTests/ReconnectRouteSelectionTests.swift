@@ -12,7 +12,7 @@ import Testing
 /// selection must prefer the real route there — otherwise tapping a saved Mac
 /// dials the phone's own loopback and silently fails to connect.
 @MainActor
-@Suite struct ReconnectRouteSelectionTests {
+@Suite(.serialized) struct ReconnectRouteSelectionTests {
     func loopback(_ port: Int = 50906) throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: "debug_loopback",
