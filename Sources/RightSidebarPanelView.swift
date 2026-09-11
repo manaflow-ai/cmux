@@ -510,8 +510,7 @@ struct RightSidebarPanelView: View {
                     }
             case .feed:
                 FeedPanelView(
-                    chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
-                    tabManager: tabManager
+                    chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor
                 )
             case .dock:
                 dockPanel(windowAppearance: windowAppearance)
