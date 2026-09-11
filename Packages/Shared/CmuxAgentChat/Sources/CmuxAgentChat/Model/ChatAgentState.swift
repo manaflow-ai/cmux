@@ -36,6 +36,19 @@ extension ChatAgentState: Codable {
         case ended
     }
 
+    /// The stable wire name for this state (`idle`, `working`, `needs_input`,
+    /// `ended`). Declared alongside the `Codable` form so the event stream and
+    /// the encoded state can never drift apart; the associated `since` value
+    /// is deliberately not part of it.
+    public var wireName: String {
+        switch self {
+        case .idle: return StateName.idle.rawValue
+        case .working: return StateName.working.rawValue
+        case .needsInput: return StateName.needsInput.rawValue
+        case .ended: return StateName.ended.rawValue
+        }
+    }
+
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let raw = try container.decode(String.self, forKey: .state)
