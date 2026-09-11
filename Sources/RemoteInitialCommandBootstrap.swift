@@ -116,6 +116,8 @@ struct RemoteInitialCommandBootstrap {
             "    case \"${CMUX_LOGIN_SHELL##*/}\" in",
             "      csh|tcsh) if mkdir \"$cmux_initial_command_started\" 2>/dev/null; then exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -i -c 'eval \"$argv[2]\"; exec \"$argv[1]\" -i' \"$CMUX_LOGIN_SHELL\" \"$cmux_initial_command\"; fi ;;",
             "      sh|dash|ksh|mksh|ash|yash|posh) if mkdir \"$cmux_initial_command_started\" 2>/dev/null; then exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -i -c 'eval \"$1\"; exec \"$0\" -i' \"$CMUX_LOGIN_SHELL\" \"$cmux_initial_command\"; fi ;;",
+            // Fish's init command runs after login configuration and keeps the shell interactive.
+            "      fish) if mkdir \"$cmux_initial_command_started\" 2>/dev/null; then exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -il --init-command \"$cmux_initial_command\"; fi ;;",
             // Nushell src/command.rs: --execute runs then stays interactive; --commands exits.
             "      nu|nushell) if mkdir \"$cmux_initial_command_started\" 2>/dev/null; then exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" --execute \"$cmux_initial_command\"; fi ;;",
             "      pwsh|powershell) if mkdir \"$cmux_initial_command_started\" 2>/dev/null; then exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -NoExit -Command \"$cmux_initial_command\"; fi ;;",
