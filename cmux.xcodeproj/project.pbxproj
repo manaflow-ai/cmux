@@ -814,7 +814,7 @@
 		602239E07C1B45F48EA589EC /* CloudPortForwardAddressReuseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D3896BB28B4549B3D33A82 /* CloudPortForwardAddressReuseTests.swift */; };
 		7A0CE1000000000000000716 /* CloudPortForwardRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000715 /* CloudPortForwardRelay.swift */; };
 		7A0CE1000000000000000712 /* CloudPortForwardTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000711 /* CloudPortForwardTarget.swift */; };
-		7A0CE1000000000000000731 /* CloudPortLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000730 /* CloudPortLink.swift */; };
+		A1234567890ABCDEF0000002 /* CloudPortLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1234567890ABCDEF0000001 /* CloudPortLink.swift */; };
 		F11347000000000000000003 /* CloudPortOpenRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11347000000000000000004 /* CloudPortOpenRegressionTests.swift */; };
 		7A0CE100000000000000071C /* CloudPortRoutePlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE100000000000000071B /* CloudPortRoutePlan.swift */; };
 		7A0CE100000000000000072C /* CloudPortRoutePlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE100000000000000072B /* CloudPortRoutePlanTests.swift */; };
@@ -4795,7 +4795,7 @@
 		A6D3896BB28B4549B3D33A82 /* CloudPortForwardAddressReuseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPortForwardAddressReuseTests.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000715 /* CloudPortForwardRelay.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudPortForwardRelay.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000711 /* CloudPortForwardTarget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudPortForwardTarget.swift; sourceTree = "<group>"; };
-		7A0CE1000000000000000730 /* CloudPortLink.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudPortLink.swift; sourceTree = "<group>"; };
+		A1234567890ABCDEF0000001 /* CloudPortLink.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudPortLink.swift; sourceTree = "<group>"; };
 		F11347000000000000000004 /* CloudPortOpenRegressionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudPortOpenRegressionTests.swift; sourceTree = "<group>"; };
 		7A0CE100000000000000071B /* CloudPortRoutePlan.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudPortRoutePlan.swift; sourceTree = "<group>"; };
 		7A0CE100000000000000072B /* CloudPortRoutePlanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPortRoutePlanTests.swift; sourceTree = "<group>"; };
@@ -11745,7 +11745,7 @@
 				03D533A672094C0F8F6B0097 /* CloudHubConnector.swift */,
 				7A0CE1000000000000000717 /* CloudLoopbackPortForward.swift */,
 				7A0CE1000000000000000719 /* CloudHubPortForwarder.swift */,
-				7A0CE1000000000000000730 /* CloudPortLink.swift */,
+				A1234567890ABCDEF0000001 /* CloudPortLink.swift */,
 				7A0CE100000000000000071B /* CloudPortRoutePlan.swift */,
 				F6C9B67C2F9E4E6801EDB7F4 /* CloudBrowserConnectionCard.swift */,
 				38099D37FA94CF18B69FF97E /* CloudBrowserProxyEndpoint.swift */,
@@ -12907,7 +12907,7 @@
 				1EA5411EB2583A92811329BD /* CloudPortAccessStore.swift in Sources */,
 				7A0CE1000000000000000716 /* CloudPortForwardRelay.swift in Sources */,
 				7A0CE1000000000000000712 /* CloudPortForwardTarget.swift in Sources */,
-				7A0CE1000000000000000731 /* CloudPortLink.swift in Sources */,
+				A1234567890ABCDEF0000002 /* CloudPortLink.swift in Sources */,
 				7A0CE100000000000000071C /* CloudPortRoutePlan.swift in Sources */,
 				7A0CE1000000000000000027 /* CloudPrivateNetworkGate.swift in Sources */,
 				7A0CE1000000000000000504 /* CloudPrivateNetworkPurpose.swift in Sources */,
