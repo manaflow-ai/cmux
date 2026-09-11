@@ -172,6 +172,7 @@ extension CMUXCLI {
         "reorder-workspace",
         "reorder-workspaces",
         "resize-pane",
+        "resize-window",
         "respawn-pane",
         "restore-session",
         "restore",
