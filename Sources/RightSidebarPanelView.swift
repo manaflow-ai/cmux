@@ -25,6 +25,8 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     case feed
     case dock
     case machines
+    /// Account Macs and their live workspaces, gated by the Devices beta feature.
+    case devices
     case customSidebar = "custom-sidebar"
 
     var label: String {
@@ -34,7 +36,8 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
-        case .machines: return String(localized: "rightSidebar.mode.machines", defaultValue: "Cloud")
+        case .machines: return String(localized: "rightSidebar.mode.machines", defaultValue: "Cloud Machines")
+        case .devices: return String(localized: "rightSidebar.mode.devices", defaultValue: "My Devices")
         case .customSidebar: return String(localized: "rightSidebar.mode.customSidebar", defaultValue: "Custom")
         }
     }
@@ -48,6 +51,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .feed: return "dot.radiowaves.left.and.right"
         case .dock: return "dock.rectangle"
         case .machines: return "cloud"
+        case .devices: return "desktopcomputer"
         case .customSidebar: return "wand.and.stars"
         }
     }
@@ -60,6 +64,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
         case .machines: return .switchRightSidebarToMachines
+        case .devices: return nil
         case .customSidebar: return nil
         }
     }
@@ -85,7 +90,7 @@ enum FileExplorerRootSyncPolicy {
         switch mode {
         case .files, .find:
             return true
-        case .sessions, .feed, .dock, .machines, .customSidebar:
+        case .sessions, .feed, .dock, .machines, .devices, .customSidebar:
             return false
         }
     }
@@ -524,6 +529,13 @@ struct RightSidebarPanelView: View {
                     chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
                     devicesModel: devicesModel,
                     tabManager: tabManager
+                )
+            case .devices:
+                MachinesPanelView(
+                    chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
+                    devicesModel: devicesModel,
+                    tabManager: tabManager,
+                    mode: .devices
                 )
             case .customSidebar:
                 customSidebarPanel

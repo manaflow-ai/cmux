@@ -3375,8 +3375,7 @@
           }
         }
       }
-    }
-,
+    },
     "cloud.vpn.setup.entry.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -281268,7 +281267,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "Cloud Machines"
           }
         },
         "ja": {
@@ -520468,6 +520467,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cloud 사이드바에 내 기기를 추가합니다. 검색 및 이 Mac에 대한 접근은 컴퓨터 설정에서 별도로 제어됩니다."
+          }
+        }
+      }
+    },
+    "rightSidebar.mode.devices": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "My Devices"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meine Geräte"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mes appareils"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجهزتي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mis dispositivos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我的裝置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我的设备"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 기기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マイデバイス"
           }
         }
       }

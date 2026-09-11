@@ -17,7 +17,7 @@ extension RightSidebarMode {
         case "cloud", "machines", "vms":
             return .machines
         case "devices", "device", "macs":
-            return .machines
+            return .devices
         case "custom", "custom-sidebar":
             return .customSidebar
         default:
@@ -99,7 +99,9 @@ extension RightSidebarMode {
         case .dock:
             return dockEnabled
         case .machines:
-            return machinesEnabled || devicesEnabled
+            return machinesEnabled
+        case .devices:
+            return devicesEnabled
         case .customSidebar:
             // Available once the custom-sidebars beta is on AND a right-side
             // sidebar has been picked (right_sidebar set custom <name>); the

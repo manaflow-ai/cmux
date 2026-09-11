@@ -42,11 +42,13 @@ struct MachinesPanelView: View {
     /// and @AppStorage re-renders the live panel the moment it changes.
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
     let chromeBackgroundColor: NSColor
+    let mode: RightSidebarMode
     var tabManager: TabManager? = nil
 
-    init(chromeBackgroundColor: NSColor, devicesModel: DevicesPanelViewModel? = nil, tabManager: TabManager? = nil) {
+    init(chromeBackgroundColor: NSColor, devicesModel: DevicesPanelViewModel? = nil, tabManager: TabManager? = nil, mode: RightSidebarMode = .machines) {
         self.chromeBackgroundColor = chromeBackgroundColor
         self.tabManager = tabManager
+        self.mode = mode
         _devicesModel = State(initialValue: devicesModel ?? DevicesPanelViewModel())
     }
 
@@ -66,16 +68,16 @@ struct MachinesPanelView: View {
 
     private var includesDevices: Bool {
         _ = devicesBetaEnabled
-        return DevicesFeature.isEnabled && (devicesModel.preferences?.discoveryEnabled ?? true)
+        return mode == .devices && DevicesFeature.isEnabled && (devicesModel.preferences?.discoveryEnabled ?? true)
     }
 
     private var includesCloud: Bool {
         _ = cloudBetaEnabled
-        return CloudMachinesFeature.isEnabled
+        return mode == .machines && CloudMachinesFeature.isEnabled
     }
 
     private var treeSource: CloudTreeMachineSource {
-        includesDevices ? .cloudWithDevicesSection : .cloud
+        includesDevices ? .devices : .cloud
     }
 
     private var treeSnapshot: SurfaceCatalogSnapshot {
@@ -128,7 +130,7 @@ struct MachinesPanelView: View {
     @ViewBuilder
     private var authenticatedContent: some View {
         controlBar
-        if let plan = viewModel.plan, !plan.isPaidPlan, let text = plan.freeAccessBannerText {
+        if includesCloud, let plan = viewModel.plan, !plan.isPaidPlan, let text = plan.freeAccessBannerText {
             MachinesFreeAccessBanner(
                 text: text,
                 isExpired: plan.freeAccessBanner == .expired,

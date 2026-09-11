@@ -8,7 +8,7 @@ import Testing
 @testable import cmux
 #endif
 
-/// My Devices shares Cloud in every entry point: the mode enum,
+/// My Devices has its own beta-gated right-sidebar mode: the mode enum,
 /// its CLI spelling, the Beta gate (with the managed remote-control ban on
 /// top), and the mobile host listener that publishes this Mac while it is on.
 @Suite("Devices: sidebar mode, gate, and host listener")
@@ -20,29 +20,30 @@ struct DevicesSidebarModeTests {
         return defaults
     }
 
-    @Test("Device aliases open the same Cloud sidebar")
+    @Test("Device aliases open the My Devices sidebar")
     func cliArgument() {
-        #expect(RightSidebarMode.from(cliArgument: "devices") == .machines)
-        #expect(RightSidebarMode.from(cliArgument: "device") == .machines)
-        #expect(RightSidebarMode.from(cliArgument: "macs") == .machines)
+        #expect(RightSidebarMode.from(cliArgument: "devices") == .devices)
+        #expect(RightSidebarMode.from(cliArgument: "device") == .devices)
+        #expect(RightSidebarMode.from(cliArgument: "macs") == .devices)
         #expect(RightSidebarMode.from(cliArgument: "machines") == .machines, "the Cloud spelling is untouched")
         #expect(RightSidebarMode.machines.rawValue == "machines")
         #expect(RightSidebarMode.machines.shortcutAction == .switchRightSidebarToMachines)
         #expect(!RightSidebarMode.machines.canOpenAsPane)
     }
 
-    @Test("Cloud appears once when either machine source is enabled")
+    @Test("Cloud and My Devices appear independently behind their beta gates")
     func availability() {
         #expect(RightSidebarMode.machines.isAvailable(feedEnabled: true, dockEnabled: true, machinesEnabled: true, devicesEnabled: false))
-        #expect(RightSidebarMode.machines.isAvailable(feedEnabled: false, dockEnabled: false, machinesEnabled: false, devicesEnabled: true))
-        #expect(RightSidebarMode.machines.isAvailable(feedEnabled: false, dockEnabled: false, machinesEnabled: false) == false, "callers that predate Devices see it hidden")
+        #expect(RightSidebarMode.devices.isAvailable(feedEnabled: false, dockEnabled: false, machinesEnabled: false, devicesEnabled: true))
+        #expect(RightSidebarMode.machines.isAvailable(feedEnabled: false, dockEnabled: false, machinesEnabled: false, devicesEnabled: true) == false)
+        #expect(RightSidebarMode.devices.isAvailable(feedEnabled: false, dockEnabled: false, machinesEnabled: false) == false, "callers that predate Devices see it hidden")
         #expect(
             RightSidebarMode.availableModes(feedEnabled: false, dockEnabled: false, machinesEnabled: true, devicesEnabled: true)
-                == [.files, .find, .sessions, .machines]
+                == [.files, .find, .sessions, .machines, .devices]
         )
         #expect(
             RightSidebarMode.availableModes(feedEnabled: true, dockEnabled: true, machinesEnabled: false, devicesEnabled: true)
-                == [.files, .find, .sessions, .feed, .dock, .machines]
+                == [.files, .find, .sessions, .feed, .dock, .devices]
         )
         #expect(
             RightSidebarMode.availableModes(feedEnabled: false, dockEnabled: false, machinesEnabled: true)
@@ -68,14 +69,14 @@ struct DevicesSidebarModeTests {
         #expect(DevicesFeature.isEnabled(defaults: defaults) == false)
         #expect(DevicesFeature.localOptIn(defaults: defaults) == false)
         #expect(RightSidebarBetaFeatureSettings.isDevicesEnabled(defaults: defaults) == false)
-        #expect(!RightSidebarMode.availableModes(defaults: defaults).contains(.machines))
+        #expect(!RightSidebarMode.availableModes(defaults: defaults).contains(.devices))
 
         defaults.set(true, forKey: RightSidebarBetaFeatureSettings.devicesEnabledKey)
         #expect(DevicesFeature.localOptIn(defaults: defaults))
         #expect(DevicesFeature.isEnabled(defaults: defaults))
         #expect(RightSidebarBetaFeatureSettings.isDevicesEnabled(defaults: defaults))
-        #expect(RightSidebarMode.availableModes(defaults: defaults).contains(.machines))
-        #expect(RightSidebarMode.machines.isAvailable(defaults: defaults))
+        #expect(RightSidebarMode.availableModes(defaults: defaults).contains(.devices))
+        #expect(RightSidebarMode.devices.isAvailable(defaults: defaults))
 
         let banned = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil) { _, key -> Any? in
             key == ManagedDevicePolicyKey.disableRemoteControl.rawValue ? (true as Any) : nil
