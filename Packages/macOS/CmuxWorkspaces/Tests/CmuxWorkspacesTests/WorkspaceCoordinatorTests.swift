@@ -180,6 +180,31 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func moveToBottomSinksGroupedChildrenAndKeepsAnchorFirst() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        let first = CoordinatorStubTab()
+        let middle = CoordinatorStubTab()
+        let last = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [first, middle, last, outside]
+        let groupId = try #require(groups.createWorkspaceGroup(
+            name: "G", childWorkspaceIds: [first.id, middle.id, last.id]
+        ))
+        let anchorId = try #require(model.workspaceGroups.first { $0.id == groupId }?.anchorWorkspaceId)
+
+        reorder.moveTabsToBottom([first.id, middle.id])
+
+        #expect(model.tabs.map(\.id) == [outside.id, anchorId, last.id, first.id, middle.id])
+        #expect([first, middle, last].allSatisfy { $0.groupId == groupId })
+        let changes = host.orderChanges.count
+        reorder.moveTabsToBottom([first.id, middle.id])
+        #expect(host.orderChanges.count == changes)
+
+        reorder.moveTabToTop(middle.id)
+        #expect(model.tabs.map(\.id) == [anchorId, middle.id, last.id, first.id, outside.id])
+    }
+
+    @Test
     func reorderWorkspaceClampsUnpinnedAbovePinnedBoundary() {
         let (model, host, _, reorder) = makeWorld()
         _ = host
