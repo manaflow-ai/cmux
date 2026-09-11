@@ -66,6 +66,7 @@ private struct ComputerVisibilityRow: View {
     var setCaffeine: @MainActor (MacComputerSnapshot, Bool) -> Void = { _, _ in }
     var isCaffeineMutating: Bool = false
     var gateWarningDeviceIDs: Set<String> = []
+    @State private var showingHiddenVersionGateWarning = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var isBusy: Bool { isVisibilityMutating }
 
@@ -153,7 +154,9 @@ private struct ComputerVisibilityRow: View {
                 style: style,
                 connect: { _ in connect(computer) },
                 isConnecting: isConnecting,
-                hasVersionGateWarning: gateWarningDeviceIDs.contains(computer.deviceId)
+                hasVersionGateWarning: gateWarningDeviceIDs.contains(
+                    cmxCanonicalDeviceID(computer.deviceId)
+                )
             )
         } else if let computer = item.hiddenComputer {
             hiddenLabel(computer)
@@ -173,6 +176,33 @@ private struct ComputerVisibilityRow: View {
                        tag: computer.instanceTag
                    ) {
                     ComputerBuildBadge(label: buildLabel)
+                }
+                if gateWarningDeviceIDs.contains(cmxCanonicalDeviceID(computer.macDeviceID)) {
+                    Button {
+                        showingHiddenVersionGateWarning = true
+                    } label: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.orange)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        L10n.string(
+                            "computers.version.outdated.title",
+                            defaultValue: "Mac update required"
+                        )
+                    )
+                    .popover(isPresented: $showingHiddenVersionGateWarning) {
+                        Text(
+                            L10n.string(
+                                "mobile.pairing.guidance.macUpdateRequired",
+                                defaultValue: "Update cmux on this Mac to connect securely."
+                            )
+                        )
+                        .padding()
+                        .frame(idealWidth: 300, maxWidth: 340)
+                        .presentationCompactAdaptation(.popover)
+                    }
                 }
             }
             Spacer(minLength: 8)
