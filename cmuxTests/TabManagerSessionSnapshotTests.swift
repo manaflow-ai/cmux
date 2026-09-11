@@ -2550,7 +2550,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
         remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
         let remotePanelId = try XCTUnwrap(remoteWorkspace.focusedPanelId)
-        remoteWorkspace.updatePanelDirectory(panelId: remotePanelId, directory: "/home/dev/persistent-project")
+        remoteWorkspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: "/home/dev/persistent-project")
         let expectedSessionID = Workspace.defaultSSHPTYSessionID(
             workspaceId: remoteWorkspace.id,
             panelId: remotePanelId

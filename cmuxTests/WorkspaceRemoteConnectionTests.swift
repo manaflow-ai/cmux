@@ -2070,7 +2070,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 // The daemon upload streams the binary through an ssh exec channel into a backgrounded `cat`
                 // rather than shelling out to scp, so the remote path this test is about arrives
                 // inside the command and the destination host is its own argument.
-                if command.contains("cat > ") || command.contains("cat <&3 > ") {
+                if command.contains("cat > ") || command.contains("cat <&3 > ") || command.contains("cat <&3 >&4") {
                     lock.withLock {
                         uploadCommand = command
                         uploadDestination = arguments.dropLast().last
