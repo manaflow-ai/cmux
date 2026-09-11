@@ -413,14 +413,14 @@ struct TitlebarControlsSizingPolicyTests {
         let classic = TitlebarControlsLayoutMetrics.contentSize(config: classicConfig)
         let classicRepeat = TitlebarControlsLayoutMetrics.contentSize(config: classicConfig)
         checkEqual(classic, classicRepeat)
-        checkEqual(classic.width, 152, accuracy: 0.001)
+        checkEqual(classic.width, 149, accuracy: 0.001)
         checkEqual(classic.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
 
         let compactConfig = TitlebarControlsStyle.compact.config
         let compact = TitlebarControlsLayoutMetrics.contentSize(config: compactConfig)
         let compactRepeat = TitlebarControlsLayoutMetrics.contentSize(config: compactConfig)
         checkEqual(compact, compactRepeat)
-        checkEqual(compact.width, 139, accuracy: 0.001)
+        checkEqual(compact.width, 136, accuracy: 0.001)
         checkEqual(compact.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
     }
 

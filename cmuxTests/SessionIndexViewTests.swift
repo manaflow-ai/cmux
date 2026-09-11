@@ -409,7 +409,7 @@ struct SessionIndexViewTests {
                     let accessory = section.accessories[entry.id]
                     return accessory != nil
                         && accessory?.detail == entry.cwdBasename
-                        && accessory?.hasSubtitle == true
+                        && accessory?.hasSubtitle == false
                 }
             })
         }

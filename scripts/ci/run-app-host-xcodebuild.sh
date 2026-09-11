@@ -89,7 +89,24 @@ if [ -n "$app_host_home_input" ]; then
   )
 fi
 
-app_host_xcodebuild_arguments=("$@")
+# The machine lock excludes other hosts, but Swift Testing also runs suites
+# concurrently inside one host by default. Those suites share NSApplication,
+# process environment, and app singletons; their .serialized traits only
+# protect each individual suite. Keep process-local execution serial too.
+app_host_xcodebuild_arguments=()
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-parallel-testing-enabled" ]; then
+    if [ "${2:-}" != "NO" ]; then
+      echo "FAIL: app-host tests require -parallel-testing-enabled NO" >&2
+      exit 2
+    fi
+    shift 2
+  else
+    app_host_xcodebuild_arguments+=("$1")
+    shift
+  fi
+done
+app_host_xcodebuild_arguments+=(-parallel-testing-enabled NO)
 if [ "${CMUX_CI_APP_HOST_ISOLATION_REQUIRED:-0}" = "1" ]; then
   # This compiled condition reaches the test bundle through Xcode build
   # settings, independently of the TEST_RUNNER_ runtime environment channel.
