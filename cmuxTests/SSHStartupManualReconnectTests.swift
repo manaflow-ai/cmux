@@ -750,7 +750,7 @@ struct SSHStartupManualReconnectTests {
     }
 
     @MainActor
-    @Test func workspaceReconnectKeepsHealthyConnectedTerminal() throws {
+    @Test func workspaceReconnectKeepsHealthyConnectedTerminal() async throws {
         let workspace = Workspace()
         defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
         let configuration = Self.makeRemoteConfiguration()
