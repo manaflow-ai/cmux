@@ -1,184 +1,139 @@
 #!/usr/bin/env swift
-// Regenerates Resources/ComputerUseHelperIcon.icns — the static icon macOS
-// shows for the "cmux Computer Use" helper in System Settings.
-//
-// The artwork MUST stay in sync with ComputerUseHelperIconRenderer and
-// ComputerUseCursorArtwork in Sources/App/AgentCursorPointerView.swift: the
-// cmux app-icon tile (vertical #313131→#141414 gradient with a soft top rim
-// highlight) carrying the live cursor's kite and brand gradient. An .icns
-// cannot adapt per appearance, so this bakes the dark tile — the
-// brand-defining cmux variant.
+// Exports the editable Icon Composer document to the legacy .icns file that
+// System Settings uses for the standalone Computer Use helper.
 //
 // Usage: swift scripts/generate-computer-use-helper-icon.swift
-// Writes the .icns beside this script's repo root and prints the path.
 
-import AppKit
+import Foundation
 
-let plateCornerRadius: CGFloat = 224
-let cursorTranslation = CGPoint(x: 293.4, y: 293.4)
-let cursorScale: CGFloat = 44.8
-let rimWidth: CGFloat = 14
-let canvas = CGRect(x: 0, y: 0, width: 1_024, height: 1_024)
-
-func cursorPath() -> CGPath {
-    let kite = CGMutablePath()
-    kite.move(to: CGPoint(x: 0.68, y: 1.83))
-    kite.addLine(to: CGPoint(x: 3.63, y: 9.78))
-    kite.addQuadCurve(to: CGPoint(x: 5.3, y: 9.66), control: CGPoint(x: 4.67, y: 12.59))
-    kite.addLine(to: CGPoint(x: 5.44, y: 9.01))
-    kite.addQuadCurve(to: CGPoint(x: 9.01, y: 5.44), control: CGPoint(x: 6.08, y: 6.08))
-    kite.addLine(to: CGPoint(x: 9.66, y: 5.3))
-    kite.addQuadCurve(to: CGPoint(x: 9.78, y: 3.63), control: CGPoint(x: 12.59, y: 4.67))
-    kite.addLine(to: CGPoint(x: 1.83, y: 0.68))
-    kite.addQuadCurve(to: CGPoint(x: 0.68, y: 1.83), control: CGPoint(x: 0, y: 0))
-    kite.closeSubpath()
-    return kite
+private struct Rendition {
+    let filename: String
+    let points: Int
+    let scale: Int
 }
 
-func render() -> CGImage? {
-    let colorSpace = CGColorSpaceCreateDeviceRGB()
-    guard let context = CGContext(
-        data: nil,
-        width: Int(canvas.width),
-        height: Int(canvas.height),
-        bitsPerComponent: 8,
-        bytesPerRow: 0,
-        space: colorSpace,
-        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-    ) else { return nil }
-    context.setAllowsAntialiasing(true)
-    context.setShouldAntialias(true)
+private let renditions = [
+    Rendition(filename: "icon_16x16.png", points: 16, scale: 1),
+    Rendition(filename: "icon_16x16@2x.png", points: 16, scale: 2),
+    Rendition(filename: "icon_32x32.png", points: 32, scale: 1),
+    Rendition(filename: "icon_32x32@2x.png", points: 32, scale: 2),
+    Rendition(filename: "icon_128x128.png", points: 128, scale: 1),
+    Rendition(filename: "icon_128x128@2x.png", points: 128, scale: 2),
+    Rendition(filename: "icon_256x256.png", points: 256, scale: 1),
+    Rendition(filename: "icon_256x256@2x.png", points: 256, scale: 2),
+    Rendition(filename: "icon_512x512.png", points: 512, scale: 1),
+    Rendition(filename: "icon_512x512@2x.png", points: 512, scale: 2),
+]
 
-    // Flip to y-down so the shared SVG geometry keeps the cursor's up-left
-    // direction, exactly like the runtime renderer.
-    context.translateBy(x: 0, y: canvas.height)
-    context.scaleBy(x: 1, y: -1)
+private enum ExportError: LocalizedError {
+    case missingFile(URL)
+    case commandFailed(URL, Int32, String)
 
-    let plate = CGPath(
-        roundedRect: canvas,
-        cornerWidth: plateCornerRadius,
-        cornerHeight: plateCornerRadius,
-        transform: nil
-    )
-
-    context.saveGState()
-    context.addPath(plate)
-    context.clip()
-    if let gradient = CGGradient(
-        colorsSpace: colorSpace,
-        colors: [
-            CGColor(gray: 0x31 / 255.0, alpha: 1.0),
-            CGColor(gray: 0x14 / 255.0, alpha: 1.0),
-        ] as CFArray,
-        locations: [0.0, 1.0]
-    ) {
-        context.drawLinearGradient(
-            gradient,
-            start: CGPoint(x: canvas.midX, y: 0),
-            end: CGPoint(x: canvas.midX, y: canvas.height),
-            options: []
-        )
+    var errorDescription: String? {
+        switch self {
+        case .missingFile(let url):
+            "Required file is missing: \(url.path)"
+        case .commandFailed(let executable, let status, let output):
+            "\(executable.lastPathComponent) failed with status \(status): \(output)"
+        }
     }
-    context.restoreGState()
-
-    let rim = plate.copy(
-        strokingWithWidth: rimWidth * 2,
-        lineCap: .butt,
-        lineJoin: .miter,
-        miterLimit: 10
-    )
-    context.saveGState()
-    context.addPath(plate)
-    context.clip()
-    context.addPath(rim)
-    context.clip()
-    if let gradient = CGGradient(
-        colorsSpace: colorSpace,
-        colors: [
-            CGColor(gray: 1.0, alpha: 0.34),
-            CGColor(gray: 1.0, alpha: 0.05),
-        ] as CFArray,
-        locations: [0.0, 1.0]
-    ) {
-        context.drawLinearGradient(
-            gradient,
-            start: CGPoint(x: canvas.midX, y: 0),
-            end: CGPoint(x: canvas.midX, y: canvas.height),
-            options: []
-        )
-    }
-    context.restoreGState()
-
-    context.saveGState()
-    context.translateBy(x: cursorTranslation.x, y: cursorTranslation.y)
-    context.scaleBy(x: cursorScale, y: cursorScale)
-    let kite = cursorPath()
-    context.addPath(kite)
-    context.clip()
-    if let gradient = CGGradient(
-        colorsSpace: colorSpace,
-        colors: [
-            CGColor(colorSpace: colorSpace, components: [0x12 / 255.0, 0xC7 / 255.0, 0xF5 / 255.0, 1.0])!,
-            CGColor(colorSpace: colorSpace, components: [0x2D / 255.0, 0x8C / 255.0, 0xFF / 255.0, 1.0])!,
-            CGColor(colorSpace: colorSpace, components: [0x6C / 255.0, 0x5C / 255.0, 0xFF / 255.0, 1.0])!,
-        ] as CFArray,
-        locations: [0.0, 0.5, 1.0]
-    ) {
-        context.drawLinearGradient(
-            gradient,
-            start: CGPoint(x: 0.68, y: 0.68),
-            end: CGPoint(x: 11.0, y: 11.0),
-            options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
-        )
-    }
-    context.restoreGState()
-
-    return context.makeImage()
 }
 
-let scriptURL = URL(fileURLWithPath: CommandLine.arguments[0])
-let repoRoot = scriptURL.deletingLastPathComponent().deletingLastPathComponent()
-let outputURL = repoRoot.appendingPathComponent("Resources/ComputerUseHelperIcon.icns")
+private struct ComputerUseHelperIconExporter {
+    let fileManager: FileManager
 
-guard let master = render() else {
-    FileHandle.standardError.write(Data("error: failed to render icon\n".utf8))
+    @discardableResult
+    private func run(_ executable: URL, arguments: [String]) throws -> String {
+        let pipe = Pipe()
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = arguments
+        process.standardOutput = pipe
+        process.standardError = pipe
+        try process.run()
+        let output = String(
+            data: pipe.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw ExportError.commandFailed(
+                executable,
+                process.terminationStatus,
+                output.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+        return output
+    }
+
+    func export() throws {
+        let scriptURL = URL(fileURLWithPath: #filePath).standardizedFileURL
+        let repositoryRoot = scriptURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let documentURL = repositoryRoot
+            .appendingPathComponent("Resources/ComputerUseHelper.icon", isDirectory: true)
+        let outputURL = repositoryRoot
+            .appendingPathComponent("Resources/ComputerUseHelperIcon.icns")
+
+        guard fileManager.fileExists(atPath: documentURL.path) else {
+            throw ExportError.missingFile(documentURL)
+        }
+
+        let developerDirectory = try run(
+            URL(fileURLWithPath: "/usr/bin/xcode-select"),
+            arguments: ["-p"]
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        let iconComposerURL = URL(fileURLWithPath: developerDirectory)
+            .deletingLastPathComponent()
+            .appendingPathComponent(
+                "Applications/Icon Composer.app/Contents/Executables/ictool"
+            )
+        guard fileManager.isExecutableFile(atPath: iconComposerURL.path) else {
+            throw ExportError.missingFile(iconComposerURL)
+        }
+
+        let temporaryRoot = fileManager.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-computer-use-icon-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let iconsetURL = temporaryRoot
+            .appendingPathComponent("ComputerUseHelper.iconset", isDirectory: true)
+        try fileManager.createDirectory(
+            at: iconsetURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+
+        for rendition in renditions {
+            let imageURL = iconsetURL.appendingPathComponent(rendition.filename)
+            _ = try run(iconComposerURL, arguments: [
+                documentURL.path,
+                "--export-image",
+                "--output-file", imageURL.path,
+                "--platform", "macOS",
+                "--rendition", "Default",
+                "--width", String(rendition.points),
+                "--height", String(rendition.points),
+                "--scale", String(rendition.scale),
+            ])
+        }
+
+        _ = try run(URL(fileURLWithPath: "/usr/bin/iconutil"), arguments: [
+            "-c", "icns",
+            "-o", outputURL.path,
+            iconsetURL.path,
+        ])
+        print(outputURL.path)
+    }
+}
+
+do {
+    try ComputerUseHelperIconExporter(fileManager: .default).export()
+} catch {
+    FileHandle.standardError.write(
+        Data("error: \(error.localizedDescription)\n".utf8)
+    )
     exit(1)
 }
-
-let iconsetURL = URL(fileURLWithPath: NSTemporaryDirectory())
-    .appendingPathComponent("ComputerUseHelperIcon-\(ProcessInfo.processInfo.processIdentifier).iconset")
-try FileManager.default.createDirectory(at: iconsetURL, withIntermediateDirectories: true)
-
-func writePNG(_ image: CGImage, side: Int, name: String) throws {
-    let colorSpace = CGColorSpaceCreateDeviceRGB()
-    guard let context = CGContext(
-        data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,
-        space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-    ) else { throw NSError(domain: "icon", code: 1) }
-    context.interpolationQuality = .high
-    context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
-    guard let scaled = context.makeImage() else { throw NSError(domain: "icon", code: 2) }
-    let url = iconsetURL.appendingPathComponent(name)
-    guard let destination = CGImageDestinationCreateWithURL(
-        url as CFURL, "public.png" as CFString, 1, nil
-    ) else { throw NSError(domain: "icon", code: 3) }
-    CGImageDestinationAddImage(destination, scaled, nil)
-    guard CGImageDestinationFinalize(destination) else { throw NSError(domain: "icon", code: 4) }
-}
-
-for side in [16, 32, 128, 256, 512] {
-    try writePNG(master, side: side, name: "icon_\(side)x\(side).png")
-    try writePNG(master, side: side * 2, name: "icon_\(side)x\(side)@2x.png")
-}
-
-let iconutil = Process()
-iconutil.executableURL = URL(fileURLWithPath: "/usr/bin/iconutil")
-iconutil.arguments = ["-c", "icns", iconsetURL.path, "-o", outputURL.path]
-try iconutil.run()
-iconutil.waitUntilExit()
-try? FileManager.default.removeItem(at: iconsetURL)
-guard iconutil.terminationStatus == 0 else {
-    FileHandle.standardError.write(Data("error: iconutil failed\n".utf8))
-    exit(1)
-}
-print(outputURL.path)
