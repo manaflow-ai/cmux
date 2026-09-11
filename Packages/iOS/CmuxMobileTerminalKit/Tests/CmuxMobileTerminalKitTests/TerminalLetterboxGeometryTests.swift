@@ -247,6 +247,31 @@ struct TerminalLetterboxGeometryTests {
         #expect(TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(viewInset: 0, windowInset: 0) == 0)
     }
 
+    @Test("keyboard content movement cannot resize the terminal grid", arguments: [CGFloat(34), 9, 0, 59])
+    func movingSurfaceKeepsOuterSafeArea(viewInset: CGFloat) {
+        // The first Codex response moved the full-height surface by 25pt.
+        // Its local inset became 9pt, then 34pt after the resulting resize,
+        // alternating the grid between 60 and 62 rows on every frame.
+        for windowInset: CGFloat in [34, 0] {
+            let inset = TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
+                viewInset: viewInset,
+                windowInset: windowInset,
+                capturedInset: 34,
+                ancestorInsets: [9, 34]
+            )
+            let container = TerminalLetterboxGeometry.terminalContainerSize(
+                bounds: CGSize(width: 440, height: 956),
+                composerBandHeight: 52,
+                toolbarHeight: 36,
+                bottomSafeAreaInset: inset,
+                chromeHidden: false,
+                topContentInset: 120
+            )
+            #expect(inset == 34)
+            #expect(container == CGSize(width: 440, height: 706))
+        }
+    }
+
     @Test("resolved safe-area inset recovers the smallest positive ancestor")
     func resolvedSafeAreaUsesAncestorWhenWindowIsZero() {
         // A SwiftUI ignored-safe-area subtree can zero the leaf and window
