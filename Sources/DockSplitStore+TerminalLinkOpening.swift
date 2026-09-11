@@ -54,9 +54,9 @@ extension DockSplitStore: TerminalLinkOpenContainer {
         noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
         guard let panelId = newSplit(
             kind: .browser,
-                orientation: .horizontal,
-                insertFirst: false,
-                sourcePanelId: panelId,
+            orientation: .horizontal,
+            insertFirst: false,
+            sourcePanelId: panelId,
             url: url,
             focus: false
         ) else { return false }
