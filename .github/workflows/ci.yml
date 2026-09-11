@@ -1,21 +1,8 @@
 name: CI
 
 on:
-  # Keep the full suite available for explicit validation, while always
-  # Changes to CI guard scripts also retrigger the full workflow through this path.
-  # running the lightweight GhosttyKit provenance check when its pointer,
-  # checksum, or helper changes in a PR.
   pull_request:
-    paths:
-      - ghostty
-      - scripts/download-prebuilt-ghosttykit.sh
-      - scripts/validate-xcframework-archive.py
-      - scripts/ghosttykit-checksums.txt
-      - tests/test_ci_ghosttykit_release_check.sh
-      - Resources/bin/cmux-hermes-agent-wrapper
-      - tests/test_hermes_wrapper_hooks.py
-      - tests/test_ci_change_areas.py
-      - .github/workflows/ci.yml
+    types: [opened, reopened, synchronize, ready_for_review]
   workflow_dispatch:
 
 permissions:
@@ -750,6 +737,21 @@ jobs:
             echo "Package resolution failed on attempt $attempt, retrying..."
             sleep $((attempt * 5))
           done
+
+      - name: Compile cmuxTests target
+        if: ${{ matrix.shard == 1 }}
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project cmux.xcodeproj \
+            -scheme cmux-unit \
+            -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$PWD/.ci-source-packages" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            "SWIFT_ACTIVE_COMPILATION_CONDITIONS=\$(inherited) CMUX_CI_APP_HOST_ISOLATION_REQUIRED" \
+            build-for-testing
 
       - name: Run Ghostty split-theme appearance regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
