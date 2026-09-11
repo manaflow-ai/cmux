@@ -74,6 +74,8 @@ import Testing
             try await Self.blocking { try Self.write(peer, Data(repeating: 0x20, count: 128 * 1024)) }
             consumer.cancel()
             #expect(await consumer.value == nil)
+            let remaining = try await Self.blocking { try Self.readLine(peer) }
+            #expect(remaining.isEmpty)
         }
     }
 
