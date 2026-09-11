@@ -191,7 +191,20 @@ describe("repository analytics sink", () => {
       ledgerRow({ eventType: "vm.create.failed" }),
     ]));
     expect(captured.map((input) => input.eventType)).toEqual(["vm.created", "vm.attach", "vm.create.failed"]);
-    expect(written.map((input) => input.eventType)).toEqual(["vm.created", "vm.attach", "vm.create.failed"]);
+    expect(written.map((input) => input.eventType)).toEqual(["vm.created", "vm.create.failed"]);
+  });
+
+  test("exec and attach reach PostHog without a ledger row", async () => {
+    const { repo, written } = fakeRepository();
+    const captured: VmUsageEventInput[] = [];
+    const decorated = withVmProductAnalytics(repo, (input) => {
+      captured.push(input);
+    });
+    await Effect.runPromise(decorated.recordUsageEvent(ledgerRow({ eventType: "vm.exec" })));
+    await Effect.runPromise(decorated.recordUsageEvent(ledgerRow({ eventType: "vm.attach" })));
+    await Effect.runPromise(decorated.recordUsageEvents([ledgerRow({ eventType: "vm.exec" })]));
+    expect(captured.map((input) => input.eventType)).toEqual(["vm.exec", "vm.attach", "vm.exec"]);
+    expect(written).toHaveLength(0);
   });
 
   test("a throwing capture never fails the ledger write", async () => {
