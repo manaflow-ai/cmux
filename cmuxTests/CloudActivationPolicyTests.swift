@@ -284,7 +284,7 @@ struct CloudActivationPolicyTests {
         #expect(cache.hasAnyMachine == nil)
     }
 
-    @Test("Cloud Machines is off by default, on only through the Beta Features toggle, and never on under a managed DisableCloud")
+    @Test("Cloud Machines defaults on in dev builds, remains explicitly controllable, and never bypasses managed DisableCloud")
     func cloudMachinesGateIsTheBetaToggle() throws {
         let suiteName = "cmux.cloud.feature.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -294,8 +294,13 @@ struct CloudActivationPolicyTests {
             key == ManagedDevicePolicyKey.disableCloud.rawValue ? true : nil
         })
 
-        #expect(CloudMachinesFeature.localOptIn(defaults: defaults) == false)
-        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged) == false)
+        #if DEBUG
+        let expectedDefault = true
+        #else
+        let expectedDefault = false
+        #endif
+        #expect(CloudMachinesFeature.localOptIn(defaults: defaults) == expectedDefault)
+        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged) == expectedDefault)
 
         defaults.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
         #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged))
