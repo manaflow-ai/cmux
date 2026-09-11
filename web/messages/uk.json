@@ -152,6 +152,42 @@
     "applyAriaLabel": "Подати заявку на Founding Engineer електронною поштою",
     "applyEmailSubject": "Заявка на Founding Engineer у cmux",
     "applyCta": "Надіслати e-mail",
+    "foundingChromiumEngineer": {
+      "metaTitle": "Founding Chromium Engineer у cmux",
+      "metaDescription": "Станьте founding-інженером з Chromium у cmux: очоліть наш форк Chromium і перенесіть cmux на Windows і Linux за допомогою C++ і Rust.",
+      "section": "Вакансії",
+      "eyebrow": "Про роль",
+      "title": "Founding Chromium Engineer",
+      "tagline": "Перенесіть cmux на Windows і Linux.",
+      "intro": "cmux — нативний термінал macOS на базі Ghostty, створений для паралельного запуску кількох AI-агентів програмування. Сотні тисяч розробників використовують cmux у своїх агентних робочих процесах.",
+      "hiring": "Ми шукаємо founding-інженера, який візьме на себе cmux на Windows (і Linux), збудований на нашому власному форку Chromium.",
+      "whatYoullDo": "Що ви робитимете",
+      "whatYoullDoItems": [
+        "Ведіть наш форк Chromium: відстежуйте апстрім, робіть чистий rebase і підтримуйте патчі cmux (інтеграція вікон/введення/рендерингу, поверхня термінала, UI агентів).",
+        "Відповідайте за cmux на Windows і Linux від початку до кінця: C++, інсталятор, автооновлення, звіти про збої.",
+        "Портуйте термінальне ядро на базі Ghostty та функції оркестрації агентів (вертикальні вкладки, кільця сповіщень, спліти, CLI) на Windows.",
+        "Зробіть продуктивність нативною: час запуску, рендеринг на GPU, затримка введення.",
+        "Постійно користуйтеся продуктом, тестуйте й перевіряйте."
+      ],
+      "excitedLead": "Особливо раді, якщо ви:",
+      "excitedItems": [
+        "Глибоке знання C++ і реальний досвід роботи з Chromium - в ідеалі ви підтримували форк: переносили патчі, робили rebase на апстрім-віхи, налагоджували в content/ або blink.",
+        "Rust - великий плюс (наш TUI і мережевий демон написані на Rust).",
+        "Ви випускали або підтримували справжній десктопний застосунок для Windows.",
+        "Бонус: внески в апстрім Chromium, цікавість до Swift/AppKit, мейнтейнер open source, колишній засновник."
+      ],
+      "details": "Деталі",
+      "roleTitle": "Founding Chromium Engineer",
+      "compensationLabel": "Компенсація",
+      "compensation": "$130k–$170k + 0,5%–1,5% частки",
+      "benefitsLabel": "Пільги",
+      "benefits": "Медичне, стоматологічне страхування та страхування зору",
+      "locationLabel": "Місце",
+      "location": "Сан-Франциско",
+      "applyAriaLabel": "Подати заявку на Founding Chromium Engineer електронною поштою",
+      "applyEmailSubject": "Заявка на Founding Chromium Engineer у cmux",
+      "applyCta": "Надіслати e-mail"
+    },
     "foundingDesigner": {
       "metaTitle": "Founding Designer у cmux",
       "metaDescription": "Приєднуйтеся до cmux як Founding Designer і проєктуйте майбутнє програмування з AI для macOS, TUI, Windows, Linux, iOS, Cloud, cmux.com і chatmux.",

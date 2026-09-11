@@ -213,9 +213,7 @@ import Testing
     }
 
     @Test(arguments: [false, true])
-    func retryFindsRestoredWorkspaceBeforeFreshCacheWithoutLaunchingCommand(
-        reservesSourceIdentity: Bool
-    ) throws {
+    func retryFindsRestoredWorkspaceBeforeFreshCacheWithoutLaunchingCommand(reserveOriginalID: Bool) throws {
         let operationID = UUID()
         let sourceManager = TabManager()
         let sourceWorkspace = try #require(sourceManager.selectedWorkspace)
@@ -224,7 +222,7 @@ import Testing
         let manager = TabManager()
         manager.restoreSessionSnapshot(
             snapshot,
-            excludingWorkspaceIds: reservesSourceIdentity ? [sourceWorkspace.id] : []
+            excludingWorkspaceIds: reserveOriginalID ? [sourceWorkspace.id] : []
         )
         let restored = try #require(manager.selectedWorkspace)
         let initialIDs = Set(manager.tabs.map(\.id))
@@ -236,7 +234,7 @@ import Testing
         ], tabManager: manager, idempotencyCache: cache)
 
         #expect(Set(manager.tabs.map(\.id)) == initialIDs)
-        if reservesSourceIdentity {
+        if reserveOriginalID {
             #expect(restored.id != sourceWorkspace.id)
         } else {
             #expect(restored.id == sourceWorkspace.id)

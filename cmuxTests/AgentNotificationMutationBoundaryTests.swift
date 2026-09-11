@@ -10,15 +10,33 @@ import Testing
 #endif
 
 extension AgentNotificationRegressionTests {
-    // Generous for loaded CI runners: subprocess spawn, signal propagation,
-    // and marker writes can take multiple seconds there. A long timeout only
-    // slows the failure path.
+    // Allow loaded CI runners time for subprocess spawning and signal delivery.
     func waitForMarker(at url: URL, timeout: Duration = .seconds(15)) async -> Bool {
         let deadline = ContinuousClock.now + timeout
         while !FileManager.default.fileExists(atPath: url.path), ContinuousClock.now < deadline {
             try? await Task.sleep(for: .milliseconds(10))
         }
         return FileManager.default.fileExists(atPath: url.path)
+    }
+
+    func waitForScopedProcess(
+        pid: pid_t,
+        surfaceId: UUID,
+        timeout: Duration = .seconds(15)
+    ) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if let identity = agentLiveProcessIdentity(pid: pid),
+               case .resolved(let scope) = CmuxTopProcessSnapshot.cmuxScopeProbe(
+                   for: Int(pid),
+                   expectedCacheKey: identity.scopeCacheKey
+               ),
+               scope?.surfaceID == surfaceId {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return false
     }
 
     @Test("PID routing bypasses a stale negative telemetry cache after exec")
@@ -37,15 +55,16 @@ extension AgentNotificationRegressionTests {
         try """
         trap 'exec /bin/sh "\(scopedScript.path)"' USR1
         touch '\(readyMarker.path)'
-        IFS= read -r ignored
+        while :; do sleep 1; done
         """.write(to: initialScript, atomically: true, encoding: .utf8)
+        // The marker comes from the final image; never exec again after it. macOS 26
+        // hides a platform binary's environment, so that image is Xcode's python, not sh.
         try """
         export CMUX_SURFACE_ID='\(fixture.panelId.uuidString)'
-        exec /bin/sh -c 'printf "%s" "$CMUX_SURFACE_ID" > "\(execMarker.path).tmp"; mv "\(execMarker.path).tmp" "\(execMarker.path)"; IFS= read -r ignored'
+        exec "$(xcrun --find python3)" -c 'import pathlib, time; pathlib.Path("\(execMarker.path)").touch(); time.sleep(600)'
         """.write(to: scopedScript, atomically: true, encoding: .utf8)
 
         let process = Process()
-        let inputPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = [initialScript.path]
         var environment = ProcessInfo.processInfo.environment
@@ -53,7 +72,6 @@ extension AgentNotificationRegressionTests {
             environment.removeValue(forKey: $0)
         }
         process.environment = environment
-        process.standardInput = inputPipe
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         try process.run()
@@ -62,7 +80,6 @@ extension AgentNotificationRegressionTests {
                 _ = Darwin.kill(process.processIdentifier, SIGKILL)
                 process.waitUntilExit()
             }
-            try? inputPipe.fileHandleForWriting.close()
             try? FileManager.default.removeItem(at: root)
         }
         #expect(await waitForMarker(at: readyMarker))
@@ -76,7 +93,7 @@ extension AgentNotificationRegressionTests {
         #expect(cachedMiss == nil)
         #expect(Darwin.kill(process.processIdentifier, SIGUSR1) == 0)
         #expect(await waitForMarker(at: execMarker))
-        #expect(try String(contentsOf: execMarker, encoding: .utf8) == fixture.panelId.uuidString)
+        #expect(await waitForScopedProcess(pid: process.processIdentifier, surfaceId: fixture.panelId))
 
         #expect(
             fixture.appDelegate.liveAgentDeliveryTarget(forAgentPID: process.processIdentifier)

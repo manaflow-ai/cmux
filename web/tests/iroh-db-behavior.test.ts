@@ -205,6 +205,7 @@ describe("Iroh trust broker database behavior", () => {
         identityGeneration: 1,
         payloadSha256: "08".repeat(32),
         nonceHash: "07".repeat(32),
+        minimumSpacingMs: 0,
         now: NOW,
         expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
       }));
@@ -379,6 +380,7 @@ describe("Iroh trust broker database behavior", () => {
       identityGeneration: 1,
       payloadSha256: "30".repeat(32),
       nonceHash,
+      minimumSpacingMs: 0,
       now: NOW,
       expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
     }));
@@ -444,6 +446,7 @@ describe("Iroh trust broker database behavior", () => {
         identityGeneration: 1,
         payloadSha256: "36".repeat(32),
         nonceHash,
+        minimumSpacingMs: 0,
         now: NOW,
         expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
       }));
@@ -662,6 +665,7 @@ describe("Iroh trust broker database behavior", () => {
       identityGeneration: 1,
       payloadSha256: "42".repeat(32),
       nonceHash,
+      minimumSpacingMs: 0,
       now: NOW,
       expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
     }));
@@ -723,6 +727,7 @@ describe("Iroh trust broker database behavior", () => {
         identityGeneration: 1,
         payloadSha256: (sequence + 10).toString(16).padStart(64, "0"),
         nonceHash,
+        minimumSpacingMs: 0,
         now,
         expiresAt: new Date(now.getTime() + 5 * 60 * 1_000),
       }));
@@ -809,6 +814,7 @@ describe("Iroh trust broker database behavior", () => {
         identityGeneration: 1,
         payloadSha256: `${suffix}${"0".repeat(63)}`,
         nonceHash,
+        minimumSpacingMs: 0,
         now,
         expiresAt: new Date(now.getTime() + 5 * 60 * 1_000),
       }));
@@ -941,6 +947,7 @@ describe("Iroh trust broker database behavior", () => {
         identityGeneration: input.identityGeneration,
         payloadSha256: `${input.suffix}${"0".repeat(63)}`,
         nonceHash,
+        minimumSpacingMs: 0,
         now: input.now,
         expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
       }));
@@ -1064,14 +1071,20 @@ describe("Iroh trust broker database behavior", () => {
         identityGeneration: 1,
         payloadSha256: `${input.suffix}${"0".repeat(63)}`,
         nonceHash,
+        minimumSpacingMs: 0,
         now: input.now,
         expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
       }));
-      return { id: challenge.id, nonceHash, appInstanceId: input.appInstanceId };
+      return {
+        id: challenge.id,
+        nonceHash,
+        appInstanceId: input.appInstanceId,
+        createdAt: challenge.createdAt,
+      };
     };
 
     const register = (
-      prepared: { id: string; nonceHash: string; appInstanceId: string },
+      prepared: { id: string; nonceHash: string; appInstanceId: string; createdAt?: Date },
       now: Date,
     ) => repo.consumeChallengeAndRegister({
       userId,
@@ -1099,31 +1112,27 @@ describe("Iroh trust broker database behavior", () => {
     );
     expect(initial.created).toBe(true);
 
-    // Two heartbeat challenges for the same slot, minted in order: OLDER at
-    // t0+1s, NEWER at t0+2s. Both are outstanding before either is consumed.
+    // A newer heartbeat replaces the older challenge for the same slot.
     const olderApp = randomUUID();
     const newerApp = randomUUID();
     const older = await prepare({ appInstanceId: olderApp, suffix: "2", now: new Date(NOW.getTime() + 1_000) });
     const newer = await prepare({ appInstanceId: newerApp, suffix: "3", now: new Date(NOW.getTime() + 2_000) });
 
-    // The NEWER challenge lands first and refreshes the slot.
+    // The replacement keeps one row and carries the newer nonce/payload.
     const newerResult = await Effect.runPromise(register(newer, new Date(NOW.getTime() + 2_500)));
     expect(newerResult.created).toBe(false);
     expect(newerResult.binding.appInstanceId).toBe(newerApp);
 
-    // The OLDER challenge, delayed, completes second. It was minted before the
-    // newer registration landed, so it must be rejected as superseded rather
-    // than clobbering the newer incarnation's mutable fields back to the stale
-    // appInstanceId. This only holds if an applied heartbeat advances the slot's
-    // registration high-water mark.
+    // The superseded response references a deleted challenge, so it cannot
+    // clobber the newer heartbeat.
     const stale = await Effect.runPromiseExit(register(older, new Date(NOW.getTime() + 3_000)));
     expect(stale._tag).toBe("Failure");
     const causeError = stale._tag === "Failure"
       ? Option.getOrUndefined(Cause.failureOption(stale.cause))
       : undefined;
     expect(causeError).toMatchObject({
-      _tag: "IrohConflictError",
-      code: "challenge_superseded",
+      _tag: "IrohNotFoundError",
+      resource: "challenge",
     });
 
     // The slot still reflects the NEWER heartbeat, never the older one.
@@ -1143,14 +1152,9 @@ describe("Iroh trust broker database behavior", () => {
     const endpoint = "5b".repeat(32);
     const tag = "stable";
 
-    // Same signed fields (endpoint, platform, generation) throughout, so the
-    // second landing takes the in-place update path. Only appInstanceId differs.
-    // The difference from the heartbeat case: NO row exists yet when both
-    // challenges are minted, so the FIRST landing goes through the insert path.
-    // If the insert stamps registeredAt with its own wall-clock landing time
-    // instead of its challenge mint time, an older challenge that happens to
-    // land first sets the high-water mark above a newer outstanding challenge's
-    // mint time, and the genuinely newer registration is wrongly superseded.
+    // Same signed fields (endpoint, platform, generation) throughout, so a
+    // replacement challenge would take the in-place update path after the
+    // first registration. Only appInstanceId differs.
     const prepare = async (input: { appInstanceId: string; suffix: string; now: Date }) => {
       const nonceHash = input.suffix.repeat(64);
       const challenge = await Effect.runPromise(repo.issueChallenge({
@@ -1162,6 +1166,7 @@ describe("Iroh trust broker database behavior", () => {
         identityGeneration: 1,
         payloadSha256: `${input.suffix}${"0".repeat(63)}`,
         nonceHash,
+        minimumSpacingMs: 0,
         now: input.now,
         expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
       }));
@@ -1191,25 +1196,36 @@ describe("Iroh trust broker database behavior", () => {
       now,
     });
 
-    // Two challenges for a slot that does not exist yet, minted in order:
-    // OLDER at t0+1s, NEWER at t0+2s. Both outstanding before either is consumed.
+    // Two challenges for a slot that does not exist yet, minted in order. The
+    // newer challenge replaces the older one before registration begins.
     const olderApp = randomUUID();
     const newerApp = randomUUID();
     const older = await prepare({ appInstanceId: olderApp, suffix: "2", now: new Date(NOW.getTime() + 1_000) });
     const newer = await prepare({ appInstanceId: newerApp, suffix: "3", now: new Date(NOW.getTime() + 2_000) });
 
-    // The OLDER challenge lands first and CREATES the slot via the insert path.
-    const olderResult = await Effect.runPromise(register(older, new Date(NOW.getTime() + 2_500)));
-    expect(olderResult.created).toBe(true);
-    expect(olderResult.binding.appInstanceId).toBe(olderApp);
+    expect(older.id).not.toBe(newer.id);
+    const [{ challenges }] = await requiredSql()<Array<{ challenges: string }>>`
+      select count(*)::text as challenges
+      from iroh_registration_challenges
+      where user_id = ${userId}
+        and client_namespace = 'legacy'
+        and device_uuid = ${deviceId}
+        and tag = ${tag}
+    `;
+    expect(challenges).toBe("1");
+    const stale = await Effect.runPromiseExit(register(older, new Date(NOW.getTime() + 2_500)));
+    expect(stale._tag).toBe("Failure");
+    const staleError = stale._tag === "Failure"
+      ? Option.getOrUndefined(Cause.failureOption(stale.cause))
+      : undefined;
+    expect(staleError).toMatchObject({
+      _tag: "IrohNotFoundError",
+      resource: "challenge",
+    });
 
-    // The NEWER challenge, minted after the older one but before the slot
-    // existed, completes second. It is genuinely newer, so it must refresh the
-    // slot in place, not be rejected. This only holds if the insert stamped the
-    // high-water mark from the older challenge's MINT time (t0+1s), leaving the
-    // newer challenge's mint time (t0+2s) above it.
+    // The newest challenge creates the slot.
     const newerResult = await Effect.runPromise(register(newer, new Date(NOW.getTime() + 3_000)));
-    expect(newerResult.created).toBe(false);
+    expect(newerResult.created).toBe(true);
     expect(newerResult.binding.appInstanceId).toBe(newerApp);
 
     // The slot reflects the NEWER registration.
@@ -1222,14 +1238,10 @@ describe("Iroh trust broker database behavior", () => {
     expect(row?.appInstanceId).toBe(newerApp);
   });
 
-  dbTest("rejects a stale challenge minted in the same millisecond as the applied one", async () => {
-    // 9071 review finding 2: the register gate is strict (`createdAt <
-    // registeredAt`), and challenge createdAt is a millisecond wall clock, so
-    // two serialized mints CAN tie. Without total ordering at mint time, the
-    // older-of-two-equal challenges completes after the newer and passes the
-    // gate, reversing the order the gate exists to enforce. Minting now bumps
-    // a tying createdAt strictly above the slot's latest challenge, so the
-    // delayed twin must be rejected as superseded.
+  dbTest("orders replacement challenges minted in the same millisecond", async () => {
+    // 9071 review finding 2: serialized mints with the same wall-clock input
+    // still receive strictly increasing createdAt values before the newer
+    // challenge replaces the slot's current row.
     const repo = requiredRepository();
     const userId = "user-slot-equal-millis";
     const deviceId = randomUUID();
@@ -1247,13 +1259,19 @@ describe("Iroh trust broker database behavior", () => {
         identityGeneration: 1,
         payloadSha256: `${input.suffix}${"0".repeat(63)}`,
         nonceHash,
+        minimumSpacingMs: 0,
         now: input.now,
         expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
       }));
-      return { id: challenge.id, nonceHash, appInstanceId: input.appInstanceId };
+      return {
+        id: challenge.id,
+        nonceHash,
+        appInstanceId: input.appInstanceId,
+        createdAt: challenge.createdAt,
+      };
     };
     const register = (
-      prepared: { id: string; nonceHash: string; appInstanceId: string },
+      prepared: { id: string; nonceHash: string; appInstanceId: string; createdAt: Date },
       now: Date,
     ) => repo.consumeChallengeAndRegister({
       userId,
@@ -1275,8 +1293,8 @@ describe("Iroh trust broker database behavior", () => {
       now,
     });
 
-    // Establish the slot, then mint two challenges with the SAME wall-clock
-    // input. Serialized issuance must still order them.
+    // Establish the slot, then mint two replacement challenges with the SAME
+    // wall-clock input. Serialized issuance must still order them.
     const initial = await prepare({ appInstanceId: randomUUID(), suffix: "1", now: NOW });
     expect((await Effect.runPromise(register(initial, new Date(NOW.getTime() + 500)))).created).toBe(true);
 
@@ -1286,21 +1304,23 @@ describe("Iroh trust broker database behavior", () => {
     const older = await prepare({ appInstanceId: olderApp, suffix: "2", now: tieInstant });
     const newer = await prepare({ appInstanceId: newerApp, suffix: "3", now: tieInstant });
 
-    // The NEWER twin lands first and refreshes the slot.
-    const newerResult = await Effect.runPromise(register(newer, new Date(NOW.getTime() + 2_000)));
-    expect(newerResult.created).toBe(false);
-    expect(newerResult.binding.appInstanceId).toBe(newerApp);
+    expect(newer.createdAt.getTime()).toBeGreaterThan(older.createdAt.getTime());
+    expect(older.id).not.toBe(newer.id);
 
-    // The OLDER twin, delayed, must be rejected — not clobber the newer state.
-    const stale = await Effect.runPromiseExit(register(older, new Date(NOW.getTime() + 3_000)));
+    // The old challenge id no longer addresses the one current row.
+    const stale = await Effect.runPromiseExit(register(older, new Date(NOW.getTime() + 2_000)));
     expect(stale._tag).toBe("Failure");
     const causeError = stale._tag === "Failure"
       ? Option.getOrUndefined(Cause.failureOption(stale.cause))
       : undefined;
     expect(causeError).toMatchObject({
-      _tag: "IrohConflictError",
-      code: "challenge_superseded",
+      _tag: "IrohNotFoundError",
+      resource: "challenge",
     });
+
+    const newerResult = await Effect.runPromise(register(newer, new Date(NOW.getTime() + 3_000)));
+    expect(newerResult.created).toBe(false);
+    expect(newerResult.binding.appInstanceId).toBe(newerApp);
 
     const [row] = await requiredSql()<Array<{ appInstanceId: string }>>`
       select app_instance_id as "appInstanceId"
@@ -1309,6 +1329,101 @@ describe("Iroh trust broker database behavior", () => {
         and tag = ${tag} and revoked_at is null
     `;
     expect(row?.appInstanceId).toBe(newerApp);
+  });
+
+  dbTest("serializes concurrent replacement and removes old-server duplicates", async () => {
+    const repo = requiredRepository();
+    const userId = "user-challenge-concurrent";
+    const deviceId = randomUUID();
+    const input = {
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId: randomUUID(),
+      tag: "stable",
+      endpointId: "a".repeat(64),
+      identityGeneration: 1,
+      payloadSha256: "b".repeat(64),
+      now: NOW,
+      expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
+    };
+    const old = await Effect.runPromise(repo.issueChallenge({ ...input, nonceHash: "c".repeat(64) }));
+    // An older server can still insert into the unchanged schema during rollout.
+    await requiredSql()`
+      insert into iroh_registration_challenges (
+        user_id, device_uuid, app_instance_id, tag, endpoint_id,
+        identity_generation, payload_sha256, nonce_hash, created_at, expires_at
+      ) select user_id, device_uuid, app_instance_id, tag, endpoint_id,
+        identity_generation, payload_sha256, ${"d".repeat(64)}, created_at, expires_at
+      from iroh_registration_challenges where id = ${old.id}
+    `;
+    const challenges = await Promise.all(Array.from({ length: 24 }, () =>
+      Effect.runPromise(repo.issueChallenge({
+        ...input,
+        nonceHash: randomUUID().replaceAll("-", "").repeat(2),
+      })),
+    ));
+    const rows = await requiredSql()<Array<{ id: string }>>`
+      select id from iroh_registration_challenges where user_id = ${userId}
+    `;
+    const newest = challenges.reduce((a, b) => a.createdAt > b.createdAt ? a : b);
+    expect(rows).toEqual([{ id: newest.id }]);
+    expect(new Set(challenges.map((c) => c.createdAt.getTime())).size).toBe(24);
+    expect(await Effect.runPromise(repo.findChallenge(userId, old.id))).toBeNull();
+  });
+
+  dbTest("rolls back replacement when the new challenge cannot be inserted", async () => {
+    const repo = requiredRepository();
+    const userId = "user-challenge-rollback";
+    const input = {
+      userId,
+      deviceUuid: randomUUID(),
+      appInstanceId: randomUUID(),
+      tag: "stable",
+      endpointId: "a".repeat(64),
+      identityGeneration: 1,
+      payloadSha256: "b".repeat(64),
+      now: NOW,
+      expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
+    };
+    const old = await Effect.runPromise(repo.issueChallenge({ ...input, nonceHash: "c".repeat(64) }));
+    await Effect.runPromise(repo.issueChallenge({ ...input, tag: "nightly", nonceHash: "d".repeat(64) }));
+    const failed = await Effect.runPromiseExit(repo.issueChallenge({ ...input, nonceHash: "d".repeat(64) }));
+    expect(failed._tag).toBe("Failure");
+    expect(await Effect.runPromise(repo.findChallenge(userId, old.id))).toMatchObject({
+      id: old.id, nonceHash: old.nonceHash,
+    });
+  });
+
+  dbTest("keeps legacy and namespaced challenge slots independent", async () => {
+    const repo = requiredRepository();
+    const userId = "user-challenge-namespace-compat";
+    const deviceId = randomUUID();
+    const issue = (clientNamespace: string, suffix: string) => repo.issueChallenge({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId: randomUUID(),
+      clientNamespace,
+      tag: "stable",
+      endpointId: `${suffix}${"0".repeat(63)}`,
+      identityGeneration: 1,
+      payloadSha256: `${suffix}${"0".repeat(63)}`,
+      nonceHash: `${suffix}${suffix.repeat(63)}`,
+      now: NOW,
+      expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
+    });
+
+    const legacy = await Effect.runPromise(issue("legacy", "a"));
+    const namespaced = await Effect.runPromise(issue("dev.cmux.app.internal", "b"));
+    expect(namespaced.id).not.toBe(legacy.id);
+
+    const [{ challenges }] = await requiredSql()<Array<{ challenges: string }>>`
+      select count(*)::text as challenges
+      from iroh_registration_challenges
+      where user_id = ${userId}
+        and device_uuid = ${deviceId}
+        and tag = 'stable'
+    `;
+    expect(challenges).toBe("2");
   });
 
   dbTest("revokes a retired incarnation's pair grants instead of reassigning them", async () => {
@@ -1334,6 +1449,7 @@ describe("Iroh trust broker database behavior", () => {
         identityGeneration: 1,
         payloadSha256: `${input.suffix}${"0".repeat(63)}`,
         nonceHash,
+        minimumSpacingMs: 0,
         now: input.now,
         expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
       }));
@@ -1452,6 +1568,7 @@ describe("Iroh trust broker database behavior", () => {
       identityGeneration: 1,
       payloadSha256: `8${"0".repeat(63)}`,
       nonceHash,
+      minimumSpacingMs: 0,
       now: new Date(NOW.getTime() + 301_000),
       expiresAt: new Date(NOW.getTime() + 601_000),
     }));
@@ -2001,6 +2118,7 @@ describe("Iroh trust broker database behavior", () => {
       identityGeneration: 1,
       payloadSha256,
       nonceHash,
+      minimumSpacingMs: 0,
       now: NOW,
       expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
     }));
@@ -2051,6 +2169,249 @@ describe("Iroh trust broker database behavior", () => {
       select count(*)::text as challenges from iroh_registration_challenges where user_id = ${userId}
     `;
     expect(afterHeartbeat.challenges).toBe("0");
+  });
+
+  dbTest("spaces same-identity re-registrations and never delays identity rotation", async () => {
+    const repo = requiredRepository();
+    const userId = "user-spacing";
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const endpointId = "13".repeat(32);
+    const mint = (nonceHash: string, at: Date, endpoint = endpointId, generation = 1) => Effect.runPromise(repo.issueChallenge({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId,
+      tag: "stable",
+      endpointId: endpoint,
+      identityGeneration: generation,
+      payloadSha256: "34".repeat(32),
+      nonceHash,
+      now: at,
+      expiresAt: new Date(at.getTime() + 5 * 60 * 1_000),
+    }));
+    const first = await mint("51".repeat(32), NOW);
+    await Effect.runPromise(repo.consumeChallengeAndRegister({
+      userId,
+      challengeId: first.id,
+      nonceHash: "51".repeat(32),
+      payload: {
+        route_contract_version: 1,
+        deviceId,
+        appInstanceId,
+        clientNamespace: "legacy",
+        tag: "stable",
+        platform: "mac",
+        endpointId,
+        identityGeneration: 1,
+        pairingEnabled: true,
+        capabilities: [],
+        pathHints: [],
+      },
+      now: NOW,
+    }));
+
+    // Same identity, ten seconds later: told to wait for the remainder.
+    const tooSoon = await Effect.runPromiseExit(repo.issueChallenge({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId,
+      tag: "stable",
+      endpointId,
+      identityGeneration: 1,
+      payloadSha256: "34".repeat(32),
+      nonceHash: "52".repeat(32),
+      now: new Date(NOW.getTime() + 10_000),
+      expiresAt: new Date(NOW.getTime() + 10_000 + 5 * 60 * 1_000),
+    }));
+    expect(tooSoon._tag).toBe("Failure");
+    const failure = tooSoon._tag === "Failure"
+      ? Option.getOrUndefined(Cause.failureOption(tooSoon.cause))
+      : undefined;
+    expect(failure).toMatchObject({
+      _tag: "IrohQuotaExceededError",
+      code: "registration_spacing",
+      retryAfterSeconds: 50,
+    });
+    // A rotated identity on the same slot is never delayed.
+    const rotated = await mint("53".repeat(32), new Date(NOW.getTime() + 10_000), "14".repeat(32), 2);
+    expect(rotated.endpointId).toBe("14".repeat(32));
+    // Same identity after the floor: accepted.
+    const later = await mint("54".repeat(32), new Date(NOW.getTime() + 61_000));
+    expect(later.createdAt.getTime()).toBeGreaterThan(first.createdAt.getTime());
+  });
+
+  dbTest("does not space an irx slot, whose runtime ignores Retry-After", async () => {
+    const repo = requiredRepository();
+    const userId = "user-spacing-irx";
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const endpointId = "16".repeat(32);
+    const namespace = "mac:com.cmuxterm.app.debug.irohhb";
+    const mint = (nonceHash: string, at: Date) => Effect.runPromise(repo.issueChallenge({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId,
+      clientNamespace: namespace,
+      tag: "stable",
+      endpointId,
+      identityGeneration: 1,
+      payloadSha256: "36".repeat(32),
+      nonceHash,
+      now: at,
+      expiresAt: new Date(at.getTime() + 5 * 60 * 1_000),
+    }));
+    const first = await mint("55".repeat(32), NOW);
+    await Effect.runPromise(repo.consumeChallengeAndRegister({
+      userId,
+      challengeId: first.id,
+      nonceHash: "55".repeat(32),
+      payload: {
+        route_contract_version: 1,
+        deviceId,
+        appInstanceId,
+        clientNamespace: namespace,
+        tag: "stable",
+        platform: "mac",
+        endpointId,
+        identityGeneration: 1,
+        pairingEnabled: true,
+        capabilities: ["cmux.irx.v1", "iroh.private_paths.v1"],
+        pathHints: [],
+      },
+      now: NOW,
+    }));
+    // Ten seconds later, same identity: accepted, because a refused mint
+    // would only make the irx runtime poll every five seconds. The slot's
+    // stored capabilities, not its namespace, identify the runtime.
+    const soon = await mint("56".repeat(32), new Date(NOW.getTime() + 10_000));
+    expect(soon.createdAt.getTime()).toBeGreaterThan(first.createdAt.getTime());
+  });
+
+  dbTest("measures spacing from the newest outstanding mint, not only the last registration", async () => {
+    const repo = requiredRepository();
+    const userId = "user-spacing-outstanding";
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const endpointId = "17".repeat(32);
+    const mint = (nonceHash: string, at: Date) => Effect.runPromiseExit(repo.issueChallenge({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId,
+      clientNamespace: "mac:com.cmuxterm.app",
+      tag: "stable",
+      endpointId,
+      identityGeneration: 1,
+      payloadSha256: "37".repeat(32),
+      nonceHash,
+      now: at,
+      expiresAt: new Date(at.getTime() + 5 * 60 * 1_000),
+    }));
+    const first = await mint("57".repeat(32), NOW);
+    expect(first._tag).toBe("Success");
+    const firstId = first._tag === "Success" ? first.value.id : "";
+    await Effect.runPromise(repo.consumeChallengeAndRegister({
+      userId,
+      challengeId: firstId,
+      nonceHash: "57".repeat(32),
+      payload: {
+        route_contract_version: 1,
+        deviceId,
+        appInstanceId,
+        clientNamespace: "mac:com.cmuxterm.app",
+        tag: "stable",
+        platform: "mac",
+        endpointId,
+        identityGeneration: 1,
+        pairingEnabled: true,
+        capabilities: ["mobile-rpc-v1", "multistream-v1"],
+        pathHints: [],
+      },
+      now: NOW,
+    }));
+    // 61 s after the registration: accepted but left outstanding.
+    const outstanding = await mint("58".repeat(32), new Date(NOW.getTime() + 61_000));
+    expect(outstanding._tag).toBe("Success");
+    // 9 s after that outstanding mint: refused, measured from the mint, not
+    // from the registration 70 s ago.
+    const banked = await mint("59".repeat(32), new Date(NOW.getTime() + 70_000));
+    expect(banked._tag).toBe("Failure");
+    const failure = banked._tag === "Failure"
+      ? Option.getOrUndefined(Cause.failureOption(banked.cause))
+      : undefined;
+    expect(failure).toMatchObject({ _tag: "IrohQuotaExceededError", code: "registration_spacing", retryAfterSeconds: 51 });
+  });
+
+  dbTest("keeps the route revision on a heartbeat that changes nothing a peer can act on", async () => {
+    const repo = requiredRepository();
+    const userId = "user-noop-heartbeat";
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const endpointId = "15".repeat(32);
+    let counter = 0x60;
+    const registerAt = async (at: Date, pathHints: Parameters<typeof repo.consumeChallengeAndRegister>[0]["payload"]["pathHints"]) => {
+      const nonceHash = (counter++).toString(16).repeat(32);
+      const challenge = await Effect.runPromise(repo.issueChallenge({
+        userId,
+        deviceUuid: deviceId,
+        appInstanceId,
+        tag: "stable",
+        endpointId,
+        identityGeneration: 1,
+        payloadSha256: "35".repeat(32),
+        nonceHash,
+        minimumSpacingMs: 0,
+        now: at,
+        expiresAt: new Date(at.getTime() + 5 * 60 * 1_000),
+      }));
+      return Effect.runPromise(repo.consumeChallengeAndRegister({
+        userId,
+        challengeId: challenge.id,
+        nonceHash,
+        payload: {
+          route_contract_version: 1,
+          deviceId,
+          appInstanceId,
+          clientNamespace: "legacy",
+          tag: "stable",
+          platform: "mac",
+          endpointId,
+          identityGeneration: 1,
+          pairingEnabled: true,
+          capabilities: ["attach"],
+          pathHints,
+        },
+        now: at,
+      }));
+    };
+    const relay = (observedAt: Date) => ({
+      kind: "relay_url" as const,
+      value: "https://use1.relay.cmux.dev/",
+      source: "native" as const,
+      privacy_scope: "public_internet" as const,
+      observed_at: observedAt.toISOString(),
+      expires_at: new Date(observedAt.getTime() + 60 * 60 * 1_000).toISOString(),
+    });
+    const t0 = NOW;
+    const t1 = new Date(NOW.getTime() + 61_000);
+    const t2 = new Date(NOW.getTime() + 122_000);
+
+    const created = await registerAt(t0, [relay(t0)]);
+    expect(created.created).toBe(true);
+    // Same route, fresh timestamps: liveness refreshed, revision untouched.
+    const heartbeat = await registerAt(t1, [relay(t1)]);
+    expect(heartbeat.created).toBe(false);
+    expect(heartbeat.accountRevision).toBe(created.accountRevision);
+    expect(heartbeat.binding.lastSeenAt).toEqual(t1);
+    // A new direct address is news for peers: revision advances.
+    const changed = await registerAt(t2, [relay(t2), {
+      kind: "direct_address" as const,
+      value: "203.0.113.7:4433",
+      source: "native" as const,
+      privacy_scope: "public_internet" as const,
+      observed_at: t2.toISOString(),
+      expires_at: new Date(t2.getTime() + 60 * 60 * 1_000).toISOString(),
+    }]);
+    expect(changed.accountRevision).toBe(created.accountRevision + 1);
   });
 
   dbTest("global retention drops legacy consumed challenges of any age and keeps in-flight ones", async () => {
@@ -2243,6 +2604,8 @@ describe("Iroh trust broker database behavior", () => {
         ${new Date(NOW.getTime() - 2 * 24 * 60 * 60 * 1_000)}
       from generate_series(1, ${IROH_RETENTION_BATCH_SIZE + 1}) as values(value)
     `;
+    // The per-user prune on the request path no longer deletes retention
+    // rows; the scheduled global drain owns that work.
     await Effect.runPromise(requiredRepository().pruneExpiredState({
       userId: "user-retention-scoped",
       now: NOW,
@@ -2252,7 +2615,14 @@ describe("Iroh trust broker database behavior", () => {
       from iroh_registration_challenges
       where user_id = 'user-retention-scoped'
     `;
-    expect(scopedRemaining).toBe("1");
+    expect(scopedRemaining).toBe(String(IROH_RETENTION_BATCH_SIZE + 1));
+    await Effect.runPromise(requiredRepository().pruneExpiredStateGlobally({ now: NOW }));
+    const [{ scopedAfterDrain }] = await requiredSql()<Array<{ scopedAfterDrain: string }>>`
+      select count(*)::text as "scopedAfterDrain"
+      from iroh_registration_challenges
+      where user_id = 'user-retention-scoped'
+    `;
+    expect(scopedAfterDrain).toBe("0");
   });
 
   dbTest("global retention reports backlog when its row budget is exhausted", async () => {

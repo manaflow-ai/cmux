@@ -118,6 +118,8 @@ Use `cmux surface resume set --shell <command>` to attach a resume command to th
 
 Approvals are prefix-based and signed by cmux. They also bind the working directory and exact environment values when present. A process can propose a command, but it cannot make that command sticky without the user choosing Auto-Restore or Ask Each Time in cmux.
 
+Agent hooks publish their own bindings with automatic resume already granted. A later `--source agent-hook` write for the same session that omits automatic resume (for example, an older Pi extension re-publishing through `cmux surface resume set`) does not downgrade that binding: cmux keeps the trusted binding and returns it as the result.
+
 ## Disable automatic resume
 
 To restore panes without automatically restarting saved agent sessions, turn off

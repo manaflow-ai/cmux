@@ -42,7 +42,8 @@ struct CloudVMNotificationRow: Hashable, Sendable {
     }
 
     static func row(fromPayload payload: Data) -> CloudVMNotificationRow? {
-        guard let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any] else { return nil }
+        guard payload.count <= CloudMachineNotificationEvent.maxLineBytes,
+              let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any] else { return nil }
         return row(fromObject: object)
     }
 
@@ -60,9 +61,9 @@ struct CloudVMNotificationRow: Hashable, Sendable {
         let readBy = (object["read_by"] as? [Any])?.compactMap { $0 as? String } ?? []
         return CloudVMNotificationRow(
             id: id,
-            title: title,
-            subtitle: (object["subtitle"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-            body: object["body"] as? String ?? "",
+            title: NotificationTextSanitizer.sanitize(title, maxBytes: CloudMachineNotificationEvent.maxTitleBytes),
+            subtitle: (object["subtitle"] as? String).map { NotificationTextSanitizer.sanitize($0, maxBytes: CloudMachineNotificationEvent.maxTitleBytes) }.flatMap { $0.isEmpty ? nil : $0 },
+            body: NotificationTextSanitizer.sanitize(object["body"] as? String ?? "", maxBytes: CloudMachineNotificationEvent.maxBodyBytes),
             level: object["level"] as? String ?? "info",
             createdAtMs: createdAtMs,
             terminalID: (object["terminal_id"] as? String).flatMap { $0.isEmpty ? nil : $0 },
@@ -450,6 +451,15 @@ final class CloudNotificationSyncHub {
     static let shared = CloudNotificationSyncHub()
 
     private var syncs: [String: CloudNotificationSync] = [:]
+    private var notificationGate = CloudMachineNotificationGate()
+
+    /// One admission budget across all live machine providers. Dropped rows remain
+    /// consumed by the sync so subsequent catalog folds cannot replay a flood.
+    func admit(_ row: CloudVMNotificationRow, machineID: String) -> Bool {
+        notificationGate.admit(machineID: machineID, event: CloudMachineNotificationEvent(
+            id: row.id, terminalID: row.terminalID, title: row.title, body: row.body
+        )) == .allowed
+    }
     private(set) var unreadTerminalIDs: [String: Set<String>] = [:]
     private var storeSubscription: AnyCancellable?
     private var unreadCloudKeys: Set<String>?
