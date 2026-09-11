@@ -208,8 +208,10 @@ describe("devbox private-network announce (services/vms/images/network.ts)", () 
     });
     const empty = mkdtempSync(path.join(tmpdir(), "cmux-noarping-"));
     try {
-      const result = spawnSync("sh", ["-c", devboxNetworkAnnounceCommand()], {
-        env: { ...process.env, PATH: `${empty}:/usr/bin:/bin` },
+      // PATH holds only the empty dir, so `command -v arping` cannot find a host
+      // binary; /bin/sh is invoked by absolute path and needs no PATH.
+      const result = spawnSync("/bin/sh", ["-c", devboxNetworkAnnounceCommand()], {
+        env: { ...process.env, PATH: empty },
         encoding: "utf8",
       });
       expect(result.status).toBe(0);
@@ -234,14 +236,9 @@ describe("devbox private-network announce (services/vms/images/network.ts)", () 
     expect(bound).toBeGreaterThan(announce);
   });
 
-  test("the attach path announces before the daemon bundle, the image installs arping, and verify proves both on a booted machine", () => {
-    const driver = readFileSync(path.join(import.meta.dirname, "../services/vms/drivers/freestyle.ts"), "utf8");
-    const announce = driver.indexOf("this.execResult(vm, devboxNetworkAnnounceCommand()),");
-    const bundle = driver.indexOf("cmuxTuiAttachBundleCommand({ readyGate: freestyleDaemonSettledCommand()");
-    expect(announce).toBeGreaterThan(-1);
-    expect(bundle).toBeGreaterThan(announce);
+  test("the image installs arping and verify proves the announce loop on a booted machine", () => {
     expect(readFileSync(path.join(templateDir, "Dockerfile"), "utf8")).toContain("    iputils-arping \\\n");
     const verify = readScript("verify-devbox-image.ts");
-    expect(verify).toContain("command -v arping && pgrep -f 'cmux-devbox-boot' >/dev/null && grep -q 'announce_loop &' /usr/local/bin/cmux-devbox-boot && echo network-announce-ok");
+    expect(verify).toContain("command -v arping && pgrep -f 'cmux-devbox-[b]oot' >/dev/null && grep -q 'announce_loop &' /usr/local/bin/cmux-devbox-boot && echo network-announce-ok");
   });
 });

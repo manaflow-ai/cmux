@@ -16,9 +16,9 @@
  *
  * So the guest announces itself: at boot and on every clone (the boot
  * supervisor, cmux-devbox-boot, keeps announcing every 30 s so an idle
- * machine cannot age out of the fabric's table either), and on every attach
- * (freestyle.ts, so machines from an image that predates the supervisor hook
- * are reachable the moment the Mac dials them).
+ * machine cannot age out of the fabric's table either). The attach path has
+ * its own announce (drivers/freestyleNetworkAnnouncement.ts), which covers
+ * machines from an image that predates the supervisor hook.
  *
  * The command is POSIX sh, runs as root (arping needs CAP_NET_RAW), never
  * fails (a missing arping or a machine with no global address is a no-op),
