@@ -177,12 +177,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         pendingRemoteRenames.removeAll()
         acceptedCloudGenerations.removeAll()
     }
-    /// Whether this provider is still registered for its machine. Suspended
-    /// network work must not write through a replacement provider.
-    func isRegisteredInCatalog() -> Bool {
-        guard let current = catalog.provider(for: machine) else { return false }
-        return ObjectIdentifier(current) == ObjectIdentifier(self)
-    }
     func isCurrentLifecycleGeneration(_ generation: UInt64) -> Bool {
         lifecycleGeneration == generation
     }
@@ -563,7 +557,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
     }
 
-    /// Publishes the authoritative graph and every derived row in one catalog
+    /// Publishes the current graph and every derived row in one catalog
     /// transaction. Display and forwarded-port rows are machine capabilities, so
     /// they join the daemon graph here without becoming a second session state.
     func publish(
@@ -572,6 +566,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         reconcileTitles: Bool = true,
         observation: CloudVMStateObservation = .current
     ) {
+        guard canPublishCloudState(state) else { return }
         var pool: [SurfaceResource] = []
         // The control plane's resolved kind is authoritative. Freestyle snapshot
         // ids are opaque and cannot tell us whether the machine has a desktop.
@@ -609,6 +604,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         ports: [Int],
         reconcileTitles: Bool
     ) {
+        guard canPublishCloudState(state) else { return }
         if impact.requiresFullResourceRebuild {
             publish(state, ports: ports, reconcileTitles: reconcileTitles)
             return
@@ -1927,10 +1923,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             if installSnapshotIfNewer(incoming) {
                 clearStateRecovery()
                 await link.setEventsCursor(incoming.cursor)
+                guard watchedLink === link, canPublishCloudState(incoming) else { return }
                 var subscriptionResumed = false
                 if let cursor = incoming.cursor {
                     subscriptionResumed = await link.resumeEventsSubscription(from: cursor)
                 }
+                guard watchedLink === link, canPublishCloudState(incoming) else { return }
                 if CloudVMEventFeedRecoveryDecision.shouldClearWarning(
                     snapshotCursor: incoming.cursor,
                     subscriptionResumed: subscriptionResumed
@@ -1999,6 +1997,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 eventsFeedWarning = nil
                 clearStateRecovery()
                 await link.setEventsCursor(next.cursor)
+                guard watchedLink === link, canPublishCloudState(next) else { return }
                 info.linkState = .connected
                 info.linkError = nil
                 let titlesChanged = current.workspaces != next.workspaces || current.tabs != next.tabs
