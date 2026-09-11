@@ -1,4 +1,5 @@
 import CmuxTerminal
+import CmuxCore
 import Foundation
 
 /// Owns one native cloud-terminal attachment.
@@ -17,6 +18,11 @@ final class CloudTuiManualMirrorSession {
     private(set) var remoteSurfaceID: UInt64
     let inputRouter: CloudTuiManualIOInputRouter
 
+    private let operations: CloudOperationRecorder?
+    private var diagnosticContext: CloudOperationContext?
+    private var diagnosticReplayReceived = false
+    private var diagnosticDeadline: Task<Void, Never>?
+    private(set) var diagnosticFailure: CloudDiagnosticFailure?
     private weak var surface: TerminalSurface?
     private let onNeedsReconnect: @MainActor () -> Void
     private let commandBuilder: CloudTuiManualIOCommand
@@ -48,7 +54,38 @@ final class CloudTuiManualMirrorSession {
     private var appliedRemoteColors = CloudTuiRemoteColors()
     private var hasReceivedRemoteReplay = false
     private var lastRemoteGrid: CloudTuiManualIOGrid?
-    private(set) var phase: CloudTuiManualMirrorPhase = .idle
+    private(set) var phase: CloudTuiManualMirrorPhase = .idle {
+        didSet {
+            if phase == .disconnected, oldValue != .disconnected, diagnosticContext != nil || diagnosticFailure == nil {
+                finishDiagnostics(error: CloudDiagnosticFailure.network)
+            }
+            if phase == .stopped { finishDiagnostics(error: CancellationError()) }
+            if phase == .attached && diagnosticReplayReceived { finishDiagnostics() }
+            surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
+        }
+    }
+
+    var connectionPresentation: CloudTerminalReconnectOverlayPolicy.Presentation? {
+        let state: WorkspaceRemoteConnectionState
+        switch phase {
+        case .idle, .connecting: state = .connecting
+        case .attached: state = diagnosticReplayReceived ? .connected : .connecting
+        case .disconnected: state = .error
+        case .stopped: return nil
+        }
+        return CloudTerminalReconnectOverlayPolicy.presentation(
+            isManagedCloudWorkspace: true, isRemoteTerminalSurface: true,
+            connectionState: state, detail: diagnosticFailure?.label ?? CloudOperationPhase.ready.label
+        )
+    }
+
+    @discardableResult
+    func retryConnection() -> Bool {
+        guard phase != .stopped else { return false }
+        if let socketPath { reconnect(socketPath: socketPath) }
+        else { onNeedsReconnect() }
+        return true
+    }
     private nonisolated static let leaseCapability = "view-attachment-lease-v1"
 
     init(
@@ -56,9 +93,11 @@ final class CloudTuiManualMirrorSession {
         terminalID: String,
         remoteSurfaceID: UInt64,
         initiallyClaimsGeometry: Bool = true,
+        operations: CloudOperationRecorder? = nil,
         commandBuilder: CloudTuiManualIOCommand = CloudTuiManualIOCommand(),
         onNeedsReconnect: @escaping @MainActor () -> Void
     ) {
+        self.operations = operations
         self.machineID = machineID
         self.terminalID = terminalID
         self.remoteSurfaceID = remoteSurfaceID
@@ -242,6 +281,23 @@ final class CloudTuiManualMirrorSession {
             }
         }
 
+        finishDiagnostics(error: CancellationError())
+        diagnosticFailure = nil
+        diagnosticReplayReceived = false
+        if let parent = CloudOperationContext.current {
+            diagnosticContext = parent.recorder.beginChild(of: parent, phase: .ready, attempt: 0)
+        } else if let operations {
+            let root = operations.begin(.terminal, foreground: false)
+            diagnosticContext = root
+        }
+        if let context = diagnosticContext {
+            diagnosticDeadline = Task { @MainActor [weak self] in
+                do { try await Task.sleep(for: .seconds(60)) } catch { return }
+                guard let self, self.diagnosticContext?.spanID == context.spanID else { return }
+                self.finishDiagnostics(error: CloudDiagnosticFailure.timeout)
+                self.transitionToDisconnected()
+            }
+        }
         if hasReceivedRemoteReplay {
             replayNeedsReset = true
         }
@@ -275,6 +331,7 @@ final class CloudTuiManualMirrorSession {
                     connection.close()
                     return
                 }
+                self.finishDiagnostics(error: error)
                 self.phase = .disconnected
                 self.onNeedsReconnect()
                 return
@@ -371,6 +428,18 @@ final class CloudTuiManualMirrorSession {
         self.surface = nil
     }
 
+
+    private func finishDiagnostics(error: Error? = nil) {
+        diagnosticDeadline?.cancel()
+        diagnosticDeadline = nil
+        if let error, !(error is CancellationError) { diagnosticFailure = .classify(error) }
+        surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
+        let context = diagnosticContext ?? (error != nil && !(error is CancellationError) ? operations?.begin(.terminal, foreground: false) : nil)
+        guard let context else { return }
+        diagnosticContext = nil
+        Task { await context.recorder.finish(context, error: error) }
+    }
+
     // MARK: - Transport events
 
     private func startEventTask(_ connection: CloudTuiManualIOConnection) {
@@ -400,6 +469,8 @@ final class CloudTuiManualMirrorSession {
             applyColors(colors)
             replayNeedsReset = false
             hasReceivedRemoteReplay = true
+            diagnosticReplayReceived = true
+            if phase == .attached { finishDiagnostics() }
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
             reconcileRemoteGrid()
         case let .output(surfaceID, bytes, colors):
@@ -414,6 +485,8 @@ final class CloudTuiManualMirrorSession {
             applyReplay(bytes, reset: true)
             applyColors(colors)
             hasReceivedRemoteReplay = true
+            diagnosticReplayReceived = true
+            if phase == .attached { finishDiagnostics() }
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
             reconcileRemoteGrid()
         case let .colorsChanged(surfaceID, colors):

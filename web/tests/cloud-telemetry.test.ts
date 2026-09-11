@@ -21,7 +21,7 @@ function span(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
-function batch(spans = [span()]) { return { version: 1, spans }; }
+function batch(spans = [span()]) { return { version: 1, client: { channel: "nightly", version: "0.1.0", build: "123", revision: "abcdef1234567", osVersion: "26.0", architecture: "arm64" }, spans }; }
 function request(body: unknown = batch(), headers: Record<string, string> = {}) {
   return new Request("https://cmux.test/api/observability/cloud", {
     method: "POST", headers: { "content-type": "application/json", ...headers },
@@ -54,7 +54,7 @@ describe("Cloud diagnostic boundary", () => {
     expect(exported.traceId).toBe(span().traceId);
     expect(exported.spanId).toBe(span().spanId);
     expect(exported.parentSpanId).toBe(span().parentSpanId);
-    expect(BigInt(exported.endTimeUnixNano) - BigInt(exported.startTimeUnixNano)).toBe(1_500_000_000n);
+    expect(BigInt(exported.endTimeUnixNano) - BigInt(exported.startTimeUnixNano)).toBe(BigInt(1_500_000_000));
     expect(exported.status.code).toBe(2);
     expect(JSON.stringify(exported)).not.toContain("secret");
   });

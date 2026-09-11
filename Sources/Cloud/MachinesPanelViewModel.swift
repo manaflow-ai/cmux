@@ -602,7 +602,6 @@ final class MachinesPanelViewModel: ObservableObject {
             }
             guard !Task.isCancelled, let self else { return }
             self.readCatalog()
-            self.treeErrorDescription = nil
         }
     }
 

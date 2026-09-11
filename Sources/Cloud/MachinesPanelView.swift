@@ -80,6 +80,9 @@ struct MachinesPanelView: View {
     @ViewBuilder
     private var authenticatedContent: some View {
         controlBar
+        if let recorder = AppDelegate.shared?.cloudOperations, !recorder.operations.isEmpty {
+            CloudOperationActivityView(operations: recorder.operations, dismiss: recorder.dismiss)
+        }
         if let banner = tunnelStatus.banner {
             MachinesTunnelBanner(banner: banner, backgroundColor: chromeBackgroundColor) {
                 SystemExtensionSettingsLink.open()

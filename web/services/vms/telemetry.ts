@@ -1,3 +1,4 @@
+import { currentVmRequestContext } from "./requestContext";
 import {
   recordSpanError,
   setSpanAttributes,
@@ -24,6 +25,10 @@ export async function withVmSpan<T>(
       "cmux.runtime": "provider-driver",
       ...attributes,
     },
-    fn,
+    (span) => {
+      const progress = currentVmRequestContext()?.progress;
+      const phase = name.includes("network") || name.includes("tunnel") ? "tunnel" : "provider";
+      return progress ? progress.run(phase, () => Promise.resolve(fn(span))) : fn(span);
+    },
   );
 }
