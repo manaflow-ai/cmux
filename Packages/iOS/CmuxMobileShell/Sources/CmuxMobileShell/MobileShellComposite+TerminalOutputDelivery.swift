@@ -391,14 +391,15 @@ extension MobileShellComposite {
     ) -> Bool {
         let hasCurrentThemeRevision = hasCurrentTerminalThemeRevision(frame)
         recordTerminalTheme(frame)
+        let compatibleFrame = resolvingUnbackedRenderGridColorSemantics(in: frame)
         let deliveryFrame: MobileTerminalRenderGridFrame
         if hasCurrentThemeRevision {
-            deliveryFrame = frame
+            deliveryFrame = compatibleFrame
         } else {
             MobileDebugLog.anchormux(
                 "sync.render_grid_stale_theme surface=\(frame.surfaceID) revision=\(frame.terminalThemeRevision ?? 0)"
             )
-            deliveryFrame = frame.replacingThemeColors(
+            deliveryFrame = compatibleFrame.replacingThemeColors(
                 with: terminalTheme(for: frame.surfaceID),
                 config: terminalConfigTheme(for: frame.surfaceID),
                 revision: terminalThemeState.revisionsBySurfaceID[frame.surfaceID]

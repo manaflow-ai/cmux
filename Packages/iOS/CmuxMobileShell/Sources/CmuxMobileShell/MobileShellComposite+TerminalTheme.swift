@@ -58,6 +58,39 @@ extension MobileShellComposite {
         return revision >= currentRevision
     }
 
+    /// Makes semantic colors safe for producers that predate per-frame themes.
+    ///
+    /// Intermediate render-grid producers exported palette/default semantics and
+    /// their resolved RGB values, but did not export the palette those semantics
+    /// referenced. After a reconnect the phone therefore interpreted those cells
+    /// through its fallback palette. Preserve exact producer colors until a full
+    /// frame establishes an authoritative per-surface theme.
+    func resolvingUnbackedRenderGridColorSemantics(
+        in frame: MobileTerminalRenderGridFrame
+    ) -> MobileTerminalRenderGridFrame {
+        guard frame.terminalTheme == nil,
+              terminalThemeState.themesBySurfaceID[frame.surfaceID] == nil else {
+            return frame
+        }
+
+        var resolved = frame
+        resolved.styles = frame.styles.map { style in
+            var resolvedStyle = style
+            if resolvedStyle.foregroundSource != .rgb,
+               TerminalTheme.rgbComponents(resolvedStyle.foreground) != nil {
+                resolvedStyle.foregroundSource = .rgb
+                resolvedStyle.foregroundPaletteIndex = nil
+            }
+            if resolvedStyle.backgroundSource != .rgb,
+               TerminalTheme.rgbComponents(resolvedStyle.background) != nil {
+                resolvedStyle.backgroundSource = .rgb
+                resolvedStyle.backgroundPaletteIndex = nil
+            }
+            return resolvedStyle
+        }
+        return resolved
+    }
+
     /// Returns the most recent theme for one surface, falling back to the
     /// connected Mac's host-wide theme before its first full frame arrives.
     func terminalTheme(for surfaceID: String) -> TerminalTheme {
