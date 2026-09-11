@@ -49,6 +49,10 @@ final class CloudTuiManualMirrorSession {
     private var hasReceivedRemoteReplay = false
     private var lastRemoteGrid: CloudTuiManualIOGrid?
     private(set) var phase: CloudTuiManualMirrorPhase = .idle
+    /// Bounds on the handshake and on attached-stream liveness, enforced by
+    /// the attachment watchdog. Tests inject short bounds and a virtual clock.
+    let deadlines: CloudTuiManualMirrorDeadlines
+    let clock: any Clock<Duration>
     private nonisolated static let leaseCapability = "view-attachment-lease-v1"
 
     init(
@@ -57,6 +61,8 @@ final class CloudTuiManualMirrorSession {
         remoteSurfaceID: UInt64,
         initiallyClaimsGeometry: Bool = true,
         commandBuilder: CloudTuiManualIOCommand = CloudTuiManualIOCommand(),
+        deadlines: CloudTuiManualMirrorDeadlines = .standard,
+        clock: any Clock<Duration> = ContinuousClock(),
         onNeedsReconnect: @escaping @MainActor () -> Void
     ) {
         self.machineID = machineID
@@ -65,6 +71,8 @@ final class CloudTuiManualMirrorSession {
         geometryClaimEligible = initiallyClaimsGeometry
         self.onNeedsReconnect = onNeedsReconnect
         self.commandBuilder = commandBuilder
+        self.deadlines = deadlines
+        self.clock = clock
         inputRouter = CloudTuiManualIOInputRouter(
             surfaceID: remoteSurfaceID,
             commandBuilder: commandBuilder
@@ -156,23 +164,7 @@ final class CloudTuiManualMirrorSession {
         // previous numeric surface, and `reconnect` intentionally fast-paths a
         // still-live connection with the same socket path.
         if phase != .idle, phase != .stopped {
-            if hasReceivedRemoteReplay {
-                replayNeedsReset = true
-            }
-            connectTask?.cancel()
-            eventTask?.cancel()
-            connection?.close()
-            connection = nil
-            inputRouter.setConnection(nil)
-            pendingRequests.removeAll(keepingCapacity: true)
-            attachResponseReceived = false
-            claimInFlight = false
-            geometryClaimed = false
-            claimUnsupported = false
-            remoteLease = nil
-            serverCapabilities.removeAll(keepingCapacity: true)
-            resizeScheduler.resetForReconnect()
-            lastRemoteGrid = nil
+            tearDownConnection()
             phase = .disconnected
         }
     }
@@ -183,11 +175,22 @@ final class CloudTuiManualMirrorSession {
     /// provider will reconnect only after a later authoritative resolution.
     func markSurfaceResolutionUnavailable() {
         guard phase != .stopped else { return }
+        tearDownConnection()
+        phase = .disconnected
+    }
+
+    /// Drops the current transport and every per-connection fact. Leases,
+    /// capabilities, pending requests and acknowledged grids belong to one
+    /// connection generation and never survive it; a later replay starts from
+    /// a reset screen.
+    private func tearDownConnection() {
         if hasReceivedRemoteReplay {
             replayNeedsReset = true
         }
         connectTask?.cancel()
+        connectTask = nil
         eventTask?.cancel()
+        eventTask = nil
         connection?.close()
         connection = nil
         inputRouter.setConnection(nil)
@@ -200,7 +203,6 @@ final class CloudTuiManualMirrorSession {
         serverCapabilities.removeAll(keepingCapacity: true)
         resizeScheduler.resetForReconnect()
         lastRemoteGrid = nil
-        phase = .disconnected
     }
 
     /// Samples the grid after Ghostty has created its runtime surface. Runtime
@@ -242,24 +244,8 @@ final class CloudTuiManualMirrorSession {
             }
         }
 
-        if hasReceivedRemoteReplay {
-            replayNeedsReset = true
-        }
         self.socketPath = socketPath
-        connectTask?.cancel()
-        eventTask?.cancel()
-        connection?.close()
-        connection = nil
-        inputRouter.setConnection(nil)
-        pendingRequests.removeAll(keepingCapacity: true)
-        attachResponseReceived = false
-        claimInFlight = false
-        geometryClaimed = false
-        claimUnsupported = false
-        remoteLease = nil
-        serverCapabilities.removeAll(keepingCapacity: true)
-        resizeScheduler.resetForReconnect()
-        lastRemoteGrid = nil
+        tearDownConnection()
         phase = .connecting
 
         let path = socketPath
@@ -464,21 +450,7 @@ final class CloudTuiManualMirrorSession {
     }
 
     private func transitionToDisconnected() {
-        if hasReceivedRemoteReplay {
-            replayNeedsReset = true
-        }
-        connection?.close()
-        connection = nil
-        inputRouter.setConnection(nil)
-        pendingRequests.removeAll(keepingCapacity: true)
-        attachResponseReceived = false
-        claimInFlight = false
-        geometryClaimed = false
-        claimUnsupported = false
-        remoteLease = nil
-        serverCapabilities.removeAll(keepingCapacity: true)
-        resizeScheduler.resetForReconnect()
-        lastRemoteGrid = nil
+        tearDownConnection()
         guard phase != .stopped else { return }
         phase = .disconnected
         onNeedsReconnect()

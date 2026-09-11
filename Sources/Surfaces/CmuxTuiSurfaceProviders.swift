@@ -354,7 +354,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                         exitedTerminalIDs.insert(session.terminalID)
                         session.markSurfaceResolutionUnavailable()
                         reconnectableSessionIDs.remove(ObjectIdentifier(session))
-                    case .none, .noPlacement, .unsupported, .failed:
+                    case .none, .noPlacement, .unsupported, .retryable, .failed:
                         session.markSurfaceResolutionUnavailable()
                         reconnectableSessionIDs.remove(ObjectIdentifier(session))
                         allSurfaceIDsResolved = false
