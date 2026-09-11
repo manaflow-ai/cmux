@@ -28,12 +28,6 @@
             "value": "Scannez les QR de jumelage cmux depuis votre terminal Mac."
           }
         },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scansiona i QR code di abbinamento cmux dal terminale del tuo Mac."
-          }
-        },
         "ja": {
           "stringUnit": {
             "state": "translated",
@@ -46,36 +40,6 @@
             "value": "Mac 터미널에서 cmux 페어링 QR 코드를 스캔합니다."
           }
         },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scan cmux-koppel-QR-codes van je Mac-terminal."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Skanuj kody QR parowania cmux z terminala Mac."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Escanear QR codes de pareamento do cmux a partir do seu terminal Mac."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сканирование QR-кодов сопряжения cmux с вашего Mac."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac terminalinizden cmux eşleştirme QR kodlarını tarayın."
-          }
-        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -86,6 +50,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "掃描來自 Mac 終端機的 cmux 配對 QR 碼。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسح رموز QR لاقتران cmux من طرفية Mac."
           }
         }
       }
@@ -117,12 +87,6 @@
             "value": "Connectez-vous à votre Mac sur le réseau local pour le jumelage mobile cmux et la synchronisation du terminal."
           }
         },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connettiti al tuo Mac sulla rete locale per l'abbinamento mobile cmux e la sincronizzazione del terminale."
-          }
-        },
         "ja": {
           "stringUnit": {
             "state": "translated",
@@ -135,36 +99,6 @@
             "value": "cmux 모바일 페어링 및 터미널 동기화를 위해 로컬 네트워크의 Mac에 연결합니다."
           }
         },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verbinding maken met je Mac op het lokale netwerk voor cmux-mobiel koppelen en terminalsynchronisatie."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Połącz się z Macem w sieci lokalnej w celu parowania mobilnego cmux i synchronizacji terminala."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conectar ao seu Mac na rede local para pareamento móvel e sincronização de terminal do cmux."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Подключение к Mac в локальной сети для мобильного сопряжения и синхронизации терминала cmux."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux mobil eşleştirme ve terminal senkronizasyonu için yerel ağdaki Mac'inize bağlanın."
-          }
-        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -175,6 +109,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "透過區域網路連線至您的 Mac，以進行 cmux 行動裝置配對和終端機同步。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاتصال بجهاز Mac على الشبكة المحلية لاقتران cmux على الهاتف ومزامنة الطرفية."
           }
         }
       }
@@ -206,12 +146,6 @@
             "value": "Enregistrez de l'audio pour transcrire votre voix dans la zone de message."
           }
         },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Registra audio per trascrivere la tua voce nella casella dei messaggi."
-          }
-        },
         "ja": {
           "stringUnit": {
             "state": "translated",
@@ -224,36 +158,6 @@
             "value": "음성을 녹음하여 메시지 박스에 텍스트로 변환합니다."
           }
         },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Audio opnemen om je stem te transcriberen in het berichtvak."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nagraj dźwięk, aby transkrybować głos do pola wiadomości."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gravar áudio para transcrever sua voz na caixa de mensagem."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Запись аудио для транскрибации голоса в поле сообщения."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sesinizi mesaj kutusuna dönüştürmek için ses kaydedin."
-          }
-        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -264,6 +168,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "錄製音訊以將語音轉錄至訊息輸入框。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الصوت لتحويل كلامك إلى نص في مربع الرسالة."
           }
         }
       }
@@ -295,12 +205,6 @@
             "value": "Joignez des photos à envoyer à votre agent de terminal."
           }
         },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Allega foto da inviare all'agente del terminale."
-          }
-        },
         "ja": {
           "stringUnit": {
             "state": "translated",
@@ -313,36 +217,6 @@
             "value": "터미널 에이전트에게 전송할 사진을 첨부합니다."
           }
         },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Foto's bijvoegen om naar je terminalagent te sturen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dołączaj zdjęcia do wysyłania do agenta terminala."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anexar fotos para enviar ao seu agente de terminal."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Прикрепление фотографий для отправки агенту в терминале."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal ajanınıza göndermek için fotoğraf ekleyin."
-          }
-        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -353,6 +227,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "附加照片以傳送至您的終端機代理。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إرفاق الصور لإرسالها إلى وكيل الطرفية."
           }
         }
       }
@@ -384,12 +264,6 @@
             "value": "Transcrivez votre discours dans la zone de message."
           }
         },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Trascrivi il tuo parlato nella casella dei messaggi."
-          }
-        },
         "ja": {
           "stringUnit": {
             "state": "translated",
@@ -402,36 +276,6 @@
             "value": "음성을 메시지 박스에 텍스트로 변환합니다."
           }
         },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Je spraak transcriberen in het berichtvak."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Transkrybuj mowę do pola wiadomości."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Transcrever sua fala na caixa de mensagem."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Транскрибация речи в поле сообщения."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Konuşmanızı mesaj kutusuna dönüştürün."
-          }
-        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -442,6 +286,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "將您的語音轉錄至訊息輸入框。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحويل كلامك إلى نص في مربع الرسالة."
           }
         }
       }

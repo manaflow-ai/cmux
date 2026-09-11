@@ -103,6 +103,22 @@ jobs:
           # grandfathered in the lint baseline files under scripts/.
           ./scripts/lint-ios-package-conventions.sh
 
+  localization-parity:
+    needs: detect-ios-changes
+    if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+          submodules: false
+
+      - name: Check iOS localization parity
+        run: python3 ios/scripts/check-localization-parity.py
+
   mobile-core-package:
     needs: detect-ios-changes
     if: >-
@@ -448,6 +464,7 @@ jobs:
     needs:
       - detect-ios-changes
       - package-conventions-lint
+      - localization-parity
       - mobile-core-package
       - ios-simulator
     if: ${{ always() }}

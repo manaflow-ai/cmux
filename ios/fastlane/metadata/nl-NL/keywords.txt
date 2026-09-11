@@ -1,1 +1,0 @@
-terminal,coding agent,AI,claude,codex,ssh,ontwikkelaar,devops,ghostty,remote,cli,automatisering,cmux
