@@ -68,11 +68,7 @@ export type VMHandle = {
 
 export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
-  /**
-   * The machine's generated three-word name, shown in the provider's own
-   * console so it matches what cmux shows. Cosmetic: providers that name
-   * machines uniquely must not fail the create over it.
-   */
+  /** Human-facing machine label; providers may ignore this cosmetic field. */
   displayName?: string;
   providerMetadata?: Record<string, unknown>;
   /**
@@ -83,14 +79,14 @@ export type CreateOptions = {
   homeVolume?: string;
   /**
    * Machine size as memory in MB (vCPUs scale with memory on providers that size
-   * this way). Providers without sizing ignore it. Storage is resized separately
-   * through the grow-only resize operation.
+   * this way). Providers without sizing ignore it.
    */
   memoryMb?: number;
   /**
-   * The snapshot's own CPU and memory shape when the image is a sized ladder
-   * entry (services/vms/images/sizes.ts). Disk remains grow-only after create.
-   * Absent for size-less images, which are grown to `memoryMb`.
+   * The snapshot's own shape when the image is a sized ladder entry
+   * (services/vms/images/sizes.ts): the machine boots at the shape that was
+   * sold and the driver must not read it back or resize. Absent for size-less
+   * images, which are grown to `memoryMb`.
    */
   imageSize?: { readonly name: string; readonly cpu: number; readonly memoryMb: number; readonly storageMb: number } | null;
   /**
@@ -194,11 +190,7 @@ export type AttachTransport = "ssh" | "websocket" | "cmux-remote";
  */
 export type CmuxRemoteEndpoint = {
   transport: "cmux-remote";
-  /**
-   * Provider-reachable daemon route, normally `ws://[ipv6]:1337/v1/link` for Freestyle.
-   * A provider may return a token-bearing gateway URL, but the client must treat `route`
-   * as opaque and never construct or append credentials to it.
-   */
+  /** `wss://<host>/v1/link?<provider-token>` — carries the ingress token, so it is never embedded in an invitation. */
   route: string;
   /** Ingress token (hashed into the lease ledger, never persisted raw). */
   token: string;
@@ -302,6 +294,12 @@ export type ExecOptions = {
   readonly providerMetadata?: Record<string, unknown>;
 };
 
+export type SnapshotRef = {
+  id: string;
+  createdAt: number;
+  name?: string;
+};
+
 /** Grow-only resources accepted by a provider resize operation. */
 export type VMResizeOptions = {
   readonly cpu?: number;
@@ -309,19 +307,29 @@ export type VMResizeOptions = {
   readonly storageMb?: number;
 };
 
-export type SnapshotRef = {
-  id: string;
-  createdAt: number;
-  name?: string;
-};
-
-/** What a provider can actually do, so clients hide verbs that would only fail. */
+/**
+ * What a provider can actually do, so clients hide verbs that would only fail.
+ * This is the client-visible provider contract: every VM API response carries
+ * it, and the CLI/app gates verbs on it instead of assuming a provider name.
+ */
 export interface VmCapabilities {
   readonly snapshot: boolean;
   readonly restore: boolean;
   readonly fork: boolean;
-  /** The provider can mint a browser preview URL for a machine port. */
+  /** One-shot non-interactive command execution (`POST /api/vm/:id/exec`). */
+  readonly exec: boolean;
+  /** Live CPU/memory/disk readings (`GET /api/vm/:id/stats`). */
+  readonly stats: boolean;
+  /** Token-gated HTTPS preview URLs for arbitrary VM ports (`POST /api/vm/:id/open-port`). */
   readonly ports: boolean;
+  /** A desktop (VNC) image exists for this provider. */
+  readonly desktop: boolean;
+  /** `CreateOptions.memoryMb` is honored rather than ignored. */
+  readonly sizing: boolean;
+  /** `CreateOptions.homeVolume` is honored rather than ignored. */
+  readonly persistentHome: boolean;
+  /** Session transports the driver can hand out, in preference order. */
+  readonly attachTransports: readonly AttachTransport[];
 }
 
 /** A private network that every machine belonging to one user shares. */
@@ -338,7 +346,7 @@ export type ProviderNetwork = {
  * A WireGuard tunnel: one of the owner's computers as a member of their
  * private network.
  *
- * `clientConfig` is WireGuard configuration text whose `PrivateKey` is blank —
+ * `clientConfig` is a complete `wg-quick` config whose `PrivateKey` is blank —
  * cmux always supplies its own public key, so the provider never mints (or
  * sees) a private key, and the client fills its own in from its keystore.
  */
@@ -356,12 +364,7 @@ export type ProviderTunnel = {
   readonly addressV6: string | null;
 };
 
-/**
- * Result of enrolling a client tunnel. `created` describes the provider
- * resource, not the database row: a provider slug conflict can recover an
- * orphaned tunnel that already exists. `rotated` says that its client key was
- * replaced during that recovery.
- */
+/** Result of enrolling a tunnel, including whether provider state was recovered or rotated. */
 export type ProviderTunnelCreateResult = {
   readonly tunnel: ProviderTunnel;
   readonly created: boolean;
@@ -423,9 +426,8 @@ export interface VMProvider {
   readonly privateNetworking?: VMPrivateNetworking;
   /**
    * Optional-operation support. A driver that implements `snapshot`/`restore` only to
-   * throw NotImplementedError declares that here; `fork` and `ports` default
-   * to whether their methods exist. Everything omitted defaults to supported where a
-   * legacy client needs that compatibility behavior.
+   * throw NotImplementedError declares that here; `fork` defaults to whether the method
+   * exists. Everything omitted defaults to supported.
    */
   readonly capabilities?: Partial<VmCapabilities>;
 
@@ -463,6 +465,18 @@ export interface VMProvider {
 
   snapshot(vmId: string, name?: string): Promise<SnapshotRef>;
   /**
+   * Optional: every snapshot taken from `vmId`, newest first. Absent on a
+   * provider that cannot enumerate snapshots; the gateway answers unsupported.
+   */
+  listSnapshots?(vmId: string): Promise<SnapshotRef[]>;
+  /**
+   * Optional: delete one snapshot taken from `vmId`. A snapshot that does not
+   * exist or was taken from another machine fails with an error
+   * `isProviderNotFoundError` recognizes, so the workflow answers not-found
+   * rather than deleting across machines.
+   */
+  deleteSnapshot?(vmId: string, snapshotId: string): Promise<void>;
+  /**
    * Boot a new machine from a snapshot. `options.network` places it on the
    * owner's private network exactly as `create` does — a restored machine is a
    * machine like any other, and one restored outside the network would be the
@@ -477,11 +491,11 @@ export interface VMProvider {
   // VmAttachTransportUnsupportedError before reaching the provider.
   readonly attachTransports?: readonly AttachTransport[];
 
-  // Returns a live legacy attach endpoint the client can dial into: a raw WebSocket
-  // PTY with a short-lived one-use lease, or SSH. The current Freestyle driver is
-  // cmux-remote only and throws here; the seam remains for a future provider that
-  // explicitly supports a legacy raw transport.
-  openAttach(vmId: string, options?: AttachOptions): Promise<AttachEndpoint>;
+  // Optional: a live attach endpoint the client can dial into — a cmuxd-remote WebSocket
+  // PTY with a short-lived one-use lease. A driver only implements this when it lists
+  // `websocket` in attachTransports; workflows refuse the transport before reaching a
+  // driver that omits it.
+  openAttach?(vmId: string, options?: AttachOptions): Promise<AttachEndpoint>;
 
   // Optional: attach through the cmux-tui remote daemon in the VM (see CmuxRemoteEndpoint).
   // Every cmux Cloud machine runs this daemon; providers that have not been migrated
@@ -496,14 +510,15 @@ export interface VMProvider {
     options?: CmuxRemoteApprovalOptions,
   ): Promise<CmuxRemoteApprovalResult>;
 
-  // Returns a live SSH endpoint the client can dial into. Drivers are responsible for ensuring
-  // sshd is running (some providers need an explicit start step).
-  openSSH(vmId: string): Promise<SSHEndpoint>;
+  // Optional: a live SSH endpoint the client can dial into. Drivers are responsible for
+  // ensuring sshd is running (some providers need an explicit start step). Only drivers
+  // listing `ssh` in attachTransports implement this.
+  openSSH?(vmId: string): Promise<SSHEndpoint>;
 
   // Best-effort revocation of an identity handle that `openSSH` previously returned. No-op
   // if the driver doesn't mint revocable credentials, must not throw on unknown
   // or already-revoked handles. Cleanup paths rely on it being safe to call.
-  revokeSSHIdentity(identityHandle: string): Promise<void>;
+  revokeSSHIdentity?(identityHandle: string): Promise<void>;
 
   /**
    * Invalidates endpoint credentials and live daemon connections for one VM.

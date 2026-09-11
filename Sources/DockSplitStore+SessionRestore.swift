@@ -502,6 +502,11 @@ extension DockSplitStore {
             panelId: terminal.id,
             internallySeededInput: initialInput
         )
+        if willRunAgentInput {
+            // Keep the typed resume selector so the shell-state handler can
+            // replay it if the login shell drops the typeahead.
+            restoredAgentLifecycle.registerStartupInput(initialInput, panelId: terminal.id)
+        }
         if let stableSurfaceId = snapshot.stableSurfaceId,
            !excludingStableIdentities.contains(stableSurfaceId) {
             terminal.adoptStableSurfaceId(stableSurfaceId)

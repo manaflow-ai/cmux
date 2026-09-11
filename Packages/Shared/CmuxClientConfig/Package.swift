@@ -14,9 +14,13 @@ let package = Package(
             targets: ["CmuxClientConfig"]
         ),
     ],
+    dependencies: [
+        .package(path: "../CMUXMobileCore"),
+    ],
     targets: [
         .target(
             name: "CmuxClientConfig",
+            dependencies: ["CMUXMobileCore"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]

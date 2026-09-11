@@ -1,3 +1,4 @@
+import CMUXMobileCore
 public import Foundation
 import OSLog
 
@@ -740,10 +741,13 @@ public actor PushRegistrationService: PushRegistering {
     ) {
         guard failure.isRecoverable, !remainingDelays.isEmpty else { return }
         let fallbackDelay = remainingDelays[0]
-        let delay = retryAfter ?? Self.jittered(
+        let localDelay = Self.jittered(
             fallbackDelay,
             multiplier: retryJitter(0.8...1.2)
         )
+        // Retry-After is a server-owned floor. It can extend, but never
+        // shorten, the client's local backoff.
+        let delay = max(localDelay, retryAfter ?? .zero)
         let laterDelays = Array(remainingDelays.dropFirst())
         retryTask = Task { [weak self, retrySleep] in
             do {
@@ -1371,10 +1375,10 @@ public actor PushRegistrationService: PushRegistering {
             let seconds = retryAfterSeconds(
                 response: response,
                 body: data
-            )
+            ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
             return .failure(
                 .rateLimited(retryAfterSeconds: seconds),
-                retryAfter: seconds.map(Duration.seconds)
+                retryAfter: .seconds(seconds)
             )
         case 500...599:
             return .failure(.serviceUnavailable, retryAfter: nil)
@@ -1387,14 +1391,17 @@ public actor PushRegistrationService: PushRegistering {
         response: HTTPURLResponse,
         body: Data
     ) -> Int? {
-        let headerDelay = response.value(forHTTPHeaderField: "Retry-After")
-            .flatMap(Int.init)
+        let headerDelay = CmxRetryAfterPolicy.seconds(
+            from: response.value(forHTTPHeaderField: "Retry-After")
+        )
         let bodyDelay = try? JSONDecoder().decode(
             RegistrationErrorResponse.self,
             from: body
         ).retryAfterSeconds
-        guard let raw = headerDelay ?? bodyDelay else { return nil }
-        return min(max(raw, 0), 600)
+        guard let raw = headerDelay ?? bodyDelay, raw > 0 else { return nil }
+        // The backend owns this floor. Local retry ladders may wait longer,
+        // but must never shorten a valid server directive.
+        return raw
     }
 
     private static func jittered(_ duration: Duration, multiplier: Double) -> Duration {

@@ -546,6 +546,20 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     // would strand the sink until a later UIKit callback.
                     guard self.surfaceView === surfaceView else { return }
                     self.armOutputConsumerStabilityReset(generation: taskGeneration)
+                    if let frame = chunk.sourceRenderGridFrame,
+                       store.usesHybridTerminalOutput,
+                       !frame.full,
+                       frame.activeScreen == .primary {
+                        // Hybrid uses partial render-grid primary frames as
+                        // advisory state only. Full frames still apply so a
+                        // transition back from the alternate screen cannot
+                        // leave the byte lane showing stale TUI content.
+                        store.terminalOutputDidProcess(
+                            surfaceID: surfaceID,
+                            streamToken: chunk.streamToken
+                        )
+                        continue
+                    }
                     #if DEBUG
                     let latencySequence = chunk.sourceRenderGridFrame?.stateSeq
                         ?? chunk.endSequence
@@ -621,37 +635,49 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     case .legacy:
                         break
                     }
-                    switch chunk.viewportPolicy {
-                    case .natural:
-                        self.activeViewportPolicy = .natural
-                        if chunk.data.isEmpty {
-                            surfaceView.useNaturalViewSize()
-                        } else {
-                            let applied = await surfaceView.useNaturalViewSizeAndWait()
-                            guard applied else {
-                                store.terminalOutputDidReset(
-                                    surfaceID: surfaceID,
-                                    streamToken: chunk.streamToken
-                                )
-                                continue
+                    let directPrimaryDelta = chunk.sourceRenderGridFrame.map {
+                        !$0.full && $0.anchor == .screen && $0.activeScreen == .primary
+                    } ?? false
+                    // Screen-anchored primary deltas are relative to the
+                    // established replay grid. Their advisory `.natural`
+                    // policy describes the phone's preferred layout, but
+                    // applying it before every delta can reflow one extra row
+                    // while the host is still emitting the established grid.
+                    // Keep the baseline until a full frame or an explicit
+                    // viewport report reconciles it.
+                    if !directPrimaryDelta {
+                        switch chunk.viewportPolicy {
+                        case .natural:
+                            self.activeViewportPolicy = .natural
+                            if chunk.data.isEmpty {
+                                surfaceView.useNaturalViewSize()
+                            } else {
+                                let applied = await surfaceView.useNaturalViewSizeAndWait()
+                                guard applied else {
+                                    store.terminalOutputDidReset(
+                                        surfaceID: surfaceID,
+                                        streamToken: chunk.streamToken
+                                    )
+                                    continue
+                                }
                             }
-                        }
-                    case .remoteGrid(let columns, let rows):
-                        self.activeViewportPolicy = .remoteGrid(columns: columns, rows: rows)
-                        if chunk.data.isEmpty {
-                            surfaceView.applyViewSize(cols: columns, rows: rows)
-                        } else {
-                            let applied = await surfaceView.applyViewSizeAndWait(cols: columns, rows: rows)
-                            guard applied else {
-                                store.terminalOutputDidReset(
-                                    surfaceID: surfaceID,
-                                    streamToken: chunk.streamToken
-                                )
-                                continue
+                        case .remoteGrid(let columns, let rows):
+                            self.activeViewportPolicy = .remoteGrid(columns: columns, rows: rows)
+                            if chunk.data.isEmpty {
+                                surfaceView.applyViewSize(cols: columns, rows: rows)
+                            } else {
+                                let applied = await surfaceView.applyViewSizeAndWait(cols: columns, rows: rows)
+                                guard applied else {
+                                    store.terminalOutputDidReset(
+                                        surfaceID: surfaceID,
+                                        streamToken: chunk.streamToken
+                                    )
+                                    continue
+                                }
                             }
+                        case nil:
+                            break
                         }
-                    case nil:
-                        break
                     }
                     if self.shouldResetForConfigThemeMismatch(chunk, store: store) {
                         store.terminalOutputDidReset(
@@ -677,8 +703,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                                 // alternate-screen frames retain the exact
                                 // dimension check used by replay safety.
                                 requiresSurfaceDimensionCheck: !(
-                                    store.usesScreenAnchoredRenderGrid
-                                        && !$0.full
+                                    !$0.full
                                         && $0.anchor == .screen
                                         && $0.activeScreen == .primary
                                 )
