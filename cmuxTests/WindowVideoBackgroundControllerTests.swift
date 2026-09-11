@@ -385,6 +385,52 @@ struct WindowVideoBackgroundControllerTests {
     }
 
     @Test
+    func addingQueueEntryAfterSingleLoopResetsTheManagedQueuePlayhead() {
+        var clock: CFTimeInterval = 100
+        let coordinator = VideoBackgroundPlaybackCoordinator(now: { clock })
+        let initial = coordinator.configure(sourceTexts: ["/tmp/first.mp4"], quality: "1080p")
+        let registration = coordinator.register { _ in }
+        coordinator.setPlayerRunning(true, for: registration.token)
+        clock += 125
+
+        let queue = coordinator.configure(
+            sourceTexts: ["/tmp/first.mp4", "/tmp/second.mp4"],
+            quality: "1080p"
+        )
+
+        #expect(queue.index == 0)
+        #expect(queue.currentSource == initial.currentSource)
+        #expect(queue.position == 0)
+        #expect(queue.generation != initial.generation)
+        coordinator.setPlayerRunning(false, for: registration.token)
+    }
+
+    @Test
+    func oneWindowFailureDoesNotAdvanceAPlayingPeer() {
+        let coordinator = VideoBackgroundPlaybackCoordinator()
+        let initial = coordinator.configure(
+            sourceTexts: ["dQw4w9WgXcQ", "M7lc1UVf-VE"],
+            quality: "1080p"
+        )
+        let failedWindow = coordinator.register { _ in }
+        let healthyWindow = coordinator.register { _ in }
+        coordinator.setPlayerRunning(true, for: failedWindow.token)
+        coordinator.setPlayerRunning(true, for: healthyWindow.token)
+
+        let disposition = coordinator.recordFailure(after: initial.generation, for: failedWindow.token)
+
+        #expect(disposition == .deferred)
+        #expect(coordinator.synchronizedSnapshot().currentSource == initial.currentSource)
+
+        let finalDisposition = coordinator.recordFailure(after: initial.generation, for: healthyWindow.token)
+
+        #expect(finalDisposition == .advanced)
+        #expect(coordinator.synchronizedSnapshot().currentSource == .youTubeVideo(id: "M7lc1UVf-VE"))
+        coordinator.unregister(failedWindow.token)
+        coordinator.unregister(healthyWindow.token)
+    }
+
+    @Test
     func explicitSelectionRestartsAfterAPersistedQueueRotation() {
         var clock: CFTimeInterval = 100
         let coordinator = VideoBackgroundPlaybackCoordinator(now: { clock })

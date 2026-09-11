@@ -32,6 +32,13 @@ final class VideoBackgroundPresentation {
 /// failed queue entry is skipped at most once so an all-failing queue settles.
 @MainActor
 final class VideoBackgroundPlaybackCoordinator {
+    enum FailureDisposition: Equatable {
+        case ignored
+        case deferred
+        case advanced
+        case exhausted
+    }
+
     /// Immutable state delivered to registered window controllers.
     struct Snapshot: Equatable {
         let sources: [VideoBackgroundSource]
@@ -75,6 +82,7 @@ final class VideoBackgroundPlaybackCoordinator {
         }
 
         let preservedIndex = restart ? nil : remappedIndex(index, in: parsedSources)
+        let enteringManagedQueue = sources.count <= 1 && parsedSources.count > 1
         let needsReplacement = preservedIndex == nil
             || normalizedQuality != self.quality
             || (sources.count <= 1) != (parsedSources.count <= 1)
@@ -84,7 +92,7 @@ final class VideoBackgroundPlaybackCoordinator {
             runningTokens.removeAll()
             generation &+= 1
         }
-        if preservedIndex == nil {
+        if preservedIndex == nil || enteringManagedQueue {
             resetClock()
         }
         sources = parsedSources
@@ -149,12 +157,19 @@ final class VideoBackgroundPlaybackCoordinator {
     /// Marks the current source as failed and advances at most once for this
     /// generation. Once every queued source has failed, the snapshot becomes
     /// empty so controllers tear down instead of retrying forever.
-    func recordFailure(after generation: UInt64) {
+    @discardableResult
+    func recordFailure(after generation: UInt64, for token: UUID? = nil) -> FailureDisposition {
         guard generation == self.generation,
               !isExhausted,
-              sources.indices.contains(index) else { return }
+              sources.indices.contains(index) else { return .ignored }
+        if let token {
+            runningTokens.remove(token)
+            guard runningTokens.isEmpty else { return .deferred }
+            freezeClock()
+        }
         failedIndices.insert(index)
         advanceToNextPlayableSource()
+        return isExhausted ? .exhausted : .advanced
     }
 
     /// Returns a fresh playhead snapshot without changing queue identity.
@@ -612,9 +627,14 @@ final class WindowVideoBackgroundController {
         #if DEBUG
         cmuxDebugLog("videoBackground.playerFailure reason=\(reason)")
         #endif
-        playbackCoordinator.setPlayerRunning(false, for: playbackObserverToken)
-        playbackCoordinator.recordFailure(after: generation ?? currentSnapshot.generation)
-        if playbackCoordinator.synchronizedSnapshot().currentSource == nil {
+        let disposition = playbackCoordinator.recordFailure(
+            after: generation ?? currentSnapshot.generation,
+            for: playbackObserverToken
+        )
+        switch disposition {
+        case .deferred:
+            removeLayer()
+        case .exhausted:
             let failedSources: [String]
             if let queue = lastObservedQueue, !queue.isEmpty {
                 failedSources = queue
@@ -623,6 +643,8 @@ final class WindowVideoBackgroundController {
             }
             failedSourceText = failedSources.joined(separator: "\u{1F}")
             removeLayer()
+        case .ignored, .advanced:
+            break
         }
     }
 
