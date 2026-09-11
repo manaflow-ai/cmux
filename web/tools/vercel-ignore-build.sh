@@ -11,33 +11,16 @@ if [[ -z "$previous_sha" ]] || ! git cat-file -e "${previous_sha}^{commit}" 2>/d
   exit 1
 fi
 
-# Keep this list limited to files that can change the deployed web output. Test
-# files, local scripts, and documentation do not need a Vercel deployment.
+# Build for unknown web paths so a new production directory or configuration
+# file cannot silently skip deployment. Exclude only known non-build inputs.
 build_inputs=(
-  "app/"
-  "data/"
-  "db/"
-  "i18n/"
-  "messages/"
-  "openapi/"
-  "orpc/"
-  "patches/"
-  "public/"
-  "services/"
-  "tools/"
-  "types/"
-  "bun.lock"
-  "bunfig.toml"
-  "instrumentation.ts"
-  "next-env.d.ts"
-  "next.config.ts"
-  "package.json"
-  "postcss.config.mjs"
-  "proxy.ts"
-  "security-headers.ts"
-  "tsconfig.json"
-  "tsconfig.next.json"
-  "vercel.json"
+  "."
+  ":(exclude)tests/"
+  ":(exclude)e2e/"
+  ":(exclude)scripts/"
+  ":(exclude)README.md"
+  ":(exclude)AGENTS.md"
+  ":(exclude)CLAUDE.md"
   "../.vercelignore"
   "../CHANGELOG.md"
   "../config/iroh/managed-relay-catalog.json"
