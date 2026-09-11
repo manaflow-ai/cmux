@@ -76,7 +76,10 @@ final class DefaultCloudMachineStore {
         let ids = Set(machines.map(\.id))
         if let machineID, ids.contains(machineID) { return machineID }
         let chosen = Self.chooseMachine(machines)
-        machineID = chosen?.id
+        // An empty or partial catalog is a transient observation (for example
+        // while the fleet refreshes). Keep the user's starred machine until a
+        // complete list gives us a replacement.
+        if let chosen { machineID = chosen.id }
         return chosen?.id
     }
 

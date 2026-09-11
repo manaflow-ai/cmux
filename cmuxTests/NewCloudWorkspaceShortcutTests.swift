@@ -273,7 +273,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
 
     // MARK: Shared action path
 
-    func testPlusMenuRowExecutesSharedAction() throws {
+    func testPlusMenuMachineRowExecutesSharedAction() throws {
         setCloudMachinesEnabled(true)
         let presenter = RecordingSheetPresenter()
         AppDelegate.newCloudWorkspaceSheetPresenterOverride = presenter
@@ -287,7 +287,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
         let context = try XCTUnwrap(appDelegate.mainWindowContexts.values.first { $0.windowId == windowId })
 
-        XCTAssertTrue(appDelegate.executeConfiguredCmuxAction(.builtIn(.newCloudWorkspace), context: context))
+        XCTAssertTrue(appDelegate.executeConfiguredCmuxAction(.builtIn(.newCloudMachine), context: context))
         XCTAssertEqual(presenter.presentCount, 1)
     }
 
@@ -396,5 +396,8 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         XCTAssertEqual(store.resolveMachineID(from: machines), "b")
         store.machineID = "missing"
         XCTAssertEqual(store.resolveMachineID(from: machines), "a")
+        store.machineID = "a"
+        XCTAssertNil(store.resolveMachineID(from: []))
+        XCTAssertEqual(store.machineID, "a")
     }
 }

@@ -17651,8 +17651,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if didStart { onExecuted?() }
                 return didStart
             case .newCloudWorkspace:
-                let didStart = performNewCloudWorkspaceAction(
-                    tabManager: context.tabManager,
+                let didStart = performNewCloudWorkspaceOnDefaultMachineAction(
                     preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
                     debugSource: "configured.cmux.newCloudWorkspace"
                 )
