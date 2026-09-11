@@ -1,11 +1,10 @@
 import {
   jsonResponse,
-  notFoundVm,
   resolveVmRouteAccountScope,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
-import { isVmNotFoundError } from "../../../../../services/vms/errors";
-import { resizeVm, runVmWorkflow } from "../../../../../services/vms/workflows";
+import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
+import { resizeVm } from "../../../../../services/vms/workflows";
 import { VM_DISK_MB_MAX, VM_DISK_MB_STEP } from "../../../../../services/vms/machineSpec";
 
 /** Grow a Cloud VM's disk. The provider and this route both enforce grow-only semantics. */
@@ -45,28 +44,25 @@ export async function POST(
         }, 400);
       }
       span.setAttribute("cmux.vm.id", id);
-      try {
-        const stats = await runVmWorkflow(resizeVm({
-          userId: user.id,
-          billingTeamId: account.entitlements.billingTeamId,
-          billingPlanId: account.entitlements.planId,
-          teamIds: user.teamIds,
-          providerVmId: id,
-          storageMb,
-          maxActiveVms: account.entitlements.maxActiveVms,
-        }));
-        return jsonResponse({
-          id,
-          diskTotalMb: stats.diskTotalMb,
-          diskUsedMb: stats.diskUsedMb,
-          state: stats.state,
-          sampledAt: stats.sampledAt,
-          maxDiskMb: VM_DISK_MB_MAX,
-        });
-      } catch (err) {
-        if (isVmNotFoundError(err)) return notFoundVm(id);
-        throw err;
-      }
+      const run = await runVmRoute(resizeVm({
+        userId: user.id,
+        billingTeamId: account.entitlements.billingTeamId,
+        billingPlanId: account.entitlements.planId,
+        teamIds: user.teamIds,
+        providerVmId: id,
+        storageMb,
+        maxActiveVms: account.entitlements.maxActiveVms,
+      }), { request });
+      if (!run.ok) return run.response;
+      const stats = run.value;
+      return jsonResponse({
+        id,
+        diskTotalMb: stats.diskTotalMb,
+        diskUsedMb: stats.diskUsedMb,
+        state: stats.state,
+        sampledAt: stats.sampledAt,
+        maxDiskMb: VM_DISK_MB_MAX,
+      });
     },
   );
 }

@@ -19,7 +19,8 @@ struct CloudTuiLegacySnapshotParser: Sendable {
     }
 
     /// Decodes the resolver response without conflating a valid zero-view
-    /// terminal (`surface:null`) with malformed or failed data.
+    /// terminal (`surface:null`) with an exited terminal, or with malformed or
+    /// failed data.
     func resolvedSurface(from data: Data) -> CloudTuiResolvedSurface {
         guard let root = try? JSONSerialization.jsonObject(with: data),
               let object = (root as? [String: Any])?["data"] as? [String: Any]
@@ -27,6 +28,10 @@ struct CloudTuiLegacySnapshotParser: Sendable {
             return .malformed
         }
         guard object.keys.contains("surface") else { return .malformed }
+        // An exited terminal also reports `surface:null`, so read the
+        // lifecycle first: a zero-view live terminal is worth reprojecting,
+        // an exited one is not.
+        if object["lifecycle"] as? String == "exited" { return .exited }
         if object["surface"] is NSNull { return .noPlacement }
         guard let surface = number(from: object["surface"]) else { return .malformed }
         return .surface(surface)

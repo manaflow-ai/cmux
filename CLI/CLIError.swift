@@ -19,6 +19,10 @@ struct CLIError: Error, CustomStringConvertible {
     /// Whether this error was decoded directly from a socket v2 error response.
     /// Local CLI sentinels may reuse ``v2Code`` for their own exit-status contract.
     let isStructuredProtocolResponse: Bool
+    /// Whether the v2 error's data marked the failure as retryable (for example a
+    /// `busy` answer while the app's process scan settles), so callers can wait
+    /// and retry structurally instead of parsing display text.
+    let v2Retryable: Bool
     /// Cloud VM backend error code (e.g. "vm_create_failed") passed through the
     /// v2 error's data payload, so callers can make idempotency decisions
     /// structurally instead of parsing display text.
@@ -33,6 +37,7 @@ struct CLIError: Error, CustomStringConvertible {
         exitCode: Int32 = 1,
         v2Code: String? = nil,
         isStructuredProtocolResponse: Bool = false,
+        v2Retryable: Bool = false,
         vmBackendCode: String? = nil,
         vmBackendHTTPStatus: Int? = nil,
         socketFailureKind: SocketFailureKind? = nil
@@ -41,6 +46,7 @@ struct CLIError: Error, CustomStringConvertible {
         self.exitCode = exitCode
         self.v2Code = v2Code
         self.isStructuredProtocolResponse = isStructuredProtocolResponse
+        self.v2Retryable = v2Retryable
         self.vmBackendCode = vmBackendCode
         self.vmBackendHTTPStatus = vmBackendHTTPStatus
         self.socketFailureKind = socketFailureKind

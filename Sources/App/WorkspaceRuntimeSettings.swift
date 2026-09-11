@@ -489,7 +489,7 @@ enum RightSidebarBetaFeatureSettings {
     // Keep the app-side availability fallback in lockstep with the settings
     // catalog's Debug/release default; the catalog is the single declaration.
     static let defaultArtifactsEnabled = BetaFeaturesCatalogSection().rightSidebarArtifacts.defaultValue
-    static let defaultCloudMachinesEnabled = false
+    static let defaultCloudMachinesEnabled = BetaFeaturesCatalogSection().cloudMachines.defaultValue
     static let didChangeNotification = Notification.Name("rightSidebarBetaFeatureDidChange")
 
     nonisolated static func isFeedEnabled(defaults: UserDefaults = .standard) -> Bool {

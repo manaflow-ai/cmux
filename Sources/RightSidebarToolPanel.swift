@@ -112,7 +112,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
                         inPane: paneId,
                         filePaths: [localURL.path],
                         focus: true,
-                        reuseExisting: true
+                        reuseExisting: true,
+                        duplicateWhenFocused: true
                     )
                 } catch {
                     NSSound.beep()
@@ -124,7 +125,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             inPane: paneId,
             filePaths: [filePath],
             focus: true,
-            reuseExisting: true
+            reuseExisting: true,
+            duplicateWhenFocused: true
         )
     }
 

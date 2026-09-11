@@ -62,6 +62,11 @@ struct CmxIrohRetryScheduleTests {
             retryAfterSeconds: 600,
             jitterUnitInterval: 1
         ) == 750)
+        #expect(schedule.delay(
+            failureCount: 20,
+            retryAfterSeconds: 7_200,
+            jitterUnitInterval: 1
+        ) == 7_200)
     }
 
     @Test

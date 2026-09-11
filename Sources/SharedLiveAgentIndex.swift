@@ -126,10 +126,9 @@ final class SharedLiveAgentIndex {
     // Floor between event-driven reloads so chatty hook stores cannot keep the
     // measured ~350ms-1.8s loader running at near-continuous duty cycle.
     private static let minEventReloadInterval: TimeInterval = 5.0
-    // Ownership-sensitive restore may retry once when a hook event lands during
-    // the first scan, but it must fail closed instead of waiting forever for a
-    // continuously changing hook store to become quiescent.
-    private static let maximumOwnershipSensitiveRefreshPasses = 2
+    // An ownership-sensitive restore waits for one scan that started after its
+    // request. The deadline keeps an uncooperative loader from holding a
+    // restored terminal behind admission indefinitely.
     private static let ownershipRefreshTimeoutNanoseconds: UInt64 = 10_000_000_000
 
     nonisolated private static func remainingOwnershipRefreshNanoseconds(
@@ -518,18 +517,38 @@ final class SharedLiveAgentIndex {
 
     /// Returns a freshly loaded index, coalescing with any refresh already in flight.
     func indexRefreshingNow() async -> RestorableAgentSessionIndex? {
+        if case .index(let index) = await indexForOwnershipDecision() {
+            return index
+        }
+        return nil
+    }
+
+    /// Waits for an index whose scan started after this request, and names the
+    /// reason when no such scan can finish.
+    ///
+    /// A scan that begins after the request has read every hook record written
+    /// before the caller asked. Hook-store events that land while it runs are
+    /// left to the ordinary coalesced refresh instead of restarting the wait:
+    /// the admission boundary revalidates the recorded owner's PID generation
+    /// and argv itself, and `AgentResumeLaunchGuard` serialises cmux's own
+    /// launches, so a later scan could not make this point-in-time answer
+    /// safer. Requiring the shared hook-store directory to stay quiet for a
+    /// whole scan made admission fail on any Mac where other agents keep
+    /// rewriting their hook stores (#12158).
+    func indexForOwnershipDecision() async -> SharedLiveAgentIndexRefreshOutcome {
         ensureWatchingHookStoreDirectory()
-        var completedRefreshPasses = 0
+        var requestedRefreshGeneration: UUID?
         let ownershipRefreshDeadline = DispatchTime.now().uptimeNanoseconds
             &+ Self.ownershipRefreshTimeoutNanoseconds
         while true {
-            guard !Task.isCancelled else { return nil }
+            guard !Task.isCancelled else { return .cancelled }
             guard DispatchTime.now().uptimeNanoseconds < ownershipRefreshDeadline else {
                 abandonOwnershipRefreshTasks()
                 preservePendingHookChangeAfterOwnershipRefreshFailure()
-                return nil
+                return .timedOut
             }
             if let refreshTask {
+                let awaitedRefreshGeneration = refreshTaskGeneration
                 guard await awaitOwnershipRefreshTask(
                     refreshTask,
                     kind: .full,
@@ -537,28 +556,37 @@ final class SharedLiveAgentIndex {
                         until: ownershipRefreshDeadline
                     )
                 ) else {
-                    guard !Task.isCancelled else { return nil }
+                    guard !Task.isCancelled else { return .cancelled }
                     abandonOwnershipRefreshTasks()
                     preservePendingHookChangeAfterOwnershipRefreshFailure()
-                    return nil
+                    return .timedOut
                 }
-                guard !Task.isCancelled else { return nil }
+                guard !Task.isCancelled else { return .cancelled }
+                if let index,
+                   let requestedRefreshGeneration,
+                   awaitedRefreshGeneration == requestedRefreshGeneration {
+                    // The scan this request started is fresh by construction.
+                    // Any hook event it overlapped was already queued for the
+                    // coalesced refresh by the reload completion handler.
+                    return .index(index)
+                }
                 guard DispatchTime.now().uptimeNanoseconds < ownershipRefreshDeadline else {
                     abandonOwnershipRefreshTasks()
                     preservePendingHookChangeAfterOwnershipRefreshFailure()
-                    return nil
+                    return .timedOut
                 }
-                completedRefreshPasses += 1
-                if self.refreshTask == nil,
+                if let index,
+                   self.refreshTask == nil,
                    forkAvailabilityRefreshTask == nil,
                    !changePending,
                    deferredReloadTimer == nil {
-                    return index
+                    // A scan that was already running when the request arrived
+                    // is only as fresh as its start. With no event observed
+                    // since then, no newer hook record can exist.
+                    return .index(index)
                 }
-                guard completedRefreshPasses < Self.maximumOwnershipSensitiveRefreshPasses else {
-                    preservePendingHookChangeAfterOwnershipRefreshFailure()
-                    return nil
-                }
+                // The in-flight scan predates this request and a hook event
+                // overlapped it, so this request needs one scan of its own.
                 continue
             }
             if let forkAvailabilityRefreshTask {
@@ -569,20 +597,19 @@ final class SharedLiveAgentIndex {
                         until: ownershipRefreshDeadline
                     )
                 ) else {
-                    guard !Task.isCancelled else { return nil }
+                    guard !Task.isCancelled else { return .cancelled }
                     abandonOwnershipRefreshTasks()
                     preservePendingHookChangeAfterOwnershipRefreshFailure()
-                    return nil
+                    return .timedOut
                 }
                 guard DispatchTime.now().uptimeNanoseconds < ownershipRefreshDeadline else {
                     abandonOwnershipRefreshTasks()
                     preservePendingHookChangeAfterOwnershipRefreshFailure()
-                    return nil
+                    return .timedOut
                 }
                 // Fork availability reloads may intentionally retain an
                 // unchanged index. Ownership-sensitive callers need the full
-                // refresh task below as well, so this pass must not consume the
-                // bounded full-refresh retry budget.
+                // refresh below as well.
                 continue
             }
             if changePending || deferredReloadTimer != nil {
@@ -592,10 +619,9 @@ final class SharedLiveAgentIndex {
                 deferredReloadTimer?.cancel()
                 deferredReloadTimer = nil
                 changePending = false
-                startReload()
-                continue
             }
             startReload()
+            requestedRefreshGeneration = refreshTaskGeneration
         }
     }
 

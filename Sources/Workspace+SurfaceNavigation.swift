@@ -211,6 +211,8 @@ extension Workspace {
             return SurfaceKind.notifications.rawValue
         case .cloudVMLoading:
             return SurfaceKind.cloudVMLoading.rawValue
+        case .cloudVPNSetup:
+            return "cloud_vpn_setup"
         case .mobilePairing:
             return SurfaceKind.mobilePairing.rawValue
         case .accountSignIn:

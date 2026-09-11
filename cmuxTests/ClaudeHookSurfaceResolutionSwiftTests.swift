@@ -46,7 +46,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             arguments: ["hooks", "claude", "session-start"],
             environment: environment,
             standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
-            timeout: 5
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
         )
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
@@ -117,7 +117,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             arguments: ["hooks", "claude", "session-start"],
             environment: environment,
             standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
-            timeout: 5
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
         )
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
@@ -194,7 +194,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             arguments: ["hooks", "claude", "session-start"],
             environment: environment,
             standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
-            timeout: 5
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
         )
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
@@ -274,7 +274,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             arguments: ["hooks", "claude", "session-start"],
             environment: environment,
             standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
-            timeout: 5
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
         )
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
@@ -345,7 +345,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             arguments: ["hooks", "claude", "session-start"],
             environment: environment,
             standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
-            timeout: 5
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
         )
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
@@ -445,23 +445,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         }
     }
 
-    final class MockSocketServerState: @unchecked Sendable {
-        private let lock = NSLock()
-        private var commands: [String] = []
 
-        func append(_ command: String) {
-            lock.lock()
-            commands.append(command)
-            lock.unlock()
-        }
-
-        func snapshot() -> [String] {
-            lock.lock()
-            let value = commands
-            lock.unlock()
-            return value
-        }
-    }
 
     func makeClaudeHookContext(name: String) throws -> ClaudeHookContext {
         let root = FileManager.default.temporaryDirectory
@@ -754,7 +738,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
                 storeURL: storeURL
             ),
             standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
-            timeout: 5
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
         )
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)

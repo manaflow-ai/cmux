@@ -714,9 +714,13 @@ pub(crate) fn public_session_snapshot_with_journal_head(
                         .as_ref()
                         .and_then(|terminal_id| mux.terminal_notification(terminal_id))
                         .is_some_and(|notification| notification.unread),
+                    "read_by": notification.read_by,
                 });
                 if let Some(terminal_id) = notification.terminal_id {
                     snapshot["terminal_id"] = json!(terminal_id);
+                }
+                if let Some(subtitle) = notification.subtitle {
+                    snapshot["subtitle"] = json!(subtitle);
                 }
                 snapshot
             })

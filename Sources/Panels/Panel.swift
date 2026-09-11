@@ -20,6 +20,7 @@ public enum PanelType: String, Codable, CaseIterable, Sendable {
     case cloudVMLoading
     case mobilePairing
     case accountSignIn
+    case cloudVPNSetup
 
     /// User-facing Artifacts spelling. The persisted `links` case remains the
     /// migration alias so existing session layouts decode without loss.
@@ -70,6 +71,10 @@ public enum PanelType: String, Codable, CaseIterable, Sendable {
         }
         if rawValue.lowercased() == Self.accountSignIn.rawValue.lowercased() {
             self = .accountSignIn
+            return
+        }
+        if rawValue.lowercased() == Self.cloudVPNSetup.rawValue.lowercased() {
+            self = .cloudVPNSetup
             return
         }
         throw DecodingError.dataCorruptedError(

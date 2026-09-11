@@ -2,22 +2,22 @@ import Darwin
 import Foundation
 
 /// Supplies a timestamped aggregate process-memory sample.
-nonisolated protocol MemoryPressureAggregateSampling: Sendable {
+protocol MemoryPressureAggregateSampling: Sendable {
     func sample(at sampledAt: Date) -> MemoryPressureAggregateSample
 }
 
 /// Coalition usage returned by the optional macOS coalition ABI.
-nonisolated struct MemoryPressureCoalitionUsage: Equatable, Sendable {
+struct MemoryPressureCoalitionUsage: Equatable, Sendable {
     let physicalFootprintBytes: UInt64
 }
 
 /// Injectable seam for coalition accounting; unavailable platforms return nil.
-nonisolated protocol MemoryPressureCoalitionSampling: Sendable {
+protocol MemoryPressureCoalitionSampling: Sendable {
     func usage(forProcessID processID: Int) -> MemoryPressureCoalitionUsage?
 }
 
 /// Captures cmux plus all unique descendants, preferring the resource coalition.
-nonisolated struct DarwinMemoryPressureAggregateSampler: MemoryPressureAggregateSampling {
+struct DarwinMemoryPressureAggregateSampler: MemoryPressureAggregateSampling {
     private let processID: Int
     private let snapshotProvider: @Sendable () -> CmuxTopProcessSnapshot
     private let coalitionSampler: any MemoryPressureCoalitionSampling
@@ -121,7 +121,7 @@ nonisolated struct DarwinMemoryPressureAggregateSampler: MemoryPressureAggregate
 }
 
 /// Reads the resource-coalition footprint when the running OS exports it.
-nonisolated struct DarwinMemoryPressureCoalitionSampler: MemoryPressureCoalitionSampling {
+struct DarwinMemoryPressureCoalitionSampler: MemoryPressureCoalitionSampling {
     private static let coalitionInfoFlavor: Int32 = 20
 
     /// Returns whether this process is running on an OS whose private
@@ -237,7 +237,7 @@ nonisolated struct DarwinMemoryPressureCoalitionSampler: MemoryPressureCoalition
 }
 
 /// Conservative available-memory estimate used only as coalition corroboration.
-private nonisolated struct DarwinMemoryPressureAvailableMemory: Sendable {
+private struct DarwinMemoryPressureAvailableMemory: Sendable {
     static func bytes() -> UInt64? {
         var statistics = vm_statistics64_data_t()
         var count = mach_msg_type_number_t(
