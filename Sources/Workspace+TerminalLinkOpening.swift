@@ -26,6 +26,7 @@ extension Workspace: TerminalLinkOpenContainer {
         guard let target = surfaceOwnershipTarget(for: sourcePanelId),
               let resource = SurfaceCatalog.shared.resource(forPanel: target.surfaceID),
               resource.machine.cloudMachineID != nil,
+              VMTunnelManager(purpose: .browser).writtenConfig() != nil,
               let address = SurfaceCatalog.shared.machineInfo(for: resource.machine)?.privateAddress,
               let rewritten = CmuxTuiSurfaceProvider.privateBrowserURL(url.absoluteString, privateAddress: address),
               let privateURL = URL(string: rewritten) else { return nil }

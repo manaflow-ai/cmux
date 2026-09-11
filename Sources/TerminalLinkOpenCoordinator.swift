@@ -105,19 +105,6 @@ struct TerminalLinkOpenCoordinator {
             )
         }
 
-        if let sourcePanelId = request.sourcePanelId,
-           let cloudTarget = container?.cloudTerminalLinkTarget(
-            url: target.url,
-            sourcePanelId: sourcePanelId
-        ) {
-            return openCloudTerminalLink(
-                originalURL: target.url,
-                privateURL: cloudTarget.url,
-                request: request,
-                container: container
-            )
-        }
-
         guard BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults) else {
             return openExternally(target.url, reason: "cmux browser disabled")
         }
@@ -126,7 +113,11 @@ struct TerminalLinkOpenCoordinator {
         case .external(let url):
             return openExternally(url, reason: "external target")
         case .embeddedBrowser(let url):
-            return openEmbeddedBrowserURL(url, request: request, container: container)
+            let privateURL: URL? = {
+                guard let sourcePanelId = request.sourcePanelId else { return nil }
+                return container?.cloudTerminalLinkTarget(url: url, sourcePanelId: sourcePanelId)?.url
+            }()
+            return openEmbeddedBrowserURL(privateURL ?? url, request: request, container: container)
         }
     }
 
@@ -223,70 +214,32 @@ struct TerminalLinkOpenCoordinator {
         request: TerminalLinkOpenRequest,
         container: (any TerminalLinkOpenContainer)?
     ) -> Bool {
-        deferOperation { [self] in
-            self.openEmbeddedBrowserURLNow(url, request: request, container: container)
-        }
-        return true
-    }
-
-    private func openCloudTerminalLink(
-        originalURL: URL,
-        privateURL: URL,
-        request: TerminalLinkOpenRequest,
-        container: (any TerminalLinkOpenContainer)?
-    ) -> Bool {
-        deferOperation { [self] in
-            Task { @MainActor in
-                let isUp: Bool
-                if let coordinator = AppDelegate.shared?.cloudTunnelCoordinator {
-                    isUp = (await coordinator.status()).state == .up
-                } else {
-                    isUp = false
-                }
-                self.openEmbeddedBrowserURLNow(
-                    isUp ? privateURL : originalURL,
-                    request: request,
-                    container: container
-                )
-            }
-        }
-        return true
-    }
-
-    private func openEmbeddedBrowserURLNow(
-        _ url: URL,
-        request: TerminalLinkOpenRequest,
-        container: (any TerminalLinkOpenContainer)?
-    ) {
         switch externalNavigationHandler.openConfiguredExternallyResult(url) {
         case .opened:
             log(
                 "link.openURL opening externally reason=external pattern " +
                 "opened=1 url=\(url)"
             )
-            return
+            return true
         case .failed:
             log(
                 "link.openURL opening externally reason=external pattern " +
                 "opened=0 url=\(url)"
             )
-            return
+            return false
         case .notConfigured:
             break
         }
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
-            _ = openExternally(url, reason: "invalid host")
-            return
+            return openExternally(url, reason: "invalid host")
         }
         guard BrowserLinkOpenSettings.hostMatchesWhitelist(host, defaults: defaults) else {
-            _ = openExternally(url, reason: "host whitelist miss")
-            return
+            return openExternally(url, reason: "host whitelist miss")
         }
         guard BrowserAvailabilitySettings.isEnabled(defaults: defaults),
               let sourcePanelId = request.sourcePanelId,
               let container else {
-            _ = openExternally(url, reason: "source container unavailable")
-            return
+            return openExternally(url, reason: "source container unavailable")
         }
 
         log(
@@ -294,24 +247,15 @@ struct TerminalLinkOpenCoordinator {
             "container=\(container.terminalLinkContainerDebugName) surfaceId=\(sourcePanelId)"
         )
 
-        let currentContainer = self.containerResolver(
-                request.sourceWorkspaceId,
-                sourcePanelId
-            )
+        deferOperation { [self] in
+            let currentContainer = self.containerResolver(request.sourceWorkspaceId, sourcePanelId)
             let openedInBrowser = BrowserAvailabilitySettings.isEnabled(defaults: self.defaults)
-                && currentContainer?.openTerminalBrowserLink(
-                    url: url,
-                    sourcePanelId: sourcePanelId
-                ) == true
+                && currentContainer?.openTerminalBrowserLink(url: url, sourcePanelId: sourcePanelId) == true
             if openedInBrowser { return }
-
-            self.log(
-                "link.openURL embedded open failed, opening externally " +
-                "host=\(host) surfaceId=\(sourcePanelId) url=\(url)"
-            )
-            if !self.externalOpen(url) {
-                NSSound.beep()
-            }
+            self.log("link.openURL embedded open failed, opening externally host=\(host) surfaceId=\(sourcePanelId) url=\(url)")
+            if !self.externalOpen(url) { NSSound.beep() }
+        }
+        return true
     }
 
     private func resolvedWorkingDirectory(

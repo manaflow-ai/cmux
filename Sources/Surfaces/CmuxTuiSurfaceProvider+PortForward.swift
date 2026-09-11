@@ -1,9 +1,8 @@
 import Foundation
 
 /// The Ports and Desktop rows' panes: every route goes through
-/// ``CloudPortRoutePlan``, and a machine with a private address is reached
-/// over the user-space WireGuard hub on a loopback forward. Nothing here asks
-/// for the Network Extension.
+/// ``CloudPortRoutePlan``. The user-space hub remains the default, while an
+/// active system Cloud VPN can load the private URL directly.
 extension CmuxTuiSurfaceProvider {
     /// Creates the browser pane for a port or desktop row at once (showing the
     /// connecting placeholder) and navigates it when its route is ready. The
@@ -31,7 +30,26 @@ extension CmuxTuiSurfaceProvider {
                 throw ProviderError.localForwardURLUnavailable
             }
             guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { throw CancellationError() }
-            let pane = try Self.makeDirectBrowserPane(url: url, at: destination, focus: focus, reusing: existingPane)
+            let label = Self.paneLabel(machineID: machineID, port: resource.port ?? CmuxTuiSnapshotParser.desktopPort, desktop: desktop)
+            let pane = try Self.makeConnectingPane(label: label, at: destination, focus: focus, reusing: existingPane)
+            let machineWasAwake = isAwake
+            browserPaneTasks[pane.panelID] = Task { @MainActor [weak self] in
+                guard let self else { return }
+                defer { self.browserPaneTasks[pane.panelID] = nil }
+                do {
+                    try Task.checkCancellation()
+                    if !machineWasAwake {
+                        guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
+                        _ = try await client.openPort(id: self.machineID, port: resource.port ?? CmuxTuiSnapshotParser.desktopPort)
+                    }
+                    try Task.checkCancellation()
+                    guard self.isCurrentLifecycleGeneration(generation) else { return }
+                    SurfacePaneFactory.navigate(panelID: pane.panelID, in: pane.workspaceID, to: url)
+                } catch {
+                    guard !Task.isCancelled, self.isCurrentLifecycleGeneration(generation) else { return }
+                    Self.showFailure(label: label, error: error, pane: pane)
+                }
+            }
             return pane
         case .unsupported(let reason):
             throw SurfaceCatalogError.unsupported(reason)
@@ -202,17 +220,6 @@ extension CmuxTuiSurfaceProvider {
     ) throws -> (workspaceID: UUID, panelID: UUID) {
         let pane = try existingPane ?? SurfacePaneFactory.makeBrowserPane(url: SurfacePaneFactory.blankURL, at: destination, focus: focus)
         SurfacePaneFactory.showPlaceholder(SurfaceBrowserPlaceholder.connecting(label), panelID: pane.panelID, in: pane.workspaceID)
-        return pane
-    }
-
-    private static func makeDirectBrowserPane(
-        url: URL,
-        at destination: SurfaceDestination,
-        focus: Bool,
-        reusing existingPane: (workspaceID: UUID, panelID: UUID)? = nil
-    ) throws -> (workspaceID: UUID, panelID: UUID) {
-        let pane = try existingPane ?? SurfacePaneFactory.makeBrowserPane(url: url, at: destination, focus: focus)
-        SurfacePaneFactory.navigate(panelID: pane.panelID, in: pane.workspaceID, to: url)
         return pane
     }
 
