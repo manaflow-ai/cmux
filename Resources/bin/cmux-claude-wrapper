@@ -851,13 +851,17 @@ ensure_node_options_restore_module() {
     # NODE_OPTIONS is inherited by every descendant for the life of the session, so
     # the module it points at has to outlive the session. TMPDIR is swept, and once
     # the file goes missing node refuses to start any script at all.
-    # Two constraints on this path, both load-bearing:
-    #   - no spaces, because node splits NODE_OPTIONS on whitespace, so a
-    #     --require= under "Application Support" breaks every node process instead
-    #   - it must still contain "/cmux-", which is how
-    #     isCmuxNodeOptionsRestoreModulePath recognises our own shim when stripping
-    #     injected flags on restore
-    local guard_dir="${CMUX_NODE_OPTIONS_DIR:-${HOME}/.cmux/cmux-node-options}"
+    # Keep this resolution policy in sync with createClaudeNodeOptionsRestoreModule.
+    # The fixed child directory preserves restore-path recognition for overrides.
+    local guard_dir="${CMUX_NODE_OPTIONS_DIR:-${HOME}/.cmux}"
+    if [[ "$guard_dir" == '~/'* ]]; then
+        guard_dir="$HOME/${guard_dir:2}"
+    fi
+    # Our NODE_OPTIONS serializers use bare tokens. Fail closed for paths they
+    # cannot round-trip, and for relative paths that change meaning in children.
+    [[ "$guard_dir" == /* ]] || return 1
+    [[ "$guard_dir" =~ [[:space:]] || "$guard_dir" == *\"* || "$guard_dir" == *\\* ]] && return 1
+    guard_dir="${guard_dir%/}/cmux-node-options"
     local guard_path="$guard_dir/restore-node-options.cjs"
     mkdir -p "$guard_dir" || return 1
     local temp_path

@@ -2514,7 +2514,7 @@ def test_live_socket_stale_mktemp_literal_does_not_warn(failures: list[str]) -> 
             socket_state="live",
             argv=["hello"],
             tmpdir=str(tmpdir),
-            extra_env={"CMUX_NODE_OPTIONS_DIR": str(guard_dir)},
+            extra_env={"CMUX_NODE_OPTIONS_DIR": str(tmpdir)},
         )
     expect(code == 0, f"stale mktemp literal: wrapper exited {code}: {stderr}", failures)
     expect("mktemp:" not in stderr, f"stale mktemp literal: unexpected mktemp warning: {stderr!r}", failures)

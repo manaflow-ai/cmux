@@ -23703,19 +23703,24 @@ struct CMUXCLI {
     }
 
     private func createClaudeNodeOptionsRestoreModule() throws -> URL {
-        // Must match the guard_dir in Resources/bin/cmux-claude-wrapper. NODE_OPTIONS
-        // outlives the session, so this cannot live under TMPDIR, and the path has to
-        // keep "/cmux-" for isCmuxNodeOptionsRestoreModulePath to recognise it.
-        let overrideDirectory = ProcessInfo.processInfo.environment["CMUX_NODE_OPTIONS_DIR"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let root: URL
-        if let overrideDirectory, !overrideDirectory.isEmpty {
-            root = URL(fileURLWithPath: overrideDirectory, isDirectory: true)
-        } else {
-            root = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".cmux", isDirectory: true)
-                .appendingPathComponent("cmux-node-options", isDirectory: true)
+        // Keep this resolution policy in sync with ensure_node_options_restore_module.
+        // Persistent storage avoids temp sweeps; the fixed child preserves restore
+        // recognition even when the caller overrides the storage root.
+        let environment = ProcessInfo.processInfo.environment
+        let homePath = environment["HOME"] ?? NSHomeDirectory()
+        let overrideDirectory = environment["CMUX_NODE_OPTIONS_DIR"] ?? ""
+        var directory = overrideDirectory.isEmpty ? homePath + "/.cmux" : overrideDirectory
+        if directory.hasPrefix("~/") {
+            directory = homePath + "/" + directory.dropFirst(2)
         }
+        // Bare NODE_OPTIONS tokens must round-trip through both serializers.
+        guard directory.hasPrefix("/"),
+              directory.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+              !directory.contains("\""), !directory.contains("\\") else {
+            throw CocoaError(.fileWriteInvalidFileName)
+        }
+        let root = URL(fileURLWithPath: directory, isDirectory: true)
+            .appendingPathComponent("cmux-node-options", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: nil)
         let restoreModuleURL = root.appendingPathComponent("restore-node-options.cjs", isDirectory: false)
         try writeShimIfChanged(Self.claudeNodeOptionsRestoreModule, to: restoreModuleURL)
