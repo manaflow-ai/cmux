@@ -32,6 +32,11 @@ struct CloudTuiManualIOFrameDecoder: Sendable {
     }
 
     private func decodeEvent(_ event: String, object: [String: Any]) -> CloudTuiManualIOFrame? {
+        // Presence clears carry `surface: null`, so decode it before the
+        // positive-surface guard that every byte-attach event requires.
+        if event == "presence-changed" {
+            return CloudPresenceEntry(json: object).map(CloudTuiManualIOFrame.presence)
+        }
         guard let surfaceID = Self.positiveUInt64(object["surface"]) else {
             if event == "overflow" { return .overflow(surfaceID: nil) }
             return nil
