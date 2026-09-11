@@ -17,62 +17,6 @@ private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
     return String(describing: type(of: responder))
 }
 
-/// Mode shown in the right sidebar (the panel toggled by ⌘⌥B).
-enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
-    case files
-    case find
-    case sessions
-    case feed
-    case dock
-    case machines
-    case customSidebar = "custom-sidebar"
-
-    var label: String {
-        switch self {
-        case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
-        case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
-        case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
-        case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
-        case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
-        case .machines: return String(localized: "rightSidebar.mode.machines", defaultValue: "Cloud")
-        case .customSidebar: return String(localized: "rightSidebar.mode.customSidebar", defaultValue: "Custom")
-        }
-    }
-
-
-    var symbolName: String {
-        switch self {
-        case .files: return "folder"
-        case .find: return "magnifyingglass"
-        case .sessions: return "books.vertical"
-        case .feed: return "dot.radiowaves.left.and.right"
-        case .dock: return "dock.rectangle"
-        case .machines: return "cloud"
-        case .customSidebar: return "wand.and.stars"
-        }
-    }
-
-    var shortcutAction: KeyboardShortcutSettings.Action? {
-        switch self {
-        case .files: return .switchRightSidebarToFiles
-        case .find: return .switchRightSidebarToFind
-        case .sessions: return .switchRightSidebarToSessions
-        case .feed: return .switchRightSidebarToFeed
-        case .dock: return .switchRightSidebarToDock
-        case .machines: return .switchRightSidebarToMachines
-        case .customSidebar: return nil
-        }
-    }
-}
-
-extension RightSidebarMode {
-    static let paneModes: [RightSidebarMode] = [.files, .find, .sessions]
-
-    var canOpenAsPane: Bool {
-        Self.paneModes.contains(self)
-    }
-}
-
 enum RightSidebarContentMountPolicy {
     static func shouldMountContent(isRightSidebarVisible: Bool, hasMountedContent: Bool) -> Bool {
         isRightSidebarVisible || hasMountedContent
@@ -121,6 +65,7 @@ struct RightSidebarPanelView: View {
     @ObservedObject var fileExplorerState: FileExplorerState
     @ObservedObject var sessionIndexStore: SessionIndexStore
     let titlebarHeight: CGFloat
+    var isFullScreen: Bool = false
     let windowAppearance: WindowAppearanceSnapshot
     let workspaceId: UUID?
     let onResumeSession: ((SessionEntry) -> Void)?
@@ -151,6 +96,12 @@ struct RightSidebarPanelView: View {
     private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
     private var dockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
+    @AppStorage(RightSidebarChromeSettings.showOpenAsPaneButtonKey)
+    private var showOpenAsPaneButton = RightSidebarChromeSettings.defaultShowOpenAsPaneButton
+    @AppStorage(RightSidebarChromeSettings.showTitlebarToggleKey)
+    private var showTitlebarToggle = RightSidebarChromeSettings.defaultShowTitlebarToggle
+    @AppStorage(WorkspacePresentationModeSettings.modeKey)
+    private var workspacePresentationModeRawValue = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage(RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
     private var cloudMachinesBetaEnabled = RightSidebarBetaFeatureSettings.defaultCloudMachinesEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
@@ -201,6 +152,17 @@ struct RightSidebarPanelView: View {
 
     private var modeBarItems: [RightSidebarModeBarItem] {
         availableModes.map { RightSidebarModeBarItem(kind: .mode($0)) }
+    }
+
+    private var modeBarTrailingPadding: CGFloat {
+        RightSidebarChromeMetrics.headerTrailingPadding
+            + (reservesTitlebarToggleSpace ? RightSidebarChromeMetrics.titlebarToggleReservationWidth : 0)
+    }
+
+    private var reservesTitlebarToggleSpace: Bool {
+        showTitlebarToggle
+            && !isFullScreen
+            && WorkspacePresentationModeSettings.mode(for: workspacePresentationModeRawValue) == .standard
     }
 
     private var focusShortcutHintAnimationValue: Bool {
@@ -323,7 +285,7 @@ struct RightSidebarPanelView: View {
                     )
                 }
                 Spacer(minLength: 0)
-                if fileExplorerState.mode.canOpenAsPane {
+                if showOpenAsPaneButton && fileExplorerState.mode.canOpenAsPane {
                     openAsPaneButton(mode: fileExplorerState.mode)
                 }
                 closeButton
@@ -331,7 +293,7 @@ struct RightSidebarPanelView: View {
         }
         .rightSidebarChromeBar(
             leadingPadding: RightSidebarChromeMetrics.headerLeadingPadding,
-            trailingPadding: RightSidebarChromeMetrics.headerTrailingPadding,
+            trailingPadding: modeBarTrailingPadding,
             height: titlebarHeight
         )
         .contextMenu { tabCustomizationMenu }
@@ -406,7 +368,7 @@ struct RightSidebarPanelView: View {
         )
         return ZStack {
             Button(action: onClose) {
-                HeaderChromeIconStyle.symbol("xmark")
+                HeaderChromeIconStyle.sidebarGlyph()
             }
             .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarHeaderCloseIcon"))
             .frame(
@@ -422,7 +384,7 @@ struct RightSidebarPanelView: View {
                     String(localized: "rightSidebar.toggle.tooltip", defaultValue: "Toggle right sidebar")
                 )
             )
-            .accessibilityLabel(String(localized: "rightSidebar.close.accessibilityLabel", defaultValue: "Close Right Sidebar"))
+            .accessibilityLabel(KeyboardShortcutSettings.Action.toggleRightSidebar.label)
             .accessibilityIdentifier("RightSidebar.closeButton")
         }
         .frame(

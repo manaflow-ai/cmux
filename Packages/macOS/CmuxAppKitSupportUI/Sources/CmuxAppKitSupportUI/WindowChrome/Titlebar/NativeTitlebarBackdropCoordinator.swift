@@ -13,9 +13,18 @@ public final class NativeTitlebarBackdropCoordinator {
     private static var unifiedTitlebarTransparencyKey: UInt8 = 0
 
     private let fullscreenAuxiliaryWindows: @MainActor () -> [NSWindow]
+    private let titlebarControlsIdentifiers: Set<NSUserInterfaceItemIdentifier>
 
-    /// Creates a coordinator with an injected provider for fullscreen auxiliary windows.
-    public init(fullscreenAuxiliaryWindows: @escaping @MainActor () -> [NSWindow]) {
+    /// Creates a coordinator with the app's titlebar controls and fullscreen window provider.
+    ///
+    /// - Parameters:
+    ///   - titlebarControlsIdentifiers: Accessories hidden by fullscreen or minimal presentation.
+    ///   - fullscreenAuxiliaryWindows: Provides the windows belonging to fullscreen chrome.
+    public init(
+        titlebarControlsIdentifiers: Set<NSUserInterfaceItemIdentifier>,
+        fullscreenAuxiliaryWindows: @escaping @MainActor () -> [NSWindow]
+    ) {
+        self.titlebarControlsIdentifiers = titlebarControlsIdentifiers
         self.fullscreenAuxiliaryWindows = fullscreenAuxiliaryWindows
     }
 
@@ -78,13 +87,13 @@ public final class NativeTitlebarBackdropCoordinator {
         in window: NSWindow,
         isMinimalMode: Bool
     ) {
-        let controlsId = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
         let shouldHide = hidden || isMinimalMode
         for accessory in window.titlebarAccessoryViewControllers {
-            if accessory.view.identifier == controlsId {
-                accessory.isHidden = shouldHide
-                accessory.view.alphaValue = shouldHide ? 0 : 1
-            }
+            guard let identifier = accessory.view.identifier,
+                  titlebarControlsIdentifiers.contains(identifier) else { continue }
+            accessory.isHidden = shouldHide
+            accessory.view.isHidden = shouldHide
+            accessory.view.alphaValue = shouldHide ? 0 : 1
         }
     }
 

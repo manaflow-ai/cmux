@@ -248,6 +248,12 @@ extension CmuxSettingsFileStore {
                 ],
             ],
             [
+                "rightSidebar": [
+                    "showTitlebarToggle": SettingCatalog().rightSidebar.showTitlebarToggle.defaultValue,
+                    "showOpenAsPaneButton": SettingCatalog().rightSidebar.showOpenAsPaneButton.defaultValue,
+                ],
+            ],
+            [
                 "diffViewer": [
                     "defaultLayout": "unified",
                 ],

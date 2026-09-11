@@ -737,7 +737,6 @@ private enum TitlebarControlIconStyle {
     static let pressedOpacity = HeaderChromeIconStyle.pressedOpacity
     static let weight = HeaderChromeIconStyle.weight
     static let foregroundColor = HeaderChromeIconStyle.foregroundColor
-    static let sidebarGlyphStrokeWidth = HeaderChromeIconStyle.sidebarGlyphStrokeWidth
 
     static func iconFrameSize(for config: TitlebarControlsStyleConfig) -> CGFloat {
         HeaderChromeIconStyle.iconFrameSize(forIconSize: config.iconSize)
@@ -1425,31 +1424,7 @@ private struct TitlebarSidebarGlyph: View {
     let iconSize: CGFloat
 
     var body: some View {
-        TitlebarSidebarGlyphShape()
-            .stroke(
-                style: StrokeStyle(
-                    lineWidth: TitlebarControlIconStyle.sidebarGlyphStrokeWidth,
-                    lineCap: .round,
-                    lineJoin: .round
-                )
-            )
-            .frame(width: max(13, iconSize + 2), height: max(11, iconSize - 1))
-    }
-}
-
-private struct TitlebarSidebarGlyphShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let insetRect = rect.insetBy(dx: 0.5, dy: 0.5)
-        path.addRoundedRect(
-            in: insetRect,
-            cornerSize: CGSize(width: 2, height: 2)
-        )
-
-        let dividerX = insetRect.minX + insetRect.width * 0.36
-        path.move(to: CGPoint(x: dividerX, y: insetRect.minY + 1.5))
-        path.addLine(to: CGPoint(x: dividerX, y: insetRect.maxY - 1.5))
-        return path
+        SidebarGlyph(iconSize: iconSize, side: .leading)
     }
 }
 
@@ -2755,8 +2730,9 @@ final class UpdateTitlebarAccessoryController {
     private var observers: [NSObjectProtocol] = []
     private var pendingAttachRetries: [ObjectIdentifier: Int] = [:]
     private var startupScanWorkItems: [DispatchWorkItem] = []
-    private let controlsIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
+    static let controlsIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
     private let controlsControllers = NSHashTable<TitlebarControlsAccessoryViewController>.weakObjects()
+    var lastShowsRightSidebarTitlebarToggle = RightSidebarChromeSettings.defaultShowTitlebarToggle
     private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
     private var detachedNotificationsPopover: NSPopover?
     private var detachedNotificationsPopoverDelegate: DetachedNotificationsPopoverDelegate?
@@ -2769,6 +2745,7 @@ final class UpdateTitlebarAccessoryController {
         self.updateLog = updateLog
         self.settingsRuntime = settingsRuntime
         self.layoutModel = layoutModel
+        self.lastShowsRightSidebarTitlebarToggle = Self.resolvedRightSidebarTitlebarToggle(defaults: .standard)
     }
 
     deinit {
@@ -2880,12 +2857,13 @@ final class UpdateTitlebarAccessoryController {
     }
 
     private func reattachIfPresentationModeChanged() {
-
         let currentMode = WorkspacePresentationModeSettings.mode()
-        guard currentMode != lastKnownPresentationMode else { return }
+        let presentationModeChanged = currentMode != lastKnownPresentationMode
+        let rightSidebarToggleChanged = rightSidebarTitlebarAccessoryConfigurationDidChange()
+        guard presentationModeChanged || rightSidebarToggleChanged else { return }
         lastKnownPresentationMode = currentMode
 
-        if currentMode == .standard {
+        if currentMode == .standard || rightSidebarToggleChanged {
             attachToExistingWindows()
         }
         for window in attachedWindows.allObjects {
@@ -2894,8 +2872,12 @@ final class UpdateTitlebarAccessoryController {
     }
 
     private func attachToExistingWindows() {
-        for window in NSApp.windows {
-            attachIfNeeded(to: window)
+        // The snapshot keeps the batch path linear. `attachIfNeeded(to:)` also
+        // serves single-window notifications, where checking that the window
+        // is still live protects against stale notification payloads.
+        let liveWindows = NSApp.windows
+        for window in liveWindows {
+            attachIfNeeded(to: window, knownLiveWindow: true)
         }
     }
 
@@ -2923,8 +2905,8 @@ final class UpdateTitlebarAccessoryController {
         }
     }
 
-    private func attachIfNeeded(to window: NSWindow) {
-        guard NSApp.windows.contains(where: { $0 === window }) else {
+    private func attachIfNeeded(to window: NSWindow, knownLiveWindow: Bool = false) {
+        guard knownLiveWindow || NSApp.windows.contains(where: { $0 === window }) else {
             pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
             return
         }
@@ -2959,17 +2941,18 @@ final class UpdateTitlebarAccessoryController {
             return
         }
 
-        if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == controlsIdentifier }) {
+        if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == Self.controlsIdentifier }) {
             let controls = TitlebarControlsAccessoryViewController(
                 notificationStore: TerminalNotificationStore.shared,
                 settingsRuntime: settingsRuntime,
                 layoutModel: layoutModel
             )
             controls.layoutAttribute = .left
-            controls.view.identifier = controlsIdentifier
+            controls.view.identifier = Self.controlsIdentifier
             window.addTitlebarAccessoryViewController(controls)
             controlsControllers.add(controls)
         }
+        attachRightSidebarTitlebarAccessoryIfNeeded(to: window)
 
         attachedWindows.add(window)
         applyAccessoryVisibility(for: window)
@@ -2991,8 +2974,9 @@ final class UpdateTitlebarAccessoryController {
         }
         let shouldHide = WorkspacePresentationModeSettings.mode() == .minimal
             || window.styleMask.contains(.fullScreen)
+        applyRightSidebarTitlebarAccessoryVisibility(for: window, shouldHide: shouldHide)
         for accessory in window.titlebarAccessoryViewControllers
-            where accessory.view.identifier == controlsIdentifier {
+            where accessory.view.identifier == Self.controlsIdentifier {
             accessory.isHidden = shouldHide
             accessory.view.isHidden = shouldHide
             accessory.view.alphaValue = shouldHide ? 0 : 1
@@ -3007,7 +2991,7 @@ final class UpdateTitlebarAccessoryController {
         }
         let matchingIndices = window.titlebarAccessoryViewControllers.indices.reversed().filter { index in
             let id = window.titlebarAccessoryViewControllers[index].view.identifier
-            return id == controlsIdentifier
+            return id == Self.controlsIdentifier || id == RightSidebarTitlebarAccessoryViewController.identifier
         }
         guard !matchingIndices.isEmpty || attachedWindows.contains(window) else { return }
 

@@ -50,6 +50,41 @@ actor AppContextSerialGate {
     }
 }
 
+/// Serializes tests that mutate process-global `UserDefaults.standard` values.
+/// Swift Testing's `.serialized` trait only orders tests within one suite, so a
+/// shared actor is required when unrelated suites exercise the same settings.
+actor RightSidebarDefaultsSerialGate {
+    static let shared = RightSidebarDefaultsSerialGate()
+
+    private var isHeld = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    private func acquire() async {
+        if !isHeld {
+            isHeld = true
+            return
+        }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    private func release() {
+        if waiters.isEmpty {
+            isHeld = false
+        } else {
+            waiters.removeFirst().resume()
+        }
+    }
+
+    @MainActor
+    static func withExclusive<T>(
+        _ body: @MainActor () async throws -> T
+    ) async rethrows -> T {
+        await shared.acquire()
+        defer { Task { await shared.release() } }
+        return try await body()
+    }
+}
+
 /// Test-only main-window context seams, kept in the test target per the
 /// debug-seam policy and reaching internal AppDelegate state via
 /// `@testable import`. Tests register a windowless context and tear it down
