@@ -98,6 +98,16 @@ extension TerminalController {
                             action: action
                         )
                     }
+                    if authorizedRequest.method == "surface.sync_codex_native_title" {
+                        return await self.v2MainAsync {
+                            self.v2Result(
+                                id: authorizedRequest.id?.foundationObject,
+                                self.v2SurfaceSyncCodexNativeTitle(
+                                    params: authorizedRequest.params.mapValues(\.foundationObject)
+                                )
+                            )
+                        }
+                    }
                     if policy.runsOnSocketWorker {
                         // Terminal rename performs an awaited cloud-link mutation. Keep the
                         // actual socket connection task asynchronous instead of parking a

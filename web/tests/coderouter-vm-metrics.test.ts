@@ -60,6 +60,18 @@ describe("CodeRouter per-machine metrics", () => {
       expect(body).toContain("vm_id = {vm_id:String}");
       expect(body).not.toContain("team-authorized");
       expect(body).not.toContain(vmId);
+      if (body.includes("GROUP BY workspace_id, surface_id, agent, model")) {
+        const tokens = (total: number) => ({
+          input_tokens: total, cached_input_tokens: 0, output_tokens: 0, total_tokens: total,
+          api_equivalent_usd: total / 1_000_000, priced_tokens: total, unpriced_tokens: 0,
+        });
+        return jsonEachRow([
+          { workspace_id: "ws_a", surface_id: "sf_1", agent: "claude", model: "claude-sonnet-5", ...tokens(1_000_000) },
+          { workspace_id: "ws_a", surface_id: "sf_2", agent: "codex", model: "gpt-5.6", ...tokens(200_000) },
+          { workspace_id: "", surface_id: "", agent: "codex", model: "gpt-5.6", ...tokens(100_000) },
+        ]);
+      }
+      expect(body).toContain("GROUP BY day");
       return jsonEachRow([{ day: "2026-09-02", ...usageRow }]);
     });
 
@@ -68,10 +80,15 @@ describe("CodeRouter per-machine metrics", () => {
       vmId,
       { clickhouse: { config: () => config, fetch: ledgerFetch as typeof fetch }, now },
     );
-    expect(ledgerFetch).toHaveBeenCalledTimes(1);
+    expect(ledgerFetch).toHaveBeenCalledTimes(2);
     expect(result.kind).toBe("ready");
     const ready = result as Extract<CoderouterVmMetrics, { kind: "ready" }>;
     expect(ready.vmId).toBe(vmId);
+    expect(ready.breakdown.map((row) => [row.workspaceId, row.surfaceId, row.agent, row.model, row.totals.totalTokens])).toEqual([
+      ["ws_a", "sf_1", "claude", "claude-sonnet-5", 1_000_000],
+      ["ws_a", "sf_2", "codex", "gpt-5.6", 200_000],
+      ["", "", "codex", "gpt-5.6", 100_000],
+    ]);
     expect(ready.periodDays).toBe(30);
     expect(ready.daily).toHaveLength(30);
     expect(ready.totals.totalTokens).toBe(1_300_000);
@@ -126,7 +143,7 @@ describe("CodeRouter per-machine metrics", () => {
   test("fails closed when disabled, malformed, truncated, or given a bad id", async () => {
     const failures: Array<[string, string, number | undefined]> = [];
     const reportFailure = (
-      query: "vm" | "machines",
+      query: "vm" | "vm_breakdown" | "machines",
       reason: string,
       status?: number,
     ) => failures.push([query, reason, status]);
@@ -188,6 +205,20 @@ describe("CodeRouter per-machine metrics", () => {
       ),
     ).toEqual({ kind: "unavailable" });
 
+    let breakdownCalls = 0;
+    expect(
+      await vmMetricsTest.queryCoderouterVmMetrics(
+        "team-1",
+        vmId,
+        withFetch(mock(async () => {
+          breakdownCalls += 1;
+          return breakdownCalls === 1
+            ? jsonEachRow([{ day: "2026-09-02", ...usageRow }])
+            : jsonEachRow([{ workspace_id: "not an id!", surface_id: "", agent: "codex", model: "m", ...usageRow }]);
+        }) as typeof fetch),
+      ),
+    ).toEqual({ kind: "unavailable" });
+
     expect(failures).toEqual([
       ["vm", "configuration_missing", undefined],
       ["vm", "invalid_vm_id", undefined],
@@ -195,6 +226,7 @@ describe("CodeRouter per-machine metrics", () => {
       ["machines", "malformed_response", undefined],
       ["machines", "endpoint_status", 503],
       ["machines", "invalid_metrics", undefined],
+      ["vm_breakdown", "invalid_metrics", undefined],
     ]);
     expect(JSON.stringify(failures)).not.toContain("team-private");
   });
