@@ -21,6 +21,7 @@ extension NSImageView {
         )
         image = renderedImage
         isHidden = renderedImage == nil
+        guard renderedImage != nil else { return }
         toolTip = label
         contentTintColor = tint
     }
