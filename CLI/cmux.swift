@@ -4368,16 +4368,9 @@ struct CMUXCLI {
         return VMMachineKind.defaultKind
     }
     private static let cloudVMDesktopPort = 6901
-    /// Whether a machine payload (`vm.create` / `vm.status` / `vm.base_open`
-    /// response) describes a machine with a screen: the backend's `kind` when it
-    /// sends one, otherwise the image name for older control planes.
-    static func cloudVMResponseHasDesktop(_ response: [String: Any]) -> Bool {
-        VMMachineKind.resolved(kind: response["kind"], image: response["image"]).hasDesktop
-    }
-
     /// `vm shell <id>` and `vm open <id>`: the shared cloud open path through the
-    /// machine's cmux-tui remote daemon, then the screen beside the shell for desktop machines.
-    func openVMShellWithDesktop(
+    /// machine's cmux-tui remote daemon. Desktop panes are opened explicitly.
+    func openVMWorkspaceShell(
         vmId: String,
         windowRaw: String?,
         targetWorkspaceId: String?,
@@ -4385,7 +4378,7 @@ struct CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
-        let shellWorkspace = try vmOpenShell(
+        try vmOpenShell(
             id: vmId,
             workspaceName: "vm:\(vmId)",
             windowRaw: windowRaw,
@@ -4396,22 +4389,10 @@ struct CMUXCLI {
             jsonOutput: jsonOutput,
             idFormat: idFormat
         )
-        if let status = try? client.sendV2(method: "vm.status", params: ["id": vmId], responseTimeout: 30),
-           Self.cloudVMResponseHasDesktop(status) {
-            // The screen belongs beside the shell it was opened with, not in whatever
-            // workspace holds focus once the attach settles.
-            let desktopWorkspace = shellWorkspace?.workspaceId ?? vmAttachedWorkspaceId(vmId: vmId, client: client)
-            _ = try? openVMDesktopSplit(
-                vmId: vmId,
-                client: client,
-                workspaceId: desktopWorkspace,
-                terminalSurfaceId: shellWorkspace?.terminalSurfaceId
-            )
-        }
     }
 
     /// Shows the VM's desktop (noVNC) as a browser pane. One path for every entrypoint —
-    /// `vm desktop`, `vm open <m>:desktop`, the split beside `vm shell`, and the sidebar
+    /// `vm desktop`, `vm open <m>:desktop`, and the sidebar
     /// tree — through the app's `vm.desktop_open`, which loads the machine's private URL
     /// after the browser Network Extension is ready and reports the surface.
     /// Returns false when the machine has no desktop.
@@ -4700,14 +4681,7 @@ struct CMUXCLI {
         try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
-    private static func activeVMCreateIdempotency(image: String?, provider: String?, usesPersistentDefaultCloud: Bool) throws -> ActiveVMCreateIdempotency {
-        if usesPersistentDefaultCloud {
-            return ActiveVMCreateIdempotency(
-                signature: "persistent-cloud-vm-slot",
-                key: persistentCloudVMSlotID
-            )
-        }
-
+    private static func activeVMCreateIdempotency(image: String?, provider: String?) throws -> ActiveVMCreateIdempotency {
         let url = vmCreateIdempotencyStoreURL()
         let signature = vmCreateIdempotencySignature(image: image, provider: provider)
         let now = Date().timeIntervalSince1970
@@ -4731,13 +4705,6 @@ struct CMUXCLI {
         guard store.records[active.signature]?.key == active.key else { return }
         store.records.removeValue(forKey: active.signature)
         try? saveVMCreateIdempotencyStore(store, to: url)
-    }
-
-    private static func usesPersistentDefaultCloud(image: String?, providerOption: String?) -> Bool {
-        let normalizedImage = image?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard normalizedImage?.isEmpty != false else { return false }
-        let normalizedProvider = providerOption?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return normalizedProvider == nil || normalizedProvider == ""
     }
 
     private static let browserDisabledDefaultsKey = "browserDisabledOverride"
@@ -5804,7 +5771,7 @@ struct CMUXCLI {
                 }
                 if case .machine(let vmId) = target {
                     // The bare machine is the shell: exactly `vm shell <machine>`.
-                    try openVMShellWithDesktop(
+                    try openVMWorkspaceShell(
                         vmId: vmId,
                         windowRaw: windowOpt ?? windowId,
                         targetWorkspaceId: workspaceOpt,
@@ -6011,33 +5978,14 @@ struct CMUXCLI {
                 // not expose sizing ignore this optional field; providers that do use it
                 // for runtime memory get it, and the backend applies the plan ceiling.
                 if let memoryMb { params["memory_mb"] = memoryMb }
-                // The persistent per-machine home is keyed off whether the *person*
-                // overrode the image/provider (`imageOptRaw`), not the CLI-injected
-                // default. Otherwise the desktop default would look like a custom
-                // image and silently drop `persistent_home`, making every new machine
-                // ephemeral. A bare `vm new` — desktop or `--base` — stays persistent.
-                let usesPersistentDefaultCloud = Self.usesPersistentDefaultCloud(
-                    image: imageOptRaw,
-                    providerOption: providerOpt
-                )
-                // The persistent-default create sends no provider override: the backend's
-                // CMUX_VM_DEFAULT_PROVIDER decides, with Freestyle as the default. An
-                // explicit provider remains available for deliberate rollback/experiments.
-                if usesPersistentDefaultCloud {
-                    // Every new machine is its own persistent computer: the backend mounts a
-                    // volume derived from the machine's generated name, so `vm new` mints a
-                    // fresh durable machine each time (up to the plan limit) instead of
-                    // reattaching the single shared slot. `vm base open` still owns the slot.
-                    params["persistent_home"] = true
-                    params["per_machine_home"] = true
-                }
+                // Freestyle is the default and only deployed provider. It does not support
+                // persistent home volumes, so leave both volume flags out of this request.
                 let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
                 // Store-based idempotency: retries of a failed create reuse the key; a
                 // successful create clears it, so the next `vm new` makes a new machine.
                 let idempotency = try Self.activeVMCreateIdempotency(
                     image: imageOptRaw ?? "kind=\(machineKind.rawValue)",
-                    provider: normalizedProvider,
-                    usesPersistentDefaultCloud: false
+                    provider: normalizedProvider
                 )
                 params["idempotency_key"] = idempotency.key
                 let vmCreateStartedAt = Date()
@@ -6120,7 +6068,7 @@ struct CMUXCLI {
                 // a failed attach must not make the next `vm new` replay this create and
                 // "create" the same machine again.
                 Self.clearVMCreateIdempotency(idempotency)
-                let createdWorkspace = try vmOpenShell(
+                try vmOpenShell(
                     id: id,
                     workspaceName: "vm:\(id)",
                     windowRaw: targetWindow,
@@ -6135,18 +6083,6 @@ struct CMUXCLI {
                     jsonOutput: jsonOutput,
                     idFormat: idFormat
                 )
-                // A machine with a screen shows it: stream the noVNC desktop into a browser
-                // split beside the shell so the workspace opens as terminal + desktop.
-                if Self.cloudVMResponseHasDesktop(response) {
-                    _ = try? openVMDesktopSplit(
-                        vmId: id,
-                        client: client,
-                        workspaceId: createdWorkspace?.workspaceId,
-                        // Re-focusing the shell would select its workspace; a background
-                        // open leaves the person where they are.
-                        terminalSurfaceId: focus ? createdWorkspace?.terminalSurfaceId : nil
-                    )
-                }
 
             case "desktop", "vnc":
                 // The machine's screen, on demand: the noVNC desktop opens as a browser
@@ -6163,7 +6099,7 @@ struct CMUXCLI {
                         """)
                 }
                 let desktopWorkspace = workspaceOpt ?? vmAttachedWorkspaceId(vmId: vmId, client: client)
-                // One desktop path for `vm desktop`, `vm open <m>:desktop`, `vm shell`'s split
+                // One desktop path for `vm desktop`, `vm open <m>:desktop`,
                 // and the sidebar tree: vm.desktop_open in the app.
                 guard try openVMDesktopSplit(vmId: vmId, client: client, workspaceId: desktopWorkspace, jsonOutput: jsonOutput) else {
                     throw CLIError(message: String(
@@ -6305,7 +6241,7 @@ struct CMUXCLI {
                           cmux vm ls
                         """)
                 }
-                try openVMShellWithDesktop(
+                try openVMWorkspaceShell(
                     vmId: vmId,
                     windowRaw: windowOpt ?? windowId,
                     targetWorkspaceId: nil,
