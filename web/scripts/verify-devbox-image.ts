@@ -86,6 +86,10 @@ const CHECKS: readonly string[] = [
   "node --version && npm --version && python --version && python3 --version && bun --version && uv --version && echo toolchain-ok",
   "git --version; rg --version | head -1",
   "jq --version; fd --version; fzf --version; gh --version | head -1; sqlite3 --version; tmux -V; rsync --version | head -1; file --version | head -1; tree --version; vim --version | head -1",
+  // The private-network announce (images/network.ts): arping is installed and
+  // the boot supervisor's announce loop is running on the booted machine.
+  // `[b]oot` keeps pgrep from matching this check's own shell command line.
+  "command -v arping && pgrep -f 'cmux-devbox-[b]oot' >/dev/null && grep -q 'announce_loop &' /usr/local/bin/cmux-devbox-boot && echo network-announce-ok",
   // Chrome + managed policy + browser/computer-use drivers.
   "google-chrome-stable --version",
   "jq -e '.DefaultSearchProviderSearchURL | test(\"duckduckgo\")' /etc/opt/chrome/policies/managed/cmux.json >/dev/null && echo chrome-ddg-policy-ok",

@@ -492,7 +492,7 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
             terminalRenderingMode: .windowHostBackdrop,
             unifySurfaceBackdrops: true,
             sidebarSettings: SidebarBackdropSettingsSnapshot(
-                materialRawValue: SidebarMaterialOption.sidebar.rawValue,
+                materialRawValue: CmuxSettings.SidebarMaterialOption.sidebar.rawValue,
                 blendModeRawValue: SidebarBlendModeOption.withinWindow.rawValue,
                 stateRawValue: SidebarStateOption.followWindow.rawValue,
                 tintHex: SidebarTintDefaults().hex,

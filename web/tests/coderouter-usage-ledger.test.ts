@@ -71,6 +71,8 @@ describe("CodeRouter usage ledger rows", () => {
         provider: "codex",
         upstream_kind: "",
         upstream_account_id: "",
+        workspace_id: "",
+        surface_id: "",
         agent: "codex",
         model: "gpt-5.2-codex",
         input_tokens: 1_200_000,

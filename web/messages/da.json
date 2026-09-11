@@ -152,6 +152,42 @@
     "applyAriaLabel": "Søg stillingen som Founding Engineer via e-mail",
     "applyEmailSubject": "Ansøgning som Founding Engineer hos cmux",
     "applyCta": "Send e-mail",
+    "foundingChromiumEngineer": {
+      "metaTitle": "Founding Chromium Engineer hos cmux",
+      "metaDescription": "Bliv founding Chromium engineer hos cmux: ej vores Chromium-fork og bring cmux til Windows og Linux med C++ og Rust.",
+      "section": "Ledige stillinger",
+      "eyebrow": "Om rollen",
+      "title": "Founding Chromium Engineer",
+      "tagline": "Bring cmux til Windows og Linux.",
+      "intro": "cmux er en indbygget macOS-terminal bygget på Ghostty, designet til at køre flere AI-kodeagenter parallelt. Hundrede tusinder af udviklere bruger cmux til deres agentbaserede kodearbejdsgange.",
+      "hiring": "Vi ansætter en founding engineer til at eje cmux på Windows (og Linux), bygget på vores egen fork af Chromium.",
+      "whatYoullDo": "Det skal du lave",
+      "whatYoullDoItems": [
+        "Ej vores Chromium-fork: følg upstream, rebase rent og bær cmux-patches (vindue-/input-/render-integration, terminalflade, agent-UI).",
+        "Ej cmux på Windows og Linux fra ende til anden: C++, installer, auto-update, crash-rapportering.",
+        "Port den Ghostty-baserede terminalkerne og agent-orkestreringsfunktionerne (vertikale faner, notifikationsringe, splits, CLI) til Windows.",
+        "Få ydeevnen til at føles native: opstartstid, GPU-rendering, input-latens.",
+        "Dogfood, test og verificér konstant."
+      ],
+      "excitedLead": "Vi bliver ekstra begejstrede, hvis du:",
+      "excitedItems": [
+        "Dybe C++-kompetencer og reel Chromium-erfaring - ideelt har du vedligeholdt en fork: båret patches, rebaset på upstream-milepæle, debugget i content/ eller blink.",
+        "Rust er et stort plus (vores TUI og netværksdaemon er skrevet i Rust).",
+        "Du har leveret eller vedligeholdt en rigtig Windows-desktopapp.",
+        "Bonus: upstream Chromium-bidrag, nysgerrighed omkring Swift/AppKit, open source-maintainer, tidligere grundlægger."
+      ],
+      "details": "Detaljer",
+      "roleTitle": "Founding Chromium Engineer",
+      "compensationLabel": "Kompensation",
+      "compensation": "$130k–$170k + 0,5 %–1,5 % ejerandel",
+      "benefitsLabel": "Fordele",
+      "benefits": "Sundheds-, tand- og synsforsikring",
+      "locationLabel": "Placering",
+      "location": "San Francisco",
+      "applyAriaLabel": "Søg stillingen som Founding Chromium Engineer via e-mail",
+      "applyEmailSubject": "Ansøgning som Founding Chromium Engineer hos cmux",
+      "applyCta": "Send e-mail"
+    },
     "foundingDesigner": {
       "metaTitle": "Founding Designer hos cmux",
       "metaDescription": "Bliv Founding Designer hos cmux, og design fremtidens kodning med AI på macOS, TUI, Windows, Linux, iOS, Cloud, cmux.com og chatmux.",

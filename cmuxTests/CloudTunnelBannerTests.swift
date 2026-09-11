@@ -87,3 +87,91 @@ struct CloudTunnelBannerTests {
         return predicate()
     }
 }
+
+@MainActor
+@Suite("Optional Cloud VPN setup")
+struct CloudVPNSetupModelTests {
+    private let backend = CloudTunnelBackend.networkExtension(extensionBundleIdentifier: "test.cloud.vpn")
+
+    @Test("Opening setup reads status without enrolling or requesting approval")
+    func openingIsPassive() async {
+        let controller = FakeTunnelController()
+        let enroller = FakeTunnelEnroller()
+        let coordinator = CloudTunnelCoordinator(backend: backend, controller: controller, enroller: enroller, consumers: FakeTunnelConsumers())
+        let model = CloudVPNSetupModel(coordinator: coordinator)
+        await model.refresh()
+        #expect(model.state == .off)
+        #expect(model.canConnect)
+        #expect(enroller.enrollCount == 0)
+        #expect(controller.calls.isEmpty)
+    }
+
+    @Test("Unavailable extensions cannot start setup")
+    func unsupportedBuild() async {
+        let model = CloudVPNSetupModel(coordinator: nil)
+        #expect(!model.canConnect)
+        #expect(model.unavailableMessage != nil)
+        await model.connect()
+        #expect(model.state == .off)
+    }
+
+    @Test("Admission errors stay visible without an extension prompt")
+    func admissionError() async {
+        let controller = FakeTunnelController()
+        let enroller = FakeTunnelEnroller()
+        let coordinator = CloudTunnelCoordinator(
+            backend: backend,
+            controller: controller,
+            enroller: enroller,
+            consumers: FakeTunnelConsumers(),
+            admission: CloudTunnelAdmission(knownRefusal: { .noCloudMachine }, resolvedRefusal: { .noCloudMachine })
+        )
+        let model = CloudVPNSetupModel(coordinator: coordinator)
+        await model.connect()
+        #expect(model.errorMessage == CloudTunnelError.noCloudMachine.description)
+        #expect(!model.isSubmitting)
+        #expect(controller.calls.isEmpty)
+        #expect(enroller.enrollCount == 0)
+    }
+
+    @Test("Approval completes the same connection, and Disconnect stops it")
+    func approvalThenDisconnect() async {
+        let controller = FakeTunnelController()
+        controller.holdInstallForApproval = true
+        let enroller = FakeTunnelEnroller()
+        let coordinator = CloudTunnelCoordinator(backend: backend, controller: controller, enroller: enroller, consumers: FakeTunnelConsumers())
+        let model = CloudVPNSetupModel(coordinator: coordinator)
+        await model.connect()
+        #expect(await coordinator.waitForState(timeout: .seconds(5)) { $0 == .awaitingApproval } == .awaitingApproval)
+        await model.refresh()
+        #expect(model.state == .awaitingApproval)
+        #expect(!model.canConnect)
+        await model.connect()
+        #expect(enroller.enrollCount == 1)
+        controller.approve()
+        #expect(await coordinator.waitForState(timeout: .seconds(5)) { $0 == .up } == .up)
+        await model.refresh()
+        #expect(model.state == .up)
+        #expect(await coordinator.status().isPinned)
+        await model.disconnect()
+        #expect(model.state == .off)
+        #expect(!(await coordinator.status().isPinned))
+    }
+
+    @Test("Failed connection is reported and the user can retry")
+    func failedStartCanRetry() async {
+        let controller = FakeTunnelController()
+        controller.startError = FakeTunnelController.Failure.refused
+        let coordinator = CloudTunnelCoordinator(backend: backend, controller: controller, enroller: FakeTunnelEnroller(), consumers: FakeTunnelConsumers())
+        let model = CloudVPNSetupModel(coordinator: coordinator)
+        await model.connect()
+        _ = await coordinator.waitForState(timeout: .seconds(5)) { $0.failureMessage != nil }
+        await model.refresh()
+        #expect(model.state.failureMessage != nil)
+        #expect(model.canConnect)
+        controller.startError = nil
+        await model.connect()
+        #expect(await coordinator.waitForState(timeout: .seconds(5)) { $0 == .up } == .up)
+        await model.disconnect()
+    }
+}

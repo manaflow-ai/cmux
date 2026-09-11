@@ -152,6 +152,42 @@
     "applyAriaLabel": "Prijavite se e-mailom za Founding Engineer poziciju",
     "applyEmailSubject": "Prijava za Founding Engineer u cmuxu",
     "applyCta": "Pošalji e-mail",
+    "foundingChromiumEngineer": {
+      "metaTitle": "Founding Chromium Engineer u cmuxu",
+      "metaDescription": "Pridružite se cmuxu kao founding Chromium inženjer: preuzmite naš Chromium fork i donesite cmux na Windows i Linux s C++ i Rust.",
+      "section": "Poslovi",
+      "eyebrow": "O ulozi",
+      "title": "Founding Chromium Engineer",
+      "tagline": "Donesite cmux na Windows i Linux.",
+      "intro": "cmux je nativni macOS terminal izgrađen na Ghosttyju, dizajniran za paralelno pokretanje više AI coding agenata. Stotine hiljada programera koristi cmux za svoje agentske coding tokove.",
+      "hiring": "Zapošljavamo founding inženjera koji će preuzeti cmux na Windowsu (i Linuxu), izgrađen na našem vlastitom forku Chromiuma.",
+      "whatYoullDo": "Šta ćete raditi",
+      "whatYoullDoItems": [
+        "Preuzmite naš Chromium fork: pratite upstream, čisto rebaseajte i nosite cmux patcheve (integracija prozora/unosa/renderiranja, terminalska površina, UI agenata).",
+        "Preuzmite cmux na Windowsu i Linuxu od početka do kraja: C++, instalater, automatska ažuriranja, izvještavanje o padovima.",
+        "Portirajte terminalsko jezgro bazirano na Ghosttyju i funkcije orkestracije agenata (vertikalni tabovi, prstenovi notifikacija, podjele, CLI) na Windows.",
+        "Učinite da performanse budu kao nativne: vrijeme pokretanja, GPU renderiranje, latencija unosa.",
+        "Stalno koristite, testirajte i verificirajte proizvod."
+      ],
+      "excitedLead": "Posebno nas raduje ako:",
+      "excitedItems": [
+        "Duboko poznavanje C++-a i stvarno iskustvo s Chromiumom - idealno je da ste održavali fork: nošenje patcheva, rebase na upstream milestone, debugovanje u content/ ili blink.",
+        "Rust je veliki plus (naš TUI i mrežni daemon su pisani u Rustu).",
+        "Isporučili ste ili održavali pravu Windows desktop aplikaciju.",
+        "Bonus: doprinosi upstream Chromiumu, zanimanje za Swift/AppKit, open-source održavatelj, bivši osnivač."
+      ],
+      "details": "Detalji",
+      "roleTitle": "Founding Chromium Engineer",
+      "compensationLabel": "Naknada",
+      "compensation": "$130k–$170k + 0,5%–1,5% udjela",
+      "benefitsLabel": "Pogodnosti",
+      "benefits": "Zdravstveno, stomatološko i osiguranje vida",
+      "locationLabel": "Lokacija",
+      "location": "San Francisco",
+      "applyAriaLabel": "Prijavite se e-mailom za Founding Chromium Engineer poziciju",
+      "applyEmailSubject": "Prijava za Founding Chromium Engineer u cmuxu",
+      "applyCta": "Pošalji e-mail"
+    },
     "foundingDesigner": {
       "metaTitle": "Founding Designer u cmuxu",
       "metaDescription": "Pridružite se cmuxu kao Founding Designer i dizajnirajte budućnost programiranja uz AI na macOS-u, TUI-ju, Windowsu, Linuxu, iOS-u, Cloudu, cmux.comu i chatmuxu.",
