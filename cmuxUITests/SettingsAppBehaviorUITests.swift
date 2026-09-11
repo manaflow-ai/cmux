@@ -120,9 +120,11 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
             "-NSForceRightToLeftWritingDirection", rightToLeft ? "YES" : "NO",
         ]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_SHOW_SETTINGS"] = "1"
         launchAndActivate(app)
         defer { app.terminate() }
+        // Open Settings after launch activation so the main window cannot
+        // cover its search field during the startup window ordering.
+        app.typeKey(",", modifierFlags: .command)
         let window = app.windows["cmux.settings"]
         XCTAssertTrue(window.waitForExistence(timeout: 8))
         let sidebar = window.outlines.firstMatch
