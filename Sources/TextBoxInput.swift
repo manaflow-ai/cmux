@@ -1026,6 +1026,36 @@ func textBoxCommandShortcutKey(
     return normalizedCharacters(event).lowercased()
 }
 
+/// Standard macOS editing commands the TextBox input owns while focused.
+///
+/// `selectAll` is here because cmux has no Edit > Select All menu item, so an
+/// unhandled Cmd+A falls through to the focused terminal and selects the whole
+/// Ghostty scrollback instead of the text the user is composing (issue: Cmd+A
+/// in the TextBox selects the page).
+enum TextBoxStandardEditCommand: Equatable {
+    case copy
+    case cut
+    case paste
+    case selectAll
+}
+
+func textBoxStandardEditCommand(
+    for event: NSEvent,
+    shortcutKey: (NSEvent) -> String = { textBoxCommandShortcutKey(for: $0) }
+) -> TextBoxStandardEditCommand? {
+    guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command else {
+        return nil
+    }
+
+    switch shortcutKey(event) {
+    case "c": return .copy
+    case "x": return .cut
+    case "v": return .paste
+    case "a": return .selectAll
+    default: return nil
+    }
+}
+
 private struct TextBoxMentionCompletionPopoverView: View {
     let suggestions: [TextBoxMentionSuggestion]
     let selectionIndex: Int
@@ -4904,22 +4934,19 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func handleStandardEditShortcut(_ event: NSEvent) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard flags == .command else { return false }
+        guard let command = textBoxStandardEditCommand(for: event) else { return false }
 
-        switch textBoxCommandShortcutKey(for: event) {
-        case "c":
+        switch command {
+        case .copy:
             copy(nil)
-            return true
-        case "x":
+        case .cut:
             cut(nil)
-            return true
-        case "v":
+        case .paste:
             paste(nil)
-            return true
-        default:
-            return false
+        case .selectAll:
+            selectAll(nil)
         }
+        return true
     }
 
     func deleteAttachment(at characterIndex: Int) {
