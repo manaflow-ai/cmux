@@ -1,0 +1,254 @@
+{
+  "events": [
+    {
+      "checkpoint": "before",
+      "data": {
+        "head": "af27da70e4a5ba113dab23f190b1f382b29aae18",
+        "target": {
+          "workspace_id": "911F7B74-BC7B-4E03-9EBD-674DB08316F5",
+          "surface_id": "03DA4EC2-916F-4D66-85BE-253C7FDBFFA2"
+        },
+        "native": [
+          94,
+          37
+        ],
+        "native_text": "CMUX PR 11419: desktop geometry stays native\nABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ\nConnection-local projections leave this terminal unchanged.\nNATIVE_PTY 37 94",
+        "initial_polling": {
+          "render_revisions": [
+            1,
+            1,
+            1
+          ],
+          "emission_revisions": [
+            2,
+            3,
+            4
+          ]
+        }
+      }
+    },
+    {
+      "capture": "before",
+      "exit": 0
+    },
+    {
+      "checkpoint": "after",
+      "data": {
+        "head": "af27da70e4a5ba113dab23f190b1f382b29aae18",
+        "target": {
+          "workspace_id": "911F7B74-BC7B-4E03-9EBD-674DB08316F5",
+          "surface_id": "03DA4EC2-916F-4D66-85BE-253C7FDBFFA2"
+        },
+        "native": [
+          94,
+          37
+        ],
+        "native_text": "CMUX PR 11419: desktop geometry stays native\nABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ\nConnection-local projections leave this terminal unchanged.\nNATIVE_PTY 37 94",
+        "initial_polling": {
+          "render_revisions": [
+            1,
+            1,
+            1
+          ],
+          "emission_revisions": [
+            2,
+            3,
+            4
+          ]
+        },
+        "setting": {
+          "override": true,
+          "workspace_id": "911F7B74-BC7B-4E03-9EBD-674DB08316F5",
+          "workspace_ref": "workspace:1",
+          "pane_resized": false,
+          "projection": "render_grid",
+          "rows": 6,
+          "columns": 20,
+          "surface_ref": "surface:1",
+          "surface_id": "03DA4EC2-916F-4D66-85BE-253C7FDBFFA2",
+          "mode": "override",
+          "pty_resized": false
+        },
+        "projected_text": "EFGHIJKLMNOPQRSTUVWX\nYZ\nConnection-local pro\njections leave this \nterminal unchanged.\nNATIVE_PTY 37 94",
+        "projected_grid": [
+          20,
+          6
+        ],
+        "projected_polling": {
+          "render_revisions": [
+            1,
+            1,
+            1
+          ],
+          "emission_revisions": [
+            0,
+            0,
+            0
+          ]
+        },
+        "other_connection_grid": [
+          94,
+          37
+        ],
+        "native_desktop_text_unchanged": true
+      }
+    },
+    {
+      "capture": "after",
+      "exit": 0
+    },
+    {
+      "result": {
+        "head": "af27da70e4a5ba113dab23f190b1f382b29aae18",
+        "target": {
+          "workspace_id": "911F7B74-BC7B-4E03-9EBD-674DB08316F5",
+          "surface_id": "03DA4EC2-916F-4D66-85BE-253C7FDBFFA2"
+        },
+        "native": [
+          94,
+          37
+        ],
+        "native_text": "CMUX PR 11419: desktop geometry stays native\nABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ\nConnection-local projections leave this terminal unchanged.\nNATIVE_PTY 37 94",
+        "initial_polling": {
+          "render_revisions": [
+            1,
+            1,
+            1
+          ],
+          "emission_revisions": [
+            2,
+            3,
+            4
+          ]
+        },
+        "setting": {
+          "override": true,
+          "workspace_id": "911F7B74-BC7B-4E03-9EBD-674DB08316F5",
+          "workspace_ref": "workspace:1",
+          "pane_resized": false,
+          "projection": "render_grid",
+          "rows": 6,
+          "columns": 20,
+          "surface_ref": "surface:1",
+          "surface_id": "03DA4EC2-916F-4D66-85BE-253C7FDBFFA2",
+          "mode": "override",
+          "pty_resized": false
+        },
+        "projected_text": "EFGHIJKLMNOPQRSTUVWX\nYZ\nConnection-local pro\njections leave this \nterminal unchanged.\nNATIVE_PTY 37 94",
+        "projected_grid": [
+          20,
+          6
+        ],
+        "projected_polling": {
+          "render_revisions": [
+            1,
+            1,
+            1
+          ],
+          "emission_revisions": [
+            0,
+            0,
+            0
+          ]
+        },
+        "other_connection_grid": [
+          94,
+          37
+        ],
+        "native_desktop_text_unchanged": true,
+        "reset": {
+          "override": false,
+          "surface_id": "03DA4EC2-916F-4D66-85BE-253C7FDBFFA2",
+          "pane_resized": false,
+          "pty_resized": false,
+          "mode": "native",
+          "surface_ref": "surface:1",
+          "rows": 37,
+          "projection": "render_grid",
+          "columns": 94,
+          "workspace_id": "911F7B74-BC7B-4E03-9EBD-674DB08316F5",
+          "workspace_ref": "workspace:1"
+        },
+        "pixel_override": {
+          "override": true,
+          "surface_id": "03DA4EC2-916F-4D66-85BE-253C7FDBFFA2",
+          "pane_resized": false,
+          "pty_resized": false,
+          "mode": "override",
+          "surface_ref": "surface:1",
+          "rows": 5,
+          "projection": "render_grid",
+          "columns": 20,
+          "workspace_id": "911F7B74-BC7B-4E03-9EBD-674DB08316F5",
+          "workspace_ref": "workspace:1"
+        },
+        "set_reset_alias": {
+          "override": false,
+          "surface_id": "03DA4EC2-916F-4D66-85BE-253C7FDBFFA2",
+          "pane_resized": false,
+          "pty_resized": false,
+          "mode": "native",
+          "surface_ref": "surface:1",
+          "rows": 37,
+          "projection": "render_grid",
+          "workspace_id": "911F7B74-BC7B-4E03-9EBD-674DB08316F5",
+          "columns": 94,
+          "workspace_ref": "workspace:1"
+        },
+        "invalid_dimensions_rejected": true,
+        "disconnect_new_connection_grid": [
+          94,
+          37
+        ],
+        "disconnect_other_connection_grid": [
+          94,
+          37
+        ],
+        "pty_after": [
+          94,
+          37
+        ],
+        "cli": {
+          "cell": {
+            "columns": 20,
+            "mode": "override",
+            "override": true,
+            "pane_resized": false,
+            "projection": "render_grid",
+            "pty_resized": false,
+            "rows": 6,
+            "surface_ref": "surface:1",
+            "workspace_ref": "workspace:1"
+          },
+          "pixel": {
+            "columns": 20,
+            "mode": "override",
+            "override": true,
+            "pane_resized": false,
+            "projection": "render_grid",
+            "pty_resized": false,
+            "rows": 5,
+            "surface_ref": "surface:1",
+            "workspace_ref": "workspace:1"
+          },
+          "reset": {
+            "columns": 94,
+            "mode": "native",
+            "override": false,
+            "pane_resized": false,
+            "projection": "render_grid",
+            "pty_resized": false,
+            "rows": 37,
+            "surface_ref": "surface:1",
+            "workspace_ref": "workspace:1"
+          },
+          "invalid_exit": 1,
+          "connection_teardown_restores_native": true
+        },
+        "passed": true
+      }
+    }
+  ],
+  "exit": 0,
+  "stderr": ""
+}

@@ -1,0 +1,52 @@
+{
+  "pr": 11419,
+  "verified_pr_head": "94ccc1828a4df6e1b8e5374ec3859ea79fe89f62",
+  "app_source_head": "af27da70e4a5ba113dab23f190b1f382b29aae18",
+  "app_build_run": "issue-11303-local-viewport-override-8b4b8a26e5bc",
+  "native_sources_unchanged_by_final_main_merge": true,
+  "core": {
+    "head": "a1c4041d748f287949a211e9b164d7112a29862d",
+    "passed": 129,
+    "failed": 0
+  },
+  "relay": {
+    "head": "af27da70e4a5ba113dab23f190b1f382b29aae18",
+    "passed": 4,
+    "failed": 0,
+    "parameterized_methods": [
+      "terminal.viewport.set",
+      "terminal.viewport.reset"
+    ]
+  },
+  "ios_replay": {
+    "head": "a1c4041d748f287949a211e9b164d7112a29862d",
+    "passed": 20,
+    "failed": 0,
+    "platform": "iOS Simulator 26.3.1, iPhone 17 Pro"
+  },
+  "ios_mounted_normalization": {
+    "passed": 1,
+    "failed": 0
+  },
+  "hosted_app_regression": {
+    "run": 34563252692,
+    "head": "3045e28e77b143f2d3c12f5d9b2d63836cf67e35",
+    "passed": 1
+  },
+  "projection_red": {
+    "head": "00f93b7159eabd0b25d890f5fa274676413e47d1",
+    "failed_tests": 2,
+    "failed_assertions": 3
+  },
+  "relay_red": {
+    "head": "6d0583a8a5",
+    "failed_test_cases": 2,
+    "failed_assertions": 14
+  },
+  "baseline_failure": "terminalViewportDetachKeepsGenerationTombstoneForStaleAcks also fails on main 72ce5e9b41",
+  "remaining": [
+    "Authenticated simulator/physical-iPhone dogfood blocked by incomplete agent credential pair",
+    "Phone rotation, keyboard viewport changes, authenticated reconnect unverified",
+    "Backend disabled for Mac verification"
+  ]
+}
