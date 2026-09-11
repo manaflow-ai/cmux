@@ -1602,6 +1602,23 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_vm_transfer_progress.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_command_tree_snapshot.py
+          # fish must exist before the completion-script check, not after it:
+          # that test skips any shell `shutil.which` cannot find, so installing
+          # fish later left the generated fish script -- one of the three shells
+          # this feature ships -- validated by nothing. bash and zsh ship with
+          # macOS. test_issue_9075_shell_socket_reports.py below needs fish too.
+          if ! command -v fish >/dev/null 2>&1; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install fish
+          fi
+          command -v fish >/dev/null 2>&1 || {
+            echo "fish is required for the shell-completion and #9075 regressions" >&2
+            exit 1
+          }
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_completion_scripts.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_dispatch_parity.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_facade_behavior_parity.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_ssh_pty_attach_retry_suppression.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_layout_focus_contract.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_simulator_contract.py
