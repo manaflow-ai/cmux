@@ -533,6 +533,8 @@ class TabManager: ObservableObject {
     /// The fallback initializer is retained for isolated `TabManager` tests.
     let pullRequestProbeService: PullRequestProbeService
 
+    private let managedDevicePolicy: ManagedDevicePolicy
+
     init(
         initialWorkspaceTitle: String? = nil,
         initialWorkingDirectory: String? = nil,
@@ -562,9 +564,11 @@ class TabManager: ObservableObject {
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         closeTabWarningDefaults: UserDefaults = .standard,
+        managedDevicePolicy: ManagedDevicePolicy = ManagedDevicePolicy(),
         fileContentChangeCoordinator: FileContentChangeCoordinator? = nil
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
+        self.managedDevicePolicy = managedDevicePolicy
         self.settings = settings
         self.defaultWorkspaceWorkingDirectoryProvider = defaultWorkspaceWorkingDirectoryProvider
         self.workspaceCustomizationStore = workspaceCustomizationStore ?? WorkspaceCustomizationStore()
@@ -4746,6 +4750,10 @@ class TabManager: ObservableObject {
         excludingStableIdentities callerExcludedStableIdentities: Set<UUID> = [],
         excludingWorkspaceIds callerExcludedWorkspaceIds: Set<UUID> = []
     ) -> Bool {
+        guard !managedDevicePolicy.isEnforced(.disableCloud)
+                || !Self.isCloudVMWorkspaceSnapshotForManagedPolicy(entry.snapshot) else {
+            return false
+        }
         let promptBatch = SurfaceResumeRunPromptBatch.shared
         promptBatch.beginRestorePass()
         defer { promptBatch.endRestorePass() }
@@ -6546,11 +6554,30 @@ extension TabManager {
         }
         workspace.retireFromOwningTabManager()
     }
+    /// - Parameter cloudDisabledByPolicy: The `DisableCloud` managed policy.
+    ///   While forced, no Cloud workspace is restored at all: a restored Cloud
+    ///   tab is a dead pane at best and an attach entrypoint at worst.
     static func normalizedCloudVMSessionRestoreWorkspaces<S: Sequence>(
         _ snapshots: S,
-        selectedWorkspaceIndex: Int?
+        selectedWorkspaceIndex: Int?,
+        cloudDisabledByPolicy: Bool = ManagedDevicePolicy().isEnforced(.disableCloud)
     ) -> ([SessionWorkspaceSnapshot], Int?) where S.Element == SessionWorkspaceSnapshot {
         let snapshots = Array(snapshots)
+        if cloudDisabledByPolicy {
+            var indexMap: [Int: Int] = [:]
+            var filtered: [SessionWorkspaceSnapshot] = []
+            for (index, snapshot) in snapshots.enumerated()
+            where !isCloudVMWorkspaceSnapshotForManagedPolicy(snapshot) {
+                indexMap[index] = filtered.count
+                filtered.append(snapshot)
+            }
+            // Selection follows the same local workspace; a dropped Cloud
+            // selection falls back to the first survivor (the caller creates a
+            // fresh local workspace when nothing survives).
+            let remappedSelection = selectedWorkspaceIndex.flatMap { indexMap[$0] }
+                ?? (filtered.isEmpty ? nil : 0)
+            return (filtered, remappedSelection)
+        }
         let cloudIndexes = snapshots.indices.filter { isCloudVMSessionRestoreWorkspace(snapshots[$0]) }
         guard !cloudIndexes.isEmpty else {
             return (snapshots, selectedWorkspaceIndex)
@@ -6620,7 +6647,8 @@ extension TabManager {
         var restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]] = []
         let (normalizedWorkspaceSnapshots, selectedWorkspaceIndex) = Self.normalizedCloudVMSessionRestoreWorkspaces(
             snapshot.workspaces.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow),
-            selectedWorkspaceIndex: snapshot.selectedWorkspaceIndex
+            selectedWorkspaceIndex: snapshot.selectedWorkspaceIndex,
+            cloudDisabledByPolicy: managedDevicePolicy.isEnforced(.disableCloud)
         )
         let workspaceSnapshots = normalizedWorkspaceSnapshots
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)

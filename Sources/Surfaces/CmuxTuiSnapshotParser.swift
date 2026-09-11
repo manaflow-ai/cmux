@@ -1,7 +1,6 @@
 import CmuxCore
 import CoreFoundation
 import Foundation
-
 /// Maps a cmux-tui public session snapshot (`session current snapshot --json`) onto
 /// ``SurfaceResource`` values for one cloud machine. Pure and total: unknown keys are
 /// ignored, a malformed entry drops that entry, never the machine.
@@ -21,7 +20,6 @@ struct CloudVMStateDeltaImpact: Hashable, Sendable {
     /// rebuild path instead of risking a partial placement update.
     var requiresFullResourceRebuild = false
 }
-
 struct CloudVMStateDeltaApplication: Sendable {
     let state: CloudVMState
     let impact: CloudVMStateDeltaImpact
@@ -112,10 +110,7 @@ struct CmuxTuiSnapshotParser: Sendable {
         } else {
             cursor = nil
         }
-        guard identityCollectionsAreUnique(in: snapshot),
-              requiredGraphCollectionsArePresent(in: snapshot),
-              snapshotRelationshipsAreConsistent(in: snapshot)
-        else { return nil }
+        guard authoritativeGraphIsValid(snapshot) else { return nil }
         let document = CloudVMStateDocument(snapshot: snapshot)
         guard let rawSnapshot = document.data() else { return nil }
 
@@ -289,6 +284,13 @@ struct CmuxTuiSnapshotParser: Sendable {
         return true
     }
 
+    /// The same identity and foreign-key contract gates accepted state and mutations.
+    static func authoritativeGraphIsValid(_ snapshot: [String: Any]) -> Bool {
+        identityCollectionsAreUnique(in: snapshot)
+            && requiredGraphCollectionsArePresent(in: snapshot)
+            && snapshotRelationshipsAreConsistent(in: snapshot)
+    }
+
     /// A session snapshot is an authoritative cut of the daemon graph. The
     /// protocol emits every modeled collection, including empty arrays. Missing
     /// one is different from an empty collection: it indicates truncation or a
@@ -409,7 +411,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// order remains the compatibility fallback. An explicit index wins over
     /// an omitted one, and equal explicit indexes use the stable id before the
     /// transport offset as a deterministic tie-break.
-    private static func orderedSnapshotRows(
+    static func orderedSnapshotRows(
         _ rows: [[String: Any]],
         focusedFirst: Bool = false
     ) -> [(offset: Int, element: [String: Any])] {
@@ -1728,7 +1730,9 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// The workspace a `workspace create` mutation created.
     static func createdWorkspace(fromResult result: [String: Any]) -> String? {
         let path = (result["value"] as? [String: Any]) ?? result
-        let id = (path["workspace_id"] as? String) ?? (path["id"] as? String)
+        let id = (path["workspace_id"] as? String)
+            ?? (path["workspace"] as? String)
+            ?? (path["id"] as? String)
         return id.flatMap { $0.isEmpty ? nil : $0 }
     }
 

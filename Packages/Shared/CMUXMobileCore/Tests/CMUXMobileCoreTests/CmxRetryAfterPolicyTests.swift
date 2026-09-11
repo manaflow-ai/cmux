@@ -66,22 +66,27 @@ import Testing
     }
 
     @Test func oversizedSleepUsesSafeChunksWithoutShorteningTheWait() async throws {
-        let firstSleep = RetryAfterTestTime()
+        let firstChunks = AsyncStream<TimeInterval>.makeStream()
         do {
             try await CmxRetryAfterPolicy.sleep(seconds: 18_446_744_074) { chunk in
-                firstSleep.record(chunk)
+                firstChunks.continuation.yield(chunk)
                 throw CancellationError()
             }
             Issue.record("Expected cancellation to stop the long sleep")
         } catch is CancellationError {}
-        #expect(firstSleep.recordedChunks == [86_400])
+        firstChunks.continuation.finish()
+        let cancelledChunks = await firstChunks.stream.reduce(into: [TimeInterval]()) { $0.append($1) }
+        #expect(cancelledChunks == [86_400])
 
+        let secondChunks = AsyncStream<TimeInterval>.makeStream()
         let time = RetryAfterTestTime()
         try await CmxRetryAfterPolicy.sleep(seconds: 172_801) { chunk in
-            time.record(chunk)
+            secondChunks.continuation.yield(chunk)
             time.advance(by: chunk)
         }
-        #expect(time.recordedChunks == [86_400, 86_400, 1])
+        secondChunks.continuation.finish()
+        let completedChunks = await secondChunks.stream.reduce(into: [TimeInterval]()) { $0.append($1) }
+        #expect(completedChunks == [86_400, 86_400, 1])
         #expect(time.now == 172_801)
     }
 }
@@ -89,7 +94,6 @@ import Testing
 private final class RetryAfterTestTime: @unchecked Sendable {
     private let lock = NSLock()
     private var value: TimeInterval = 0
-    private var chunks: [TimeInterval] = []
 
     var now: TimeInterval {
         lock.withLock { value }
@@ -99,11 +103,4 @@ private final class RetryAfterTestTime: @unchecked Sendable {
         lock.withLock { value += delay }
     }
 
-    var recordedChunks: [TimeInterval] {
-        lock.withLock { chunks }
-    }
-
-    func record(_ chunk: TimeInterval) {
-        lock.withLock { chunks.append(chunk) }
-    }
 }
