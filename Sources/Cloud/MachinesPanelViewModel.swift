@@ -174,7 +174,8 @@ enum MachineSnapshotBuilder {
     static func snapshot(
         from summary: VMSummary,
         freeAccessWindowDays: Int = 0,
-        now: Date = Date()
+        now: Date = Date(),
+        previousStats: VMStats? = nil
     ) -> MachineSnapshot {
         let createdAt = summary.createdAt > 0
             ? Date(timeIntervalSince1970: TimeInterval(summary.createdAt) / 1000)
@@ -195,7 +196,7 @@ enum MachineSnapshotBuilder {
             label: summary.displayName,
             slug: summary.slug,
             freeAccess: freeAccess,
-            stats: nil,
+            stats: summary.capabilities.stats ? previousStats : nil,
             privateAddress: summary.preferredPrivateAddress
         )
     }
@@ -393,7 +394,9 @@ final class MachinesPanelViewModel: ObservableObject {
             return .sessionRejected
         case .httpStatus(402, _):
             return .requiresPro
-        case .notSignedIn, .sessionRefreshFailed, .backendUnreachable, .httpStatus, .malformedResponse:
+        case .notSignedIn, .sessionRefreshFailed, .backendUnreachable, .httpStatus, .malformedResponse, .lifecycleUnsupported,
+             .disabledByManagedPolicy:
+            // A managed policy can race a refresh; keep the generic unreachable state.
             return .unreachable
         }
     }
@@ -414,11 +417,9 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Last failure from a tree verb (open, new terminal, …); shown in the
     /// control bar's help text, cleared by the next successful refresh.
     @Published private(set) var treeErrorDescription: String?
-    /// Creates in flight or failed, mirrored from ``createCoordinator`` so the
-    /// tree renders them as pending machine rows above the fleet. The
-    /// coordinator outlives this panel: a create started from one window shows
-    /// in every Machines panel and survives the panel closing.
-    @Published private(set) var pendingCreates: [MachineCreateOperation] = []
+    /// In-flight and failed creates appear above the fleet; the shared
+    /// coordinator keeps them visible across panels and panel closure.
+    var pendingCreates: [MachineCreateOperation] { createCoordinator.operations }
     let createCoordinator: MachineCreateCoordinator
     /// How the view model reads local workspaces; injectable for tests.
     var localWorkspacesProvider: @MainActor () -> [CloudTreeLocalWorkspace] = {
@@ -453,19 +454,19 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Last plan limits the list returned; the banner countdown re-derives from
     /// these on every local recompute without another round trip.
     private var lastLimits: VMPlanLimits?
-    /// Legacy image-kind data for older callers; the current sheet is base-only.
-    var imageKinds: [VMImageKindOption] { lastLimits?.imageKinds ?? [] }
     var memoryOptionsMb: [Int] { lastLimits?.memoryOptionsMb ?? [] }
     private var authSignOutObserver: NSObjectProtocol?
     private var treeChangeObserver: NSObjectProtocol?
     private var createChangeObserver: NSObjectProtocol?
     private var treeTask: Task<Void, Never>?
+    private let machineRefreshes = CloudMachineRefreshCoordinator { await SurfaceCatalog.shared.refresh(machine: $0, force: true) }
     private static let statsInterval: Duration = .seconds(20)
 
     init(createCoordinator: MachineCreateCoordinator? = nil) {
+        // `.shared` is main-actor-isolated, so it cannot be a default argument
+        // (default values evaluate in a nonisolated context); resolve it here.
         let createCoordinator = createCoordinator ?? .shared
         self.createCoordinator = createCoordinator
-        pendingCreates = createCoordinator.operations
         let finishedUserInfoKey = MachineCreateCoordinator.finishedUserInfoKey
         createChangeObserver = NotificationCenter.default.addObserver(
             forName: MachineCreateCoordinator.didChangeNotification,
@@ -557,7 +558,7 @@ final class MachinesPanelViewModel: ObservableObject {
     /// slow poll; a machine that was created but could not be opened lands its
     /// reason in the control bar, where the person will look for it.
     private func createsDidChange(finished: MachineCreateCoordinator.Finished?) {
-        pendingCreates = createCoordinator.operations
+        objectWillChange.send()
         guard let finished else { return }
         if case .createdButOpenFailed(let machineID, let output) = finished.outcome {
             // One line: the control bar shows two at most, so the reason comes
@@ -590,8 +591,7 @@ final class MachinesPanelViewModel: ObservableObject {
         unreadTerminalIDs = unread
     }
 
-    /// The explicit Refresh verb: asks every provider to re-sync (machine list,
-    /// links, local panels), then re-reads the catalog.
+    /// The explicit Refresh verb re-syncs every provider and reads the catalog.
     func refreshTree(force: Bool) {
         treeTask?.cancel()
         treeTask = Task { [weak self] in
@@ -604,20 +604,20 @@ final class MachinesPanelViewModel: ObservableObject {
         }
     }
 
-    /// `refresh(tree: true)` is the explicit Refresh verb: machines, stats, and a
-    /// forced catalog re-sync.
+    /// `refresh(tree: true)` refreshes machines, stats, and the catalog.
     func refresh(tree forceTree: Bool) {
         refresh()
         refreshTree(force: forceTree)
     }
+    func refreshMachine(_ machine: SurfaceMachineID) { machineRefreshes.refresh(machine) }
 
-    /// Samples every desktop machine's CPU/memory/disk. Sleeping machines report
+    /// Samples machines advertising stats support. Sleeping machines report
     /// `asleep` without being woken, so polling never costs the user anything.
-    /// Shell-only (`base`) machines serve no stats endpoint (501 on every poll),
-    /// so they are left out rather than asked every cycle.
+    /// Older servers omitting the flag retain the desktop-only polling policy
+    /// through capability decoding; explicit support overrides that fallback.
     func refreshStats() {
         statsTask?.cancel()
-        let ids = machines.filter(\.isDesktop).map(\.id)
+        let ids = machines.filter { $0.capabilities.stats }.map(\.id)
         guard !ids.isEmpty else { return }
         statsTask = Task { [weak self] in
             await withTaskGroup(of: (String, VMStats?).self) { group in
@@ -629,7 +629,8 @@ final class MachinesPanelViewModel: ObservableObject {
                 for await (id, stats) in group {
                     guard !Task.isCancelled, let stats else { continue }
                     await MainActor.run { [weak self] in
-                        guard let self, let index = self.machines.firstIndex(where: { $0.id == id }) else { return }
+                        guard let self, let index = self.machines.firstIndex(where: { $0.id == id }),
+                              self.machines[index].capabilities.stats else { return }
                         self.machines[index].stats = stats
                     }
                 }
@@ -705,6 +706,7 @@ final class MachinesPanelViewModel: ObservableObject {
         usageTask = nil
         treeTask?.cancel()
         treeTask = nil
+        machineRefreshes.cancelAll()
         freeAccessTransitionTask?.cancel()
         freeAccessTransitionTask = nil
     }
@@ -750,6 +752,7 @@ final class MachinesPanelViewModel: ObservableObject {
         freeAccessTransitionTask = nil
         treeTask?.cancel()
         treeTask = nil
+        machineRefreshes.cancelAll()
         freeAccessWindowDays = 0
         lastLimits = nil
         machines = []
@@ -759,7 +762,7 @@ final class MachinesPanelViewModel: ObservableObject {
         treeErrorDescription = nil
         plan = nil
         activeOperation = nil
-        pendingCreates = []
+        createCoordinator.cancelAllForAuthTransition()
         lastErrorDescription = nil
         listProblem = nil
         hasLoadedOnce = false
@@ -777,10 +780,11 @@ final class MachinesPanelViewModel: ObservableObject {
             let freeAccessWindowDays = page.limits?.freeAccessWindowDays ?? 0
             self.freeAccessWindowDays = freeAccessWindowDays
             var snapshots = page.vms.map {
-                MachineSnapshotBuilder.snapshot(from: $0, freeAccessWindowDays: freeAccessWindowDays)
-            }
-            for index in snapshots.indices {
-                snapshots[index].stats = previous[snapshots[index].id] ?? nil
+                MachineSnapshotBuilder.snapshot(
+                    from: $0,
+                    freeAccessWindowDays: freeAccessWindowDays,
+                    previousStats: previous[$0.id] ?? nil
+                )
             }
             snapshots = MachineSnapshotBuilder.applyingUsage(to: snapshots, usage: usageByMachineID)
             machines = snapshots

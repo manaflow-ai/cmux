@@ -1,8 +1,9 @@
 // Cloud VM model plane: how a machine reaches coderouter without holding a
 // credential. At create, the control plane mints one route token bound to
 // the cmux Cloud VM row id and hands the provider an edge rule for the
-// coderouter host. The provider's TLS edge injects `x-coderouter-route-token`
-// and `x-cmux-vm-id` into every request the guest makes to that host; the
+// coderouter host. The provider's TLS edge injects `authorization`,
+// `x-coderouter-route-token`, and `x-cmux-vm-id` into every request the guest
+// makes to that host; the
 // guest env carries only OPENAI_BASE_URL / ANTHROPIC_BASE_URL and a public
 // placeholder key. coderouter rejects the token when the injected VM id
 // differs from the binding, so a rule cannot be reused for another machine.
@@ -15,7 +16,12 @@
 // production. Tokens never rotate; destroy revokes them.
 import { issueRouteToken, revokeRouteTokensForVm } from "./repository";
 import { ROUTE_TOKEN_HEADER, VM_ID_HEADER } from "./routeTokenAuth";
-import { vmEdgeAliasDomain } from "./vmGuestEnv";
+import {
+  VM_REFLECTION_ALIAS_HEADER,
+  VM_REFLECTION_ALIAS_VALUE,
+  vmEdgeAliasDomain,
+  vmReflectionAliasDomain,
+} from "./vmGuestEnv";
 import type { VmEdgeRule } from "../vms/drivers/types";
 
 export const VM_ROUTE_TOKEN_LABEL = "vm";
@@ -30,7 +36,7 @@ export type VmModelPlaneInput = {
 };
 
 export type VmModelPlaneProvision = {
-  /** Edge header injection for the coderouter host. Holds the token. */
+  /** Edge header injection for the coderouter alias and the reflection alias. Both hold the token. */
   readonly edgeRules: readonly VmEdgeRule[];
 };
 
@@ -158,18 +164,31 @@ export async function provisionVmModelPlane(
     throw new VmModelPlaneUnavailableError(`coderouter route token issue failed: ${errorMessage(err)}`, err);
   }
   // The guest dials the alias; the edge terminates it and forwards to this
-  // deployment's API host with the machine's token. The guest env is static
-  // and baked (services/coderouter/vmGuestEnv.ts), so nothing is written here.
+  // deployment's API host with the machine's token. Inject both the conventional
+  // bearer and the explicit route headers: standard model clients only know how
+  // to send a bearer, while the VM id header gives the server a binding check.
+  // The guest env is static and baked (services/coderouter/vmGuestEnv.ts), so
+  // nothing is written here.
+  const headers = {
+    ...edgeOriginHeaders(dependencies),
+    authorization: `Bearer ${token}`,
+    [ROUTE_TOKEN_HEADER]: token,
+    [VM_ID_HEADER]: input.cloudVmId,
+  };
   return {
     edgeRules: [
       {
         domain: vmEdgeAliasDomain(),
         destinationHost: new URL(origin).hostname,
-        headers: {
-          ...edgeOriginHeaders(dependencies),
-          [ROUTE_TOKEN_HEADER]: token,
-          [VM_ID_HEADER]: input.cloudVmId,
-        },
+        headers,
+      },
+      // The same identity on a second alias, marked so the proxy serves the
+      // guest-facing reflection API at `https://reflection.cmux.internal/…`
+      // (exe.dev-style self discovery). Same token, same binding check.
+      {
+        domain: vmReflectionAliasDomain(),
+        destinationHost: new URL(origin).hostname,
+        headers: { ...headers, [VM_REFLECTION_ALIAS_HEADER]: VM_REFLECTION_ALIAS_VALUE },
       },
     ],
   };

@@ -1054,10 +1054,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Device ids whose last authenticated attempt was refused because the Mac
     /// is below this iOS build's minimum. The warning remains until that Mac
     /// successfully authenticates again or the account boundary clears it.
-    public private(set) var macVersionUpdateRequiredDeviceIDs: Set<String> = []
+    public private(set) var macVersionUpdateRequiredPairingIDs: Set<String> = []
     /// Whether any known Mac needs a cmux update before it can connect.
     public var hasMacVersionUpdateRequired: Bool {
-        !macVersionUpdateRequiredDeviceIDs.isEmpty
+        !macVersionUpdateRequiredPairingIDs.isEmpty
     }
     /// Version reported by the currently authenticated foreground Mac. The
     /// background compatibility refresh uses this to revalidate an already
@@ -1562,6 +1562,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalReplayBarrierDroppedOutputCountsBySurfaceID: [String: UInt64]
     var terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID: [String: UInt64]
     var terminalViewportReplayBarrierPendingAckTokensBySurfaceID: [String: UUID]
+    /// Viewport reports committed by the surface before its output sink is
+    /// registered. The first authoritative replay is scheduled by the
+    /// viewport acknowledgement, so cold attach must not race it.
+    var terminalViewportPreparationGenerationsBySequenceKey:
+        [MobileTerminalViewportSequenceKey: UInt64]
+    var terminalViewportDeferredColdReplayGenerationsBySequenceKey:
+        [MobileTerminalViewportSequenceKey: UInt64]
     var terminalReplayFailureRetryCountsBySurfaceID: [String: Int]
     var terminalReplayBarrierFollowUpCountsBySurfaceID: [String: Int]
     var terminalColdAttachReplayBarrierTokensBySurfaceID: [String: UUID]
@@ -1963,6 +1970,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalReplayBarrierDroppedOutputCountsBySurfaceID = [:]
         self.terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID = [:]
         self.terminalViewportReplayBarrierPendingAckTokensBySurfaceID = [:]
+        self.terminalViewportPreparationGenerationsBySequenceKey = [:]
+        self.terminalViewportDeferredColdReplayGenerationsBySequenceKey = [:]
         self.terminalReplayFailureRetryCountsBySurfaceID = [:]
         self.terminalReplayBarrierFollowUpCountsBySurfaceID = [:]
         self.terminalColdAttachReplayBarrierTokensBySurfaceID = [:]
@@ -1972,9 +1981,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalOutputStreamTokensBySurfaceID = [:]
         self.terminalOutputConsumerOwnerIDsBySurfaceID = [:]
         self.terminalOutputQueuesBySurfaceID = [:]
-        if let terminalLaneProvider = runtime?.terminalLaneProvider {
+        if runtime?.terminalLaneProvider != nil
+            || runtime?.terminalInputLaneProvider != nil {
             self.terminalLaneCoordinator = MobileTerminalLaneCoordinator(
-                provider: terminalLaneProvider
+                provider: runtime?.terminalLaneProvider,
+                inputOnlyProvider: runtime?.terminalInputLaneProvider
             )
         } else {
             self.terminalLaneCoordinator = nil
@@ -2126,7 +2137,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectedHostName = ""
         pairingCode = ""
         clearPairingVersionWarning()
-        macVersionUpdateRequiredDeviceIDs.removeAll()
+        macVersionUpdateRequiredPairingIDs.removeAll()
         // Wipe every draft so the next account never sees its predecessor's text.
         // Guard the in-memory clear and selection resets so per-terminal hooks do
         // not write partial state into a store we are emptying wholesale.
@@ -2260,7 +2271,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// lists" behavior).
     public func currentTeamDidChange() {
         cancelComputerVisibilityMutations()
-        macVersionUpdateRequiredDeviceIDs.removeAll()
+        macVersionUpdateRequiredPairingIDs.removeAll()
         secondaryAggregationScopeGeneration &+= 1
         // Presence: cancel + re-subscribe so the online dots reflect the new team
         // (the subscribe reads the team live). Cheap live socket; the only eager bit.
@@ -3856,6 +3867,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     mobileShellLog.debug(
                         "presence stream ended: \(String(describing: error), privacy: .public)"
                     )
+                    let serverFloor = Duration.seconds(Int64(max(
+                        0,
+                        (error as? any CmxRetryAfterProviding)?.retryAfterSeconds ?? 0
+                    )))
+                    if serverFloor > backoff {
+                        guard (try? await clock.sleep(for: serverFloor)) != nil else { return }
+                        backoff = min(backoff * 2, .seconds(60))
+                        continue
+                    }
                 }
                 if Task.isCancelled { return }
                 guard (try? await clock.sleep(for: backoff)) != nil else { return }
@@ -4766,7 +4786,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         ) {
         case .allowed:
             authenticatedMacAppVersion = macAppVersion
-            clearMacVersionUpdateRequired(for: resolvedTicket.macDeviceID)
+            clearMacVersionUpdateRequired(for: resolvedTicket.macDeviceID, instanceTag: resolvedTag)
             break
         case .buildIncompatible:
             rejectForegroundHostIdentity(client: client, reason: "build_incompatible")
@@ -4775,7 +4795,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Explain before disconnecting (mirrors
             // applyStoredMacUpdateRequiredFailure ordering): the saved pairing
             // stays intact and reconnects once the Mac updates.
-            noteMacVersionUpdateRequired(for: resolvedTicket.macDeviceID)
+            noteMacVersionUpdateRequired(for: resolvedTicket.macDeviceID, instanceTag: resolvedTag)
             applyPairingFailure(
                 .macAppVersionTooOld(
                     macVersion: violation.macAppVersion,
@@ -10239,7 +10259,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     case .allowed:
                         authenticatedMacAppVersion = status.macAppVersion
                         clearMacVersionUpdateRequired(
-                            for: status.macDeviceID ?? ticket.macDeviceID
+                            for: status.macDeviceID ?? ticket.macDeviceID,
+                            instanceTag: reportedInstanceTag
                         )
                         break
                     case .buildIncompatible:
@@ -10255,10 +10276,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         continue routeLoop
                     case let .macAppVersionTooOld(violation):
                         mobileShellLog.error(
-                            "rejecting route from outdated Mac app version=\(violation.macAppVersion ?? "missing", privacy: .public) required=\(violation.requiredVersionDisplay, privacy: .public)"
+                            "rejecting route from outdated Mac app version=\(violation.macAppVersion ?? "missing", privacy: .public) required=\(violation.requiredVersionDisplay ?? "valid-version-required", privacy: .public)"
                         )
                         noteMacVersionUpdateRequired(
-                            for: status.macDeviceID ?? ticket.macDeviceID
+                            for: status.macDeviceID ?? ticket.macDeviceID,
+                            instanceTag: reportedInstanceTag
                         )
                         await client.disconnect()
                         pendingMacVersionGateViolation = violation
@@ -11363,6 +11385,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplayBarrierDroppedOutputCountsBySurfaceID = [:]
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID = [:]
         terminalViewportReplayBarrierPendingAckTokensBySurfaceID = [:]
+        terminalViewportPreparationGenerationsBySequenceKey = [:]
+        terminalViewportDeferredColdReplayGenerationsBySequenceKey = [:]
         terminalReplayFailureRetryCountsBySurfaceID = [:]
         terminalReplayBarrierFollowUpCountsBySurfaceID = [:]
         terminalColdAttachReplayBarrierTokensBySurfaceID = [:]
@@ -11625,24 +11649,37 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// off the connection startup path.
     public func applyMacCompatibilityPolicy(_ policy: MobileMacCompatPolicy) {
         macCompatPolicy = policy
-        let requiredMacVersion = policy
-            .tier(forIOSVersion: versionGateIOSAppVersion)?
-            .stableMinVersion
-            .description
-        MobileMacListAuthState.shared.applyPolicyMinimumSupportedMacVersion(requiredMacVersion)
+        let tier = policy.tier(forIOSVersion: versionGateIOSAppVersion)
+        let buildType = versionGateBuildType
+        let requirement: MobileMacCompatPolicy.Requirement? = {
+            guard let tier else { return nil }
+            return tier.buildKinds[buildType.token]
+                ?? MobileMacCompatPolicy.Requirement(
+                    stableMinVersion: tier.stableMinVersion,
+                    nightly: tier.nightly
+                )
+        }()
+        let requiredStableMacVersion = requirement?.stableMinVersion.description
+        let requiredNightlyMacVersion = requirement?.nightly.map {
+            "\($0.minBaseVersion)-nightly.\($0.minBuild)"
+        }
+        MobileMacListAuthState.shared.applyPolicyMinimumSupportedMacVersions(
+            stable: requiredStableMacVersion,
+            nightly: requiredNightlyMacVersion
+        )
     }
 
-    func noteMacVersionUpdateRequired(for macDeviceID: String) {
-        let canonicalID = cmxCanonicalDeviceID(macDeviceID)
-        guard !canonicalID.isEmpty else { return }
-        macVersionUpdateRequiredDeviceIDs.insert(canonicalID)
+    func noteMacVersionUpdateRequired(for macDeviceID: String, instanceTag: String?) {
+        let pairingID = MobilePairedMac.pairingID(macDeviceID: macDeviceID, instanceTag: instanceTag)
+        guard !pairingID.isEmpty else { return }
+        macVersionUpdateRequiredPairingIDs.insert(pairingID)
     }
 
-    private func clearMacVersionUpdateRequired(for macDeviceID: String?) {
+    private func clearMacVersionUpdateRequired(for macDeviceID: String?, instanceTag: String?) {
         guard let macDeviceID else { return }
-        let canonicalID = cmxCanonicalDeviceID(macDeviceID)
-        guard !canonicalID.isEmpty else { return }
-        macVersionUpdateRequiredDeviceIDs.remove(canonicalID)
+        let pairingID = MobilePairedMac.pairingID(macDeviceID: macDeviceID, instanceTag: instanceTag)
+        guard !pairingID.isEmpty else { return }
+        macVersionUpdateRequiredPairingIDs.remove(pairingID)
     }
 
     /// The running app's marketing version, driving Mac version-gate tier
@@ -11650,6 +11687,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// the empty stamp), which parses to no tier and therefore no gate.
     var versionGateIOSAppVersion: String {
         feedbackStampProvider().appVersion
+    }
+
+    var versionGateBuildType: MobileBuildType {
+        feedbackStampProvider().buildType
     }
 
     /// Replaces a generic classification with the exact version-gate
@@ -14484,7 +14525,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         mobileShellLog.info("CMUX_REPLAY register sink surface=\(surfaceID, privacy: .public) connected=\(self.connectionState == .connected, privacy: .public) hasClient=\(self.remoteClient != nil, privacy: .public) workspaceCount=\(self.workspaces.count, privacy: .public)")
         startLatencyProbeIfReady()
         #endif
-        requestColdAttachTerminalReplay(surfaceID: surfaceID)
+        // The first viewport callback commits a generation before this sink is
+        // registered. Let its viewport acknowledgement schedule the one
+        // authoritative replay, avoiding a cold attach request that races the
+        // geometry RPC and gets immediately superseded.
+        let preparationSequenceKey = MobileTerminalViewportSequenceKey(
+            ownerKey: foregroundMacKey,
+            surfaceID: surfaceID
+        )
+        if terminalViewportPreparationGenerationsBySequenceKey[
+            preparationSequenceKey
+        ] == nil {
+            requestColdAttachTerminalReplay(surfaceID: surfaceID)
+        } else {
+            terminalViewportDeferredColdReplayGenerationsBySequenceKey[
+                preparationSequenceKey
+            ] = terminalViewportPreparationGenerationsBySequenceKey[
+                preparationSequenceKey
+            ]
+            MobileDebugLog.anchormux(
+                "terminal.output.defer_cold_replay surface=\(surfaceID)"
+            )
+        }
         ensureTerminalLane(surfaceID: surfaceID)
         return streamToken
     }
@@ -14514,6 +14576,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollbackPrefetchStatesBySurfaceID.removeValue(forKey: surfaceID)
         effectiveViewportSizesBySurfaceID.removeValue(forKey: surfaceID); reportedTerminalViewportSizesBySurfaceID.removeValue(forKey: surfaceID)
         terminalViewportReplayBarrierPendingAckTokensBySurfaceID.removeValue(forKey: surfaceID)
+        terminalViewportPreparationGenerationsBySequenceKey.removeValue(
+            forKey: MobileTerminalViewportSequenceKey(
+                ownerKey: foregroundMacKey,
+                surfaceID: surfaceID
+            )
+        )
+        terminalViewportDeferredColdReplayGenerationsBySequenceKey.removeValue(
+            forKey: MobileTerminalViewportSequenceKey(
+                ownerKey: foregroundMacKey,
+                surfaceID: surfaceID
+            )
+        )
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridBaselineReplayRequestCountsBySurfaceID.removeValue(forKey: surfaceID)

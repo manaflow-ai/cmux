@@ -23,7 +23,7 @@ enum CloudVMPanelAuthState: Equatable {
 }
 
 /// Right-sidebar Machines tab: the user's cloud machine fleet as a Finder-like
-/// tree (machine → Workspaces → terminals, Ports, VNC Displays, Terminals). Matches the
+/// tree (machine → Workspaces → terminals, Ports, Displays, Terminals). Matches the
 /// Vault/Feed visual language — compact 13pt rows, full-width hover
 /// backgrounds, chrome-pill control bar. Outline rows receive immutable
 /// snapshots plus closure bundles only (snapshot-boundary rule); every mutation
@@ -31,13 +31,11 @@ enum CloudVMPanelAuthState: Equatable {
 struct MachinesPanelView: View {
     @StateObject private var viewModel = MachinesPanelViewModel()
     @State private var expansionStore = CloudTreeExpansionStore()
-    /// The explicit Cloud VPN's state (`cmux vpn up`), shown as a banner while
-    /// it is starting, waiting for the extension approval, up, or failed.
-    @State private var tunnelStatus = CloudTunnelStatusModel()
     /// The tree's visual preset; the debug gallery's "Use" buttons write this,
     /// and @AppStorage re-renders the live panel the moment it changes.
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
     let chromeBackgroundColor: NSColor
+    var tabManager: TabManager? = nil
 
     private var accountFlow: HostAccountFlow? {
         AppDelegate.shared?.auth?.accountFlow
@@ -71,20 +69,12 @@ struct MachinesPanelView: View {
         .onDisappear {
             viewModel.stopPolling()
         }
-        .task {
-            await tunnelStatus.observe(AppDelegate.shared?.cloudTunnelCoordinator)
-        }
         .accessibilityIdentifier("CloudMachinesPanel")
     }
 
     @ViewBuilder
     private var authenticatedContent: some View {
         controlBar
-        if let banner = tunnelStatus.banner {
-            MachinesTunnelBanner(banner: banner, backgroundColor: chromeBackgroundColor) {
-                SystemExtensionSettingsLink.open()
-            }
-        }
         if let plan = viewModel.plan, !plan.isPaidPlan, let text = plan.freeAccessBannerText {
             MachinesFreeAccessBanner(
                 text: text,
@@ -415,10 +405,9 @@ struct MachinesPanelView: View {
 
     /// ＋ on a free plan at its ceiling is the upgrade moment: open the Pro flow
     /// instead of launching a create that the backend would only paywall.
-    /// Otherwise the New Machine sheet collects the base-machine size, and its
-    /// Create runs the same `cmux vm new` path the CLI and palette use. The
-    /// create itself shows up here as a pending row (`viewModel.pendingCreates`),
-    /// never as panel chrome tied to this view's lifetime.
+    /// Otherwise the New Machine sheet collects the size; its Create runs the
+    /// same `cmux vm new` path the CLI and palette use, and shows up here as a
+    /// pending row (`viewModel.pendingCreates`), not as panel chrome.
     private func requestNewMachine() {
         NewMachineSheetPresenter.shared.presentNewMachine(
             plan: viewModel.plan,
@@ -447,7 +436,7 @@ struct MachinesPanelView: View {
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
-            refresh: { [weak viewModel] in viewModel?.refresh(tree: true) }
+            refresh: { [weak viewModel] in viewModel?.refresh(tree: true) }, refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) }
         )
         return CloudTreeOutlineView(
             machines: viewModel.machines,
@@ -711,6 +700,7 @@ struct MachinesChromeIconButton: View {
 /// see the store. All verbs go through `CloudVMActionLauncher` so this panel,
 /// the ＋ menu, the palette, and the CLI share one mutation path.
 struct MachineRowActions {
+    let setupVPN: @MainActor (NSWindow?) -> Void
     let openShell: @MainActor (String) -> Void
     let openDesktop: @MainActor (String) -> Void
     let runCommand: @MainActor (String, [String]) -> Void
@@ -727,6 +717,7 @@ struct MachineRowActions {
         onDidMutate: @escaping @MainActor () -> Void
     ) -> MachineRowActions {
         MachineRowActions(
+            setupVPN: { window in _ = AppDelegate.shared?.openCloudVPNSetupWorkspace(preferredWindow: window) },
             openShell: { id in
                 onWillMutate(String(format: String(localized: "machines.operation.openShell", defaultValue: "Opening %@\u{2026}"), id))
                 if !launch(arguments: ["vm", "shell", id], onDidMutate: onDidMutate) {
@@ -810,7 +801,7 @@ struct MachineRowActions {
         onCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil,
         onCancellationReady: ((CloudVMActionLauncher.CancellationHandle) -> Void)? = nil
     ) -> Bool {
-        // `vm new` mints a fresh machine with its own persistent home and
+        // `vm new` mints a fresh machine with an ephemeral home and
         // attaches it; the base slot stays reachable via the ＋ menu's Open Base.
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
@@ -846,11 +837,12 @@ struct MachineRowActions {
             presentOutputOnSuccess: presentOutputOnSuccess,
             onCancellationReady: onCancellationReady,
             onCompletion: { completion in
-            if completion.terminationStatus == 0 {
-                onSuccess?()
+                if completion.terminationStatus == 0 {
+                    onSuccess?()
+                }
+                onDidMutate()
             }
-            onDidMutate()
-        })
+        )
     }
 
     @MainActor
