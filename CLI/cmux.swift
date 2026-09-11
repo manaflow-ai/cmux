@@ -31609,13 +31609,14 @@ struct CMUXCLI {
         var cmuxCaptureRejectionReason: AgentLaunchCaptureRejectionReason?
         var processFallbackRejectionReason: AgentLaunchCaptureRejectionReason?
         let rawEnvironmentArguments = env["CMUX_AGENT_LAUNCH_ARGV_B64"]
+        let hasEnvironmentArguments = normalizedHookValue(rawEnvironmentArguments) != nil
         let envArguments = envCaptureIsTrusted
             ? decodeNULSeparatedBase64(rawEnvironmentArguments)
             : nil
-        if !envCaptureIsTrusted, rawEnvironmentArguments != nil {
+        if !envCaptureIsTrusted, hasEnvironmentArguments {
             cmuxCaptureRejectionReason = .launcherDoesNotDescribeKind
         } else if envCaptureIsTrusted,
-                  rawEnvironmentArguments != nil,
+                  hasEnvironmentArguments,
                   envArguments == nil {
             cmuxCaptureRejectionReason = .argvDecodeFailed
         }
