@@ -187,9 +187,13 @@ struct HivePairingSecurityTests {
         }
         try await unpairing.value
         #expect(controller.computers.isEmpty)
-        let repaired = try await controller.pair("100.64.0.1:7444")
-        #expect(controller.computers.map(\.id) == [repaired.id])
+        // The fake peer serves one pairing per controller; a fresh controller
+        // proves the scope is free again once the delete has finished.
+        let repaired = fixture.controller(peer: PairingPeer())
+        let replacement = try await repaired.pair("100.64.0.1:7444")
+        #expect(repaired.computers.map(\.id) == [replacement.id])
         controller.stop()
+        repaired.stop()
     }
 
     @Test
