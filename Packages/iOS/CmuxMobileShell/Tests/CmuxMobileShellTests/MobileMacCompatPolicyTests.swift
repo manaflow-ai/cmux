@@ -288,15 +288,49 @@ import Testing
     // MARK: - Baked fallback
 
     @Test func bakedPolicyConstrainsEveryCurrentLaneToNextReleases() {
-        // The App Store lane ships as 1.0.0 and the beta lane as 1.0.4;
-        // both must fall inside the first tier.
-        for appVersion in ["1.0.0", "1.0.4"] {
-            let tier = MobileMacCompatPolicy.baked.tier(forIOSVersion: appVersion)
-            #expect(tier?.stableMinVersion == version("0.64.23"))
-            #expect(tier?.nightly?.minBuild == 3_345_650_013_202)
-        }
+        #expect(MobileMacCompatPolicy.baked.tier(forIOSVersion: "1.0.0")?.stableMinVersion == version("0.64.23"))
+        #expect(MobileMacCompatPolicy.baked.tier(forIOSVersion: "1.0.4")?.stableMinVersion == version("0.64.23"))
+        #expect(MobileMacCompatPolicy.baked.tier(forIOSVersion: "1.0.5")?.stableMinVersion == version("0.64.23"))
+        #expect(MobileMacCompatPolicy.baked.tier(forIOSVersion: "1.0.4")?.buildKinds["internal"]?.stableMinVersion == version("0.64.23"))
+        #expect(MobileMacCompatPolicy.baked.tier(forIOSVersion: "1.0.4")?.buildKinds["beta"]?.stableMinVersion == version("0.64.20"))
+        #expect(MobileMacCompatPolicy.baked.tier(forIOSVersion: "1.0.5")?.buildKinds["internal"]?.stableMinVersion == version("0.64.23"))
+        #expect(MobileMacCompatPolicy.baked.tier(forIOSVersion: "1.0.0")?.buildKinds["internal"]?.stableMinVersion == version("0.64.17"))
+        #expect(MobileMacCompatPolicy.baked.tier(forIOSVersion: "1.0.4")?.nightly?.minBuild == 3_345_650_013_202)
         // Versions below the first tier stay unconstrained.
         #expect(MobileMacCompatPolicy.baked.tier(forIOSVersion: "0.9.9") == nil)
+    }
+
+    @Test func bakedPolicyUsesTheHistoricalInternalProtocolFloors() {
+        #expect(MobileMacCompatPolicy.baked.violation(
+            iosVersion: "1.0.3",
+            channel: .stable,
+            macAppVersion: "0.64.16",
+            buildType: .internal
+        ) != nil)
+        #expect(MobileMacCompatPolicy.baked.violation(
+            iosVersion: "1.0.3",
+            channel: .stable,
+            macAppVersion: "0.64.17",
+            buildType: .internal
+        ) == nil)
+        #expect(MobileMacCompatPolicy.baked.violation(
+            iosVersion: "1.0.4",
+            channel: .stable,
+            macAppVersion: "0.64.22",
+            buildType: .internal
+        ) != nil)
+        #expect(MobileMacCompatPolicy.baked.violation(
+            iosVersion: "1.0.4",
+            channel: .stable,
+            macAppVersion: "0.64.23",
+            buildType: .internal
+        ) == nil)
+        #expect(MobileMacCompatPolicy.baked.violation(
+            iosVersion: "1.0.4",
+            channel: .stable,
+            macAppVersion: "0.64.20",
+            buildType: .beta
+        ) == nil)
     }
 
     // MARK: - Fail-open when the server does not cover this app version

@@ -443,6 +443,11 @@ export type VmRepositoryShape = {
     readonly code: string;
     readonly message: string;
   }) => Effect.Effect<void, VmDatabaseError>;
+  /** Durable deletion intents not yet finalized, scoped to their source machine. */
+  readonly pendingSnapshotDeletions: (input: {
+    readonly vmId: string;
+    readonly provider: ProviderId;
+  }) => Effect.Effect<string[], VmDatabaseError>;
   readonly hasOwnedSnapshot: (input: {
     readonly userId: string;
     readonly billingTeamId?: string | null;
@@ -924,6 +929,15 @@ const tunnelEnrollmentRepositoryMethods: Pick<
     }),
 };
 
+/**
+ * Advisory-lock key that serializes `upsertNetwork` per owner and provider.
+ * The DB behavior test in tests/vm-workflows.test.ts holds the same key to
+ * prove the upsert queues behind it instead of racing the unique indexes.
+ */
+function networkUpsertLockKey(input: { readonly userId: string; readonly provider: ProviderId }): string {
+  return `network:${input.provider}:${input.userId}`;
+}
+
 /** The Postgres-backed repository. Workflows wrap it with the analytics sink (see workflows.ts). */
 export const vmRepositoryLiveShape: VmRepositoryShape = {
   findNetwork: (userId, provider) =>
@@ -940,29 +954,39 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
   upsertNetwork: (input) =>
     dbEffect("upsertNetwork", async () => {
       const db = cloudDb();
-      const [row] = await db
-        .insert(cloudVmNetworks)
-        .values({
-          userId: input.userId,
-          provider: input.provider,
-          providerNetworkId: input.providerNetworkId,
-          slug: input.slug ?? null,
-          cidr: input.cidr ?? null,
-          cidrV6: input.cidrV6 ?? null,
-        })
-        .onConflictDoUpdate({
-          target: [cloudVmNetworks.userId, cloudVmNetworks.provider],
-          set: {
+      return db.transaction(async (tx) => {
+        // Two machines created at once both resolve the owner's network and
+        // the provider hands both the same id (idempotent by slug). ON CONFLICT
+        // arbitrates only on (user, provider); a second insert racing the first
+        // can still trip the (provider, provider_network_id) index once the
+        // winner commits, which surfaced as a duplicate-key VmDatabaseError.
+        // Serialize per owner so the loser starts after the winner's commit and
+        // takes the update path.
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${networkUpsertLockKey(input)}, 0))`);
+        const [row] = await tx
+          .insert(cloudVmNetworks)
+          .values({
+            userId: input.userId,
+            provider: input.provider,
             providerNetworkId: input.providerNetworkId,
             slug: input.slug ?? null,
             cidr: input.cidr ?? null,
             cidrV6: input.cidrV6 ?? null,
-            updatedAt: new Date(),
-          },
-        })
-        .returning();
-      if (!row) throw new Error("upsertNetwork returned no row");
-      return row;
+          })
+          .onConflictDoUpdate({
+            target: [cloudVmNetworks.userId, cloudVmNetworks.provider],
+            set: {
+              providerNetworkId: input.providerNetworkId,
+              slug: input.slug ?? null,
+              cidr: input.cidr ?? null,
+              cidrV6: input.cidrV6 ?? null,
+              updatedAt: new Date(),
+            },
+          })
+          .returning();
+        if (!row) throw new Error("upsertNetwork returned no row");
+        return row;
+      });
     }),
 
   deleteNetwork: (id) =>
@@ -2632,6 +2656,27 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .where(eq(cloudVms.id, input.id));
     }),
 
+  pendingSnapshotDeletions: (input) =>
+    dbEffect("pendingSnapshotDeletions", async () => {
+      const rows = await cloudDb().select({ metadata: cloudVmUsageEvents.metadata })
+        .from(cloudVmUsageEvents)
+        .where(and(
+          eq(cloudVmUsageEvents.vmId, input.vmId),
+          eq(cloudVmUsageEvents.provider, input.provider),
+          eq(cloudVmUsageEvents.eventType, "vm.snapshot.delete_requested"),
+          sql`not exists (
+            select 1 from ${cloudVmUsageEvents} as finalized
+            where finalized.event_type = 'vm.snapshot.deleted'
+              and finalized.vm_id = ${cloudVmUsageEvents.vmId}
+              and finalized.provider = ${cloudVmUsageEvents.provider}
+              and finalized.metadata->>'snapshotId' = ${cloudVmUsageEvents.metadata}->>'snapshotId'
+          )`,
+        ));
+      return [...new Set(rows.flatMap(({ metadata }) =>
+        typeof metadata.snapshotId === "string" ? [metadata.snapshotId] : [],
+      ))];
+    }),
+
   hasOwnedSnapshot: (input) =>
     dbEffect("hasOwnedSnapshot", async () => {
       const db = cloudDb();
@@ -2644,6 +2689,15 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             eq(cloudVmUsageEvents.provider, input.provider),
             eq(cloudVmUsageEvents.eventType, "vm.snapshot.created"),
             sql`${cloudVmUsageEvents.metadata}->>'snapshotId' = ${input.snapshotId}`,
+            // A snapshot deleted through cmux (`cmux vm snapshot rm`) is no
+            // longer restorable: the ledger keeps its creation row for
+            // accounting, so exclude it here rather than at the provider.
+            sql`not exists (
+              select 1 from ${cloudVmUsageEvents} as snapshot_deleted
+              where snapshot_deleted.event_type in ('vm.snapshot.delete_requested', 'vm.snapshot.deleted')
+                and snapshot_deleted.provider = ${cloudVmUsageEvents.provider}
+                and snapshot_deleted.metadata->>'snapshotId' = ${input.snapshotId}
+            )`,
           ),
         )
         .limit(1);
