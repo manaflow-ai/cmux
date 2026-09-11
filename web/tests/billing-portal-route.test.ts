@@ -148,6 +148,12 @@ describe("billing portal route", () => {
     });
   });
 
+  test("never puts a lifetime Founder purchase in the plan switch flow", async () => {
+    stripeSubscriptionRows = [{ id: "sub_founder", status: "active", plan: "pro", raw: { metadata: { founders_edition: "true" } } }];
+    await GET(new NextRequest("https://cmux.test/api/billing/portal?flow=switch_plan&plan=max"));
+    expect(createPortalSession.mock.calls[0]?.[0]).not.toHaveProperty("flow_data");
+  });
+
   test("redirects signed-in users with a Stripe customer row to the portal session", async () => {
     const response = await GET(
       new NextRequest("https://cmux.test/api/billing/portal"),

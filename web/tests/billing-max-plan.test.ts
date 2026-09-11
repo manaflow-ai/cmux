@@ -11,10 +11,25 @@ import {
 } from "../services/billing/pro";
 import { personalPlanIdForSubscription } from "../services/billing/purchase";
 import { MAX_PRICING_USD } from "../services/billing/plans";
+import { resolveVmEntitlements, maxMemoryMbForPlan } from "../services/vms/entitlements";
 
 const lease = { refresh: async () => undefined } as never;
 
 describe("Max as a personal plan", () => {
+  test("a personal Max plan unlocks large machines in a Team without changing its seat limit", () => {
+    const user = { id: "user-max", isAnonymous: false, billingCustomerType: "team", billingTeamId: "team-1", billingPlanId: "team", billingSeats: 3, userBillingPlanId: "max", teams: [{ id: "team-1", billingPlanId: "team", billingSeats: 3 }] } as never;
+    for (const options of [{}, { requestedBillingTeamId: "team-1" }]) {
+      const result = resolveVmEntitlements(user, {}, options);
+      expect(result.planId).toBe("max");
+      expect(result.maxActiveVms).toBe(150);
+      expect(result.billingTeamId).toBe("team-1");
+    }
+  });
+
+  test("legacy memory overrides cannot sell Max sizes to Pro", () => {
+    expect(maxMemoryMbForPlan("pro", { CMUX_VM_PAID_MAX_MEMORY_MB: "65536" })).toBe(24576);
+    expect(maxMemoryMbForPlan("pro", { CMUX_VM_PLAN_PRO_MAX_MEMORY_MB: "65536" })).toBe(24576);
+  });
   test("max is paid, personal, and outranks pro", () => {
     expect(isPaidPlanId("max")).toBe(true);
     expect(isPersonalPlanId("max")).toBe(true);

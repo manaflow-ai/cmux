@@ -635,6 +635,24 @@ describe("billing checkout route", () => {
     });
   });
 
+  test("a Founder can buy Max without changing the lifetime purchase", async () => {
+    stripeConfigured = true;
+    stripeCustomerRows = [{ id: "cus_founder" }];
+    stripeSubscriptionRows = [{ id: "sub_founder", plan: "pro", status: "active", raw: { metadata: { founders_edition: "true" } } }];
+    stripeActiveSubscriptionRows = stripeSubscriptionRows;
+    userResponses = [{ ...signedInUser, clientReadOnlyMetadata: { cmuxPlan: "pro" } }];
+    const response = await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=max"));
+    expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/session");
+    expect(createdStripeSessions[0]).toMatchObject({ customer: "cus_founder", line_items: [{ price: "price_max_month", quantity: 1 }] });
+  });
+
+  test("a manually granted Pro account can buy Max", async () => {
+    stripeConfigured = true;
+    userResponses = [{ ...signedInUser, clientReadOnlyMetadata: { cmuxVmPlan: "pro" } }];
+    const response = await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=max"));
+    expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/session");
+  });
+
   test("sends an active Pro subscriber who asks for Max to the portal plan switch", async () => {
     stripeConfigured = true;
     stripeCustomerRows = [{ id: "cus_pro" }];
