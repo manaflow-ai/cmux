@@ -38,7 +38,8 @@ struct SidebarCloudWorkspacesButton: View {
         .background(ArrowlessPopoverAnchor(
             isPresented: $isPopoverPresented,
             preferredEdge: .maxY,
-            detachedGap: 4
+            detachedGap: 4,
+            anchorWidth: SidebarCloudWorkspacesPopover.size.width
         ) {
             SidebarCloudWorkspacesPopover(tabManager: tabManager, dismiss: { setPresented(false) })
         })
@@ -73,6 +74,7 @@ struct SidebarCloudWorkspacesButton: View {
 /// shared action path, so opening a Cloud workspace behaves exactly as it does
 /// in the right sidebar.
 struct SidebarCloudWorkspacesPopover: View {
+    static let size = CGSize(width: 320, height: 440)
     @ObservedObject var tabManager: TabManager
     let dismiss: () -> Void
     @StateObject private var viewModel = MachinesPanelViewModel()
@@ -108,7 +110,7 @@ struct SidebarCloudWorkspacesPopover: View {
                 )
             }
         }
-        .frame(width: 320, height: 440)
+        .frame(width: Self.size.width, height: Self.size.height)
         .onAppear {
             viewModel.readCatalog()
             if isSignedIn { viewModel.startPolling() }
