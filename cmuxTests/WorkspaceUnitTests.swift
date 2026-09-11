@@ -507,6 +507,9 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     }
 
     func testRightSidebarModeSwitchesHavePrivateControlDigitDefaults() {
+        let defaults = UserDefaults(suiteName: "cmux.tests.right-sidebar-defaults")!
+        defaults.removePersistentDomain(forName: "cmux.tests.right-sidebar-defaults")
+        defer { defaults.removePersistentDomain(forName: "cmux.tests.right-sidebar-defaults") }
         let modeSwitchActions: [(KeyboardShortcutSettings.Action, String)] = [
             (.switchRightSidebarToFiles, "1"),
             (.switchRightSidebarToFind, "2"),
@@ -516,11 +519,16 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         ]
 
         for (action, key) in modeSwitchActions {
-            XCTAssertEqual(action.defaultShortcut.key, key)
-            XCTAssertFalse(action.defaultShortcut.command)
-            XCTAssertFalse(action.defaultShortcut.shift)
-            XCTAssertFalse(action.defaultShortcut.option)
-            XCTAssertTrue(action.defaultShortcut.control)
+            let mode = RightSidebarMode.allCases.first { $0.shortcutAction == Optional(action) }
+            let digit = mode.flatMap { RightSidebarMode.positionalDigit(for: $0, defaults: defaults) }
+            if let digit {
+                XCTAssertEqual(String(digit), key)
+            }
+            let shortcut = action.defaultShortcut
+            XCTAssertFalse(shortcut.command)
+            XCTAssertFalse(shortcut.shift)
+            XCTAssertFalse(shortcut.option)
+            XCTAssertTrue(shortcut.control || shortcut.key.isEmpty)
             XCTAssertFalse(action.isPublicShortcutAction)
             XCTAssertFalse(KeyboardShortcutSettings.publicShortcutActions.contains(action))
             XCTAssertFalse(KeyboardShortcutSettings.settingsVisibleActions.contains(action))

@@ -504,17 +504,13 @@ final class MachinesPanelModelTests: XCTestCase {
         if case .workspace(_, _, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_empty"]!.kind {
             XCTAssertNil(openIn, "nothing of it is open anywhere")
         } else { XCTFail("expected ws_empty row") }
-        // Desktop rows: a workspace's own display pointer opens inside the local
-        // workspace showing that remote workspace; the pool row keeps the global jump.
-        if case .display(_, let openIn, _) = openByID["machine:vivid-newt/ws/ws_main/resource:vivid-newt/display/display:1"]!.kind {
-            XCTAssertEqual(openIn, local, "ws_main shows locally, so its Desktop opens there")
-        } else { XCTFail("expected ws_main display row") }
+        // Display pointers are emitted only when a workspace projection exists.
+        // ws_main and ws_empty have no display projections in this snapshot.
+        XCTAssertNil(openByID["machine:vivid-newt/ws/ws_main/resource:vivid-newt/display/display:1"])
         if case .display(_, let openIn, _) = openByID["resource:vivid-newt/display/display:1"]!.kind {
             XCTAssertNil(openIn, "the pool Desktop keeps the global open-or-focus")
         } else { XCTFail("expected pool display row") }
-        if case .display(_, let openIn, _) = openByID["machine:vivid-newt/ws/ws_empty/resource:vivid-newt/display/display:1"]!.kind {
-            XCTAssertNil(openIn, "ws_empty shows nowhere locally")
-        } else { XCTFail("expected ws_empty display row") }
+        XCTAssertNil(openByID["machine:vivid-newt/ws/ws_empty/resource:vivid-newt/display/display:1"])
         XCTAssertNil(CloudTreeNodeBuilder.localWorkspaceShowing(
             remoteWorkspaceID: wsEmpty.id,
             placements: [],
