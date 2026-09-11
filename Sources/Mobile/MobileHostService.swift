@@ -1275,6 +1275,20 @@ final class MobileHostService {
     /// Reads `UserDefaults.standard` because the live singleton listener binds
     /// against the app's real store; `start`/`restart` do the same, so there is
     /// no caller-supplied store to honor here.
+    /// Revokes every incoming session while IRX may retain its endpoint for outgoing use.
+    func stopIncomingAccess() {
+        stopLegacyListener(reason: "incoming access disabled")
+        for connection in MobileHostConnectionRegistry.shared.removeAll() {
+            Task { await connection.close(reason: "incoming access disabled") }
+        }
+        MobileHostEventSubscriptionTracker.reset()
+        MobileHostPublicStatusCache.removeAll()
+        TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.accessDisabled")
+        if !MobileHostIrxRuntime.isEnabled {
+            MobileHostIrohRuntime.shared.setDesiredActive(false)
+        }
+    }
+
     func syncToSettings() {
         // IRX is the primary transport. Reconcile it on every settings/policy
         // pass so `DisableIrohNetworking` and `DisableRemoteControl` tear the

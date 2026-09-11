@@ -1,4 +1,3 @@
-import CMUXMobileCore
 import CmuxSettings
 import Foundation
 
@@ -27,17 +26,4 @@ extension MobileHostService {
         return buildFlavor != .stable
     }
 
-    /// Revokes every incoming session while IRX may retain its endpoint for outgoing use.
-    func stopIncomingAccess() {
-        stopLegacyListener(reason: "incoming access disabled")
-        for connection in MobileHostConnectionRegistry.shared.removeAll() {
-            Task { await connection.close(reason: "incoming access disabled") }
-        }
-        MobileHostEventSubscriptionTracker.reset()
-        MobileHostPublicStatusCache.removeAll()
-        TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.accessDisabled")
-        if !MobileHostIrxRuntime.isEnabled {
-            MobileHostIrohRuntime.shared.setDesiredActive(false)
-        }
-    }
 }
