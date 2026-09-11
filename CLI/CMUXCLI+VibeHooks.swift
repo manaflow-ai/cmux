@@ -78,6 +78,20 @@ extension CMUXCLI {
             throw CLIError(message: configDirectoryFileError)
         }
 
+        if !configPathExists {
+            do {
+                try fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)
+            } catch {
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.hooks.error.configDirectoryCreateFailed",
+                        defaultValue: "cmux could not create the hooks directory at %@. Check the directory permissions, then run `cmux hooks setup` again."
+                    ),
+                    configDir
+                ))
+            }
+        }
+
         try withVibeConfigLock(filePath: filePath) {
             let oldString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
             var newString = VibeHookConfig().installing(events: events, in: oldString)
@@ -137,19 +151,6 @@ extension CMUXCLI {
                 }
             }
 
-            if !configPathExists {
-                do {
-                    try fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)
-                } catch {
-                    throw CLIError(message: String.localizedStringWithFormat(
-                        String(
-                            localized: "cli.hooks.error.configDirectoryCreateFailed",
-                            defaultValue: "cmux could not create the hooks directory at %@. Check the directory permissions, then run `cmux hooks setup` again."
-                        ),
-                        configDir
-                    ))
-                }
-            }
             try newString.write(toFile: filePath, atomically: true, encoding: .utf8)
             print(String.localizedStringWithFormat(
                 String(
