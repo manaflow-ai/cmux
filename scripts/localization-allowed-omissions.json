@@ -3015,5 +3015,25 @@
         ]
       }
     }
+  },
+  "cloudTree.device.build.dev": {
+    "source": "DEV",
+    "class": "technical"
+  },
+  "cloudTree.device.build.nightly": {
+    "source": "Nightly",
+    "class": "technical"
+  },
+  "cloudTree.device.build.rc": {
+    "source": "RC",
+    "class": "technical"
+  },
+  "cloudTree.device.build.staging": {
+    "source": "Staging",
+    "class": "technical"
+  },
+  "cloudTree.device.build.tagged": {
+    "source": "%1$@ · %2$@",
+    "class": "technical"
   }
 }

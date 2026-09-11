@@ -513811,6 +513811,48 @@
             "state": "translated",
             "value": "Macのオプション"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac-Optionen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Options du Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خيارات Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opciones del Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 選項"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 选项"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 옵션"
+          }
         }
       }
     },
@@ -513827,6 +513869,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "同じアカウントでサインインした Mac に接続します。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit Macs verbinden, die bei deinem Konto angemeldet sind."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous aux Mac connectés à votre compte."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اتصل بأجهزة Mac المسجّلة في حسابك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conéctate a los Mac que hayan iniciado sesión en tu cuenta."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連接已登入你帳號的 Mac。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接已登录你账户的 Mac。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 계정에 로그인한 Mac에 연결합니다."
           }
         }
       }
@@ -513845,6 +513929,48 @@
             "state": "translated",
             "value": "ほかのMacを探すには、マイデバイスと検出をオンにしてください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiviere „Meine Geräte“ und die Gerätesuche, um deine anderen Macs zu finden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activez « Mes appareils » et la détection pour trouver vos autres Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فعّل «أجهزتي» والاكتشاف للعثور على أجهزة Mac الأخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activa «Mis dispositivos» y la detección para encontrar tus otros Mac."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟「我的裝置」和探索功能，以尋找其他 Mac。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启“我的设备”和发现功能，以查找其他 Mac。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 Mac을 찾으려면 ‘내 기기’와 기기 검색을 켜세요."
+          }
         }
       }
     },
@@ -513861,6 +513987,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "別のMacでcmuxにサインインし、「コンピュータ」設定で「このMacへのアクセスを許可」をオンにしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich auf einem anderen Mac bei cmux an und aktiviere in den Computereinstellungen „Zugriff auf diesen Mac erlauben“."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous à cmux sur un autre Mac et activez « Autoriser l’accès à ce Mac » dans les réglages Ordinateurs."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل الدخول إلى cmux على Mac آخر وفعّل «السماح بالوصول إلى هذا الـ Mac» في إعدادات أجهزة الكمبيوتر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia sesión en cmux en otro Mac y activa «Permitir el acceso a este Mac» en los ajustes de Ordenadores."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在其他 Mac 上登入 cmux，並在「電腦」設定中開啟「允許存取此 Mac」。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在另一台 Mac 上登录 cmux，并在“电脑”设置中开启“允许访问此 Mac”。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 Mac에서 cmux에 로그인하고 컴퓨터 설정에서 ‘이 Mac에 접근 허용’을 켜세요."
           }
         }
       }
@@ -513879,6 +514047,48 @@
             "state": "translated",
             "value": "サイドバーから非表示"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In der Seitenleiste ausgeblendet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masqué de la barre latérale"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مخفي من الشريط الجانبي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oculto en la barra lateral"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已從側邊欄隱藏"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已从侧边栏隐藏"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바에서 숨겨짐"
+          }
         }
       }
     },
@@ -513895,6 +514105,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "他の Mac や iPhone からこの Mac への接続を許可します。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erlaube deinen anderen Macs und deinem iPhone, sich hier zu verbinden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autorisez vos autres Mac et votre iPhone à se connecter ici."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اسمح لأجهزة Mac الأخرى وiPhone بالاتصال هنا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite que tus otros Mac y tu iPhone se conecten aquí."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許其他 Mac 和 iPhone 連接至此處。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许其他 Mac 和 iPhone 连接到这里。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 Mac과 iPhone이 여기에 연결하도록 허용합니다."
           }
         }
       }
@@ -513913,6 +514165,48 @@
             "state": "translated",
             "value": "管理者により無効にされています。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von deinem Administrator deaktiviert."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé par votre administrateur."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عطّله المسؤول."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado por tu administrador."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已由管理者停用。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已由管理员停用。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "관리자가 비활성화했습니다."
+          }
         }
       }
     },
@@ -513929,6 +514223,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "コンピュータ設定…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computereinstellungen…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réglages Ordinateurs…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعدادات أجهزة الكمبيوتر…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustes de Ordenadores…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "電腦設定⋯"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "电脑设置…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컴퓨터 설정…"
           }
         }
       }
@@ -513947,6 +514283,48 @@
             "state": "translated",
             "value": "表示"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Montrer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espectáculo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "展示"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보여주다"
+          }
         }
       }
     },
@@ -513963,6 +514341,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "このMac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جهاز Mac هذا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac"
           }
         }
       }
@@ -513981,6 +514401,48 @@
             "state": "translated",
             "value": "Macを非表示にすると、このサイドバーからのみ削除されます。Macへのアクセスを停止するには、そのコンピュータで「このMacへのアクセスを許可」をオフにしてください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein ausgeblendeter Mac wird nur aus dieser Seitenleiste entfernt. Um den Zugriff auf einen Mac zu beenden, deaktiviere dort „Zugriff auf diesen Mac erlauben“."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer un Mac le retire uniquement de cette barre latérale. Pour bloquer l’accès à un Mac, désactivez « Autoriser l’accès à ce Mac » sur cet ordinateur."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخفاء Mac يزيله من هذا الشريط الجانبي فقط. لإيقاف الوصول إلى Mac، أوقف «السماح بالوصول إلى هذا الـ Mac» على ذلك الكمبيوتر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar un Mac solo lo quita de esta barra lateral. Para impedir el acceso, desactiva «Permitir el acceso a este Mac» en ese ordenador."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏 Mac 只會將它從此側邊欄移除。若要停止存取某台 Mac，請在該電腦上關閉「允許存取此 Mac」。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏 Mac 只会将其从此侧边栏移除。若要停止访问某台 Mac，请在该电脑上关闭“允许访问此 Mac”。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac을 숨기면 이 사이드바에서만 제거됩니다. Mac에 대한 접근을 중단하려면 해당 컴퓨터에서 ‘이 Mac에 접근 허용’을 끄세요."
+          }
         }
       }
     },
@@ -513997,6 +514459,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "自分のMac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Macs"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجهزة Mac الخاصة بك"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Mac"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 Mac"
           }
         }
       }
@@ -514015,6 +514519,48 @@
             "state": "translated",
             "value": "詳細設定：Tailscale で手動ペアリング"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erweitert: manuelle Tailscale-Kopplung"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avancé : jumelage manuel avec Tailscale"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متقدم: إقران Tailscale يدوي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avanzado: enlace manual con Tailscale"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "進階：手動 Tailscale 配對"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高级：手动 Tailscale 配对"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고급: 수동 Tailscale 페어링"
+          }
         }
       }
     },
@@ -514031,6 +514577,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "接続済み"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbunden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecté"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متصل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectada"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已連線"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已连接"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결됨"
           }
         }
       }
@@ -514049,6 +514637,48 @@
             "state": "translated",
             "value": "マイデバイスに表示する"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In „Meine Geräte“ anzeigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher dans Mes appareils"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار في أجهزتي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar en Mis dispositivos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在「我的裝置」中顯示"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在“我的设备”中显示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 기기에 표시"
+          }
         }
       }
     },
@@ -514065,6 +514695,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "マイデバイスで非表示にする"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus „Meine Geräte“ ausblenden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer de Mes appareils"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخفاء من أجهزتي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar de Mis dispositivos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從「我的裝置」隱藏"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从“我的设备”隐藏"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 기기에서 숨기기"
           }
         }
       }
@@ -514083,6 +514755,48 @@
             "state": "translated",
             "value": "オフにすると、このMacは検出されなくなり、受信セッションが切断されます。ほかのMacへの接続は引き続き利用できます。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn du dies deaktivierst, wird dieser Mac nicht mehr gefunden und eingehende Sitzungen werden getrennt. Du kannst dich weiterhin mit deinen anderen Macs verbinden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La désactivation retire ce Mac de la détection et déconnecte les sessions entrantes. Vous pouvez toujours vous connecter à vos autres Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يؤدي إيقاف هذا الخيار إلى إزالة هذا الـ Mac من الاكتشاف وقطع الجلسات الواردة. يمكنك الاستمرار في الاتصال بأجهزة Mac الأخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al desactivarlo, este Mac deja de ser visible y se desconectan las sesiones entrantes. Puedes seguir conectándote a tus otros Mac."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉此選項會停止探索此 Mac，並中斷連入的工作階段。你仍可連接其他 Mac。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭此选项会停止发现此 Mac，并断开传入会话。你仍可连接其他 Mac。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 옵션을 끄면 이 Mac이 검색되지 않고 수신 세션이 연결 해제됩니다. 다른 Mac에는 계속 연결할 수 있습니다."
+          }
         }
       }
     },
@@ -514099,6 +514813,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "この Mac へのアクセスを許可"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zugriff auf diesen Mac erlauben"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser l’accès à ce Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح بالوصول إلى هذا الـ Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir el acceso a este Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許存取此 Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许访问此 Mac"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에 접근 허용"
           }
         }
       }
@@ -514117,6 +514873,48 @@
             "state": "translated",
             "value": "検出がオフです。ほかのMacを表示するにはオンにしてください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Gerätesuche ist aus. Aktiviere sie, um deine anderen Macs zu sehen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La détection est désactivée. Activez-la pour voir vos autres Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاكتشاف متوقف. فعّله لرؤية أجهزة Mac الأخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La detección está desactivada. Actívala para ver tus otros Mac."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "探索功能已關閉。開啟後即可查看其他 Mac。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发现功能已关闭。开启后即可查看其他 Mac。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 검색이 꺼져 있습니다. 다른 Mac을 보려면 켜세요."
+          }
         }
       }
     },
@@ -514133,6 +514931,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "同じアカウントでサインインしたほかの Mac を検出して接続します。オフにするとペインの接続が切れますが、相手のターミナルは閉じません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finde andere Macs, die bei deinem Konto angemeldet sind, und verbinde dich mit ihnen. Das Deaktivieren trennt ihre Bereiche, ohne ihre Terminals zu schließen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trouvez les autres Mac connectés à votre compte et connectez-vous à eux. La désactivation déconnecte leurs volets sans fermer leurs terminaux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اعثر على أجهزة Mac الأخرى المسجّلة في حسابك واتصل بها. يؤدي إيقاف هذا الخيار إلى فصل لوحاتها دون إغلاق طرفياتها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encuentra otros Mac que hayan iniciado sesión en tu cuenta y conéctate a ellos. Al desactivarlo, sus paneles se desconectan sin cerrar sus terminales."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尋找並連接已登入你帳號的其他 Mac。關閉此選項會中斷其面板連線，但不會關閉終端機。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查找并连接已登录你账户的其他 Mac。关闭此选项会断开其面板连接，但不会关闭终端。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 계정에 로그인한 다른 Mac을 찾아 연결합니다. 이 옵션을 끄면 터미널을 닫지 않고 해당 패널의 연결을 해제합니다."
           }
         }
       }
@@ -514151,6 +514991,48 @@
             "state": "translated",
             "value": "ほかの Mac を検出"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Andere Macs suchen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Détecter les autres Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اكتشاف أجهزة Mac الأخرى"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detectar otros Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "探索其他 Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发现其他 Mac"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 Mac 검색"
+          }
         }
       }
     },
@@ -514167,6 +515049,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "タイトルがないか無効です"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titel fehlt oder ist ungültig"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titre manquant ou non valide"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "العنوان مفقود أو غير صالح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falta el título o no es válido"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少標題或標題無效"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少标题或标题无效"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제목이 없거나 올바르지 않습니다"
           }
         }
       }
@@ -514185,6 +515109,48 @@
             "state": "translated",
             "value": "サーフェスを閉じられませんでした"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereich konnte nicht geschlossen werden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de fermer le volet"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إغلاق اللوحة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cerrar el panel"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法關閉面板"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法关闭面板"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "패널을 닫지 못했습니다"
+          }
         }
       }
     },
@@ -514201,6 +515167,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "最後のサーフェスは閉じられません"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der letzte Bereich kann nicht geschlossen werden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de fermer le dernier volet"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن إغلاق اللوحة الأخيرة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede cerrar el último panel"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法關閉最後一個面板"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法关闭最后一个面板"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마지막 패널은 닫을 수 없습니다"
           }
         }
       }
@@ -514219,6 +515227,48 @@
             "state": "translated",
             "value": "ターミナルが見つかりません"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalbereich nicht gefunden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volet de terminal introuvable"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على لوحة الطرفية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró el panel del terminal"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到終端機面板"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到终端面板"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 패널을 찾을 수 없습니다"
+          }
         }
       }
     },
@@ -514235,6 +515285,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "ほかの Mac でターミナルを作成する際、カスタムのターミナルオプションは使用できません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Erstellen eines Terminals auf einem anderen Mac werden benutzerdefinierte Terminaloptionen nicht unterstützt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les options de terminal personnalisées ne sont pas prises en charge lors de la création d’un terminal sur un autre Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خيارات الطرفية المخصصة غير مدعومة عند إنشاء طرفية على Mac آخر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se admiten opciones de terminal personalizadas al crear un terminal en otro Mac."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在其他 Mac 上建立終端機時，不支援自訂終端機選項。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在另一台 Mac 上创建终端时，不支持自定义终端选项。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 Mac에서 터미널을 만들 때는 사용자 지정 터미널 옵션이 지원되지 않습니다."
           }
         }
       }
@@ -514253,6 +515345,48 @@
             "state": "translated",
             "value": "Mac の一覧を更新できませんでした。接続を確認して再試行してください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Macs konnten nicht aktualisiert werden. Prüfe die Verbindung und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’actualiser vos Mac. Vérifiez votre connexion et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تحديث قائمة أجهزة Mac. تحقق من الاتصال وحاول مجددًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron actualizar tus Mac. Comprueba la conexión e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法重新整理你的 Mac。請檢查連線後再試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法刷新你的 Mac。请检查连接后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 목록을 새로 고치지 못했습니다. 연결을 확인하고 다시 시도하세요."
+          }
         }
       }
     },
@@ -514269,6 +515403,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "この Mac に接続できませんでした。オンラインであることを確認して再試行してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung zu diesem Mac fehlgeschlagen. Prüfe, ob er online ist, und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de se connecter à ce Mac. Vérifiez qu’il est en ligne et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر الاتصال بهذا الـ Mac. تأكد من أنه متصل وحاول مجددًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo conectar con este Mac. Comprueba que esté en línea e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法連接此 Mac。請確認它已上線後再試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法连接此 Mac。请确认它已在线后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에 연결하지 못했습니다. 온라인 상태인지 확인하고 다시 시도하세요."
           }
         }
       }
@@ -514287,6 +515463,48 @@
             "state": "translated",
             "value": "相手の Mac でこの操作を完了できませんでした。接続を確認して再試行してください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der andere Mac konnte diese Aktion nicht abschließen. Prüfe seine Verbindung und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’autre Mac n’a pas pu terminer cette action. Vérifiez sa connexion et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على الـ Mac الآخر إكمال هذا الإجراء. تحقق من اتصاله وحاول مجددًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El otro Mac no pudo completar esta acción. Comprueba su conexión e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一台 Mac 無法完成此動作。請檢查其連線後再試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一台 Mac 无法完成此操作。请检查其连接后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 Mac이 이 작업을 완료하지 못했습니다. 해당 Mac의 연결을 확인하고 다시 시도하세요."
+          }
         }
       }
     },
@@ -514303,6 +515521,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "このターミナルにはリモートワークスペースがありません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Terminal hat keinen entfernten Arbeitsbereich."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce terminal n’a pas d’espace de travail distant."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد مساحة عمل بعيدة لهذه الطرفية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este terminal no tiene un espacio de trabajo remoto."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此終端機沒有遠端工作區。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此终端没有远程工作区。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 터미널에는 원격 작업 공간이 없습니다."
           }
         }
       }
@@ -514321,6 +515581,48 @@
             "state": "translated",
             "value": "接続が追いつかず、一部のターミナル入力を送信できませんでした。しばらく待ってから再試行してください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einige Terminaleingaben wurden nicht gesendet, weil die Verbindung zu langsam war. Warte und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Certaines saisies du terminal n’ont pas été envoyées, car la connexion était trop lente. Patientez et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُرسَل بعض إدخال الطرفية لأن الاتصال لم يتمكن من مواكبته. انتظر وحاول مجددًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se enviaron algunas entradas del terminal porque la conexión no pudo mantener el ritmo. Espera e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線速度不足，部分終端機輸入未送出。請稍候再試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接速度不足，部分终端输入未发送。请稍候重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 속도가 충분하지 않아 일부 터미널 입력이 전송되지 않았습니다. 잠시 기다린 후 다시 시도하세요."
+          }
         }
       }
     },
@@ -514338,6 +515640,48 @@
             "state": "translated",
             "value": "この Mac には UTF-8 テキストが必要なため、一部のターミナル入力を送信できませんでした。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einige Terminaleingaben wurden nicht gesendet, weil dieser Mac UTF-8-Text erfordert."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Certaines saisies du terminal n’ont pas été envoyées, car ce Mac exige du texte UTF-8."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُرسَل بعض إدخال الطرفية لأن هذا الـ Mac يتطلب نصًا بترميز UTF-8."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se enviaron algunas entradas del terminal porque este Mac requiere texto UTF-8."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 需要 UTF-8 文字，因此部分終端機輸入未送出。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 需要 UTF-8 文本，因此部分终端输入未发送。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에는 UTF-8 텍스트가 필요하여 일부 터미널 입력이 전송되지 않았습니다."
+          }
         }
       }
     },
@@ -514351,6 +515695,48 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV"
+          }
+        },
+        "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "DEV"
@@ -514372,6 +515758,48 @@
             "state": "translated",
             "value": "Nightly"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
         }
       }
     },
@@ -514385,6 +515813,48 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RC"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RC"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RC"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RC"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RC"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RC"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RC"
+          }
+        },
+        "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "RC"
@@ -514406,6 +515876,48 @@
             "state": "translated",
             "value": "Staging"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staging"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staging"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staging"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staging"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staging"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staging"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staging"
+          }
         }
       }
     },
@@ -514419,6 +515931,48 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "%1$@ · %2$@"
@@ -514440,6 +515994,48 @@
             "state": "translated",
             "value": "マイデバイスを管理"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meine Geräte verwalten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gérer Mes appareils"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إدارة أجهزتي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestionar Mis dispositivos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理我的裝置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理我的设备"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 기기 관리"
+          }
         }
       }
     },
@@ -514456,6 +516052,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "まだ確認されていません"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch nicht gesehen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas encore détecté"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُرصد بعد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no detectado"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未偵測到"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未检测到"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 발견되지 않음"
           }
         }
       }
@@ -514474,6 +516112,48 @@
             "state": "translated",
             "value": "最終確認 %@"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zuletzt gesehen: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vu pour la dernière fois %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "آخر ظهور %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visto por última vez %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次出現：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次出现：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마지막으로 확인됨: %@"
+          }
         }
       }
     },
@@ -514490,6 +516170,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "有効にした Mac は、暗号化された Iroh 接続で自動的につながります。手動のペアリングは不要です。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine aktivierten Macs verbinden sich automatisch über verschlüsselte Iroh-Verbindungen. Eine manuelle Kopplung ist nicht erforderlich."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos Mac activés se connectent automatiquement via des connexions Iroh chiffrées. Aucun jumelage manuel n’est nécessaire."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتصل أجهزة Mac المفعّلة تلقائيًا عبر اتصالات Iroh المشفّرة. لا حاجة إلى الإقران اليدوي."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus Mac habilitados se conectan automáticamente mediante conexiones Iroh cifradas. No hace falta enlazarlos manualmente."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已啟用的 Mac 會透過加密的 Iroh 連線自動連接，無須手動配對。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已启用的 Mac 会通过加密的 Iroh 连接自动连接，无需手动配对。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활성화된 Mac은 암호화된 Iroh 연결로 자동 연결됩니다. 수동 페어링이 필요하지 않습니다."
           }
         }
       }
@@ -514508,6 +516230,48 @@
             "state": "translated",
             "value": "コンピュータ デバイス mac tailscale ペアリング リモート ワークスペース"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Geräte Mac Tailscale Kopplung entfernte Arbeitsbereiche"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ordinateurs appareils mac tailscale jumelage espaces de travail distants"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجهزة كمبيوتر أجهزة mac tailscale إقران مساحات عمل بعيدة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ordenadores dispositivos mac tailscale enlace espacios de trabajo remotos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "電腦 裝置 Mac Tailscale 配對 遠端工作區"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "电脑 设备 Mac Tailscale 配对 远程工作区"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컴퓨터 기기 mac tailscale 페어링 원격 작업 공간"
+          }
         }
       }
     },
@@ -514524,6 +516288,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "未ペアリング"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht gekoppelt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non jumelé"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير مقترن"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin enlazar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未配對"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未配对"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링되지 않음"
           }
         }
       }
@@ -514542,6 +516348,48 @@
             "state": "translated",
             "value": "オフライン"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hors ligne"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير متصل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desconectado"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "離線"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离线"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오프라인"
+          }
         }
       }
     },
@@ -514558,6 +516406,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "オンライン"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbunden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En ligne"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متصل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En línea"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "線上"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在线"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "온라인"
           }
         }
       }
@@ -514576,6 +516466,48 @@
             "state": "translated",
             "value": "開く"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abierto"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打開"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열려 있는"
+          }
         }
       }
     },
@@ -514592,6 +516524,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mac をペアリング"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac koppeln"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jumeler un Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إقران Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enlazar Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配對 Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对 Mac"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 페어링"
           }
         }
       }
@@ -514610,6 +516584,48 @@
             "state": "translated",
             "value": "もう一方の Mac で「Tailscale ペアリング」を開き、ペアリングリンク、または数字の IP アドレスとポートをここに入力してください。両方の Mac を同じ tailnet に接続する必要があります。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffne auf dem anderen Mac die Tailscale-Kopplung. Füge hier seinen Kopplungslink ein oder gib seine numerische IP-Adresse und den Port ein. Beide Macs müssen mit demselben Tailnet verbunden sein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur l’autre Mac, ouvrez Jumelage Tailscale. Collez son lien de jumelage ou saisissez ici son adresse IP numérique et son port. Les deux Mac doivent être connectés au même tailnet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "افتح إقران Tailscale على الـ Mac الآخر. الصق رابط الإقران أو أدخل عنوان IP الرقمي والمنفذ هنا. يجب أن يكون كلا الجهازين متصلين بشبكة tailnet نفسها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En el otro Mac, abre Enlace con Tailscale. Pega su enlace o introduce aquí su IP numérica y puerto. Ambos Mac deben estar conectados a la misma tailnet."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在另一台 Mac 上開啟「Tailscale 配對」。在此貼上配對連結，或輸入數字 IP 位址和連接埠。兩台 Mac 必須連接相同的 tailnet。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在另一台 Mac 上打开“Tailscale 配对”。在此粘贴配对链接，或输入数字 IP 地址和端口。两台 Mac 必须连接同一 tailnet。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 Mac에서 Tailscale 페어링을 여세요. 페어링 링크를 붙여 넣거나 숫자 IP 주소와 포트를 입력하세요. 두 Mac은 같은 tailnet에 연결되어 있어야 합니다."
+          }
         }
       }
     },
@@ -514626,6 +516642,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "ペアリングリンク、または Tailscale IP:ポート"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopplungslink oder Tailscale-IP:Port"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lien de jumelage ou IP:port Tailscale"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رابط الإقران أو IP:منفذ Tailscale"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enlace de emparejamiento o IP:puerto de Tailscale"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配對連結或 Tailscale IP:連接埠"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对链接或 Tailscale IP:端口"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링 링크 또는 Tailscale IP:포트"
           }
         }
       }
@@ -514644,6 +516702,48 @@
             "state": "translated",
             "value": "Mac をペアリングできませんでした。両方の Mac がサインイン済みで Tailscale に接続されていることを確認してください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac konnte nicht gekoppelt werden. Prüfe, ob beide Macs angemeldet und mit Tailscale verbunden sind."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de jumeler ce Mac. Vérifiez que les deux Mac sont connectés à leur compte et à Tailscale."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إقران هذا الـ Mac. تأكد من تسجيل الدخول على كلا الجهازين واتصالهما بـ Tailscale."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo enlazar este Mac. Comprueba que ambos Mac hayan iniciado sesión y estén conectados a Tailscale."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法配對此 Mac。請確認兩台 Mac 均已登入並連接 Tailscale。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法配对此 Mac。请确认两台 Mac 均已登录并连接 Tailscale。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac을 페어링하지 못했습니다. 두 Mac이 로그인되어 있고 Tailscale에 연결되어 있는지 확인하세요."
+          }
         }
       }
     },
@@ -514660,6 +516760,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "更新"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualisieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rafraîchir"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحديث"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refrescar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新整理"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刷新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새로 고치다"
           }
         }
       }
@@ -514678,6 +516820,48 @@
             "state": "translated",
             "value": "この Mac のペアリング情報を表示"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopplungsdetails dieses Macs anzeigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les détails de jumelage de ce Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض تفاصيل إقران هذا الـ Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar detalles de enlace de este Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示此 Mac 的配對詳細資訊"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示此 Mac 的配对详情"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 페어링 세부 정보 표시"
+          }
         }
       }
     },
@@ -514694,6 +516878,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "両方の Mac で同じアカウントにサインインすると、検出して接続できます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich auf beiden Macs beim selben Konto an, um sie zu finden und dich zu verbinden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous au même compte sur les deux Mac pour les détecter et vous y connecter."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل الدخول إلى الحساب نفسه على كلا جهازي Mac لاكتشافهما والاتصال بهما."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia sesión en la misma cuenta en ambos Mac para detectarlos y conectarte a ellos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在兩台 Mac 上登入相同帳號，即可探索並連接。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在两台 Mac 上登录同一账户，即可发现并连接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "두 Mac에서 같은 계정에 로그인하면 기기를 찾아 연결할 수 있습니다."
           }
         }
       }
@@ -514712,6 +516938,48 @@
             "state": "translated",
             "value": "ペアリング済みの Mac を読み込めませんでした。ディスクの空き容量を確認して cmux を再起動してください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine gekoppelten Macs konnten nicht geladen werden. Prüfe den freien Speicherplatz und starte cmux neu."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de charger vos Mac jumelés. Vérifiez l’espace disque disponible et redémarrez cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تحميل أجهزة Mac المقترنة. تحقق من مساحة القرص المتاحة وأعد تشغيل cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron cargar tus Mac enlazados. Comprueba el espacio libre en disco y reinicia cmux."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法載入已配對的 Mac。請檢查可用磁碟空間並重新啟動 cmux。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法加载已配对的 Mac。请检查可用磁盘空间并重启 cmux。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링된 Mac을 불러오지 못했습니다. 사용 가능한 디스크 공간을 확인하고 cmux를 다시 시작하세요."
+          }
         }
       }
     },
@@ -514728,6 +516996,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "接続を待機中"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warten auf Verbindung"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En attente de connexion"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بانتظار الاتصال"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperando conexión"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待連線"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待连接"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 대기 중"
           }
         }
       }
@@ -514746,6 +517056,48 @@
             "state": "translated",
             "value": "ペアリングを解除"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopplung aufheben"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dissocier"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إلغاء الإقران"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desenlazar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消配對"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消配对"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링 해제"
+          }
         }
       }
     },
@@ -514762,6 +517114,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "この Mac のペアリングを解除しますか？その Mac のワークスペースは変更されません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopplung mit diesem Mac aufheben? Seine lokalen Arbeitsbereiche werden nicht verändert."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dissocier ce Mac ? Ses espaces de travail locaux ne seront pas modifiés."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد إلغاء إقران هذا الـ Mac؟ لن تتغير مساحات العمل المحلية عليه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Desenlazar este Mac? Sus espacios de trabajo locales no se modificarán."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要取消配對此 Mac 嗎？其本機工作區不會變更。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要取消配对此 Mac 吗？其本地工作区不会更改。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 페어링을 해제할까요? 해당 Mac의 로컬 작업 공간은 변경되지 않습니다."
           }
         }
       }
@@ -514780,6 +517174,48 @@
             "state": "translated",
             "value": "コンピュータ"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordinateurs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجهزة الكمبيوتر"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordenadores"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "電腦"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "电脑"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컴퓨터"
+          }
         }
       }
     },
@@ -514796,6 +517232,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "ほかのMacに接続するには、「ベータ機能」で「デバイス」を有効にしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiviere „Geräte“ in den Beta-Funktionen, um dich mit deinen anderen Macs zu verbinden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activez Appareils dans les fonctionnalités bêta pour vous connecter à vos autres Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فعّل «الأجهزة» في الميزات التجريبية للاتصال بأجهزة Mac الأخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activa Dispositivos en Funciones beta para conectarte a tus otros Mac."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在「測試版功能」中啟用「裝置」，以連接其他 Mac。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在“测试版功能”中启用“设备”，以连接其他 Mac。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 Mac에 연결하려면 베타 기능에서 기기를 활성화하세요."
           }
         }
       }
@@ -514814,6 +517292,48 @@
             "state": "translated",
             "value": "ペアリングリンク、またはTailscaleの数値IPアドレスとポートを入力してください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib einen Kopplungslink oder eine numerische Tailscale-IP-Adresse mit Port ein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez un lien de jumelage ou une adresse IP numérique Tailscale et un port."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدخل رابط إقران أو عنوان IP رقميًا من Tailscale ومنفذًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Introduce un enlace de emparejamiento o una IP numérica de Tailscale y un puerto."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入配對連結，或數字 Tailscale IP 位址和連接埠。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入配对链接，或数字 Tailscale IP 地址和端口。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링 링크 또는 숫자 Tailscale IP 주소와 포트를 입력하세요."
+          }
         }
       }
     },
@@ -514830,6 +517350,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "相手の Mac の、数値の Tailscale IP アドレスとポートを含むペアリングコードを使用してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwende den Kopplungscode des anderen Macs mit einer numerischen Tailscale-IP-Adresse und einem Port."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez le code de jumelage de l’autre Mac avec une adresse IP numérique Tailscale et un port."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم رمز إقران الـ Mac الآخر مع عنوان IP رقمي من Tailscale ومنفذ."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa el código de enlace del otro Mac con una dirección IP numérica de Tailscale y un puerto."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用另一台 Mac 的配對代碼，並提供數字 Tailscale IP 位址和連接埠。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用另一台 Mac 的配对代码，并提供数字 Tailscale IP 地址和端口。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 Mac의 페어링 코드와 숫자 Tailscale IP 주소 및 포트를 사용하세요."
           }
         }
       }
@@ -514848,6 +517410,48 @@
             "state": "translated",
             "value": "このコードはこのMacのものです。ほかのMacのペアリングコードを入力してください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Code gehört zu diesem Mac. Gib den Kopplungscode des anderen Macs ein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce code appartient à ce Mac. Saisissez le code de jumelage de l’autre Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا الرمز يخص هذا الـ Mac. أدخل رمز إقران الـ Mac الآخر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este código pertenece a este Mac. Introduce el código de enlace del otro Mac."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此代碼屬於這台 Mac。請輸入另一台 Mac 的配對代碼。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此代码属于这台 Mac。请输入另一台 Mac 的配对代码。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 코드는 현재 Mac의 코드입니다. 다른 Mac의 페어링 코드를 입력하세요."
+          }
         }
       }
     },
@@ -514864,6 +517468,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "Macの認証済みIDを確認できませんでした。両方のMacでcmuxを更新し、新しいペアリングコードをコピーしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die authentifizierte Identität des Macs konnte nicht überprüft werden. Aktualisiere cmux auf beiden Macs und kopiere einen neuen Kopplungscode."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’identité authentifiée du Mac n’a pas pu être vérifiée. Mettez cmux à jour sur les deux Mac et copiez un nouveau code de jumelage."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر التحقق من هوية الـ Mac المصادَق عليها. حدّث cmux على كلا الجهازين وانسخ رمز إقران جديدًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo verificar la identidad autenticada del Mac. Actualiza cmux en ambos Mac y copia un nuevo código de enlace."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法驗證 Mac 已認證的身分。請更新兩台 Mac 上的 cmux，並複製新的配對代碼。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法验证 Mac 已认证的身份。请更新两台 Mac 上的 cmux，并复制新的配对代码。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac의 인증된 신원을 확인하지 못했습니다. 두 Mac에서 cmux를 업데이트하고 새 페어링 코드를 복사하세요."
           }
         }
       }
@@ -514882,6 +517528,48 @@
             "state": "translated",
             "value": "現在のペアリングが完了するまでお待ちください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warte, bis der aktuelle Kopplungsversuch abgeschlossen ist."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attendez la fin de la tentative de jumelage en cours."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتظر حتى تنتهي محاولة الإقران الحالية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espera a que termine el intento de enlace actual."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請等待目前的配對嘗試完成。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请等待当前配对尝试完成。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "진행 중인 페어링 시도가 끝날 때까지 기다리세요."
+          }
         }
       }
     },
@@ -514898,6 +517586,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "コンピュータの操作に失敗しました。両方の Mac がサインイン済みでオンラインであることを確認して、もう一度お試しください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Computervorgang ist fehlgeschlagen. Prüfe, ob beide Macs angemeldet und online sind, und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’opération sur l’ordinateur a échoué. Vérifiez que les deux Mac sont connectés à leur compte et en ligne, puis réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشلت عملية الكمبيوتر. تأكد من تسجيل الدخول على كلا جهازي Mac واتصالهما بالإنترنت، ثم حاول مجددًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La operación del ordenador falló. Comprueba que ambos Mac hayan iniciado sesión y estén en línea, e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "電腦操作失敗。請確認兩台 Mac 均已登入且在線上，然後再試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "电脑操作失败。请确认两台 Mac 均已登录且在线，然后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컴퓨터 작업에 실패했습니다. 두 Mac이 로그인되어 있고 온라인 상태인지 확인한 후 다시 시도하세요."
           }
         }
       }
@@ -514916,6 +517646,48 @@
             "state": "translated",
             "value": "ほかのMacとそのワークスペースをサイドバーに表示します。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeige deine anderen Macs und ihre Arbeitsbereiche in der Seitenleiste."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affichez vos autres Mac et leurs espaces de travail dans la barre latérale."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اعرض أجهزة Mac الأخرى ومساحات عملها في الشريط الجانبي."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra tus otros Mac y sus espacios de trabajo en la barra lateral."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在側邊欄顯示其他 Mac 及其工作區。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在侧边栏显示其他 Mac 及其工作区。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바에 다른 Mac과 해당 작업 공간을 표시합니다."
+          }
         }
       }
     },
@@ -514932,6 +517704,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "%d日前"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vor %d Tagen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "il y a %d j"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "منذ %d يومًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hace %d días"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d 天前"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d 天前"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d일 전"
           }
         }
       }
@@ -514950,6 +517764,48 @@
             "state": "translated",
             "value": "%d時間前"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vor %d Stunden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "il y a %d h"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "منذ %d ساعة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hace %d horas"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d 小時前"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d 小时前"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d시간 전"
+          }
         }
       }
     },
@@ -514966,6 +517822,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "たった今"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "gerade eben"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "à l’instant"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الآن"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "justo ahora"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剛才"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刚刚"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "방금"
           }
         }
       }
@@ -514984,6 +517882,48 @@
             "state": "translated",
             "value": "%d分前"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vor %d Minuten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "il y a %d min"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "منذ %d دقيقة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hace %d minutos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d 分鐘前"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d 分钟前"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d분 전"
+          }
         }
       }
     },
@@ -515000,6 +517940,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "要確認"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktion erforderlich"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Action requise"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب إجراءً"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requiere atención"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要處理"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要处理"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "조치 필요"
           }
         }
       }
@@ -515018,6 +518000,48 @@
             "state": "translated",
             "value": "接続中"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung wird hergestellt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ الاتصال"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectando"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在連線"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在连接"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 중"
+          }
         }
       }
     },
@@ -515034,6 +518058,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "オフライン"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hors ligne"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير متصل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desconectado"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "離線"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离线"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오프라인"
           }
         }
       }
@@ -515052,6 +518118,48 @@
             "state": "translated",
             "value": "オンライン"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Online"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En ligne"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متصل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En línea"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "線上"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在线"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "온라인"
+          }
         }
       }
     },
@@ -515068,6 +518176,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "接続中…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung wird hergestellt…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جاري الاتصال…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectando…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線中…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在连接…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 중…"
           }
         }
       }
@@ -515086,6 +518236,48 @@
             "state": "translated",
             "value": "リンクに失敗しました"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung fehlgeschlagen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec de la liaison"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل الربط"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error de enlace"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連結失敗"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "链路失败"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 실패"
+          }
         }
       }
     },
@@ -515102,6 +518294,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "オフライン"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hors ligne"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير متصل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desconectado"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "離線"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离线"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오프라인"
           }
         }
       }
@@ -515120,6 +518354,48 @@
             "state": "translated",
             "value": "オフライン · 最終確認 %@"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline · gesehen %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hors ligne · vu %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير متصل · آخر ظهور %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin conexión · visto %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "離線 · 上次出現 %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离线 · 上次出现 %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오프라인 · %@에 확인됨"
+          }
         }
       }
     },
@@ -515136,6 +518412,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "オンライン"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Online"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En ligne"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متصل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En línea"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "線上"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在线"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "온라인"
           }
         }
       }
@@ -515154,6 +518472,48 @@
             "state": "translated",
             "value": "別のアカウント"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anderes Konto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autre compte"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حساب آخر"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otra cuenta"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他帳號"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他账户"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 계정"
+          }
         }
       }
     },
@@ -515170,6 +518530,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "利用できません"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht verfügbar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indisponible"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير متاح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No disponible"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法使用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不可用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용할 수 없음"
           }
         }
       }
@@ -515188,6 +518590,48 @@
             "state": "translated",
             "value": "1 ワークスペース"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 Arbeitsbereich"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 espace de travail"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 مساحة عمل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 espacio de trabajo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 個工作區"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 个工作区"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 1개"
+          }
         }
       }
     },
@@ -515204,6 +518648,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "%d ワークスペース"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d Arbeitsbereiche"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d espaces de travail"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d مساحات عمل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d espacios de trabajo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d 個工作區"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d 个工作区"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 %d개"
           }
         }
       }
@@ -515222,6 +518708,48 @@
             "state": "translated",
             "value": "マイデバイス"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meine Geräte"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mes appareils"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجهزتي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mis dispositivos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我的裝置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我的设备"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 기기"
+          }
         }
       }
     },
@@ -515238,6 +518766,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "デバイス ID をコピー"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geräte-ID kopieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier l’identifiant de l’appareil"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخ معرّف الجهاز"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar ID del dispositivo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷貝裝置 ID"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制设备 ID"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 ID 복사"
           }
         }
       }
@@ -515256,6 +518826,48 @@
             "state": "translated",
             "value": "設定 › コンピュータでペアリング…"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In den Einstellungen unter „Computer“ koppeln…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jumeler dans Réglages › Ordinateurs…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإقران من الإعدادات › أجهزة الكمبيوتر…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enlazar en Ajustes › Ordenadores…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在「設定 › 電腦」中配對⋯"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在“设置 › 电脑”中配对…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 › 컴퓨터에서 페어링…"
+          }
         }
       }
     },
@@ -515272,6 +518884,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "オフライン — オンラインに戻るとワークスペースが再表示されます"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline – Arbeitsbereiche kehren zurück, sobald das Gerät online ist"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hors ligne — ses espaces de travail réapparaîtront à son retour"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير متصل — ستعود مساحات العمل عند عودته"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin conexión: sus espacios de trabajo volverán cuando lo haga"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "離線 — 上線後工作區會恢復"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离线 — 上线后工作区会恢复"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오프라인 — 온라인이 되면 작업 공간이 돌아옵니다"
           }
         }
       }
@@ -515290,6 +518944,48 @@
             "state": "translated",
             "value": "「デバイス」には、同じ cmux アカウントにサインインしている Mac とそのライブワークスペースが表示されます。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Geräte“ zeigt die bei demselben cmux-Konto angemeldeten Macs mit ihren aktiven Arbeitsbereichen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "« Appareils » affiche les Mac connectés au même compte cmux et leurs espaces de travail actifs."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعرض «الأجهزة» أجهزة Mac المسجّلة في حساب cmux نفسه مع مساحات عملها المباشرة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dispositivos muestra los Mac que han iniciado sesión en la misma cuenta de cmux y sus espacios de trabajo activos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「裝置」會顯示登入相同 cmux 帳號的 Mac 及其即時工作區。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“设备”会显示登录同一 cmux 账户的 Mac 及其实时工作区。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‘기기’에는 같은 cmux 계정으로 로그인한 Mac과 실시간 작업 공간이 표시됩니다."
+          }
         }
       }
     },
@@ -515306,6 +519002,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "サインインしてほかの Mac を表示"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich an, um deine anderen Macs zu sehen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous pour voir vos autres Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل الدخول لرؤية أجهزة Mac الأخرى"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia sesión para ver tus otros Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入以查看其他 Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录以查看其他 Mac"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 Mac을 보려면 로그인하세요"
           }
         }
       }
@@ -515324,6 +519062,48 @@
             "state": "translated",
             "value": "別の Mac で cmux にサインインし、設定 › ベータ機能で「デバイス」をオンにしてください。オンラインになるとすぐに、その Mac とワークスペースがここに表示されます。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich auf einem anderen Mac bei cmux an und aktiviere „Geräte“ unter „Einstellungen › Beta-Funktionen“. Sobald er online ist, erscheint er mit seinen Arbeitsbereichen hier."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous à cmux sur un autre Mac et activez Appareils dans Réglages › Fonctionnalités bêta. Il apparaîtra ici avec ses espaces de travail dès qu’il sera en ligne."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل الدخول إلى cmux على Mac آخر وفعّل «الأجهزة» في الإعدادات › الميزات التجريبية. سيظهر هنا مع مساحات عمله فور اتصاله."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia sesión en cmux en otro Mac y activa Dispositivos en Ajustes › Funciones beta. Aparecerá aquí con sus espacios de trabajo en cuanto esté en línea."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在其他 Mac 上登入 cmux，並於「設定 › 測試版功能」開啟「裝置」。它上線後會立即連同工作區顯示在此處。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在另一台 Mac 上登录 cmux，并在“设置 › 测试版功能”中开启“设备”。它上线后会立即连同工作区显示在这里。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 Mac에서 cmux에 로그인하고 설정 › 베타 기능에서 기기를 켜세요. 온라인이 되면 작업 공간과 함께 여기에 표시됩니다."
+          }
         }
       }
     },
@@ -515340,6 +519120,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "ほかの Mac はまだありません"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine anderen Macs"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun autre Mac pour l’instant"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد أجهزة Mac أخرى بعد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no hay otros Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚無其他 Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有其他 Mac"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 다른 Mac이 없습니다"
           }
         }
       }
@@ -515358,6 +519180,48 @@
             "state": "translated",
             "value": "このアドレスでは別の Mac が応答しました。設定 › コンピュータからもう一度ペアリングしてください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine andere Mac-Instanz hat an dieser Adresse geantwortet. Kopple sie erneut über Einstellungen › Computer."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un autre Mac a répondu à cette adresse. Jumelez-le à nouveau depuis Réglages › Ordinateurs."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استجاب Mac مختلف على هذا العنوان. أعد إقرانه من الإعدادات › أجهزة الكمبيوتر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otro Mac respondió en esta dirección. Vuelve a enlazarlo desde Ajustes › Ordenadores."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此位址由另一台 Mac 回應。請從「設定 › 電腦」重新配對。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此地址由另一台 Mac 响应。请从“设置 › 电脑”重新配对。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 주소에서 다른 Mac이 응답했습니다. 설정 › 컴퓨터에서 다시 페어링하세요."
+          }
         }
       }
     },
@@ -515374,6 +519238,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "この Mac は、あなたのアカウントにサインインしていることを確認できませんでした。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac hat nicht bestätigt, dass er bei deinem Konto angemeldet ist."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac n’a pas confirmé être connecté à votre compte."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يؤكد هذا الـ Mac تسجيل دخوله إلى حسابك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac no confirmó que haya iniciado sesión en tu cuenta."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 未確認已登入你的帳號。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 未确认已登录你的账户。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac은 계정에 로그인되어 있음을 확인하지 않았습니다."
           }
         }
       }
@@ -515392,6 +519298,48 @@
             "state": "translated",
             "value": "Mac から予期しない応答がありました。両方の Mac の cmux を更新して再試行してください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Mac hat eine unerwartete Antwort gesendet. Aktualisiere cmux auf beiden Macs und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le Mac a envoyé une réponse inattendue. Mettez cmux à jour sur les deux Mac et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أرسل الـ Mac ردًا غير متوقع. حدّث cmux على كلا الجهازين وحاول مجددًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El Mac envió una respuesta inesperada. Actualiza cmux en ambos Mac e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 傳回非預期回應。請更新兩台 Mac 上的 cmux 後再試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 返回了意外响应。请更新两台 Mac 上的 cmux 后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac에서 예상치 못한 응답을 보냈습니다. 두 Mac에서 cmux를 업데이트한 후 다시 시도하세요."
+          }
         }
       }
     },
@@ -515408,6 +519356,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "接続するには、設定 › コンピュータでこの Mac をペアリングしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopple diesen Mac unter Einstellungen › Computer, um eine Verbindung herzustellen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jumelez ce Mac dans Réglages › Ordinateurs pour vous connecter."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在设置 › 计算机中配对此 Mac 以连接。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enlaza este Mac en Ajustes › Ordenadores para conectarte."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請在「設定 › 電腦」中配對此 Mac 以連接。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在“设置 › 电脑”中配对此 Mac 以连接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결하려면 설정 › 컴퓨터에서 이 Mac을 페어링하세요."
           }
         }
       }
@@ -515426,6 +519416,48 @@
             "state": "translated",
             "value": "この Mac に対応する接続経路がありません。両方の Mac で cmux を更新して、もう一度お試しください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac hat keine unterstützte Verbindungsroute. Aktualisiere cmux auf beiden Macs und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac ne possède aucune route de connexion prise en charge. Mettez cmux à jour sur les deux Mac et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يملك هذا الـ Mac مسار اتصال مدعومًا. حدّث cmux على كلا الجهازين وحاول مجددًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac no tiene una ruta de conexión compatible. Actualiza cmux en ambos Mac e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 沒有支援的連線路徑。請更新兩台 Mac 上的 cmux 後再試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 没有受支持的连接路径。请更新两台 Mac 上的 cmux 后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에는 지원되는 연결 경로가 없습니다. 두 Mac에서 cmux를 업데이트한 후 다시 시도하세요."
+          }
         }
       }
     },
@@ -515442,6 +519474,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "この Mac はまだルートを公開していません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac hat noch keine Route veröffentlicht."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac n’a encore publié aucune route."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم ينشر هذا الـ Mac مسارًا بعد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac aún no ha publicado una ruta."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 尚未發佈路徑。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 尚未发布路径。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac은 아직 경로를 게시하지 않았습니다."
           }
         }
       }
@@ -515460,6 +519534,48 @@
             "state": "translated",
             "value": "この Mac は現在接続されていません。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac ist derzeit nicht verbunden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac n’est pas connecté actuellement."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا الـ Mac غير متصل حاليًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac no está conectado ahora mismo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 目前未連線。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 当前未连接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac은 현재 연결되어 있지 않습니다."
+          }
         }
       }
     },
@@ -515476,6 +519592,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "接続するには、設定 › コンピュータでこの Mac をペアリングしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopple diesen Mac unter Einstellungen › Computer, um eine Verbindung herzustellen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jumelez ce Mac dans Réglages › Ordinateurs pour vous connecter."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "في الإعدادات › أجهزة الكمبيوتر، أقرن هذا الـ Mac للاتصال."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empareja este Mac en Ajustes › Ordenadores para conectarte."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請在「設定 › 電腦」中配對此 Mac 以連接。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在“设置 › 电脑”中配对此 Mac 以连接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결하려면 설정 › 컴퓨터에서 이 Mac을 페어링하세요."
           }
         }
       }
@@ -515494,6 +519652,48 @@
             "state": "translated",
             "value": "この Mac はまだルートを公開していません。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac hat noch keine Route veröffentlicht."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac n’a encore publié aucune route."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم ينشر هذا الـ Mac مسارًا بعد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac aún no ha publicado una ruta."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 尚未發佈路徑。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 尚未发布路径。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac은 아직 경로를 게시하지 않았습니다."
+          }
         }
       }
     },
@@ -515510,6 +519710,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "別のアカウントでサインインしています"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit einem anderen Konto angemeldet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecté à un autre compte"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسجّل الدخول بحساب آخر"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectado con otra cuenta"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已登入其他帳號"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已登录其他账户"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 계정으로 로그인됨"
           }
         }
       }
@@ -515528,6 +519770,48 @@
             "state": "translated",
             "value": "この Mac があなたのアカウントのものか確認しています…"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warte auf Bestätigung, dass dieser Mac zu deinem Konto gehört…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En attente de confirmation que ce Mac appartient à votre compte…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بانتظار التأكد من أن هذا الـ Mac ينتمي إلى حسابك…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperando confirmar que este Mac pertenece a tu cuenta…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待確認此 Mac 屬於你的帳號⋯"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待确认此 Mac 属于你的账户…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac이 계정에 속하는지 확인하는 중…"
+          }
         }
       }
     },
@@ -515544,6 +519828,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "別の Mac のブラウザはまだここでは開けません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser auf einem anderen Mac können hier noch nicht geöffnet werden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les navigateurs sur un autre Mac ne peuvent pas encore être ouverts ici."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن فتح المتصفحات على Mac آخر هنا بعد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no se pueden abrir navegadores en otro Mac aquí."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前無法在此開啟其他 Mac 上的瀏覽器。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前无法在此打开另一台 Mac 上的浏览器。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 Mac의 브라우저는 아직 여기서 열 수 없습니다."
           }
         }
       }
@@ -515562,6 +519888,48 @@
             "state": "translated",
             "value": "デバイスを再読み込み"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geräte aktualisieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualiser les appareils"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحديث الأجهزة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizar dispositivos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新整理裝置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刷新设备"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 새로 고침"
+          }
         }
       }
     },
@@ -515579,6 +519947,48 @@
             "state": "translated",
             "value": "プレゼンスに接続中…"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung zur Präsenz wird hergestellt…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion à la présence…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ الاتصال بالحضور…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectando con la presencia…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在連接狀態服務⋯"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在连接状态服务…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "상태에 연결하는 중…"
+          }
         }
       }
     },
@@ -515594,7 +520004,49 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%2$d 台中 %1$d 台がオンライン"
+            "value": "%1$d/%2$d オンライン"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d von %d online"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d sur %d en ligne"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d من أصل %d متصل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d de %d en línea"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d/%d 部在線上"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d/%d 在线"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d/%d 온라인"
           }
         }
       }
@@ -515613,6 +520065,48 @@
             "state": "translated",
             "value": "デバイス一覧に到達できません — 再試行中"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geräteliste nicht erreichbar – erneuter Versuch"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liste des appareils inaccessible — nouvelle tentative"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قائمة الأجهزة غير متاحة — إعادة المحاولة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede acceder a la lista de dispositivos — reintentando"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法連線至裝置清單 — 正在重試"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法访问设备列表 — 正在重试"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 목록에 연결할 수 없음 — 다시 시도 중"
+          }
         }
       }
     },
@@ -515629,6 +520123,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "プレゼンスが切断されました — 再接続中 (%d)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Präsenz getrennt – Verbindung wird wiederhergestellt (%d)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Présence déconnectée — reconnexion (%d)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انقطع الاتصال بالحضور — إعادة الاتصال (%d)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Presencia desconectada — reconectando (%d)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "狀態已中斷 — 正在重新連接（%d）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "状态已断开 — 正在重新连接（%d）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "상태 연결 끊김 — 다시 연결 중(%d)"
           }
         }
       }
@@ -515647,6 +520183,48 @@
             "state": "translated",
             "value": "マイデバイス"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meine Geräte"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mes appareils"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجهزتي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mis dispositivos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我的裝置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我的设备"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 기기"
+          }
         }
       }
     },
@@ -515664,6 +520242,48 @@
             "state": "translated",
             "value": "Cloud サイドバーの「マイデバイス」を非表示にします。この Mac へのアクセスは「コンピュータ」設定で個別に変更できます。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blendet „Meine Geräte“ aus der Cloud-Seitenleiste aus. Eingehender Zugriff wird separat in den Computereinstellungen gesteuert."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masque Mes appareils de la barre latérale Cloud. L’accès entrant se règle séparément dans Réglages Ordinateurs."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يخفي «أجهزتي» من الشريط الجانبي لـ Cloud. يُدار الوصول الوارد بشكل منفصل في إعدادات أجهزة الكمبيوتر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oculta Mis dispositivos de la barra lateral de Cloud. El acceso entrante se controla por separado en Ajustes de Ordenadores."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將「我的裝置」從 Cloud 側邊欄隱藏。傳入存取權限可在「電腦」設定中個別控制。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从 Cloud 侧边栏隐藏“我的设备”。传入访问权限可在“电脑”设置中单独控制。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 사이드바에서 내 기기를 숨깁니다. 수신 접근은 컴퓨터 설정에서 별도로 제어됩니다."
+          }
         }
       }
     },
@@ -515680,6 +520300,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cloud サイドバーに「マイデバイス」を追加します。検出とこの Mac へのアクセスは「コンピュータ」設定で個別に変更できます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將「我的裝置」新增至 Cloud 側邊欄。探索和此 Mac 的存取權限可在「電腦」設定中個別控制。"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoute Mes appareils à la barre latérale Cloud. La détection et l’accès à ce Mac se règlent séparément dans Réglages Ordinateurs."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يضيف «أجهزتي» إلى الشريط الجانبي لـ Cloud. يُدار الاكتشاف والوصول إلى هذا الـ Mac بشكل منفصل في إعدادات أجهزة الكمبيوتر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añade Mis dispositivos a la barra lateral de Cloud. La detección y el acceso a este Mac se controlan por separado en Ajustes de Ordenadores."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將「我的裝置」新增至 Cloud 側邊欄。探索和此 Mac 的存取權限可在「電腦」設定中個別控制。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将“我的设备”添加到 Cloud 侧边栏。发现功能和对此 Mac 的访问权限可在“电脑”设置中单独控制。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 사이드바에 내 기기를 추가합니다. 검색 및 이 Mac에 대한 접근은 컴퓨터 설정에서 별도로 제어됩니다."
           }
         }
       }
