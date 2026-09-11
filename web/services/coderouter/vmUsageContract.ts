@@ -17,6 +17,8 @@ export type VmUsageTotals = {
 
 export type VmUsageResponse = {
   readonly vmId: string;
+  /** The machine's display name, so a readout can name it; null when unnamed. */
+  readonly displayName: string | null;
   readonly periodDays: 30;
   readonly kind: "ready" | "unavailable";
   readonly asOf: string | null;
@@ -67,10 +69,12 @@ const ZERO_TOTALS: VmUsageTotals = {
 export function vmUsageResponse(
   vmId: string,
   metrics: CoderouterVmMetrics,
+  displayName: string | null = null,
 ): VmUsageResponse {
   if (metrics.kind === "unavailable") {
     return {
       vmId,
+      displayName,
       periodDays: 30,
       kind: "unavailable",
       asOf: null,
@@ -80,6 +84,7 @@ export function vmUsageResponse(
   }
   return {
     vmId,
+    displayName,
     periodDays: 30,
     kind: "ready",
     asOf: metrics.generatedAt,

@@ -153,6 +153,7 @@ describe("GET /api/coderouter/vm-usage", () => {
     expect(response.headers.get("content-type")).toContain("application/json");
     expect(await response.json()).toEqual({
       vmId: ownedVm,
+      displayName: "builder",
       periodDays: 30,
       kind: "ready",
       asOf: "2026-09-02T12:00:00.000Z",
@@ -170,6 +171,7 @@ describe("GET /api/coderouter/vm-usage", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       vmId: ownedVm,
+      displayName: "builder",
       periodDays: 30,
       kind: "unavailable",
       asOf: null,
@@ -319,6 +321,7 @@ describe("GET /api/coderouter/vm-usage/self", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       vmId: ownedVm,
+      displayName: "builder",
       periodDays: 30,
       kind: "ready",
       totals: publicTotals,

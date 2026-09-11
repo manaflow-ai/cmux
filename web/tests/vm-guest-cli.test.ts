@@ -252,66 +252,104 @@ esac
   });
 
   describe("CodeRouter agent entrypoints", () => {
-    const USAGE_BODY = JSON.stringify({
+    const usageDays = (): { day: string; totalTokens: number; apiEquivalentUsd: number }[] => {
+      const days = [];
+      for (let offset = 29; offset >= 0; offset -= 1) {
+        const date = new Date(Date.UTC(2026, 8, 10 - offset));
+        days.push({ day: date.toISOString().slice(0, 10), totalTokens: 0, apiEquivalentUsd: 0 });
+      }
+      days[21] = { day: "2026-09-02", totalTokens: 400_000, apiEquivalentUsd: 3.5 };
+      days[28] = { day: "2026-09-09", totalTokens: 1_234_567, apiEquivalentUsd: 12.3456 };
+      days[29] = { day: "2026-09-10", totalTokens: 68_612, apiEquivalentUsd: 0.004 };
+      return days;
+    };
+    const USAGE = {
       vmId: "28e987ce-549f-4040-8489-5ed3789faf3e",
+      displayName: "toasty-beige-husky",
       periodDays: 30,
       kind: "ready",
       asOf: "2026-09-10T23:24:01.425Z",
-      totals: { inputTokens: 68564, cachedInputTokens: 14848, outputTokens: 48, totalTokens: 68612, apiEquivalentUsd: 0 },
-      days: [
-        { day: "2026-09-08", totalTokens: 0, apiEquivalentUsd: 0 },
-        { day: "2026-09-09", totalTokens: 1234567, apiEquivalentUsd: 12.3456 },
-        { day: "2026-09-10", totalTokens: 68612, apiEquivalentUsd: 0.004 },
-      ],
-    });
+      totals: { inputTokens: 1_700_000, cachedInputTokens: 14_848, outputTokens: 3_179, totalTokens: 1_703_179, apiEquivalentUsd: 15.8456 },
+      days: usageDays(),
+    };
+    const USAGE_BODY = JSON.stringify(USAGE);
     const usageCurl = (body: string) => (directory: string) => {
       const curl = join(directory, "curl");
       writeFileSync(curl, `#!/bin/sh\ncase "$*" in\n  *vm-usage/self*) printf '%s' '${body}' ;;\n  *) exit 1 ;;\nesac\n`);
       chmodSync(curl, 0o755);
     };
-    const USAGE_ENV = { CMUX_CODEROUTER_URL: "https://coderouter.cmux.internal" };
+    // "now" pinned 30 minutes after asOf so the relative age is deterministic.
+    const USAGE_ENV = { CMUX_CODEROUTER_URL: "https://coderouter.cmux.internal", CMUX_NOW_EPOCH: String(Date.parse("2026-09-10T23:54:01Z") / 1000) };
 
-    test("renders usage for people: labeled totals, one row per day with usage, and the --json hint", () => {
+    test("renders usage for people and agents: labeled lines, trend, one row per day with usage, hints", () => {
       const run = runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(USAGE_BODY));
       expect(run.status).toBe(0);
       expect(run.stdout).toBe([
-        "CodeRouter usage for this machine, last 30 days (as of 2026-09-10 23:24 UTC)",
-        "machine  28e987ce-549f-4040-8489-5ed3789faf3e",
-        "tokens   68,612 total = 68,564 input (14,848 cached) + 48 output",
-        "cost     $0.00 API-equivalent",
+        "CodeRouter usage for toasty-beige-husky, last 30 days (as of 30 min ago, 2026-09-10 23:24 UTC)",
+        "machine  toasty-beige-husky  28e987ce-549f-4040-8489-5ed3789faf3e",
+        "tokens   1,703,179 total = 1,700,000 input (14,848 cached) + 3,179 output",
+        "cost     $15.85 API-equivalent  (list-price value of these tokens, not a bill)",
+        "trend    last 7 days 1,303,179 tokens, prior 7 days 400,000",
         "",
         "day            tokens    cost",
-        "2026-09-09  1,234,567  $12.35",
-        "2026-09-10     68,612  <$0.01",
-        "Days without usage are not listed (1 of 3).",
+        "2026-09-02    400,000   $3.50  ████",
+        "2026-09-09  1,234,567  $12.35  ████████████",
+        "2026-09-10     68,612  <$0.01  █",
+        "Days without usage are not listed (27 of 30).",
         "",
         "Machine-readable JSON: cmux coderouter usage --json",
+        "Team view: https://cmux.com/dashboard/coderouter",
         "",
       ].join("\n"));
     });
 
-    test("usage --json returns the vm-usage contract unchanged, for agents and scripts", () => {
-      const run = runShim(["coderouter", "usage", "--json"], USAGE_ENV, usageCurl(USAGE_BODY));
+    test("usage names an unnamed machine by id, and explains a $0 cost on real tokens as unpriced", () => {
+      const body = { ...USAGE, displayName: null, totals: { ...USAGE.totals, apiEquivalentUsd: 0 } };
+      const run = runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(JSON.stringify(body)));
       expect(run.status).toBe(0);
-      expect(JSON.parse(run.stdout)).toEqual(JSON.parse(USAGE_BODY));
-      const alias = runShim(["coderouter", "machines", "--json"], USAGE_ENV, usageCurl(USAGE_BODY));
-      expect(JSON.parse(alias.stdout)).toEqual(JSON.parse(USAGE_BODY));
+      expect(run.stdout).toContain("CodeRouter usage for 28e987ce-549f-4040-8489-5ed3789faf3e, last 30 days");
+      expect(run.stdout).toContain("machine  28e987ce-549f-4040-8489-5ed3789faf3e\n");
+      expect(run.stdout).toContain("cost     $0.00 API-equivalent  (no price on record for the models used)\n");
     });
 
-    test("usage says so when the ledger is unavailable or the machine spent nothing", () => {
-      const unavailable = runShim(
-        ["coderouter", "usage"],
-        USAGE_ENV,
-        usageCurl(JSON.stringify({ vmId: "vm-a", periodDays: 30, kind: "unavailable", asOf: null, totals: null, days: [] })),
-      );
-      expect(unavailable.status).toBe(0);
+    test("usage --days limits the day table and --tsv prints the raw day table with zeros", () => {
+      const week = runShim(["coderouter", "usage", "--days", "7"], USAGE_ENV, usageCurl(USAGE_BODY));
+      expect(week.status).toBe(0);
+      expect(week.stdout).not.toContain("2026-09-02");
+      expect(week.stdout).toContain("Days without usage are not listed (5 of 7).");
+      const tsv = runShim(["coderouter", "usage", "--tsv", "--days=3"], USAGE_ENV, usageCurl(USAGE_BODY));
+      expect(tsv.status).toBe(0);
+      expect(tsv.stdout).toBe("day\ttokens\tapi_equivalent_usd\n2026-09-08\t0\t0\n2026-09-09\t1234567\t12.3456\n2026-09-10\t68612\t0.004\n");
+      for (const bad of ["99", "0", "x", ""]) {
+        const run = runShim(["coderouter", "usage", "--days", bad], USAGE_ENV, usageCurl(USAGE_BODY));
+        expect(run.status).toBe(2);
+        expect(run.stderr).toContain(`--days needs a number from 1 to 30, got '${bad}'`);
+      }
+    });
+
+    test("usage --json and CMUX_OUTPUT=json return the vm-usage contract unchanged, for agents and scripts", () => {
+      const run = runShim(["coderouter", "usage", "--json"], USAGE_ENV, usageCurl(USAGE_BODY));
+      expect(run.status).toBe(0);
+      expect(JSON.parse(run.stdout)).toEqual(USAGE);
+      const env = runShim(["coderouter", "machines"], { ...USAGE_ENV, CMUX_OUTPUT: "json" }, usageCurl(USAGE_BODY));
+      expect(JSON.parse(env.stdout)).toEqual(USAGE);
+    });
+
+    test("usage exits 3 when the ledger is unavailable (text and json), and says so when the machine spent nothing", () => {
+      const unavailableBody = JSON.stringify({ vmId: "vm-a", displayName: null, periodDays: 30, kind: "unavailable", asOf: null, totals: null, days: [] });
+      const unavailable = runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(unavailableBody));
+      expect(unavailable.status).toBe(3);
       expect(unavailable.stdout).toBe("CodeRouter usage is unavailable right now (the usage ledger did not answer). Retry in a moment.\n");
+      const json = runShim(["coderouter", "usage", "--json"], USAGE_ENV, usageCurl(unavailableBody));
+      expect(json.status).toBe(3);
+      expect(JSON.parse(json.stdout).kind).toBe("unavailable");
 
       const zero = runShim(
         ["coderouter", "usage"],
         USAGE_ENV,
         usageCurl(JSON.stringify({
           vmId: "vm-zero",
+          displayName: null,
           periodDays: 30,
           kind: "ready",
           asOf: "2026-09-10T00:00:00.000Z",
@@ -323,6 +361,7 @@ esac
       expect(zero.stdout).toContain("machine  vm-zero\n");
       expect(zero.stdout).toContain("\nNo CodeRouter usage from this machine in the last 30 days.\n");
       expect(zero.stdout).not.toContain("day  ");
+      expect(zero.stdout).not.toContain("trend");
     });
 
     test("usage passes through bodies it cannot format (not JSON, an error body, a non-numeric field) and rejects unknown options", () => {
@@ -337,9 +376,18 @@ esac
       const badNumber = runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(JSON.stringify(malformed)));
       expect(badNumber.status).toBe(0);
       expect(JSON.parse(badNumber.stdout)).toEqual(malformed);
-      const bad = runShim(["coderouter", "usage", "--tsv"], USAGE_ENV, usageCurl(USAGE_BODY));
+      const bad = runShim(["coderouter", "usage", "--tsv2"], USAGE_ENV, usageCurl(USAGE_BODY));
       expect(bad.status).toBe(2);
-      expect(bad.stderr).toContain("coderouter usage: unknown option --tsv");
+      expect(bad.stderr).toContain("coderouter usage: unknown option --tsv2");
+    });
+
+    test("usage --help documents the modes, the stable lines, and the exit codes", () => {
+      const help = runShim(["coderouter", "usage", "--help"]);
+      expect(help.status).toBe(0);
+      expect(help.stdout).toContain("cmux coderouter usage [--json|--tsv] [--days <n>]");
+      expect(help.stdout).toContain("Exit codes: 0 usage shown, 1 the edge did not answer, 2 bad option, 3 usage ledger unavailable.");
+      const ja = runShim(["coderouter", "usage", "-h"], { LANG: "ja_JP.UTF-8" });
+      expect(ja.stdout).toContain("終了コード");
     });
 
     test("reads models through the configured HTTPS edge", () => {
