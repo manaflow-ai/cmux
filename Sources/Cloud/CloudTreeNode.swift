@@ -157,7 +157,7 @@ final class CloudTreeNode: NSObject {
         case .browser(let row): return row.resource.title
         case .portsGroup: return String(localized: "cloudTree.group.ports", defaultValue: "Ports")
         case .port(let resource, _, _):
-            return (resource.id.forwardedPort ?? resource.port).map { CloudPortRoutePlan.sidebarTitle(remotePort: $0) } ?? resource.title
+            return (resource.id.forwardedPort ?? resource.port).map(String.init) ?? resource.title
         case .placeholder(_, let placeholder): return placeholder.text
         }
     }
