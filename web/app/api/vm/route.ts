@@ -14,6 +14,7 @@ import {
   type ProviderId,
   vmCapabilitiesFor,
 } from "../../../services/vms/drivers";
+import type { VmCapabilities } from "../../../services/vms/drivers/types";
 import { assertVmCreateEnabled } from "../../../services/vms/config";
 import { vmModelPlaneGatewayFor } from "../../../services/vms/modelPlaneGateway";
 import {
@@ -224,8 +225,11 @@ export async function POST(request: Request): Promise<Response> {
       const image = imageSelection.image;
       const unsupportedOption = await unsupportedCreateOptionResponse(provider, candidate, request);
       if (unsupportedOption) return unsupportedOption;
+      const optionPolicy = createOptionPolicy(vmCapabilitiesFor(provider), candidate);
+      const homeVolumeRequested = optionPolicy.kind === "accept" && optionPolicy.ignoredFields.length === 0;
       setSpanAttributes(span, {
         "cmux.vm.provider": provider,
+        "cmux.vm.ignored_create_fields": optionPolicy.kind === "accept" ? optionPolicy.ignoredFields.join(",") : "",
         "cmux.vm.image_set": image.length > 0,
         "cmux.vm.image_version": imageSelection.imageVersion,
         "cmux.vm.image_manifest": !!imageSelection.manifestEntry,
@@ -252,8 +256,8 @@ export async function POST(request: Request): Promise<Response> {
         imageVersion: imageSelection.imageVersion,
         provider,
         idempotencyKey,
-        persistentHome: candidate.persistentHome === true,
-        perMachineHome: candidate.perMachineHome === true,
+        persistentHome: homeVolumeRequested && candidate.persistentHome === true,
+        perMachineHome: homeVolumeRequested && candidate.perMachineHome === true,
         memoryMb,
         imageSize: imageSelection.size ?? undefined,
         modelPlane,
@@ -281,18 +285,42 @@ export async function POST(request: Request): Promise<Response> {
   );
 }
 
+/**
+ * How a create request's optional flags meet the resolved provider's capabilities.
+ *
+ * `memoryMb` on a provider without sizing is rejected: the caller paid for a size it
+ * would not get. `persistentHome`/`perMachineHome` on a provider without home volumes
+ * are ignored, not rejected: every shipped CLI sends them on the default create (the
+ * "each machine is its own persistent computer" contract, PR 10478), a Freestyle
+ * machine already is durable without a volume, and rejecting them took `cmux vm new`
+ * down for every installed client on 2026-09-10 (8 of 9 creates 400 after PR 11609).
+ * The ignored fields are reported so the span and the response can say so.
+ */
+export function createOptionPolicy(
+  capabilities: Pick<VmCapabilities, "sizing" | "persistentHome">,
+  candidate: Record<string, unknown>,
+):
+  | { readonly kind: "reject"; readonly operation: "sizing"; readonly field: "memoryMb" }
+  | { readonly kind: "accept"; readonly ignoredFields: readonly ("persistentHome" | "perMachineHome")[] } {
+  if (candidate.memoryMb !== undefined && !capabilities.sizing) {
+    return { kind: "reject", operation: "sizing", field: "memoryMb" };
+  }
+  const ignoredFields: ("persistentHome" | "perMachineHome")[] = [];
+  if (!capabilities.persistentHome) {
+    if (candidate.persistentHome === true) ignoredFields.push("persistentHome");
+    if (candidate.perMachineHome === true) ignoredFields.push("perMachineHome");
+  }
+  return { kind: "accept", ignoredFields };
+}
+
 async function unsupportedCreateOptionResponse(
   provider: ProviderId,
   candidate: Record<string, unknown>,
   request: Request,
 ): Promise<Response | null> {
-  const capabilities = vmCapabilitiesFor(provider);
-  const unsupported = candidate.memoryMb !== undefined && !capabilities.sizing
-    ? { operation: "sizing" as const, field: "memoryMb" }
-    : (candidate.persistentHome === true || candidate.perMachineHome === true) && !capabilities.persistentHome
-      ? { operation: "persistentHome" as const, field: candidate.persistentHome === true ? "persistentHome" : "perMachineHome" }
-      : null;
-  if (!unsupported) return null;
+  const policy = createOptionPolicy(vmCapabilitiesFor(provider), candidate);
+  if (policy.kind !== "reject") return null;
+  const unsupported = policy;
   const copy = await vmUnsupportedCopy(unsupported.operation, vmRequestLocale(request));
   return vmErrorResponse({
     error: "vm_operation_unsupported",
