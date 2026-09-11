@@ -7,6 +7,13 @@ import { closePublicationAuthDb, publicationDatabaseRuntime } from "../services/
 
 const dbTest = process.env.CMUX_DB_TEST === "1" ? test : test.skip;
 const originalMax = process.env.CMUX_DB_POOL_MAX;
+
+function deadline(milliseconds: number): Promise<false> {
+  return new Promise(resolve => {
+    setTimeout(() => resolve(false), milliseconds);
+  });
+}
+
 beforeAll(() => { process.env.CMUX_DB_POOL_MAX = "1"; });
 afterAll(async () => {
   await closeCloudDbForTests();
@@ -31,7 +38,10 @@ describe("publication authorization capacity", () => {
     try {
       const completed = await Promise.race([
         publicationDatabaseRuntime().then(runtime => runtime.runPromise(Effect.flatMap(Database, db => db.execute(sql`select 1`)))).then(() => true),
-        new Promise<boolean>(resolve => { timer = setTimeout(() => resolve(false), 1000); }),
+        deadline(1000).then(value => {
+          timer = undefined;
+          return value;
+        }),
       ]);
       expect(completed).toBe(true);
     } finally {
