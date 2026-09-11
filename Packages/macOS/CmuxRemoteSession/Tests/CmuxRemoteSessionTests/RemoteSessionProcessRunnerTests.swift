@@ -70,6 +70,193 @@ struct RemoteSessionProcessRunnerTests {
         #expect(result.stdout == "hello-stdin")
     }
 
+    @Test("A child closing stdin before a large write does not abort the runner")
+    func childClosingStdinDoesNotAbortRunner() throws {
+        let runner = RemoteSessionProcessRunner()
+        let result = try runner.run(
+            RemoteProcessRequest(
+                executable: "/usr/bin/true",
+                arguments: [],
+                stdin: Data(repeating: 0x41, count: 1_048_576),
+                timeout: 5
+            ),
+            operation: nil
+        )
+
+        #expect(result.status == 0)
+    }
+
+    @Test("An unexpected stdin write error terminates the child and keeps the pinned runner error")
+    func unexpectedStdinWriteErrorTerminatesChildAndKeepsPinnedRunnerError() throws {
+        let marker = try ProcessMarkerFixture()
+        let runner = RemoteSessionProcessRunner(
+            stdinWriter: MarkerGatedFailingRemoteProcessStdinWriter(
+                readyFIFOURL: marker.readyFIFOURL,
+                exitFIFOURL: marker.exitFIFOURL,
+                markerURL: marker.markerURL,
+                gate: .launched
+            )
+        )
+
+        #expect {
+            try runner.run(
+                RemoteProcessRequest(
+                    executable: "/bin/sh",
+                    arguments: [
+                        "-c",
+                        "echo $$ > \"$CMUX_TEST_PROCESS_READY\"; exec /bin/sleep 30",
+                    ],
+                    environment: [
+                        "CMUX_TEST_PROCESS_READY": marker.readyFIFOURL.path,
+                    ],
+                    stdin: Data("payload".utf8),
+                    timeout: 5
+                ),
+                operation: nil
+            )
+        } throws: { error in
+            let nsError = error as NSError
+            let underlyingError = nsError.userInfo[NSUnderlyingErrorKey] as? POSIXError
+            return nsError.domain == "cmux.remote.process"
+                && nsError.code == 3
+                && nsError.localizedDescription.hasPrefix("Failed to write stdin for sh:")
+                && underlyingError?.code == .EIO
+        }
+        #expect(try marker.recordedProcessHasExited())
+    }
+
+    @Test("A stdin write error wins when the child ignores termination")
+    func stdinWriteErrorWinsWhenChildIgnoresTermination() async throws {
+        let marker = try ProcessMarkerFixture()
+        let runner = RemoteSessionProcessRunner(
+            stdinWriter: MarkerGatedFailingRemoteProcessStdinWriter(
+                readyFIFOURL: marker.readyFIFOURL,
+                exitFIFOURL: marker.exitFIFOURL,
+                markerURL: marker.markerURL,
+                gate: .launched
+            )
+        )
+
+        let outcome = try #require(await runProcess(
+            runner,
+            request: RemoteProcessRequest(
+                executable: "/bin/sh",
+                arguments: [
+                    "-c",
+                    "trap '' TERM; echo $$ > \"$CMUX_TEST_PROCESS_READY\"; exec /bin/sleep 30",
+                ],
+                environment: [
+                    "CMUX_TEST_PROCESS_READY": marker.readyFIFOURL.path,
+                ],
+                stdin: Data("payload".utf8),
+                timeout: 10
+            ),
+            completingWithin: 4
+        ))
+
+        guard case .failure(let error) = outcome else {
+            Issue.record("Expected the stdin write to fail")
+            return
+        }
+        let nsError = error as NSError
+        let underlyingError = nsError.userInfo[NSUnderlyingErrorKey] as? POSIXError
+        #expect(nsError.domain == "cmux.remote.process")
+        #expect(nsError.code == 3)
+        #expect(underlyingError?.code == .EIO)
+    }
+
+    @Test("A late stdin write error wins over an earlier child exit")
+    func lateStdinWriteErrorWinsOverChildExit() throws {
+        let marker = try ProcessMarkerFixture()
+        let runner = RemoteSessionProcessRunner(
+            stdinWriter: MarkerGatedFailingRemoteProcessStdinWriter(
+                readyFIFOURL: marker.readyFIFOURL,
+                exitFIFOURL: marker.exitFIFOURL,
+                markerURL: marker.markerURL,
+                gate: .exited
+            )
+        )
+
+        #expect {
+            try runner.run(
+                RemoteProcessRequest(
+                    executable: "/bin/sh",
+                    arguments: [
+                        "-c",
+                        "echo $$ > \"$CMUX_TEST_PROCESS_READY\"; exec 3>\"$CMUX_TEST_PROCESS_EXIT\"; exit 0",
+                    ],
+                    environment: [
+                        "CMUX_TEST_PROCESS_READY": marker.readyFIFOURL.path,
+                        "CMUX_TEST_PROCESS_EXIT": marker.exitFIFOURL.path,
+                    ],
+                    stdin: Data("payload".utf8),
+                    timeout: 5
+                ),
+                operation: nil
+            )
+        } throws: { error in
+            let nsError = error as NSError
+            let underlyingError = nsError.userInfo[NSUnderlyingErrorKey] as? POSIXError
+            return nsError.domain == "cmux.remote.process"
+                && nsError.code == 3
+                && underlyingError?.code == .EIO
+        }
+    }
+
+    @Test("A child retaining unread stdin cannot delay the process timeout")
+    func unreadStdinCannotDelayProcessTimeout() async throws {
+        let runner = RemoteSessionProcessRunner()
+        let outcome = try #require(await runProcess(
+            runner,
+            request: RemoteProcessRequest(
+                executable: "/bin/sleep",
+                arguments: ["5"],
+                stdin: Data(repeating: 0x41, count: 1_048_576),
+                timeout: 1
+            ),
+            completingWithin: 4
+        ))
+
+        switch outcome {
+        case .success:
+            Issue.record("Expected the unread stdin request to time out")
+        case .failure(let error):
+            let nsError = error as NSError
+            #expect(
+                nsError.domain == "cmux.remote.process"
+                && nsError.code == 2
+                && nsError.localizedDescription == "sleep timed out after 1s"
+            )
+        }
+    }
+
+    @Test("A descendant retaining unread stdin cannot outlive the process timeout")
+    func inheritedUnreadStdinCannotOutliveProcessTimeout() async throws {
+        let runner = RemoteSessionProcessRunner()
+        let outcome = try #require(await runProcess(
+            runner,
+            request: RemoteProcessRequest(
+                executable: "/bin/sh",
+                arguments: ["-c", "sleep 5 <&0 &"],
+                stdin: Data(repeating: 0x41, count: 1_048_576),
+                timeout: 1
+            ),
+            completingWithin: 4
+        ))
+
+        switch outcome {
+        case .success:
+            Issue.record("Expected the inherited stdin request to time out")
+        case .failure(let error):
+            let nsError = error as NSError
+            #expect(
+                nsError.domain == "cmux.remote.process"
+                && nsError.code == 2
+                && nsError.localizedDescription == "sh timed out after 1s"
+            )
+        }
+    }
+
     @Test("Streams a local file through stdin")
     func streamsFileStdin() throws {
         let fileManager = FileManager.default
@@ -132,6 +319,40 @@ struct RemoteSessionProcessRunnerTests {
             return nsError.domain == "cmux.remote.process"
                 && nsError.code == 2
                 && nsError.localizedDescription == "sh timed out after 1s"
+        }
+    }
+
+    private func runProcess(
+        _ runner: RemoteSessionProcessRunner,
+        request: RemoteProcessRequest,
+        completingWithin timeout: TimeInterval
+    ) async -> Result<RemoteCommandResult, any Error>? {
+        await withTaskGroup(
+            of: ProcessRunEvent.self,
+            returning: Result<RemoteCommandResult, any Error>?.self
+        ) { group in
+            group.addTask {
+                .completed(Result {
+                    try runner.run(request, operation: nil)
+                })
+            }
+            group.addTask {
+                try? await Task<Never, Never>.sleep(for: .seconds(timeout))
+                return .deadline
+            }
+
+            guard let firstEvent = await group.next() else {
+                return nil
+            }
+            group.cancelAll()
+            switch firstEvent {
+            case .completed(let result):
+                return result
+            case .deadline:
+                // Structured concurrency reaps the test-owned blocking task
+                // before leaving this scope and starting another subprocess.
+                return nil
+            }
         }
     }
 }
