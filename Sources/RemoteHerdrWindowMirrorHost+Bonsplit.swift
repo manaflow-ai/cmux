@@ -213,8 +213,8 @@ extension RemoteHerdrWindowMirrorHost {
         switch (node, treeNode) {
         case (.leaf, .pane):
             return
-        case let (
-            .split(orientation, fraction, firstExtent, first, second),
+        case (
+            .split(let orientation, let fraction, let firstExtent, let first, let second),
             .split(let split)
         ):
             let expected: String = orientation == .horizontal ? "horizontal" : "vertical"

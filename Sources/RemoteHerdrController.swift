@@ -10,7 +10,9 @@ import OSLog
 /// detaches without ``server.stop``.
 @MainActor
 final class RemoteHerdrController {
-    private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app", category: "RemoteHerdr")
+    /// Shared with the attach extension in `RemoteHerdrController+Attach.swift`,
+    /// so not `private`.
+    nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app", category: "RemoteHerdr")
 
     /// Live session hosts keyed `endpointHash\u{1}session`.
     private(set) var sessionHosts: [String: RemoteHerdrSessionHost] = [:]
