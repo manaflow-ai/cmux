@@ -5109,6 +5109,14 @@ import Testing
             withIntermediateDirectories: true
         )
         defer { try? FileManager.default.removeItem(at: directory) }
+        let multiMacDefaultsName = "fresh-switch-pool-\(UUID().uuidString)"
+        let multiMacDefaults = UserDefaults(suiteName: multiMacDefaultsName)!
+        multiMacDefaults.set(false, forKey: "multiMacAggregation")
+        defer {
+            multiMacDefaults.removePersistentDomain(
+                forName: multiMacDefaultsName
+            )
+        }
         let pairedStore = try MobilePairedMacStore(
             databaseURL: directory.appendingPathComponent("paired.sqlite3")
         )
@@ -5186,7 +5194,8 @@ import Testing
             connectionState: .connected,
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
-            teamIDProvider: { "team-1" }
+            teamIDProvider: { "team-1" },
+            multiMacAggregationDefaults: multiMacDefaults
         )
         shell.remoteClient = oldClient
         shell.foregroundMacDeviceID = "mac-a"
