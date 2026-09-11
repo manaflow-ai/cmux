@@ -86,6 +86,10 @@ const CHECKS: readonly string[] = [
   "node --version && npm --version && python --version && python3 --version && bun --version && uv --version && echo toolchain-ok",
   "git --version; rg --version | head -1",
   "jq --version; fd --version; fzf --version; gh --version | head -1; sqlite3 --version; tmux -V; rsync --version | head -1; file --version | head -1; tree --version; vim --version | head -1",
+  // The private-network announce (images/network.ts): arping is installed and
+  // the boot supervisor's announce loop is running on the booted machine.
+  // `[b]oot` keeps pgrep from matching this check's own shell command line.
+  "command -v arping && pgrep -f 'cmux-devbox-[b]oot' >/dev/null && grep -q 'announce_loop &' /usr/local/bin/cmux-devbox-boot && echo network-announce-ok",
   // Chrome + managed policy + browser/computer-use drivers.
   "google-chrome-stable --version",
   "jq -e '.DefaultSearchProviderSearchURL | test(\"duckduckgo\")' /etc/opt/chrome/policies/managed/cmux.json >/dev/null && echo chrome-ddg-policy-ok",
@@ -182,6 +186,7 @@ const desktopChecks = (): readonly string[] => [
   `awk '$2 ~ /:${hexPort(DEVBOX_DESKTOP_RFB_PORT)}$/ && $4 == "0A" && $2 !~ /^0100007F:/ && $2 !~ /^00000000000000000000000001000000:/ { bad=1 } END { exit bad }' /proc/net/tcp /proc/net/tcp6 && echo vnc-5901-loopback-only`,
   `awk '$2 ~ /:${hexPort(DEVBOX_DESKTOP_NOVNC_PORT)}$/ && $4 == "0A" { found=1 } END { exit !found }' /proc/net/tcp /proc/net/tcp6 && echo novnc-6901-listening`,
   `curl -fsS http://127.0.0.1:${DEVBOX_DESKTOP_NOVNC_PORT}/ | grep -qi novnc && echo novnc-6901-serves-client`,
+  `curl --noproxy '*' -g -fsS http://[::1]:${DEVBOX_DESKTOP_NOVNC_PORT}/ | grep -qi novnc && echo novnc-6901-serves-ipv6-client`,
   // start-vnc.sh runs whichever of Xvnc/Xtigervnc is on PATH; the process
   // name follows the invoked path (Ubuntu's Xvnc is a symlink to Xtigervnc).
   `pgrep -u ${DEVBOX_DESKTOP_USER} -x 'Xvnc|Xtigervnc' >/dev/null && pgrep -u ${DEVBOX_DESKTOP_USER} -x openbox >/dev/null && pgrep -u ${DEVBOX_DESKTOP_USER} -x tint2 >/dev/null && echo desktop-session-ok`,
@@ -273,7 +278,7 @@ const FREESTYLE_BASE_CHECKS: readonly string[] = [
   "[ \"$(stat -c %a /usr/local/share/blesh/state.d)\" = 1777 ] && [ \"$(stat -c %a /usr/local/share/blesh/cache.d)\" = 1777 ] && echo blesh-dirs-ok",
   `test -f ${DEVBOX_WORK_HOME}/.cache/motd.legal-displayed && test -f /root/.cache/motd.legal-displayed && test -f /etc/skel/.cache/motd.legal-displayed && echo legal-notice-silenced`,
   ...[1, 2].map((run) =>
-    `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L vprobe${run} new-session -d -s login -x 120 -y 30 && sleep 3 && pane="$(tmux -L vprobe${run} capture-pane -pt login)"; tmux -L vprobe${run} kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -iE "ble\\.sh|bleopt|ble-face|denied|not found|WARRANTY${run > 1 ? "|updating tput" : ""}" && { printf "%s\\n" "$pane"; exit 1; }; printf "%s\\n" "$pane" | grep -q "λ" && echo work-user-login-silent-${run}'`,
+    `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L vprobe${run} new-session -d -s login -x 120 -y 30 && sleep 3 && pane="$(tmux -L vprobe${run} capture-pane -pt login)"; tmux -L vprobe${run} kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -iE "ble\\.sh|bleopt|ble-face|denied|not found|WARRANTY${run > 1 ? "|updating tput" : ""}" && { printf "%s\\n" "$pane"; exit 1; }; printf "%s\\n" "$pane" | grep -q "@cmux" && printf "%s\\n" "$pane" | grep -q "λ" && echo work-user-login-silent-${run}'`,
   ),
   // The devshell chain lives in the per-user rc files (after Ubuntu's own
   // PS1), never in /etc/bash.bashrc, so it loads once and the cmux prompt wins.

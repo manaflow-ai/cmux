@@ -32,7 +32,7 @@ FROM ubuntu:24.04
 # Cache-buster: bump the date to force remote builders past stale layer
 # caches (a remote builder served stale layers for chatmux on 2026-08-21 and
 # 2026-08-25). Also the image version /etc/cmux/image-stamp carries.
-ENV CMUX_IMAGE_EPOCH=2026-09-10-r1
+ENV CMUX_IMAGE_EPOCH=2026-09-10-r2
 
 ENV LANG=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive
@@ -55,6 +55,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zstd \
     procps \
     iproute2 \
+    iputils-arping \
     openssh-client \
     pkg-config \
     jq \

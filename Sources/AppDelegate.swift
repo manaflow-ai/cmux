@@ -11,6 +11,8 @@ import CmuxTerminalCore
 import CmuxTerminal
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxSudoBroker
+import CmuxSudoBrokerUI
 import CmuxUpdater
 import CmuxWorkspaces
 import CmuxUpdaterUI
@@ -30,6 +32,12 @@ import CmuxFoundation
 import CmuxSentryReporting
 import CmuxSidebar
 import CmuxGit
+import os
+
+private nonisolated let sudoApprovalLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "SudoApproval"
+)
 
 private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
@@ -595,6 +603,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let cmuxThemePreviewReloadScheduler = MainActorDeferredActionScheduler()
     private let connectivityInvalidationSubscriberCoordinator =
         ConnectivityInvalidationSubscriberCoordinator()
+    private let sudoApprovalCoordinator: SudoApprovalCoordinator?
 
     private func isRunningUnderXCTest(_ env: [String: String]) -> Bool {
         // The CI wrapper uses xcodebuild's TEST_RUNNER_ forwarding so its marker
@@ -946,7 +955,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var transientGlobalSearchMenuBarExtraController: MenuBarExtraController?
     private var lastMenuBarExtraShouldInstall: Bool?
     /// App-owned computer-use graph; all runtime dependencies are injected here.
-    private lazy var computerUseUXCoordinator: ComputerUseUXCoordinator = {
+    private(set) lazy var computerUseUXCoordinator: ComputerUseUXCoordinator = {
         guard let computerUseRuntimeService else {
             preconditionFailure("ComputerUseRuntimeService must be injected before coordinator use")
         }
@@ -1093,7 +1102,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// instead of spawning the bundled `cmux diff` CLI, so shortcut-dispatch tests can
     /// assert routing without launching a subprocess.
     var debugOpenDiffViewerHandler: (() -> Void)?
-    var debugCreateMainWindowSourceIsNativeFullScreenOverride: Bool?
     // Keep debug-only windows alive when tests intentionally inject key mismatches.
     private var debugDetachedContextWindows: [NSWindow] = []
 
@@ -1311,6 +1319,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     override init() {
         let fileManager = FileManager.default
+        if let bundleIdentifier = Bundle.main.bundleIdentifier,
+           !bundleIdentifier.isEmpty,
+           let applicationSupportDirectory = fileManager.urls(
+               for: .applicationSupportDirectory,
+               in: .userDomainMask
+           ).first,
+           let runnerExecutableURL = Bundle.main.resourceURL?
+               .appendingPathComponent("bin/cmux", isDirectory: false),
+           fileManager.isExecutableFile(atPath: runnerExecutableURL.path) {
+            let broker = SudoBroker(
+                paths: SudoBrokerPaths(
+                    applicationSupportDirectory: applicationSupportDirectory,
+                    bundleIdentifier: bundleIdentifier
+                ),
+                runnerExecutableURL: runnerExecutableURL,
+                messages: .localized
+            )
+            sudoApprovalCoordinator = SudoApprovalCoordinator(
+                broker: broker,
+                presenter: SudoApprovalWindowPresenter()
+            )
+        } else {
+            sudoApprovalCoordinator = nil
+        }
         let hangDirectory = fileManager.urls(
             for: .libraryDirectory,
             in: .userDomainMask
@@ -1517,6 +1549,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             syncActivationPolicy()
         }
         StartupBreadcrumbLog.append("appDelegate.didFinish.activationPolicy.synced")
+        if !isRunningUnderXCTest {
+            startSudoApprovalCoordinator()
+        }
         // Prewarm the shared restorable-agent index off the main thread so the first
         // tab/workspace/window close after launch reads a warm cache instead of paying a
         // synchronous RestorableAgentSessionIndex.load() on the main thread. See
@@ -2112,7 +2147,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func deferTerminateForOwnedCleanupAndFreshSnapshot(reason: String) -> Bool {
         let markedForKill = remoteTmuxController.windowsMarkedForKillOnClose()
         let simulatorCleanupTasks = SimulatorPanel.beginApplicationTerminationCleanup()
-        let hasOwnedRuntimeCleanup = !markedForKill.isEmpty || !simulatorCleanupTasks.isEmpty
+        let hasSudoApprovalRuntime = sudoApprovalCoordinator?.requiresShutdown == true
+        let hasOwnedRuntimeCleanup = !markedForKill.isEmpty
+            || !simulatorCleanupTasks.isEmpty
+            || hasSudoApprovalRuntime
+        guard !markedForKill.isEmpty
+                || !simulatorCleanupTasks.isEmpty
+                || hasSudoApprovalRuntime else {
+            return false
+        }
         if !isAwaitingTerminateCleanup {
             isAwaitingTerminateCleanup = true
             terminateCleanupPhase = .ownedRuntimeCleanup
@@ -2122,11 +2165,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     "windows": String(markedForKill.count),
                     "simulatorPanels": String(simulatorCleanupTasks.count),
                     "freshAgentIndex": "1",
+                    "sudoApproval": hasSudoApprovalRuntime ? "1" : "0",
                     "reason": reason,
                 ]
             )
             let cleanupTask = Task { @MainActor [weak self] in
                 guard let self else { return }
+                await self.sudoApprovalCoordinator?.stop()
+                guard !Task.isCancelled else { return }
                 if !markedForKill.isEmpty {
                     await self.remoteTmuxController.killMarkedSessionsBeforeTerminate()
                 }
@@ -2230,6 +2276,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isTerminatingApp = false
         isQuitWarningConfirmed = false
         replyToTerminateOnce(false)
+        startSudoApprovalCoordinator()
 
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -2418,6 +2465,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ghosttyCrashBreadcrumbTask = nil
         pendingCrashScanTask?.cancel()
         pendingCrashScanTask = nil
+        sudoApprovalCoordinator?.cancelForImmediateTermination()
         notificationStore?.clearAll()
         GhosttyCrashBreadcrumb.markCleanExit()
         unregisterDisplayReconfigurationCallbackIfNeeded()
@@ -2612,6 +2660,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         pendingCrashScanTask = task
         return task
+    }
+
+    private func startSudoApprovalCoordinator() {
+        sudoApprovalCoordinator?.start { error in
+            sudoApprovalLogger.error(
+                "startup failed: \(String(describing: error), privacy: .private)"
+            )
+#if DEBUG
+            cmuxDebugLog("sudo.approval.start failed error=\(String(describing: error))")
+#endif
+        }
     }
 
     private func scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: TerminalNotificationStore) {
@@ -10253,16 +10312,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let sourceWindow = resolvedMainWindowSource(preferredSourceWindow)
             ?? sourceContext.flatMap { resolvedWindow(for: $0) }
         let existingFrame = sourceWindow?.frame
-        let sourceWindowIsNativeFullScreen: Bool = {
-#if DEBUG
-            if let debugCreateMainWindowSourceIsNativeFullScreenOverride {
-                return debugCreateMainWindowSourceIsNativeFullScreenOverride
-            }
-#endif
-            return sourceWindow?.styleMask.contains(.fullScreen) == true
-        }()
-        let shouldTemporarilyDisallowFullScreenTiling =
-            sessionWindowSnapshot == nil && sourceWindowIsNativeFullScreen
         let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
         let persistedGeometryFrame = (restoredFrame == nil && sourceWindow == nil)
             ? resolvedPersistedWindowGeometryFrame()
@@ -10288,12 +10337,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         window.minSize = minimumWindowSize
         window.contentMinSize = minimumWindowSize
         window.animationBehavior = .none
-        // When creating a new window from an existing native fullscreen window,
-        // temporarily opt out of fullscreen tiling so AppKit doesn't place the
-        // new window into the active fullscreen Space.
-        if shouldTemporarilyDisallowFullScreenTiling {
-            window.collectionBehavior.insert(.fullScreenDisallowsTiling)
-        }
         window.title = ""
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
@@ -10404,23 +10447,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 activation: .runningApplication([.activateAllWindows]),
                 respectActivationSuppression: false
             )
-        }
-        if shouldTemporarilyDisallowFullScreenTiling {
-            let clearFullScreenTilingOptOut: () -> Void = { [weak window] in
-                guard let window else { return }
-                window.collectionBehavior.remove(.fullScreenDisallowsTiling)
-                if window.collectionBehavior.contains(.fullScreenDisallowsTiling) {
-                    var behavior = window.collectionBehavior
-                    behavior.remove(.fullScreenDisallowsTiling)
-                    window.collectionBehavior = behavior
-                }
-            }
-            RunLoop.main.perform {
-                clearFullScreenTilingOptOut()
-            }
-            DispatchQueue.main.async {
-                clearFullScreenTilingOptOut()
-            }
         }
         if let explicitInitialFrame {
             window.setFrame(explicitInitialFrame, display: true)

@@ -47,7 +47,7 @@ struct CloudActivationPolicy: Sendable {
     /// use that is about to schedule a start, never at launch or for status.
     let resolveCloudMachine: @Sendable () async -> Bool?
 
-    /// Fleet polling and links may run: the user opted in, or this Mac used
+    /// Fleet polling and links may run: Cloud is enabled, or this Mac used
     /// Cloud before (an update must not strand a fleet the user already has).
     var allowsBackgroundCloudWork: Bool {
         isCloudMachinesEnabled() || hasUsedCloud()

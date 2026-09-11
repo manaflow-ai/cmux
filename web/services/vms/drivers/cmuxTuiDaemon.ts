@@ -330,6 +330,60 @@ export async function cmuxTuiDaemonBuild(
   return { commit, remoteProtocol, version };
 }
 
+/** Compatibility invitation mint for older provider callers during trusted-listener rollout. */
+export async function mintCmuxTuiInvitation(
+  invoke: CmuxTuiInvoke,
+  provider: ProviderId,
+  vmId: string,
+): Promise<NonNullable<CmuxRemoteEndpoint["invitation"]>> {
+  const created = await invoke(
+    `remote enroll create --session ${CMUX_TUI_SESSION} --ttl 300 --json`,
+  );
+  if (created.exitCode !== 0) {
+    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} failed: ${created.stderr || created.stdout}`);
+  }
+  const uri = parseJsonObject(created.stdout).uri;
+  if (typeof uri !== "string" || !uri) {
+    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} returned no uri`);
+  }
+  let parsed: URL;
+  try { parsed = new URL(uri); } catch {
+    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} returned an invalid uri`);
+  }
+  const invitationId = parsed.protocol === "cmux:" && parsed.hostname === "enroll"
+    ? parsed.pathname.slice(1)
+    : parsed.searchParams.get("id");
+  if (!invitationId) {
+    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} returned no id`);
+  }
+  return { uri, invitationId, expiresAtUnix: Math.floor(Date.now() / 1000) + 300 };
+}
+
+/** Compatibility approval bridge for pre trusted-carrier clients. */
+export async function approveCmuxTuiEnrollment(
+  invoke: CmuxTuiInvoke,
+  provider: ProviderId,
+  vmId: string,
+  invitationId: string,
+): Promise<{ approved: boolean; state: "approved" | "pending"; deviceFingerprint?: string }> {
+  if (!/^[A-Za-z0-9._:=+/-]+$/.test(invitationId)) {
+    throw new ProviderError(provider, "invitation id has an unexpected shape");
+  }
+  const result = await invoke(
+    `remote enroll approve ${shellQuote(invitationId)} --session ${CMUX_TUI_SESSION} --json`,
+    40_000,
+  );
+  if (result.exitCode !== 0) {
+    throw new ProviderError(provider, `cmux-tui enrollment approval in ${vmId} failed: ${result.stderr || result.stdout}`);
+  }
+  const fingerprint = parseJsonObject(result.stdout).fingerprint;
+  return {
+    approved: true,
+    state: "approved",
+    ...(typeof fingerprint === "string" && fingerprint ? { deviceFingerprint: fingerprint } : {}),
+  };
+}
+
 /**
  * Everything attach needs from the daemon in ONE guest exec: an optional
  * readiness gate (exit 3 when it fails, so the caller can run the heal), the
@@ -411,6 +465,8 @@ export type CmuxTuiAttachBundle = {
   readonly enrolled: boolean;
   /** The running daemon grants carrier authentication on its cloud listener. */
   readonly trustedCarrier: boolean;
+  /** Legacy invitation field; trusted listeners leave it null. */
+  readonly invitation: NonNullable<CmuxRemoteEndpoint["invitation"]> | null;
 };
 
 /** Parses the fenced stdout of {@link cmuxTuiAttachBundleCommand}. */
@@ -453,5 +509,5 @@ export function parseCmuxTuiAttachBundle(
   const trustedCarrier = trustedText.split("\n").pop()?.trim() === "1";
   void provider;
   void vmId;
-  return { daemonBuild, enrolled, trustedCarrier };
+  return { daemonBuild, enrolled, trustedCarrier, invitation: null };
 }
