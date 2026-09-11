@@ -232,6 +232,29 @@ extension SurfaceCatalog {
             closeStarter: { panelID, workspaceID in SurfacePaneFactory.close(panelID: panelID, in: workspaceID) },
             applyDividerRatios: { workspaceID, layout in SurfacePaneFactory.applyDividerRatios(layout, in: workspaceID) }
         )
+
+        /// Window-scoped app host used by Cloud sidebar actions. The default
+        /// host remains for socket and non-window callers, while this factory
+        /// makes the owning TabManager explicit for multi-window UI.
+        static func app(preferredTabManager: TabManager?) -> NewWorkspaceHost {
+            NewWorkspaceHost(
+                create: { title in
+                    try SurfacePaneFactory.createLocalWorkspace(
+                        title: title,
+                        preferredTabManager: preferredTabManager
+                    )
+                },
+                paneLookup: { panelID, workspaceID in
+                    SurfacePaneFactory.paneID(ofPanel: panelID, in: workspaceID)
+                },
+                closeStarter: { panelID, workspaceID in
+                    SurfacePaneFactory.close(panelID: panelID, in: workspaceID)
+                },
+                applyDividerRatios: { workspaceID, layout in
+                    SurfacePaneFactory.applyDividerRatios(layout, in: workspaceID)
+                }
+            )
+        }
     }
 
     /// Opens a group the way a person expects a remote workspace to open: a new local

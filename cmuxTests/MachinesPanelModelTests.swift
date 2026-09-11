@@ -1108,6 +1108,51 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
         XCTAssertNotEqual(CloudTreeNodeBuilder.structureSignature(before), CloudTreeNodeBuilder.structureSignature(bigger), "a new row is structure")
     }
 
+    func testCloudTreeProjectionMarkersStayInTheOwningWindow() {
+        let remoteWorkspace = SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: true)
+        let machineID = SurfaceMachineID.cloud("vivid-newt")
+        let otherWindowWorkspace = UUID()
+        var resource = terminal(machineID, "term_1", workspace: remoteWorkspace)
+        resource.remoteViews = [SurfaceRemoteView(tabID: "tab_1", workspace: remoteWorkspace)]
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [machineInfo(machineID, remoteWorkspaces: [remoteWorkspace])],
+            resources: [resource],
+            projections: [SurfaceProjection(
+                resource: resource.id,
+                workspaceID: otherWindowWorkspace,
+                panelID: UUID(),
+                remoteWorkspaceID: remoteWorkspace.id,
+                remoteTabID: "tab_1"
+            )]
+        )
+        let currentWindowWorkspace = UUID()
+        let currentWindowNodes = CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(
+            machines: [machineSnapshot(id: machineID.rawValue)],
+            snapshot: snapshot,
+            localWorkspaces: [CloudTreeLocalWorkspace(id: currentWindowWorkspace, title: "Current", isSelected: true)],
+            workspaceIDs: [currentWindowWorkspace]
+        ))
+        let currentWorkspaceRow = currentWindowNodes.first { $0.id == "machine:vivid-newt/ws/ws_main" }
+        if case .workspace(_, _, _, _, let openIn) = currentWorkspaceRow?.kind {
+            XCTAssertNil(openIn, "a projection owned by another window must not mark this row open")
+        } else {
+            XCTFail("expected the remote workspace row")
+        }
+
+        let otherWindowNodes = CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(
+            machines: [machineSnapshot(id: machineID.rawValue)],
+            snapshot: snapshot,
+            localWorkspaces: [CloudTreeLocalWorkspace(id: otherWindowWorkspace, title: "Other", isSelected: true)],
+            workspaceIDs: [otherWindowWorkspace]
+        ))
+        let otherWorkspaceRow = otherWindowNodes.first { $0.id == "machine:vivid-newt/ws/ws_main" }
+        if case .workspace(_, _, _, _, let openIn) = otherWorkspaceRow?.kind {
+            XCTAssertEqual(openIn, otherWindowWorkspace)
+        } else {
+            XCTFail("expected the remote workspace row")
+        }
+    }
+
     func testAdoptCopiesContentIntoExistingNodes() {
         let snapshot = SurfaceCatalogSnapshot(machines: [info(.cloud("m"))], resources: [terminal(.cloud("m"), "term_1", title: "vim")], projections: [])
         let existing = CloudTreeNodeBuilder.nodes(machines: [machine("m")], snapshot: snapshot, localWorkspaces: [])

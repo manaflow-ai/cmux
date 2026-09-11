@@ -424,11 +424,7 @@ final class MachinesPanelViewModel: ObservableObject {
     var pendingCreates: [MachineCreateOperation] { createCoordinator.operations }
     let createCoordinator: MachineCreateCoordinator
     /// How the view model reads local workspaces; injectable for tests.
-    var localWorkspacesProvider: @MainActor () -> [CloudTreeLocalWorkspace] = {
-        guard let tabManager = AppDelegate.shared?.tabManager else { return [] }
-        let selected = tabManager.selectedTabId
-        return tabManager.tabs.map { CloudTreeLocalWorkspace(id: $0.id, title: $0.title, isSelected: $0.id == selected) }
-    }
+    var localWorkspacesProvider: @MainActor () -> [CloudTreeLocalWorkspace]
 
     func beginOperation(_ label: String) {
         activeOperation = label
@@ -463,11 +459,21 @@ final class MachinesPanelViewModel: ObservableObject {
     private var treeTask: Task<Void, Never>?
     private static let statsInterval: Duration = .seconds(20)
 
-    init(createCoordinator: MachineCreateCoordinator? = nil) {
+    init(
+        tabManager: TabManager? = nil,
+        createCoordinator: MachineCreateCoordinator? = nil
+    ) {
         // `.shared` is main-actor-isolated, so it cannot be a default argument
         // (default values evaluate in a nonisolated context); resolve it here.
         let createCoordinator = createCoordinator ?? .shared
         self.createCoordinator = createCoordinator
+        localWorkspacesProvider = { [weak tabManager] in
+            guard let tabManager else { return [] }
+            let selected = tabManager.selectedTabId
+            return tabManager.tabs.map {
+                CloudTreeLocalWorkspace(id: $0.id, title: $0.title, isSelected: $0.id == selected)
+            }
+        }
         let finishedUserInfoKey = MachineCreateCoordinator.finishedUserInfoKey
         createChangeObserver = NotificationCenter.default.addObserver(
             forName: MachineCreateCoordinator.didChangeNotification,

@@ -366,8 +366,12 @@ enum CloudTreeNodeBuilder {
         /// Terminals whose machine holds a notification this Mac has not read.
         private var unreadTerminals: Set<SurfaceResourceID> = []
 
-        init(snapshot: SurfaceCatalogSnapshot, unreadTerminalIDs: [String: Set<String>]) {
-            self.init(snapshot: snapshot)
+        init(
+            snapshot: SurfaceCatalogSnapshot,
+            unreadTerminalIDs: [String: Set<String>],
+            workspaceIDs: Set<UUID>? = nil
+        ) {
+            self.init(snapshot: snapshot, workspaceIDs: workspaceIDs)
             for (machineID, terminalIDs) in unreadTerminalIDs {
                 for terminalID in terminalIDs {
                     unreadTerminals.insert(SurfaceResourceID(machine: .cloud(machineID), kind: .terminal, key: terminalID))
@@ -379,13 +383,13 @@ enum CloudTreeNodeBuilder {
             unreadTerminals.contains(id)
         }
 
-        init(snapshot: SurfaceCatalogSnapshot) {
+        init(snapshot: SurfaceCatalogSnapshot, workspaceIDs: Set<UUID>? = nil) {
             let resourceByID = Dictionary(
                 snapshot.resources.map { ($0.id, $0) },
                 uniquingKeysWith: { first, _ in first }
             )
             var projectionCountByResource: [SurfaceResourceID: Int] = [:]
-            for projection in snapshot.projections {
+            for projection in snapshot.projections where workspaceIDs?.contains(projection.workspaceID) ?? true {
                 projectionCountByResource[projection.resource, default: 0] += 1
             }
 
@@ -394,7 +398,7 @@ enum CloudTreeNodeBuilder {
                 singleViewResources.insert(resource.id)
             }
 
-            for projection in snapshot.projections {
+            for projection in snapshot.projections where workspaceIDs?.contains(projection.workspaceID) ?? true {
                 openResources.insert(projection.resource)
                 workspaceCountsByResource[projection.resource, default: [:]][projection.workspaceID, default: 0] += 1
                 if let remoteWorkspaceID = projection.remoteWorkspaceID {
@@ -554,16 +558,22 @@ enum CloudTreeNodeBuilder {
         snapshot: SurfaceCatalogSnapshot,
         localWorkspaces: [CloudTreeLocalWorkspace],
         unreadTerminalIDs: [String: Set<String>] = [:],
+        workspaceIDs: Set<UUID>? = nil,
         includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine
     ) -> [CloudTreeNode] {
-        let projectionIndex = LocalProjectionIndex(snapshot: snapshot, unreadTerminalIDs: unreadTerminalIDs)
+        let projectionIndex = LocalProjectionIndex(
+            snapshot: snapshot,
+            unreadTerminalIDs: unreadTerminalIDs,
+            workspaceIDs: workspaceIDs
+        )
         var nodes: [CloudTreeNode] = []
         if includeLocalMachine, let local = snapshot.machines.first(where: { $0.id.isLocal }) {
             nodes.append(localMachineNode(
                 info: local,
                 snapshot: snapshot,
                 localWorkspaces: localWorkspaces,
-                projectionIndex: projectionIndex
+                projectionIndex: projectionIndex,
+                workspaceIDs: workspaceIDs
             ))
         }
         // Creates the person just started go first: they are what the person is
@@ -691,12 +701,15 @@ enum CloudTreeNodeBuilder {
         info: SurfaceMachineInfo,
         snapshot: SurfaceCatalogSnapshot,
         localWorkspaces: [CloudTreeLocalWorkspace],
-        projectionIndex: LocalProjectionIndex
+        projectionIndex: LocalProjectionIndex,
+        workspaceIDs: Set<UUID>? = nil
     ) -> CloudTreeNode {
         let resources = snapshot.resources(on: .local)
         let terminals = resources.filter { $0.kind == .terminal }
         let browsers = resources.filter { $0.kind == .browser }
-        let workspaceOf: (SurfaceResourceID) -> UUID? = { id in snapshot.projections(of: id).first?.workspaceID }
+        let workspaceOf: (SurfaceResourceID) -> UUID? = { id in
+            snapshot.projections(of: id).first { workspaceIDs?.contains($0.workspaceID) ?? true }?.workspaceID
+        }
         let titles = Dictionary(localWorkspaces.map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
 
         var terminalsByWorkspace: [UUID: [SurfaceResource]] = [:]

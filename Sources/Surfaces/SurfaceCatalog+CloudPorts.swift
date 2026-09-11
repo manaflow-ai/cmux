@@ -178,15 +178,18 @@ extension SurfaceCatalog {
     /// following an unrelated machine workspace.
     func preferredLocalWorkspaceID(
         for resourceID: SurfaceResourceID,
-        fallback: UUID?
+        fallback: UUID?,
+        allowedWorkspaceIDs: Set<UUID>? = nil
     ) -> UUID? {
         // Keep the lookup useful when a refresh retired the resource after a row
         // was rendered: a live projection still gives us an unambiguous owner.
         let resource = resources[resourceID]
         if let resource {
-            return preferredLocalWorkspaceID(for: resource, fallback: fallback)
+            return preferredLocalWorkspaceID(for: resource, fallback: fallback, allowedWorkspaceIDs: allowedWorkspaceIDs)
         }
-        return projections.first(where: { $0.resource == resourceID })?.workspaceID ?? fallback
+        return projections.first {
+            $0.resource == resourceID && (allowedWorkspaceIDs?.contains($0.workspaceID) ?? true)
+        }?.workspaceID ?? fallback
     }
 
     /// Resolves the local workspace for a value captured from a tree snapshot.
@@ -194,14 +197,17 @@ extension SurfaceCatalog {
     /// so a later catalog replacement cannot erase the remote-workspace context.
     func preferredLocalWorkspaceID(
         for resource: SurfaceResource,
-        fallback: UUID?
+        fallback: UUID?,
+        allowedWorkspaceIDs: Set<UUID>? = nil
     ) -> UUID? {
         let machine = resource.machine
         let remoteWorkspaceIDs = Set(resource.remoteWorkspaces.map(\.id))
         guard !remoteWorkspaceIDs.isEmpty else {
             // A machine-pool port has no remote workspace owner. Never infer one
             // from unrelated projections on the same machine.
-            return projections.first(where: { $0.resource == resource.id })?.workspaceID ?? fallback
+            return projections.first {
+                $0.resource == resource.id && (allowedWorkspaceIDs?.contains($0.workspaceID) ?? true)
+            }?.workspaceID ?? fallback
         }
         var relatedIDs = Set([resource.id])
         relatedIDs.formUnion(resources.values.compactMap { candidate -> SurfaceResourceID? in
@@ -212,7 +218,9 @@ extension SurfaceCatalog {
         })
 
         var projectionCounts: [UUID: Int] = [:]
-        for projection in projections where relatedIDs.contains(projection.resource) {
+        for projection in projections
+        where relatedIDs.contains(projection.resource)
+            && (allowedWorkspaceIDs?.contains(projection.workspaceID) ?? true) {
             projectionCounts[projection.workspaceID, default: 0] += 1
         }
         // Select the same highest-count/lowest-UUID winner as

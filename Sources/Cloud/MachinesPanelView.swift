@@ -29,7 +29,8 @@ enum CloudVMPanelAuthState: Equatable {
 /// snapshots plus closure bundles only (snapshot-boundary rule); every mutation
 /// routes through the shared Cloud VM action path or the Cloud tree service.
 struct MachinesPanelView: View {
-    @StateObject private var viewModel = MachinesPanelViewModel()
+    @StateObject private var viewModel: MachinesPanelViewModel
+    @ObservedObject private var tabManager: TabManager
     @State private var expansionStore = CloudTreeExpansionStore()
     /// The explicit Cloud VPN's state (`cmux vpn up`), shown as a banner while
     /// it is starting, waiting for the extension approval, up, or failed.
@@ -38,7 +39,19 @@ struct MachinesPanelView: View {
     /// and @AppStorage re-renders the live panel the moment it changes.
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
     let chromeBackgroundColor: NSColor
-    var tabManager: TabManager? = nil
+
+    init(chromeBackgroundColor: NSColor, tabManager: TabManager) {
+        self.chromeBackgroundColor = chromeBackgroundColor
+        _tabManager = ObservedObject(wrappedValue: tabManager)
+        _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(tabManager: tabManager))
+    }
+
+    private var localWorkspaces: [CloudTreeLocalWorkspace] {
+        let selected = tabManager.selectedTabId
+        return tabManager.tabs.map {
+            CloudTreeLocalWorkspace(id: $0.id, title: $0.title, isSelected: $0.id == selected)
+        }
+    }
 
     private var accountFlow: HostAccountFlow? {
         AppDelegate.shared?.auth?.accountFlow
@@ -446,7 +459,7 @@ struct MachinesPanelView: View {
         NewMachineSheetPresenter.shared.presentNewMachine(
             plan: viewModel.plan,
             memoryOptionsMb: viewModel.memoryOptionsMb,
-            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
+            preferredWindow: tabManager.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
             coordinator: viewModel.createCoordinator
         )
     }
@@ -457,16 +470,19 @@ struct MachinesPanelView: View {
     /// never see the store.
     private var machinesList: some View {
         var machineActions = MachineRowActions.bound(
+            preferredWindow: { tabManager.window ?? NSApp.keyWindow ?? NSApp.mainWindow },
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() }
         )
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
         let nodeActions = CloudTreeNodeActions.bound(
             catalog: { SurfaceCatalog.shared },
-            selectedWorkspaceID: { AppDelegate.shared?.tabManager?.selectedTabId },
+            selectedWorkspaceID: { tabManager.selectedTabId },
             selectLocalWorkspace: { workspaceID in
-                AppDelegate.shared?.tabManager?.selectedTabId = workspaceID
+                guard tabManager.tabs.contains(where: { $0.id == workspaceID }) else { return }
+                tabManager.selectedTabId = workspaceID
             },
+            preferredTabManager: tabManager,
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
@@ -476,7 +492,8 @@ struct MachinesPanelView: View {
             machines: viewModel.machines,
             pendingCreates: viewModel.pendingCreates,
             snapshot: viewModel.catalog,
-            localWorkspaces: viewModel.localWorkspaces,
+            localWorkspaces: localWorkspaces,
+            workspaceIDs: Set(localWorkspaces.map(\.id)),
             unreadTerminalIDs: viewModel.unreadTerminalIDs,
             machineActions: machineActions,
             nodeActions: nodeActions,
@@ -747,20 +764,21 @@ struct MachineRowActions {
     var create: MachineCreateRowActions = .inert
 
     static func bound(
+        preferredWindow: @escaping @MainActor () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow },
         onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
         onDidMutate: @escaping @MainActor () -> Void
     ) -> MachineRowActions {
         MachineRowActions(
-            setupVPN: { window in _ = AppDelegate.shared?.openCloudVPNSetupWorkspace(preferredWindow: window) },
+            setupVPN: { window in _ = AppDelegate.shared?.openCloudVPNSetupWorkspace(preferredWindow: window ?? preferredWindow()) },
             openShell: { id in
                 onWillMutate(String(format: String(localized: "machines.operation.openShell", defaultValue: "Opening %@\u{2026}"), id))
-                if !launch(arguments: ["vm", "shell", id], onDidMutate: onDidMutate) {
+                if !launch(arguments: ["vm", "shell", id], preferredWindow: preferredWindow(), onDidMutate: onDidMutate) {
                     onDidMutate()
                 }
             },
             openDesktop: { id in
                 onWillMutate(String(format: String(localized: "machines.operation.openDesktop", defaultValue: "Opening %@\u{2019}s desktop\u{2026}"), id))
-                if !launch(arguments: ["vm", "desktop", id], onDidMutate: onDidMutate) {
+                if !launch(arguments: ["vm", "desktop", id], preferredWindow: preferredWindow(), onDidMutate: onDidMutate) {
                     onDidMutate()
                 }
             },
@@ -769,6 +787,7 @@ struct MachineRowActions {
                 let result = resultPresentation(verb: verb)
                 if !launch(
                     arguments: verb + [id],
+                    preferredWindow: preferredWindow(),
                     successTitle: result.title,
                     presentOutputOnSuccess: result.presentsOutput,
                     onDidMutate: onDidMutate
@@ -777,10 +796,10 @@ struct MachineRowActions {
                 }
             },
             confirmDelete: { id in
-                presentDeleteConfirmation(id: id, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
+                presentDeleteConfirmation(id: id, preferredWindow: preferredWindow, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
             },
             promptRename: { id, currentLabel in
-                presentRenamePrompt(id: id, currentLabel: currentLabel, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
+                presentRenamePrompt(id: id, currentLabel: currentLabel, preferredWindow: preferredWindow, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
             },
             promptUpgrade: {
                 ProUpgradePresenter.present(source: .machinesPanelMachineAction)
@@ -831,6 +850,7 @@ struct MachineRowActions {
     /// so the sheet can show them inline instead of a detached alert.
     static func openNewMachine(
         arguments: [String] = ["vm", "new"],
+        preferredWindow: NSWindow? = nil,
         onOutput: (@MainActor (String) -> Void)? = nil,
         onCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil,
         onCancellationReady: ((CloudVMActionLauncher.CancellationHandle) -> Void)? = nil
@@ -842,7 +862,7 @@ struct MachineRowActions {
         )
         return CloudVMActionLauncher.shared.start(
             socketPath: socketPath,
-            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
+            preferredWindow: preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow,
             arguments: arguments,
             presentsFailureAlert: false,
             onCancellationReady: onCancellationReady,
@@ -854,6 +874,7 @@ struct MachineRowActions {
     @MainActor
     private static func launch(
         arguments: [String],
+        preferredWindow: NSWindow?,
         successTitle: String? = nil,
         presentOutputOnSuccess: Bool = false,
         onCancellationReady: ((CloudVMActionLauncher.CancellationHandle) -> Void)? = nil,
@@ -865,7 +886,7 @@ struct MachineRowActions {
         )
         return CloudVMActionLauncher.shared.start(
             socketPath: socketPath,
-            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
+            preferredWindow: preferredWindow,
             arguments: arguments,
             successTitle: successTitle,
             presentOutputOnSuccess: presentOutputOnSuccess,
@@ -883,6 +904,7 @@ struct MachineRowActions {
     private static func presentRenamePrompt(
         id: String,
         currentLabel: String?,
+        preferredWindow: @escaping @MainActor () -> NSWindow?,
         onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
         onDidMutate: @escaping @MainActor () -> Void
     ) {
@@ -911,11 +933,11 @@ struct MachineRowActions {
                 arguments.append(label)
             }
             onWillMutate(operationLabel(verb: ["rename"], id: id))
-            if !launch(arguments: arguments, onDidMutate: onDidMutate) {
+            if !launch(arguments: arguments, preferredWindow: preferredWindow(), onDidMutate: onDidMutate) {
                 onDidMutate()
             }
         }
-        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+        if let window = preferredWindow() {
             alert.beginSheetModal(for: window, completionHandler: respond)
         } else {
             respond(alert.runModal())
@@ -925,6 +947,7 @@ struct MachineRowActions {
     @MainActor
     private static func presentDeleteConfirmation(
         id: String,
+        preferredWindow: @escaping @MainActor () -> NSWindow?,
         onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
         onDidMutate: @escaping @MainActor () -> Void
     ) {
@@ -947,6 +970,7 @@ struct MachineRowActions {
             onWillMutate(operationLabel(verb: ["rm"], id: id))
             if !launch(
                 arguments: ["vm", "rm", id],
+                preferredWindow: preferredWindow(),
                 onSuccess: {
                     // The machine is gone; its workspaces would only sit there "Connected".
                     AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: id)
@@ -956,7 +980,7 @@ struct MachineRowActions {
                 onDidMutate()
             }
         }
-        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+        if let window = preferredWindow() {
             alert.beginSheetModal(for: window, completionHandler: respond)
         } else {
             respond(alert.runModal())
