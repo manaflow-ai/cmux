@@ -265,6 +265,47 @@ struct LoopbackSessionTests {
         #expect(await client.isClosed)
         #expect(
             await client.termination()
-                == ConnectionTermination(code: DenialCode.malformedHello.rawValue))
+                == ConnectionTermination(code: CloseReason.handshakeTimeout.code))
     }
+
+    @Test("A handshake timeout is a retryable transport loss, not a denial")
+    func handshakeTimeoutIsNotDenied() async throws {
+        let identity = PeerIdentity.generate(appIdentity: "dev.cmux.lite", deviceID: "phone-1")
+        let grant = try signer.mint(
+            accountID: "acct-1", deviceID: identity.deviceID,
+            devicePublicKey: identity.publicKeyData, appIdentity: identity.appIdentity,
+            grantID: "g-timeout", issuedAt: now)
+        let client = HandshakeTimeoutConnection()
+
+        await #expect(throws: TransportError.connectionClosedBeforeReply) {
+            _ = try await TransportClient().connect(
+                connection: client, identity: identity, grant: grant)
+        }
+    }
+}
+
+/// Test-only immutable peer: every operation is a no-op and exposes one fixed
+/// handshake-timeout termination, so unchecked Sendable has no shared mutable state.
+private final class HandshakeTimeoutConnection: PeerConnection, @unchecked Sendable {
+    var authenticatedRemoteKey: Data? { nil }
+
+    func lane(_ name: String) async -> any TransportLane {
+        HandshakeTimeoutLane(name: name)
+    }
+
+    func closeAll(reason: ConnectionTermination?) async {}
+
+    func termination() async -> ConnectionTermination? {
+        ConnectionTermination(code: CloseReason.handshakeTimeout.code)
+    }
+
+    var isClosed: Bool { get async { true } }
+}
+
+private struct HandshakeTimeoutLane: TransportLane {
+    let name: String
+
+    func send(_: Frame) async throws {}
+    func receive() async -> Frame? { nil }
+    var backpressureStalls: Int { 0 }
 }

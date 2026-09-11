@@ -131,6 +131,28 @@ extension TransportHostLifecycleTests {
         #expect(await echoGoesSilent(echo, seed: 3))
     }
 
+    @Test("closeSession removes and closes the exact admitted connection")
+    func closedExactSessionIsRemoved() async throws {
+        let host = makeHost()
+        let (identity, grant) = try mintedIdentity()
+        let (client, hostEnd) = LoopbackWire().makeEnds(
+            authenticatedClientKey: identity.publicKeyData)
+        async let serving: Void = host.serve(connection: hostEnd, now: now)
+        let outcome = try await TransportClient().connect(
+            connection: client, identity: identity, grant: grant)
+        #expect(outcome == .admitted(sessionID: "s1"))
+        await serving
+
+        #expect(await host.closeSession(for: hostEnd, reason: .modeSwitched))
+        #expect(await host.activeSession(for: hostEnd) == nil)
+        #expect(await host.sessionCount == 0)
+        #expect(await client.isClosed)
+        #expect(
+            await client.termination()
+                == ConnectionTermination(code: CloseReason.modeSwitched.code))
+        #expect(await host.counters.closesByCode[CloseReason.modeSwitched.code] == 1)
+    }
+
     @Test("An expired stored relay credential is never replayed on admission")
     func expiredPendingCredentialIsNotReplayed() async throws {
         let host = makeHost()

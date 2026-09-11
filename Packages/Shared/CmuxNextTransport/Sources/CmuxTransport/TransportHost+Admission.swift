@@ -267,7 +267,7 @@ extension TransportHost {
             group.cancelAll()
             if case .timeout = result {
                 await connection.closeAll(
-                    reason: ConnectionTermination(code: DenialCode.malformedHello.rawValue))
+                    reason: ConnectionTermination(code: CloseReason.handshakeTimeout.code))
             }
             await group.waitForAll()
             return result

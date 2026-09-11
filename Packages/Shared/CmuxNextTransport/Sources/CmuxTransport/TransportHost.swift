@@ -209,6 +209,34 @@ public actor TransportHost {
         sessions.values.first { $0.connection === connection }
     }
 
+    /// Closes and removes the session owned by one exact connection. This is
+    /// the canonical cleanup path for lifecycle owners that discover an
+    /// admitted connection after their generation has gone stale: removal is
+    /// identity-checked before the await so a newer session for the same
+    /// device cannot be evicted, while the stale connection is always closed.
+    /// - Returns: Whether a registered session was removed.
+    @discardableResult
+    public func closeSession(
+        for connection: any PeerConnection, reason: CloseReason
+    ) async -> Bool {
+        guard let key = sessions.first(where: { $0.value.connection === connection })?.key else {
+            await connection.closeAll(
+                reason: ConnectionTermination(code: reason.code))
+            return false
+        }
+        guard let session = sessions[key], session.connection === connection else {
+            await connection.closeAll(
+                reason: ConnectionTermination(code: reason.code))
+            return false
+        }
+        sessions.removeValue(forKey: key)
+        session.cancelServices()
+        await connection.closeAll(
+            reason: ConnectionTermination(code: reason.code))
+        counters.closesByCode[reason.code, default: 0] += 1
+        return true
+    }
+
     /// The expiry lifecycle (contract 3.6), driven by an injected clock:
     /// warn inside the warning window, close ONCE after expiry + grace.
     /// Expiry alone never closes anything (3.6b).

@@ -64,6 +64,9 @@ public struct CloseReason: Sendable, Equatable {
     public static let modeSwitched = CloseReason(origin: .local, code: "mode-switched")
     /// Admission was refused and the owner must park rather than retry.
     public static let admissionDenied = CloseReason(origin: .remote, code: "admission-denied")
+    /// The peer did not complete the hello handshake before the deadline;
+    /// this is a transport loss and the owner should retry automatically.
+    public static let handshakeTimeout = CloseReason(origin: .remote, code: "handshake-timeout")
     /// Explicit retry intent replaced the current connection.
     public static let explicitRedial = CloseReason(origin: .local, code: "explicit-redial")
     /// Grace window lapsed with no renewed grant (contract 3.6d).

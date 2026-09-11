@@ -68,6 +68,7 @@ extension MobileHostNextTransportRuntime {
                 return
             }
             guard let self, self.generation == gen else {
+                await host.closeSession(for: connection, reason: .modeSwitched)
                 self?.serveTasks.removeValue(forKey: id)
                 return
             }
