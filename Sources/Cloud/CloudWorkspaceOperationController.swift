@@ -37,6 +37,8 @@ final class CloudWorkspaceOperationController {
         }
     }
 
+    var isCurrentlyAvailable: Bool { isAvailable() }
+
     @discardableResult
     func start(_ operation: @escaping Operation) -> Bool {
         guard isAvailable() else { return false }

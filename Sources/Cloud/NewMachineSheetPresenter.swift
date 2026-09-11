@@ -110,8 +110,13 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
         var page: VMListPage?
         if let client = VMClient.shared { page = try? await client.listPage() }
         let plan = MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits)
+        guard !(plan?.isAtLimit == true && plan?.isPaidPlan == false) else {
+            ProUpgradePresenter.present(source: .newMachineAtLimit)
+            return nil
+        }
         let memoryOptionsMb = page?.limits?.memoryOptionsMb ?? []
         var requestContinuation: CheckedContinuation<MachineCreateRequest?, Never>?
+        var selectionModel: NewMachineModel?
         let request = await withTaskCancellationHandler(operation: {
             await withCheckedContinuation { (continuation: CheckedContinuation<MachineCreateRequest?, Never>) in
                 requestContinuation = continuation
@@ -125,12 +130,18 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
                         return true
                     }
                 )
+                model.onFinished = { outcome in
+                    if case .cancelled = outcome {
+                        requestContinuation?.resume(returning: nil)
+                        requestContinuation = nil
+                    }
+                }
+                selectionModel = model
                 present(model: model, preferredWindow: preferredWindow)
             }
         }, onCancel: {
             Task { @MainActor [weak self] in
-                requestContinuation?.resume(returning: nil)
-                requestContinuation = nil
+                selectionModel?.cancel()
                 self?.dismiss()
             }
         })

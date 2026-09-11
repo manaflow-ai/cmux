@@ -18,7 +18,9 @@ extension AppDelegate {
             ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
         let focus = context?.tabManager.selectedTabId != nil
         return operationController.start {
-            guard let workspaceID = try await coordinator.createOnDefaultMachine(focus: focus) else { return }
+            guard let workspaceID = try await coordinator.createOnDefaultMachine(focus: focus),
+                  !Task.isCancelled,
+                  coordinator.isAvailable else { return }
             destination?.apply(workspaceID: workspaceID)
         }
     }
@@ -33,7 +35,7 @@ extension AppDelegate {
         destination: CloudWorkspaceGroupDestination? = nil
     ) -> Bool {
         guard let operationController = cloudWorkspaceOperationController,
-              operationController.isAvailable else { return false }
+              operationController.isCurrentlyAvailable else { return false }
         let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
             ?? preferredWindow.flatMap { contextForMainWindow($0) }
             ?? event.flatMap { mainWindowContext(forShortcutEvent: $0, debugSource: debugSource) }
@@ -42,9 +44,10 @@ extension AppDelegate {
             ?? preferredWindow ?? event?.window ?? NSApp.keyWindow ?? NSApp.mainWindow
         guard let presenter = newMachineSheetPresenter else { return false }
         return operationController.start {
-            if let workspaceID = await presenter.presentNewMachineFetchingPlan(preferredWindow: hostWindow) {
-                destination?.apply(workspaceID: workspaceID)
-            }
+            guard let workspaceID = await presenter.presentNewMachineFetchingPlan(preferredWindow: hostWindow),
+                  !Task.isCancelled,
+                  operationController.isCurrentlyAvailable else { return }
+            destination?.apply(workspaceID: workspaceID)
         }
     }
 }
