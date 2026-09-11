@@ -22,5 +22,9 @@ final class CloudTreeWorkspaceTitleLayoutTests: XCTestCase {
         }
 
         XCTAssertEqual(trailingConstraint.relation, .equal)
+        XCTAssertEqual(
+            trailingConstraint.priority,
+            NSLayoutConstraint.Priority(rawValue: NSLayoutConstraint.Priority.required.rawValue - 1)
+        )
     }
 }
