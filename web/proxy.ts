@@ -288,6 +288,17 @@ export default function middleware(request: NextRequest) {
     return NextResponse.rewrite(url);
   }
 
+  // next-intl rewrites the default-locale dashboard URL to /en/dashboard/*.
+  // Next 16 can run this proxy again for that internal rewrite; passing the
+  // rewritten request through prevents the default-locale redirect from
+  // bouncing back to the unprefixed URL.
+  if (
+    request.headers.get("x-next-intl-locale") === routing.defaultLocale &&
+    (pathname === "/en/dashboard" || pathname.startsWith("/en/dashboard/"))
+  ) {
+    return NextResponse.next();
+  }
+
   const response = intlMiddleware(request);
   if (featureWorkflowDocRequest) {
     setFeatureWorkflowDocLinkHeader(
