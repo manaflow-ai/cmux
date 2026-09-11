@@ -62,13 +62,13 @@ struct CloudTreeMachineMenuTests {
             Self.title("cloudTree.menu.refresh", "Refresh"),
             Self.title("machines.menu.rename", "Rename\u{2026}"),
             Self.title("machines.menu.copyIPAddress", "Copy IP Address"),
-            Self.title("machines.menu.setupVPN", "Set Up cmux VPN…"),
+            Self.title("machines.menu.privateNetwork", "Private Network Access…"),
             Self.title("machines.menu.status", "Status"),
             Self.title("machines.menu.checkpoint", "Checkpoint"),
             Self.title("machines.menu.fork", "Fork"),
             Self.title("machines.menu.delete", "Delete\u{2026}"),
         ])
-        try Self.choose(Self.title("machines.menu.setupVPN", "Set Up cmux VPN…"), in: menu)
+        try Self.choose(Self.title("machines.menu.privateNetwork", "Private Network Access…"), in: menu)
         #expect(recorder.vpnSetupCount == 1)
         #expect(recorder.vpnSetupWindow === window)
         // Every verb is a leaf: nothing opens a submenu of targets.
