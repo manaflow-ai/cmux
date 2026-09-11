@@ -1086,23 +1086,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     private func decodedSingleEmbeddedStartupScript(_ command: String) -> String {
-        guard let marker = command.range(of: "printf %s ") else {
-            return command
-        }
-        let suffix = command[marker.upperBound...]
-        guard let end = suffix.firstIndex(where: { $0 == " " || $0 == "\n" || $0 == "'" }),
-              end > suffix.startIndex else {
-            return command
-        }
-        let encoded = String(suffix[..<end])
-        guard let data = Data(base64Encoded: encoded),
-              let decoded = String(data: data, encoding: .utf8) else {
-            return command
-        }
-        return decoded
+        SSHStartupCommandTestSupport.decodedScript(in: command) ?? command
     }
 
     private func decodedFirstEmbeddedStartupScript(_ command: String) -> String? {
+        if let script = SSHStartupCommandTestSupport.decodedScript(in: command) {
+            return script
+        }
         for markerText in ["printf %s ", "printf %%s "] {
             guard let marker = command.range(of: markerText) else {
                 continue

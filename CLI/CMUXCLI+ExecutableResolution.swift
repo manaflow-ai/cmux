@@ -14,7 +14,7 @@ extension CMUXCLI {
     func missingProviderExecutableMessage(displayName: String, executableName: String) -> String {
         let format = String(
             localized: "agentSession.error.missingProviderExecutable",
-            defaultValue: "%@ was not found. Install it and make sure \"%@\" is available on PATH."
+            defaultValue: "%@ was not found. Install it and make sure \"%@\" can be run from your terminal."
         )
         return String(format: format, displayName, executableName)
     }
