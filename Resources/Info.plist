@@ -296,6 +296,12 @@
 	<false/>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.cmux.cloud-tree-reorder</string>
+            <key>UTTypeConformsTo</key>
+            <array><string>public.data</string></array>
+        </dict>
 		<dict>
 			<key>UTTypeConformsTo</key>
 			<array>

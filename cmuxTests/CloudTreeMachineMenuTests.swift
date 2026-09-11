@@ -92,6 +92,9 @@ struct CloudTreeMachineMenuTests {
             Self.title("machines.menu.checkpoint", "Checkpoint"),
             Self.title("machines.menu.fork", "Fork"),
             Self.title("machines.menu.delete", "Delete\u{2026}"),
+            Self.title("contextMenu.moveUp", "Move Up"),
+            Self.title("contextMenu.moveDown", "Move Down"),
+            Self.title("cloudTree.menu.pin", "Pin"),
         ])
         try Self.choose(Self.title("machines.menu.privateNetwork", "Private Network Access…"), in: menu)
         #expect(recorder.vpnSetupCount == 1)

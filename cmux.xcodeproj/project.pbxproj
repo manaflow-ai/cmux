@@ -733,7 +733,6 @@
 		C986A0080000000000000001 /* CloudTreeActiveDrag.swift in Sources */ = {isa = PBXBuildFile; fileRef = C986A0070000000000000001 /* CloudTreeActiveDrag.swift */; };
 		3BCFA4F10BC6F6673CFA3BFC /* CloudTreeCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47E286761D314959F64AA002 /* CloudTreeCellView.swift */; };
 		46C9B49F24011903C31179A7 /* CloudTreeExpansionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B93142FA1472ACA28B993606 /* CloudTreeExpansionStore.swift */; };
-		A13601236012360123600001 /* CloudTreeOrganizationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13601236012360123600002 /* CloudTreeOrganizationStore.swift */; };
 		B5C68F2FAFD21A103AFF429D /* CloudTreeMachineMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADC9BE77DF3A402B8EC51665 /* CloudTreeMachineMenuTests.swift */; };
 		C986A0030000000000000001 /* CloudTreeNativeDragOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C986A0040000000000000001 /* CloudTreeNativeDragOwnershipTests.swift */; };
 		2F6A1B1B2A892D4CCD6BF386 /* CloudTreeNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CE0A82A4E20E446A21A97BB /* CloudTreeNode.swift */; };
@@ -741,6 +740,7 @@
 		CE3D444372B17491B0295AB0 /* CloudTreeNodeActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F73B922CC243AB9A365C1B5 /* CloudTreeNodeActions.swift */; };
 		722B1E308414B078A24CB62A /* CloudTreeNSOutlineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C74749FA907F50D653EF65 /* CloudTreeNSOutlineView.swift */; };
 		45F29E8BB64E4EE4BF204AC7 /* CloudTreeOneMachineManyWorkspacesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99BEA5821E46487A94B4E8B8 /* CloudTreeOneMachineManyWorkspacesTests.swift */; };
+		A13601236012360123600001 /* CloudTreeOrganizationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13601236012360123600002 /* CloudTreeOrganizationStore.swift */; };
 		669EEED531127C99F4EF6B7D /* CloudTreeOutlineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CACA5A7C96FFDF0B931E7AA /* CloudTreeOutlineView.swift */; };
 		C986A00B0000000000000001 /* CloudTreePendingDrag.swift in Sources */ = {isa = PBXBuildFile; fileRef = C986A00A0000000000000001 /* CloudTreePendingDrag.swift */; };
 		FE1EC2963BB87449593B5474 /* CloudTreePendingMachineRowContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7492FFBAD4190E9582BB6863 /* CloudTreePendingMachineRowContent.swift */; };
@@ -4326,7 +4326,6 @@
 		C986A0070000000000000001 /* CloudTreeActiveDrag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeActiveDrag.swift; sourceTree = "<group>"; };
 		47E286761D314959F64AA002 /* CloudTreeCellView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeCellView.swift; sourceTree = "<group>"; };
 		B93142FA1472ACA28B993606 /* CloudTreeExpansionStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeExpansionStore.swift; sourceTree = "<group>"; };
-		A13601236012360123600002 /* CloudTreeOrganizationStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeOrganizationStore.swift; sourceTree = "<group>"; };
 		ADC9BE77DF3A402B8EC51665 /* CloudTreeMachineMenuTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeMachineMenuTests.swift; sourceTree = "<group>"; };
 		C986A0040000000000000001 /* CloudTreeNativeDragOwnershipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeNativeDragOwnershipTests.swift; sourceTree = "<group>"; };
 		1CE0A82A4E20E446A21A97BB /* CloudTreeNode.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeNode.swift; sourceTree = "<group>"; };
@@ -4334,6 +4333,7 @@
 		0F73B922CC243AB9A365C1B5 /* CloudTreeNodeActions.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeNodeActions.swift; sourceTree = "<group>"; };
 		A4C74749FA907F50D653EF65 /* CloudTreeNSOutlineView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeNSOutlineView.swift; sourceTree = "<group>"; };
 		99BEA5821E46487A94B4E8B8 /* CloudTreeOneMachineManyWorkspacesTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeOneMachineManyWorkspacesTests.swift; sourceTree = "<group>"; };
+		A13601236012360123600002 /* CloudTreeOrganizationStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeOrganizationStore.swift; sourceTree = "<group>"; };
 		1CACA5A7C96FFDF0B931E7AA /* CloudTreeOutlineView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeOutlineView.swift; sourceTree = "<group>"; };
 		C986A00A0000000000000001 /* CloudTreePendingDrag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreePendingDrag.swift; sourceTree = "<group>"; };
 		7492FFBAD4190E9582BB6863 /* CloudTreePendingMachineRowContent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreePendingMachineRowContent.swift; sourceTree = "<group>"; };
@@ -11689,11 +11689,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C986A0080000000000000001 /* CloudTreeActiveDrag.swift in Sources */,
 				3BCFA4F10BC6F6673CFA3BFC /* CloudTreeCellView.swift in Sources */,
 				46C9B49F24011903C31179A7 /* CloudTreeExpansionStore.swift in Sources */,
-				A13601236012360123600001 /* CloudTreeOrganizationStore.swift in Sources */,
 				2F6A1B1B2A892D4CCD6BF386 /* CloudTreeNode.swift in Sources */,
 				7A0CE1000000000000000726 /* CloudTreeNodeActions+Prompts.swift in Sources */,
 				CE3D444372B17491B0295AB0 /* CloudTreeNodeActions.swift in Sources */,
 				722B1E308414B078A24CB62A /* CloudTreeNSOutlineView.swift in Sources */,
+				A13601236012360123600001 /* CloudTreeOrganizationStore.swift in Sources */,
 				669EEED531127C99F4EF6B7D /* CloudTreeOutlineView.swift in Sources */,
 				C986A00B0000000000000001 /* CloudTreePendingDrag.swift in Sources */,
 				FE1EC2963BB87449593B5474 /* CloudTreePendingMachineRowContent.swift in Sources */,
