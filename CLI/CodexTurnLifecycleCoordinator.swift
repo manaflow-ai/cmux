@@ -91,6 +91,7 @@ struct CodexTurnLifecycleCoordinator {
         turnID: String?,
         workspaceID: String?,
         surfaceID: String?,
+        terminalChildIDs: Set<String> = [],
         claimNotification: Bool = true,
         allowCreate: Bool = true,
         requireCurrentTurn: Bool = false
@@ -101,6 +102,7 @@ struct CodexTurnLifecycleCoordinator {
             workspaceID: workspaceID,
             surfaceID: surfaceID,
             invocation: invocation,
+            terminalChildIDs: terminalChildIDs,
             claimNotification: claimNotification,
             allowCreate: allowCreate,
             requireCurrentTurn: requireCurrentTurn

@@ -6,14 +6,20 @@ import Foundation
 /// snapshot: native child callbacks must commit a tiny record synchronously,
 /// while loading a potentially large resume store would make the hook boundary
 /// depend on unrelated session data. Every mutation is one locked transaction;
-/// no delivery timing or transcript observation participates in settlement.
+/// only exact transcript-terminal child IDs may repair a missing native stop at
+/// the foreground parent's Stop boundary.
 final class CodexTurnLedger {
     private enum Event {
         case sessionStart
         case promptSubmit(turnID: String?)
         case subagentStart(id: String?, turnID: String?)
         case subagentStop(id: String?, turnID: String?)
-        case stop(turnID: String?, claimNotification: Bool, requireCurrentTurn: Bool)
+        case stop(
+            turnID: String?,
+            terminalChildIDs: Set<String>,
+            claimNotification: Bool,
+            requireCurrentTurn: Bool
+        )
         case sessionEnd
         case observation
     }
@@ -139,10 +145,18 @@ final class CodexTurnLedger {
         workspaceID: String?,
         surfaceID: String?,
         invocation: CodexHookInvocation,
-        claimNotification: Bool = true, allowCreate: Bool = true, requireCurrentTurn: Bool = false
+        terminalChildIDs: Set<String> = [],
+        claimNotification: Bool = true,
+        allowCreate: Bool = true,
+        requireCurrentTurn: Bool = false
     ) throws -> CodexTurnLedgerDecision {
         try apply(
-            .stop(turnID: turnID, claimNotification: claimNotification, requireCurrentTurn: requireCurrentTurn),
+            .stop(
+                turnID: turnID,
+                terminalChildIDs: terminalChildIDs,
+                claimNotification: claimNotification,
+                requireCurrentTurn: requireCurrentTurn
+            ),
             sessionID: sessionID,
             workspaceID: workspaceID,
             surfaceID: surfaceID,
@@ -320,7 +334,7 @@ final class CodexTurnLedger {
                         shouldNotify: false
                     )
                 }
-            case .stop(let turnID, let claimNotification, let requireCurrentTurn):
+            case .stop(let turnID, let terminalChildIDs, let claimNotification, let requireCurrentTurn):
                 let key = self.turnKey(turnID ?? record.activeTurnID)
                 if requireCurrentTurn {
                     if Self.normalized(record.activeTurnID) == nil,
@@ -337,6 +351,7 @@ final class CodexTurnLedger {
                         }
                     }
                 }
+                self.stopChildren(ids: terminalChildIDs, in: &record)
                 let active = self.activeChildCount(record)
                 if active > 0 {
                     record.pendingTurns[key] = CodexTurnLedgerPending(turnID: Self.normalized(turnID ?? record.activeTurnID))

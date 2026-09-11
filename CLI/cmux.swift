@@ -29950,6 +29950,40 @@ struct CMUXCLI {
         return terminalTurnIds
     }
 
+    private func codexTranscriptTerminalSubagentIDs(path: String) -> Set<String> {
+        guard let lines = readRecentTextFileLines(path: path, maxBytes: 512 * 1024) else {
+            return []
+        }
+
+        var terminalSubagentIDs = Set<String>()
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  let data = trimmed.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                  object["type"] as? String == "event_msg",
+                  let payload = object["payload"] as? [String: Any],
+                  payload["type"] as? String == "item_completed",
+                  let item = payload["item"] as? [String: Any],
+                  item["type"] as? String == "SubAgentActivity",
+                  let subagentID = firstString(in: item, keys: ["agent_thread_id", "agentThreadId"]),
+                  let kind = firstString(in: item, keys: ["kind"])?.lowercased() else {
+                continue
+            }
+
+            switch kind {
+            case "completed", "interrupted":
+                terminalSubagentIDs.insert(subagentID)
+            case "started", "interacted":
+                terminalSubagentIDs.remove(subagentID)
+            default:
+                break
+            }
+        }
+
+        return terminalSubagentIDs
+    }
+
     private func readCodexTranscriptUserInput(
         path: String,
         turnId: String?,
@@ -35720,6 +35754,16 @@ export default CMUXSessionRestore;
                     return
                 }
             }
+            let codexTranscriptTerminalSubagentIDsForStop: Set<String> = {
+                guard def.name == "codex",
+                      codexStopOwnership?.ownership == .foreground,
+                      (codexStopOwnership?.activeChildCount ?? 0) > 0,
+                      let transcriptPath = normalizedHookValue(input.transcriptPath ?? mapped?.transcriptPath)
+                        ?? findCodexTranscriptPath(sessionId: sessionId, env: env) else {
+                    return []
+                }
+                return codexTranscriptTerminalSubagentIDs(path: transcriptPath)
+            }()
             // Retire only after the ledger admits this callback as the
             // foreground owner. A nested reviewer must not tear down the
             // foreground Codex transcript monitor while it inherits its PID.
@@ -35740,6 +35784,7 @@ export default CMUXSessionRestore;
                         turnID: effectiveCodexStopTurnID,
                         workspaceID: nil,
                         surfaceID: nil,
+                        terminalChildIDs: codexTranscriptTerminalSubagentIDsForStop,
                         claimNotification: false,
                         allowCreate: false,
                         requireCurrentTurn: true
@@ -35784,9 +35829,9 @@ export default CMUXSessionRestore;
             } else {
                 codexFailure = nil
             }
-            // Native child lifecycle is the sole Codex background-work
-            // authority. Transcript-tail signals are deliberately excluded:
-            // their flush order is not a completion boundary.
+            // Native child lifecycle remains the primary Codex background-work
+            // authority. At a foreground Stop boundary, exact terminal child
+            // IDs from the transcript repair only missing native stop events.
             var codexHasActiveBackgroundWork = def.name == "codex"
                 && (codexStopDecision?.activeChildCount ?? 0) > 0
             let antigravityFailure: AgentHookNotificationSummary? = {
@@ -35937,6 +35982,7 @@ export default CMUXSessionRestore;
                     turnID: effectiveCodexStopTurnID,
                     workspaceID: workspaceId,
                     surfaceID: surfaceId,
+                    terminalChildIDs: codexTranscriptTerminalSubagentIDsForStop,
                     // Tokenized Codex launches must not let a delayed Stop
                     // for an older turn settle the currently active turn.
                     // Legacy unwrapped launches retain their historical
@@ -39335,9 +39381,9 @@ export default CMUXSessionRestore;
         var validatedCodexFeedTarget: (workspaceId: String, surfaceId: String)?
 
         // Native Codex child events are committed before their telemetry frame
-        // is sent. This is the only source used by the Stop path to decide
-        // whether a foreground turn is settled; transcript text is not part of
-        // the lifecycle decision.
+        // is sent and remain the primary lifecycle source. The parent Stop
+        // path may reconcile exact terminal IDs from the transcript when a
+        // native stop callback is missing.
         if source == "codex",
            hookEventName == "SubagentStart" || hookEventName == "SubagentStop" {
             let lifecycle = CodexTurnLifecycleCoordinator(environment: env, cli: self)

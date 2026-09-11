@@ -22,6 +22,30 @@ extension CodexTurnLedger {
         record.terminalChildrenByTurn[key] = terminal
     }
 
+    func stopChildren(ids: Set<String>, in record: inout CodexTurnLedgerRecord) {
+        let terminalIDs = Set(ids.compactMap(Self.normalized))
+        guard !terminalIDs.isEmpty else { return }
+
+        for key in Array(record.activeChildrenByTurn.keys) {
+            let active = record.activeChildrenByTurn[key] ?? []
+            let stopped = active.filter(terminalIDs.contains)
+            guard !stopped.isEmpty else { continue }
+
+            let remaining = active.filter { !terminalIDs.contains($0) }
+            if remaining.isEmpty {
+                record.activeChildrenByTurn.removeValue(forKey: key)
+            } else {
+                record.activeChildrenByTurn[key] = remaining
+            }
+
+            var terminal = record.terminalChildrenByTurn[key] ?? []
+            for id in stopped where !terminal.contains(id) {
+                terminal.append(id)
+            }
+            record.terminalChildrenByTurn[key] = terminal
+        }
+    }
+
     func activeChildCount(_ record: CodexTurnLedgerRecord) -> Int {
         let exact = record.activeChildrenByTurn.values.reduce(0) { $0 + $1.count }
         let unknown = record.unknownChildrenByTurn.values.reduce(0, +)
