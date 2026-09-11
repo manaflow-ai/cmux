@@ -1,4 +1,8 @@
 {
+  "coderouterAuth": {
+    "title": "認証を受け取りました",
+    "description": "ターミナルに戻ってセットアップを完了してください。"
+  },
   "guestCLI": {
     "topologyHelp": "ターミナルを再起動せずに、このマシンの配置を変更します:\n  cmux workspace new [--name <name>] [--json]\n  cmux workspace rename <workspace> <name> [--json]\n  cmux workspace move <workspace> --index <index> [--json]\n  cmux workspace focus|close <workspace> [--json]\n  cmux tab rename <tab> <name> [--json]\n  cmux terminal rename <terminal|current> <name> [--json]\n  cmux tab move <tab> --workspace <ws> --screen <screen> --pane <pane> --index <index> [--json]\n  cmux pane split <pane> <left|right|up|down> [--ratio <fraction>] [--json]\n  cmux pane swap <pane> --other-workspace <ws> --other-screen <screen> --other-pane <pane> [--json]\n  cmux pane resize <pane> --split <split> --ratio <fraction> [--json]\n  cmux pane|tab focus <id> [--json]\n  cmux workspace|pane|tab list [--json]\n\nID は cmux tree で確認できます。インデックスは 0 から始まります。\nタブ名は配置ごとに設定され、terminal rename はそのターミナルの現在の全配置を変更します。\n複数の表示があるターミナルは tab move で対象の配置だけを移動してください。\nピアでは cmux vm <workspace|pane|tab|terminal> <verb> <machine> ... を使います。\nセレクターを先に指定するデーモン構文も利用できます。layout apply は新規または空の\nワークスペース用です。使用中の配置は move/swap/resize で変更してください。\nこれらはデーモンのレイアウトを変更します。Mac で表示するには\ncmux vm workspace open <machine> <ws> を使います。",
     "topologyUsage": "配置コマンドの引数が無効です。名前変更と配置操作は cmux workspace help で確認してください。",
@@ -702,6 +706,42 @@
     "applyAriaLabel": "メールで Founding Engineer に応募する",
     "applyEmailSubject": "cmux Founding Engineer への応募",
     "applyCta": "メールする",
+    "foundingChromiumEngineer": {
+      "metaTitle": "Founding Chromium Engineer の採用情報 — cmux",
+      "metaDescription": "ファウンディング Chromium エンジニアとして cmux に参加し、Chromium フォークを担い、C++ と Rust で Windows と Linux に cmux を届けませんか。",
+      "section": "採用情報",
+      "eyebrow": "役割について",
+      "title": "Founding Chromium Engineer",
+      "tagline": "cmux を Windows と Linux に。",
+      "intro": "cmux は Ghostty を基盤にしたネイティブ macOS ターミナルです。複数の AI コーディングエージェントを並列で動かすために設計され、数十万人の開発者がエージェントによるコーディングワークフローに cmux を活用しています。",
+      "hiring": "私たちは、独自の Chromium フォークを基盤に、Windows（および Linux）版 cmux を担うファウンディングエンジニアを募集しています。",
+      "whatYoullDo": "仕事内容",
+      "whatYoullDoItems": [
+        "Chromium フォークを所有する：上流を追跡し、クリーンにリベースし、cmux のパッチ（ウィンドウ/入力/レンダリング統合、ターミナル画面、エージェント UI）を維持する。",
+        "Windows/Linux 版 cmux をエンドツーエンドで担う：C++、インストーラー、自動アップデート、クラッシュレポート。",
+        "Ghostty ベースのターミナルコアとエージェントオーケストレーション機能（垂直タブ、通知リング、分割、CLI）を Windows に移植する。",
+        "起動時間、GPU レンダリング、入力レイテンシなど、ネイティブらしいパフォーマンスを実現する。",
+        "常にドッグフーディング、テスト、検証を行う。"
+      ],
+      "excitedLead": "次のような経験や姿勢があると、特にうれしいです：",
+      "excitedItems": [
+        "C++ に精通し、実際の Chromium 開発経験がある方。フォークの保守（パッチの維持、上流マイルストーンへのリベース、content/ や blink でのデバッグ）経験が理想的。",
+        "Rust の経験があれば大きな強み（TUI とネットワーキングデーモンは Rust 製）。",
+        "実際の Windows デスクトップアプリをリリース・保守した経験がある。",
+        "歓迎：Chromium 上流へのコントリビューション、Swift/AppKit への関心、オープンソースメンテナー、元創業者。"
+      ],
+      "details": "詳細",
+      "roleTitle": "Founding Chromium Engineer",
+      "compensationLabel": "報酬",
+      "compensation": "$130k〜$170k + 株式 0.5%〜1.5%",
+      "benefitsLabel": "福利厚生",
+      "benefits": "医療・歯科・眼科保険",
+      "locationLabel": "勤務地",
+      "location": "サンフランシスコ",
+      "applyAriaLabel": "メールで Founding Chromium Engineer に応募する",
+      "applyEmailSubject": "cmux Founding Chromium Engineer への応募",
+      "applyCta": "メールする"
+    },
     "foundingDesigner": {
       "metaTitle": "Founding Designer の採用情報 — cmux",
       "metaDescription": "cmux の Founding Designer として、macOS、TUI、Windows、Linux、iOS、Cloud、cmux.com、chatmux にわたる AI とコーディングの未来をデザインしませんか。",

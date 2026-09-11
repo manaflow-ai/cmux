@@ -128,6 +128,12 @@ function handleHostAndMachineRoutes(
     return NextResponse.next();
   }
 
+  if (pathname === "/coderouter/auth/complete" || pathname === "/coderouter/auth/complete/") {
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-next-intl-locale", preferredAppRouteLocale(request));
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
   // cmux consumes this marker before navigation. If an ordinary browser
   // reaches the server, canonicalize the URL while preserving every public
   // query parameter.

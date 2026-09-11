@@ -445,8 +445,10 @@ desktop, sizing, persistentHome, attachTransports}` — derived in
 `services/vms/drivers/index.ts` (`vmCapabilitiesOf`) from driver method presence, with the
 driver's declared `capabilities` overriding. Flags with no structural signal (`desktop`,
 `sizing`, `persistentHome`) default to false: a driver opts in to what it honors, and
-`POST /api/vm` rejects `memoryMb`/`persistentHome` requests the resolved provider would
-silently drop. Clients (the Mac app and CLI) gate verbs on this object and never on a
+`POST /api/vm` rejects a `memoryMb` request the resolved provider would silently drop, and
+ignores `persistentHome`/`perMachineHome` on a provider without home volumes (shipped CLIs
+send them on every default create; a Freestyle machine is durable without a volume), noting
+the dropped fields on the span. Clients (the Mac app and CLI) gate verbs on this object and never on a
 provider name, so a new provider registered in `drivers/index.ts` works end to end with no
 client update. `openAttach`/`openSSH`/`revokeSSHIdentity` are optional interface members;
 the gateway maps an absent method to `VmOperationUnsupportedError` (an honest 501).
