@@ -29951,7 +29951,10 @@ struct CMUXCLI {
     }
 
     private func codexTranscriptTerminalSubagentIDs(path: String) -> Set<String> {
-        guard let lines = readRecentTextFileLines(path: path, maxBytes: 512 * 1024) else {
+        // Tool output can push the relevant child lifecycle records several
+        // megabytes behind Stop while the rollout is still being flushed.
+        // Keep the scan bounded, but large enough for observed Codex rollouts.
+        guard let lines = readRecentTextFileLines(path: path, maxBytes: 16 * 1024 * 1024) else {
             return []
         }
 
@@ -29974,8 +29977,12 @@ struct CMUXCLI {
             switch kind {
             case "completed", "interrupted":
                 terminalSubagentIDs.insert(subagentID)
-            case "started", "interacted":
+            case "started":
                 terminalSubagentIDs.remove(subagentID)
+            case "interacted":
+                // Codex treats interaction as liveness-neutral; only a new
+                // start can reactivate a terminal child.
+                break
             default:
                 break
             }
@@ -35789,8 +35796,10 @@ export default CMUXSessionRestore;
                         allowCreate: false,
                         requireCurrentTurn: true
                     )
-                    if codexStopDecision?.settlement == .settled,
-                       codexStopDecision?.shouldNotify == true {
+                    let shouldRetryPendingStop = codexStopDecision?.settlement == .pending
+                    if shouldRetryPendingStop ||
+                        (codexStopDecision?.settlement == .settled &&
+                         codexStopDecision?.shouldNotify == true) {
                         // Re-run the normal projection out of band; it will
                         // re-resolve the pane and still fail closed if proof
                         // remains unavailable.
@@ -35798,7 +35807,8 @@ export default CMUXSessionRestore;
                             payload: rawInput,
                             environment: env,
                             telemetry: telemetry,
-                            turnID: codexStopDecision?.turnID
+                            turnID: codexStopDecision?.turnID,
+                            minimumDelay: shouldRetryPendingStop ? 0.5 : 0
                         )
                     }
                 }
@@ -35989,6 +35999,17 @@ export default CMUXSessionRestore;
                     // unseen-turn compatibility path.
                     requireCurrentTurn: codexLifecycle.usesLegacyIdentity == false || isCodexSettledStopRetry
                 )
+                if codexStopDecision?.settlement == .pending {
+                    // Codex invokes Stop before every terminal child activity
+                    // is guaranteed to be durable in the parent rollout.
+                    spawnDetachedCodexSettledStop(
+                        payload: rawInput,
+                        environment: env,
+                        telemetry: telemetry,
+                        turnID: codexStopDecision?.turnID,
+                        minimumDelay: 0.5
+                    )
+                }
             }
             if def.name == "codex",
                !nestedPromptStop,
