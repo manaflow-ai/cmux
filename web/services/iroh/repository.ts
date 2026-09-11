@@ -78,6 +78,21 @@ export type IrohRevocationCommit = {
   readonly revoked: boolean;
   readonly accountRevision: number;
 };
+type DiscoveryPageInput = {
+  readonly userId: string;
+  readonly clientNamespace?: string;
+  readonly callerBindingId?: string;
+  readonly callerPlatform?: "mac" | "ios";
+  readonly now: Date;
+  readonly pageSize: number;
+  readonly cursor?: IrohDiscoveryCursor;
+};
+type DiscoveryPageResult = {
+  readonly bindings: IrohBindingRecord[];
+  readonly lanDiscoveryGeneration: number;
+  readonly accountRevision: number;
+  readonly nextCursor: IrohDiscoveryCursor | null;
+};
 type CloudDbTransaction = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
 
 type RepositoryError =
@@ -114,20 +129,7 @@ export type IrohRepositoryShape = {
     readonly payload: IrohRegistrationPayload;
     readonly now: Date;
   }) => Effect.Effect<IrohRegistrationCommit, RepositoryError>;
-  readonly discoveryPage: (input: {
-    readonly userId: string;
-    readonly clientNamespace?: string;
-    readonly callerBindingId?: string;
-    readonly callerPlatform?: "mac" | "ios";
-    readonly now: Date;
-    readonly pageSize: number;
-    readonly cursor?: IrohDiscoveryCursor;
-  }) => Effect.Effect<{
-    readonly bindings: IrohBindingRecord[];
-    readonly lanDiscoveryGeneration: number;
-    readonly accountRevision: number;
-    readonly nextCursor: IrohDiscoveryCursor | null;
-  }, RepositoryError>;
+  readonly discoveryPage: (input: DiscoveryPageInput) => Effect.Effect<DiscoveryPageResult, RepositoryError>;
   readonly discoverySnapshot: (input: {
     readonly userId: string;
     readonly clientNamespace?: string;
@@ -223,6 +225,123 @@ export class IrohRepository extends Context.Tag("cmux/IrohRepository")<
 >() {}
 
 export const IrohRepositoryLive = Layer.succeed(IrohRepository, makeLiveRepository());
+
+type DiscoveryState = { readonly generation: number; readonly revision: number };
+
+async function ensureDiscoveryState(
+  tx: CloudDbTransaction,
+  input: DiscoveryPageInput,
+): Promise<DiscoveryState> {
+  const [existing] = await tx
+    .select({
+      generation: irohAccountSecurityStates.lanDiscoveryGeneration,
+      revision: irohAccountSecurityStates.routeRevision,
+    })
+    .from(irohAccountSecurityStates)
+    .where(eq(irohAccountSecurityStates.userId, input.userId))
+    .limit(1);
+  if (existing) return existing;
+  const [inserted] = await tx
+    .insert(irohAccountSecurityStates)
+    .values({
+      userId: input.userId,
+      lanDiscoveryGeneration: 1,
+      routeRevision: 0,
+      createdAt: input.now,
+      updatedAt: input.now,
+    })
+    .returning({
+      generation: irohAccountSecurityStates.lanDiscoveryGeneration,
+      revision: irohAccountSecurityStates.routeRevision,
+    });
+  if (!inserted) throw new Error("account security state returned no row");
+  return inserted;
+}
+
+async function findDiscoveryCaller(
+  tx: CloudDbTransaction,
+  input: DiscoveryPageInput,
+  clientNamespace: string,
+): Promise<IrohBindingRecord | undefined> {
+  if (!input.callerBindingId || !input.callerPlatform) return undefined;
+  const [caller] = await tx
+    .select()
+    .from(irohEndpointBindings)
+    .where(and(
+      eq(irohEndpointBindings.id, input.callerBindingId),
+      eq(irohEndpointBindings.userId, input.userId),
+      eq(irohEndpointBindings.platform, input.callerPlatform),
+      eq(irohEndpointBindings.clientNamespace, clientNamespace),
+      isNull(irohEndpointBindings.revokedAt),
+    ))
+    .limit(1);
+  return caller;
+}
+
+function discoveryBindingVisible(
+  binding: IrohBindingRecord,
+  caller: IrohBindingRecord | undefined,
+  clientNamespace: string,
+): boolean {
+  if (caller) return binding.id === caller.id || canBindingDiscoverPeer(caller, binding);
+  return clientNamespace === "legacy" || binding.clientNamespace === clientNamespace;
+}
+
+async function scanDiscoveryRows(
+  tx: CloudDbTransaction,
+  input: DiscoveryPageInput,
+  caller: IrohBindingRecord | undefined,
+  clientNamespace: string,
+): Promise<IrohBindingRecord[]> {
+  const visibleRows: IrohBindingRecord[] = [];
+  let scanAfter = input.cursor?.afterBindingId;
+  const scanPageSize = Math.max(input.pageSize + 1, 256);
+  while (visibleRows.length <= input.pageSize) {
+    const rows = await tx
+      .select()
+      .from(irohEndpointBindings)
+      .where(and(
+        eq(irohEndpointBindings.userId, input.userId),
+        isNull(irohEndpointBindings.revokedAt),
+        scanAfter ? gt(irohEndpointBindings.id, scanAfter) : undefined,
+      ))
+      .orderBy(asc(irohEndpointBindings.id))
+      .limit(scanPageSize);
+    for (const binding of rows) {
+      if (discoveryBindingVisible(binding, caller, clientNamespace)) visibleRows.push(binding);
+      if (visibleRows.length > input.pageSize) break;
+    }
+    if (visibleRows.length > input.pageSize || rows.length < scanPageSize) break;
+    scanAfter = rows.at(-1)?.id;
+    if (!scanAfter) break;
+  }
+  return visibleRows;
+}
+
+async function runDiscoveryPageTransaction(
+  tx: CloudDbTransaction,
+  input: DiscoveryPageInput,
+): Promise<DiscoveryPageResult> {
+  await assertIrohUserMutationAllowed(tx, input.userId);
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
+  const state = await ensureDiscoveryState(tx, input);
+  if (input.cursor && input.cursor.generation !== state.generation) {
+    throw new IrohConflictError({ code: "discovery_cursor_stale" });
+  }
+  const clientNamespace = input.clientNamespace ?? "legacy";
+  const caller = await findDiscoveryCaller(tx, input, clientNamespace);
+  const visibleRows = await scanDiscoveryRows(tx, input, caller, clientNamespace);
+  const bindings = visibleRows.slice(0, input.pageSize);
+  const last = bindings.at(-1);
+  return {
+    bindings,
+    lanDiscoveryGeneration: state.generation,
+    accountRevision: state.revision,
+    nextCursor: visibleRows.length > input.pageSize && last
+      ? { generation: state.generation, afterBindingId: last.id }
+      : null,
+  };
+}
 
 function makeLiveRepository(): IrohRepositoryShape {
   return {
@@ -617,93 +736,7 @@ function makeLiveRepository(): IrohRepositoryShape {
     }),
 
     discoveryPage: (input) => repositoryEffect("discovery_page", async () => {
-      return await cloudDb().transaction(async (tx) => {
-        await assertIrohUserMutationAllowed(tx, input.userId);
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
-        const [existingState] = await tx
-          .select({
-            generation: irohAccountSecurityStates.lanDiscoveryGeneration,
-            revision: irohAccountSecurityStates.routeRevision,
-          })
-          .from(irohAccountSecurityStates)
-          .where(eq(irohAccountSecurityStates.userId, input.userId))
-          .limit(1);
-        const [insertedState] = existingState
-          ? []
-          : await tx
-            .insert(irohAccountSecurityStates)
-            .values({
-              userId: input.userId,
-              lanDiscoveryGeneration: 1,
-              routeRevision: 0,
-              createdAt: input.now,
-              updatedAt: input.now,
-            })
-            .returning({
-              generation: irohAccountSecurityStates.lanDiscoveryGeneration,
-              revision: irohAccountSecurityStates.routeRevision,
-            });
-        const state = existingState ?? insertedState;
-        if (!state) throw new Error("account security state returned no row");
-        if (input.cursor && input.cursor.generation !== state.generation) {
-          throw new IrohConflictError({ code: "discovery_cursor_stale" });
-        }
-        const clientNamespace = input.clientNamespace ?? "legacy";
-        const [caller] = input.callerBindingId && input.callerPlatform
-          ? await tx
-            .select()
-            .from(irohEndpointBindings)
-            .where(and(
-              eq(irohEndpointBindings.id, input.callerBindingId),
-              eq(irohEndpointBindings.userId, input.userId),
-              eq(irohEndpointBindings.platform, input.callerPlatform),
-              eq(irohEndpointBindings.clientNamespace, clientNamespace),
-              isNull(irohEndpointBindings.revokedAt),
-            ))
-            .limit(1)
-          : [];
-        const visibleRows: IrohBindingRecord[] = [];
-        let scanAfter = input.cursor?.afterBindingId;
-        const scanPageSize = Math.max(input.pageSize + 1, 256);
-        while (visibleRows.length <= input.pageSize) {
-          const rows = await tx
-            .select()
-            .from(irohEndpointBindings)
-            .where(and(
-              eq(irohEndpointBindings.userId, input.userId),
-              isNull(irohEndpointBindings.revokedAt),
-              scanAfter
-                ? gt(irohEndpointBindings.id, scanAfter)
-                : undefined,
-            ))
-            .orderBy(asc(irohEndpointBindings.id))
-            .limit(scanPageSize);
-          for (const binding of rows) {
-            const visible = caller
-              ? binding.id === caller.id || canBindingDiscoverPeer(caller, binding)
-              : clientNamespace === "legacy"
-                || binding.clientNamespace === clientNamespace;
-            if (visible) visibleRows.push(binding);
-            if (visibleRows.length > input.pageSize) break;
-          }
-          if (visibleRows.length > input.pageSize || rows.length < scanPageSize) break;
-          scanAfter = rows.at(-1)?.id;
-          if (!scanAfter) break;
-        }
-        const bindings = visibleRows.slice(0, input.pageSize);
-        const last = bindings.at(-1);
-        return {
-          bindings,
-          lanDiscoveryGeneration: state.generation,
-          accountRevision: state.revision,
-          nextCursor: visibleRows.length > input.pageSize && last
-            ? {
-              generation: state.generation,
-              afterBindingId: last.id,
-            }
-            : null,
-        };
-      });
+      return await cloudDb().transaction((tx) => runDiscoveryPageTransaction(tx, input));
     }),
 
     discoverySnapshot: (input) => repositoryEffect("discovery_snapshot", async () => {
