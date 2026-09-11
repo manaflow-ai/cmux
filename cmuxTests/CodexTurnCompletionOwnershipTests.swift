@@ -216,9 +216,10 @@ struct CodexTurnCompletionOwnershipTests {
             activities: [
                 (id: "child-a", kind: "interrupted"),
                 (id: "child-a", kind: "interacted"),
-                (id: "child-b", kind: "started"),
+                (id: "child-b", kind: "interrupted"),
                 (id: "child-b", kind: "interacted"),
             ],
+            followupAgentIDs: ["child-b"],
             trailingPaddingBytes: 768 * 1024
         )
         let beforeLiveChildStop = harness.context.state.snapshot().count
@@ -236,7 +237,7 @@ struct CodexTurnCompletionOwnershipTests {
         )
         #expect(
             !liveChildCommands.contains { $0.hasPrefix("notify_target_async ") },
-            "An interaction-only record must not clear a still-live child: \(liveChildCommands)"
+            "A follow-up task must keep the restarted child active: \(liveChildCommands)"
         )
         #expect(
             liveChildCommands.contains { $0.hasPrefix("set_status codex Running ") },
@@ -248,10 +249,11 @@ struct CodexTurnCompletionOwnershipTests {
             activities: [
                 (id: "child-a", kind: "interrupted"),
                 (id: "child-a", kind: "interacted"),
-                (id: "child-b", kind: "started"),
-                (id: "child-b", kind: "interacted"),
                 (id: "child-b", kind: "interrupted"),
+                (id: "child-b", kind: "interacted"),
+                (id: "child-b", kind: "completed"),
             ],
+            followupAgentIDs: ["child-b"],
             trailingPaddingBytes: 768 * 1024
         )
         let beforeSettledStop = harness.context.state.snapshot().count
@@ -403,17 +405,30 @@ struct CodexTurnCompletionOwnershipTests {
     private func writeSubagentTranscript(
         _ harness: Harness,
         activities: [(id: String, kind: String)],
+        followupAgentIDs: Set<String> = [],
         trailingPaddingBytes: Int = 0
     ) throws -> String {
         let transcriptURL = harness.context.root.appendingPathComponent("parent-rollout.jsonl")
-        var lines = activities.enumerated().map { index, activity in
-            #"{"ordinal":\#(index),"type":"event_msg","payload":{"type":"item_completed","turn_id":"turn-1","item":{"type":"SubAgentActivity","kind":"\#(activity.kind)","agent_thread_id":"\#(activity.id)"}}}"#
+        var lines: [String] = []
+        for (index, activity) in activities.enumerated() {
+            let activityID = "call-activity-\(index)"
+            if activity.kind == "interacted", followupAgentIDs.contains(activity.id) {
+                lines.append(
+                    #"{"type":"response_item","payload":{"type":"function_call","name":"followup_task","call_id":"\#(activityID)","arguments":"{}"}}"#
+                )
+            }
+            lines.append(
+                #"{"ordinal":\#(index),"type":"event_msg","payload":{"type":"item_completed","turn_id":"turn-1","item":{"type":"SubAgentActivity","id":"\#(activityID)","kind":"\#(activity.kind)","agent_thread_id":"\#(activity.id)"}}}"#
+            )
         }
-        if trailingPaddingBytes > 0 {
-            let padding = String(repeating: "x", count: trailingPaddingBytes)
+        var remainingPaddingBytes = trailingPaddingBytes
+        while remainingPaddingBytes > 0 {
+            let chunkBytes = min(4 * 1024, remainingPaddingBytes)
+            let padding = String(repeating: "x", count: chunkBytes)
             lines.append(
                 #"{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"\#(padding)"}]}}"#
             )
+            remainingPaddingBytes -= chunkBytes
         }
         try (lines.joined(separator: "\n") + "\n").write(
             to: transcriptURL,
