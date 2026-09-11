@@ -6,6 +6,26 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 cd "$PROJECT_DIR"
 
+# Xcode 26 ships the Metal compiler as a separately downloaded component rather
+# than inside Xcode.app. Without it the app target fails partway through the
+# build ("cannot execute tool 'metal' due to missing Metal Toolchain"), after
+# the Swift modules have already compiled. Fail here instead, where the fix is
+# one command. Older Xcode bundles metal, so this check simply passes there.
+# The Command Line Tools do not ship metal at all, so the message names both
+# causes rather than assuming the component is merely missing.
+echo "==> Checking for the Metal toolchain..."
+if ! xcrun metal --version &> /dev/null; then
+    echo "Error: the Metal compiler is not available."
+    echo "Active developer directory: $(xcode-select -p 2>/dev/null || echo 'unset')"
+    echo "For Xcode 26 or later, install the toolchain component:"
+    echo "    xcodebuild -downloadComponent MetalToolchain"
+    echo "If it is the Command Line Tools, select Xcode first:"
+    echo "    sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer"
+    echo "If DEVELOPER_DIR is exported, unset it or point it to the intended Xcode;"
+    echo "it overrides the system selection."
+    exit 1
+fi
+
 echo "==> Initializing submodules..."
 git submodule update --init --recursive
 
@@ -50,24 +70,6 @@ if ! command -v cargo &> /dev/null || ! cargo --version &> /dev/null; then
     echo "Install via rustup: https://rustup.rs"
     echo "(Homebrew's rustup is keg-only and ships no rustup-init: add"
     echo " \"\$(brew --prefix rustup)/bin\" to PATH, then run \`rustup default stable\`.)"
-    exit 1
-fi
-
-# Xcode 26 ships the Metal compiler as a separately downloaded component rather
-# than inside Xcode.app. Without it the app target fails partway through the
-# build ("cannot execute tool 'metal' due to missing Metal Toolchain"), after
-# the Swift modules have already compiled. Fail here instead, where the fix is
-# one command. Older Xcode bundles metal, so this check simply passes there.
-# The Command Line Tools do not ship metal at all, so the message names both
-# causes rather than assuming the component is merely missing.
-echo "==> Checking for the Metal toolchain..."
-if ! xcrun metal --version &> /dev/null; then
-    echo "Error: the Metal compiler is not available."
-    echo "Active developer directory: $(xcode-select -p 2>/dev/null || echo 'unset')"
-    echo "If that is a full Xcode, install the toolchain component:"
-    echo "    xcodebuild -downloadComponent MetalToolchain"
-    echo "If it is the Command Line Tools, select Xcode first:"
-    echo "    sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer"
     exit 1
 fi
 

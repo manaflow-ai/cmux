@@ -16,7 +16,8 @@
   Homebrew's `rustup` formula works too, but it is keg-only and no longer ships `rustup-init`, so
   add `$(brew --prefix rustup)/bin` to `PATH` and run `rustup default stable` yourself.
 - On Xcode 26 the Metal compiler is a separately downloaded component, and the build fails
-  without it:
+  without it. Select the intended full Xcode installation first (`DEVELOPER_DIR`, if
+  exported, overrides `xcode-select`), then install the component:
 
   ```bash
   xcodebuild -downloadComponent MetalToolchain
