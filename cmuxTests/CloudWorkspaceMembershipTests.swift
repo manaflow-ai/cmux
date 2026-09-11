@@ -145,6 +145,12 @@ struct CloudWorkspaceMembershipTests {
                 machines: [], snapshot: catalog.snapshot, localWorkspaces: [], includeLocalMachine: false
             ))
             let row = try #require(tree.first { $0.id == CloudTreeNodeBuilder.nodeID(workspace: workspace, machine: machine) })
+            let lookup = CloudTreeNodeBuilder.lookupRemoteWorkspace(workspace, on: machine, snapshot: catalog.snapshot)
+            guard case .found(_, let members) = lookup else {
+                Issue.record("Workspace lookup must resolve the sidebar workspace")
+                return []
+            }
+            #expect(Set(row.dragGroup?.resources ?? []) == Set(members.ids))
             return row.children.filter { if case .display = $0.kind { return true }; return false }
         }
 
@@ -174,6 +180,30 @@ struct CloudWorkspaceMembershipTests {
         await coordinator.waitForPendingMutations()
         try expectMembership(current, in: catalog)
         #expect(provider.closedTabs.isEmpty, "a local VNC view has no daemon tab to close")
+    }
+
+    @Test("A local VNC pane never adopts or closes another workspace's daemon tab")
+    func localDesktopBesideRemotePlacement() async throws {
+        let workspace = UUID()
+        let coordinator = CloudPlacementCoordinator(binding: { _ in
+            WorkspaceCloudVMBinding(vmID: "membership-test", isBase: false, remoteWorkspaceID: "ws_a")
+        })
+        let catalog = SurfaceCatalog(cloudPlacementCoordinator: coordinator)
+        let provider = CloudPlacementTestProvider(machine: machine)
+        catalog.register(provider)
+        let current = try state(desktops: ["desk_b": "b"])
+        publish(current, to: catalog)
+        let desktop = SurfaceResourceID(machine: machine, kind: .display, key: "display:1")
+        let opened = try await catalog.project(desktop, into: .workspace(id: workspace, placement: .split), focus: false)
+        await coordinator.waitForPendingMutations()
+        let projection = try #require(catalog.projection(forPanel: opened.projection.panelID))
+        #expect(projection.remoteWorkspaceID == "ws_a")
+        #expect(projection.remoteTabID == nil)
+        #expect(provider.moved.isEmpty)
+        catalog.endProjections(panelID: projection.panelID)
+        await coordinator.waitForPendingMutations()
+        #expect(provider.closedTabs.isEmpty)
+        try expectMembership(current, in: catalog)
     }
 
     private func state(
