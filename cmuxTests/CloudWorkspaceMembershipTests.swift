@@ -164,6 +164,7 @@ struct CloudWorkspaceMembershipTests {
                 return []
             }
             #expect(Set(row.dragGroup?.resources ?? []) == Set(members.ids))
+            #expect(Set(try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace).resources) == Set(members.ids))
             return row.children.filter { if case .display = $0.kind { return true }; return false }
         }
 
@@ -193,6 +194,34 @@ struct CloudWorkspaceMembershipTests {
         await coordinator.waitForPendingMutations()
         try expectMembership(current, in: catalog)
         #expect(provider.closedTabs.isEmpty, "a local VNC view has no daemon tab to close")
+    }
+
+    @Test("Workspace groups open live local displays and reject a closed placement")
+    func localDisplayGroupOpen() async throws {
+        let source = UUID(), viewer = UUID()
+        let coordinator = CloudPlacementCoordinator(binding: { id in
+            id == source ? WorkspaceCloudVMBinding(vmID: "membership-test", isBase: false, remoteWorkspaceID: "ws_a") : nil
+        })
+        let catalog = SurfaceCatalog(cloudPlacementCoordinator: coordinator)
+        catalog.register(CloudPlacementTestProvider(machine: machine))
+        publish(try state(desktops: ["desk_b": "b"]), to: catalog)
+        let desktop = SurfaceResourceID(machine: machine, kind: .display, key: "display:1")
+        let original = try await catalog.project(desktop, into: .workspace(id: source, placement: .split), focus: false)
+        let group = SurfaceResourceGroup(title: "Desktop", placements: [
+            SurfaceResourcePlacement(resource: desktop, remoteWorkspaceID: "ws_a")
+        ])
+        let opened = try await catalog.projectGroup(
+            group, into: .workspace(id: viewer, placement: .split), focus: false, paneLookup: { _, _ in nil }
+        )
+        #expect(opened.map(\.resource) == [desktop])
+        #expect(catalog.projection(forPanel: opened[0].panelID)?.remoteWorkspaceID == nil)
+        catalog.endProjections(panelID: original.projection.panelID)
+        await coordinator.waitForPendingMutations()
+        await #expect(throws: (any Error).self) {
+            try await catalog.projectGroup(
+                group, into: .workspace(id: viewer, placement: .split), focus: false, paneLookup: { _, _ in nil }
+            )
+        }
     }
 
     @Test("A local VNC pane never adopts or closes another workspace's daemon tab")
