@@ -53,7 +53,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zip \
     xz-utils \
     zstd \
-    util-linux \
     procps \
     iproute2 \
     iputils-arping \
