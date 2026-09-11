@@ -279,8 +279,8 @@ struct RenderNodeView: View {
         case "symbolVariant":
             return AnyView(view.symbolVariant(dslSymbolVariant(token)))
         case "contextMenu":
-            if !modifier.children.isEmpty {
-                return AnyView(view.contextMenu { modifierChildren(modifier) })
+            if modifier.hasContent {
+                return AnyView(view.contextMenu { DeferredContextMenuContent(modifier: modifier) })
             }
             return view
         case "help":

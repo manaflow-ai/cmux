@@ -69,4 +69,41 @@ public final class EvalEnvironment {
     public func makeChild() -> EvalEnvironment {
         EvalEnvironment(parent: self)
     }
+
+    /// Copies the visible values and functions into a fresh root scope for a
+    /// deferred view-builder body. The fresh budget is important: evaluating a
+    /// menu later must not consume the row tree's node budget, and a menu that
+    /// is opened after the row render must still have a full bounded budget.
+    func snapshotForDeferredContent() -> EvalEnvironment {
+        let snapshot: EvalEnvironment
+        if let resolver = rootResolver() {
+            snapshot = EvalEnvironment(values: flattenedValues(), resolver: resolver)
+        } else {
+            snapshot = EvalEnvironment(values: flattenedValues())
+        }
+        for (name, function) in flattenedFunctions() {
+            snapshot.defineFunction(name, function)
+        }
+        return snapshot
+    }
+
+    private func flattenedValues() -> [String: SwiftValue] {
+        var result = parent?.flattenedValues() ?? [:]
+        for (name, value) in values {
+            result[name] = value
+        }
+        return result
+    }
+
+    private func flattenedFunctions() -> [String: FunctionDeclSyntax] {
+        var result = parent?.flattenedFunctions() ?? [:]
+        for (name, function) in functions {
+            result[name] = function
+        }
+        return result
+    }
+
+    private func rootResolver() -> ((String) -> SwiftValue?)? {
+        parent?.rootResolver() ?? externalResolver
+    }
 }
