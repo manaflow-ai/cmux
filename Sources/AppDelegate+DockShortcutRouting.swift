@@ -32,6 +32,8 @@ extension KeyboardShortcutSettings.Action {
              .focusPreviousPane, .focusNextPane,
              .splitRight, .splitDown, .toggleSplitZoom,
              .equalizeSplits,
+             .shrinkPaneWidth, .growPaneWidth,
+             .shrinkPaneHeight, .growPaneHeight,
              .splitBrowserRight, .splitBrowserDown,
              .openBrowser, .focusBrowserAddressBar,
              .find, .findNext, .findPrevious, .hideFind,

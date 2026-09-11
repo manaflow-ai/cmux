@@ -166,6 +166,10 @@ enum KeyboardShortcutSettings {
         case decreaseWorkspaceTerminalFontSize
         case resetWorkspaceTerminalFontSize
         case equalizeSplits
+        case shrinkPaneWidth
+        case growPaneWidth
+        case shrinkPaneHeight
+        case growPaneHeight
         case splitBrowserRight
         case splitBrowserDown
 
@@ -334,6 +338,14 @@ enum KeyboardShortcutSettings {
                     defaultValue: "Reset Font Size for Workspace Terminals"
                 )
             case .equalizeSplits: return String(localized: "shortcut.equalizeSplits.label", defaultValue: "Equalize Splits")
+            case .shrinkPaneWidth:
+                return String(localized: "shortcut.shrinkPaneWidth.label", defaultValue: "Shrink Pane Width")
+            case .growPaneWidth:
+                return String(localized: "shortcut.growPaneWidth.label", defaultValue: "Grow Pane Width")
+            case .shrinkPaneHeight:
+                return String(localized: "shortcut.shrinkPaneHeight.label", defaultValue: "Shrink Pane Height")
+            case .growPaneHeight:
+                return String(localized: "shortcut.growPaneHeight.label", defaultValue: "Grow Pane Height")
             case .splitBrowserRight: return String(localized: "shortcut.splitBrowserRight.label", defaultValue: "Split Browser Right")
             case .splitBrowserDown: return String(localized: "shortcut.splitBrowserDown.label", defaultValue: "Split Browser Down")
             case .toggleCanvasLayout: return String(localized: "shortcut.toggleCanvasLayout.label", defaultValue: "Toggle Canvas Layout")
@@ -546,6 +558,14 @@ enum KeyboardShortcutSettings {
             case .resetWorkspaceTerminalFontSize:
                 return StoredShortcut(key: "0", command: true, shift: false, option: false, control: true)
             case .equalizeSplits: return StoredShortcut(key: "=", command: true, shift: true, option: false, control: true)
+            case .shrinkPaneWidth:
+                return StoredShortcut(key: "←", command: true, shift: false, option: false, control: true)
+            case .growPaneWidth:
+                return StoredShortcut(key: "→", command: true, shift: false, option: false, control: true)
+            case .shrinkPaneHeight:
+                return StoredShortcut(key: "↑", command: true, shift: false, option: false, control: true)
+            case .growPaneHeight:
+                return StoredShortcut(key: "↓", command: true, shift: false, option: false, control: true)
             case .splitBrowserRight:
                 return StoredShortcut(key: "d", command: true, shift: false, option: true, control: false)
             case .splitBrowserDown:

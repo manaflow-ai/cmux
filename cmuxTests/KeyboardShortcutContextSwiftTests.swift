@@ -15,6 +15,33 @@ private typealias SimulatorStoredShortcut = cmux.StoredShortcut
 
 @Suite("Keyboard shortcut context")
 struct KeyboardShortcutContextSwiftTests {
+    @Test("Pane resize shortcut registries stay aligned")
+    func paneResizeShortcutRegistriesStayAligned() throws {
+        let actions: [(KeyboardShortcutSettings.Action, ShortcutAction)] = [
+            (.shrinkPaneWidth, .shrinkPaneWidth),
+            (.growPaneWidth, .growPaneWidth),
+            (.shrinkPaneHeight, .shrinkPaneHeight),
+            (.growPaneHeight, .growPaneHeight),
+        ]
+
+        for (appAction, settingsAction) in actions {
+            #expect(appAction.rawValue == settingsAction.rawValue)
+            #expect(appAction.label == settingsAction.displayName)
+            #expect(appAction.shortcutContext.defaultWhenClause == settingsAction.defaultFocusWhenClause)
+            #expect(appAction.hasPriorityShortcutRouting == settingsAction.hasPriorityShortcutRouting)
+            #expect(KeyboardShortcutSettings.settingsVisibleActions.contains(appAction))
+            #expect(ShortcutAction.settingsVisibleActions.contains(settingsAction))
+
+            let appDefault = appAction.defaultShortcut
+            let settingsDefault = try #require(settingsAction.defaultStroke)
+            #expect(appDefault.key == settingsDefault.key)
+            #expect(appDefault.command == settingsDefault.command)
+            #expect(appDefault.shift == settingsDefault.shift)
+            #expect(appDefault.option == settingsDefault.option)
+            #expect(appDefault.control == settingsDefault.control)
+        }
+    }
+
     @Test("Bulk notification shortcuts are shared, visible, and unbound by default")
     func bulkNotificationShortcutsAreSharedVisibleAndUnbound() throws {
         let actions: [KeyboardShortcutSettings.Action] = [

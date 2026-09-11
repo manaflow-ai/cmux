@@ -1207,6 +1207,128 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("Grow and shrink pane size target either side of the focused Dock split")
+    @MainActor
+    func paneResizeTargetsEitherSideOfFocusedDockSplit() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let leftPanel = try #require(
+                    harness.dock.newSurface(
+                        kind: .terminal,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                let rightPanel = try #require(
+                    harness.dock.newSplit(
+                        kind: .terminal,
+                        orientation: .horizontal,
+                        insertFirst: false,
+                        sourcePanelId: leftPanel,
+                        focus: true
+                    )
+                )
+                harness.dock.bonsplitController.setContainerFrame(
+                    CGRect(x: 0, y: 0, width: 600, height: 400)
+                )
+                let leftPane = try #require(harness.dock.paneId(forPanelId: leftPanel))
+                let rightPane = try #require(harness.dock.paneId(forPanelId: rightPanel))
+                let initialSplit = try #require(
+                    Self.splitNodes(
+                        in: harness.dock.bonsplitController.treeSnapshot()
+                    ).first
+                )
+                let growShortcut = Self.customShortcut(key: "y")
+                let shrinkShortcut = Self.customShortcut(key: "u")
+                KeyboardShortcutSettings.setShortcut(growShortcut, for: .growPaneWidth)
+                KeyboardShortcutSettings.setShortcut(shrinkShortcut, for: .shrinkPaneWidth)
+                let mainPanelBefore = harness.mainWorkspace.focusedPanelId
+
+                harness.dock.focusPanel(leftPanel)
+                #expect(Self.dispatch(growShortcut, in: harness))
+                let afterLeft = try #require(
+                    Self.splitNodes(
+                        in: harness.dock.bonsplitController.treeSnapshot()
+                    ).first { $0.id == initialSplit.id }
+                )
+                #expect(abs(afterLeft.dividerPosition - (initialSplit.dividerPosition + (20.0 / 600.0))) < 0.000_1)
+                #expect(harness.dock.bonsplitController.focusedPaneId == leftPane)
+                #expect(Self.dispatch(shrinkShortcut, in: harness, isARepeat: true))
+                let restoredLeft = try #require(
+                    Self.splitNodes(
+                        in: harness.dock.bonsplitController.treeSnapshot()
+                    ).first { $0.id == initialSplit.id }
+                )
+                #expect(abs(restoredLeft.dividerPosition - initialSplit.dividerPosition) < 0.000_1)
+
+                harness.dock.focusPanel(rightPanel)
+                #expect(Self.dispatch(growShortcut, in: harness, isARepeat: true))
+                let afterRight = try #require(
+                    Self.splitNodes(
+                        in: harness.dock.bonsplitController.treeSnapshot()
+                    ).first { $0.id == initialSplit.id }
+                )
+                #expect(abs(afterRight.dividerPosition - (initialSplit.dividerPosition - (20.0 / 600.0))) < 0.000_1)
+                #expect(harness.dock.bonsplitController.focusedPaneId == rightPane)
+                #expect(Self.dispatch(shrinkShortcut, in: harness))
+                let restoredRight = try #require(
+                    Self.splitNodes(
+                        in: harness.dock.bonsplitController.treeSnapshot()
+                    ).first { $0.id == initialSplit.id }
+                )
+                #expect(abs(restoredRight.dividerPosition - initialSplit.dividerPosition) < 0.000_1)
+
+                let bottomPanel = try #require(
+                    harness.dock.newSplit(
+                        kind: .terminal,
+                        orientation: .vertical,
+                        insertFirst: false,
+                        sourcePanelId: rightPanel,
+                        focus: true
+                    )
+                )
+                let bottomPane = try #require(harness.dock.paneId(forPanelId: bottomPanel))
+                let initialHeightSplit = try #require(
+                    Self.splitNodes(
+                        in: harness.dock.bonsplitController.treeSnapshot()
+                    ).first { $0.orientation == "vertical" }
+                )
+                let growHeightShortcut = Self.customShortcut(key: "i")
+                let shrinkHeightShortcut = Self.customShortcut(key: "o")
+                KeyboardShortcutSettings.setShortcut(growHeightShortcut, for: .growPaneHeight)
+                KeyboardShortcutSettings.setShortcut(shrinkHeightShortcut, for: .shrinkPaneHeight)
+
+                harness.dock.focusPanel(rightPanel)
+                #expect(Self.dispatch(growHeightShortcut, in: harness))
+                let afterTop = try #require(
+                    Self.splitNodes(
+                        in: harness.dock.bonsplitController.treeSnapshot()
+                    ).first { $0.id == initialHeightSplit.id }
+                )
+                #expect(abs(afterTop.dividerPosition - (initialHeightSplit.dividerPosition + (20.0 / 400.0))) < 0.000_1)
+                #expect(Self.dispatch(shrinkHeightShortcut, in: harness))
+
+                harness.dock.focusPanel(bottomPanel)
+                #expect(Self.dispatch(growHeightShortcut, in: harness, isARepeat: true))
+                let afterBottom = try #require(
+                    Self.splitNodes(
+                        in: harness.dock.bonsplitController.treeSnapshot()
+                    ).first { $0.id == initialHeightSplit.id }
+                )
+                #expect(abs(afterBottom.dividerPosition - (initialHeightSplit.dividerPosition - (20.0 / 400.0))) < 0.000_1)
+                #expect(harness.dock.bonsplitController.focusedPaneId == bottomPane)
+                #expect(Self.dispatch(shrinkHeightShortcut, in: harness, isARepeat: true))
+                let restoredBottom = try #require(
+                    Self.splitNodes(
+                        in: harness.dock.bonsplitController.treeSnapshot()
+                    ).first { $0.id == initialHeightSplit.id }
+                )
+                #expect(abs(restoredBottom.dividerPosition - initialHeightSplit.dividerPosition) < 0.000_1)
+                #expect(harness.mainWorkspace.focusedPanelId == mainPanelBefore)
+            }
+        }
+    }
+
     @Test("Close other tabs targets the focused Dock pane")
     @MainActor
     func closeOtherTabsTargetsFocusedDockPane() async throws {
