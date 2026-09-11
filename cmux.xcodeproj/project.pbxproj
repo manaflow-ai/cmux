@@ -2505,7 +2505,7 @@
 		211A75777F433ED8BA5AE208 /* SidebarAppearanceSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 243632BA1DBBA36FD46E0610 /* SidebarAppearanceSupport.swift */; };
 		B804C0030000000000000003 /* SidebarAppKitRowCellTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804D0030000000000000003 /* SidebarAppKitRowCellTests.swift */; };
 		D7AB34300000000000000003 /* SidebarBonsplitTabWorkspaceDropOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34300000000000000004 /* SidebarBonsplitTabWorkspaceDropOverlay.swift */; };
-		8A6B04B00DF84B206310F28E /* SidebarCloudWorkspacesButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE39349B393511E3CF33DAC4 /* SidebarCloudWorkspacesButton.swift */; };
+		8A6B04B00DF84B206310F28E /* SidebarCloudButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE39349B393511E3CF33DAC4 /* SidebarCloudButton.swift */; };
 		7D168DB42394581977A0D946 /* SidebarCloudWorkspacesSwitcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC0213C9578BB60D7188DEF4 /* SidebarCloudWorkspacesSwitcherTests.swift */; };
 		EA1F00000000000000000003 /* SidebarDirectoryText.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1F00000000000000000004 /* SidebarDirectoryText.swift */; };
 		B804A0270000000000000027 /* SidebarDividerTrackingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0270000000000000027 /* SidebarDividerTrackingView.swift */; };
@@ -2966,7 +2966,6 @@
 		7738C0087738C0087738C008 /* TerminalController+RemoteTmuxControlRefs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7738D0087738D0087738D008 /* TerminalController+RemoteTmuxControlRefs.swift */; };
 		7738C0047738C0047738C004 /* TerminalController+RemoteTmuxControlTopology.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7738D0047738D0047738D004 /* TerminalController+RemoteTmuxControlTopology.swift */; };
 		B49282191C80DC84B8AB0BCB /* TerminalController+RemoteTmuxTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CCFC650BD590101D445C4A0 /* TerminalController+RemoteTmuxTestSupport.swift */; };
-		142195E3A319332309B12D42 /* TerminalController+SidebarCloudPopoverDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = D032A4C15B1CEE8F015CB927 /* TerminalController+SidebarCloudPopoverDebug.swift */; };
 		A79840040000000000000002 /* TerminalController+SocketCleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79840040000000000000001 /* TerminalController+SocketCleanup.swift */; };
 		C79470010000000000000003 /* TerminalController+SocketClientCapability.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79470010000000000000004 /* TerminalController+SocketClientCapability.swift */; };
 		A79840030000000000000002 /* TerminalController+SocketConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79840030000000000000001 /* TerminalController+SocketConfiguration.swift */; };
@@ -5981,7 +5980,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		243632BA1DBBA36FD46E0610 /* SidebarAppearanceSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarAppearanceSupport.swift; sourceTree = "<group>"; };
 		B804D0030000000000000003 /* SidebarAppKitRowCellTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarAppKitRowCellTests.swift; sourceTree = "<group>"; };
 		D7AB34300000000000000004 /* SidebarBonsplitTabWorkspaceDropOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarBonsplitTabWorkspaceDropOverlay.swift; sourceTree = "<group>"; };
-		AE39349B393511E3CF33DAC4 /* SidebarCloudWorkspacesButton.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SidebarCloudWorkspacesButton.swift; sourceTree = "<group>"; };
+		AE39349B393511E3CF33DAC4 /* SidebarCloudButton.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SidebarCloudButton.swift; sourceTree = "<group>"; };
 		FC0213C9578BB60D7188DEF4 /* SidebarCloudWorkspacesSwitcherTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SidebarCloudWorkspacesSwitcherTests.swift; sourceTree = "<group>"; };
 		EA1F00000000000000000004 /* SidebarDirectoryText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarDirectoryText.swift; sourceTree = "<group>"; };
 		B804B0270000000000000027 /* SidebarDividerTrackingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarDividerTrackingView.swift; sourceTree = "<group>"; };
@@ -6435,7 +6434,6 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		7738D0087738D0087738D008 /* TerminalController+RemoteTmuxControlRefs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteTmuxControlRefs.swift"; sourceTree = "<group>"; };
 		7738D0047738D0047738D004 /* TerminalController+RemoteTmuxControlTopology.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteTmuxControlTopology.swift"; sourceTree = "<group>"; };
 		1CCFC650BD590101D445C4A0 /* TerminalController+RemoteTmuxTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Debug/RemoteTmux/TerminalController+RemoteTmuxTestSupport.swift"; sourceTree = "<group>"; };
-		D032A4C15B1CEE8F015CB927 /* TerminalController+SidebarCloudPopoverDebug.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "TerminalController+SidebarCloudPopoverDebug.swift"; sourceTree = "<group>"; };
 		A79840040000000000000001 /* TerminalController+SocketCleanup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+SocketCleanup.swift"; sourceTree = "<group>"; };
 		C79470010000000000000004 /* TerminalController+SocketClientCapability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+SocketClientCapability.swift"; sourceTree = "<group>"; };
 		A79840030000000000000001 /* TerminalController+SocketConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+SocketConfiguration.swift"; sourceTree = "<group>"; };
@@ -7516,7 +7514,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				0110525EA7A8A51561759317 /* CloudAgentSkillLauncher+LauncherError.swift */,
 				D690BCAE82EB05A6790086AE /* CloudTreeStyle.swift */,
 				46E4DB2770E4B0CBF4C388E5 /* CloudTreeStyleGalleryWindow.swift */,
-				AE39349B393511E3CF33DAC4 /* SidebarCloudWorkspacesButton.swift */,
+				AE39349B393511E3CF33DAC4 /* SidebarCloudButton.swift */,
 				627B5FB396A1BF22407E8B45 /* SurfaceResourceDragRegistry.swift */,
 				A1B2C3D4E5F6071827364950 /* CloudMachineSurfacePresentation.swift */,
 				1CE0A82A4E20E446A21A97BB /* CloudTreeNode.swift */,
@@ -9425,7 +9423,6 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				90813BBC44D79A5D2D0A2F09 /* Surfaces */,
 				FEED0000000000000000F003 /* Feed */,
 				C57B00040000000000000002 /* TerminalController+CustomSidebarCommands.swift */,
-				D032A4C15B1CEE8F015CB927 /* TerminalController+SidebarCloudPopoverDebug.swift */,
 				CC0033E15A1B2C3D4E5F0004 /* TerminalController+CommentsCommands.swift */,
 				8054A0040000000000000004 /* TerminalController+BrowserAutomationRecovery.swift */,
 				C57B00050000000000000002 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift */,
@@ -12686,7 +12683,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A6AC71040000000000000001 /* SidebarAgentActivitySummary.swift in Sources */,
 				211A75777F433ED8BA5AE208 /* SidebarAppearanceSupport.swift in Sources */,
 				D7AB34300000000000000003 /* SidebarBonsplitTabWorkspaceDropOverlay.swift in Sources */,
-				8A6B04B00DF84B206310F28E /* SidebarCloudWorkspacesButton.swift in Sources */,
+				8A6B04B00DF84B206310F28E /* SidebarCloudButton.swift in Sources */,
 				EA1F00000000000000000003 /* SidebarDirectoryText.swift in Sources */,
 				B804A0270000000000000027 /* SidebarDividerTrackingView.swift in Sources */,
 				9212A0019212A0019212A001 /* SidebarEmptyAreaWindowDragController.swift in Sources */,
@@ -13027,7 +13024,6 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				7738C0087738C0087738C008 /* TerminalController+RemoteTmuxControlRefs.swift in Sources */,
 				7738C0047738C0047738C004 /* TerminalController+RemoteTmuxControlTopology.swift in Sources */,
 				B49282191C80DC84B8AB0BCB /* TerminalController+RemoteTmuxTestSupport.swift in Sources */,
-				142195E3A319332309B12D42 /* TerminalController+SidebarCloudPopoverDebug.swift in Sources */,
 				A79840040000000000000002 /* TerminalController+SocketCleanup.swift in Sources */,
 				C79470010000000000000003 /* TerminalController+SocketClientCapability.swift in Sources */,
 				A79840030000000000000002 /* TerminalController+SocketConfiguration.swift in Sources */,

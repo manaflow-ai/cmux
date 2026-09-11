@@ -31,7 +31,7 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
     }
 
     public func makeNSView(context: Context) -> NSView {
-        let view = ArrowlessPopoverAnchorNSView()
+        let view = NSView()
         context.coordinator.anchorView = view
         return view
     }
@@ -210,13 +210,4 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
             }
         }
     }
-}
-
-/// The invisible AppKit view the popover positions against. It never takes a
-/// click: callers size it to the popover's footprint (a corner button anchors a
-/// popover wider than itself by extending the anchor across the footer), and
-/// AppKit clips the positioning rect to this view's bounds, so the width has
-/// to live on the view itself.
-final class ArrowlessPopoverAnchorNSView: NSView {
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

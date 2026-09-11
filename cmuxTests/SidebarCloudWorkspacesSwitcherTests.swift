@@ -6,10 +6,11 @@ import Testing
 @testable import cmux
 #endif
 
-/// The footer Cloud Workspaces switcher lists every sidebar workspace under
-/// This Mac, terminal or not, ahead of the Cloud machines. The Machines panel
-/// keeps its terminal-only listing.
-@Suite("Sidebar Cloud Workspaces switcher")
+/// The right sidebar's Cloud tab lists every sidebar workspace under This Mac,
+/// terminal or not, ahead of the Cloud machines; the terminal-only listing
+/// stays available to callers that ask for it. The footer Cloud button follows
+/// the footer presentation policy, including the minimal-mode hover reveal.
+@Suite("Sidebar Cloud tab and footer button")
 struct SidebarCloudWorkspacesSwitcherTests {
     private let localInfo = SurfaceMachineInfo(
         id: .local, name: "This Mac", status: "running", image: nil, hasDesktop: false,
@@ -46,16 +47,16 @@ struct SidebarCloudWorkspacesSwitcherTests {
         }
     }
 
-    @Test("The switcher lists every sidebar workspace, in sidebar order, with selection")
-    func switcherListsEveryWorkspace() {
+    @Test("The Cloud tab lists every sidebar workspace, in sidebar order, with selection")
+    func cloudTabListsEveryWorkspace() {
         let rows = localWorkspaceRows(includeEmpty: true)
         #expect(rows.map(\.workspaceID) == [emptyWorkspace, terminalWorkspace])
         #expect(rows.map(\.terminalCount) == [0, 1])
         #expect(rows.map(\.isSelected) == [true, false])
     }
 
-    @Test("The Machines panel keeps listing only workspaces with a terminal")
-    func machinesPanelKeepsTerminalOnlyListing() {
+    @Test("Terminal-only listing stays available when not asked for empty workspaces")
+    func terminalOnlyListingStaysAvailable() {
         #expect(localWorkspaceRows(includeEmpty: false).map(\.workspaceID) == [terminalWorkspace])
     }
 
@@ -81,9 +82,12 @@ struct SidebarCloudWorkspacesSwitcherTests {
         #expect(row.id == "vm-1")
     }
 
-    @Test("The footer hides the Cloud button in minimal presentation, like the account button")
-    func footerHidesCloudInMinimalMode() {
+    @Test("The footer hides the Cloud button in minimal presentation until the footer is hovered")
+    func footerRevealsCloudOnHoverInMinimalMode() {
         #expect(SidebarFooterPresentationPolicy.isVisible(.cloud, presentationMode: .minimal) == false)
+        #expect(SidebarFooterPresentationPolicy.isVisible(.cloud, presentationMode: .minimal, isHovered: true))
+        #expect(SidebarFooterPresentationPolicy.isVisible(.help, presentationMode: .minimal, isHovered: true))
+        #expect(SidebarFooterPresentationPolicy.isVisible(.upgrade, presentationMode: .minimal))
         #expect(SidebarFooterPresentationPolicy.isVisible(.cloud, presentationMode: .standard))
     }
 }
