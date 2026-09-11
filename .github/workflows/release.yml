@@ -646,6 +646,7 @@ jobs:
             --endpoint-url "$R2_ENDPOINT" \
             --bucket cmux-binaries \
             --key stable/appcast.xml \
+            --content-type "application/xml" \
             --cache-control "no-cache, no-store, must-revalidate"
 
           echo "R2 appcast upload complete: https://files.cmux.com/stable/appcast.xml"

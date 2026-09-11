@@ -724,7 +724,7 @@ cmux vm handoff <id>                   # short attach block to paste to a human 
 # Guest-safe auth and CodeRouter commands (run inside a Cloud VM)
 cmux auth status [--json]              # daemon, TLS edge, and VM-bound route status
 cmux coderouter status [--json]        # same route/auth report
-cmux coderouter usage                  # this machine's 30-day usage JSON
+cmux coderouter usage [--json|--tsv] [--days <n>]   # this machine's 30-day usage: totals, trend, per workspace/agent/model, one row per day; --json adds terminals[]; --tsv the day table; exit 3 = ledger unavailable
 cmux coderouter models                 # models exposed through the edge
 cmux coderouter agent <agent> ...      # run claude/codex/opencode/pi via CodeRouter
 cmux agent <agent> ...                 # short alias for coderouter agent
