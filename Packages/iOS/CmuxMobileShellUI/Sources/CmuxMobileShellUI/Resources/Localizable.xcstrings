@@ -12725,6 +12725,20 @@
         }
       }
     },
+    "mobile.pairing.enableOnMac.short": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Enable iOS pairing in cmux Settings > Mobile on your Mac."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Mac の cmux「設定」>「Mobile」で iOS ペアリングを有効にしてください。"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Aktivieren Sie auf dem Mac in cmux „Einstellungen“ > „Mobile“ die iOS-Kopplung."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Activez le jumelage iOS dans cmux, sous « Réglages » > « Mobile » sur le Mac."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "فعّل اقتران iOS في cmux على الـ Mac من «الإعدادات» > «الهاتف المحمول»."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Activa el enlace con iOS en cmux, en «Ajustes» > «Móvil» del Mac."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "請在 Mac 上的 cmux「設定」>「行動裝置」中啟用 iOS 配對。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "请在 Mac 上的 cmux“设置”>“移动”中启用 iOS 配对。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Mac의 cmux “설정” > “모바일”에서 iOS 페어링을 활성화하세요."}}
+      }
+    },
     "mobile.onboarding.pairing.title": {
       "extractionState": "manual",
       "localizations": {

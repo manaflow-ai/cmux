@@ -2,6 +2,13 @@
 import CmuxMobileSupport
 
 enum MobilePairingCopy {
+    static var enableOnMacShort: String {
+        L10n.string(
+            "mobile.pairing.enableOnMac.short",
+            defaultValue: "Enable iOS pairing in cmux Settings > Mobile on your Mac."
+        )
+    }
+
     static var enableOnMac: String {
         L10n.string(
             "mobile.pairing.enableOnMac",

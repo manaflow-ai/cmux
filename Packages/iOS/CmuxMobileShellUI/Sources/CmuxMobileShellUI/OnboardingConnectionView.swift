@@ -123,7 +123,7 @@ struct OnboardingConnectionView: View {
                 "mobile.onboarding.ready.body",
                 defaultValue: "Open any workspace and respond when an agent needs you."
             )
-            return "\(connectedCopy) \(MobilePairingCopy.enableOnMac)"
+            return "\(connectedCopy) \(MobilePairingCopy.enableOnMacShort)"
         }
         if connectionMethod == .tailscale {
             if let requiredMacVersion {
@@ -134,7 +134,7 @@ struct OnboardingConnectionView: View {
                     ),
                     requiredMacVersion
                 )
-                return "\(connectionCopy) \(MobilePairingCopy.enableOnMac)"
+                return "\(connectionCopy) \(MobilePairingCopy.enableOnMacShort)"
             }
             // Versionless fallback (below-tier app versions, previews): no
             // stale hardcoded floor; the policy-driven branch above names one.
@@ -142,7 +142,7 @@ struct OnboardingConnectionView: View {
                 "mobile.onboarding.connect.tailscaleBody",
                 defaultValue: "Install Tailscale on both devices and join the same network, then scan the pairing code once."
             )
-            return "\(connectionCopy) \(MobilePairingCopy.enableOnMac)"
+            return "\(connectionCopy) \(MobilePairingCopy.enableOnMacShort)"
         }
         if let requiredMacVersion {
             let connectionCopy = String(
@@ -152,13 +152,13 @@ struct OnboardingConnectionView: View {
                 ),
                 requiredMacVersion
             )
-            return "\(connectionCopy) \(MobilePairingCopy.enableOnMac)"
+            return "\(connectionCopy) \(MobilePairingCopy.enableOnMacShort)"
         }
         let connectionCopy = L10n.string(
             "mobile.onboarding.connect.body",
             defaultValue: "Use the same cmux account on both devices. Your Mac connects automatically."
         )
-        return "\(connectionCopy) \(MobilePairingCopy.enableOnMac)"
+        return "\(connectionCopy) \(MobilePairingCopy.enableOnMacShort)"
     }
 
     /// The minimum stable-channel Mac version this app version accepts, from
