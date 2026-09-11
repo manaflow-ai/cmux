@@ -43,7 +43,8 @@ public actor MiniMaxSpeechClient: ReadAloudSynthesizing {
     ) async throws {
         try Task.checkCancellation()
         guard text.contains(where: { !$0.isWhitespace }) else { return }
-        try validate(configuration: configuration, apiKey: apiKey)
+        try configuration.validate()
+        guard !apiKey.isEmpty, apiKey.utf8.allSatisfy({ (0x21...0x7E).contains($0) }) else { throw ReadAloudTransportError.invalidCredential }
         var chunks = ReadAloudTextChunks(text: text)
         while let chunk = try chunks.next() {
             // Whitespace remains in the lossless partition, but cannot produce speech alone.
@@ -135,23 +136,6 @@ public actor MiniMaxSpeechClient: ReadAloudSynthesizing {
         return ReadAloudTransportError.network
     }
 
-    private func validate(configuration: ReadAloudConfiguration, apiKey: String) throws {
-        switch configuration.model {
-        case "speech-2.8-turbo", "speech-2.8-hd", "speech-2.6-turbo", "speech-2.6-hd",
-             "speech-02-turbo", "speech-02-hd", "speech-01-turbo", "speech-01-hd":
-            break
-        default:
-            throw ReadAloudTransportError.invalidConfiguration
-        }
-        guard configuration.speed.isFinite, (0.5...2).contains(configuration.speed),
-              !configuration.voiceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !configuration.voiceID.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
-            throw ReadAloudTransportError.invalidConfiguration
-        }
-        guard !apiKey.isEmpty, apiKey.utf8.allSatisfy({ (0x21...0x7E).contains($0) }) else {
-            throw ReadAloudTransportError.invalidCredential
-        }
-    }
 
     private func request(text: String, configuration: ReadAloudConfiguration, apiKey: String) throws -> URLRequest {
         guard let endpoint = URL(string: "https://api.minimax.io/v1/t2a_v2") else {

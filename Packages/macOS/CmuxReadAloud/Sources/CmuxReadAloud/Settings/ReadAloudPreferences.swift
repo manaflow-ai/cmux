@@ -43,7 +43,7 @@ public actor ReadAloudPreferences {
     /// - Parameter configuration: Turbo or HD speech-2.8 settings with a nonempty voice and finite speed in 0.5...2.
     /// - Throws: A localized validation error or a configuration encoding error.
     public func save(configuration: ReadAloudConfiguration) throws {
-        try validate(configuration)
+        try configuration.validate()
         let data = try JSONEncoder().encode(configuration)
         defaults.set(data, forKey: configurationKey)
     }
@@ -133,15 +133,4 @@ public actor ReadAloudPreferences {
         ]
     }
 
-    private func validate(_ configuration: ReadAloudConfiguration) throws {
-        guard configuration.model == "speech-2.8-turbo" || configuration.model == "speech-2.8-hd" else {
-            throw ReadAloudPreferencesError.unsupportedModel
-        }
-        guard !configuration.voiceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw ReadAloudPreferencesError.emptyVoice
-        }
-        guard configuration.speed.isFinite, (0.5...2.0).contains(configuration.speed) else {
-            throw ReadAloudPreferencesError.invalidSpeed
-        }
-    }
 }
