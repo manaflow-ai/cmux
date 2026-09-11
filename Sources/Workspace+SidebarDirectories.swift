@@ -21,7 +21,9 @@ extension Workspace {
                 return nil
             }
         }
-        let activeRemotePanelIds = panels.keys.filter { isRemoteTerminalSurface($0) }
+        let activeRemotePanelIds = panels.keys.filter {
+            isRemoteTerminalSurface($0) || cloudDirectoryProvenanceRequired(panelId: $0)
+        }
         guard !activeRemotePanelIds.isEmpty else { return nil }
         let reportedDirectories = activeRemotePanelIds.compactMap { trustedReportedPanelDirectory(panelId: $0) }
         guard reportedDirectories.count == activeRemotePanelIds.count else { return nil }
@@ -37,8 +39,22 @@ extension Workspace {
         reportedRemoteCurrentDirectory(allowLocalFallback: false)
     }
 
+    /// Directory metadata for a cloud-bound or cloud-projected panel is remote
+    /// state, even though its transport is not SSH.
     var usesRemoteDirectoryProvenance: Bool {
-        isRemoteWorkspace || isRemoteTmuxMirror
+        isRemoteWorkspace || isRemoteTmuxMirror || cloudVMBinding != nil ||
+            panels.keys.contains(where: { cloudDirectoryProvenanceRequired(panelId: $0) })
+    }
+
+    func cloudDirectoryProvenanceRequired(panelId: UUID) -> Bool {
+        cloudVMBinding != nil || SurfaceCatalog.shared.hasCloudProjection(panelID: panelId, workspaceID: id)
+    }
+
+    /// Applies the cwd carried by a terminal in an accepted cloud snapshot.
+    /// Branch and PR metadata remain absent until the cloud transport reports them.
+    func updateCloudPanelDirectory(panelId: UUID, directory: String?) {
+        guard let directory = normalizedSidebarDirectory(directory) else { return }
+        updateRemotePanelDirectoryWithMetadata(panelId: panelId, directory: directory)
     }
 
     var presentedCurrentDirectory: String? {
@@ -72,6 +88,7 @@ extension Workspace {
 
     func allowsLocalDirectoryFallback(panelId: UUID) -> Bool {
         if !usesRemoteDirectoryProvenance { return true }
+        if cloudDirectoryProvenanceRequired(panelId: panelId) { return false }
         guard !remoteDirectoryTrustRequiredPanelIds.contains(panelId),
               !isRemoteTerminalSurface(panelId),
               !isRemoteTmuxMirror else { return false }
@@ -112,9 +129,10 @@ extension Workspace {
     }
 
     func restoresLegacyRemoteDirectoryWithoutProvenance(_ snapshot: SessionPanelSnapshot) -> Bool {
-        guard remoteConfiguration != nil,
+        guard remoteConfiguration != nil || cloudVMBinding != nil,
               snapshot.directoryIsTrustedRemoteReport == nil,
               snapshot.directoryRequiresRemoteTrust == nil else { return false }
+        if cloudVMBinding != nil { return true }
         if let terminal = snapshot.terminal { return terminal.isRemoteTerminal != false }
         return snapshot.agentSession != nil
     }
@@ -282,11 +300,13 @@ extension Workspace {
     }
 
     var presentedGitBranch: SidebarGitBranchState? {
+        if let focusedPanelId, cloudDirectoryProvenanceRequired(panelId: focusedPanelId) { return nil }
         if usesRemoteDirectoryProvenance, presentedCurrentDirectory == nil { return nil }
         return gitBranch
     }
 
     func reportedPanelGitBranch(panelId: UUID) -> SidebarGitBranchState? {
+        guard !cloudDirectoryProvenanceRequired(panelId: panelId) else { return nil }
         guard let branch = panelGitBranches[panelId] else { return nil }
         if usesRemoteDirectoryProvenance, effectivePanelDirectory(panelId: panelId) == nil { return nil }
         return branch
@@ -301,4 +321,122 @@ extension Workspace {
         }
         return branches
     }
+
+    func updatePanelGitBranch(panelId: UUID, branch: String, isDirty: Bool) {
+        if cloudDirectoryProvenanceRequired(panelId: panelId) {
+            clearPanelGitBranch(panelId: panelId)
+            return
+        }
+        let state = SidebarGitBranchState(branch: branch, isDirty: isDirty)
+        let existing = panelGitBranches[panelId]
+        let branchChanged = existing?.branch != nil && existing?.branch != branch
+        if existing?.branch != branch || existing?.isDirty != isDirty {
+            panelGitBranches[panelId] = state
+        }
+        if branchChanged {
+            if panelPullRequests[panelId] != nil {
+                panelPullRequests.removeValue(forKey: panelId)
+            }
+            if panelId == focusedPanelId, pullRequest != nil {
+                pullRequest = nil
+            }
+        }
+        if panelId == focusedPanelId, gitBranch != state {
+            gitBranch = state
+        }
+    }
+
+    func clearPanelGitBranch(panelId: UUID) {
+        if panelGitBranches[panelId] != nil {
+            panelGitBranches.removeValue(forKey: panelId)
+        }
+        if panelPullRequests[panelId] != nil {
+            panelPullRequests.removeValue(forKey: panelId)
+        }
+        if panelId == focusedPanelId {
+            if gitBranch != nil {
+                gitBranch = nil
+            }
+            if pullRequest != nil {
+                pullRequest = nil
+            }
+        }
+    }
+
+    func updatePanelPullRequest(
+        panelId: UUID,
+        number: Int,
+        label: String,
+        url: URL,
+        status: SidebarPullRequestStatus,
+        branch: String? = nil,
+        isStale: Bool = false
+    ) {
+        if cloudDirectoryProvenanceRequired(panelId: panelId) {
+            clearPanelPullRequest(panelId: panelId)
+            return
+        }
+        let existing = panelPullRequests[panelId]
+        let normalizedBranch = branch?.normalizedSidebarBranchName
+        let currentPanelBranch = panelGitBranches[panelId]?.branch.normalizedSidebarBranchName
+        let resolvedBranch: String? = {
+            if let normalizedBranch {
+                return normalizedBranch
+            }
+            if let currentPanelBranch {
+                return currentPanelBranch
+            }
+            guard let existing,
+                  existing.number == number,
+                  existing.label == label,
+                  existing.url == url,
+                  existing.status == status else {
+                return nil
+            }
+            return existing.branch
+        }()
+        let state = SidebarPullRequestState(
+            number: number,
+            label: label,
+            url: url,
+            status: status,
+            branch: resolvedBranch,
+            isStale: isStale
+        )
+        if existing != state {
+            panelPullRequests[panelId] = state
+        }
+        if panelId == focusedPanelId, pullRequest != state {
+            pullRequest = state
+        }
+    }
+
+    func clearPanelPullRequest(panelId: UUID) {
+        if panelPullRequests[panelId] != nil {
+            panelPullRequests.removeValue(forKey: panelId)
+        }
+        if panelId == focusedPanelId, pullRequest != nil {
+            pullRequest = nil
+        }
+    }
+
+    func clearSidebarPullRequestMetadata() {
+        if !panelPullRequests.isEmpty {
+            panelPullRequests.removeAll()
+        }
+        if pullRequest != nil {
+            pullRequest = nil
+        }
+    }
+
+    func clearSidebarGitMetadata() {
+        if !panelGitBranches.isEmpty {
+            panelGitBranches.removeAll()
+        }
+        clearSidebarPullRequestMetadata()
+        if gitBranch != nil {
+            gitBranch = nil
+        }
+    }
+
 }

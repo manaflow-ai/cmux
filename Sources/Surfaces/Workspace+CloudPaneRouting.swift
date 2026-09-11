@@ -121,7 +121,6 @@ extension Workspace {
     }
 }
 
-
 /// Identifies one remote workspace placement for a local projection.
 struct CloudWorkspaceRemoteIdentity: Hashable, Sendable {
     let machine: SurfaceMachineID
@@ -227,8 +226,8 @@ final class CloudWorkspaceRenameService {
             machine: target.machine,
             remoteWorkspaceID: target.remoteWorkspaceID
         )
+        updateCloudDirectories(localWorkspaceID: localWorkspaceID, catalog: catalog)
     }
-
     /// The one remote cmux-tui workspace a local workspace stands for. The persisted
     /// binding wins; otherwise the projected cloud resources decide, but only when
     /// every view agrees on a single remote workspace — a local workspace composing
@@ -490,14 +489,15 @@ final class CloudWorkspaceRenameService {
                 propagateToCloud: false
             )
         }
-
         for projection in snapshot.projections where projection.resource.machine == machine {
             guard let workspace = localWorkspacesByID[projection.workspaceID],
-                  workspace.panels[projection.panelID] != nil,
-                  let resource = resourcesByID[projection.resource],
-                  resource.kind == .terminal
-            else { continue }
-
+                  workspace.panels[projection.panelID] != nil else { continue }
+            guard let resource = resourcesByID[projection.resource] else { continue }
+            guard resource.kind == .terminal else {
+                workspace.clearRemotePanelDirectory(panelId: projection.panelID)
+                continue
+            }
+            workspace.updateCloudPanelDirectory(panelId: projection.panelID, directory: resource.detail)
             let tabID = remoteTabID(for: projection, resource: resource)
             guard let tabID, let tab = tabsByID[tabID] else { continue }
             let intentKey = CloudRenameCoordinator.Key.tab(machine: machine, id: tabID)

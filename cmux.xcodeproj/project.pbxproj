@@ -3308,6 +3308,7 @@
 		8777E0018777E0018777E001 /* Workspace+AttentionFlashRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8777E0028777E0028777E002 /* Workspace+AttentionFlashRouting.swift */; };
 		CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */; };
 		C11323010000000000000001 /* Workspace+CloudManualMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11323020000000000000001 /* Workspace+CloudManualMirror.swift */; };
+		F3C1A7B40000000000000005 /* CloudWorkspaceRenameService+Directory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3C1A7B40000000000000006 /* CloudWorkspaceRenameService+Directory.swift */; };
 		65221C81A129236D52702D99 /* Workspace+CloudPaneRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5797FE9CD70513E4FFAC6EB /* Workspace+CloudPaneRouting.swift */; };
 		74ED9CE6230A97ED8BBCAB0C /* Workspace+CloudPlacementFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B46AEF9309B83E909710517 /* Workspace+CloudPlacementFailure.swift */; };
 		7806088FC566EAEFDB186931 /* Workspace+CloudVPNSetupPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5748A8176DB3678214B1436 /* Workspace+CloudVPNSetupPane.swift */; };
@@ -6782,6 +6783,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		8777E0028777E0028777E002 /* Workspace+AttentionFlashRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AttentionFlashRouting.swift"; sourceTree = "<group>"; };
 		CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CanvasLayout.swift"; sourceTree = "<group>"; };
 		C11323020000000000000001 /* Workspace+CloudManualMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudManualMirror.swift"; sourceTree = "<group>"; };
+		F3C1A7B40000000000000006 /* CloudWorkspaceRenameService+Directory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceRenameService+Directory.swift"; sourceTree = "<group>"; };
 		C5797FE9CD70513E4FFAC6EB /* Workspace+CloudPaneRouting.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudPaneRouting.swift"; sourceTree = "<group>"; };
 		2B46AEF9309B83E909710517 /* Workspace+CloudPlacementFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudPlacementFailure.swift"; sourceTree = "<group>"; };
 		E5748A8176DB3678214B1436 /* Workspace+CloudVPNSetupPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudVPNSetupPane.swift"; sourceTree = "<group>"; };
@@ -7420,6 +7422,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D01100800000000000000001 /* SurfaceCatalogQueryService.swift */,
 				278BEFB3583AED9627966DFF /* SurfaceSocketCommands.swift */,
 				47BBA1A8703756FDDFD53CF3 /* Workspace+SurfaceCatalog.swift */,
+				F3C1A7B40000000000000006 /* CloudWorkspaceRenameService+Directory.swift */,
 				C5797FE9CD70513E4FFAC6EB /* Workspace+CloudPaneRouting.swift */,
 				1EDD243C7C87A2AB78B12BAD /* LocalSurfaceProvider.swift */,
 				A1B2C3D4E5F6071827364960 /* CmuxTuiSurfaceProviderRegistry.swift */,
@@ -13306,6 +13309,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				8777E0018777E0018777E001 /* Workspace+AttentionFlashRouting.swift in Sources */,
 				CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */,
 				C11323010000000000000001 /* Workspace+CloudManualMirror.swift in Sources */,
+				F3C1A7B40000000000000005 /* CloudWorkspaceRenameService+Directory.swift in Sources */,
 				65221C81A129236D52702D99 /* Workspace+CloudPaneRouting.swift in Sources */,
 				74ED9CE6230A97ED8BBCAB0C /* Workspace+CloudPlacementFailure.swift in Sources */,
 				7806088FC566EAEFDB186931 /* Workspace+CloudVPNSetupPane.swift in Sources */,

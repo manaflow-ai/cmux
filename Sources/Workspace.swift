@@ -291,7 +291,16 @@ extension Workspace {
         // survive an app restart) inherits it through `newTerminalSurface`.
         workspaceEnvironment = Self.sanitizedWorkspaceEnvironment(snapshot.environment ?? [:])
 
-        let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
+        let cloudProjectedPanelIDs = Set(
+            (snapshot.surfaceProjections ?? []).filter { !$0.resource.machine.isLocal }.map(\.panelID)
+        )
+        let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { panel in
+            var panel = panel
+            if cloudProjectedPanelIDs.contains(panel.id), panel.directoryIsTrustedRemoteReport != true {
+                panel.directoryRequiresRemoteTrust = true
+            }
+            return (panel.id, panel)
+        })
         let restorableAgentIndex = restoreAgentIndex(for: snapshot.panels)
         let shouldRestoreSingleDefaultCloudTerminal =
             isDefaultFreestyleSSHDRemoteWorkspace &&
@@ -349,7 +358,10 @@ extension Workspace {
             clearProxyOnlyRemoteSidebarArtifacts()
         }
         progress = snapshot.progress.map { SidebarProgressState(value: $0.value, label: $0.label) }
-        gitBranch = snapshot.gitBranch.map { SidebarGitBranchState(branch: $0.branch, isDirty: $0.isDirty) }
+        let hasCloudProvenance = cloudVMBinding != nil || (snapshot.surfaceProjections ?? []).contains { !$0.resource.machine.isLocal }
+        gitBranch = hasCloudProvenance
+            ? nil
+            : snapshot.gitBranch.map { SidebarGitBranchState(branch: $0.branch, isDirty: $0.isDirty) }
 
         recomputeListeningPorts()
 
@@ -491,6 +503,9 @@ extension Workspace {
             ? (panelCustomTitleSources[panelId] ?? .user)
             : nil
         let directory: String? = {
+            if cloudDirectoryProvenanceRequired(panelId: panelId) {
+                return reportedPanelDirectory(panelId: panelId)
+            }
             if let directory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
                !directory.isEmpty {
                 return directory
@@ -1553,9 +1568,10 @@ extension Workspace {
             snapshot,
             workspaceId: snapshotWorkspaceId ?? id
         )
-        let restoresUntrustedSavedDirectory = snapshot.directoryIsTrustedRemoteReport != true &&
-            (snapshot.directoryRequiresRemoteTrust == true ||
-                restoresLegacyRemoteDirectoryWithoutProvenance(snapshot))
+        let restoresUntrustedSavedDirectory = cloudVMBinding != nil ||
+            (snapshot.directoryIsTrustedRemoteReport != true &&
+                (snapshot.directoryRequiresRemoteTrust == true ||
+                    restoresLegacyRemoteDirectoryWithoutProvenance(snapshot)))
         switch snapshot.type {
         case .terminal:
             let localTmuxStartCommand = sessionRestorePolicy
@@ -1726,7 +1742,7 @@ extension Workspace {
                 ?? (restoresUntrustedSavedDirectory ? nil : restorableAgent?.workingDirectory)
                 ?? (restoresUntrustedSavedDirectory ? nil : snapshot.directory)
             let workingDirectory = savedWorkingDirectory
-                ?? currentDirectory
+                ?? (restoresUntrustedSavedDirectory ? nil : currentDirectory)
             // A persisted terminal cwd can already be the stray fallback cwd
             // from a prior auto-resume restore; the transient rescue/guard must
             // remember where the resume launcher actually sends the agent.
@@ -2388,7 +2404,8 @@ extension Workspace {
 
         if restoredDirectoryRequiresRemoteTrust {
             clearPanelGitBranch(panelId: panelId)
-        } else if let branch = snapshot.gitBranch {
+        } else if let branch = snapshot.gitBranch,
+                  !cloudDirectoryProvenanceRequired(panelId: panelId) {
             panelGitBranches[panelId] = SidebarGitBranchState(branch: branch.branch, isDirty: branch.isDirty)
         } else {
             panelGitBranches.removeValue(forKey: panelId)
@@ -3075,7 +3092,19 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// machine's workspace. Set through `workspace.cloud_vm_bind` and persisted in the
     /// session snapshot (`SessionWorkspaceSnapshot.cloudVM`); the pane's one-shot link is
     /// not replayed on restore, only the binding is.
-    @Published var cloudVMBinding: WorkspaceCloudVMBinding?
+    @Published var cloudVMBinding: WorkspaceCloudVMBinding? {
+        didSet {
+            guard oldValue?.vmID != cloudVMBinding?.vmID else { return }
+            clearSidebarGitMetadata()
+            // A binding transition invalidates the previous machine's cwd
+            // report. Local PTY state can still be used after unbinding.
+            panelDirectories.removeAll()
+            panelDirectoryDisplayLabels.removeAll()
+            remoteDirectoryReportPanelIds.removeAll()
+            remoteDirectoryTrustRequiredPanelIds.removeAll()
+            notifyPresentedCurrentDirectoryChanged(from: nil, force: true)
+        }
+    }
 
     /// The binding a session snapshot restores, or nil when the snapshot has none or its
     /// machine id is malformed.
@@ -5913,6 +5942,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         remoteDirectoryTrustRequiredPanelIds.remove(panelId); remoteDirectoryReportPanelIds.remove(panelId)
     }
 
+    func clearRemotePanelDirectory(panelId: UUID) {
+        let previousPresentedDirectory = presentedCurrentDirectory
+        panelDirectories.removeValue(forKey: panelId)
+        panelDirectoryDisplayLabels.removeValue(forKey: panelId)
+        discardRemoteDirectoryTrustState(panelId: panelId)
+        clearPanelGitBranch(panelId: panelId)
+        if usesRemoteDirectoryProvenance {
+            notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: true)
+        }
+    }
+
     @discardableResult
     private func updatePanelDirectory(
         panelId: UUID,
@@ -5934,7 +5974,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         let previousPresentedDirectory = presentedCurrentDirectory
         let isRemoteTerminalReport = isRemoteTerminalSurface(panelId)
-        if source == .liveReport, remoteDirectoryTrustRequiredPanelIds.contains(panelId) { return false }
+        if source == .liveReport &&
+            (cloudDirectoryProvenanceRequired(panelId: panelId) ||
+                remoteDirectoryTrustRequiredPanelIds.contains(panelId)) {
+            return false
+        }
         let routedRemoteReport = source == .remoteReport && !allowsLocalDirectoryFallback(panelId: panelId)
         let establishesRemoteProvenance = source == .trustedRestoredRemoteSnapshotMetadata ||
             (source.establishesRemoteProvenance &&
@@ -6336,115 +6380,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return panel.isDirty
     }
 
-    func updatePanelGitBranch(panelId: UUID, branch: String, isDirty: Bool) {
-        let state = SidebarGitBranchState(branch: branch, isDirty: isDirty)
-        let existing = panelGitBranches[panelId]
-        let branchChanged = existing?.branch != nil && existing?.branch != branch
-        if existing?.branch != branch || existing?.isDirty != isDirty {
-            panelGitBranches[panelId] = state
-        }
-        if branchChanged {
-            if panelPullRequests[panelId] != nil {
-                panelPullRequests.removeValue(forKey: panelId)
-            }
-            if panelId == focusedPanelId, pullRequest != nil {
-                pullRequest = nil
-            }
-        }
-        if panelId == focusedPanelId, gitBranch != state {
-            gitBranch = state
-        }
-    }
-
-    func clearPanelGitBranch(panelId: UUID) {
-        if panelGitBranches[panelId] != nil {
-            panelGitBranches.removeValue(forKey: panelId)
-        }
-        if panelPullRequests[panelId] != nil {
-            panelPullRequests.removeValue(forKey: panelId)
-        }
-        if panelId == focusedPanelId {
-            if gitBranch != nil {
-                gitBranch = nil
-            }
-            if pullRequest != nil {
-                pullRequest = nil
-            }
-        }
-    }
-
-    func updatePanelPullRequest(
-        panelId: UUID,
-        number: Int,
-        label: String,
-        url: URL,
-        status: SidebarPullRequestStatus,
-        branch: String? = nil,
-        isStale: Bool = false
-    ) {
-        let existing = panelPullRequests[panelId]
-        let normalizedBranch = branch?.normalizedSidebarBranchName
-        let currentPanelBranch = panelGitBranches[panelId]?.branch.normalizedSidebarBranchName
-        let resolvedBranch: String? = {
-            if let normalizedBranch {
-                return normalizedBranch
-            }
-            if let currentPanelBranch {
-                return currentPanelBranch
-            }
-            guard let existing,
-                  existing.number == number,
-                  existing.label == label,
-                  existing.url == url,
-                  existing.status == status else {
-                return nil
-            }
-            return existing.branch
-        }()
-        let state = SidebarPullRequestState(
-            number: number,
-            label: label,
-            url: url,
-            status: status,
-            branch: resolvedBranch,
-            isStale: isStale
-        )
-        if existing != state {
-            panelPullRequests[panelId] = state
-        }
-        if panelId == focusedPanelId, pullRequest != state {
-            pullRequest = state
-        }
-    }
-
-    func clearPanelPullRequest(panelId: UUID) {
-        if panelPullRequests[panelId] != nil {
-            panelPullRequests.removeValue(forKey: panelId)
-        }
-        if panelId == focusedPanelId, pullRequest != nil {
-            pullRequest = nil
-        }
-    }
-
-    func clearSidebarPullRequestMetadata() {
-        if !panelPullRequests.isEmpty {
-            panelPullRequests.removeAll()
-        }
-        if pullRequest != nil {
-            pullRequest = nil
-        }
-    }
-
-    func clearSidebarGitMetadata() {
-        if !panelGitBranches.isEmpty {
-            panelGitBranches.removeAll()
-        }
-        clearSidebarPullRequestMetadata()
-        if gitBranch != nil {
-            gitBranch = nil
-        }
-    }
-
     func resetSidebarContext(reason: String = "unspecified") {
         statusEntries.removeAll()
         clearAllAgentPIDs(refreshPorts: false)
@@ -6625,6 +6560,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     func sidebarPullRequestsInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarPullRequestState] {
         let validPanelPullRequests = panelPullRequests.filter { panelId, state in
+            guard !cloudDirectoryProvenanceRequired(panelId: panelId) else { return false }
             if usesRemoteDirectoryProvenance, effectivePanelDirectory(panelId: panelId) == nil {
                 return false
             }

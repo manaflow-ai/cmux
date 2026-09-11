@@ -55,6 +55,8 @@ extension TerminalController {
         guard let tab = controlSidebarResolveTabForReport(tabArg: tabArg) else {
             return false
         }
+        if tab.cloudVMBinding != nil { tab.clearSidebarGitMetadata(); return true }
+        if let focusedPanelId = tab.focusedPanelId, tab.cloudDirectoryProvenanceRequired(panelId: focusedPanelId) { tab.clearPanelGitBranch(panelId: focusedPanelId); return true }
         guard SidebarWorkspaceDetailDefaults.gitMetadataActivity(defaults: .standard).acceptsPassiveReports else {
             tab.gitBranch = nil
             return true
