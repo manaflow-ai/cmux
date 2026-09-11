@@ -55,6 +55,50 @@ struct OwlNavigationStateTests {
         #expect(script.contains("--load-extension=\(extensionOne.path),\(extensionTwo.path)"))
     }
 
+    @Test("OWL extension snapshots stay owned and profile scoped")
+    func extensionSnapshotsAreProfileScoped() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-owl-extension-store-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let source = root.appendingPathComponent("source", isDirectory: true)
+        try fileManager.createDirectory(at: source, withIntermediateDirectories: true)
+        let manifest = "\"manifest_version\":3,\"name\":\"OWL test\",\"version\":\"1.0.0\",\"background\":{\"service_worker\":\"worker.js\"}"
+        try Data(("{" + manifest + "}").utf8).write(to: source.appendingPathComponent("manifest.json"))
+        try Data("self.owlTest = true;".utf8).write(to: source.appendingPathComponent("worker.js"))
+
+        let storage = ChromiumOwnedStorage(
+            fileManager: fileManager,
+            applicationSupportURLProvider: { root },
+            bundleIdentifierProvider: { "com.example.owl-extension-store" }
+        )
+        let store = ChromiumExtensionStore(storage: storage)
+        let firstProfile = UUID()
+        let secondProfile = UUID()
+        let firstSnapshot = try await store.prepare(
+            directories: [source.path],
+            profileID: firstProfile
+        )
+        let repeatSnapshot = try await store.prepare(
+            directories: [source.path],
+            profileID: firstProfile
+        )
+        let secondSnapshot = try await store.prepare(
+            directories: [source.path],
+            profileID: secondProfile
+        )
+
+        #expect(firstSnapshot.count == 1)
+        #expect(firstSnapshot == repeatSnapshot)
+        #expect(firstSnapshot.first != source)
+        #expect(secondSnapshot.first != firstSnapshot.first)
+        let snapshotManifest = try JSONSerialization.jsonObject(
+            with: Data(contentsOf: firstSnapshot[0].appendingPathComponent("manifest.json"))
+        ) as? [String: Any]
+        #expect(snapshotManifest?["key"] as? String != nil)
+    }
+
     @Test("OWL statement evaluation preserves a trailing completion expression")
     func statementBodyPreservesCompletionValue() {
         let body = OwlFreshRuntime.owlStatementBody(for: "const answer = 21; answer;")

@@ -24,6 +24,7 @@ public actor ChromiumBrowserSession {
     private let portAllocator: ChromiumLoopbackPortAllocator
     private let startupCoordinator: ChromiumBrowserStartupCoordinator
     private let extensionDirectoriesProvider: @Sendable () -> [URL]
+    private let extensionStore: ChromiumExtensionStore
     /// Main-actor policy used to pause and vet top-level document requests.
     private let navigationPolicyHandler: BrowserEngineNavigationPolicyHandler?
     /// Renderer-side observer used to mirror SPA title mutations.
@@ -128,6 +129,7 @@ public actor ChromiumBrowserSession {
         )
         self.portAllocator = ChromiumLoopbackPortAllocator()
         self.extensionDirectoriesProvider = environment.extensionDirectoriesProvider
+        self.extensionStore = ChromiumExtensionStore(storage: storage)
         self.navigationPolicyHandler = navigationPolicyHandler
         self.startupCoordinator = ChromiumBrowserStartupCoordinator(
             loopbackSession: environment.loopbackCDPSession,
@@ -209,10 +211,15 @@ public actor ChromiumBrowserSession {
                 for: profileID,
                 storageID: storageID
             )
+            let extensionDirectories = try await extensionStore.prepare(
+                directories: extensionDirectoriesProvider().map(\.path),
+                profileID: profileID
+            )
             if executable.lastPathComponent == "Content Shell" {
                 try await performOwlStart(
                     executable: executable,
                     profileDirectory: profileDirectory,
+                    extensionDirectories: extensionDirectories,
                     generation: generation
                 )
                 return
@@ -238,7 +245,7 @@ public actor ChromiumBrowserSession {
                 executableURL: executable,
                 profileDirectory: profileDirectory,
                 debuggingTransport: debuggingTransport,
-                extensionDirectories: extensionDirectoriesProvider()
+                extensionDirectories: extensionDirectories
             )
             let child = Process()
             let chromiumArguments = ChromiumLaunchArguments(configuration: configuration).values
@@ -367,12 +374,13 @@ public actor ChromiumBrowserSession {
     private func performOwlStart(
         executable: URL,
         profileDirectory: URL,
+        extensionDirectories: [URL],
         generation: UInt64
     ) async throws {
         let initialURL = currentURL ?? URL(string: "about:blank")!
         let owlShell = try OwlFreshRuntime.shellExecutable(
             for: executable,
-            extensionDirectories: extensionDirectoriesProvider(),
+            extensionDirectories: extensionDirectories,
             wrapperDirectory: profileDirectory
         )
         let runtime = try OwlFreshRuntime(
@@ -538,8 +546,20 @@ public actor ChromiumBrowserSession {
     @discardableResult
     public func stopAndWait() async -> Bool {
         let processIDs = Array(pendingProcesses.keys)
+        let owlRuntimeToStop = owlRuntime
+        let owlPollTaskToStop = owlPollTask
+        let owlReadinessTaskToStop = owlNavigationReadinessTask
         stop()
-        guard !processIDs.isEmpty else { return true }
+        owlPollTaskToStop?.cancel()
+        owlReadinessTaskToStop?.cancel()
+        await owlPollTaskToStop?.value
+        await owlReadinessTaskToStop?.value
+        let owlExited = if let owlRuntimeToStop {
+            await owlRuntimeToStop.shutdownAndWait()
+        } else {
+            true
+        }
+        guard !processIDs.isEmpty else { return owlExited }
 
         var allExited = true
         for processID in processIDs {
@@ -553,7 +573,7 @@ public actor ChromiumBrowserSession {
                 allExited = false
             }
         }
-        return allExited
+        return owlExited && allExited
     }
 
     /// Enables or suspends CDP viewport-frame delivery for the pane host.

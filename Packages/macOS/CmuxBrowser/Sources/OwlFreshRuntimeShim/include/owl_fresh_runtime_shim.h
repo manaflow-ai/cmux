@@ -13,6 +13,7 @@ void owl_shim_close(void);
 int owl_shim_global_init(void);
 OwlShimSession *owl_shim_session_create(const char *shell, const char *initial_url, const char *profile, OwlShimCallback callback, void *user_data);
 void owl_shim_session_destroy(OwlShimSession *session);
+int32_t owl_shim_session_host_pid(OwlShimSession *session);
 int owl_shim_bind_all(OwlShimSession *session);
 int owl_shim_navigate(OwlShimSession *session, const char *url);
 int owl_shim_resize(OwlShimSession *session, uint32_t width, uint32_t height, float scale);

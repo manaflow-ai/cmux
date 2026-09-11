@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import Darwin
 import OwlFreshRuntimeShim
 
 /// Owns one OWL Content Shell session and translates its native compositor events.
@@ -111,6 +112,41 @@ final class OwlFreshRuntime: @unchecked Sendable {
 
     deinit {
         if let session { owl_shim_session_destroy(session) }
+    }
+
+    /// Stops the Content Shell and waits until its host process has exited.
+    ///
+    /// The OWL runtime's destroy call requests shutdown and waits briefly, but
+    /// it can return while the host still owns the profile lock. Capture the
+    /// host PID before destroying the Mojo session, then keep the replacement
+    /// launch serialized until that process is gone.
+    func shutdownAndWait() async -> Bool {
+        guard let session else { return true }
+        let pid = owl_shim_session_host_pid(session)
+        self.session = nil
+        owl_shim_session_destroy(session)
+        guard pid > 0 else { return true }
+
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(15))
+        while processIsAlive(pid) {
+            if Task.isCancelled {
+                _ = Darwin.kill(pid, SIGKILL)
+                break
+            }
+            guard clock.now < deadline else {
+                _ = Darwin.kill(pid, SIGKILL)
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return !processIsAlive(pid)
+    }
+
+    private func processIsAlive(_ pid: Int32) -> Bool {
+        guard pid > 0 else { return false }
+        if Darwin.kill(pid, 0) == 0 { return true }
+        return errno != ESRCH
     }
 
     /// Waits for native Mojo work and dispatches callbacks without busy polling.
