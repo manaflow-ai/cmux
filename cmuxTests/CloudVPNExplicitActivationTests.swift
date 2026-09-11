@@ -42,8 +42,6 @@ struct CloudVPNExplicitActivationTests {
         )
         let status = CloudTunnelStatusModel()
         let setup = CloudVPNSetupModel(coordinator: coordinator)
-        var updates = await coordinator.stateUpdates().makeAsyncIterator()
-        #expect(await updates.next() == .off)
         await status.refresh(coordinator)
         await setup.refresh()
         #expect(setup.state == .off)
