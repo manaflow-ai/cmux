@@ -57,6 +57,16 @@ public struct PreferredEditorService: FileOpening {
     }
 
     public func open(_ url: URL) {
+        open(url, line: nil, column: nil)
+    }
+
+    /// Opens `url` at an optional 1-based line (and column) locator.
+    ///
+    /// When a line is given and a command is configured, the argument is the
+    /// `path:line[:col]` locator form that Zed, VS Code (`code`), and Sublime
+    /// accept. The capture seam and the system-default fallback always receive
+    /// the bare path — non-editor handlers cannot take a position.
+    public func open(_ url: URL, line: Int?, column: Int?) {
         if capture.appendLineIfConfigured(
             envKey: "CMUX_UI_TEST_CAPTURE_OPEN_PATH",
             line: url.path
@@ -69,9 +79,17 @@ public struct PreferredEditorService: FileOpening {
             return
         }
 
+        var argument = url.path
+        if let line {
+            argument += ":\(line)"
+            if let column {
+                argument += ":\(column)"
+            }
+        }
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "\(command) \(url.path.posixShellSingleQuoted)"]
+        process.arguments = ["-c", "\(command) \(argument.posixShellSingleQuoted)"]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
 

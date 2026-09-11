@@ -153,6 +153,16 @@ extension String {
             }
         }
 
+        // `path:line` / `path:line:col` locators (compiler output, grep -n,
+        // stack traces) point at the file itself. Probe the locator-stripped
+        // spelling after every literal candidate, so a real file whose name
+        // ends in a colon-number still wins first.
+        for candidate in candidates {
+            if let stripped = candidate.splittingTrailingLineColumn()?.token {
+                append(stripped)
+            }
+        }
+
         return candidates
     }
 

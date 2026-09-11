@@ -97,6 +97,66 @@ struct PreferredEditorServiceTests {
         #expect(opener.openedURLs.isEmpty)
     }
 
+    @Test func configuredCommandReceivesLineColumnLocator() async throws {
+        let scratch = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let marker = scratch.appendingPathComponent("received.txt")
+        let script = scratch.appendingPathComponent("editor.sh")
+        try #"""
+        #!/bin/sh
+        printf %s "$1" > '\#(marker.path)'
+        """#.write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: script.path
+        )
+
+        let opener = RecordingSystemOpener()
+        let service = PreferredEditorService(
+            editor: FixedEditor(resolvedCommand: script.path),
+            capture: UITestCaptureSink(environment: [:]),
+            systemOpener: opener
+        )
+
+        service.open(URL(fileURLWithPath: "/tmp/state.js"), line: 87, column: 12)
+
+        for _ in 0..<200 where !FileManager.default.fileExists(atPath: marker.path) {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        let received = try String(contentsOf: marker, encoding: .utf8)
+        #expect(received == "/tmp/state.js:87:12")
+        #expect(opener.openedURLs.isEmpty)
+    }
+
+    @Test func lineOnlyLocatorOmitsColumn() async throws {
+        let scratch = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let marker = scratch.appendingPathComponent("received.txt")
+        let script = scratch.appendingPathComponent("editor.sh")
+        try #"""
+        #!/bin/sh
+        printf %s "$1" > '\#(marker.path)'
+        """#.write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: script.path
+        )
+
+        let opener = RecordingSystemOpener()
+        let service = PreferredEditorService(
+            editor: FixedEditor(resolvedCommand: script.path),
+            capture: UITestCaptureSink(environment: [:]),
+            systemOpener: opener
+        )
+
+        service.open(URL(fileURLWithPath: "/tmp/state.js"), line: 87, column: nil)
+
+        for _ in 0..<200 where !FileManager.default.fileExists(atPath: marker.path) {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        let received = try String(contentsOf: marker, encoding: .utf8)
+        #expect(received == "/tmp/state.js:87")
+        #expect(opener.openedURLs.isEmpty)
+    }
+
     @Test func failingCommandFallsBackToSystemOpen() async {
         let opener = RecordingSystemOpener()
         let service = PreferredEditorService(

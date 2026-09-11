@@ -239,3 +239,81 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         )
     }
 }
+
+
+@Suite struct TerminalTrailingLineColumnTests {
+    @Test func splitsLineOnlyLocator() {
+        let split = "src/state.js:87".splittingTrailingLineColumn()
+        #expect(split?.token == "src/state.js")
+        #expect(split?.position == TerminalFileLinePosition(line: 87, column: nil))
+    }
+
+    @Test func splitsLineAndColumnLocator() {
+        let split = "/abs/state.js:87:12".splittingTrailingLineColumn()
+        #expect(split?.token == "/abs/state.js")
+        #expect(split?.position == TerminalFileLinePosition(line: 87, column: 12))
+    }
+
+    @Test func ignoresPathWithoutNumericSuffix() {
+        #expect("/abs/state.js".splittingTrailingLineColumn() == nil)
+        #expect("/abs/state.js:".splittingTrailingLineColumn() == nil)
+        #expect("/abs/state.js:noline".splittingTrailingLineColumn() == nil)
+    }
+
+    @Test func rejectsZeroAndEmptyToken() {
+        #expect("/abs/state.js:0".splittingTrailingLineColumn() == nil)
+        #expect(":87".splittingTrailingLineColumn() == nil)
+    }
+
+    @Test func locatorForwardsPositionWhenResolvedPathHasNoSuffix() {
+        #expect(
+            TerminalFilePathLineLocator.position(
+                rawToken: "src/state.js:87",
+                resolvedPath: "/repo/src/state.js"
+            ) == TerminalFileLinePosition(line: 87, column: nil)
+        )
+    }
+
+    @Test func locatorSkipsPositionWhenResolvedFileEndsInColonNumber() {
+        // A real file literally named `weird:87`: the digits are the name.
+        #expect(
+            TerminalFilePathLineLocator.position(
+                rawToken: "weird:87",
+                resolvedPath: "/repo/weird:87"
+            ) == nil
+        )
+    }
+}
+
+@Suite struct TerminalLineColumnLocatorResolutionTests {
+    @Test func resolvesLineLocatorToTheFileItself() {
+        let existingFile = "/repo/src/state.js"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveQuicklookPath(
+                "src/state.js:87",
+                cwd: "/repo"
+            ) == existingFile
+        )
+    }
+
+    @Test func resolvesLineColumnLocatorToTheFileItself() {
+        let existingFile = "/repo/src/state.js"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveQuicklookPath(
+                "src/state.js:87:12",
+                cwd: "/repo"
+            ) == existingFile
+        )
+    }
+
+    @Test func prefersLiteralFileEndingInColonNumberOverStrippedForm() {
+        let literalFile = "/repo/weird:87"
+        let strippedFile = "/repo/weird"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([literalFile, strippedFile])).resolveQuicklookPath(
+                "weird:87",
+                cwd: "/repo"
+            ) == literalFile
+        )
+    }
+}
