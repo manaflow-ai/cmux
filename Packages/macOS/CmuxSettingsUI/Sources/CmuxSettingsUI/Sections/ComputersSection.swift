@@ -7,6 +7,10 @@ public struct ComputersSection: View {
     @State private var devices: DefaultsValueModel<Bool>
     @State private var discoveryManaged = ManagedDevicePolicy().isDeviceDiscoveryDisabled
     @State private var incomingAccessManaged = ManagedDevicePolicy().isIncomingDeviceAccessDisabled
+    /// The My Devices beta itself is locked only by the remote-control ban, the
+    /// same rule Beta Features applies. An independent discovery policy locks
+    /// the discovery toggle below, not this switch.
+    @State private var devicesManaged = ManagedDevicePolicy().isEnforced(.disableRemoteControl)
     @State private var isRefreshing = false
 
     public init(hostActions: SettingsHostActions, defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
@@ -74,6 +78,7 @@ public struct ComputersSection: View {
                 let policy = ManagedDevicePolicy()
                 discoveryManaged = policy.isDeviceDiscoveryDisabled
                 incomingAccessManaged = policy.isIncomingDeviceAccessDisabled
+                devicesManaged = policy.isEnforced(.disableRemoteControl)
             }
         }
     }
@@ -92,14 +97,14 @@ public struct ComputersSection: View {
     private var optionsMenu: some View {
         Menu {
             Toggle(String(localized: "settings.betaFeatures.devices", defaultValue: "My Devices"), isOn: Binding(
-                get: { devices.current && !discoveryManaged },
+                get: { devices.current && !devicesManaged },
                 set: {
-                    guard !discoveryManaged else { return }
+                    guard !devicesManaged else { return }
                     devices.set($0)
                     NotificationCenter.default.post(name: Notification.Name("rightSidebarBetaFeatureDidChange"), object: nil)
                 }
             ))
-            .disabled(discoveryManaged)
+            .disabled(devicesManaged)
             .help(String(localized: "settings.computers.optIn", defaultValue: "Show your other Macs and their workspaces in the sidebar."))
             .accessibilityIdentifier("SettingsComputersEnabled")
             Divider()
