@@ -51,6 +51,8 @@ struct CloudTreeMachineMenuTests {
             Self.title("machines.menu.fork", "Fork"),
             Self.title("machines.menu.delete", "Delete\u{2026}"),
         ])
+        try Self.choose(Self.title("machines.menu.setupVPN", "Set Up cmux VPN…"), in: menu)
+        #expect(recorder.vpnSetupCount == 1)
         // Every verb is a leaf: nothing opens a submenu of targets.
         #expect(menu.items.allSatisfy { $0.submenu == nil })
 
@@ -107,6 +109,7 @@ struct CloudTreeMachineMenuTests {
 
     private static func machineActions(recording recorder: CloudTreeMenuVerbRecorder) -> MachineRowActions {
         MachineRowActions(
+            setupVPN: { recorder.vpnSetupCount += 1 },
             openShell: { _ in },
             openDesktop: { _ in },
             runCommand: { id, verb in recorder.commands.append((id: id, verb: verb)) },
@@ -142,6 +145,7 @@ struct CloudTreeMachineMenuTests {
 /// wired to its closure and not merely titled.
 @MainActor
 private final class CloudTreeMenuVerbRecorder {
+    var vpnSetupCount = 0
     var newTerminals: [SurfaceMachineID] = []
     var commands: [(id: String, verb: [String])] = []
     var deletions: [String] = []
