@@ -31,11 +31,6 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
                 "workspace_id": workspaceID, "surface_id": leaderSurfaceID,
                 "direction": "right", "focus": false,
             ]),
-            ("surface.respawn", [
-                "workspace_id": workspaceID, "surface_id": leaderSurfaceID,
-                "command": "/bin/sh -c 'cd /data00/remote-only && claude --agent-id t1@team'",
-                "tmux_start_command": "cd /data00/remote-only && claude --agent-id t1@team",
-            ]),
             ("workspace.equalize_splits", ["workspace_id": workspaceID, "orientation": "vertical"]),
             ("surface.send_text", ["workspace_id": workspaceID, "surface_id": leaderSurfaceID, "text": "ls\n"]),
             ("surface.close", ["workspace_id": workspaceID, "surface_id": leaderSurfaceID]),
@@ -47,6 +42,13 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
             #expect(authorization.request.method == method)
             #expect(authorization.request.params["_cmux_remote_relay_request_authentication_code"] == nil)
         }
+
+        let respawn = try fixture.authorize(method: "surface.respawn", params: [
+            "workspace_id": workspaceID,
+            "surface_id": leaderSurfaceID,
+            "command": "echo remote",
+        ])
+        #expect(respawn.errorResponse?.contains("remote_relay_method_denied") == true)
     }
 
     @Test
@@ -61,10 +63,10 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
         let closedWorkspace = try fixture.authorize(method: "workspace.close", params: ["workspace_id": workspaceID])
         #expect(closedWorkspace.errorResponse?.contains("remote_relay_method_denied") == true)
 
-        let foreignSurface = try fixture.authorize(method: "surface.respawn", params: [
+        let foreignSurface = try fixture.authorize(method: "surface.send_text", params: [
             "workspace_id": workspaceID,
             "surface_id": UUID().uuidString,
-            "command": "echo foreign",
+            "text": "echo foreign",
         ])
         #expect(foreignSurface.errorResponse?.contains("remote_relay_surface_denied") == true)
 

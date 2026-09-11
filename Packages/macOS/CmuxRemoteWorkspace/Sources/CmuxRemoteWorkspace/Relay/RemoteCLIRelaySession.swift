@@ -44,7 +44,6 @@ extension RemoteCLIRelayServer {
         private let relayID: String
         private let relayToken: Data
         private let commandEvaluator: (Data) -> CommandDisposition
-        private let createdIDRecorder: (Data, Data) -> Void
         private let queue: DispatchQueue
         private let clock: any RemoteProxyRetryClock
         private let onClose: () -> Void
@@ -52,12 +51,15 @@ extension RemoteCLIRelayServer {
         private let challengeVersion = 1
         private let minimumFailureDelay: TimeInterval = 0.05
         private let maximumFrameBytes = 16 * 1024
+        private let maximumResponseBytes = 1024 * 1024
+        private let maximumSessionMilliseconds = 30_000
 
         private var buffer = Data()
         private var phase: Phase = .awaitingAuth
         private var challengeNonce = ""
         private var challengeSentAt = Date()
         private var isClosed = false
+        private var deadlineTask: Task<Void, Never>?
 
         init(
             connection: NWConnection,
@@ -65,7 +67,6 @@ extension RemoteCLIRelayServer {
             relayID: String,
             relayToken: Data,
             commandEvaluator: @escaping (Data) -> CommandDisposition,
-            createdIDRecorder: @escaping (Data, Data) -> Void = { _, _ in },
             queue: DispatchQueue,
             clock: any RemoteProxyRetryClock,
             onClose: @escaping () -> Void
@@ -75,13 +76,21 @@ extension RemoteCLIRelayServer {
             self.relayID = relayID
             self.relayToken = relayToken
             self.commandEvaluator = commandEvaluator
-            self.createdIDRecorder = createdIDRecorder
             self.queue = queue
             self.clock = clock
             self.onClose = onClose
         }
 
         func start() {
+            deadlineTask = Task { [weak self, clock] in
+                guard (try? await clock.sleep(forMilliseconds: self?.maximumSessionMilliseconds ?? 30_000)) != nil else {
+                    return
+                }
+                guard let self else { return }
+                self.queue.async {
+                    self.close()
+                }
+            }
             connection.stateUpdateHandler = { [weak self] state in
                 guard let self else { return }
                 self.queue.async {
@@ -110,7 +119,11 @@ extension RemoteCLIRelayServer {
 
         private func sendChallenge() {
             challengeSentAt = Date()
-            challengeNonce = Self.randomHex(byteCount: 16)
+            guard let nonce = Self.randomHex(byteCount: 16) else {
+                close()
+                return
+            }
+            challengeNonce = nonce
             let challenge: [String: Any] = [
                 "protocol": challengeProtocol,
                 "version": challengeVersion,
@@ -207,19 +220,21 @@ extension RemoteCLIRelayServer {
             }
         }
 
-        private func forwardCommandLine(_ forwardedCommandLine: Data) {
-            DispatchQueue.global(qos: .utility).async { [localSocketPath, forwardedCommandLine, queue] in
+    private func forwardCommandLine(_ forwardedCommandLine: Data) {
+            let maximumResponseBytes = self.maximumResponseBytes
+            DispatchQueue.global(qos: .utility).async {
+                [localSocketPath, forwardedCommandLine, queue, maximumResponseBytes] in
                 let result = Result {
-                    try Self.roundTripUnixSocket(socketPath: localSocketPath, request: forwardedCommandLine)
+                    try Self.roundTripUnixSocket(
+                        socketPath: localSocketPath,
+                        request: forwardedCommandLine,
+                        maximumResponseBytes: maximumResponseBytes
+                    )
                 }
                 queue.async { [weak self] in
                     guard let self else { return }
                     switch result {
                     case .success(let response):
-                        // Record IDs returned by allowed creates before the
-                        // response reaches the remote, so follow-up commands
-                        // naming those IDs pass the authorization gate.
-                        self.createdIDRecorder(forwardedCommandLine, response)
                         self.connection.send(content: response, completion: .contentProcessed { [weak self] _ in
                             guard let self else { return }
                             self.queue.async {
@@ -301,6 +316,8 @@ extension RemoteCLIRelayServer {
             guard !isClosed else { return }
             isClosed = true
             phase = .closed
+            deadlineTask?.cancel()
+            deadlineTask = nil
             connection.stateUpdateHandler = nil
             connection.cancel()
             onClose()
@@ -339,13 +356,19 @@ extension RemoteCLIRelayServer {
             return data
         }
 
-        private static func randomHex(byteCount: Int) -> String {
+        private static func randomHex(byteCount: Int) -> String? {
             var bytes = [UInt8](repeating: 0, count: byteCount)
-            _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+            guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
+                return nil
+            }
             return bytes.map { String(format: "%02x", $0) }.joined()
         }
 
-        private static func roundTripUnixSocket(socketPath: String, request: Data) throws -> Data {
+        private static func roundTripUnixSocket(
+            socketPath: String,
+            request: Data,
+            maximumResponseBytes: Int
+        ) throws -> Data {
             let fd = socket(AF_UNIX, SOCK_STREAM, 0)
             guard fd >= 0 else {
                 throw NSError(domain: "cmux.remote.relay", code: 1, userInfo: [
@@ -410,6 +433,11 @@ extension RemoteCLIRelayServer {
             while true {
                 let count = Darwin.read(fd, &scratch, scratch.count)
                 if count > 0 {
+                    guard response.count <= maximumResponseBytes - count else {
+                        throw NSError(domain: "cmux.remote.relay", code: 6, userInfo: [
+                            NSLocalizedDescriptionKey: "local cmux response is too large",
+                        ])
+                    }
                     response.append(scratch, count: count)
                     continue
                 }

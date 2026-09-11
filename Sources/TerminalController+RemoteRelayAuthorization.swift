@@ -143,8 +143,11 @@ extension TerminalController {
         // surfaces and can be enumerated directly.  Remote tmux mirrors
         // own projected surfaces outside that index, so include their
         // published topology in the same linear snapshot.
-        var surfaceIDs = Set(workspace.panels.keys)
-        surfaceIDs.formUnion(workspace.surfaceIdToPanelId.keys.map(\.uuid))
+        // Only live remote terminal identities are relay-owned.  A remote
+        // workspace can also contain local/browser panels created by the user;
+        // container membership alone must never authorize local input, shell
+        // creation, or scrollback reads for those panels.
+        var surfaceIDs = workspace.activeRemoteTerminalSurfaceIds
         for mirror in workspace.remoteTmuxWindowMirrors.values {
             surfaceIDs.formUnion(mirror.surfaceIDsInLayoutOrder)
         }
@@ -171,6 +174,21 @@ extension TerminalController {
                 message: message
             )
         )
+    }
+
+    /// Revalidates the relay owner at the main-actor target-resolution boundary.
+    /// An ingress snapshot cannot grant authority after a surface becomes local.
+    func remoteRelayTargetIsCurrent(
+        routing: ControlRoutingSelectors,
+        workspace: Workspace,
+        surfaceID: UUID? = nil
+    ) -> Bool {
+        guard let owner = routing.remoteRelayOwnerWorkspaceID else { return true }
+        guard workspace.id == owner,
+              let configuration = workspace.remoteConfiguration,
+              configuration.ownerWorkspaceID == owner else { return false }
+        guard let surfaceID = surfaceID ?? routing.surfaceID else { return true }
+        return workspace.isRemoteTerminalContext(surfaceID)
     }
 
 }

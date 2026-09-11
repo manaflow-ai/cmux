@@ -322,6 +322,13 @@ extension TerminalController {
         case .unresolved(let resolution): return resolution
         case .surface(let id): requestedSurfaceID = id
         }
+        guard remoteRelayTargetIsCurrent(
+            routing: routing,
+            workspace: ws,
+            surfaceID: requestedSurfaceID
+        ) else {
+            return .surfaceNotFoundForID
+        }
         guard ws.controlTerminalTarget(for: requestedSurfaceID) != nil else {
             return .surfaceNotTerminal(requestedSurfaceID)
         }
@@ -421,6 +428,13 @@ extension TerminalController {
         ) {
         case .unresolved(let resolution): return resolution
         case .surface(let id): requestedSurfaceID = id
+        }
+        guard remoteRelayTargetIsCurrent(
+            routing: routing,
+            workspace: ws,
+            surfaceID: requestedSurfaceID
+        ) else {
+            return .surfaceNotFoundForID
         }
         guard ws.controlTerminalTarget(for: requestedSurfaceID) != nil else {
             return .surfaceNotTerminal(requestedSurfaceID)

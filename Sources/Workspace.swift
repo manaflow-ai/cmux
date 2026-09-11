@@ -7396,7 +7396,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             // authorization gate treats exactly these local objects as
             // remote-owned (GHSA-9vmv-3hjw-j28c).
             workspaceAliases[id] = id
-            for panelId in panels.keys {
+            for panelId in activeRemoteTerminalSurfaceIds {
                 surfaceAliases[panelId] = panelId
             }
         }

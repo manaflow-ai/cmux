@@ -285,7 +285,8 @@ public final class ControlCommandCoordinator {
             surfaceID: uuid(params, "surface_id")
                 ?? uuid(params, "terminal_id")
                 ?? uuid(params, "tab_id"),
-            paneID: uuid(params, "pane_id")
+            paneID: uuid(params, "pane_id"),
+            remoteRelayOwnerWorkspaceID: uuid(params, "_cmux_remote_workspace_id")
         )
     }
 }

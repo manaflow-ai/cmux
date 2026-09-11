@@ -24,7 +24,16 @@ private final class RecordingRelayRewriter: RemoteRelayCommandRewriting, @unchec
         lock.lock()
         _calls.append((workspaceAliases, surfaceAliases))
         lock.unlock()
-        return Data("rewritten:".utf8) + commandLine
+        guard let line = String(data: commandLine, encoding: .utf8),
+              let data = line.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
+              var request = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return commandLine
+        }
+        var params = request["params"] as? [String: Any] ?? [:]
+        params["_cmux_remote_workspace_id"] = UUID().uuidString
+        params["_cmux_remote_relay_request_authentication_code"] = "test"
+        request["params"] = params
+        return (try? JSONSerialization.data(withJSONObject: request)).map { $0 + Data([0x0A]) } ?? commandLine
     }
 }
 
@@ -218,13 +227,12 @@ struct RemoteCLIRelayServerTests {
         })
 
         // Forward one command; response comes from the fake unix socket.
-        client.send(Data((#"{"id":"1","method":"workspace.list","params":{}}"# + "\n").utf8))
+        client.send(Data((#"{"id":"1","method":"system.ping","params":{}}"# + "\n").utf8))
         #expect(client.wait { data, closed in
             String(decoding: data, as: UTF8.self).contains("\"result\":42") && closed
         })
         #expect(
-            String(decoding: unixServer.request, as: UTF8.self)
-                == #"rewritten:{"id":"1","method":"workspace.list","params":{}}"# + "\n"
+            String(decoding: unixServer.request, as: UTF8.self).contains("_cmux_remote_workspace_id")
         )
         let call = try #require(rewriter.calls.first)
         #expect(call.workspace == [workspaceAlias.remote: workspaceAlias.local])
