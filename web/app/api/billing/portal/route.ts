@@ -1,6 +1,7 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import type * as StackLib from "../../../lib/stack";
+import { requestOrigin, requestWithOrigin } from "../../../lib/request-origin";
 
 import { cloudDb } from "../../../../db/client";
 import { stripeCustomers } from "../../../../db/schema";
@@ -16,8 +17,6 @@ import {
 } from "../../../../services/billing/stripe";
 import { resolveBillingTeam } from "../../../../services/billing/teamResolution";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 type GetStackServerApp = typeof StackLib.getStackServerApp;
@@ -29,7 +28,10 @@ export async function GET(request: NextRequest) {
       cmux_ios_app_store: request.nextUrl.searchParams.get("cmux_ios_app_store"),
     })
   ) {
-    return NextResponse.redirect(appStorePricingUnavailableURL(request.nextUrl), 302);
+    return NextResponse.redirect(
+      appStorePricingUnavailableURL(requestWithOrigin(request).nextUrl),
+      302,
+    );
   }
 
   // Keep Stack deferred until after the App Store distribution gate. lib/stack
@@ -44,7 +46,7 @@ export async function GET(request: NextRequest) {
   try {
     const user = await currentStackUser(getStackServerApp);
     if (!user) {
-      return NextResponse.redirect(new URL("/pricing", request.url), 302);
+      return NextResponse.redirect(new URL("/pricing", requestOrigin(request)), 302);
     }
     stackUserId = user.id;
 
@@ -71,8 +73,8 @@ export async function GET(request: NextRequest) {
     const session = await stripe().billingPortal.sessions.create({
       customer: customerId,
       return_url: new URL(
-        team ? "/dashboard/billing" : "/pricing",
-        request.nextUrl.origin,
+        "/dashboard/billing",
+        requestOrigin(request),
       ).toString(),
     });
     if (!session.url) {
@@ -101,7 +103,12 @@ async function stripeCustomerIdForStackUser(stackUserId: string): Promise<string
   const rows = await cloudDb()
     .select({ id: stripeCustomers.id })
     .from(stripeCustomers)
-    .where(eq(stripeCustomers.stackUserId, stackUserId))
+    .where(
+      and(
+        eq(stripeCustomers.stackUserId, stackUserId),
+        isNull(stripeCustomers.stackTeamId),
+      ),
+    )
     .limit(1);
   return rows[0]?.id ?? null;
 }
@@ -120,7 +127,7 @@ function billingPortalScope(raw: string | null): "user" | "team" {
 }
 
 function pricingRedirect(request: NextRequest, billing: "unavailable" | "error") {
-  return NextResponse.redirect(new URL(`/pricing?billing=${billing}`, request.url), 302);
+  return NextResponse.redirect(new URL(`/pricing?billing=${billing}`, requestOrigin(request)), 302);
 }
 
 function isStripePortalConfigurationError(error: unknown): boolean {

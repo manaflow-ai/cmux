@@ -163,6 +163,33 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         }
     }
 
+    func runIrohConnectionCheck() async -> CmxIrohConnectionCheckReport {
+        await refreshIrohSettings()
+        let snapshot = await irohSettingsSnapshot()
+        let diagnostics = await irohDiagnosticReport()
+        let relayReachability: CmxIrohConnectionCheckReport.RelayReachability
+        if transportVerificationMode == .directOnly {
+            // Relays are administratively excluded by the transport mode; a
+            // failed relay probe here must not send users to corporate IT.
+            relayReachability = .notConfigured
+        } else if let profile = await relayPolicyService?.effectivePolicy()?.endpointRelayProfile,
+                  !profile.allowedRelayURLs.isEmpty {
+            if let isReachable = await runtime?.hasReachableRelay(in: profile.allowedRelayURLs) {
+                relayReachability = isReachable ? .reachable : .unreachable
+            } else {
+                relayReachability = .unavailable
+            }
+        } else {
+            relayReachability = .notConfigured
+        }
+        return CmxIrohConnectionCheckReport(
+            role: .macHost,
+            snapshot: snapshot,
+            diagnostics: diagnostics,
+            relayReachability: relayReachability
+        )
+    }
+
     func refreshIrohSettings() async {
         guard let context = try? relaySettingsContext() else {
             publishIrohSettingsUpdate()

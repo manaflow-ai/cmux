@@ -3,11 +3,20 @@ public import Foundation
 /// Resolves macOS browser omnibar text into a URL that can be loaded directly.
 ///
 /// Search-engine fallback remains the caller's responsibility. The resolver
-/// handles web URLs, local development hosts, scheme-less hosts, and absolute
-/// file URLs after canonicalizing line breaks introduced by wrapped pastes.
+/// handles explicit web/file URLs, bare POSIX or tilde paths, local development
+/// hosts, and scheme-less hosts after canonicalizing line breaks introduced by
+/// wrapped pastes.
 public struct BrowserURLResolver: Sendable {
+    private let homeDirectoryURL: URL
+
     /// Creates a browser URL resolver.
-    public init() {}
+    ///
+    /// - Parameter homeDirectoryURL: The home directory used to expand `~` paths.
+    ///   Production callers use the current user's home directory; tests can
+    ///   provide a stable URL without consulting the process environment.
+    public init(homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser) {
+        self.homeDirectoryURL = homeDirectoryURL
+    }
 
     /// Prepares raw pasteboard text for insertion into a single-line omnibar.
     ///
@@ -34,7 +43,10 @@ public struct BrowserURLResolver: Sendable {
         )
         guard !trimmed.isEmpty else { return nil }
         guard !trimmed.contains(where: { $0.isNewline || $0 == "\t" }) else { return nil }
-        if let url = webURL(from: trimmed) {
+        if let url = explicitURL(from: trimmed) {
+            return url
+        }
+        if let url = localFileURL(from: trimmed) {
             return url
         }
         guard !hasSchemeLessUserInfo(in: trimmed) else { return nil }
@@ -60,6 +72,46 @@ public struct BrowserURLResolver: Sendable {
             return URL(string: "https://\(trimmed)")
         }
         return nil
+    }
+
+    /// Returns a URL for an explicit scheme already present in the input.
+    ///
+    /// The omnibar intentionally keeps its existing web/file allowlist: other
+    /// schemes are handled by the browser's external-navigation paths rather
+    /// than being loaded as typed omnibar destinations.
+    private func explicitURL(from input: String) -> URL? {
+        guard let url = URL(string: input),
+              let scheme = url.scheme?.lowercased() else {
+            return nil
+        }
+
+        switch scheme {
+        case "http", "https":
+            return webURL(from: input)
+        case "file":
+            guard url.isFileURL, url.path.hasPrefix("/") else { return nil }
+            return url
+        default:
+            return nil
+        }
+    }
+
+    /// Converts a syntactically local absolute path into a file URL.
+    private func localFileURL(from input: String) -> URL? {
+        let path: String
+        if input.hasPrefix("/") {
+            path = input
+        } else if input == "~" {
+            path = homeDirectoryURL.path
+        } else if input.hasPrefix("~/"), homeDirectoryURL.path.hasPrefix("/") {
+            path = homeDirectoryURL
+                .appending(path: String(input.dropFirst(2)))
+                .path
+        } else {
+            return nil
+        }
+
+        return URL(fileURLWithPath: path)
     }
 
     private func canonicalNavigationText(_ trimmed: String) -> String {

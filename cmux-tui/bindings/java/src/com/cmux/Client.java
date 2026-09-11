@@ -268,19 +268,41 @@ public final class Client implements AutoCloseable {
             transport = builder.transport;
         } else {
             Path socket = SocketDiscovery.resolve(builder.socket, builder.session);
+            Transport openedTransport;
             try {
-                transport = new UnixTransport(
+                openedTransport = new UnixTransport(
                     socket,
                     builder.maxRequestBytes,
-                    builder.maxResponseBytes
+                    builder.maxResponseBytes,
+                    timeout
                 );
             } catch (IOException | UnsupportedOperationException error) {
-                throw new TransportError(
-                    "cannot connect to Unix session socket " + socket +
-                        "; inject a Transport on platforms without Unix-domain sockets",
-                    error
-                );
+                Path fallback = SocketDiscovery.legacyRawFallback(socket, builder.session);
+                if (fallback != null) {
+                    try {
+                        openedTransport = new UnixTransport(
+                            fallback,
+                            builder.maxRequestBytes,
+                            builder.maxResponseBytes,
+                            timeout
+                        );
+                    } catch (IOException | UnsupportedOperationException fallbackError) {
+                        fallbackError.addSuppressed(error);
+                        throw new TransportError(
+                            "cannot connect to Unix session socket " + socket +
+                                " or legacy fallback " + fallback,
+                            fallbackError
+                        );
+                    }
+                } else {
+                    throw new TransportError(
+                        "cannot connect to Unix session socket " + socket +
+                            "; inject a Transport on platforms without Unix-domain sockets",
+                        error
+                    );
+                }
             }
+            transport = openedTransport;
         }
         reader = new Thread(this::readLoop, "cmux-resource-api-reader");
         reader.setDaemon(true);
@@ -747,6 +769,7 @@ public final class Client implements AutoCloseable {
         StreamRoute route = new StreamRoute(cancelParams, decoder);
         streams.put(streamId, route);
         input.put(Wire.STREAM_ID, streamId);
+        String attachmentLease = null;
         try {
             Object openedValue = requestValue(
                 operation,
@@ -762,12 +785,33 @@ public final class Client implements AutoCloseable {
                     openedValue,
                     operation.wireName() + " result"
                 );
-                requireExactFields(
-                    opened,
-                    operation.wireName() + " opened result",
-                    Wire.STREAM_ID,
-                    Wire.CURSOR
-                );
+                boolean viewAttachment = operation == Operations.TERMINAL_ATTACH ||
+                    operation == Operations.BROWSER_ATTACH;
+                if (viewAttachment) {
+                    requireExactFields(
+                        opened,
+                        operation.wireName() + " opened result",
+                        Wire.STREAM_ID,
+                        Wire.ATTACHMENT_LEASE
+                    );
+                    attachmentLease = Wire.string(
+                        opened.get(Wire.ATTACHMENT_LEASE),
+                        operation.wireName() + " attachment_lease"
+                    );
+                    if (attachmentLease.isEmpty() || attachmentLease.length() > 128) {
+                        throw new ProtocolError(
+                            operation.wireName() +
+                                " attachment_lease must contain 1 to 128 characters"
+                        );
+                    }
+                } else {
+                    requireExactFields(
+                        opened,
+                        operation.wireName() + " opened result",
+                        Wire.STREAM_ID,
+                        Wire.CURSOR
+                    );
+                }
                 Ids.StreamId returned = new Ids.StreamId(Wire.string(
                     opened.get(Wire.STREAM_ID),
                     operation.wireName() + " returned stream_id"
@@ -777,7 +821,7 @@ public final class Client implements AutoCloseable {
                         operation.wireName() + " returned a different stream_id"
                     );
                 }
-                if (opened.containsKey(Wire.CURSOR)) {
+                if (!viewAttachment && opened.containsKey(Wire.CURSOR)) {
                     if (opened.get(Wire.CURSOR) == null) {
                         throw new ProtocolError(
                             operation.wireName() + " returned a null cursor"
@@ -806,7 +850,7 @@ public final class Client implements AutoCloseable {
             );
             throw error;
         }
-        return new ResourceStream<>(this, streamId, route, decoder);
+        return new ResourceStream<>(this, streamId, attachmentLease, route, decoder);
     }
 
     private void abandonFailedStreamOpen(
@@ -2202,9 +2246,33 @@ public final class Client implements AutoCloseable {
                 )
             ));
         }
+        boolean hasTabId = fields.containsKey("tab_id");
+        boolean hasTabIds = fields.containsKey("tab_ids");
+        if (!hasTabId && !hasTabIds) {
+            throw new ProtocolError(
+                "terminal snapshot requires tab_ids or tab_id"
+            );
+        }
+        Optional<Ids.TabId> legacyTabId = hasTabId
+            ? requiredNullableExactId(fields, "tab_id", Ids.TabId::new)
+            : Optional.empty();
+        List<Ids.TabId> tabIds = hasTabIds
+            ? decodeIds(
+                fields.get("tab_ids"),
+                "terminal tab_ids",
+                Ids.TabId::new
+            )
+            : legacyTabId.map(List::of).orElseGet(List::of);
+        if (hasTabId && !Objects.equals(
+                legacyTabId.orElse(null),
+                tabIds.isEmpty() ? null : tabIds.get(0))) {
+            throw new ProtocolError(
+                "terminal tab_id must be the first tab_ids item"
+            );
+        }
         return new Snapshots.TerminalSnapshot(
             new Ids.TerminalId(Wire.string(fields.get("id"), "terminal id")),
-            requiredExactId(fields, "tab_id", Ids.TabId::new),
+            tabIds,
             Wire.string(fields.get(Wire.TITLE), "terminal title"),
             optionalString(fields, Wire.CWD),
             positiveUint16(fields, Wire.COLS),
@@ -2216,6 +2284,7 @@ public final class Client implements AutoCloseable {
                 fields,
                 "id",
                 "tab_id",
+                "tab_ids",
                 Wire.TITLE,
                 Wire.CWD,
                 Wire.COLS,
@@ -2408,12 +2477,23 @@ public final class Client implements AutoCloseable {
         return new Snapshots.FrontendProjectionSnapshot(
             new Ids.ProjectionId(Wire.string(fields.get("id"), "projection id")),
             requiredExactId(fields, "session_id", Ids.SessionId::new),
+            Wire.string(fields.get("frontend_id"), "projection frontend_id"),
+            Wire.string(fields.get("window_id"), "projection window_id"),
+            Wire.string(fields.get("generation"), "projection generation"),
             JsonValue.of(rawProjection),
+            Wire.decimal(
+                fields.get("projection_revision"),
+                "projection revision"
+            ),
             snapshotExtra(
                 fields,
                 "id",
                 "session_id",
-                "projection"
+                "frontend_id",
+                "window_id",
+                "generation",
+                "projection",
+                "projection_revision"
             )
         );
     }
@@ -3239,6 +3319,7 @@ public final class Client implements AutoCloseable {
             "executable",
             Wire.ARGV,
             Wire.CWD,
+            "foreground_cwd",
             "children"
         );
         return new Results.ProcessInfoResult(
@@ -3248,6 +3329,9 @@ public final class Client implements AutoCloseable {
                 .map(item -> Wire.string(item, "process argv item"))
                 .toList(),
             optionalString(fields, Wire.CWD),
+            fields.containsKey("foreground_cwd")
+                ? requiredNullableString(fields, "foreground_cwd")
+                : Optional.empty(),
             Wire.array(fields.get("children"), "process children").stream()
                 .map(item -> uint32(item, "process child"))
                 .toList()
@@ -3327,11 +3411,13 @@ public final class Client implements AutoCloseable {
             value,
             "viewer resize result",
             "accepted",
-            "size"
+            "size",
+            "outcome"
         );
         return new Results.ViewerResizeResult(
             Wire.bool(fields.get("accepted"), "viewer resize accepted"),
-            decodeSize(fields.get("size"))
+            decodeSize(fields.get("size")),
+            decodeViewAttachmentOutcome(fields.get("outcome"))
         );
     }
 
@@ -3342,12 +3428,36 @@ public final class Client implements AutoCloseable {
             value,
             "browser viewer resize result",
             "accepted",
-            "size"
+            "size",
+            "outcome"
         );
         return new Results.BrowserViewerResizeResult(
             Wire.bool(fields.get("accepted"), "browser resize accepted"),
-            decodePixelSize(fields.get("size"))
+            decodePixelSize(fields.get("size")),
+            decodeViewAttachmentOutcome(fields.get("outcome"))
         );
+    }
+
+    static Results.ViewerReleaseResult decodeViewerRelease(Object value) {
+        Map<String, Object> fields = exactObject(
+            value,
+            "viewer release result",
+            "outcome"
+        );
+        return new Results.ViewerReleaseResult(
+            decodeViewAttachmentOutcome(fields.get("outcome"))
+        );
+    }
+
+    private static Results.ViewAttachmentOutcome decodeViewAttachmentOutcome(
+        Object value
+    ) {
+        return switch (Wire.string(value, "view attachment outcome")) {
+            case "applied" -> Results.ViewAttachmentOutcome.APPLIED;
+            case "passive" -> Results.ViewAttachmentOutcome.PASSIVE;
+            case "superseded" -> Results.ViewAttachmentOutcome.SUPERSEDED;
+            default -> throw new ProtocolError("invalid view attachment outcome");
+        };
     }
 
     static EmptyResult decodeEmptyResult(Object value, String context) {

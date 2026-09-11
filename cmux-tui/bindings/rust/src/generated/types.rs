@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR 17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350.
+// cmux-tui mux protocol 12, IR 8ff10c20fef75f9aaa1498eaf5e1107f084bdcf3febdcf8806fb4e7fc1c90b86.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -76,11 +76,63 @@ pub struct ApplyLayoutResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AttachedViewOutcomeResult {
+    pub outcome: ViewAttachmentOutcome,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AttachedViewResizeResult {
+    pub accepted: bool,
+    pub outcome: ViewAttachmentOutcome,
+    pub reservation_id: Nullable<u64>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BrowserFrame {
     pub data: Base64,
     pub height: u32,
     pub seq: u64,
     pub width: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BrowserProviderAuthentication {
+    #[serde(rename = "none")]
+    None,
+    #[serde(rename = "bearer")]
+    Bearer,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrowserProviderSnapshot {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub authentication: Option<BrowserProviderAuthentication>,
+    pub available: bool,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub clients: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
+    pub revision: u64,
+    pub targets: Vec<BrowserProviderTarget>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrowserProviderTarget {
+    pub tab_id: String,
+    pub target_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrowserProviderUnregisterResult {
+    pub removed: bool,
 }
 
 #[rustfmt::skip]
@@ -241,6 +293,65 @@ pub struct FocusDirectionResult {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FrontendFocusTarget {
+    #[serde(rename = "pane")]
+    Pane,
+    #[serde(rename = "machine_rail")]
+    MachineRail,
+    #[serde(rename = "workspace_rail")]
+    WorkspaceRail,
+    #[serde(rename = "tabs_rail")]
+    TabsRail,
+    #[serde(rename = "projection_rail")]
+    ProjectionRail,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum FrontendJournalEvent {
+    #[serde(rename = "focus")]
+    Focus {
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        content_id: Optional<String>,
+        event_id: String,
+        frontend_projection_id: String,
+        generation: String,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        pane_id: Optional<String>,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        screen_id: Optional<String>,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        tab_id: Optional<String>,
+        target: FrontendFocusTarget,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        workspace_id: Optional<String>,
+    },
+    #[serde(rename = "resize")]
+    Resize {
+        cell_height: u16,
+        cell_width: u16,
+        cols: u16,
+        event_id: String,
+        frontend_projection_id: String,
+        generation: String,
+        rows: u16,
+    },
+    #[serde(rename = "viewport")]
+    Viewport {
+        event_id: String,
+        frontend_projection_id: String,
+        generation: String,
+        offset: u64,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        screen_id: Optional<String>,
+        settled: bool,
+        target: u64,
+    },
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FrontendProjection {
     pub frontend: String,
@@ -294,6 +405,8 @@ pub struct IdentifyResult {
     pub generation: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub ghostty_commit: Optional<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub lifecycle_ready: Option<bool>,
     pub pid: u32,
     pub protocol: u32,
     pub registry_id: String,
@@ -412,9 +525,32 @@ pub struct LivePane {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineListeningTcpResult {
+    pub stdout: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineUsage {
+    pub api_equivalent_usd: f64,
+    pub as_of: Nullable<String>,
+    pub period_days: u32,
+    pub total_tokens: u64,
+    pub vm_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineUsageResult {
+    pub usage: Nullable<MachineUsage>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MintTerminalRendererResult {
     pub endpoint: String,
     pub incarnation: String,
+    pub protocol_version: u16,
     pub rights: u32,
     pub terminal_id: String,
     pub token: String,
@@ -508,6 +644,9 @@ pub struct PingResult {
 pub struct ProcessInfoResult {
     pub command: Nullable<String>,
     pub cwd: Nullable<String>,
+    /// Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub foreground_cwd: Optional<String>,
     pub pid: Nullable<u32>,
 }
 
@@ -670,7 +809,7 @@ pub struct ResizeSurfaceResult {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResolveTerminalResult {
-    pub exit: Nullable<JsonValue>,
+    pub exit: Nullable<TerminalExit>,
     pub generation: String,
     pub launch_spec: JsonValue,
     pub lifecycle: TerminalLifecycle,
@@ -683,14 +822,55 @@ pub struct ResolveTerminalResult {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ResourceSelectors {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub agent: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub browser: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub client: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub frontend_projection: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub machine: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub notification: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pairing_request: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub screen: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub session: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub sidebar_view: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub split: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub stream: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub tab: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub workspace: Optional<String>,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunResult {
-    pub pane: Id,
-    pub screen: Id,
-    pub surface: Id,
-    pub terminal_id: Nullable<String>,
+    pub already_exited: bool,
+    pub exit: Nullable<TerminalExit>,
+    pub lifecycle: TerminalLifecycle,
+    pub pane: Nullable<Id>,
+    pub screen: Nullable<Id>,
+    pub surface: Nullable<Id>,
+    pub terminal_id: String,
     pub terminal_incarnation: Nullable<String>,
-    pub workspace: Id,
+    pub terminal_revision: u64,
+    pub workspace: Nullable<Id>,
 }
 
 #[rustfmt::skip]
@@ -705,6 +885,102 @@ pub struct Screen {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub short_id: Option<String>,
     pub zoomed_pane: Nullable<Id>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsConnections {
+    pub accepted: u64,
+    pub active: u64,
+    pub limit: u64,
+    pub peak: u64,
+    pub refused: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsHistogram {
+    pub count: u64,
+    pub max: u64,
+    pub mean: u64,
+    pub p50: u64,
+    pub p90: u64,
+    pub p99: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsJournalWriter {
+    pub batch_size: ServerStatsHistogram,
+    pub batches: u64,
+    pub commit_failures: u64,
+    pub commit_lock_wait_us: ServerStatsHistogram,
+    pub commit_us: ServerStatsHistogram,
+    pub deadline_expiries: u64,
+    pub durable_events: u64,
+    pub durable_queued: u64,
+    pub phase: ServerStatsWriterPhase,
+    pub phase_for_us: u64,
+    pub receipt_wait_us: ServerStatsHistogram,
+    pub terminal_events: u64,
+    pub terminal_queued: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsLockHolder {
+    pub held_for_us: u64,
+    pub site: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsLockSite {
+    pub acquisitions: u64,
+    pub hold_max_us: u64,
+    pub hold_total_us: u64,
+    pub site: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsLockStall {
+    pub blocker: Nullable<String>,
+    pub waited_us: u64,
+    pub waiter: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsRegistryLock {
+    pub contended_acquisitions: u64,
+    pub hold_us: ServerStatsHistogram,
+    pub holder: Nullable<ServerStatsLockHolder>,
+    pub last_stall: Nullable<ServerStatsLockStall>,
+    pub stalls: u64,
+    pub top_sites: Vec<ServerStatsLockSite>,
+    pub wait_us: ServerStatsHistogram,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsResult {
+    pub connections: ServerStatsConnections,
+    pub journal_writer: Nullable<ServerStatsJournalWriter>,
+    pub registry_lock: ServerStatsRegistryLock,
+    pub schema: u32,
+    pub uptime_ms: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ServerStatsWriterPhase {
+    #[serde(rename = "idle")]
+    Idle,
+    #[serde(rename = "waiting_lock")]
+    WaitingLock,
+    #[serde(rename = "committing")]
+    Committing,
 }
 
 #[rustfmt::skip]
@@ -839,6 +1115,32 @@ pub struct TerminalEventsResult {
     pub generation: String,
     pub registry_id: String,
     pub terminal_revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalExit {
+    pub exited_at_ms: u64,
+    pub outcome: TerminalExitOutcome,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum TerminalExitOutcome {
+    #[serde(rename = "exit")]
+    Exit {
+        code: i32,
+    },
+    #[serde(rename = "signal")]
+    Signal {
+        core_dumped: bool,
+        signal: i32,
+    },
+    #[serde(rename = "unknown")]
+    Unknown {
+        reason: String,
+    },
 }
 
 #[rustfmt::skip]
@@ -1133,24 +1435,26 @@ pub struct TerminalModifiers {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalPlacement {
+    pub already_exited: bool,
+    pub exit: Nullable<TerminalExit>,
     pub generation: String,
     pub key: String,
-    pub lifecycle: Nullable<String>,
-    pub pane: Id,
+    pub lifecycle: TerminalLifecycle,
+    pub pane: Nullable<Id>,
     pub registry_id: String,
     pub replayed: bool,
-    pub screen: Id,
-    pub surface: Id,
-    pub terminal_id: Nullable<String>,
+    pub screen: Nullable<Id>,
+    pub surface: Nullable<Id>,
+    pub terminal_id: String,
     pub terminal_incarnation: Nullable<String>,
     pub terminal_revision: u64,
-    pub workspace: Id,
+    pub workspace: Nullable<Id>,
 }
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalRecord {
-    pub exit: Nullable<JsonValue>,
+    pub exit: Nullable<TerminalExit>,
     pub launch_spec: JsonValue,
     pub lifecycle: TerminalLifecycle,
     pub terminal_id: String,
@@ -1184,6 +1488,17 @@ pub struct Tree {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub workspace_revision: Option<u64>,
     pub workspaces: Vec<Workspace>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ViewAttachmentOutcome {
+    #[serde(rename = "applied")]
+    Applied,
+    #[serde(rename = "passive")]
+    Passive,
+    #[serde(rename = "superseded")]
+    Superseded,
 }
 
 #[rustfmt::skip]

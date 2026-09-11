@@ -129,6 +129,11 @@ final class SimulatorFramebuffer {
         framePublisher?.prioritizeNextFrame()
     }
 
+    @discardableResult
+    func publishCurrentFrame() -> Bool {
+        publishLatest(readNativeOrientation: true)
+    }
+
     func acknowledgeFrameTransportAdoption() async {
         await framePublisher?.acknowledgeFrameTransportAdoption()
     }

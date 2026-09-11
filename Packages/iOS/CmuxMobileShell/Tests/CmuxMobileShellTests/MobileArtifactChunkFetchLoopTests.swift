@@ -61,7 +61,7 @@ struct MobileArtifactChunkFetchLoopTests {
     }
 
     @Test
-    func rejectsEmptyNonEOFChunkAsMacUnreachable() async {
+    func rejectsEmptyNonEOFChunkWithoutClaimingMacUnreachable() async {
         let stalled = ChatArtifactChunk(
             data: Data(),
             offset: 0,
@@ -81,13 +81,36 @@ struct MobileArtifactChunkFetchLoopTests {
             }
             Issue.record("empty non-EOF chunk should fail")
         } catch let error as ChatArtifactError {
-            #expect(error == .macUnreachable)
+            #expect(error == .invalidResponse)
         } catch {
             Issue.record("unexpected error: \(error)")
         }
 
         let snapshot = await script.snapshot()
         #expect(snapshot.requestedOffsets == [0])
-        #expect(snapshot.deliveredChunks == [stalled])
+        #expect(snapshot.deliveredChunks.isEmpty)
+    }
+
+    @Test
+    func rejectsOutOfOrderFinalChunk() async {
+        let malformed = ChatArtifactChunk(
+            data: Data("abc".utf8),
+            offset: 4,
+            totalSize: 7,
+            eof: true
+        )
+        do {
+            _ = try await MobileArtifactChunkFetchLoop().run(
+                collectsData: true,
+                progress: nil
+            ) { _ in
+                malformed
+            } onChunk: { _ in }
+            Issue.record("an out-of-order chunk should fail")
+        } catch let error as ChatArtifactError {
+            #expect(error == .invalidResponse)
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
     }
 }

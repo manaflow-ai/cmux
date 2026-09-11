@@ -12,10 +12,6 @@ import os
         var diagnosticFailureKind: DiagnosticFailureKind { .admissionDenied }
     }
 
-    /// Await the log's drain task until its ring reports `expected` events, so a
-    /// test can assert on a deterministic post-drain state without sleeping. The
-    /// drain task runs on the cooperative pool; `Task.yield()` lets it advance.
-    /// Bounded so a regression that never drains fails instead of hanging.
     /// Await the drain task processing at least `expected` total events, so a
     /// test can assert on a deterministic post-drain state without sleeping.
     /// ``DiagnosticLog/processedCount()`` only grows (eviction does not lower
@@ -30,6 +26,23 @@ import os
         #expect(
             await log.processedCount() >= expected,
             "diagnostic drain did not reach the required barrier"
+        )
+    }
+
+    /// Await the observer itself instead of treating the ring's processed
+    /// count as a callback-delivery barrier. The store increments that count
+    /// before the drain task invokes the tap, so those are separate events.
+    private func waitForTappedEvents(
+        _ received: OSAllocatedUnfairLock<[DiagnosticEvent]>,
+        count expected: Int
+    ) async {
+        for _ in 0..<1_000_000 {
+            if received.withLock({ $0.count }) >= expected { return }
+            await Task.yield()
+        }
+        #expect(
+            received.withLock({ $0.count }) >= expected,
+            "diagnostic event tap did not reach the required barrier"
         )
     }
 
@@ -301,7 +314,52 @@ import os
         #expect(DiagnosticEventCode.transportSessionLifecycle.rawValue == 51)
         #expect(DiagnosticEventCode.transportCloseAttribution.rawValue == 54)
         #expect(DiagnosticEventCode.transportPathEvent.rawValue == 55)
+        #expect(DiagnosticEventCode.browserStreamLifecycle.rawValue == 56)
+        #expect(DiagnosticEventCode.browserInputReplayed.rawValue == 57)
+        #expect(DiagnosticEventCode.browserEditableFocus.rawValue == 58)
+        #expect(DiagnosticEventCode.browserPanelCreateResolved.rawValue == 59)
+        #expect(DiagnosticEventCode.simulatorStreamLifecycle.rawValue == 60)
+        #expect(DiagnosticEventCode.simulatorFrameLifecycle.rawValue == 61)
+        #expect(DiagnosticEventCode.simulatorInputLifecycle.rawValue == 62)
+        #expect(DiagnosticEventCode.simulatorCoordinateMapped.rawValue == 63)
+        #expect(DiagnosticEventCode.simulatorOwnershipChanged.rawValue == 64)
+        #expect(DiagnosticEventCode.appFeatureAction.rawValue == 65)
+        #expect(DiagnosticEventCode.transportDialSessionLinked.rawValue == 77)
+        #expect(DiagnosticEventCode.transportDialCancelled.rawValue == 78)
+        #expect(DiagnosticEventCode.transportCloseReason.rawValue == 79)
         #expect(Set(DiagnosticEventCode.allCases.map(\.rawValue)).count == DiagnosticEventCode.allCases.count)
+    }
+
+    @Test func appEventCorrelationIsStableWithinProcessAndDoesNotRetainRawIdentifier() async {
+        let log = DiagnosticLog(capacity: 4)
+        let opaqueIdentifier = "workspace-sensitive-identifier"
+
+        log.recordAppEvent(.workspaceOpenStarted, correlationID: opaqueIdentifier)
+        log.recordAppEvent(.workspaceOpenSucceeded, correlationID: opaqueIdentifier)
+
+        await waitForProcessed(log, 2)
+        let report = await log.snapshot()
+        #expect(report.events.count == 2)
+        #expect(report.events[0].surface == report.events[1].surface)
+        #expect(report.events[0].surface != nil)
+        let encoded = try? JSONEncoder().encode(report)
+        let text = encoded.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        #expect(!text.contains(opaqueIdentifier))
+    }
+
+    @Test func typedAppEventDetailKeepsCategoricalValuesOutOfTheCountAPI() async {
+        let log = DiagnosticLog(capacity: 2)
+
+        log.recordAppEvent(
+            .terminalShortcutChanged,
+            detail: .toolbarConfigurationAction(.shortcutReordered)
+        )
+
+        await waitForProcessed(log, 1)
+        let report = await log.snapshot()
+        #expect(report.events.count == 1)
+        #expect(report.events[0].a == DiagnosticAppEventKind.terminalShortcutChanged.rawValue)
+        #expect(report.events[0].c == DiagnosticToolbarConfigurationAction.shortcutReordered.rawValue)
     }
 
     @Test func closeAttributionAndPathEventsExposeTypedPayloads() {
@@ -339,6 +397,25 @@ import os
         #expect(DiagnosticFailureKind.admissionRevalidationFailed.rawValue == 23)
         #expect(DiagnosticFailureKind.sendQueueOverflow.rawValue == 24)
         #expect(DiagnosticFailureKind.routeGated.rawValue == 25)
+        #expect(DiagnosticFailureKind.payloadTooLarge.rawValue == 26)
+        #expect(DiagnosticFailureKind.resourceLimitReached.rawValue == 27)
+        #expect(DiagnosticFailureKind.attachmentCountLimitReached.rawValue == 28)
+        #expect(DiagnosticFailureKind.attachmentAggregateSizeLimitReached.rawValue == 29)
+        #expect(DiagnosticFailureKind.localStateUnavailable.rawValue == 30)
+        #expect(DiagnosticAppEventKind.onboardingStageViewed.rawValue == 41)
+        #expect(DiagnosticAppEventKind.fileDiffCacheHit.rawValue == 352)
+        #expect(DiagnosticAppEventKind.photoPickerDismissed.rawValue == 459)
+        #expect(DiagnosticAppEventKind.toastPresented.rawValue == 537)
+        #expect(DiagnosticAppEventKind.toastDismissed.rawValue == 541)
+        #expect(DiagnosticAppEventKind.irohSettingsOpened.rawValue == 610)
+        #expect(DiagnosticAppEventKind.verboseDiagnosticsShared.rawValue == 636)
+        #expect(DiagnosticAppEventKind.dictationStopTimedOut.rawValue == 659)
+        #expect(DiagnosticAppEventKind.pairedMacStoreWriteStarted.rawValue == 660)
+        #expect(DiagnosticSimulatorStreamLifecycle.stopFailed.rawValue == 12)
+        #expect(
+            Set(DiagnosticAppEventKind.allCases.map(\.rawValue)).count
+                == DiagnosticAppEventKind.allCases.count
+        )
         #expect(
             Set(DiagnosticFailureKind.allCases.map(\.rawValue)).count
                 == DiagnosticFailureKind.allCases.count
@@ -730,6 +807,7 @@ import os
         log.record(first)
         log.record(second)
         await waitForProcessed(log, 2)
+        await waitForTappedEvents(received, count: 2)
 
         #expect(received.withLock { $0 } == [first, second])
     }
@@ -754,6 +832,7 @@ import os
         log.record(relay)
         log.record(repeatRelay)
         await waitForProcessed(log, 2)
+        await waitForTappedEvents(received, count: 1)
 
         #expect(received.withLock { $0 } == [relay])
     }
@@ -781,6 +860,7 @@ import os
         let live = DiagnosticEvent(code: .pairOk, tNanos: UInt64(burst + 1))
         log.record(live)
         await waitForProcessed(log, burst + 1)
+        await waitForTappedEvents(received, count: 1)
         #expect(received.withLock { $0 } == [live])
     }
 
@@ -796,6 +876,7 @@ import os
         let live = DiagnosticEvent(code: .pairOk, tNanos: 2)
         log.record(live)
         await waitForProcessed(log, 2)
+        await waitForTappedEvents(received, count: 1)
         #expect(received.withLock { $0 } == [live])
 
         log.setEventTap(nil)

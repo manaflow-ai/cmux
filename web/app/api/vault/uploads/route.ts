@@ -25,10 +25,6 @@ import { readVaultJsonObject, validateVaultBatch } from "../../../../services/va
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../services/telemetry";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
-// A grant reserves quota from presign until commit. The TTL is deliberately
 // generous (a slow batch of large uploads can take hours) because an unexpired
 // grant only over-reserves the owner's own quota; after expiry the orphaned
 // object is deleted by the opportunistic GC below.

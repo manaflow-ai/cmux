@@ -5,7 +5,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
-/** Immutable protocol-v1 resource snapshots. */
+/** Immutable protocol-v2 resource snapshots. */
 public final class Snapshots {
     public record MachineSnapshot(
         Ids.MachineId id,
@@ -158,7 +158,7 @@ public final class Snapshots {
 
     public record TerminalSnapshot(
         Ids.TerminalId id,
-        Ids.TabId tabId,
+        List<Ids.TabId> tabIds,
         String title,
         Optional<String> cwd,
         int cols,
@@ -170,7 +170,7 @@ public final class Snapshots {
     ) implements ResourceEntitySnapshot {
         public TerminalSnapshot {
             Objects.requireNonNull(id, "id");
-            Objects.requireNonNull(tabId, "tabId");
+            tabIds = List.copyOf(tabIds);
             Objects.requireNonNull(title, "title");
             cwd = opt(cwd);
             positiveUint16(cols, "cols");
@@ -345,13 +345,21 @@ public final class Snapshots {
     public record FrontendProjectionSnapshot(
         Ids.ProjectionId id,
         Ids.SessionId sessionId,
+        String frontendId,
+        String windowId,
+        String generation,
         JsonValue projection,
+        Decimal projectionRevision,
         Map<String, Object> extra
     ) implements ResourceEntitySnapshot {
         public FrontendProjectionSnapshot {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(sessionId, "sessionId");
+            Objects.requireNonNull(frontendId, "frontendId");
+            Objects.requireNonNull(windowId, "windowId");
+            Objects.requireNonNull(generation, "generation");
             Objects.requireNonNull(projection, "projection");
+            Objects.requireNonNull(projectionRevision, "projectionRevision");
             extra = copy(extra);
         }
     }

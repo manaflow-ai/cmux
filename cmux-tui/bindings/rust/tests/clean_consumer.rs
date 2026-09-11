@@ -3,8 +3,8 @@
 use cmux::{
     Browser, BrowserAttachment, BrowserViewerResizeResult, Client, Config, CreateScreenOptions,
     CreationResolution, Error, Machine, Pane, PixelSize, Screen, Selector, Session, Size, Tab,
-    Terminal, TerminalAttachment, TerminalWaitExitResult, UndoLayoutOptions, ViewerResizeResult,
-    Workspace, WorkspaceId,
+    Terminal, TerminalAttachment, TerminalWaitExitResult, UndoLayoutOptions, ViewerReleaseResult,
+    ViewerResizeResult, Workspace, WorkspaceId,
 };
 
 #[test]
@@ -37,10 +37,12 @@ fn clean_consumer_imports_high_level_and_raw_namespaces_together() {
     let _ = typed_recovery_reads as fn(&Session, &Terminal);
     let _: fn(&mut TerminalAttachment, Size) -> cmux::Result<ViewerResizeResult> =
         TerminalAttachment::resize;
-    let _: fn(&mut TerminalAttachment) -> cmux::Result<()> = TerminalAttachment::release;
+    let _: fn(&mut TerminalAttachment) -> cmux::Result<ViewerReleaseResult> =
+        TerminalAttachment::release;
     let _: fn(&mut BrowserAttachment, PixelSize) -> cmux::Result<BrowserViewerResizeResult> =
         BrowserAttachment::resize;
-    let _: fn(&mut BrowserAttachment) -> cmux::Result<()> = BrowserAttachment::release;
+    let _: fn(&mut BrowserAttachment) -> cmux::Result<ViewerReleaseResult> =
+        BrowserAttachment::release;
     let _undo = UndoLayoutOptions {
         confirm_close: true,
         confirmation_token: Some("preview-token".to_string()),

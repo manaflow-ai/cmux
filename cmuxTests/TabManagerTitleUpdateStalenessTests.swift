@@ -65,6 +65,136 @@ struct TabManagerTitleUpdateStalenessTests {
     }
 
     @Test
+    func pendingTitleUpdateIgnoredAfterHibernationRetainsTerminalSurface() async throws {
+        let suiteName = "TabManagerTitleHibernation.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let catalog = SettingCatalog()
+        settings.set(true, for: catalog.terminal.titleUpdateCoalescingEnabled)
+        settings.set(500, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
+
+        let scheduler = ManualCoalescerScheduler()
+        let manager = TabManager(
+            panelTitleUpdateCoalescer: NotificationBurstCoalescer(
+                schedule: scheduler.schedule(delay:action:)
+            ),
+            settings: settings
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        let terminal = try #require(workspace.terminalPanel(for: panelId))
+        let retainedSurface = terminal.surface
+        let originalLifecycleID = retainedSurface.terminalLifecycleId
+        let staleTitle = "Stale Hibernated Title - grok"
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: retainedSurface,
+            userInfo: [
+                GhosttyNotificationKey.tabId: workspace.id,
+                GhosttyNotificationKey.surfaceId: panelId,
+                GhosttyNotificationKey.title: staleTitle,
+            ]
+        )
+
+        await drainMainQueue()
+        #expect(scheduler.delays == [0.5])
+        #expect(workspace.panelTitles[panelId] != staleTitle)
+
+        #expect(retainedSurface.suspendRuntimeSurfaceForAgentHibernation(
+            reason: "test.pendingWorkspaceTitle"
+        ))
+        #expect(terminal.surface === retainedSurface)
+        #expect(retainedSurface.terminalLifecycleId != originalLifecycleID)
+
+        scheduler.fire(at: 0)
+
+        #expect(workspace.terminalPanel(for: panelId)?.surface === retainedSurface)
+        #expect(workspace.panelTitles[panelId] != staleTitle)
+        #expect(workspace.title != staleTitle)
+    }
+
+    @Test
+    func delayedGhosttyTitleIgnoredAfterSourceLifecycleAdvances() async throws {
+        let suiteName = "TabManagerTitleDispatcherHibernation.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let catalog = SettingCatalog()
+        settings.set(true, for: catalog.terminal.titleUpdateCoalescingEnabled)
+        settings.set(500, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
+
+        let panelScheduler = ManualCoalescerScheduler()
+        let manager = TabManager(
+            panelTitleUpdateCoalescer: NotificationBurstCoalescer(
+                schedule: panelScheduler.schedule(delay:action:)
+            ),
+            settings: settings
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        let terminal = try #require(workspace.terminalPanel(for: panelId))
+        let retainedSurface = terminal.surface
+        let callbackLifecycleID = retainedSurface.terminalLifecycleId
+        let staleTitle = "Delayed Retired Runtime Title - codex"
+        let center = NotificationCenter.default
+        let titleScheduler = TitleScheduleRecorder()
+        let ingress = GhosttyTitleUpdateIngress(
+            center: center,
+            schedule: { interval, action in
+                titleScheduler.schedule(interval, action: action)
+            }
+        )
+
+        #expect(ingress.submit(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            sourceSurfaceIdentifier: ObjectIdentifier(retainedSurface),
+            terminalLifecycleID: callbackLifecycleID,
+            title: staleTitle
+        ))
+        await titleScheduler.awaitFirstSchedule()
+
+        #expect(retainedSurface.suspendRuntimeSurfaceForAgentHibernation(
+            reason: "test.delayedGhosttyTitle"
+        ))
+        #expect(retainedSurface.terminalLifecycleId != callbackLifecycleID)
+
+        await titleScheduler.fire()
+
+        #expect(panelScheduler.delays.isEmpty)
+        #expect(workspace.panelTitles[panelId] != staleTitle)
+        #expect(workspace.title != staleTitle)
+    }
+
+    @Test
+    func delayedTypedTitleChangePreservesSourceLifecycle() {
+        let terminalLifecycleID = UUID()
+        let change = GhosttyTitleChange(
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "Lifecycle payload",
+            sourceSurfaceIdentifier: ObjectIdentifier(NSObject()),
+            terminalLifecycleID: terminalLifecycleID
+        )
+
+        let notification = Notification(
+            name: .ghosttyDidSetTitle,
+            userInfo: change.userInfo
+        )
+
+        #expect(
+            GhosttyTitleChange(notification: notification)?.terminalLifecycleID
+                == terminalLifecycleID
+        )
+    }
+
+    @Test
     func queuedTitleNotificationIgnoredAfterTerminalRespawnReusesPanelId() async throws {
         let suiteName = "TabManagerTitleQueuedRespawnReuse.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -99,14 +229,17 @@ struct TabManagerTitleUpdateStalenessTests {
         #expect(replacementPanel.id == panelId)
         #expect(replacementPanel.surface !== originalSurface)
 
-        NotificationCenter.default.post(
-            name: .ghosttyDidSetTitle,
-            object: originalSurface,
-            userInfo: staleUserInfo
-        )
+        let staleSourceSurfaces: [AnyObject?] = [originalSurface, nil]
+        for staleSourceSurface in staleSourceSurfaces {
+            NotificationCenter.default.post(
+                name: .ghosttyDidSetTitle,
+                object: staleSourceSurface,
+                userInfo: staleUserInfo
+            )
 
-        await drainMainQueue()
-        #expect(scheduler.delays.isEmpty)
+            await drainMainQueue()
+            #expect(scheduler.delays.isEmpty)
+        }
         #expect(workspace.terminalPanel(for: panelId)?.surface === replacementPanel.surface)
         #expect(workspace.panelTitles[panelId] != staleTitle)
         #expect(workspace.title != staleTitle)

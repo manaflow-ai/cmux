@@ -20,15 +20,18 @@ struct AgentLaunchEnvironmentPolicyTests {
         ])
     }
 
-    @Test("Restore transport keeps Pi PATH without crossing secrets")
-    func restoreTransportKeepsPiPathWithoutSecrets() {
+    @Test(
+        "Restore transport keeps Pi-family PATH without crossing secrets",
+        arguments: ["pi", "omp"]
+    )
+    func restoreTransportKeepsPiFamilyPathWithoutSecrets(kind: String) {
         let selected = AgentLaunchEnvironmentPolicy().selectedRestoreEnvironment(
             from: [
                 "PATH": "/nix/store/pi/bin:/usr/bin",
                 "PI_CONFIG_DIR": ".custom-pi",
                 "OPENAI_API_KEY": "secret-should-not-cross-socket",
             ],
-            kind: "pi"
+            kind: kind
         )
 
         #expect(selected == [

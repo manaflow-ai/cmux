@@ -1,4 +1,4 @@
 interface:
   display_name: "cmux Browser"
-  short_description: "Automate cmux webview surfaces with snapshot/ref workflows."
-  default_prompt: "Use this skill for browser automation via cmux CLI: identify target surface, snapshot interactive refs, perform actions, wait for state changes, and re-snapshot to avoid stale refs."
+  short_description: "Discover and automate explicit cmux browser surfaces without changing focus."
+  default_prompt: "Use this skill for cmux browser automation. Check `cmux browser --help`, discover the intended surface with read-only topology commands (including other workspaces), pass that surface to every existing-surface command, preserve visible focus, and re-snapshot after state changes."

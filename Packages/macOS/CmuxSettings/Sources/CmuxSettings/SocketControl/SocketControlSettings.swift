@@ -209,7 +209,10 @@ public struct SocketControlSettings {
         isDebugBuild: Bool = SocketControlSettings.isDebugBuild,
         currentUserID: uid_t = getuid(),
         probeStableDefaultPathEntry: (String) -> StableDefaultSocketPathEntry = inspectStableDefaultSocketPathEntry,
-        stableDefaultSocketCanBeReclaimed: (String) -> Bool = { _ in true }
+        // Reclaimability is authoritative transport state. Callers that do not
+        // provide a lock/liveness probe must fail closed rather than claiming a
+        // stable path they cannot prove is safe to replace.
+        stableDefaultSocketCanBeReclaimed: (String) -> Bool = { _ in false }
     ) -> String {
         guard !isDebugBuild,
               normalizedBundleIdentifier(bundleIdentifier) == "com.cmuxterm.app",
@@ -228,7 +231,13 @@ public struct SocketControlSettings {
                 ? preferredPath
                 : userScopedPath
         case .socket(let ownerUserID) where ownerUserID == currentUserID:
-            return userScopedPath
+            // A same-user socket may be a live listener or an orphan left by
+            // an unclean exit. Let the transport's lock/liveness probe decide
+            // which case this is so startup and CLI resolution agree on the
+            // stable path after a crash.
+            return stableDefaultSocketCanBeReclaimed(preferredPath)
+                ? preferredPath
+                : userScopedPath
         case .socket, .other, .inaccessible:
             return preferredPath
         }

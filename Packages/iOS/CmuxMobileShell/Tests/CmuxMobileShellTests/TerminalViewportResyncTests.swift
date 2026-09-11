@@ -110,6 +110,218 @@ import Testing
 }
 
 @MainActor
+@Test func terminalReplayViewportTransitionWaitsForAuthoritativeGrid() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts(["cold-replay", "initial-viewport-replay"])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+
+    _ = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 48)
+    let initialViewportChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: initialViewportChunk.streamToken)
+    let replayCountBeforeResize = await router.count(of: "mobile.terminal.replay")
+
+    // The Mac returns this while Ghostty is applying the new viewport. It is a
+    // readiness signal, not a failed replay, and the next full grid event is
+    // the authoritative trigger for another request.
+    await router.failNextReplay(code: "viewport_transition")
+    await router.enqueueReplayRenderGrid(
+        try renderGridFrame(
+            surfaceID: surfaceID,
+            seq: 10,
+            text: "resized-replay",
+            columns: 80,
+            rows: 30
+        )
+    )
+    _ = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 30)
+
+    let firstAttemptRequested = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountBeforeResize + 1
+    )
+    #expect(firstAttemptRequested)
+    let firstAttemptSettled = try await pollUntil {
+        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(firstAttemptSettled)
+
+    let retryBeforeGrid = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountBeforeResize + 2,
+        timeoutNanoseconds: 200_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(
+        !retryBeforeGrid,
+        "a viewport transition must not synchronously burn the replay retry budget"
+    )
+    #expect(
+        store.terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil,
+        "the resize barrier must remain until an authoritative frame arrives"
+    )
+
+    let transport = try #require(box.get())
+    await transport.deliver(
+        try renderGridEventFrame(
+            surfaceID: surfaceID,
+            seq: 11,
+            text: "resize-ready",
+            columns: 80,
+            rows: 30,
+            full: true
+        )
+    )
+    let retryAfterGrid = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountBeforeResize + 2
+    )
+    #expect(
+        retryAfterGrid,
+        "the next full render-grid event must trigger the deferred replay"
+    )
+    let replayChunk = try #require(await iterator.next())
+    #expect(replayChunk.sourceRenderGridFrame?.stateSeq == 10)
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: replayChunk.streamToken)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+}
+
+@MainActor
+@Test func unbarrieredReplayViewportTransitionArmsAuthoritativeGridRecovery() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts(["cold-replay", "initial-viewport-replay"])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+    _ = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 48)
+    let initialViewportChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: initialViewportChunk.streamToken)
+
+    let replayCountBeforeGap = await router.count(of: "mobile.terminal.replay")
+    await router.failNextReplay(code: "viewport_transition")
+    await router.enqueueReplayRenderGrid(
+        try renderGridFrame(
+            surfaceID: surfaceID,
+            seq: 20,
+            text: "unbarriered-replay",
+            columns: 80,
+            rows: 30
+        )
+    )
+    store.requestTerminalReplay(surfaceID: surfaceID)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+    #expect(
+        await router.waitForCount(
+            of: "mobile.terminal.replay",
+            atLeast: replayCountBeforeGap + 1
+        )
+    )
+    let firstAttemptSettled = try await pollUntil {
+        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(firstAttemptSettled)
+    #expect(
+        store.terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil,
+        "an unbarriered viewport transition must retain an owner for recovery"
+    )
+
+    let transport = try #require(box.get())
+    await transport.deliver(
+        try renderGridEventFrame(
+            surfaceID: surfaceID,
+            seq: 21,
+            text: "unbarriered-ready",
+            columns: 80,
+            rows: 30,
+            full: true
+        )
+    )
+    #expect(
+        await router.waitForCount(
+            of: "mobile.terminal.replay",
+            atLeast: replayCountBeforeGap + 2
+        )
+    )
+    let replayChunk = try #require(await iterator.next())
+    #expect(replayChunk.sourceRenderGridFrame?.stateSeq == 20)
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: replayChunk.streamToken)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+}
+
+@MainActor
+@Test func viewportTransitionWatchdogRetriesWithoutOpeningBarrier() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let watchdogClock = InputAckRetryClock()
+    let store = try await makeConnectedStore(
+        router: router,
+        box: box,
+        clock: clock,
+        controlPlaneSchedulingClock: watchdogClock
+    )
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts([
+        "cold-replay",
+        "initial-viewport-replay",
+        "watchdog-replay",
+    ])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+    _ = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 48)
+    let initialViewportChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: initialViewportChunk.streamToken)
+
+    await router.failNextReplay(code: "viewport_transition")
+    store.requestTerminalReplay(surfaceID: surfaceID)
+    let replayRequested = await router.waitForCount(of: "mobile.terminal.replay", atLeast: 3)
+    #expect(replayRequested)
+    let requestSettled = try await pollUntil {
+        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+            && store.terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil
+    }
+    #expect(requestSettled)
+    let watchdogArmed = try await pollUntil {
+        watchdogClock.sleeperCount > 0
+    }
+    #expect(watchdogArmed)
+
+    watchdogClock.advance(by: .seconds(3))
+    let retryRequested = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") >= 4
+    }
+    #expect(
+        retryRequested,
+        "a dropped settled-grid event must request another authoritative replay"
+    )
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil)
+
+    let retryChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: retryChunk.streamToken)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+
+    store.deliverTerminalBytes(Data("live-after-watchdog".utf8), surfaceID: surfaceID)
+    let liveChunk = try #require(await iterator.next())
+    #expect(String(data: liveChunk.data, encoding: .utf8) == "live-after-watchdog")
+}
+
+@MainActor
 @Test func terminalViewportSameSizeReportDoesNotRequestReplay() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
@@ -544,6 +756,192 @@ import Testing
 }
 
 @MainActor
+@Test func terminalViewportAcknowledgementCompletesDeferredColdAttachReplay() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    // Establish the shared grid before a sink is mounted. The raced
+    // acknowledgement below will therefore report the same effective grid,
+    // which is the path where the deferred cold replay must be fulfilled.
+    let baselineGrid = await store.updateTerminalViewport(
+        surfaceID: surfaceID,
+        columns: 80,
+        rows: 48
+    )
+    #expect(baselineGrid?.columns == 80)
+    #expect(baselineGrid?.rows == 48)
+
+    await router.holdViewportRequest(number: 2)
+    await router.enqueueReplayTexts(["deferred-cold-replay"])
+    let preparation = try #require(store.prepareTerminalViewport(
+        surfaceID: surfaceID,
+        columns: 80,
+        rows: 48
+    ))
+    let viewportTask = Task {
+        await store.updatePreparedTerminalViewport(preparation)
+    }
+    let viewportRequested = await router.waitForCount(
+        of: "mobile.terminal.viewport",
+        atLeast: 2
+    )
+    #expect(viewportRequested)
+    guard viewportRequested else {
+        await router.releaseAllHeld()
+        _ = await viewportTask.value
+        return
+    }
+
+    // The output sink can mount while its first viewport acknowledgement is
+    // in flight. Registration defers the cold replay to that acknowledgement,
+    // but the successful response still has to fulfill the deferred request.
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    let replayBeforeAcknowledgement = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: 1,
+        timeoutNanoseconds: 200_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(
+        !replayBeforeAcknowledgement,
+        "mounting during viewport preparation must defer the cold replay until the acknowledgement"
+    )
+
+    await router.releaseAllHeld()
+    let acknowledgedGrid = await viewportTask.value
+    #expect(acknowledgedGrid?.columns == 80)
+    #expect(acknowledgedGrid?.rows == 48)
+
+    let replayRequested = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: 1
+    )
+    #expect(
+        replayRequested,
+        "a successful viewport acknowledgement must fulfill a deferred cold replay"
+    )
+    guard replayRequested else { return }
+    let replayChunk = try #require(await iterator.next())
+    #expect(String(data: replayChunk.data, encoding: .utf8) == "deferred-cold-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: replayChunk.streamToken)
+}
+
+@MainActor
+@Test func terminalViewportSupersededPreparationPreservesDeferredColdAttachReplay() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    // Establish the shared grid before the sink mounts. Both preparations
+    // below report that same grid, so only the deferred cold replay can cause
+    // the replay request.
+    let baselineGrid = await store.updateTerminalViewport(
+        surfaceID: surfaceID,
+        columns: 80,
+        rows: 48
+    )
+    #expect(baselineGrid?.columns == 80)
+    #expect(baselineGrid?.rows == 48)
+
+    await router.holdViewportRequest(number: 2)
+    await router.enqueueReplayTexts(["superseded-deferred-cold-replay"])
+    let firstPreparation = try #require(store.prepareTerminalViewport(
+        surfaceID: surfaceID,
+        columns: 80,
+        rows: 48
+    ))
+    let firstViewportTask = Task {
+        await store.updatePreparedTerminalViewport(firstPreparation)
+    }
+    #expect(await router.waitForCount(of: "mobile.terminal.viewport", atLeast: 2))
+
+    // Mount while the first acknowledgement is parked, then supersede that
+    // preparation with another same-size report. The second acknowledgement
+    // must inherit the first registration's deferred replay.
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    let replayBeforeAcknowledgement = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: 1,
+        timeoutNanoseconds: 200_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(!replayBeforeAcknowledgement)
+
+    let secondPreparation = try #require(store.prepareTerminalViewport(
+        surfaceID: surfaceID,
+        columns: 80,
+        rows: 48
+    ))
+    let secondViewportTask = Task {
+        await store.updatePreparedTerminalViewport(secondPreparation)
+    }
+    #expect(await router.waitForCount(of: "mobile.terminal.viewport", atLeast: 3))
+
+    let acknowledgedGrid = await secondViewportTask.value
+    #expect(acknowledgedGrid?.columns == 80)
+    #expect(acknowledgedGrid?.rows == 48)
+    let replayRequested = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: 1
+    )
+    #expect(
+        replayRequested,
+        "a superseding same-size acknowledgement must fulfill the deferred cold replay"
+    )
+    guard replayRequested else {
+        await router.releaseAllHeld()
+        _ = await firstViewportTask.value
+        return
+    }
+    let replayChunk = try #require(await iterator.next())
+    #expect(String(data: replayChunk.data, encoding: .utf8) == "superseded-deferred-cold-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: replayChunk.streamToken)
+
+    await router.releaseAllHeld()
+    _ = await firstViewportTask.value
+}
+
+@MainActor
+@Test func terminalViewportClearDropsDeferredColdAttachReplay() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    _ = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 48)
+    await router.holdViewportRequest(number: 2)
+    let preparation = try #require(store.prepareTerminalViewport(
+        surfaceID: surfaceID,
+        columns: 80,
+        rows: 48
+    ))
+    let viewportTask = Task {
+        await store.updatePreparedTerminalViewport(preparation)
+    }
+    #expect(await router.waitForCount(of: "mobile.terminal.viewport", atLeast: 2))
+
+    _ = store.terminalOutputStream(surfaceID: surfaceID)
+    #expect(
+        store.terminalViewportDeferredColdReplayGenerationsBySequenceKey.isEmpty == false,
+        "a sink mounted during preparation must leave a deferred replay marker"
+    )
+    store.clearTerminalViewport(surfaceID: surfaceID)
+    #expect(
+        store.terminalViewportDeferredColdReplayGenerationsBySequenceKey.isEmpty,
+        "clearing a terminal must discard its deferred cold replay marker"
+    )
+
+    await router.releaseAllHeld()
+    _ = await viewportTask.value
+}
+
+@MainActor
 @Test func terminalPipelineResetDuringViewportAckDefersToAckReplay() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
@@ -862,11 +1260,9 @@ import Testing
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
     let workspaceID = try #require(store.workspaces.first?.id)
 
-    // Dropping the connection clears the generations but deliberately keeps
-    // the cached dimensions: geometry seeded between connections must still
-    // ride the next connection's piggybacks (the Mac refuses generationless
-    // overwrites of generation-carrying pins, so a stale survivor cannot
-    // supersede newer geometry).
+    // Dropping the connection deliberately keeps the cached dimensions and
+    // any owner-scoped generation fences. A reconnect accepts a higher fence,
+    // while a pooled peer may still retain the prior tombstone.
     let staleKey = MobileTerminalViewportKey(
         workspaceID: workspaceID,
         terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
@@ -879,7 +1275,7 @@ import Testing
     #expect(store.reportedViewportSizesByTerminalKey[staleKey] != nil)
     store.remoteClient = nil
     #expect(store.reportedViewportSizesByTerminalKey[staleKey] != nil)
-    #expect(store.viewportReportGenerationsBySurfaceID[surfaceID] == nil)
+    #expect(store.terminalViewportGeneration(for: surfaceID) == nil)
 
     // A geometry report while the Mac connection is down must still update
     // the local dimension cache that replays and piggybacks size against;
@@ -894,7 +1290,7 @@ import Testing
     #expect(store.reportedViewportSizesByTerminalKey[key]?.rows == 33)
     // The offline report must also consume a generation so the cached
     // dimensions never ride a piggyback generationless after reconnect.
-    #expect(store.viewportReportGenerationsBySurfaceID[surfaceID] != nil)
+    #expect(store.terminalViewportGeneration(for: surfaceID) != nil)
 }
 
 @MainActor
@@ -1009,7 +1405,75 @@ import Testing
 
     let clearSent = await router.waitForCount(of: "mobile.terminal.viewport", atLeast: 2)
     #expect(clearSent)
-    #expect(store.viewportReportGenerationsBySurfaceID[surfaceID] == 2)
+    #expect(store.terminalViewportGeneration(for: surfaceID) == 2)
+}
+
+@MainActor
+@Test func terminalViewportClearPreventsBackgroundReplayFromRepinning() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts([
+        "cold-replay",
+        "initial-viewport-replay",
+        "background-replay",
+    ])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(
+        surfaceID: surfaceID,
+        streamToken: coldReplayChunk.streamToken
+    )
+
+    _ = await store.updateTerminalViewport(
+        surfaceID: surfaceID,
+        columns: 52,
+        rows: 24
+    )
+    let initialViewportChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(
+        surfaceID: surfaceID,
+        streamToken: initialViewportChunk.streamToken
+    )
+
+    let viewportCount = await router.count(of: "mobile.terminal.viewport")
+    store.clearTerminalViewport(surfaceID: surfaceID)
+    let clearSent = await router.waitForCount(
+        of: "mobile.terminal.viewport",
+        atLeast: viewportCount + 1
+    )
+    #expect(clearSent)
+    let clearRequest = try #require(
+        await router.requests(for: "mobile.terminal.viewport").last
+    )
+    #expect(clearRequest.clearsViewport)
+
+    let replayCount = await router.count(of: "mobile.terminal.replay")
+    store.requestTerminalReplay(surfaceID: surfaceID)
+    let replaySent = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCount + 1
+    )
+    #expect(replaySent)
+    let replayRequest = try #require(
+        await router.requests(for: "mobile.terminal.replay").last
+    )
+    #expect(
+        replayRequest.viewportColumns == nil,
+        "a replay after the phone releases its viewport must not restore the stale column cap"
+    )
+    #expect(
+        replayRequest.viewportRows == nil,
+        "a replay after the phone releases its viewport must not restore the stale row cap"
+    )
+    #expect(
+        replayRequest.viewportGeneration == nil,
+        "a replay after the phone releases its viewport must not carry the released viewport generation"
+    )
 }
 
 @MainActor
@@ -1026,5 +1490,5 @@ private func mountOutputAndReportViewport(
     _ = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 48)
     let initialViewportChunk = try #require(await iterator.next())
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: initialViewportChunk.streamToken)
-    #expect(store.viewportReportGenerationsBySurfaceID[surfaceID] == 1)
+    #expect(store.terminalViewportGeneration(for: surfaceID) == 1)
 }

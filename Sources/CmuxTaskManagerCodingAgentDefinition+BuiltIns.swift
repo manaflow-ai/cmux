@@ -24,7 +24,7 @@ extension CmuxTaskManagerCodingAgentDefinition {
         .init(id: "pi", displayName: "Pi", assetName: "AgentIcons/Pi",
               launchKinds: ["pi"], directBasenames: ["pi", "pi-coding-agent"],
               argumentNeedles: ["@mariozechner/pi-coding-agent", "pi-coding-agent"]),
-        .init(id: "amp", displayName: "Amp", assetName: nil,
+        .init(id: "amp", displayName: "Amp", assetName: "AgentIcons/Amp",
               launchKinds: ["amp"], directBasenames: ["amp"], argumentNeedles: ["@ampcode"]),
         .init(id: "cursor", displayName: "Cursor", assetName: nil,
               launchKinds: ["cursor"], directBasenames: ["cursor-agent"], argumentNeedles: ["cursor-agent"]),

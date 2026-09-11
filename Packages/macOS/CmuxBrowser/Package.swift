@@ -14,12 +14,14 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../CmuxFoundation"),
         .package(path: "../../../vendor/bonsplit"),
     ],
     targets: [
         .target(
             name: "CmuxBrowser",
             dependencies: [
+                "CmuxFoundation",
                 .product(name: "Bonsplit", package: "bonsplit"),
             ],
             resources: [
@@ -33,7 +35,10 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxBrowserTests",
-            dependencies: ["CmuxBrowser"],
+            dependencies: [
+                "CmuxBrowser",
+                "CmuxFoundation",
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

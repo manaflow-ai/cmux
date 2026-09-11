@@ -10,6 +10,8 @@ public struct ControlAgentLaunchCommand: Sendable, Equatable {
     public let workingDirectory: String?
     /// Replay-safe environment values captured with the launch.
     public let environment: [String: String]?
+    /// The launch home retained for provider-state verification only.
+    public let verificationHome: String?
     /// The Unix timestamp at which the launch was captured.
     public let capturedAt: Double?
     /// The subsystem that captured the launch.
@@ -23,6 +25,7 @@ public struct ControlAgentLaunchCommand: Sendable, Equatable {
     ///   - arguments: Process arguments including `argv[0]`.
     ///   - workingDirectory: The captured working directory.
     ///   - environment: Replay-safe captured environment values.
+    ///   - verificationHome: The launch home used only for provider-state verification.
     ///   - capturedAt: The capture time as a Unix timestamp.
     ///   - source: The subsystem that captured the launch.
     public init(
@@ -31,6 +34,7 @@ public struct ControlAgentLaunchCommand: Sendable, Equatable {
         arguments: [String],
         workingDirectory: String?,
         environment: [String: String]?,
+        verificationHome: String? = nil,
         capturedAt: Double?,
         source: String?
     ) {
@@ -39,6 +43,7 @@ public struct ControlAgentLaunchCommand: Sendable, Equatable {
         self.arguments = arguments
         self.workingDirectory = workingDirectory
         self.environment = environment
+        self.verificationHome = verificationHome
         self.capturedAt = capturedAt
         self.source = source
     }

@@ -430,6 +430,29 @@ struct MobileHostAuthorizationTests {
         let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
         #expect(error == nil)
     }
+    @Test func testScopedAttachTicketAcceptsMacCaffeineControl() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let requests: [(method: String, params: [String: Any])] = [
+            ("caffeine.status", [:]),
+            ("caffeine.set", ["enabled": true]),
+        ]
+        for (method, params) in requests {
+            let request = MobileHostRPCRequest(
+                id: method,
+                method: method,
+                params: params,
+                auth: MobileHostRPCAuth(
+                    attachToken: ticket.authToken,
+                    stackAccessToken: nil
+                )
+            )
+            let error = MobileHostService.ticketAuthorizationError(
+                ticket: ticket,
+                request: request
+            )
+            #expect(error == nil)
+        }
+    }
     @Test func testAttachTicketAcceptsMacDirectoryListForPairedDevice() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(

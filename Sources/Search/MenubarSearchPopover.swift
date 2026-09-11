@@ -60,13 +60,12 @@ private struct GlobalSearchPaletteView: View {
     @State private var selectedIndex = 0
     @State private var isSearching = false
     @State private var searchGeneration = 0
-    @State private var searchDebounceTimer: DispatchSourceTimer?
-    @State private var searchTask: Task<Void, Never>?
-    @State private var refreshTask: Task<Void, Never>?
+    @State private var searchDebounceScheduler = MainActorDeferredActionScheduler()
+    @State private var tasks = MainActorTaskStore<String>()
     @State private var keyMonitor: Any?
     @FocusState private var searchFieldFocused: Bool
 
-    private let searchDebounceMilliseconds = 80
+    private let searchDebounceDelay: Duration = .milliseconds(80)
     private let browseResultLimit = 20
 
     var body: some View {
@@ -127,8 +126,7 @@ private struct GlobalSearchPaletteView: View {
             searchFieldFocused = true
             installKeyMonitorIfNeeded()
             resetResultsForPopoverOpen()
-            refreshTask?.cancel()
-            refreshTask = Task { @MainActor in
+            tasks.replaceOnMainActor("refresh") {
                 await coordinator.refreshLiveIndex()
                 guard !Task.isCancelled else { return }
                 scheduleSearch(query)
@@ -136,8 +134,7 @@ private struct GlobalSearchPaletteView: View {
         }
         .onDisappear {
             removeKeyMonitor()
-            refreshTask?.cancel()
-            refreshTask = nil
+            tasks.cancel("refresh")
             cancelSearchWork()
         }
         .onChange(of: query) { _, newValue in
@@ -158,41 +155,24 @@ private struct GlobalSearchPaletteView: View {
 
         isSearching = true
 
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + .milliseconds(searchDebounceMilliseconds), leeway: .milliseconds(15))
-        timer.setEventHandler {
-            Task { @MainActor in
-                guard searchGeneration == generation else { return }
-                searchDebounceTimer?.cancel()
-                searchDebounceTimer = nil
-
-                searchTask = Task { @MainActor in
-                    defer {
-                        if searchGeneration == generation {
-                            searchTask = nil
-                        }
-                    }
-
-                    guard searchGeneration == generation, !Task.isCancelled else { return }
-                    let hits = await coordinator.search(query: trimmed)
-                    guard searchGeneration == generation, !Task.isCancelled else { return }
-                    results = hits.enumerated().map { offset, hit in
-                        GlobalSearchResultRow(hit: hit, query: trimmed, index: offset)
-                    }
-                    selectedIndex = min(selectedIndex, max(results.count - 1, 0))
-                    isSearching = false
+        searchDebounceScheduler.schedule(after: searchDebounceDelay) {
+            guard searchGeneration == generation else { return }
+            tasks.replaceOnMainActor("search") {
+                guard searchGeneration == generation, !Task.isCancelled else { return }
+                let hits = await coordinator.search(query: trimmed)
+                guard searchGeneration == generation, !Task.isCancelled else { return }
+                results = hits.enumerated().map { offset, hit in
+                    GlobalSearchResultRow(hit: hit, query: trimmed, index: offset)
                 }
+                selectedIndex = min(selectedIndex, max(results.count - 1, 0))
+                isSearching = false
             }
         }
-        searchDebounceTimer = timer
-        timer.resume()
     }
 
     private func cancelSearchWork() {
-        searchDebounceTimer?.cancel()
-        searchDebounceTimer = nil
-        searchTask?.cancel()
-        searchTask = nil
+        searchDebounceScheduler.cancel()
+        tasks.cancel("search")
     }
 
     private func resetResultsForPopoverOpen() {

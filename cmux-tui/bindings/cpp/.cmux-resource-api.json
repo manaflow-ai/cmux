@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "f225f1a51128c6ce8d6526c5cc83bc28b3e2bd47b27f3da9fbb29262bc7e831b",
+  "catalog_sha256": "172c4ba67b5a1449ce68b03a4a7bf9b982b102da769c18ad3d3f2460c0e15727",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -84,6 +84,12 @@
     },
     "machine.list": {
       "class": "read"
+    },
+    "notification.ack": {
+      "class": "mutation"
+    },
+    "notification.clear": {
+      "class": "mutation"
     },
     "notification.create": {
       "class": "mutation"
@@ -174,6 +180,39 @@
     },
     "session.get": {
       "class": "read"
+    },
+    "session.journal.append": {
+      "class": "mutation"
+    },
+    "session.journal.checkpoint.create": {
+      "class": "mutation"
+    },
+    "session.journal.checkpoint.list": {
+      "class": "read"
+    },
+    "session.journal.hook.list": {
+      "class": "read"
+    },
+    "session.journal.hook.put": {
+      "class": "mutation"
+    },
+    "session.journal.producer.list": {
+      "class": "read"
+    },
+    "session.journal.producer.put": {
+      "class": "mutation"
+    },
+    "session.journal.restore.preview": {
+      "class": "read"
+    },
+    "session.journal.segment.list": {
+      "class": "read"
+    },
+    "session.journal.segment.seal": {
+      "class": "mutation"
+    },
+    "session.journal.subscribe": {
+      "class": "stream_open"
     },
     "session.list": {
       "class": "read"
@@ -283,8 +322,14 @@
     "terminal.move": {
       "class": "mutation"
     },
+    "terminal.output_read": {
+      "class": "read"
+    },
     "terminal.process.get": {
       "class": "read"
+    },
+    "terminal.project": {
+      "class": "mutation"
     },
     "terminal.renderer_grant.create": {
       "class": "connection_control"
@@ -338,5 +383,5 @@
       "class": "mutation"
     }
   },
-  "protocol": "cmux.protocol/1"
+  "protocol": "cmux.protocol/2"
 }

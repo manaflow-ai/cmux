@@ -96,6 +96,16 @@ extension ContentView {
             return
         }
         var snapshot = selection.snapshot
+        guard let authoritativeSnapshot = await currentContext.workspace.authoritativeForkSnapshot(
+            selected: snapshot,
+            panelId: panelId,
+            isRemoteContext: isRemoteContext
+        ) else {
+            clearCommandPaletteForkableAgentCache(panelKey: panelKey)
+            NSSound.beep()
+            return
+        }
+        snapshot = authoritativeSnapshot
         if Self.commandPaletteSnapshotForkAvailability(
             snapshot,
             isRemoteTerminal: isRemoteContext
@@ -131,20 +141,11 @@ extension ContentView {
                 }
                 fallbackForValidation = currentFallbackSnapshot
             } else {
-                guard let currentIndexSnapshot = SharedLiveAgentIndex.shared.snapshotForForkAvailability(
-                    workspaceId: workspaceId,
-                    panelId: panelId,
-                    isRemoteContext: isRemoteContext
-                ),
-                      Self.commandPaletteForkSnapshotFingerprint(
-                        currentIndexSnapshot,
-                        isRemoteTerminal: isRemoteContext
-                      ) == selectedSnapshotFingerprint else {
-                    clearCommandPaletteForkableAgentCache(panelKey: panelKey)
-                    NSSound.beep()
-                    return
-                }
-                fallbackForValidation = nil
+                // authoritativeForkSnapshot already performed an exact fresh
+                // index/lifecycle check and refreshed the capability probe.
+                // Pass that candidate through the probe so a changed launch
+                // executable cannot be replaced by an older cache entry.
+                fallbackForValidation = snapshot
             }
             if AgentForkSupport.requiresForkValidationExecutableIdentity(
                 snapshot: snapshot,
@@ -290,14 +291,18 @@ extension ContentView {
                     NSSound.beep()
                     return
                 }
-                let forkWorkspace = tabManager.addWorkspace(
+                guard let forkWorkspace = tabManager.addWorkspaceIfActive(
                     workingDirectory: launch.terminalWorkingDirectory,
                     initialTerminalCommand: launch.initialTerminalCommand,
                     initialTerminalInput: launch.initialTerminalInput,
+                    initialTerminalStartupRestoreAgent: launch.startupRestoreAgent,
                     initialTerminalEnvironment: launch.initialTerminalEnvironment,
                     inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
                     autoWelcomeIfNeeded: false
-                )
+                ) else {
+                    didFork = false
+                    break
+                }
                 if let remoteConfiguration = launch.remoteConfiguration {
                     forkWorkspace.configureRemoteConnection(
                         remoteConfiguration,
@@ -321,7 +326,6 @@ extension ContentView {
             return
         }
     }
-
     private func clearCommandPaletteForkableAgentCache(panelKey: String) {
         commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
         commandPaletteForkableAgentRejectedPanelKeys.remove(panelKey)

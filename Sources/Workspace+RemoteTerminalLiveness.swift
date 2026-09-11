@@ -374,6 +374,7 @@ extension Workspace {
         remoteConnectionState = .connected
         remoteConnectionDetail = nil
         clearProxyOnlyRemoteSidebarArtifacts()
+        clearRecoveredRemoteDaemonSidebarArtifacts()
         applyBrowserRemoteWorkspaceStatusToPanels()
         postRemoteConnectionPresentationDidChange()
     }

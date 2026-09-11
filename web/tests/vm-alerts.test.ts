@@ -71,7 +71,7 @@ describe("VM alert checks", () => {
         'user-alerts',
         'team-alerts',
         'free',
-        'e2b',
+        'freestyle',
         'provider-alerts',
         'image-alerts',
         'running',
@@ -93,10 +93,10 @@ describe("VM alert checks", () => {
         created_at
       )
       values
-        ('user-alerts', 'team-alerts', 'free', ${runningVm.id}, 'vm.create.failed', 'e2b', 'image-alerts', '{"secret":"must-not-leak"}'::jsonb, ${new Date(now.getTime() - 5 * 60 * 1000)}),
+        ('user-alerts', 'team-alerts', 'free', ${runningVm.id}, 'vm.create.failed', 'freestyle', 'image-alerts', '{"secret":"must-not-leak"}'::jsonb, ${new Date(now.getTime() - 5 * 60 * 1000)}),
         ('user-alerts', 'team-alerts', 'free', ${runningVm.id}, 'vm.base.create.failed', 'freestyle', 'image-alerts', '{}'::jsonb, ${new Date(now.getTime() - 4 * 60 * 1000)}),
-        ('user-alerts', 'team-alerts', 'free', ${runningVm.id}, 'vm.create.failed', 'daytona', 'image-alerts', '{}'::jsonb, ${new Date(now.getTime() - 3 * 60 * 1000)}),
-        ('user-alerts', 'team-alerts', 'free', ${runningVm.id}, 'vm.create.failed', 'e2b', 'image-alerts', '{}'::jsonb, ${new Date(now.getTime() - 16 * 60 * 1000)})
+        ('user-alerts', 'team-alerts', 'free', ${runningVm.id}, 'vm.create.failed', 'freestyle', 'image-alerts', '{}'::jsonb, ${new Date(now.getTime() - 3 * 60 * 1000)}),
+        ('user-alerts', 'team-alerts', 'free', ${runningVm.id}, 'vm.create.failed', 'freestyle', 'image-alerts', '{}'::jsonb, ${new Date(now.getTime() - 16 * 60 * 1000)})
     `;
     await sql`
       insert into cloud_vm_leases (vm_id, user_id, kind, token_hash, expires_at)
@@ -114,7 +114,7 @@ describe("VM alert checks", () => {
       },
       sendAlert: async (input): Promise<AlertResult> => {
         alerts.push(input);
-        return { sent: true, status: 200 };
+        return { sent: true, configured: true, status: 200 };
       },
     });
 
@@ -122,6 +122,7 @@ describe("VM alert checks", () => {
       createFailures: { triggered: true, count: 3 },
       stuckProvisioning: { triggered: true, count: 1 },
       expiredUnrevokedLeases: { triggered: true, count: 51 },
+      alertSink: { configured: false, droppedAlerts: 0 },
     });
     expect(alerts.map((alert) => alert.key)).toEqual([
       "vm-create-failure-spike",

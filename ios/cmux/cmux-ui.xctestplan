@@ -1,0 +1,28 @@
+{
+  "configurations" : [
+    {
+      "id" : "E8F1BB38-A6DC-4F55-AE06-F3374BD1EED2",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:cmux-ios.xcodeproj",
+      "identifier" : "8B41F6442DEDD0D5001A66F9",
+      "name" : "cmux"
+    }
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:cmux-ios.xcodeproj",
+        "identifier" : "8B41F65B2DEDD0D6001A66F9",
+        "name" : "cmuxUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

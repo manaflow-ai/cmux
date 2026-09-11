@@ -25,9 +25,16 @@ import UserNotifications
         let clearer = RecordingDeliveredNotificationClearer()
         let store = makeStore(clearer: clearer)
 
-        await store.clearDeliveredNotifications(ids: ["n-1", "n-2"])
+        await store.clearDeliveredNotifications(
+            ids: ["n-1", "n-2"],
+            macDeviceID: "mac-a",
+            instanceTag: "stable"
+        )
 
         #expect(clearer.clearedIDs == [["n-1", "n-2"]])
+        #expect(clearer.clearedOwners.count == 1)
+        #expect(clearer.clearedOwners[0].macDeviceID == "mac-a")
+        #expect(clearer.clearedOwners[0].instanceTag == "stable")
     }
 
     @Test func trimsAndDropsBlankIDsBeforeClearing() async {
@@ -57,10 +64,15 @@ import UserNotifications
             pendingDismissQueue: queue
         )
 
-        await store.dismissNotification(ids: [" n-1 ", "", "n-2"], macDeviceID: " mac-a ")
+        await store.dismissNotification(
+            ids: [" n-1 ", "", "n-2"],
+            macDeviceID: " mac-a ",
+            instanceTag: " nightly "
+        )
 
         #expect(queue.pendingIDs == ["n-1", "n-2"])
         #expect(queue.pendingDismisses.map(\.macDeviceID) == ["mac-a", "mac-a"])
+        #expect(queue.pendingDismisses.map(\.instanceTag) == ["nightly", "nightly"])
     }
 
     @Test func dismissWithNoUsableIDsLeavesOutboxEmpty() async {
@@ -92,6 +104,36 @@ import UserNotifications
         #expect(store.pendingDismissQueue.pendingDismisses.isEmpty)
     }
 
+    @Test func dismissRoutesToExactSiblingBuild() async throws {
+        let foregroundRouter = RoutingHostRouter()
+        let stableRouter = RoutingHostRouter()
+        let nightlyRouter = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: foregroundRouter)
+        try installSecondaryClient(
+            on: store,
+            macDeviceID: "mac-sibling",
+            instanceTag: "stable",
+            router: stableRouter
+        )
+        try installSecondaryClient(
+            on: store,
+            macDeviceID: "mac-sibling",
+            instanceTag: "nightly",
+            router: nightlyRouter
+        )
+
+        await store.dismissNotification(
+            ids: ["n-nightly"],
+            macDeviceID: "mac-sibling",
+            instanceTag: "nightly"
+        )
+
+        #expect(await foregroundRouter.recordedDismisses().isEmpty)
+        #expect(await stableRouter.recordedDismisses().isEmpty)
+        #expect(await nightlyRouter.recordedDismisses().map(\.notificationIDs) == [["n-nightly"]])
+        #expect(store.pendingDismissQueue.pendingDismisses.isEmpty)
+    }
+
     @Test func secondaryFlushDrainsOnlyThatMacsQueuedDismisses() async throws {
         let foregroundRouter = RoutingHostRouter()
         let secondaryRouter = RoutingHostRouter()
@@ -103,8 +145,16 @@ import UserNotifications
             pendingDismissQueue: queue
         )
         queue.enqueue([
-            (id: "n-secondary", macDeviceID: "mac-secondary"),
-            (id: "n-other", macDeviceID: "mac-other"),
+            PendingNotificationDismiss(
+                id: "n-secondary",
+                macDeviceID: "mac-secondary",
+                instanceTag: nil
+            ),
+            PendingNotificationDismiss(
+                id: "n-other",
+                macDeviceID: "mac-other",
+                instanceTag: nil
+            ),
         ])
         try installSecondaryClient(on: store, macDeviceID: "mac-secondary", router: secondaryRouter)
 
@@ -217,6 +267,31 @@ import UserNotifications
         )
 
         #expect(SystemDeliveredNotificationClearer.macNotificationID(for: request) == "legacy-collapse-id")
+    }
+
+    @Test func deliveredNotificationOwnerIncludesBuildTag() {
+        let content = UNMutableNotificationContent()
+        content.userInfo = ["cmux": [
+            "macDeviceId": "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE",
+            "macInstanceTag": "stable",
+            "notificationId": "n-1",
+        ]]
+        let request = UNNotificationRequest(
+            identifier: "opaque-collapse-id",
+            content: content,
+            trigger: nil
+        )
+
+        #expect(SystemDeliveredNotificationClearer.matchesOwner(
+            request: request,
+            macDeviceID: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+            instanceTag: "stable"
+        ))
+        #expect(!SystemDeliveredNotificationClearer.matchesOwner(
+            request: request,
+            macDeviceID: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+            instanceTag: "nightly"
+        ))
     }
 
     @Test func dismissedEventDecodesUnreadCount() {

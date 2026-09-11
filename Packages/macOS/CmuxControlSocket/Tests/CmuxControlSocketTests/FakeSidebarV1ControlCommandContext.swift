@@ -17,6 +17,20 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         clearStatus: Bool,
         requireOwnedKey: Bool
     )?
+    nonisolated(unsafe) var shellStateCall: (
+        scope: ControlSidebarPanelScope,
+        stateRawValue: String
+    )?
+
+    nonisolated func controlSurfaceParseShellActivityState(
+        _ rawState: String
+    ) -> String? {
+        switch rawState {
+        case "prompt": "promptIdle"
+        case "running": "commandRunning"
+        default: nil
+        }
+    }
 
     nonisolated func controlSidebarScheduleStatusClear(
         target: ControlSidebarTabTarget,
@@ -34,6 +48,13 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         requireOwnedKey: Bool
     ) {
         agentPIDClearCall = (target, key, panelID, clearStatus, requireOwnedKey)
+    }
+
+    nonisolated func controlSidebarScheduleScopedShellState(
+        scope: ControlSidebarPanelScope,
+        stateRawValue: String
+    ) {
+        shellStateCall = (scope, stateRawValue)
     }
 
     func controlSidebarSetWorkspaceLoading(

@@ -1,3 +1,4 @@
+import AppKit
 import CmuxPanes
 import Foundation
 
@@ -30,20 +31,32 @@ extension DockSplitStore: TerminalLinkOpenContainer {
             from: sourcePane,
             in: bonsplitController
         ) {
-            return newSurface(
+            noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
+            guard let panelId = newSurface(
                 kind: .browser,
                 inPane: targetPane,
                 url: url,
-                focus: true
-            ) != nil
+                focus: false
+            ) else { return false }
+            focusPanelFromDockInteraction(
+                panelId,
+                window: NSApp.keyWindow ?? NSApp.mainWindow
+            )
+            return true
         }
-        return newSplit(
+        noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
+        guard let panelId = newSplit(
             kind: .browser,
             orientation: .horizontal,
             insertFirst: false,
             sourcePanelId: sourcePanelId,
             url: url,
-            focus: true
-        ) != nil
+            focus: false
+        ) else { return false }
+        focusPanelFromDockInteraction(
+            panelId,
+            window: NSApp.keyWindow ?? NSApp.mainWindow
+        )
+        return true
     }
 }

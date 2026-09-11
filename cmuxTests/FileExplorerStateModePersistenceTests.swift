@@ -62,9 +62,19 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
         }
     }
 
-    func testStoredCustomSidebarModeFallsBackToFiles() {
+    func testStoredCustomSidebarModeFallsBackToFilesWhenBetaDisabled() {
         withSavedRightSidebarModeDefaults {
             let defaults = UserDefaults.standard
+            let customSidebarsKey = "customSidebars.beta.enabled"
+            let previous = defaults.object(forKey: customSidebarsKey)
+            defaults.set(false, forKey: customSidebarsKey)
+            defer {
+                if let previous {
+                    defaults.set(previous, forKey: customSidebarsKey)
+                } else {
+                    defaults.removeObject(forKey: customSidebarsKey)
+                }
+            }
             defaults.set(RightSidebarMode.customSidebar.rawValue, forKey: modeKey)
             defaults.set("status-board", forKey: customSidebarNameKey)
 
@@ -72,6 +82,29 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
 
             XCTAssertEqual(state.mode, .files)
             XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.files.rawValue)
+        }
+    }
+
+    func testStoredCustomSidebarModePersistsWhenAvailable() {
+        withSavedRightSidebarModeDefaults {
+            let defaults = UserDefaults.standard
+            let customSidebarsKey = "customSidebars.beta.enabled"
+            let previous = defaults.object(forKey: customSidebarsKey)
+            defaults.set(true, forKey: customSidebarsKey)
+            defer {
+                if let previous {
+                    defaults.set(previous, forKey: customSidebarsKey)
+                } else {
+                    defaults.removeObject(forKey: customSidebarsKey)
+                }
+            }
+            defaults.set(RightSidebarMode.customSidebar.rawValue, forKey: modeKey)
+            defaults.set("status-board", forKey: customSidebarNameKey)
+
+            let state = FileExplorerState()
+
+            XCTAssertEqual(state.mode, .customSidebar)
+            XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.customSidebar.rawValue)
         }
     }
 
@@ -83,8 +116,8 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "feed"), .feed)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "dock"), .dock)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: " Vault "), .sessions)
-        XCTAssertNil(RightSidebarMode.from(cliArgument: "custom-sidebar"))
-        XCTAssertNil(RightSidebarMode.from(cliArgument: "custom"))
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: "custom-sidebar"), .customSidebar)
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: "custom"), .customSidebar)
         XCTAssertNil(RightSidebarMode.from(cliArgument: "unknown"))
     }
 

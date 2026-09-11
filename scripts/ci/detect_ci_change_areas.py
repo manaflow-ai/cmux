@@ -16,18 +16,16 @@ from typing import Iterable, Optional
 class ChangeAreas:
     macos: bool
     web: bool
-    go: bool
     agent_session_web: bool
 
     @classmethod
     def all(cls) -> ChangeAreas:
-        return cls(macos=True, web=True, go=True, agent_session_web=True)
+        return cls(macos=True, web=True, agent_session_web=True)
 
     def as_output_lines(self) -> list[str]:
         return [
             f"macos={bool_output(self.macos)}",
             f"web={bool_output(self.web)}",
-            f"go={bool_output(self.go)}",
             f"agent_session_web={bool_output(self.agent_session_web)}",
         ]
 
@@ -78,14 +76,6 @@ def is_web_change(path: str) -> bool:
     }
 
 
-def is_go_change(path: str) -> bool:
-    return path.startswith("daemon/remote/") or path in {
-        "scripts/build_remote_daemon_release_assets.sh",
-        "scripts/generate_remote_daemon_release_manifest.py",
-        "tests/test_remote_daemon_release_assets.sh",
-    }
-
-
 def is_agent_session_web_change(path: str) -> bool:
     if path.startswith(
         (
@@ -108,7 +98,7 @@ def is_agent_session_web_change(path: str) -> bool:
 def is_macos_neutral(path: str) -> bool:
     # `cmux-tui/` is the standalone cmux-tui Rust project, gated by its own `cmux-tui`
     # workflow; it never affects the macOS app build or app-host tests.
-    if path.startswith(("docs/", "design/", "plans/", "ios/", "web/", "webviews/", "daemon/remote/", "cmux-tui/")):
+    if path.startswith(("docs/", "design/", "plans/", "ios/", "web/", "webviews/", "cmux-tui/")):
         return True
     return path == "README.md" or (path.startswith("README.") and path.endswith(".md"))
 
@@ -128,7 +118,6 @@ def is_macos_change(path: str) -> bool:
 def classify_files(paths: Iterable[str]) -> ChangeAreas:
     macos = False
     web = False
-    go = False
     agent_session_web = False
 
     for raw_path in paths:
@@ -138,13 +127,10 @@ def classify_files(paths: Iterable[str]) -> ChangeAreas:
         if forces_all_areas(path):
             macos = True
             web = True
-            go = True
             agent_session_web = True
             continue
         if is_web_change(path):
             web = True
-        if is_go_change(path):
-            go = True
         if is_agent_session_web_change(path):
             agent_session_web = True
         if is_macos_change(path):
@@ -153,7 +139,6 @@ def classify_files(paths: Iterable[str]) -> ChangeAreas:
     return ChangeAreas(
         macos=macos,
         web=web,
-        go=go,
         agent_session_web=agent_session_web,
     )
 

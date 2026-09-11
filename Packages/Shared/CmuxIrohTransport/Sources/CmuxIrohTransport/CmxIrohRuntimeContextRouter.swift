@@ -40,4 +40,16 @@ actor CmxIrohRuntimeContextRouter: CmxIrohClientContextProvider {
         }
         try await provider.validatePrivateFallback(authorization)
     }
+
+    func noteDialFailure(
+        for request: CmxByteTransportRequest,
+        dialPlan: CmxIrohDialPlan,
+        failure: DiagnosticFailureKind
+    ) async {
+        await provider?.noteDialFailure(
+            for: request,
+            dialPlan: dialPlan,
+            failure: failure
+        )
+    }
 }

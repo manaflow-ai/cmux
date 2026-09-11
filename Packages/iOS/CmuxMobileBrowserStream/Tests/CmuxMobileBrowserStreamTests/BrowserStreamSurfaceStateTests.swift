@@ -37,6 +37,46 @@ import Testing
         #expect(state.streamStatus == .streaming)
     }
 
+    @Test @MainActor func blankPageTracksNavigationState() {
+        let descriptor = MobileBrowserPanelDescriptor(
+            panelID: "panel-new",
+            workspaceID: "workspace-1",
+            url: nil,
+            title: nil,
+            pageWidth: 400,
+            pageHeight: 300,
+            canGoBack: false,
+            canGoForward: false,
+            isLoading: false
+        )
+        let state = BrowserStreamSurfaceState(descriptor: descriptor)
+        #expect(state.isBlankPage)
+
+        state.apply(MobileBrowserStateEvent(
+            panelID: "panel-new",
+            url: "about:blank",
+            title: nil,
+            canGoBack: false,
+            canGoForward: false,
+            isLoading: false,
+            progress: 1,
+            editableFocused: false
+        ))
+        #expect(state.isBlankPage)
+
+        state.apply(MobileBrowserStateEvent(
+            panelID: "panel-new",
+            url: "https://example.com",
+            title: "Example",
+            canGoBack: true,
+            canGoForward: false,
+            isLoading: false,
+            progress: 1,
+            editableFocused: false
+        ))
+        #expect(!state.isBlankPage)
+    }
+
     private func makeImage() -> CGImage? {
         CGContext(
             data: nil,

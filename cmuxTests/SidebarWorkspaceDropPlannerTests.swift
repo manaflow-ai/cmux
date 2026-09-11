@@ -222,7 +222,7 @@ private func require<T>(_ value: T?, _ message: String? = nil) throws -> T {
         expectEqual(explicitGroupId, fixture.groupId)
     }
 
-    @Test func CollapsedGroupHeaderLeftHalfPlansRootSlotAfterGroup() throws {
+    @Test func CollapsedGroupHeaderLeftHalfPlansFirstSlotInsideGroup() throws {
         let fixture = collapsedGroupReorderFixture()
 
         let plan = try require(SidebarWorkspaceReorderDropResolver().plan(
@@ -236,8 +236,66 @@ private func require<T>(_ value: T?, _ message: String? = nil) throws -> T {
             return
         }
         expectEqual(targetIndex, 2)
+        expectFalse(usesTopLevelRows)
+        expectEqual(explicitGroupId, fixture.groupId)
+    }
+
+    @Test func CollapsedGroupHeaderBottomEdgeAdoptsIntoGroupFromEitherLane() throws {
+        let fixture = collapsedGroupReorderFixture()
+
+        let leftLanePlan = try require(SidebarWorkspaceReorderDropResolver().plan(
+            for: fixture.request(point: CGPoint(x: 2, y: 70))
+        ))
+        let rightLanePlan = try require(SidebarWorkspaceReorderDropResolver().plan(
+            for: fixture.request(point: CGPoint(x: 120, y: 70))
+        ))
+
+        expectEqual(leftLanePlan, rightLanePlan)
+        expectEqual(leftLanePlan.indicator, SidebarDropIndicator(tabId: fixture.anchor, edge: .bottom))
+        expectEqual(leftLanePlan.indicatorScope, SidebarWorkspaceReorderDropIndicatorScope.group(fixture.groupId))
+        guard case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId) = leftLanePlan.action else {
+            Issue.record("Expected local reorder plan")
+            return
+        }
+        expectEqual(targetIndex, 2)
+        expectFalse(usesTopLevelRows)
+        expectEqual(explicitGroupId, fixture.groupId)
+    }
+
+    @Test func CollapsedGroupHeaderTopHalfStillPlansRootSlotBeforeGroup() throws {
+        let fixture = collapsedGroupReorderFixture()
+
+        let plan = try require(SidebarWorkspaceReorderDropResolver().plan(
+            for: fixture.request(point: CGPoint(x: 2, y: 50))
+        ))
+
+        expectEqual(plan.indicator, SidebarDropIndicator(tabId: fixture.anchor, edge: .top))
+        expectEqual(plan.indicatorScope, SidebarWorkspaceReorderDropIndicatorScope.topLevel)
+        guard case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId) = plan.action else {
+            Issue.record("Expected local reorder plan")
+            return
+        }
+        expectEqual(targetIndex, 1)
         expectTrue(usesTopLevelRows)
         #expect(explicitGroupId == nil)
+    }
+
+    @Test func EmptyGroupHeaderBottomEdgeAdoptsIntoGroupFromLeftLane() throws {
+        let fixture = emptyGroupReorderFixture()
+
+        let plan = try require(SidebarWorkspaceReorderDropResolver().plan(
+            for: fixture.request(point: CGPoint(x: 2, y: 56))
+        ))
+
+        expectEqual(plan.indicator, SidebarDropIndicator(tabId: fixture.anchor, edge: .bottom))
+        expectEqual(plan.indicatorScope, SidebarWorkspaceReorderDropIndicatorScope.group(fixture.groupId))
+        guard case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId) = plan.action else {
+            Issue.record("Expected local reorder plan")
+            return
+        }
+        expectEqual(targetIndex, 2)
+        expectFalse(usesTopLevelRows)
+        expectEqual(explicitGroupId, fixture.groupId)
     }
 
     @Test func RootLaneOverExpandedGroupHeaderTopUsesGroupBlockBoundary() throws {
@@ -858,8 +916,64 @@ private func require<T>(_ value: T?, _ message: String? = nil) throws -> T {
         }
     }
 
+    /// A group whose only member is its anchor, so the header row is the whole
+    /// group block and no member gap is ever visible below it.
+    private struct EmptyGroupReorderFixture {
+        let rootBefore = UUID()
+        let anchor = UUID()
+        let rootAfter = UUID()
+        let dragged = UUID()
+        let groupId = UUID()
+
+        func request(point: CGPoint) -> SidebarWorkspaceReorderDropRequest {
+            SidebarWorkspaceReorderDropRequest(
+                point: point,
+                draggedWorkspaceId: dragged,
+                workspaces: [
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: rootBefore, isPinned: false, groupId: nil),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: anchor, isPinned: false, groupId: groupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: rootAfter, isPinned: false, groupId: nil),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: dragged, isPinned: false, groupId: nil)
+                ],
+                groups: [
+                    SidebarWorkspaceReorderGroupSnapshot(id: groupId, anchorWorkspaceId: anchor, isPinned: false)
+                ],
+                targets: [
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: rootBefore,
+                        groupId: nil,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 0, y: 0, width: 180, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: anchor,
+                        groupId: groupId,
+                        isGroupHeader: true,
+                        frame: CGRect(x: 0, y: 40, width: 180, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: rootAfter,
+                        groupId: nil,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 0, y: 80, width: 180, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: dragged,
+                        groupId: nil,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 0, y: 120, width: 180, height: 32)
+                    )
+                ]
+            )
+        }
+    }
+
     private func reorderFixture() -> ReorderFixture {
         ReorderFixture()
+    }
+
+    private func emptyGroupReorderFixture() -> EmptyGroupReorderFixture {
+        EmptyGroupReorderFixture()
     }
 
     private func multiChildReorderFixture() -> MultiChildReorderFixture {

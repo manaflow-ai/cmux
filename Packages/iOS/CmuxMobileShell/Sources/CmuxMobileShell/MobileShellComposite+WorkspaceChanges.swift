@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import CmuxMobileRPC
 internal import CmuxMobileDiagnostics
 internal import CmuxMobileShellModel
@@ -11,6 +12,17 @@ public enum WorkspaceChangesFetchError: Error, Sendable, Equatable {
     case notARepository
     /// Any other connection, authorization, RPC, or decoding failure.
     case transport
+}
+
+extension WorkspaceChangesFetchError: DiagnosticFailureProviding {
+    public var diagnosticFailureKind: DiagnosticFailureKind {
+        switch self {
+        case .notARepository:
+            .endpointUnavailable
+        case .transport:
+            .unknown
+        }
+    }
 }
 
 extension MobileShellComposite {
@@ -49,11 +61,22 @@ extension MobileShellComposite {
         workspaceIDs: [String],
         force: Bool = false
     ) async {
+        let startedAt = appDiagnosticNow()
+        recordAppEvent(
+            .changesSummaryLoadStarted,
+            count: workspaceIDs.count
+        )
         guard workspaceChangesCapable,
               connectionState == .connected,
               let client = remoteClient else {
             MobileDebugLog.anchormux(
                 "changes.summary skip capable=\(workspaceChangesCapable) state=\(connectionState) client=\(remoteClient != nil)"
+            )
+            recordAppEvent(
+                .changesSummaryLoadFailed,
+                startedAt: startedAt,
+                failure: workspaceChangesCapable ? .offline : .unsupportedRoute,
+                count: workspaceIDs.count
             )
             return
         }
@@ -73,6 +96,8 @@ extension MobileShellComposite {
             now: now
         )
 
+        var loadedSummaryCount = 0
+        var lastFailure: DiagnosticFailureKind?
         for batch in plan.batches {
             guard !Task.isCancelled,
                   remoteClient === client,
@@ -113,6 +138,7 @@ extension MobileShellComposite {
                     }
                 }
                 setWorkspaceChangeChipsByWorkspaceID(chips)
+                loadedSummaryCount += response.summaries.count
                 MobileDebugLog.anchormux(
                     "changes.summary ok requested=\(batch.count) summaries=\(response.summaries.count) chips=\(chips.count) sample=\(chips.keys.sorted().first.map { String($0.prefix(8)) } ?? "-") reqSample=\(batch.first.map { String($0.prefix(8)) } ?? "-")"
                 )
@@ -132,10 +158,25 @@ extension MobileShellComposite {
             } catch {
                 MobileDebugLog.anchormux("changes.summary error \(error)")
                 guard !Task.isCancelled, remoteClient === client else { return }
+                lastFailure = DiagnosticFailureKind.classify(error)
                 _ = disconnectForAuthorizationFailureIfNeeded(error)
             }
         }
         rescheduleWorkspaceChangesSummaryTrailingTask()
+        if let lastFailure {
+            recordAppEvent(
+                .changesSummaryLoadFailed,
+                startedAt: startedAt,
+                failure: lastFailure,
+                count: loadedSummaryCount
+            )
+        } else {
+            recordAppEvent(
+                .changesSummaryLoadSucceeded,
+                startedAt: startedAt,
+                count: loadedSummaryCount
+            )
+        }
     }
 
     /// Fetches the changed-file list for one workspace.
@@ -145,21 +186,40 @@ extension MobileShellComposite {
     public func fetchChangedFiles(
         workspaceID: String
     ) async throws -> MobileWorkspaceChangedFilesResponse {
-        let client = try workspaceChangesClient()
-        let request = try MobileCoreRPCClient.requestData(
-            method: "mobile.workspace.changes.files",
-            params: ["workspace_id": workspaceID]
-        )
-        let data: Data
+        let startedAt = appDiagnosticNow()
+        recordAppEvent(.changedFilesLoadStarted, correlationID: workspaceID)
         do {
-            data = try await client.sendRequest(request)
-        } catch let error as MobileShellConnectionError {
-            throw Self.workspaceChangesFetchError(error)
+            let client = try workspaceChangesClient()
+            let request = try MobileCoreRPCClient.requestData(
+                method: "mobile.workspace.changes.files",
+                params: ["workspace_id": workspaceID]
+            )
+            let data: Data
+            do {
+                data = try await client.sendRequest(request)
+            } catch let error as MobileShellConnectionError {
+                throw Self.workspaceChangesFetchError(error)
+            }
+            guard remoteClient === client, connectionState == .connected else {
+                throw CancellationError()
+            }
+            let response = try MobileWorkspaceChangedFilesResponse.decode(data)
+            recordAppEvent(
+                .changedFilesLoadSucceeded,
+                correlationID: workspaceID,
+                startedAt: startedAt,
+                count: response.files.count
+            )
+            return response
+        } catch {
+            recordAppEvent(
+                .changedFilesLoadFailed,
+                correlationID: workspaceID,
+                startedAt: startedAt,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+            throw error
         }
-        guard remoteClient === client, connectionState == .connected else {
-            throw CancellationError()
-        }
-        return try MobileWorkspaceChangedFilesResponse.decode(data)
     }
 
     /// Decodes a potentially multi-megabyte file-diff payload off the main
@@ -194,23 +254,42 @@ extension MobileShellComposite {
         path: String,
         maxLines: Int? = nil
     ) async throws -> MobileWorkspaceFileDiffResponse {
-        let client = try workspaceChangesClient()
-        var params: [String: Any] = [
-            "workspace_id": workspaceID,
-            "path": path,
-        ]
-        if let maxLines {
-            params["max_lines"] = maxLines
+        let startedAt = appDiagnosticNow()
+        recordAppEvent(.fileDiffLoadStarted, correlationID: workspaceID, count: maxLines)
+        do {
+            let client = try workspaceChangesClient()
+            var params: [String: Any] = [
+                "workspace_id": workspaceID,
+                "path": path,
+            ]
+            if let maxLines {
+                params["max_lines"] = maxLines
+            }
+            let request = try MobileCoreRPCClient.requestData(
+                method: "mobile.workspace.changes.file_diff",
+                params: params
+            )
+            let data = try await client.sendRequest(request)
+            guard remoteClient === client, connectionState == .connected else {
+                throw CancellationError()
+            }
+            let response = try await Self.decodeFileDiffResponse(data)
+            recordAppEvent(
+                .fileDiffLoadSucceeded,
+                correlationID: workspaceID,
+                startedAt: startedAt,
+                count: response.diffTotalLines
+            )
+            return response
+        } catch {
+            recordAppEvent(
+                .fileDiffLoadFailed,
+                correlationID: workspaceID,
+                startedAt: startedAt,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+            throw error
         }
-        let request = try MobileCoreRPCClient.requestData(
-            method: "mobile.workspace.changes.file_diff",
-            params: params
-        )
-        let data = try await client.sendRequest(request)
-        guard remoteClient === client, connectionState == .connected else {
-            throw CancellationError()
-        }
-        return try await Self.decodeFileDiffResponse(data)
     }
 
     func scheduleWorkspaceChangesSummaryRefresh(
@@ -272,7 +351,19 @@ extension MobileShellComposite {
 
     var foregroundWorkspaceChangesIDs: [String] {
         workspaces.compactMap { workspace in
-            guard workspace.macDeviceID == nil || workspace.macDeviceID == foregroundMacDeviceID else {
+            if let foregroundMacDeviceID {
+                if workspace.macDeviceID == nil && workspace.macInstanceTag == nil {
+                    return workspace.rpcWorkspaceID.rawValue
+                }
+                guard let workspaceMacDeviceID = workspace.macDeviceID,
+                      MacPairingKey(
+                          macDeviceID: workspaceMacDeviceID,
+                          instanceTag: workspace.macInstanceTag
+                      ) == MacPairingKey(
+                          macDeviceID: foregroundMacDeviceID,
+                          instanceTag: activeMacInstanceTag
+                      ) else { return nil }
+            } else if workspace.macDeviceID != nil || workspace.macInstanceTag != nil {
                 return nil
             }
             return workspace.rpcWorkspaceID.rawValue

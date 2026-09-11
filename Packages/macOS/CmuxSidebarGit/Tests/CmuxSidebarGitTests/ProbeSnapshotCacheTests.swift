@@ -32,7 +32,7 @@ import CmuxGit
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func fallbackRefreshBypassesTrackedSnapshotCacheGeneration() async throws {
+    func explicitRefreshBypassesTrackedSnapshotCacheGeneration() async throws {
         let directory = "/tmp/repo"
         let host = RecordingSidebarGitHost()
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: directory)
@@ -48,7 +48,7 @@ import CmuxGit
         service.scheduleWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: workspaceId,
             panelId: panelId,
-            reason: "fallbackTimer"
+            reason: "manualRefresh"
         )
         await clock.waitForSleeper()
         await clock.resumeNext()

@@ -8,12 +8,14 @@ struct SimulatorLogTools: View {
         SimulatorToolSection(simulatorStrings.logs) {
             TextField(String(localized: simulatorStrings.bundleIdentifier), text: $bundleIdentifier)
             HStack {
-                Button(simulatorStrings.recentLogs) {
+                SimulatorLocalizedButton(simulatorStrings.recentLogs) {
                     coordinator.scheduleControlAction("load-recent-logs") {
                         await $0.loadRecentLogs(bundleIdentifier: bundleIdentifier)
                     }
                 }
-                Button(coordinator.isStreamingLogs ? simulatorStrings.stopLogStream : simulatorStrings.startLogStream) {
+                SimulatorLocalizedButton(
+                    coordinator.isStreamingLogs ? simulatorStrings.stopLogStream : simulatorStrings.startLogStream
+                ) {
                     coordinator.scheduleControlAction("toggle-log-stream") {
                         await $0.toggleLogStream(bundleIdentifier: bundleIdentifier)
                     }

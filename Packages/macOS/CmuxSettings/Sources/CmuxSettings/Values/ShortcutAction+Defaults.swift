@@ -24,6 +24,22 @@ extension ShortcutAction {
         }
     }
 
+    /// Returns this action's factory default using a host-owned resolver.
+    ///
+    /// Chords are package-owned and therefore do not consult the resolver.
+    /// A resolver may return ``ShortcutDefaultResolver.Result/stroke(_:)`` with
+    /// `nil` to explicitly make an action unbound for the host. When it returns
+    /// ``ShortcutDefaultResolver.Result/useBuiltIn``, this method falls back to
+    /// the package table.
+    public func defaultShortcut(using resolver: ShortcutDefaultResolver) -> StoredShortcut? {
+        switch self {
+        case .diffViewerScrollToTop, .diffViewerNextFile, .diffViewerPreviousFile:
+            return defaultShortcut
+        default:
+            return defaultStroke(using: resolver).map { StoredShortcut(first: $0) }
+        }
+    }
+
     /// The factory-default ``ShortcutStroke`` for this action.
     ///
     /// Mirrors the table in
@@ -32,7 +48,24 @@ extension ShortcutAction {
     /// next to unbound rows, and so the Reset action in the Settings
     /// UI can restore a row by writing the default stroke through
     /// the JSON store.
+    ///
+    /// The package-owned default table. Hosts with dynamic defaults should use
+    /// ``defaultStroke(using:)`` and pass their resolver explicitly.
     public var defaultStroke: ShortcutStroke? {
+        return builtInDefaultStroke
+    }
+
+    /// Returns this action's stroke after applying a host-owned resolver.
+    public func defaultStroke(using resolver: ShortcutDefaultResolver) -> ShortcutStroke? {
+        switch resolver.result(for: self) {
+        case .useBuiltIn:
+            return builtInDefaultStroke
+        case .stroke(let stroke):
+            return stroke
+        }
+    }
+
+    private var builtInDefaultStroke: ShortcutStroke? {
         switch self {
         case .openSettings: return ShortcutStroke(key: ",", command: true)
         case .reloadConfiguration: return ShortcutStroke(key: ",", command: true, shift: true)
@@ -57,15 +90,18 @@ extension ShortcutAction {
         case .jumpToUnread: return ShortcutStroke(key: "u", command: true, shift: true)
         case .toggleUnread: return ShortcutStroke(key: "u", command: true, option: true)
         case .markOldestUnreadAndJumpNext: return ShortcutStroke(key: "u", command: true, control: true)
+        case .markAllNotificationsRead, .clearAllNotifications: return nil
         case .focusRightSidebar: return ShortcutStroke(key: "e", command: true, shift: true)
         case .switchRightSidebarToFiles: return ShortcutStroke(key: "1", control: true)
         case .switchRightSidebarToFind: return ShortcutStroke(key: "2", control: true)
         case .switchRightSidebarToSessions: return ShortcutStroke(key: "3", control: true)
         case .switchRightSidebarToFeed: return ShortcutStroke(key: "4", control: true)
         case .switchRightSidebarToDock: return ShortcutStroke(key: "5", control: true)
+        case .switchRightSidebarToMachines: return ShortcutStroke(key: "6", control: true)
         case .triggerFlash: return ShortcutStroke(key: "h", command: true, shift: true)
         case .nextSidebarTab: return ShortcutStroke(key: "]", command: true, control: true)
         case .prevSidebarTab: return ShortcutStroke(key: "[", command: true, control: true)
+        case .nextSidebarTabInGroup, .prevSidebarTabInGroup: return nil
         case .focusHistoryBack: return ShortcutStroke(key: "[", command: true)
         case .focusHistoryForward: return ShortcutStroke(key: "]", command: true)
         case .renameTab: return ShortcutStroke(key: "r", command: true)

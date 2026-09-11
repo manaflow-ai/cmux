@@ -14,10 +14,10 @@ struct SimulatorPaneToolbar: View {
             Button {
                 coordinator.showsTools.toggle()
             } label: {
-                Label(simulatorStrings.tools, systemImage: "slider.horizontal.3")
+                resourceLabel(simulatorStrings.tools, systemImage: "slider.horizontal.3")
                     .labelStyle(.iconOnly)
             }
-            .help(simulatorStrings.tools)
+            .help(Text(simulatorStrings.tools))
         }
         .controlSize(.small)
         .padding(.horizontal, 10)
@@ -30,7 +30,7 @@ private extension SimulatorPaneToolbar {
     @ViewBuilder var statusView: some View {
         switch coordinator.status {
         case .idle:
-            Label(simulatorStrings.selectToStart, systemImage: "circle")
+            resourceLabel(simulatorStrings.selectToStart, systemImage: "circle")
                 .foregroundStyle(.secondary)
         case .connecting:
             HStack(spacing: 5) {
@@ -39,7 +39,7 @@ private extension SimulatorPaneToolbar {
             }
             .foregroundStyle(.secondary)
         case .streaming:
-            Label(simulatorStrings.streaming, systemImage: "circle.fill")
+            resourceLabel(simulatorStrings.streaming, systemImage: "circle.fill")
                 .foregroundStyle(.green)
         case .deviceUnavailable:
             recoveryStatus(simulatorStrings.unavailable)
@@ -52,9 +52,11 @@ private extension SimulatorPaneToolbar {
 
     private func recoveryStatus(_ label: LocalizedStringResource) -> some View {
         HStack(spacing: 5) {
-            Label(label, systemImage: "exclamationmark.triangle.fill")
+            resourceLabel(label, systemImage: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
-            Button(simulatorStrings.reconnect) { coordinator.recover() }
+            Button(action: coordinator.recover) {
+                Text(simulatorStrings.reconnect)
+            }
         }
     }
 
@@ -81,10 +83,21 @@ private extension SimulatorPaneToolbar {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Label(label, systemImage: symbol).labelStyle(.iconOnly)
+            resourceLabel(label, systemImage: symbol).labelStyle(.iconOnly)
         }
         .buttonStyle(.borderless)
-        .help(label)
+        .help(Text(label))
+    }
+
+    private func resourceLabel(
+        _ label: LocalizedStringResource,
+        systemImage: String
+    ) -> some View {
+        Label {
+            Text(label)
+        } icon: {
+            Image(systemName: systemImage)
+        }
     }
 
 }

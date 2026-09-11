@@ -33,7 +33,8 @@ Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, 
 | CodeBuddy | `codebuddy` | `~/.codebuddy/settings.json` | `codebuddy --resume <id>` | PreToolUse |
 | Factory | `droid` | `~/.factory/settings.json` | `droid --resume <id>` | PreToolUse |
 | Qoder | `qodercli` | `~/.qoder/settings.json` | `qodercli --resume <id>` | PreToolUse |
-| Kimi Code | `kimi` | `~/.kimi/config.toml` | not yet | PreToolUse, PostToolUse |
+| Kimi Code | `kimi` | `~/.kimi-code/config.toml` or `~/.kimi/config.toml` | not yet | PreToolUse, PostToolUse |
+| Antigravity | `agy` | `~/.gemini/config/hooks.json` (`cmux` hook group) | `agy --conversation <id>` | none |
 
 OpenCode also supports project-local Feed installation:
 
@@ -117,6 +118,8 @@ Use `cmux surface resume set --shell <command>` to attach a resume command to th
 
 Approvals are prefix-based and signed by cmux. They also bind the working directory and exact environment values when present. A process can propose a command, but it cannot make that command sticky without the user choosing Auto-Restore or Ask Each Time in cmux.
 
+Agent hooks publish their own bindings with automatic resume already granted. A later `--source agent-hook` write for the same session that omits automatic resume (for example, an older Pi extension re-publishing through `cmux surface resume set`) does not downgrade that binding: cmux keeps the trusted binding and returns it as the result.
+
 ## Disable automatic resume
 
 To restore panes without automatically restarting saved agent sessions, turn off
@@ -135,6 +138,41 @@ You can also set the same preference in `~/.config/cmux/cmux.json`:
 When this is off, cmux still restores the saved window, workspace, pane, scrollback,
 and browser state. Restored agent terminals stay idle until you resume them manually.
 
+## Codex wrapper precedence
+
+When cmux launches Codex and at least one cmux event is not already covered by
+a persistent cmux handler in `hooks.json`, the wrapper adds `--enable hooks`,
+`--dangerously-bypass-hook-trust`, and one `-c hooks.<event>=...` value per
+uncovered event, for that invocation only. When `cmux hooks codex install` has
+already installed every cmux handler, the wrapper adds nothing, which also
+keeps an intentional `features.hooks = false` intact.
+
+Codex discovers hooks per configuration layer and appends them from lowest to
+highest precedence: the user `hooks.json` and `[hooks]` table in `config.toml`
+(under `~/.codex` or `$CODEX_HOME`), a trusted project's `.codex/hooks.json`
+and `.codex/config.toml`, and finally the session flags cmux injects. A
+`-c hooks.<event>=` value only defines that session-flags layer, so user and
+project handlers are registered before cmux's handler and nothing in
+`hooks.json` or `config.toml` is replaced or rewritten. Codex dispatches an
+event's handlers together and orders only their results, so nothing may depend
+on cmux's handler running first or last. cmux deliberately does not copy user
+handlers into its own value: Codex would discover the copy as a second handler
+and run it twice. This contract was verified by hand against codex-cli 0.146.0
+and 0.153.4, and `tests/test_codex_wrapper_hook_append.py` repeats the check
+against the installed `codex` binary with a local fake model provider.
+
+Two trade-offs apply whenever the wrapper injects. `--dangerously-bypass-hook-trust`
+skips Codex's hook review for the whole process, so user and project handlers
+run without the trust prompt. Session flags form one layer, so a
+`-c hooks.<event>=` value you pass to `codex` yourself is applied after cmux's
+and replaces cmux's handler for that event only; use `cmux hooks codex install`
+when you need both.
+
+Set `CMUX_CODEX_HOOKS_DISABLED=1` for a launch to keep Codex's configuration
+entirely untouched. This preserves user hook behavior and Codex's own trust
+review, but also disables cmux's Codex lifecycle registration, Feed and
+notification bridge, rebinding, and hibernation integration for that process.
+
 ## Environment overrides
 
 | Agent | Config directory override | Disable cmux hooks for one process |
@@ -149,12 +187,13 @@ and browser state. Restored agent terminals stay idle until you resume them manu
 | Cursor CLI | none | `CMUX_CURSOR_HOOKS_DISABLED=1` |
 | Gemini | none | `CMUX_GEMINI_HOOKS_DISABLED=1` |
 | Kiro CLI | `KIRO_HOME` | `CMUX_KIRO_HOOKS_DISABLED=1` |
-| Kimi Code | `KIMI_SHARE_DIR` | `CMUX_KIMI_HOOKS_DISABLED=1` |
+| Kimi Code | `KIMI_CODE_HOME`, `KIMI_SHARE_DIR` | `CMUX_KIMI_HOOKS_DISABLED=1` |
 | Rovo Dev | none | `CMUX_ROVODEV_HOOKS_DISABLED=1` |
 | Copilot | `COPILOT_HOME` | `CMUX_COPILOT_HOOKS_DISABLED=1` |
 | CodeBuddy | `CODEBUDDY_CONFIG_DIR` | `CMUX_CODEBUDDY_HOOKS_DISABLED=1` |
 | Factory | none | `CMUX_FACTORY_HOOKS_DISABLED=1` |
 | Qoder | `QODER_CONFIG_DIR` | `CMUX_QODER_HOOKS_DISABLED=1` |
+| Antigravity | none | `CMUX_ANTIGRAVITY_HOOKS_DISABLED=1` |
 
 Pi uses Pi's extension system, not the legacy Pi hooks API. The installed extension is auto-discovered from `~/.pi/agent/extensions/` or `$PI_CODING_AGENT_DIR/extensions/`.
 
@@ -166,7 +205,9 @@ Kiro stores hooks inside agent configuration files. The cmux installer creates o
 
 Kiro Feed verbosity follows **Settings > Automation > Kiro Notification Level** or `automation.kiroNotificationLevel` in `cmux.json`. `minimal` keeps actionable approval cards only, `standard` also keeps mutating tool events, and `verbose` keeps every Kiro tool event.
 
-Kimi Code reads its main config from `${KIMI_SHARE_DIR:-~/.kimi}/config.toml`. During setup and uninstall, cmux also removes its marker-delimited block from the obsolete `${KIMI_CODE_HOME:-~/.kimi-code}/config.toml` location while preserving all unrelated TOML and third-party hooks.
+Kimi ships under two config layouts: Kimi Code CLI reads `${KIMI_CODE_HOME:-~/.kimi-code}/config.toml`, and Kimi CLI 1.49 and earlier read `${KIMI_SHARE_DIR:-~/.kimi}/config.toml`. cmux installs into the file the installed binary reports through `kimi doctor`; when the binary cannot answer, it installs into the first of those two locations that already exists, defaulting to the Kimi Code CLI path. The other location is never emptied by setup: an existing cmux block there is refreshed in place so a second Kimi install keeps working, and a config without a cmux block is left untouched. `cmux hooks uninstall kimi` removes the block from both. Unrelated TOML and third-party hooks are preserved everywhere.
+
+Antigravity (`agy`) hooks are written as the `cmux` group of `~/.gemini/config/hooks.json`. Each hook command first uses the cmux that owns the terminal the session runs in (`CMUX_BUNDLED_CLI_PATH` and `CMUX_SOCKET_PATH` from that terminal's environment), so sessions started from different cmux builds (stable, nightly, tagged dev builds) each report to their own app and restore correctly. When `agy` runs a hook without that environment, the command falls back to the cmux build that installed it. Re-run `cmux hooks agy install --yes` from an up-to-date cmux to refresh that fallback.
 
 ## Troubleshooting
 
@@ -174,4 +215,4 @@ Run `cmux hooks <agent> install --yes` to reinstall one integration. Run `cmux h
 
 If Feed shows nothing, confirm the terminal has `CMUX_SURFACE_ID` and the hook file contains a `cmux hooks feed --source <agent>` command, generated extension bridge, or OpenCode feed plugin. Pi reports non-blocking tool execution telemetry through its generated extension. OMP, Campfire, and Rovo Dev currently provide lifecycle and restore hooks only, so they do not create Feed approval cards. Amp's bundled plugin reports live tab-status updates (idle / thinking / running / reading / done / error / interrupted) and lifecycle restore but does not create Feed approval cards.
 
-If relaunch does not resume an agent, check `~/.cmuxterm/<agent>-hook-sessions.json` for the saved session and verify the agent's resume command still works outside cmux.
+If relaunch does not resume an agent, first run `cmux sessions --agent <name> --json` to inspect the saved session without a running cmux socket. If needed, check `~/.cmuxterm/<agent>-hook-sessions.json` and verify the agent's resume command still works outside cmux.

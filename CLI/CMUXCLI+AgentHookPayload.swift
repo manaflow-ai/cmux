@@ -1,6 +1,38 @@
 import Foundation
 
 extension CMUXCLI {
+    /// Returns the hook event explicitly reported by an agent payload.
+    ///
+    /// Claude's hook command is selected by the installed settings, but the
+    /// payload also carries its lifecycle discriminator. Keeping that
+    /// discriminator available lets a stale or duplicated hook entry fail
+    /// closed instead of turning a child-agent event into a parent mutation.
+    func reportedHookEventName(from input: ClaudeHookParsedInput) -> String? {
+        let object = input.rawObject ?? input.object
+        return object.flatMap {
+            firstString(
+                in: $0,
+                keys: ["hook_event_name", "hookEventName", "event", "event_name"]
+            )
+        }
+    }
+
+    /// Whether a Claude `stop` invocation is allowed to settle the parent.
+    ///
+    /// Payloads from current Claude Code versions identify their hook event;
+    /// only an explicit top-level `Stop` may run the visible completion path.
+    /// Older payloads omitted the discriminator, so those retain the legacy
+    /// command-driven behavior.
+    func shouldApplyClaudeStopVisibleMutation(_ input: ClaudeHookParsedInput) -> Bool {
+        guard let rawEvent = reportedHookEventName(from: input) else { return true }
+        let normalized = rawEvent
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .lowercased()
+        return normalized == "stop"
+    }
+
     func parseClaudeHookInput(rawInput: String) -> ClaudeHookParsedInput {
         let trimmed = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
@@ -18,7 +50,8 @@ extension CMUXCLI {
                 sessionId: nil,
                 turnId: nil,
                 cwd: nil,
-                transcriptPath: nil
+                transcriptPath: nil,
+                title: nil
             )
         }
 
@@ -26,6 +59,7 @@ extension CMUXCLI {
         let turnId = firstString(in: object, keys: ["turn_id", "turnId"])
         let cwd = extractClaudeHookCWD(from: object)
         let transcriptPath = extractHookTranscriptPath(from: object)
+        let title = firstString(in: object, keys: ["title"])
         let compactObject = compactClaudeHookObject(object)
         return ClaudeHookParsedInput(
             rawObject: object,
@@ -34,7 +68,8 @@ extension CMUXCLI {
             sessionId: sessionId,
             turnId: turnId,
             cwd: cwd,
-            transcriptPath: transcriptPath
+            transcriptPath: transcriptPath,
+            title: title
         )
     }
 
@@ -46,6 +81,7 @@ extension CMUXCLI {
             "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse",
             "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "terminationReason",
             "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo",
+            "agent_state", "turn_outcome",
             "additional_details", "additionalDetails", "description",
             "campfire_event_type", "campfireEventType", "display_name", "displayName", "capability",
         ] {
@@ -141,7 +177,7 @@ extension CMUXCLI {
 
     private func claudeHookCompactFieldLimit(for key: String) -> Int {
         switch key {
-        case "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "campfire_event_type", "campfireEventType", "capability":
+        case "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "agent_state", "turn_outcome", "campfire_event_type", "campfireEventType", "capability":
             return 80
         case "transcript_path", "transcriptPath":
             return 240
@@ -184,7 +220,11 @@ extension CMUXCLI {
         case "planFilePath":
             return compactClaudeHookStringValue(rawValue, maxLength: 240, keepSuffix: true)
         case "command":
-            return compactClaudeHookStringValue(rawValue, maxLength: 120)
+            guard let command = rawValue as? String else { return nil }
+            return compactClaudeHookStringValue(
+                redactClaudeSensitiveSpans(command),
+                maxLength: 120
+            )
         case "plan":
             return compactClaudeHookStringValue(rawValue, maxLength: 4_000)
         case "pattern", "query":
@@ -389,18 +429,6 @@ extension CMUXCLI {
     }
 
     func redactClaudeSensitiveSpans(_ value: String) -> String {
-        let patterns: [(pattern: String, replacement: String)] = [
-            (#"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"#, "<email>"),
-            (#"(?:~|/)[^\s\"']+"#, "<path>"),
-            (#"\b(?:sk|rk|sess|token|key|secret|api[_-]?key)[A-Za-z0-9._:-]{8,}\b"#, "<token>"),
-            (#"\b[A-Za-z0-9_-]{24,}\b"#, "<token>")
-        ]
-        return patterns.reduce(value) { partial, entry in
-            partial.replacingOccurrences(
-                of: entry.pattern,
-                with: entry.replacement,
-                options: [.regularExpression, .caseInsensitive]
-            )
-        }
+        AgentHookNotificationPolicy.redactSensitiveCommand(value)
     }
 }

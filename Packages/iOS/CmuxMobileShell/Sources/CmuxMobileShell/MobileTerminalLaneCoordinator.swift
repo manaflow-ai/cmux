@@ -2,8 +2,13 @@ import CMUXMobileCore
 import CmuxMobileRPC
 import Foundation
 
-/// Owns one independent terminal lane per mounted Iroh surface.
+/// Owns independent terminal lanes keyed by peer and mounted surface.
 actor MobileTerminalLaneCoordinator {
+    enum LaneMode: Equatable, Sendable {
+        case output
+        case inputOnly
+    }
+
     enum FrameDisposition: Sendable {
         case accepted(outputReady: Bool)
         case suspendUntilAuthoritativeOutput
@@ -26,9 +31,52 @@ actor MobileTerminalLaneCoordinator {
     struct Configuration: Sendable {
         let request: CmxByteTransportRequest
         let surfaceID: String
+        let mode: LaneMode
         let cursor: @Sendable () async -> UInt64?
         let consume: @Sendable (MobileTerminalLaneOutputFrame) async -> FrameDisposition
         let readinessChanged: @Sendable (Bool) async -> Void
+
+        init(
+            request: CmxByteTransportRequest,
+            surfaceID: String,
+            mode: LaneMode = .output,
+            cursor: @escaping @Sendable () async -> UInt64?,
+            consume: @escaping @Sendable (MobileTerminalLaneOutputFrame) async -> FrameDisposition,
+            readinessChanged: @escaping @Sendable (Bool) async -> Void
+        ) {
+            self.request = request
+            self.surfaceID = surfaceID
+            self.mode = mode
+            self.cursor = cursor
+            self.consume = consume
+            self.readinessChanged = readinessChanged
+        }
+    }
+
+    private struct LaneKey: Hashable, Sendable {
+        let peerIdentity: String
+        let surfaceID: String
+
+        init?(configuration: Configuration) {
+            switch configuration.request.route.endpoint {
+            case .peer(let identity, _):
+                peerIdentity = identity.endpointID
+            case .hostPort, .url:
+                // LaneKey routes terminal input. Without a peer identity, two
+                // peers sharing one route id would collapse into one lane and
+                // cross-route input, so fail closed instead of defaulting.
+                guard let expectedPeerDeviceID =
+                        configuration.request.expectedPeerDeviceID,
+                      !expectedPeerDeviceID.isEmpty else {
+                    return nil
+                }
+                peerIdentity = [
+                    expectedPeerDeviceID,
+                    configuration.request.route.id,
+                ].joined(separator: "|")
+            }
+            surfaceID = configuration.surfaceID
+        }
     }
 
     private enum Phase {
@@ -40,7 +88,7 @@ actor MobileTerminalLaneCoordinator {
 
     private struct Entry {
         let id: UUID
-        let configuration: Configuration
+        var configuration: Configuration
         var phase: Phase
         var lane: (any MobileTerminalLaneConnection)?
         var task: Task<Void, Never>?
@@ -49,17 +97,36 @@ actor MobileTerminalLaneCoordinator {
 
     private static let maximumOpenAttempts = 3
 
-    private let provider: MobileTerminalLaneProvider
-    private var entriesBySurfaceID: [String: Entry] = [:]
+    private let provider: MobileTerminalLaneProvider?
+    private let inputOnlyProvider: MobileTerminalLaneProvider?
+    private var entriesByKey: [LaneKey: Entry] = [:]
+    private var focusedKeyBySurfaceID: [String: LaneKey] = [:]
 
-    init(provider: @escaping MobileTerminalLaneProvider) {
+    init(
+        provider: MobileTerminalLaneProvider?,
+        inputOnlyProvider: MobileTerminalLaneProvider? = nil
+    ) {
         self.provider = provider
+        self.inputOnlyProvider = inputOnlyProvider
     }
 
-    func ensure(_ configuration: Configuration) {
-        guard entriesBySurfaceID[configuration.surfaceID] == nil else { return }
+    func ensure(_ configuration: Configuration) async {
+        guard let key = LaneKey(configuration: configuration) else { return }
+        focusedKeyBySurfaceID[configuration.surfaceID] = key
+        if var entry = entriesByKey[key] {
+            entry.configuration = configuration
+            entriesByKey[key] = entry
+            if entry.outputReady {
+                await configuration.readinessChanged(true)
+            } else if entry.phase == .failed {
+                entry.phase = .opening
+                entriesByKey[key] = entry
+                launch(key: key, id: entry.id)
+            }
+            return
+        }
         let id = UUID()
-        entriesBySurfaceID[configuration.surfaceID] = Entry(
+        entriesByKey[key] = Entry(
             id: id,
             configuration: configuration,
             phase: .opening,
@@ -67,19 +134,23 @@ actor MobileTerminalLaneCoordinator {
             task: nil,
             outputReady: false
         )
-        launch(surfaceID: configuration.surfaceID, id: id)
+        launch(key: key, id: id)
     }
 
     func resume(surfaceID: String) {
-        guard var entry = entriesBySurfaceID[surfaceID],
-              entry.phase == .suspended else { return }
+        guard let key = focusedKeyBySurfaceID[surfaceID],
+              var entry = entriesByKey[key],
+              entry.phase == .suspended else {
+            return
+        }
         entry.phase = .opening
-        entriesBySurfaceID[surfaceID] = entry
-        launch(surfaceID: surfaceID, id: entry.id)
+        entriesByKey[key] = entry
+        launch(key: key, id: entry.id)
     }
 
     func sendInput(_ input: String, surfaceID: String) async -> InputResult {
-        guard let entry = entriesBySurfaceID[surfaceID],
+        guard let key = focusedKeyBySurfaceID[surfaceID],
+              let entry = entriesByKey[key],
               entry.phase == .active,
               entry.outputReady,
               let lane = entry.lane else {
@@ -87,29 +158,50 @@ actor MobileTerminalLaneCoordinator {
         }
         do {
             try await lane.sendInput(input)
-            guard let current = entriesBySurfaceID[surfaceID], current.id == entry.id else {
+            guard let current = entriesByKey[key], current.id == entry.id else {
                 return .failed
             }
             return .sent
         } catch {
-            await fail(surfaceID: surfaceID, id: entry.id, lane: lane)
+            await fail(key: key, id: entry.id, lane: lane)
             return .failed
         }
     }
 
+    /// Close every generation of one unmounted surface across all peers.
     func deactivate(surfaceID: String) async {
-        guard let entry = entriesBySurfaceID.removeValue(forKey: surfaceID) else { return }
-        entry.task?.cancel()
-        if entry.outputReady {
-            await entry.configuration.readinessChanged(false)
+        focusedKeyBySurfaceID[surfaceID] = nil
+        let keys = entriesByKey.keys.filter { $0.surfaceID == surfaceID }
+        await deactivate(keys: keys)
+    }
+
+    /// Retire prior peers only after the currently focused peer has produced an
+    /// authoritative replay frame.
+    func retireUnfocusedLanes(surfaceID: String) async {
+        guard let focusedKey = focusedKeyBySurfaceID[surfaceID],
+              entriesByKey[focusedKey]?.outputReady == true else {
+            return
         }
-        await entry.lane?.close()
-        await entry.task?.value
+        let keys = entriesByKey.keys.filter {
+            $0.surfaceID == surfaceID && $0 != focusedKey
+        }
+        await deactivate(keys: keys)
     }
 
     func deactivateAll() async {
-        let entries = Array(entriesBySurfaceID.values)
-        entriesBySurfaceID.removeAll()
+        focusedKeyBySurfaceID.removeAll()
+        await deactivate(keys: Array(entriesByKey.keys))
+    }
+
+    func isOutputReady(surfaceID: String) -> Bool {
+        guard let key = focusedKeyBySurfaceID[surfaceID] else { return false }
+        return entriesByKey[key]?.outputReady == true
+    }
+
+    private func deactivate(keys: [LaneKey]) async {
+        let entries = keys.compactMap { key -> Entry? in
+            entriesByKey.removeValue(forKey: key)
+        }
         for entry in entries { entry.task?.cancel() }
         for entry in entries where entry.outputReady {
             await entry.configuration.readinessChanged(false)
@@ -118,31 +210,45 @@ actor MobileTerminalLaneCoordinator {
         for entry in entries { await entry.task?.value }
     }
 
-    func isOutputReady(surfaceID: String) -> Bool {
-        entriesBySurfaceID[surfaceID]?.outputReady == true
-    }
-
-    private func launch(surfaceID: String, id: UUID) {
+    private func launch(key: LaneKey, id: UUID) {
         let task = Task { [weak self] in
             guard let self else { return }
-            await self.run(surfaceID: surfaceID, id: id)
+            await self.run(key: key, id: id)
         }
-        entriesBySurfaceID[surfaceID]?.task = task
+        entriesByKey[key]?.task = task
     }
 
-    private func run(surfaceID: String, id: UUID) async {
+    private func run(key: LaneKey, id: UUID) async {
         var openAttempt = 0
         while openAttempt < Self.maximumOpenAttempts, !Task.isCancelled {
-            guard let entry = entriesBySurfaceID[surfaceID], entry.id == id else { return }
+            guard let entry = entriesByKey[key], entry.id == id else { return }
             let configuration = entry.configuration
-            let requestedCursor = await configuration.cursor()
+            // Input-only lanes carry an empty replay baseline solely to gate
+            // readiness. Their host baseline is sampled independently from
+            // the output event stream, so validating it against the output
+            // cursor would reject a healthy lane whenever output advanced
+            // between those two operations.
+            let requestedCursor = configuration.mode == .inputOnly
+                ? nil
+                : await configuration.cursor()
             do {
-                let lane = try await provider(
+                let laneProvider: MobileTerminalLaneProvider?
+                switch configuration.mode {
+                case .output:
+                    laneProvider = provider
+                case .inputOnly:
+                    laneProvider = inputOnlyProvider ?? provider
+                }
+                guard let laneProvider else {
+                    await markFailed(key: key, id: id)
+                    return
+                }
+                let lane = try await laneProvider(
                     configuration.request,
                     configuration.surfaceID,
                     requestedCursor
                 )
-                guard install(lane: lane, surfaceID: surfaceID, id: id) else {
+                guard install(lane: lane, key: key, id: id) else {
                     await lane.close()
                     return
                 }
@@ -154,74 +260,85 @@ actor MobileTerminalLaneCoordinator {
                         requestedCursor: requestedCursor
                     )
                     isFirstFrame = false
-                    let disposition = await configuration.consume(frame)
-                    guard let current = entriesBySurfaceID[surfaceID], current.id == id else {
+                    guard let currentConfiguration = entriesByKey[key]?
+                            .configuration else {
+                        await lane.close()
+                        return
+                    }
+                    let disposition = await currentConfiguration.consume(frame)
+                    guard let current = entriesByKey[key], current.id == id else {
                         await lane.close()
                         return
                     }
                     switch disposition {
                     case let .accepted(outputReady):
-                        await setOutputReady(
-                            outputReady,
-                            surfaceID: surfaceID,
-                            id: id
-                        )
+                        if outputReady {
+                            await setOutputReady(true, key: key, id: id)
+                        } else {
+                            // A consumer can reject a frame temporarily while
+                            // an authoritative replay barrier owns the output
+                            // sink. Stop reading immediately. Draining the
+                            // next chunk would discard the replay baseline and
+                            // turn backpressure into a false sequence gap.
+                            await suspend(key: key, id: id, lane: lane)
+                            return
+                        }
                     case .suspendUntilAuthoritativeOutput:
-                        await suspend(surfaceID: surfaceID, id: id, lane: lane)
+                        await suspend(key: key, id: id, lane: lane)
                         return
                     case .stop:
-                        await finishFromRun(surfaceID: surfaceID, id: id, lane: lane)
+                        await finishFromRun(key: key, id: id, lane: lane)
                         return
                     }
                 }
                 if isFirstFrame {
                     throw CoordinatorError.missingReplayEnvelope
                 }
-                await prepareToReopen(surfaceID: surfaceID, id: id, lane: lane)
+                await prepareToReopen(key: key, id: id, lane: lane)
             } catch is CancellationError {
                 return
             } catch {
-                if let lane = entriesBySurfaceID[surfaceID]?.lane {
-                    await prepareToReopen(surfaceID: surfaceID, id: id, lane: lane)
+                if let lane = entriesByKey[key]?.lane {
+                    await prepareToReopen(key: key, id: id, lane: lane)
                 } else {
-                    await setOutputReady(false, surfaceID: surfaceID, id: id)
+                    await setOutputReady(false, key: key, id: id)
                 }
             }
             openAttempt += 1
         }
-        await markFailed(surfaceID: surfaceID, id: id)
+        await markFailed(key: key, id: id)
     }
 
     private func install(
         lane: any MobileTerminalLaneConnection,
-        surfaceID: String,
+        key: LaneKey,
         id: UUID
     ) -> Bool {
-        guard var entry = entriesBySurfaceID[surfaceID], entry.id == id else {
+        guard var entry = entriesByKey[key], entry.id == id else {
             return false
         }
         entry.phase = .active
         entry.lane = lane
-        entriesBySurfaceID[surfaceID] = entry
+        entriesByKey[key] = entry
         return true
     }
 
-    private func setOutputReady(_ ready: Bool, surfaceID: String, id: UUID) async {
-        guard var entry = entriesBySurfaceID[surfaceID], entry.id == id else { return }
+    private func setOutputReady(_ ready: Bool, key: LaneKey, id: UUID) async {
+        guard var entry = entriesByKey[key], entry.id == id else { return }
         let changed = entry.outputReady != ready
         entry.outputReady = ready
-        entriesBySurfaceID[surfaceID] = entry
+        entriesByKey[key] = entry
         if changed {
             await entry.configuration.readinessChanged(ready)
         }
     }
 
     private func prepareToReopen(
-        surfaceID: String,
+        key: LaneKey,
         id: UUID,
         lane: any MobileTerminalLaneConnection
     ) async {
-        guard var entry = entriesBySurfaceID[surfaceID], entry.id == id else {
+        guard var entry = entriesByKey[key], entry.id == id else {
             await lane.close()
             return
         }
@@ -229,7 +346,7 @@ actor MobileTerminalLaneCoordinator {
         entry.phase = .opening
         entry.lane = nil
         entry.outputReady = false
-        entriesBySurfaceID[surfaceID] = entry
+        entriesByKey[key] = entry
         if wasReady {
             await entry.configuration.readinessChanged(false)
         }
@@ -237,11 +354,11 @@ actor MobileTerminalLaneCoordinator {
     }
 
     private func suspend(
-        surfaceID: String,
+        key: LaneKey,
         id: UUID,
         lane: any MobileTerminalLaneConnection
     ) async {
-        guard var entry = entriesBySurfaceID[surfaceID], entry.id == id else {
+        guard var entry = entriesByKey[key], entry.id == id else {
             await lane.close()
             return
         }
@@ -250,7 +367,7 @@ actor MobileTerminalLaneCoordinator {
         entry.lane = nil
         entry.task = nil
         entry.outputReady = false
-        entriesBySurfaceID[surfaceID] = entry
+        entriesByKey[key] = entry
         if wasReady {
             await entry.configuration.readinessChanged(false)
         }
@@ -258,15 +375,18 @@ actor MobileTerminalLaneCoordinator {
     }
 
     private func finishFromRun(
-        surfaceID: String,
+        key: LaneKey,
         id: UUID,
         lane: any MobileTerminalLaneConnection
     ) async {
-        guard let entry = entriesBySurfaceID[surfaceID], entry.id == id else {
+        guard let entry = entriesByKey[key], entry.id == id else {
             await lane.close()
             return
         }
-        entriesBySurfaceID[surfaceID] = nil
+        entriesByKey[key] = nil
+        if focusedKeyBySurfaceID[key.surfaceID] == key {
+            focusedKeyBySurfaceID[key.surfaceID] = nil
+        }
         if entry.outputReady {
             await entry.configuration.readinessChanged(false)
         }
@@ -274,11 +394,11 @@ actor MobileTerminalLaneCoordinator {
     }
 
     private func fail(
-        surfaceID: String,
+        key: LaneKey,
         id: UUID,
         lane: any MobileTerminalLaneConnection
     ) async {
-        guard var entry = entriesBySurfaceID[surfaceID], entry.id == id else {
+        guard var entry = entriesByKey[key], entry.id == id else {
             await lane.close()
             return
         }
@@ -288,21 +408,21 @@ actor MobileTerminalLaneCoordinator {
         entry.task?.cancel()
         entry.task = nil
         entry.outputReady = false
-        entriesBySurfaceID[surfaceID] = entry
+        entriesByKey[key] = entry
         if wasReady {
             await entry.configuration.readinessChanged(false)
         }
         await lane.close()
     }
 
-    private func markFailed(surfaceID: String, id: UUID) async {
-        guard var entry = entriesBySurfaceID[surfaceID], entry.id == id else { return }
+    private func markFailed(key: LaneKey, id: UUID) async {
+        guard var entry = entriesByKey[key], entry.id == id else { return }
         let wasReady = entry.outputReady
         entry.phase = .failed
         entry.lane = nil
         entry.task = nil
         entry.outputReady = false
-        entriesBySurfaceID[surfaceID] = entry
+        entriesByKey[key] = entry
         if wasReady {
             await entry.configuration.readinessChanged(false)
         }
@@ -325,7 +445,8 @@ actor MobileTerminalLaneCoordinator {
         }
         guard frame.retainedBaseSequence <= frame.sequence,
               frame.sequence <= frame.currentSequence,
-              frame.currentSequence - frame.sequence == UInt64(frame.bytes.count) else {
+              frame.currentSequence - frame.sequence
+                == UInt64(frame.bytes.count) else {
             throw CoordinatorError.invalidEnvelope
         }
     }

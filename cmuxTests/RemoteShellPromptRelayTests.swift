@@ -60,7 +60,7 @@ struct RemoteShellPromptRelayTests {
         )
 
         #expect(output.contains(
-            #"rpc surface.report_shell_state {"workspace_id":"11111111-1111-1111-1111-111111111111","state":"prompt"}"#
+            #"rpc surface.report_shell_state {"workspace_id":"11111111-1111-1111-1111-111111111111","state":"prompt","terminal_lifecycle_id":"33333333-3333-3333-3333-333333333333"}"#
         ), Comment(rawValue: output))
     }
 
@@ -76,8 +76,102 @@ struct RemoteShellPromptRelayTests {
         )
 
         #expect(output.contains(
-            #"rpc surface.report_shell_state {"workspace_id":"11111111-1111-1111-1111-111111111111","state":"prompt"}"#
+            #"rpc surface.report_shell_state {"workspace_id":"11111111-1111-1111-1111-111111111111","state":"prompt","terminal_lifecycle_id":"33333333-3333-3333-3333-333333333333"}"#
         ), Comment(rawValue: output))
+    }
+
+    @Test("remote zsh surface shell state carries terminal lifecycle identity")
+    func remoteZshSurfaceShellStateCarriesTerminalLifecycleIdentity() throws {
+        let output = try runPrompt(
+            shell: "/bin/zsh",
+            integrationName: "cmux-zsh-integration.zsh",
+            shellArguments: ["-f", "-c"],
+            promptFunction: "_cmux_precmd",
+            mode: "shell-state",
+            surfaceID: "22222222-2222-2222-2222-222222222222"
+        )
+
+        #expect(output.contains(
+            #"rpc surface.report_shell_state {"workspace_id":"11111111-1111-1111-1111-111111111111","state":"prompt","surface_id":"22222222-2222-2222-2222-222222222222","terminal_lifecycle_id":"33333333-3333-3333-3333-333333333333"}"#
+        ), Comment(rawValue: output))
+    }
+
+    @Test("remote bash surface shell state carries terminal lifecycle identity")
+    func remoteBashSurfaceShellStateCarriesTerminalLifecycleIdentity() throws {
+        let output = try runPrompt(
+            shell: "/bin/bash",
+            integrationName: "cmux-bash-integration.bash",
+            shellArguments: ["--noprofile", "--norc", "-c"],
+            promptFunction: "_cmux_prompt_command",
+            mode: "shell-state",
+            surfaceID: "22222222-2222-2222-2222-222222222222"
+        )
+
+        #expect(output.contains(
+            #"rpc surface.report_shell_state {"workspace_id":"11111111-1111-1111-1111-111111111111","state":"prompt","surface_id":"22222222-2222-2222-2222-222222222222","terminal_lifecycle_id":"33333333-3333-3333-3333-333333333333"}"#
+        ), Comment(rawValue: output))
+    }
+
+    @Test("workspace shell-state relay authenticates its source without pinning the focused target")
+    @MainActor
+    func workspaceShellStateRelayAuthenticatesSourceWithoutPinningFocusedTarget() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let previousManager = TerminalController.shared
+            .activeTabManagerForCallerNotification()
+        let appDelegate = AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = manager
+        TerminalController.shared.setActiveTabManager(manager)
+        let windowID = appDelegate.registerMainWindowContextForTesting(
+            tabManager: manager
+        )
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(
+                windowId: windowID
+            )
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            TerminalController.shared.setActiveTabManager(previousManager)
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let reportingTerminal = try #require(workspace.focusedTerminalPanel)
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let focusedTarget = try #require(workspace.newTerminalSurface(
+            inPane: paneID,
+            focus: true
+        ))
+        let reportingLifecycleID = reportingTerminal.surface.terminalLifecycleId
+        #expect(workspace.focusedPanelId == focusedTarget.id)
+        #expect(reportingTerminal.id != focusedTarget.id)
+        #expect(GhosttyApp.terminalSurfaceRegistry.isCurrentSurface(
+            id: reportingTerminal.id,
+            terminalLifecycleID: reportingLifecycleID
+        ))
+
+        try reportWorkspaceShellState(
+            workspaceID: workspace.id,
+            terminalLifecycleID: reportingLifecycleID,
+            state: "running"
+        )
+        #expect(focusedTarget.shellActivity.state == .commandRunning)
+
+        _ = GhosttyApp.terminalSurfaceRegistry.advanceTerminalLifecycle(
+            for: reportingTerminal.surface
+        )
+        #expect(!GhosttyApp.terminalSurfaceRegistry.isCurrentSurface(
+            id: reportingTerminal.id,
+            terminalLifecycleID: reportingLifecycleID
+        ))
+
+        try reportWorkspaceShellState(
+            workspaceID: workspace.id,
+            terminalLifecycleID: reportingLifecycleID,
+            state: "prompt"
+        )
+        #expect(focusedTarget.shellActivity.state == .commandRunning)
     }
 
     @Test(
@@ -217,6 +311,7 @@ struct RemoteShellPromptRelayTests {
             "CMUX_BUNDLED_CLI_PATH": cmuxFile.path,
             "CMUX_SOCKET_PATH": "127.0.0.1:64011",
             "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+            "CMUX_TERMINAL_LIFECYCLE_ID": "33333333-3333-3333-3333-333333333333",
             "CMUX_TEST_LOG": logFile.path,
             "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
             "HOME": directory.path,
@@ -237,5 +332,33 @@ struct RemoteShellPromptRelayTests {
 
         #expect(process.terminationStatus == 0, "\(error)\n\(output)")
         return output
+    }
+
+    @MainActor
+    private func reportWorkspaceShellState(
+        workspaceID: UUID,
+        terminalLifecycleID: UUID,
+        state: String
+    ) throws {
+        let request: [String: Any] = [
+            "id": state,
+            "method": "surface.report_shell_state",
+            "params": [
+                "workspace_id": workspaceID.uuidString,
+                "terminal_lifecycle_id": terminalLifecycleID.uuidString,
+                "state": state,
+            ],
+        ]
+        let requestData = try JSONSerialization.data(withJSONObject: request)
+        let requestLine = try #require(
+            String(data: requestData, encoding: .utf8)
+        )
+        let rawResponse = TerminalController.shared.handleSocketLine(requestLine)
+        let responseData = try #require(rawResponse.data(using: .utf8))
+        let response = try #require(
+            JSONSerialization.jsonObject(with: responseData)
+                as? [String: Any]
+        )
+        #expect(response["ok"] as? Bool == true, Comment(rawValue: rawResponse))
     }
 }

@@ -11,11 +11,11 @@ import Darwin
 final class TerminalNotificationQueueTests: XCTestCase {
     override func setUp() {
         super.setUp()
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
     }
 
     override func tearDown() {
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
         super.tearDown()
     }
 
@@ -518,10 +518,14 @@ final class TerminalNotificationQueueTests: XCTestCase {
         let tabId = UUID()
         let surfaceA = UUID()
         let surfaceB = UUID()
-        let keyA = TerminalMutationReplaceKey(tabId: tabId, surfaceId: surfaceA, kind: .shellActivity)
-        let keyB = TerminalMutationReplaceKey(tabId: tabId, surfaceId: surfaceB, kind: .shellActivity)
+        let keyA = TerminalMutationReplaceKey.shellActivity(surfaceId: surfaceA)
+        let keyB = TerminalMutationReplaceKey.shellActivity(surfaceId: surfaceB)
         // Same surface as keyA, different kind: must not cross-coalesce.
-        let keyC = TerminalMutationReplaceKey(tabId: tabId, surfaceId: surfaceA, kind: .gitBranch)
+        let keyC = TerminalMutationReplaceKey.scoped(
+            tabId: tabId,
+            surfaceId: surfaceA,
+            kind: .gitBranch
+        )
 
         var applied: [String] = []
         TerminalMutationBus.shared.enqueueReplacingMainActorMutation(replaceKey: keyA) { applied.append("a1") }
@@ -537,6 +541,37 @@ final class TerminalNotificationQueueTests: XCTestCase {
         // keyA coalesces to its newest closure at its latest enqueue position;
         // keyB, keyC, and the plain mutation are untouched in enqueue order.
         XCTAssertEqual(applied, ["b1", "c1", "plain", "a3"])
+    }
+
+    func testReplacingMainActorMutationRejectsStaleGenerationBeforeReplacement() {
+        TerminalMutationBus.shared.setDrainsSuspendedForTesting(true)
+        defer { TerminalMutationBus.shared.setDrainsSuspendedForTesting(false) }
+
+        let surfaceId = UUID()
+        let oldLifecycle = UUID()
+        let replacementLifecycle = UUID()
+        let key = TerminalMutationReplaceKey.shellActivity(surfaceId: surfaceId)
+
+        var currentLifecycle = oldLifecycle
+        var applied: [String] = []
+        XCTAssertTrue(TerminalMutationBus.shared.enqueueReplacingMainActorMutation(
+            replaceKey: key,
+            admitting: { currentLifecycle == oldLifecycle }
+        ) { applied.append("old") })
+
+        currentLifecycle = replacementLifecycle
+        XCTAssertFalse(TerminalMutationBus.shared.enqueueReplacingMainActorMutation(
+            replaceKey: key,
+            admitting: { currentLifecycle == oldLifecycle }
+        ) { applied.append("stale") })
+        XCTAssertTrue(TerminalMutationBus.shared.enqueueReplacingMainActorMutation(
+            replaceKey: key,
+            admitting: { currentLifecycle == replacementLifecycle }
+        ) { applied.append("replacement") })
+
+        TerminalMutationBus.shared.drainForTesting()
+
+        XCTAssertEqual(applied, ["replacement"])
     }
 
     private func makeSocketPath(_ name: String) -> String {

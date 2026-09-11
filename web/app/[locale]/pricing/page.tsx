@@ -1,6 +1,7 @@
 import { getTranslations } from "next-intl/server";
 import { Suspense } from "react";
 import { SiteHeader } from "../components/site-header";
+import { Link } from "../../../i18n/navigation";
 import { ProCtaLink } from "../components/pro-cta-link";
 import { ProWelcomeBanner } from "../components/pro-welcome-banner";
 import {
@@ -8,6 +9,12 @@ import {
   TEAM_CHECKOUT_URL,
   withCheckoutInterval,
 } from "../../lib/billing";
+import {
+  CHECKOUT_SOURCE_PARAM,
+  CHECKOUT_SOURCE_PRICING_PAGE,
+  checkoutAttributionParamsFrom,
+  withCheckoutAttribution,
+} from "../../../services/analytics/checkoutAttribution";
 import { DOWNLOAD_CONFIRMATION_HREF } from "../../lib/download";
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import { resolveProPlanStatus } from "../../../services/billing/pro";
@@ -27,16 +34,13 @@ import {
   FeatureList,
   PlanCard,
   PricingCompareTable,
-  PricingSizeTable,
   PrimaryLink,
   SecondaryLink,
   visibleCompareRows,
   visibleFaqItems,
   visibleProFeatures,
-  SHOW_VAULT,
   type CompareRow,
   type FaqItem,
-  type SizeRow,
 } from "../../components/pricing-shared";
 import {
   PricingCheckoutButton,
@@ -49,11 +53,12 @@ import {
   TEAM_PRICING_USD,
   proBillingInterval,
 } from "../../../services/billing/plans";
+import { isVaultEnabled } from "../../../services/vault/config";
 
 const ENTERPRISE_CTA_URL = "/enterprise";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
+const HOSTED_NETWORKING_ENABLED = false;
 
-export const dynamic = "force-dynamic";
 
 export async function generateMetadata({
   params,
@@ -68,7 +73,7 @@ export async function generateMetadata({
     contentLocale,
     t,
     siteMeta,
-    SHOW_VAULT ? "metaDescription" : "metaDescriptionNoVault",
+    isVaultEnabled() ? "metaDescription" : "metaDescriptionNoVault",
   );
   const alternates = buildAlternates(
     contentLocale,
@@ -100,14 +105,24 @@ export default async function PricingPage({
   const query = searchParams ? await searchParams : {};
   const t = await getTranslations({ locale, namespace: "pricing" });
   const snapshot = await currentPlanSnapshot();
-  const interval = proBillingInterval(firstParam(query.interval));
+  const canManageBilling = snapshot.billingManagement === "stripe";
+  const interval = proBillingInterval(firstParam(query.interval) ?? "year");
+  // A link into /pricing may name its own origin (the CLI trial notice, a
+  // campaign with utm_* tags); that beats the page default so the checkout
+  // is attributed to the surface that sent the visitor here.
+  const attribution = {
+    [CHECKOUT_SOURCE_PARAM]: CHECKOUT_SOURCE_PRICING_PAGE,
+    ...checkoutAttributionParamsFrom(query),
+  };
+  const proCheckoutURL = withCheckoutAttribution(PRO_CHECKOUT_URL, attribution);
+  const teamCheckoutURL = withCheckoutAttribution(TEAM_CHECKOUT_URL, attribution);
   const proCheckoutHrefs = {
-    month: withCheckoutInterval(PRO_CHECKOUT_URL, "month"),
-    year: withCheckoutInterval(PRO_CHECKOUT_URL, "year"),
+    month: withCheckoutInterval(proCheckoutURL, "month"),
+    year: withCheckoutInterval(proCheckoutURL, "year"),
   };
   const teamCheckoutHrefs = {
-    month: withCheckoutInterval(TEAM_CHECKOUT_URL, "month"),
-    year: withCheckoutInterval(TEAM_CHECKOUT_URL, "year"),
+    month: withCheckoutInterval(teamCheckoutURL, "month"),
+    year: withCheckoutInterval(teamCheckoutURL, "year"),
   };
   const annualComparePrice = t("annualComparePrice", {
     monthly: PRO_PRICING_USD.year.monthlyEquivalent,
@@ -123,16 +138,26 @@ export default async function PricingPage({
   const proBaseFeatures = t.raw("pro.features") as string[];
   const proVaultFeatures = t.raw("pro.vaultFeatures") as string[];
   const proNetworkingFeatures = t.raw("pro.hostedNetworkingFeatures") as string[];
+  const featureVisibility = {
+    vault: isVaultEnabled(),
+    hostedNetworking: HOSTED_NETWORKING_ENABLED,
+  };
   const proFeatures = visibleProFeatures({
     base: proBaseFeatures,
     vault: proVaultFeatures,
     hostedNetworking: proNetworkingFeatures,
+    visibility: featureVisibility,
   });
   const teamFeatures = t.raw("team.features") as string[];
   const enterpriseFeatures = t.raw("enterprise.features") as string[];
-  const compareRows = visibleCompareRows(t.raw("compare.rows") as CompareRow[]);
-  const sizeRows = t.raw("sizes.rows") as SizeRow[];
-  const faqItems = visibleFaqItems(t.raw("faq.items") as FaqItem[]);
+  const compareRows = visibleCompareRows(
+    t.raw("compare.rows") as CompareRow[],
+    featureVisibility,
+  );
+  const faqItems = visibleFaqItems(
+    t.raw("faq.items") as FaqItem[],
+    featureVisibility,
+  );
 
   const linkClass =
     "underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors";
@@ -180,7 +205,7 @@ export default async function PricingPage({
               name={t("pro.name")}
               price={
                 <PricingIntervalValue
-                  monthly={t("pro.price")}
+                  monthly={`$${PRO_PRICING_USD.month.billedAmount}`}
                   annual={`$${PRO_PRICING_USD.year.monthlyEquivalent}`}
                 />
               }
@@ -203,6 +228,10 @@ export default async function PricingPage({
                     {t("manageBilling")}
                   </SecondaryLink>
                 </div>
+              ) : canManageBilling ? (
+                <SecondaryLink href="/api/billing/portal">
+                  {t("manageBilling")}
+                </SecondaryLink>
               ) : (
                 <ProCtaLink checkoutHrefs={proCheckoutHrefs}>
                   {t("pro.cta")}
@@ -217,7 +246,7 @@ export default async function PricingPage({
               name={t("team.name")}
               price={
                 <PricingIntervalValue
-                  monthly={t("team.price")}
+                  monthly={`$${TEAM_PRICING_USD.month.billedAmount}`}
                   annual={`$${TEAM_PRICING_USD.year.monthlyEquivalent}`}
                 />
               }
@@ -254,6 +283,15 @@ export default async function PricingPage({
             </PlanCard>
           </div>
 
+          <p className="mt-6 text-sm text-muted">
+            <Link
+              href="/billing/recover"
+              className="underline underline-offset-2 decoration-link-underline hover:text-foreground"
+            >
+              {t("alreadyPaid")}
+            </Link>
+          </p>
+
           {/* Compare plans. Header row is sticky under the 48px h-12 site header.
               Horizontal scrolling is mobile-only so desktop keeps the page as the
               sticky scroll container. */}
@@ -270,7 +308,7 @@ export default async function PricingPage({
                 free: t("free.price"),
                 pro: (
                   <PricingIntervalValue
-                    monthly={`${t("pro.price")} ${t("perMonth")}`}
+                    monthly={`$${PRO_PRICING_USD.month.billedAmount} ${t("perMonth")}`}
                     annual={annualComparePrice}
                   />
                 ),
@@ -291,6 +329,10 @@ export default async function PricingPage({
                 pro: (
                   snapshot.isPro ? (
                     <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
+                  ) : canManageBilling ? (
+                    <SecondaryLink href="/api/billing/portal" size="compact">
+                      {t("manageBilling")}
+                    </SecondaryLink>
                   ) : (
                     <ProCtaLink
                       checkoutHrefs={proCheckoutHrefs}
@@ -320,16 +362,6 @@ export default async function PricingPage({
             />
           </section>
         </PricingIntervalProvider>
-
-        {/* Cloud VM sizes */}
-        <PricingSizeTable
-          rows={sizeRows}
-          title={t("sizes.title")}
-          body={t("sizes.body")}
-          colSize={t("sizes.colSize")}
-          colUse={t("sizes.colUse")}
-          colRate={t("sizes.colRate")}
-        />
 
         {/* FAQ */}
         <section className="mt-16 border-t border-border pt-10">

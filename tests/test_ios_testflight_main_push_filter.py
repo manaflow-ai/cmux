@@ -175,6 +175,7 @@ def run_decision_scenario(
     changed_files: tuple[str, ...] = (),
     blocking_prior_run: bool = False,
     upload_job_starts_late: bool = False,
+    zombie_prior_run: bool = False,
     ordering_api_failure: Optional[str] = None,
     compare_api_failure: bool = False,
     artifact_api_failure: bool = False,
@@ -253,6 +254,7 @@ def run_decision_scenario(
         "changedFiles": changed_files,
         "blockingPriorRun": blocking_prior_run,
         "uploadJobStartsLate": upload_job_starts_late,
+        "zombiePriorRun": zombie_prior_run,
         "orderingApiFailure": ordering_api_failure,
         "compareApiFailure": compare_api_failure,
         "artifactApiFailure": artifact_api_failure,
@@ -281,11 +283,17 @@ const priorRuns = (request) => {{
   const runs = pageRuns.map((run) => ({{
     id: run.id,
     status:
-      scenario.blockingPriorRun && run.id === firstPriorRunId
-        ? 'in_progress'
-        : 'completed',
+      scenario.zombiePriorRun && run.id === firstPriorRunId
+        ? 'queued'
+        : scenario.blockingPriorRun && run.id === firstPriorRunId
+          ? 'in_progress'
+          : 'completed',
     event: run.event,
     head_sha: run.sha,
+    created_at:
+      scenario.zombiePriorRun && run.id === firstPriorRunId
+        ? '2020-01-01T00:00:00Z'
+        : undefined,
   }}));
   const idleRunsBeforePage = (page - 1) * 100;
   const idleRunsOnPage = Math.min(
@@ -357,6 +365,13 @@ const github = {{
         const priorRun = allPriorRuns.find(
           (run) => run.id === Number(request.run_id)
         );
+        const isZombieRun =
+          scenario.zombiePriorRun &&
+          priorRun?.id === firstPriorRunId;
+        if (isZombieRun) {{
+          uploadJobStatuses.push(null);
+          return {{ data: {{ jobs: [] }} }};
+        }}
         const isBlockingRun =
           scenario.blockingPriorRun &&
           priorRun?.id === firstPriorRunId;
@@ -984,6 +999,24 @@ def test_ordering_ignores_later_active_runs() -> None:
     }
 
 
+def test_ordering_skips_defunct_queued_prior_run() -> None:
+    result = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[0],
+        prior_sha="base-sha",
+        changed_files=("ios/cmux/App.swift",),
+        zombie_prior_run=True,
+    )
+
+    assert result["waitCalls"] == []
+    assert any("defunct" in str(warning) for warning in result["warnings"])
+    assert result["outputs"] == {
+        "should_build": "true",
+        "last_uploaded_sha": "base-sha",
+        "variant": "internal",
+    }
+
+
 def test_ordering_includes_manual_current_and_prior_runs() -> None:
     scenarios = (
         ("workflow_dispatch", "schedule"),
@@ -1128,6 +1161,7 @@ if __name__ == "__main__":
     test_scheduled_run_waits_before_upload_job_exists()
     test_ordering_retries_transient_api_failures()
     test_ordering_ignores_later_active_runs()
+    test_ordering_skips_defunct_queued_prior_run()
     test_ordering_includes_manual_current_and_prior_runs()
     test_mapping_keys_normalizes_quoted_yaml_keys()
     test_testflight_notes_use_the_same_ios_path_contract()

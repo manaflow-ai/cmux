@@ -1,4 +1,5 @@
 import CmuxSimulator
+import CmuxSimulatorSystem
 import Darwin
 import Foundation
 import IOSurface
@@ -26,6 +27,31 @@ struct SimulatorFramebufferPortDiscoveryTests {
         #expect(transport?.height == 12)
         #expect(metadata?.width == 8)
         #expect(metadata?.height == 12)
+    }
+
+    @Test("Explicit input refresh publishes the current surface without a callback")
+    func explicitInputRefreshPublishesWithoutCallback() async throws {
+        let fixture = SimulatorFramebufferPortFixture()
+        var transport: SimulatorFrameTransportDescriptor?
+        let framebuffer = SimulatorFramebuffer(
+            onFrameTransportChange: { transport = $0 },
+            onDisplayChange: { _ in }
+        )
+
+        try await framebuffer.start(device: fixture.device)
+        let descriptor = try #require(transport)
+        let initialSequence = try publishedSequence(in: descriptor)
+
+        #expect(framebuffer.publishCurrentFrame())
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        var latestSequence = try publishedSequence(in: descriptor)
+        while latestSequence <= initialSequence, clock.now < deadline {
+            try await clock.sleep(for: .milliseconds(1))
+            latestSequence = try publishedSequence(in: descriptor)
+        }
+
+        #expect(latestSequence > initialSequence)
     }
 
     @Test("Display metadata uses the device type's pixels-per-point scale")
@@ -231,5 +257,31 @@ struct SimulatorFramebufferPortDiscoveryTests {
         fixture.publishFrame(width: 8, height: 12)
         try await framebuffer.setPublishingEnabled(true)
         #expect(transports.count == 2)
+    }
+
+    private func publishedSequence(
+        in descriptor: SimulatorFrameTransportDescriptor
+    ) throws -> UInt64 {
+        let layout = try SimulatorFrameSharedMemoryLayout(descriptor: descriptor)
+        let handle = try simulatorOpenSharedMemory(
+            named: descriptor.sharedMemoryName,
+            flags: O_RDONLY
+        )
+        try #require(handle >= 0)
+        defer { close(handle) }
+        let mapping = try #require(mmap(
+            nil,
+            layout.totalByteCount,
+            PROT_READ,
+            MAP_SHARED,
+            handle,
+            0
+        ))
+        try #require(mapping != MAP_FAILED)
+        defer { munmap(mapping, layout.totalByteCount) }
+        let word = Int64(bitPattern: cmux_simulator_atomic_load_u64_acquire(
+            layout.publishedWordPointer(in: mapping)
+        ))
+        return try #require(layout.decodePublishedWord(word)?.sequence)
     }
 }

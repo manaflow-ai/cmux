@@ -48,6 +48,7 @@ extension CmuxSettingsFileStore {
     }
 
     private static func defaultTemplateSections() -> [[String: Any]] {
+        let fileEditorSettings = FilePreviewEditorSettings(defaults: .standard)
         let shortcutsBindings = Dictionary(
             uniqueKeysWithValues: KeyboardShortcutSettings.publicShortcutActions.map { action in
                 (action.rawValue, shortcutTemplateValue(action.defaultShortcut, usesNumberedDigits: action.usesNumberedDigitMatching))
@@ -90,6 +91,7 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "terminal": [
+                    "adaptiveDefaultTheme": SettingCatalog().terminal.adaptiveDefaultTheme.defaultValue,
                     "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
                     "scrollSpeed": TerminalScrollSpeedSettings.defaultMultiplier,
                     "sessionContentMaxWidth": false,
@@ -120,8 +122,10 @@ extension CmuxSettingsFileStore {
                     "showInMenuBar": MenuBarExtraSettings.defaultShowInMenuBar,
                     "unreadPaneRing": NotificationPaneRingSettings.defaultEnabled,
                     "paneFlash": NotificationPaneFlashSettings.defaultEnabled,
+                    "paneFlashColor": NSNull(),
                     "sound": NotificationSoundSettings.defaultValue,
                     "customSoundFilePath": NotificationSoundSettings.defaultCustomFilePath,
+                    "soundOverrides": [:],
                     "command": NotificationSoundSettings.defaultCustomCommand,
                     "hooksMode": "append",
                     "hooks": [],
@@ -198,6 +202,7 @@ extension CmuxSettingsFileStore {
             [
                 "browser": [
                     "defaultSearchEngine": BrowserSearchSettingsStore.defaultSearchEngine.rawValue,
+                    "defaultZoomLevel": BrowserZoomSettings.defaultLevel,
                     "customSearchEngineName": BrowserSearchSettingsStore.defaultCustomSearchEngineName,
                     "customSearchEngineURLTemplate": BrowserSearchSettingsStore.defaultCustomSearchEngineURLTemplate,
                     "showSearchSuggestions": BrowserSearchSettingsStore.defaultSearchSuggestionsEnabled,
@@ -210,6 +215,7 @@ extension CmuxSettingsFileStore {
                     "hostsToOpenInEmbeddedBrowser": [String](),
                     "urlsToAlwaysOpenExternally": [String](),
                     "insecureHttpHostsAllowedInEmbeddedBrowser": BrowserInsecureHTTPSettings.defaultAllowlistPatterns,
+                    "urlAllowlist": BrowserURLAllowlistPolicy.defaultPatterns,
                     "showImportHintOnBlankTabs": BrowserImportHintSettings.defaultShowOnBlankTabs,
                     "reactGrabVersion": ReactGrabSettings.defaultVersion,
                 ],
@@ -229,6 +235,11 @@ extension CmuxSettingsFileStore {
             [
                 "fileEditor": [
                     "wordWrap": FilePreviewWordWrapSettings.defaultEnabled,
+                    "syntaxHighlighting": fileEditorSettings.catalog.syntaxHighlighting.defaultValue,
+                    "lineNumbers": fileEditorSettings.catalog.lineNumbers.defaultValue,
+                    "indentGuides": fileEditorSettings.catalog.indentGuides.defaultValue,
+                    "currentLineHighlight": fileEditorSettings.catalog.currentLineHighlight.defaultValue,
+                    "tabWidth": fileEditorSettings.catalog.tabWidth.defaultValue,
                 ],
             ],
             [

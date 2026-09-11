@@ -7,6 +7,9 @@ extension TerminalController {
         params: [String: Any],
         filesystemJobQuota: MobileTaskFilesystemJobQuota
     ) async -> V2CallResult {
+        guard Self.mobileTaskComposerFeatureEnabled else {
+            return Self.mobileTaskComposerDisabledResult
+        }
         guard let path = params["path"] as? String,
               let offset = params["offset"] as? Int,
               let limit = params["limit"] as? Int,

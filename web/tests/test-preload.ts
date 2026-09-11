@@ -4,13 +4,17 @@
 // via t3-env's createEnv. bun runs every test file in one process, so whichever
 // test file first imports `@/app/env` (directly or through a route) freezes
 // those values for the whole run. That made env-dependent suites order-dependent
-// and flaky in CI — e.g. notifications-push-route asserts the push rate-limit
-// fires, but `env.CMUX_PUSH_RATE_LIMIT_ID` froze to `undefined` whenever another
-// suite imported env first. Pinning the deterministic test env here, before any
-// import, removes the ordering dependency. Individual suites may still override
-// these at their own top level.
+// and flaky in CI. Pinning the deterministic test env here, before any import,
+// removes the ordering dependency. Individual suites may still override these
+// at their own top level.
 process.env.SKIP_ENV_VALIDATION = "1";
-process.env.CMUX_PUSH_RATE_LIMIT_ID ??= "cmux-push-test";
+// Billing analytics has a production key/host fallback. Mark every Bun test
+// process so the analytics transport fails closed before any test module loads.
+process.env.CMUX_ANALYTICS_TEST_MODE = "1";
+// Also replace the fallback credentials and host. This protects analytics
+// senders that do not yet use the module-level test guard.
+process.env.POSTHOG_PROJECT_KEY = "phc_test_only";
+process.env.POSTHOG_HOST = "https://127.0.0.1:1";
 process.env.RESEND_API_KEY ??= "re_test";
 process.env.STRIPE_FOUNDERS_WEBHOOK_SECRET ??= "whsec_founders_test";
 process.env.CMUX_FEEDBACK_FROM_EMAIL ??= "founders@manaflow.com";

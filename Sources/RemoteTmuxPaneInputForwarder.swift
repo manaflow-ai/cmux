@@ -3,7 +3,7 @@ import os
 
 /// Preserves Ghostty manual-I/O order while crossing to the tmux main-actor owner.
 final class RemoteTmuxPaneInputForwarder: Sendable {
-    nonisolated enum SendResult: Equatable, Sendable {
+    enum SendResult: Equatable, Sendable {
         case enqueued
         case inactive
         case overflow

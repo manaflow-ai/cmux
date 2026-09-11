@@ -9,15 +9,24 @@ import SwiftUI
 public struct BetaFeaturesSection: View {
     @State private var feed: DefaultsValueModel<Bool>
     @State private var dock: DefaultsValueModel<Bool>
+    @State private var cloudMachines: DefaultsValueModel<Bool>
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
     @State private var remoteTmux: DefaultsValueModel<Bool>
     @State private var workspaceTodoControls: DefaultsValueModel<Bool>
     @State private var workspaceTodosChecklistStyle: DefaultsValueModel<WorkspaceTodoChecklistStyle>
+    /// `DisableCloud` (MDM). The opt-in is meaningless while an administrator
+    /// forces Cloud off, so the row says so and locks the toggle; re-read on
+    /// ``ManagedDevicePolicy/changeSignals(notificationCenter:)``.
+    @State private var cloudMachinesManagedByPolicy = ManagedDevicePolicy().isEnforced(.disableCloud)
+    /// `DisableCustomSidebars` (MDM): same treatment for the interpreted
+    /// custom sidebars opt-in.
+    @State private var customSidebarsManagedByPolicy = ManagedDevicePolicy().isEnforced(.disableCustomSidebars)
 
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
         _feed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarFeed))
         _dock = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarDock))
+        _cloudMachines = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.cloudMachines))
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
         _remoteTmux = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmux))
@@ -37,6 +46,8 @@ public struct BetaFeaturesSection: View {
                 SettingsCardDivider()
                 dockRow
                 SettingsCardDivider()
+                cloudMachinesRow
+                SettingsCardDivider()
                 extensionsRow
                 SettingsCardDivider()
                 customSidebarsRow
@@ -49,12 +60,20 @@ public struct BetaFeaturesSection: View {
             }
         }
         .task { startObservingSettings() }
+        .task {
+            for await _ in ManagedDevicePolicy.changeSignals() {
+                let policy = ManagedDevicePolicy()
+                cloudMachinesManagedByPolicy = policy.isEnforced(.disableCloud)
+                customSidebarsManagedByPolicy = policy.isEnforced(.disableCustomSidebars)
+            }
+        }
     }
 
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
             feed,
             dock,
+            cloudMachines,
             extensions,
             customSidebars,
             remoteTmux,
@@ -140,6 +159,29 @@ public struct BetaFeaturesSection: View {
     }
 
     @ViewBuilder
+    private var cloudMachinesRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("cloud.beta.machines.enabled"),
+            searchAnchorID: "setting:betaFeatures:cloudMachines",
+            String(localized: "settings.betaFeatures.cloudMachines", defaultValue: "Cloud Machines"),
+            subtitle: cloudMachinesManagedByPolicy
+                ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
+                : cloudMachines.current
+                    ? String(localized: "settings.betaFeatures.cloudMachines.subtitleOn", defaultValue: "Shows Cloud in the right sidebar plus the Cloud Machines settings, palette commands, and new-workspace entries.")
+                    : String(localized: "settings.betaFeatures.cloudMachines.subtitleOff", defaultValue: "Hides every Cloud Machines surface unless remote rollout enables it.")
+        ) {
+            Toggle("", isOn: Binding(get: { cloudMachines.current && !cloudMachinesManagedByPolicy }, set: {
+                cloudMachines.set($0)
+                NotificationCenter.default.post(name: Notification.Name("rightSidebarBetaFeatureDidChange"), object: nil)
+            }))
+                .labelsHidden()
+                .controlSize(.small)
+                .disabled(cloudMachinesManagedByPolicy)
+                .accessibilityIdentifier("SettingsBetaCloudMachinesToggle")
+        }
+    }
+
+    @ViewBuilder
     private var extensionsRow: some View {
         SettingsCardRow(
             configurationReview: .settingsOnly,
@@ -162,13 +204,16 @@ public struct BetaFeaturesSection: View {
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:betaFeatures:customSidebars",
             String(localized: "settings.betaFeatures.customSidebars", defaultValue: "Custom Sidebars"),
-            subtitle: customSidebars.current
-                ? String(localized: "settings.betaFeatures.customSidebars.subtitleOn", defaultValue: "Lists your sidebars from ~/.config/cmux/sidebars in the sidebar picker, rendered in an isolated helper process.")
-                : String(localized: "settings.betaFeatures.customSidebars.subtitleOff", defaultValue: "Hides custom sidebars from the sidebar picker until you enable them here.")
+            subtitle: customSidebarsManagedByPolicy
+                ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
+                : customSidebars.current
+                    ? String(localized: "settings.betaFeatures.customSidebars.subtitleOn", defaultValue: "Lists your sidebars from ~/.config/cmux/sidebars in the sidebar picker, rendered in an isolated helper process.")
+                    : String(localized: "settings.betaFeatures.customSidebars.subtitleOff", defaultValue: "Hides custom sidebars from the sidebar picker until you enable them here.")
         ) {
-            Toggle("", isOn: Binding(get: { customSidebars.current }, set: { customSidebars.set($0) }))
+            Toggle("", isOn: Binding(get: { customSidebars.current && !customSidebarsManagedByPolicy }, set: { customSidebars.set($0) }))
                 .labelsHidden()
                 .controlSize(.small)
+                .disabled(customSidebarsManagedByPolicy)
                 .accessibilityIdentifier("SettingsBetaCustomSidebarsToggle")
         }
     }

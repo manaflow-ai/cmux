@@ -66,23 +66,6 @@ struct TerminalRowCapacityFitTests {
         #expect(fit.capacityColumns(atBaseFontSize: 12) == 134)
     }
 
-    @Test("horizontal cap returns the largest font that can render granted columns")
-    func maximumFontSizeForEffectiveColumns() throws {
-        let fit = try #require(TerminalRowCapacityFit(
-            containerPixelHeight: 1_200,
-            cellPixelHeight: 36,
-            containerPixelWidth: 1_206,
-            cellPixelWidth: 18,
-            liveFontSize: 24
-        ))
-
-        let fullWidth = try #require(fit.maximumFontSize(forEffectiveColumns: 134, atBaseFontSize: 12))
-        #expect(abs(fullWidth - 12) < 0.001)
-
-        let halfWidth = try #require(fit.maximumFontSize(forEffectiveColumns: 67, atBaseFontSize: 12))
-        #expect(abs(halfWidth - 24) < 0.001)
-    }
-
     @Test("degenerate horizontal inputs return nil")
     func degenerateHorizontalInputsReturnNil() {
         #expect(TerminalRowCapacityFit(
@@ -99,14 +82,12 @@ struct TerminalRowCapacityFitTests {
             cellPixelWidth: 0,
             liveFontSize: 12
         )?.capacityColumns(atBaseFontSize: 12) == nil)
-
-        let rowOnlyFit = TerminalRowCapacityFit(
+        #expect(TerminalRowCapacityFit(
             containerPixelHeight: 1_200,
             cellPixelHeight: 18,
+            containerPixelWidth: 1_206,
+            cellPixelWidth: 9,
             liveFontSize: 12
-        )
-        #expect(rowOnlyFit?.capacityColumns(atBaseFontSize: 12) == nil)
-        #expect(rowOnlyFit?.maximumFontSize(forEffectiveColumns: 134, atBaseFontSize: 12) == nil)
-        #expect(rowOnlyFit?.capacityColumns(atBaseFontSize: 0) == nil)
+        )?.capacityColumns(atBaseFontSize: 0) == nil)
     }
 }

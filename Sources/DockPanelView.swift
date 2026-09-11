@@ -45,7 +45,8 @@ struct DockPanelView: View {
             source: unreadSource,
             workspaceID: store.workspaceId,
             panelIDs: Set(store.panels.keys),
-            isActive: isSidebarVisible && mode == .dock
+            isActive: isSidebarVisible && mode == .dock,
+            agentAttentionSource: store.agentNeedsInputAttention
         ))
     }
 
@@ -53,9 +54,22 @@ struct DockPanelView: View {
         PanelAppearance.fromConfig(appearanceConfig)
     }
 
+    private var resolvedChromeBackgroundIdentity: String {
+        windowAppearance.resolvedChromeBackgroundColor.hexString(includeAlpha: true)
+    }
+
     var body: some View {
         content
-        .background(Color(nsColor: appearance.backgroundColor))
+        // Bonsplit and hosted panel subtrees may create their own AppKit
+        // hosting boundary. Re-inject the snapshot authority at the Dock root
+        // so none of that chrome falls back to macOS's ambient appearance.
+        .environment(\.colorScheme, windowAppearance.resolvedColorScheme)
+        // The window root (or the right-sidebar material) owns the backdrop.
+        // Bonsplit terminal surfaces are intentionally clear, so a concrete
+        // composited chrome color here would cut them off from that owner.
+        .background(
+            WindowBackdropLayer(role: .bonsplitChrome, snapshot: windowAppearance)
+        )
         .background(
             DockKeyboardFocusBridge(store: store)
                 .frame(width: 1, height: 1)
@@ -85,14 +99,23 @@ struct DockPanelView: View {
             store.setRootDirectory(rootDirectory)
             store.setActive(isVisible: isSidebarVisible, mode: mode, visibilityHostId: visibilityHostId)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            refreshAppearance(reason: "ghosttyConfigDidReload")
-        }
         .onReceive(NotificationCenter.default.publisher(for: PaneChromeSettings.didChangeNotification)) { _ in
             refreshAppearance(reason: "paneChromeSettingsDidChange")
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
             refreshAppearance(reason: "ghosttyDefaultBackgroundDidChange")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyChromeConfigurationDidChange)) { _ in
+            refreshAppearance(reason: "ghosttyChromeConfigurationDidChange")
+        }
+        .onChange(of: windowAppearance.resolvedColorScheme) { _, _ in
+            // The Dock's Bonsplit controller is an AppKit subtree and does not
+            // inherit SwiftUI's environment automatically. Re-apply its
+            // concrete chrome whenever the shared theme authority changes.
+            refreshAppearance(reason: "resolvedColorSchemeChanged")
+        }
+        .onChange(of: resolvedChromeBackgroundIdentity) { _, _ in
+            refreshAppearance(reason: "resolvedChromeBackgroundChanged")
         }
     }
 
@@ -100,7 +123,7 @@ struct DockPanelView: View {
         let next = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.\(reason)")
         appearanceConfig = next
         appearanceRevision &+= 1
-        store.applyGhosttyChrome(from: next)
+        store.applyGhosttyChrome(from: next, windowAppearance: windowAppearance)
     }
 
     @ViewBuilder

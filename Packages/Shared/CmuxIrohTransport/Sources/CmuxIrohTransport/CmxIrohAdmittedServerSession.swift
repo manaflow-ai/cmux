@@ -16,7 +16,9 @@ public struct CmxIrohAdmittedServerSession: Sendable {
     private let session: CmxIrohServerSession
     private let promoteUsableSession: @Sendable () async -> Bool
 
-    init(
+    /// Public so the dual-ALPN compatibility acceptor can wrap an admitted
+    /// legacy session it drove outside the legacy host runtime.
+    public init(
         peer: CmxIrohAdmittedPeer,
         session: CmxIrohServerSession,
         promoteUsableSession: @escaping @Sendable () async -> Bool = { true }

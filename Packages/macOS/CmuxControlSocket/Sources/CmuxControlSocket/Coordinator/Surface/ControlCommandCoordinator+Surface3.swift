@@ -6,7 +6,6 @@ internal import Foundation
 /// `ControlCommandCoordinator+Surface.swift` to keep each file under the 500-line
 /// budget. See that file's doc comment for the domain overview.
 extension ControlCommandCoordinator {
-
     // MARK: - resume target param validation
 
     /// The byte-faithful twin of `v2SurfaceResumeTargetValidationError`: an
@@ -84,7 +83,8 @@ extension ControlCommandCoordinator {
             permissionMode: optionalTrimmedRawString(params, "permission_mode"),
             autoResume: source == "agent-hook" ? (bool(params, "auto_resume") ?? false) : false,
             remoteWorkspaceID: remoteWorkspaceID,
-            remoteRelayParameters: remoteWorkspaceID == nil ? nil : params
+            remoteRelayParameters: remoteWorkspaceID == nil ? nil : params,
+            resumeEvidenceProvenance: optionalTrimmedRawString(params, "resume_evidence_provenance")
         )
         return surfaceResumeResult(
             context?.controlSurfaceResumeSet(
@@ -111,11 +111,30 @@ extension ControlCommandCoordinator {
         guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: Self.surfaceWindowUnavailableMessage, data: nil)
         }
+        let claimCheckpointID = optionalTrimmedRawString(params, "claim_checkpoint_id")
+        let claimSource = optionalTrimmedRawString(params, "claim_source")
+        let claimUpdatedAt = double(params, "claim_updated_at")
+        let hasClaimParameter = params["claim_checkpoint_id"] != nil
+            || params["claim_source"] != nil
+            || params["claim_updated_at"] != nil
+        guard !hasClaimParameter
+            || (claimCheckpointID != nil
+                && claimSource != nil
+                && claimUpdatedAt?.isFinite == true) else {
+            return .err(
+                code: "invalid_params",
+                message: surfaceResumeStrings().restoreClaimMustBeValid,
+                data: nil
+            )
+        }
         return surfaceResumeResult(
             context?.controlSurfaceResumeGet(
                 routing: routing,
                 explicitTargetID: surfaceResumeExplicitTargetID(params),
-                hasResolvedWindowID: uuid(params, "window_id") != nil
+                hasResolvedWindowID: uuid(params, "window_id") != nil,
+                claimCheckpointID: claimCheckpointID,
+                claimSource: claimSource,
+                claimUpdatedAt: claimUpdatedAt
             ) ?? .surfaceNotFound
         )
     }
@@ -149,6 +168,7 @@ extension ControlCommandCoordinator {
             expectedCheckpointID: optionalTrimmedRawString(params, "checkpoint_id")
                 ?? optionalTrimmedRawString(params, "checkpointId"),
             expectedSource: optionalTrimmedRawString(params, "source"),
+            expectedUpdatedAt: double(params, "expected_updated_at"),
             agentSessionEnded: agentSessionEnded
         ) ?? .surfaceNotFound
         return surfaceResumeResult(resolution)
@@ -182,7 +202,7 @@ extension ControlCommandCoordinator {
         case .setFailed:
             return .err(code: "internal_error", message: "Failed to set resume binding", data: nil)
         case .result(let snapshot):
-            return .ok(.object([
+            var result: [String: JSONValue] = [
                 "window_id": orNull(snapshot.windowID?.uuidString),
                 "window_ref": ref(.window, snapshot.windowID),
                 "workspace_id": .string(snapshot.workspaceID.uuidString),
@@ -192,9 +212,14 @@ extension ControlCommandCoordinator {
                 "surface_id": .string(snapshot.surfaceID.uuidString),
                 "surface_ref": ref(.surface, snapshot.surfaceID),
                 "cleared": .bool(snapshot.cleared),
+                "agent_restore_admission_supported": .bool(true),
                 "resume_binding": surfaceResumeBindingPayload(snapshot.binding),
                 "restore_record": surfaceRestoreRecordPayload(snapshot.restoreRecord),
-            ]))
+            ]
+            if let resumeClaimed = snapshot.resumeClaimed {
+                result["resume_claimed"] = .bool(resumeClaimed)
+            }
+            return .ok(.object(result))
         }
     }
 
@@ -218,6 +243,7 @@ extension ControlCommandCoordinator {
             "launch_command": controlAgentLaunchCommandPayload(binding.launchCommand),
             "permission_mode": orNull(binding.permissionMode),
             "auto_resume": .bool(binding.autoResume),
+            "resume_evidence_provenance": orNull(binding.resumeEvidenceProvenance),
             "approval_policy": orNull(binding.approvalPolicyRawValue),
             "approval_record_id": orNull(binding.approvalRecordID),
             "execution_location": .string(binding.executionLocationRawValue),
@@ -233,7 +259,7 @@ extension ControlCommandCoordinator {
               case .array(let rawArguments)? = object["arguments"] else {
             return nil
         }
-        for key in ["launcher", "executable_path", "working_directory", "source"] {
+        for key in ["launcher", "executable_path", "working_directory", "verification_home", "source"] {
             switch object[key] {
             case nil, .null, .string:
                 break
@@ -271,6 +297,7 @@ extension ControlCommandCoordinator {
             arguments: arguments,
             workingDirectory: rawString(object, "working_directory"),
             environment: stringMap(object, "environment"),
+            verificationHome: rawString(object, "verification_home"),
             capturedAt: doubleValue(object["captured_at"]),
             source: rawString(object, "source")
         )
@@ -289,6 +316,7 @@ extension ControlCommandCoordinator {
             "arguments": .array(command.arguments.map(JSONValue.string)),
             "working_directory": orNull(command.workingDirectory),
             "environment": environment,
+            "verification_home": orNull(command.verificationHome),
             "captured_at": command.capturedAt.map(JSONValue.double) ?? .null,
             "source": orNull(command.source),
         ])
@@ -312,19 +340,21 @@ extension ControlCommandCoordinator {
             "prepared_arguments_working_directory": orNull(
                 record.preparedArgumentsWorkingDirectory
             ),
+            "fork_arguments": record.forkArguments.map { .array($0.map(JSONValue.string)) } ?? .null,
+            "fork_arguments_working_directory": orNull(record.forkArgumentsWorkingDirectory),
             "permission_mode": orNull(record.permissionMode),
             "legacy_command": orNull(record.legacyCommand),
+            "fork_command": orNull(record.forkCommand),
         ])
     }
-
     private func doubleValue(_ value: JSONValue?) -> Double? {
         switch value {
         case .double(let value): value
         case .int(let value): Double(value)
+        case .decimal(let value): NSDecimalNumber(string: value).doubleValue
         default: nil
         }
     }
-
     // MARK: - report_pwd
 
     /// `surface.report_pwd` — record a surface's current working directory.
@@ -388,6 +418,16 @@ extension ControlCommandCoordinator {
         if hasNonNull(params, "surface_id"), requestedSurfaceID == nil {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
+        let terminalLifecycleID = uuid(params, "terminal_lifecycle_id")
+        if hasNonNull(params, "terminal_lifecycle_id"), terminalLifecycleID == nil {
+            return .err(
+                code: "invalid_params",
+                message: context?
+                    .controlSurfaceInvalidTerminalLifecycleIDError()
+                    ?? "Terminal session is out of date; restart the shell and try again",
+                data: nil
+            )
+        }
         let rawState = rawString(params, "state")
             ?? rawString(params, "shell_state")
             ?? rawString(params, "activity")
@@ -399,6 +439,7 @@ extension ControlCommandCoordinator {
         let resolution = context?.controlSurfaceReportShellState(
             workspaceID: workspaceID,
             requestedSurfaceID: requestedSurfaceID,
+            terminalLifecycleID: terminalLifecycleID,
             stateRawValue: stateRawValue
         ) ?? .pending
         switch resolution {

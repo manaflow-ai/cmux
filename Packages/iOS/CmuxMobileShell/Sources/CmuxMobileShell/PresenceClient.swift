@@ -1,3 +1,4 @@
+import CMUXMobileCore
 public import Foundation
 
 /// Subscribes to the team's live presence stream over WebSocket.
@@ -117,7 +118,20 @@ public actor PresenceClient {
                     }
                     continuation.finish()
                 } catch {
-                    continuation.finish(throwing: error)
+                    if let response = task.response as? HTTPURLResponse,
+                       response.statusCode == 429 {
+                        let seconds = CmxRetryAfterPolicy.seconds(
+                            from: response,
+                            defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
+                        ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+                        continuation.finish(
+                            throwing: PresenceClientError.rateLimited(
+                                retryAfterSeconds: seconds
+                            )
+                        )
+                    } else {
+                        continuation.finish(throwing: error)
+                    }
                 }
             }
             continuation.onTermination = { _ in

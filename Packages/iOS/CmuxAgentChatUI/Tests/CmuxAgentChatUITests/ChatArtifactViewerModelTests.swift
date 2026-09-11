@@ -6,6 +6,108 @@ import Testing
 
 @Suite
 struct ChatArtifactViewerModelTests {
+    @Test("missing attachment session is not reported as an unreachable Mac")
+    @MainActor
+    func missingAttachmentSessionDoesNotClaimMacUnreachable() async {
+        let loader = ChatArtifactLoader(
+            supportsArtifacts: true,
+            stat: { _ in throw ChatArtifactError.sessionNotFound }
+        )
+        let model = ChatArtifactViewerModel()
+
+        await model.load(path: "/tmp/cmux-attachments/ci-failure.png", loader: loader)
+
+        #expect(model.state == .failure(error: .sessionNotFound, actualSize: nil))
+    }
+
+    @Test("missing and malformed stat responses remain distinct")
+    @MainActor
+    func validatesStatResponseBeforeFetching() async {
+        let missing = ChatArtifactViewerModel()
+        await missing.load(
+            path: "/tmp/gone.txt",
+            loader: Self.loader(stat: ChatArtifactStat(
+                exists: false,
+                isDirectory: false,
+                size: 0,
+                modifiedAt: Date(timeIntervalSince1970: 0),
+                kind: .text,
+                mimeType: "text/plain"
+            ))
+        )
+        let malformed = ChatArtifactViewerModel()
+        await malformed.load(
+            path: "/tmp/malformed.txt",
+            loader: Self.loader(stat: ChatArtifactStat(
+                exists: true,
+                isDirectory: false,
+                size: -1,
+                modifiedAt: Date(timeIntervalSince1970: 0),
+                kind: .text,
+                mimeType: "text/plain"
+            ))
+        )
+
+        #expect(missing.state == .failure(error: .fileNotFound, actualSize: nil))
+        #expect(malformed.state == .failure(error: .invalidResponse, actualSize: nil))
+    }
+
+    @Test("only a reachability error reports an unreachable Mac")
+    @MainActor
+    func distinguishesLoadFailureFromMacReachability() async {
+        let loadFailureModel = ChatArtifactViewerModel()
+        await loadFailureModel.load(
+            path: "/tmp/broken.txt",
+            loader: ChatArtifactLoader(
+                supportsArtifacts: true,
+                stat: { _ in throw ChatArtifactError.loadFailed }
+            )
+        )
+        let unreachableModel = ChatArtifactViewerModel()
+        await unreachableModel.load(
+            path: "/tmp/unreachable.txt",
+            loader: ChatArtifactLoader(
+                supportsArtifacts: true,
+                stat: { _ in throw ChatArtifactError.macUnreachable }
+            )
+        )
+
+        #expect(loadFailureModel.state == .failure(error: .loadFailed, actualSize: nil))
+        #expect(unreachableModel.state == .failure(error: .macUnreachable, actualSize: nil))
+    }
+
+    @Test("damaged image bytes become a visible failure")
+    @MainActor
+    func damagedImageDoesNotBecomeABlankPreview() async {
+        let data = Data("not an image".utf8)
+        let loader = ChatArtifactLoader(
+            supportsArtifacts: true,
+            stat: { _ in
+                ChatArtifactStat(
+                    exists: true,
+                    isDirectory: false,
+                    size: Int64(data.count),
+                    modifiedAt: Date(timeIntervalSince1970: 0),
+                    kind: .image,
+                    mimeType: "image/png"
+                )
+            },
+            stream: { _, onChunk in
+                try await onChunk(ChatArtifactChunk(
+                    data: data,
+                    offset: 0,
+                    totalSize: Int64(data.count),
+                    eof: true
+                ))
+            }
+        )
+        let model = ChatArtifactViewerModel()
+
+        await model.load(path: "/tmp/damaged.png", loader: loader)
+
+        #expect(model.state == .failure(error: .corruptMedia, actualSize: Int64(data.count)))
+    }
+
     @Test("large transport chunks are published in bounded UI batches")
     @MainActor
     func batchesLargeTransportChunks() async {
@@ -96,20 +198,33 @@ struct ChatArtifactViewerModelTests {
             ),
         ])
         let newData = Data("new path".utf8)
-        let loader = Self.loader(totalSize: Int64(newData.count)) { path, onChunk in
-            if path == "/tmp/old.txt" {
-                try await blockedStream.fetch(onChunk: onChunk)
-                return
-            }
-            try await onChunk(
-                ChatArtifactChunk(
-                    data: newData,
-                    offset: 0,
-                    totalSize: Int64(newData.count),
-                    eof: true
+        let loader = ChatArtifactLoader(
+            supportsArtifacts: true,
+            stat: { path in
+                ChatArtifactStat(
+                    exists: true,
+                    isDirectory: false,
+                    size: path == "/tmp/old.txt" ? staleTotalSize : Int64(newData.count),
+                    modifiedAt: Date(timeIntervalSince1970: 0),
+                    kind: .text,
+                    mimeType: "text/plain"
                 )
-            )
-        }
+            },
+            stream: { path, onChunk in
+                if path == "/tmp/old.txt" {
+                    try await blockedStream.fetch(onChunk: onChunk)
+                    return
+                }
+                try await onChunk(
+                    ChatArtifactChunk(
+                        data: newData,
+                        offset: 0,
+                        totalSize: Int64(newData.count),
+                        eof: true
+                    )
+                )
+            }
+        )
         let model = ChatArtifactViewerModel()
 
         let oldTask = Task {
@@ -117,6 +232,7 @@ struct ChatArtifactViewerModelTests {
         }
         await blockedStream.waitUntilFirstChunkDelivered()
         oldTask.cancel()
+        await blockedStream.resume()
         let newTask = Task {
             await model.load(path: "/tmp/new.txt", loader: loader)
         }
@@ -152,7 +268,10 @@ struct ChatArtifactViewerModelTests {
 
         await model.load(path: "/tmp/too-large.txt", loader: loader)
 
-        #expect(model.state == .tooLarge(actualSize: actualSize, limit: limit))
+        #expect(model.state == .failure(
+            error: .tooLarge(limitBytes: limit),
+            actualSize: actualSize
+        ))
     }
 
     @Test
@@ -224,7 +343,10 @@ struct ChatArtifactViewerModelTests {
 
         await model.load(path: "/remote/movie.mp4", loader: loader)
 
-        #expect(model.state == .tooLarge(actualSize: limit + 1, limit: limit))
+        #expect(model.state == .failure(
+            error: .tooLarge(limitBytes: limit),
+            actualSize: limit + 1
+        ))
         #expect(await streamCalls.callCount() == 0)
     }
 
@@ -321,14 +443,17 @@ struct ChatArtifactViewerModelTests {
     @Test
     @MainActor
     func markdownStreamsAsTextAndAppliesRawOnlyThreshold() async {
-        let markdown = Data("# Heading\n\nBody".utf8)
+        let markdown = Data(
+            repeating: 0x61,
+            count: Int(ChatArtifactMarkdownPresentation.maximumRenderedByteCount + 1)
+        )
         let loader = ChatArtifactLoader(
             supportsArtifacts: true,
             stat: { _ in
                 ChatArtifactStat(
                     exists: true,
                     isDirectory: false,
-                    size: ChatArtifactMarkdownPresentation.maximumRenderedByteCount + 1,
+                    size: Int64(markdown.count),
                     modifiedAt: Date(timeIntervalSince1970: 0),
                     kind: .text,
                     mimeType: "text/markdown"
@@ -348,7 +473,7 @@ struct ChatArtifactViewerModelTests {
         await model.load(path: "/remote/README.md", loader: loader)
 
         #expect(model.state == .markdown)
-        #expect(model.renderedText == "# Heading\n\nBody")
+        #expect(model.renderedText.utf8.count == markdown.count)
         #expect(model.markdownPresentation.mode == .raw)
         #expect(!model.markdownPresentation.isRenderedAvailable)
     }
@@ -373,6 +498,13 @@ struct ChatArtifactViewerModelTests {
                 )
             },
             stream: stream
+        )
+    }
+
+    private static func loader(stat: ChatArtifactStat) -> ChatArtifactLoader {
+        ChatArtifactLoader(
+            supportsArtifacts: true,
+            stat: { _ in stat }
         )
     }
 

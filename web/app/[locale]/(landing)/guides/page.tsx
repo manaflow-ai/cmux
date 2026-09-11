@@ -5,7 +5,10 @@ import { landingPageSeoCopy } from "@/i18n/audited-seo";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { comparePages, comparePath } from "../../../lib/compare-pages";
 import { TrackedLink } from "../tracked-link";
-import { remoteTmuxDocsLocales } from "@/i18n/locale-availability";
+import {
+  managedPoliciesDocsLocales,
+  remoteTmuxDocsLocales,
+} from "@/i18n/locale-availability";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -47,6 +50,7 @@ const ARTICLES: readonly Article[] = [
   { href: "/best-terminal-for-mac", titleKey: "bestTerminal.title", descKey: "bestTerminal.metaDescription" },
   { href: "/built-on-ghostty", titleKey: "ghostty.title", descKey: "ghostty.metaDescription" },
   { href: "/docs/remote-tmux", titleKey: "remoteTmux.title", descKey: "remoteTmux.metaDescription", locales: remoteTmuxDocsLocales },
+  { href: "/docs/managed-policies", titleKey: "managedPolicies.title", descKey: "managedPolicies.metaDescription", locales: managedPoliciesDocsLocales },
   { href: "/agents", titleKey: "agents.title", descKey: "agents.metaDescription" },
   { href: "/agents/claude-code", titleKey: "claude.title", descKey: "claude.metaDescription" },
   { href: "/agents/codex", titleKey: "codex.title", descKey: "codex.metaDescription" },

@@ -1,0 +1,123 @@
+#!/bin/bash
+# Launch Hermes's TUI Python gateway with cmux's process-local hook bootstrap.
+# Every failure falls through to the real interpreter so notifications can
+# never make the Hermes TUI itself unavailable.
+
+CMUX_HERMES_REAL_PYTHON_RESULT=""
+cmux_hermes_accept_python() {
+    local candidate="$1"
+    [[ -n "$candidate" ]] || return 1
+    if [[ "$candidate" != */* ]]; then
+        candidate="$(command -v "$candidate" 2>/dev/null || true)"
+    fi
+    [[ -n "$candidate" && -f "$candidate" && -x "$candidate" ]] || return 1
+    if [[ -e "$0" && "$candidate" -ef "$0" ]]; then
+        return 1
+    fi
+    CMUX_HERMES_REAL_PYTHON_RESULT="$candidate"
+}
+
+cmux_hermes_resolve_real_python() {
+    local candidate launcher_pid
+
+    if cmux_hermes_accept_python "${CMUX_HERMES_TUI_REAL_PYTHON:-}"; then
+        return 0
+    fi
+
+    # The Node TUI is a direct child of Hermes's Python launcher. `comm` gives
+    # the launcher's exact interpreter without parsing a command line or
+    # assuming a particular Hermes installation layout.
+    launcher_pid="$(/bin/ps -p "$PPID" -o ppid= 2>/dev/null | /usr/bin/tr -d '[:space:]')"
+    if [[ "$launcher_pid" =~ ^[1-9][0-9]*$ ]]; then
+        candidate="$(/bin/ps -ww -p "$launcher_pid" -o comm= 2>/dev/null || true)"
+        candidate="${candidate#"${candidate%%[![:space:]]*}"}"
+        candidate="${candidate%"${candidate##*[![:space:]]}"}"
+        if cmux_hermes_accept_python "$candidate"; then
+            return 0
+        fi
+    fi
+
+    if [[ -n "${HERMES_PYTHON_SRC_ROOT:-}" ]]; then
+        for candidate in \
+            "$HERMES_PYTHON_SRC_ROOT/venv/bin/python" \
+            "$HERMES_PYTHON_SRC_ROOT/venv/bin/python3" \
+            "$HERMES_PYTHON_SRC_ROOT/.venv/bin/python" \
+            "$HERMES_PYTHON_SRC_ROOT/.venv/bin/python3"; do
+            if cmux_hermes_accept_python "$candidate"; then
+                return 0
+            fi
+        done
+    fi
+
+    cmux_hermes_accept_python "python3"
+}
+
+cmux_hermes_install_sitecustomize() {
+    local self_dir source target temporary
+    self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 0
+    source="$self_dir/cmux-hermes-sitecustomize.py"
+    [[ -f "$source" && ! -L "$source" ]] || return 0
+    [[ "${TMPDIR:-}" == */cmux-hermes-tui.?????? &&
+       -d "$TMPDIR" &&
+       ! -L "$TMPDIR" ]] || return 0
+
+    target="$TMPDIR/sitecustomize.py"
+    temporary="$TMPDIR/.cmux-hermes-sitecustomize.$$"
+    /bin/rm -f -- "$temporary" 2>/dev/null || true
+    if /bin/cp "$source" "$temporary" 2>/dev/null &&
+       /bin/chmod 600 "$temporary" 2>/dev/null &&
+       /bin/mv -f "$temporary" "$target" 2>/dev/null; then
+        export PYTHONPATH="$TMPDIR${PYTHONPATH:+:$PYTHONPATH}"
+        export CMUX_HERMES_TUI_HOOK_BOOTSTRAP=1
+    else
+        /bin/rm -f -- "$temporary" 2>/dev/null || true
+    fi
+}
+
+cmux_hermes_mark_tui_target_module() {
+    local argument
+    unset CMUX_HERMES_TUI_TARGET_MODULE
+
+    # Record the module before Python starts. Python 3.9 does not expose
+    # sys.orig_argv while sitecustomize is imported, so the bootstrap cannot
+    # otherwise distinguish Hermes's gateway from an unrelated interpreter.
+    while (( $# > 0 )); do
+        argument="$1"
+        shift
+        case "$argument" in
+            -m)
+                (( $# > 0 )) || return 0
+                case "$1" in
+                    tui_gateway.entry|tui_gateway.compute_host)
+                        export CMUX_HERMES_TUI_TARGET_MODULE="$1"
+                        ;;
+                esac
+                return 0
+                ;;
+            -c|--)
+                return 0
+                ;;
+            -W|-X|--check-hash-based-pycs)
+                (( $# > 0 )) || return 0
+                shift
+                ;;
+            -W?*|-X?*|--check-hash-based-pycs=*)
+                ;;
+            -*)
+                ;;
+            *)
+                return 0
+                ;;
+        esac
+    done
+}
+
+if ! cmux_hermes_resolve_real_python; then
+    echo "cmux: unable to resolve Hermes's Python interpreter" >&2
+    exit 127
+fi
+CMUX_HERMES_REAL_PYTHON="$CMUX_HERMES_REAL_PYTHON_RESULT"
+unset CMUX_HERMES_TUI_REAL_PYTHON
+cmux_hermes_install_sitecustomize
+cmux_hermes_mark_tui_target_module "$@"
+exec "$CMUX_HERMES_REAL_PYTHON" "$@"

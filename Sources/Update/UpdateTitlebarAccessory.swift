@@ -890,6 +890,11 @@ private struct TitlebarControlButtonStyleBody: View {
         configuration.label
             .frame(width: config.buttonSize, height: config.buttonSize)
             .foregroundStyle(foregroundColor.opacity(foregroundOpacity))
+            // Hosted symbols bake their tint into the bitmap, so they read the
+            // same dimming from the environment (`TitlebarControlSymbol`)
+            // while other label content (the notification badge) keeps its
+            // own colors.
+            .environment(\.titlebarControlForegroundOpacity, foregroundOpacity)
             .background {
                 if backgroundOpacity > 0 {
                     RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
@@ -1098,10 +1103,10 @@ struct TitlebarControlsView: View {
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
                 focusHistoryAvailabilityRevision &+= 1
             }
-            .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
                 appearanceRefreshTick &+= 1
             }
-            .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: .ghosttyChromeConfigurationDidChange)) { _ in
                 appearanceRefreshTick &+= 1
             }
             .onAppear {
@@ -1164,6 +1169,7 @@ struct TitlebarControlsView: View {
                     iconLabel(
                         systemName: "bell",
                         config: config,
+                        foregroundColor: foregroundColor,
                         iconGeometryKeyPrefix: "titlebarControl_showNotificationsIcon"
                     )
 
@@ -1174,7 +1180,7 @@ struct TitlebarControlsView: View {
             .background(NotificationsAnchorView { viewModel.notificationsAnchorView = $0 })
             .safeHelp(KeyboardShortcutSettings.Action.showNotifications.tooltip(String(localized: "titlebar.notifications.tooltip", defaultValue: "Show notifications")))
 
-            TitlebarNewWorkspaceCloudSplitButton(
+            TitlebarNewWorkspaceSplitButton(
                 config: config,
                 foregroundColor: foregroundColor,
                 onNewTab: {
@@ -1184,6 +1190,7 @@ struct TitlebarControlsView: View {
                     onNewTab()
                 }
             )
+
             TitlebarControlButton(
                 config: config,
                 foregroundColor: foregroundColor,
@@ -1195,7 +1202,7 @@ struct TitlebarControlsView: View {
                     _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: anchorView, event: event, direction: .back)
                 }
             ) {
-                iconLabel(systemName: "arrow.left", config: config, iconGeometryKeyPrefix: "titlebarControl_focusHistoryBackIcon")
+                iconLabel(systemName: "arrow.left", config: config, foregroundColor: foregroundColor, iconGeometryKeyPrefix: "titlebarControl_focusHistoryBackIcon")
             }
             .safeHelp(KeyboardShortcutSettings.Action.focusHistoryBack.tooltip(String(localized: "menu.history.focusBack", defaultValue: "Focus Back")))
 
@@ -1210,7 +1217,7 @@ struct TitlebarControlsView: View {
                     _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: anchorView, event: event, direction: .forward)
                 }
             ) {
-                iconLabel(systemName: "arrow.right", config: config, iconGeometryKeyPrefix: "titlebarControl_focusHistoryForwardIcon")
+                iconLabel(systemName: "arrow.right", config: config, foregroundColor: foregroundColor, iconGeometryKeyPrefix: "titlebarControl_focusHistoryForwardIcon")
             }
             .safeHelp(KeyboardShortcutSettings.Action.focusHistoryForward.tooltip(String(localized: "menu.history.focusForward", defaultValue: "Focus Forward")))
 
@@ -1344,10 +1351,15 @@ struct TitlebarControlsView: View {
     private func iconLabel(
         systemName: String,
         config: TitlebarControlsStyleConfig,
+        foregroundColor: Color,
         iconGeometryKeyPrefix: String? = nil
     ) -> some View {
         titlebarIconChrome(config: config, iconGeometryKeyPrefix: iconGeometryKeyPrefix) {
-            CmuxSystemSymbolImage(systemName: systemName, pointSize: config.iconSize, weight: TitlebarControlIconStyle.weight)
+            TitlebarControlSymbol(
+                systemName: systemName,
+                config: config,
+                foregroundColor: foregroundColor
+            )
         }
     }
 
@@ -1373,6 +1385,39 @@ struct TitlebarControlsView: View {
                 height: TitlebarControlIconStyle.iconFrameSize(for: config)
             )
             .background(TitlebarChromeGeometryReporter(keyPrefix: iconGeometryKeyPrefix ?? ""))
+    }
+}
+
+/// Hover/pressed dimming for hosted symbols inside `TitlebarControlButtonStyle`.
+///
+/// The style fades its label with `.foregroundStyle(color.opacity(...))`,
+/// which SwiftUI text and shapes pick up but a hosted AppKit bitmap cannot.
+/// The style publishes the same opacity here so the symbol bakes it into its
+/// tint, and non-symbol label content (the notification badge) is untouched.
+private struct TitlebarControlForegroundOpacityKey: EnvironmentKey {
+    static let defaultValue: Double = 1
+}
+
+extension EnvironmentValues {
+    fileprivate var titlebarControlForegroundOpacity: Double {
+        get { self[TitlebarControlForegroundOpacityKey.self] }
+        set { self[TitlebarControlForegroundOpacityKey.self] = newValue }
+    }
+}
+
+private struct TitlebarControlSymbol: View {
+    let systemName: String
+    let config: TitlebarControlsStyleConfig
+    let foregroundColor: Color
+    @Environment(\.titlebarControlForegroundOpacity) private var foregroundOpacity
+
+    var body: some View {
+        CmuxSystemSymbolImage(
+            systemName: systemName,
+            pointSize: config.iconSize,
+            weight: TitlebarControlIconStyle.weight,
+            tint: foregroundColor.opacity(foregroundOpacity)
+        )
     }
 }
 
@@ -1588,10 +1633,10 @@ struct HiddenTitlebarSidebarControlsView: View {
                     onToggleNotifications(anchorView)
                 case .newTab:
                     onNewTab()
-                case .cloudVM:
+                case .newWorkspaceMenu:
                     _ = AppDelegate.shared?.showNewWorkspaceContextMenu(
                         anchorView: anchorView,
-                        debugSource: "titlebar.minimalSidebar.cloudMenu"
+                        debugSource: "titlebar.minimalSidebar.newWorkspaceMenu"
                     )
                 case .focusHistoryBack:
                     let availability = focusHistoryNavigationAvailability(
@@ -2201,23 +2246,26 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             notificationsPopover.performClose(nil)
             return
         }
+        guard let window = externalAnchor?.window ?? view.window ?? hostingView.window ?? NSApp.keyWindow,
+              let contentView = window.contentView else {
+            return
+        }
         // Recreate content view each time to avoid stale observers when popover is hidden
         let hostingController = NSHostingController(
             rootView: NotificationsPopoverView(
                 notificationStore: notificationStore,
                 onDismiss: { [weak notificationsPopover] in
                     notificationsPopover?.performClose(nil)
+                },
+                onOpenPhoneForwarding: { [weak notificationsPopover, weak window] in
+                    notificationsPopover?.performClose(nil)
+                    openPhoneForwardingSettings(in: window)
                 }
             )
         )
         hostingController.view.wantsLayer = true
         hostingController.view.layer?.backgroundColor = .clear
         notificationsPopover.contentViewController = hostingController
-
-        guard let window = externalAnchor?.window ?? view.window ?? hostingView.window ?? NSApp.keyWindow,
-              let contentView = window.contentView else {
-            return
-        }
 
         // Force layout to ensure geometry is current.
         contentView.layoutSubtreeIfNeeded()
@@ -2295,10 +2343,26 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     }
 }
 
+@MainActor
+private func openPhoneForwardingSettings(in window: NSWindow?) {
+    guard let window,
+          let appDelegate = AppDelegate.shared,
+          let context = appDelegate.contextForMainTerminalWindow(window),
+          let workspace = context.tabManager.selectedWorkspace,
+          let paneId = workspace.bonsplitController.focusedPaneId
+            ?? workspace.bonsplitController.allPaneIds.first else {
+        NSSound.beep()
+        return
+    }
+    context.sidebarSelectionState.selection = .tabs
+    _ = workspace.openOrFocusNotificationsSurface(inPane: paneId)
+}
+
 private struct NotificationsPopoverView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     let onDismiss: () -> Void
+    let onOpenPhoneForwarding: () -> Void
 
     @AppStorage("cmux.notifications.popover.width")
     private var savedWidth: Double = Double(NotificationsPopoverMetrics.defaultWidth)
@@ -2315,6 +2379,8 @@ private struct NotificationsPopoverView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            Divider()
+            phoneForwardingEntry
             Divider()
             content
         }
@@ -2425,7 +2491,12 @@ private struct NotificationsPopoverView: View {
             Spacer()
             Button(action: jumpToLatestUnread) {
                 HStack(spacing: 5) {
-                    CmuxSystemSymbolImage(systemName: "arrow.down.to.line", pointSize: 10, weight: .semibold)
+                    CmuxSystemSymbolImage(
+                        systemName: "arrow.down.to.line",
+                        pointSize: 10,
+                        weight: .semibold,
+                        tint: hasUnreadNotifications ? .primary : .secondary
+                    )
                     Text(String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest"))
                         .cmuxFont(size: 11)
                     if !jumpToUnreadShortcut.displayString.isEmpty {
@@ -2478,6 +2549,34 @@ private struct NotificationsPopoverView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+    }
+
+    private var phoneForwardingEntry: some View {
+        Button(action: onOpenPhoneForwarding) {
+            HStack(spacing: 8) {
+                CmuxSystemSymbolImage(systemName: "iphone", pointSize: 12, weight: .medium, tint: .secondary)
+                Text(
+                    String(
+                        localized: "notifications.forwardToPhone.title",
+                        defaultValue: "Forward notifications to my iPhone"
+                    )
+                )
+                .cmuxFont(size: 12, weight: .medium)
+                Spacer()
+                CmuxSystemSymbolImage(systemName: "chevron.right", pointSize: 9, weight: .semibold, tint: .secondary)
+            }
+            .contentShape(Rectangle())
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("notificationsPopover.phoneForwarding")
+        .safeHelp(
+            String(
+                localized: "notifications.forwardToPhone.subtitle",
+                defaultValue: "Send local agent notifications to cmux on your iPhone. Enabled by default; turn this off to stop this Mac from forwarding them."
+            )
+        )
     }
 
     @ViewBuilder
@@ -2600,8 +2699,7 @@ private struct NotificationsPopoverView: View {
 
     private func emptyState(systemImage: String, title: String, subtitle: String?) -> some View {
         VStack(spacing: 10) {
-            CmuxSystemSymbolImage(systemName: systemImage, pointSize: 30, weight: .light)
-                .foregroundColor(.secondary.opacity(0.7))
+            CmuxSystemSymbolImage(systemName: systemImage, pointSize: 30, weight: .light, tint: .secondary.opacity(0.7))
             Text(title)
                 .cmuxFont(size: 14, weight: .medium)
                 .foregroundColor(.primary)
@@ -2681,10 +2779,58 @@ final class UpdateTitlebarAccessoryController {
 
     func start() {
         guard !didStart else { return }
+        prewarmTitlebarSymbols()
         didStart = true
         attachToExistingWindows()
         installObservers()
         scheduleStartupWindowScans()
+    }
+
+    private func prewarmTitlebarSymbols() {
+        let iconSizes = TitlebarControlsStyle.allCases.map { $0.config.iconSize }
+        let dropdownSizes = TitlebarControlsStyle.allCases.map {
+            TitlebarNewWorkspaceSplitButtonMetrics.dropdownIconSize(config: $0.config)
+        }
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["bell", "arrow.left", "arrow.right"],
+            pointSizes: iconSizes,
+            weight: .regular
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["plus"],
+            pointSizes: iconSizes,
+            weight: .medium
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["chevron.down"],
+            pointSizes: dropdownSizes,
+            weight: .bold
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["arrow.down.to.line"],
+            pointSizes: [10],
+            weight: .semibold
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["iphone"],
+            pointSizes: [12],
+            weight: .medium
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["chevron.right"],
+            pointSizes: [9],
+            weight: .semibold
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["xmark"],
+            pointSizes: [9],
+            weight: .bold
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["bell.slash", "bell.badge"],
+            pointSizes: [30],
+            weight: .light
+        )
     }
 
     func attach(to window: NSWindow) {
@@ -2988,6 +3134,10 @@ final class UpdateTitlebarAccessoryController {
                 notificationStore: TerminalNotificationStore.shared,
                 onDismiss: { [weak popover] in
                     popover?.performClose(nil)
+                },
+                onOpenPhoneForwarding: { [weak popover, weak window] in
+                    popover?.performClose(nil)
+                    openPhoneForwardingSettings(in: window)
                 }
             )
         )

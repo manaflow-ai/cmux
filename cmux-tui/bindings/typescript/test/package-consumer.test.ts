@@ -20,7 +20,7 @@ class ConsumerTransport implements Transport {
     const id = request.id;
     switch (request.cmd) {
       case "identify":
-        this.emit(`{"id":${id},"ok":true,"data":{"app":"cmux-tui","version":"0.1.2","protocol":10,"session":"main","pid":1,"registry_id":"registry","generation":"generation","workspace_revision":1,"terminal_revision":1,"daemon_handoff":1}}`);
+        this.emit(`{"id":${id},"ok":true,"data":{"app":"cmux-tui","version":"0.1.2","protocol":12,"session":"main","pid":1,"registry_id":"registry","generation":"generation","workspace_revision":1,"terminal_revision":1,"daemon_handoff":1}}`);
         break;
       case "read-screen":
         this.emit(`{"id":${id},"ok":true,"data":{"text":"ready"}}`);

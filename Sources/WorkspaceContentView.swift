@@ -92,7 +92,13 @@ private struct WorkspacePanelContentHostView: View {
             onRequestPanelFocus: onRequestPanelFocus,
             onResumeAgentHibernation: onResumeAgentHibernation,
             onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
-            onTriggerFlash: onTriggerFlash
+            onTriggerFlash: onTriggerFlash,
+            onRequestDeferredBrowserMaterialization: {
+                workspace.requestDeferredBrowserMaterialization(
+                    panelId: panel.id,
+                    isVisibleInUI: isVisibleInUI
+                )
+            }
         )
     }
 }
@@ -105,6 +111,7 @@ final class TmuxWorkspacePaneOverlayModel {
     private(set) var activePaneBorderColorHex: String?
     private(set) var flashStartedAt: Date?
     private(set) var flashReason: WorkspaceAttentionFlashReason?
+    private(set) var workspaceAttentionColor = WorkspaceAttentionColor(configuredHex: nil)
 
     private var currentWorkspaceId: UUID?
     private var lastFlashTokenByWorkspaceId: [UUID: UInt64] = [:]
@@ -118,6 +125,7 @@ final class TmuxWorkspacePaneOverlayModel {
         activePaneBorderRect = state.activePaneBorderRect
         activePaneBorderColorHex = state.activePaneBorderColorHex
         flashReason = state.flashReason
+        workspaceAttentionColor = state.workspaceAttentionColor
 
         let didChangeWorkspace = currentWorkspaceId != state.workspaceId
         let previousFlashToken = lastFlashTokenByWorkspaceId[state.workspaceId]
@@ -143,6 +151,7 @@ final class TmuxWorkspacePaneOverlayModel {
         activePaneBorderColorHex = nil
         flashStartedAt = nil
         flashReason = nil
+        workspaceAttentionColor = WorkspaceAttentionColor(configuredHex: nil)
         currentWorkspaceId = nil
         lastFlashTokenByWorkspaceId = [:]
     }
@@ -150,15 +159,6 @@ final class TmuxWorkspacePaneOverlayModel {
 
 /// View that renders a Workspace's content using BonsplitView
 struct WorkspaceContentView: View {
-    private struct DeferredThemeRefresh {
-        let reason: String
-        let backgroundOverride: NSColor?
-        let backgroundEventId: UInt64?
-        let backgroundSource: String?
-        let notificationPayloadHex: String?
-        let forceInitialApply: Bool
-    }
-
     @ObservedObject var workspace: Workspace
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
@@ -179,7 +179,6 @@ struct WorkspaceContentView: View {
     ) -> Void)?
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
     @State private var lastAppliedUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
-    @State private var deferredThemeRefresh: DeferredThemeRefresh?
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 #if DEBUG
@@ -364,7 +363,10 @@ struct WorkspaceContentView: View {
         .onChange(of: isWorkspaceVisible) { _, isVisible in
             updateAgentHibernationPresentationVisibility()
             guard isVisible else { return }
-            flushDeferredThemeRefreshIfNeeded()
+            refreshGhosttyAppearanceConfig(
+                reason: "workspaceBecameVisible",
+                forceInitialApply: true
+            )
         }
         .onChange(of: isWorkspaceInputActive) { _, _ in
             updateAgentHibernationPresentationVisibility()
@@ -387,9 +389,6 @@ struct WorkspaceContentView: View {
         .onChange(of: workspaceManualUnreadPanelId) { _, _ in
             syncBonsplitNotificationBadges()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            refreshGhosttyAppearanceConfig(reason: "ghosttyConfigDidReload")
-        }
         .onReceive(NotificationCenter.default.publisher(for: PaneChromeSettings.didChangeNotification)) { _ in
             workspace.applyGhosttyChrome(from: config, reason: "paneChromeSettingsDidChange")
         }
@@ -411,6 +410,11 @@ struct WorkspaceContentView: View {
                 backgroundEventId: eventId,
                 backgroundSource: source,
                 notificationPayloadHex: payloadHex
+            )
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyChromeConfigurationDidChange)) { _ in
+            refreshGhosttyAppearanceConfig(
+                reason: "ghosttyChromeConfigurationDidChange"
             )
         }
 
@@ -582,20 +586,6 @@ struct WorkspaceContentView: View {
         )
     }
 
-    private func flushDeferredThemeRefreshIfNeeded() {
-        guard isWorkspaceVisible,
-              let deferredRefresh = deferredThemeRefresh else { return }
-        deferredThemeRefresh = nil
-        refreshGhosttyAppearanceConfig(
-            reason: deferredRefresh.reason,
-            backgroundOverride: deferredRefresh.backgroundOverride,
-            backgroundEventId: deferredRefresh.backgroundEventId,
-            backgroundSource: deferredRefresh.backgroundSource,
-            notificationPayloadHex: deferredRefresh.notificationPayloadHex,
-            forceInitialApply: deferredRefresh.forceInitialApply
-        )
-    }
-
     private func updateAgentHibernationPresentationVisibility() {
         workspace.setAgentHibernationAutoResumePresentationVisible(isWorkspaceVisible && isWorkspaceInputActive)
     }
@@ -608,21 +598,7 @@ struct WorkspaceContentView: View {
         notificationPayloadHex: String? = nil,
         forceInitialApply: Bool = false
     ) {
-        guard isWorkspaceVisible else {
-            let existing = deferredThemeRefresh
-            deferredThemeRefresh = DeferredThemeRefresh(
-                reason: reason,
-                backgroundOverride: backgroundOverride,
-                backgroundEventId: backgroundEventId,
-                backgroundSource: backgroundSource,
-                notificationPayloadHex: notificationPayloadHex,
-                forceInitialApply: forceInitialApply
-                    || reason == "onAppear"
-                    || existing?.forceInitialApply == true
-            )
-            return
-        }
-        deferredThemeRefresh = nil
+        guard isWorkspaceVisible else { return }
 
         let previousSignature = Self.ghosttyAppearanceSignature(
             config,
@@ -769,6 +745,7 @@ struct EmptyPanelView: View {
     @ObservedObject var workspace: Workspace
     let paneId: PaneID
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var browserAvailable = BrowserAvailabilitySettings.isEnabled()
 
     private struct ShortcutHint: View {
         let text: String
@@ -823,7 +800,14 @@ struct EmptyPanelView: View {
         let button = Button(action: action) {
             HStack(spacing: 10) {
                 HStack(spacing: 6) {
-                    CmuxSystemSymbolImage(systemName: systemImage, pointSize: 13)
+                    // `.borderedProminent` paints its label in the system's
+                    // on-accent text color, so bake that semantic color rather
+                    // than a literal white.
+                    CmuxSystemSymbolImage(
+                        systemName: systemImage,
+                        pointSize: 13,
+                        tint: Color(nsColor: .alternateSelectedControlTextColor)
+                    )
                     Text(title)
                 }
                 ShortcutHint(text: shortcut.displayString)
@@ -840,8 +824,7 @@ struct EmptyPanelView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            CmuxSystemSymbolImage(magnified: "terminal.fill", pointSize: 48)
-                .foregroundStyle(.tertiary)
+            CmuxSystemSymbolImage(magnified: "terminal.fill", pointSize: 48, tint: Color(nsColor: .tertiaryLabelColor))
 
             Text(String(localized: "emptyPanel.title", defaultValue: "Empty Panel"))
                 .cmuxFont(.headline)
@@ -849,22 +832,45 @@ struct EmptyPanelView: View {
 
             HStack(spacing: 12) {
                 emptyPaneActionButton(
-                    title: "Terminal",
+                    title: String(localized: "emptyPanel.action.terminal", defaultValue: "Terminal"),
                     systemImage: "terminal.fill",
                     shortcut: newSurfaceShortcut,
                     action: createTerminal
                 )
 
-                emptyPaneActionButton(
-                    title: "Browser",
-                    systemImage: "globe",
-                    shortcut: openBrowserShortcut,
-                    action: createBrowser
-                )
+                if browserAvailable {
+                    emptyPaneActionButton(
+                        title: String(localized: "emptyPanel.action.browser", defaultValue: "Browser"),
+                        systemImage: "globe",
+                        shortcut: openBrowserShortcut,
+                        action: createBrowser
+                    )
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: GhosttyBackgroundTheme.currentColor()))
+        .task {
+            browserAvailable = BrowserAvailabilitySettings.isEnabled()
+            // The gate is mutated from several entrypoints that signal
+            // differently: palette/policy post didChangeNotification, the
+            // Settings toggle writes defaults directly (defaults
+            // notification), and the CLI writes from another process
+            // (caught on app activation at the latest).
+            await withTaskGroup(of: Void.self) { group in
+                for name in [
+                    BrowserAvailabilitySettings.didChangeNotification,
+                    UserDefaults.didChangeNotification,
+                    NSApplication.didBecomeActiveNotification,
+                ] {
+                    group.addTask { @MainActor in
+                        for await _ in NotificationCenter.default.notifications(named: name) {
+                            browserAvailable = BrowserAvailabilitySettings.isEnabled()
+                        }
+                    }
+                }
+            }
+        }
 #if DEBUG
         .onAppear {
             DebugUIEventCounters.emptyPanelAppearCount += 1

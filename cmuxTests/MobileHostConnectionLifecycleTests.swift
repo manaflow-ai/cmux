@@ -189,6 +189,65 @@ extension MobileHostAuthorizationTests {
         service.debugResetMobileLifecycleStateForTesting()
     }
 
+    @Test func testIrohTransportCanDisableTheControlIdleTimeout() async throws {
+        let service = MobileHostService.shared
+        service.debugResetMobileLifecycleStateForTesting()
+        let registry = MobileHostConnectionRegistry.shared
+        for connection in registry.removeAll() {
+            await connection.close(reason: "test setup")
+        }
+        defer {
+            service.debugResetMobileLifecycleStateForTesting()
+        }
+
+        let expiringTransport = ScriptedMobileHostByteTransport()
+        let authorization = try irohAdmissionContext()
+        let expiringTask = Task {
+            await MobileHostService.acceptTransport(
+                expiringTransport,
+                authorization: authorization,
+                idleTimeoutNanoseconds: 1_000_000,
+                isCurrent: { true }
+            )
+        }
+        await waitForMobileHostConnectionCount(1)
+        try await expiringTransport.enqueue(Self.mobileHostStatusFrame(id: "expiring"))
+        _ = await expiringTransport.waitForSentBufferCount(1)
+        await expiringTransport.waitForCloseCount(1)
+        #expect(
+            await expiringTask.value == CmxIrohAdmittedConnectionExit(
+                lifecycle: .controlReadFailed,
+                failure: .timedOut
+            )
+        )
+
+        let persistentTransport = ScriptedMobileHostByteTransport()
+        let persistentTask = Task {
+            await MobileHostService.acceptTransport(
+                persistentTransport,
+                authorization: authorization,
+                idleTimeoutNanoseconds: 0,
+                isCurrent: { true }
+            )
+        }
+        await waitForMobileHostConnectionCount(1)
+        try await persistentTransport.enqueue(Self.mobileHostStatusFrame(id: "persistent"))
+        let sentAfterFirstStatus = await persistentTransport.waitForSentBufferCount(1).count
+        // Exercise a subsequent request without a wall-clock sleep. If the
+        // transport closes before replying, the waiter records a test failure.
+        try await persistentTransport.enqueue(Self.mobileHostStatusFrame(id: "persistent-again"))
+        _ = await persistentTransport.waitForSentBufferCount(sentAfterFirstStatus + 1)
+
+        #expect(await persistentTransport.observedCloseCount() == 0)
+        #expect(registry.count == 1)
+
+        await persistentTransport.finishReceiving()
+        _ = await persistentTask.value
+        for connection in registry.removeAll() {
+            await connection.close(reason: "test cleanup")
+        }
+    }
+
     @Test func testMobileHostPublishesUsableSessionOnlyAfterWorkspaceAndEventReadiness() async throws {
         CmuxEventBus.shared.resetForTesting()
         defer { CmuxEventBus.shared.resetForTesting() }
@@ -590,9 +649,13 @@ extension MobileHostAuthorizationTests {
         #expect(capabilities.contains("workspace.close.v1"))
         #expect(capabilities.contains("workspace.move.v1"))
         #expect(capabilities.contains("workspace.group_actions.v1"))
+        #expect(capabilities.contains("workspace.surfaces.v1"))
+        #expect(capabilities.contains("surface.focus.v1"))
+        #expect(capabilities.contains("panel.artifact.v1"))
         #expect(Set(capabilities).isSuperset(of: [
             "workspace.task_create.v1",
             MobileHostService.terminalInputOrderedCapability,
+            MobileHostService.caffeineControlCapability,
             "terminal.render_grid.v1",
             "notification.feed.v1",
         ]))
@@ -607,6 +670,29 @@ extension MobileHostAuthorizationTests {
         #expect(
             enabled.filter { $0 != MobileHostService.workspaceChangesCapability } == disabled
         )
+    }
+
+    @Test func testTaskComposerCapabilitiesFollowFeatureFlag() {
+        let enabled = MobileHostService.mobileHostCapabilities(
+            includingWorkspaceChanges: true,
+            includingTaskComposer: true
+        )
+        let disabled = MobileHostService.mobileHostCapabilities(
+            includingWorkspaceChanges: true,
+            includingTaskComposer: false
+        )
+        let taskCapabilities: Set<String> = [
+            MobileHostService.taskCreateCapability,
+            MobileHostService.taskAttachmentCapability,
+            MobileHostService.taskModelsCapability,
+            MobileHostService.taskDirectoryBrowseCapability,
+            MobileHostService.taskDirectorySearchCapability,
+            MobileHostService.taskDirectorySearchV2Capability,
+        ]
+
+        #expect(taskCapabilities.isSubset(of: Set(enabled)))
+        #expect(Set(disabled).isDisjoint(with: taskCapabilities))
+        #expect(enabled.filter { !taskCapabilities.contains($0) } == disabled)
     }
 
     @Test @MainActor func testMobileWorkspaceChangesFlagDefaultsAndRemoteValue() {
@@ -631,6 +717,30 @@ extension MobileHostAuthorizationTests {
         remoteValue = true
         flags.applyLoadedFlags()
         #expect(flags.isMobileWorkspaceChangesEnabled)
+    }
+
+    @Test @MainActor func testMobileTaskComposerFlagDefaultsOnAndCanDisableRemotely() {
+        let suiteName = "cmux-tests-mobile-task-composer-flag-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var remoteValue: Any?
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            remoteFlagValueProvider: { key in
+                key == CmuxFeatureFlags.mobileTaskComposerFlag.key ? remoteValue : nil
+            }
+        )
+
+        #expect(flags.isMobileTaskComposerEnabled)
+
+        remoteValue = false
+        flags.applyLoadedFlags()
+        #expect(!flags.isMobileTaskComposerEnabled)
+
+        remoteValue = true
+        flags.applyLoadedFlags()
+        #expect(flags.isMobileTaskComposerEnabled)
     }
 
     // MARK: - Mobile workspace.action sub-action gate
@@ -774,6 +884,11 @@ private actor ScriptedMobileHostByteTransport: CmxByteTransport {
 
     func close() async {
         closeCount += 1
+        let pendingSentWaiters = sentWaiters
+        sentWaiters.removeAll()
+        for waiter in pendingSentWaiters {
+            waiter.continuation.resume(returning: sent)
+        }
         let ready = closeWaiters.filter { closeCount >= $0.count }
         closeWaiters.removeAll { closeCount >= $0.count }
         for waiter in ready {
@@ -802,12 +917,16 @@ private actor ScriptedMobileHostByteTransport: CmxByteTransport {
     }
 
     func waitForSentBufferCount(_ count: Int) async -> [Data] {
-        if sent.count >= count {
-            return sent
+        let buffers: [Data]
+        if sent.count >= count || closeCount > 0 {
+            buffers = sent
+        } else {
+            buffers = await withCheckedContinuation { continuation in
+                sentWaiters.append((count, continuation))
+            }
         }
-        return await withCheckedContinuation { continuation in
-            sentWaiters.append((count, continuation))
-        }
+        #expect(buffers.count >= count, "Transport closed before the expected response was sent")
+        return buffers
     }
 
     func observedCloseCount() -> Int { closeCount }

@@ -1,4 +1,5 @@
 public import CmuxAgentChat
+internal import CMUXMobileCore
 public import Foundation
 
 /// Terminal-scoped artifact RPCs, extracted from `MobileChatEventSource.swift`,
@@ -22,6 +23,7 @@ extension MobileChatEventSource {
         countOnly: Bool = false,
         includeMissing: Bool = true
     ) async throws -> TerminalArtifactScanResponse {
+        let startedAt = Date()
         var params: [String: Any] = [
             "workspace_id": workspaceID,
             "surface_id": surfaceID,
@@ -36,10 +38,27 @@ extension MobileChatEventSource {
         if supportsTerminalArtifactList {
             params["include_directories"] = true
         }
-        return try await artifactCall(
-            method: "mobile.terminal.artifact.scan",
-            params: params
-        )
+        do {
+            let response: TerminalArtifactScanResponse = try await artifactCall(
+                method: "mobile.terminal.artifact.scan",
+                params: params
+            )
+            recordAppEvent(
+                .terminalArtifactListLoaded,
+                correlationID: surfaceID,
+                startedAt: startedAt,
+                count: response.artifacts.count
+            )
+            return response
+        } catch {
+            recordAppEvent(
+                .terminalArtifactLoadFailed,
+                correlationID: surfaceID,
+                startedAt: startedAt,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+            throw error
+        }
     }
 
     /// Reads metadata for a file referenced by one terminal surface.
@@ -70,17 +89,19 @@ extension MobileChatEventSource {
         path: String,
         progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)?
     ) async throws -> Data {
-        try await fetchArtifactChunks(
-            method: "mobile.terminal.artifact.fetch",
-            stringParams: [
-                "workspace_id": workspaceID,
-                "surface_id": surfaceID,
-                "path": path,
-            ],
-            collectsData: true,
-            progress: progress,
-            onChunk: { _ in }
-        )
+        try await performArtifactDownload(correlationID: surfaceID) {
+            try await fetchArtifactChunks(
+                method: "mobile.terminal.artifact.fetch",
+                stringParams: [
+                    "workspace_id": workspaceID,
+                    "surface_id": surfaceID,
+                    "path": path,
+                ],
+                collectsData: true,
+                progress: progress,
+                onChunk: { _ in }
+            )
+        }
     }
 
     /// Streams terminal-scoped artifact chunks without accumulating a second copy.
@@ -96,17 +117,19 @@ extension MobileChatEventSource {
         path: String,
         onChunk: @Sendable (ChatArtifactChunk) async throws -> Void
     ) async throws {
-        _ = try await fetchArtifactChunks(
-            method: "mobile.terminal.artifact.fetch",
-            stringParams: [
-                "workspace_id": workspaceID,
-                "surface_id": surfaceID,
-                "path": path,
-            ],
-            collectsData: false,
-            progress: nil,
-            onChunk: onChunk
-        )
+        _ = try await performArtifactDownload(correlationID: surfaceID) {
+            try await fetchArtifactChunks(
+                method: "mobile.terminal.artifact.fetch",
+                stringParams: [
+                    "workspace_id": workspaceID,
+                    "surface_id": surfaceID,
+                    "path": path,
+                ],
+                collectsData: false,
+                progress: nil,
+                onChunk: onChunk
+            )
+        }
     }
 
     public func terminalArtifactThumbnail(
@@ -132,16 +155,41 @@ extension MobileChatEventSource {
         surfaceID: String,
         path: String
     ) async throws -> ChatArtifactDirectoryListing {
+        let startedAt = Date()
+        recordAppEvent(.artifactListLoadStarted, correlationID: surfaceID)
         guard supportsTerminalArtifactList else {
+            recordAppEvent(
+                .artifactListLoadFailed,
+                correlationID: surfaceID,
+                startedAt: startedAt,
+                failure: .policyUnavailable
+            )
             throw ChatArtifactError.unsupported
         }
-        return try await artifactCall(
-            method: "mobile.terminal.artifact.list",
-            params: [
-                "workspace_id": workspaceID,
-                "surface_id": surfaceID,
-                "path": path,
-            ]
-        )
+        do {
+            let listing: ChatArtifactDirectoryListing = try await artifactCall(
+                method: "mobile.terminal.artifact.list",
+                params: [
+                    "workspace_id": workspaceID,
+                    "surface_id": surfaceID,
+                    "path": path,
+                ]
+            )
+            recordAppEvent(
+                .artifactListLoadSucceeded,
+                correlationID: surfaceID,
+                startedAt: startedAt,
+                count: listing.entries.count
+            )
+            return listing
+        } catch {
+            recordAppEvent(
+                .artifactListLoadFailed,
+                correlationID: surfaceID,
+                startedAt: startedAt,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+            throw error
+        }
     }
 }

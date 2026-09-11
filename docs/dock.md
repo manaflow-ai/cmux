@@ -81,7 +81,8 @@ Dock is configured with JSON:
       "id": "docs",
       "title": "Docs",
       "type": "browser",
-      "url": "https://example.com"
+      "url": "http://127.0.0.1:8877/sidebar",
+      "chrome": false
     }
   ]
 }
@@ -94,11 +95,14 @@ Fields:
 - `type`: optional, `terminal` (default) or `browser`.
 - `command`: command to run in the Dock terminal. Required for `terminal` controls.
 - `url`: page to open. Required for `browser` controls.
+- `chrome`: optional browser chrome visibility. Defaults to `true`; set it to `false` for a chromeless browser pane without an address bar or toolbar.
 - `cwd`: optional working directory (terminal controls).
-- `height`: optional requested terminal height in points. Controls without a height share remaining space.
+- `height`: optional requested control height in points. Controls without a height share remaining space.
 - `env`: optional non-secret environment variables passed only to that control (terminal controls).
 
 Existing terminal-only configs (no `type`) keep loading unchanged. The order of `controls` seeds the initial Dock layout top-to-bottom; once open, you can re-tile, add, and close Dock panes in-app without editing the file.
+
+For a browser control with `chrome: false`, **Focus Address Bar** is intentionally a no-op. Navigation remains available through the page and through commands such as `cmux browser <surface> goto <url>` and `cmux browser <surface> reload`.
 
 ## Config Precedence
 

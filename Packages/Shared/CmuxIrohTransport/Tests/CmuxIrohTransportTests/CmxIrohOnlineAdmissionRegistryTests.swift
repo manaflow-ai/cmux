@@ -151,10 +151,13 @@ final class OnlineAdmissionManualClock: CmxIrohRelayClock, @unchecked Sendable {
     }
 
     func waitUntilSleeping() async {
-        let sleeping = withLock { !$0.sleepers.isEmpty }
-        if sleeping { return }
         await withCheckedContinuation { continuation in
-            withLock { $0.sleepWaiters.append(continuation) }
+            let resumeNow = withLock { state -> Bool in
+                guard state.sleepers.isEmpty else { return true }
+                state.sleepWaiters.append(continuation)
+                return false
+            }
+            if resumeNow { continuation.resume() }
         }
     }
 

@@ -3,6 +3,7 @@ public import Foundation
 extension CmxIrohHostRuntime {
     func performSignOut(
         pendingRevocation: CmxIrohPendingRevocation?,
+        bindingAuthorization: CmxIrohBindingRequestAuthorization?,
         requiresNetworkDeactivation: Bool,
         revision: UInt64
     ) async -> CmxIrohHostSignOutPreparation {
@@ -17,7 +18,8 @@ extension CmxIrohHostRuntime {
         let (persisted, _) = await (wasPersisted, networkTeardown)
         let preparation = CmxIrohHostSignOutPreparation(
             pendingRevocation: pendingRevocation,
-            wasPersisted: persisted
+            wasPersisted: persisted,
+            bindingAuthorization: bindingAuthorization
         )
 
         guard lifecyclePhase == .signingOut,
@@ -37,6 +39,7 @@ extension CmxIrohHostRuntime {
         }
 
         localBinding = nil
+        lastRegistrationRefreshState = nil
         lifecyclePhase = .inactive
         currentSnapshot = CmxIrohHostRuntimeSnapshot(
             state: .inactive,
@@ -80,6 +83,7 @@ extension CmxIrohHostRuntime {
         registrationRenewalTask?.cancel()
         registrationRenewalTask = nil
         registrationRefreshPending = false
+        registrationRefreshPendingForcesPublication = false
         registrationRefreshEnabled = false
         registrationRefreshFailureCount = 0
         relayActivationTask?.cancel()
@@ -104,6 +108,7 @@ extension CmxIrohHostRuntime {
         let bindingID = localBinding?.bindingID
         if !preserveBinding {
             localBinding = nil
+            lastRegistrationRefreshState = nil
         }
         endpointAttestation = nil
         lanRendezvous = nil

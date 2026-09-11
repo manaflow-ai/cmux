@@ -1,19 +1,17 @@
 import {
   jsonResponse,
-  notFoundVm,
   resolveVmRouteAccountScope,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
-import { isVmNotFoundError } from "../../../../../services/vms/errors";
-import {
-  listVmSessions,
-  openVmSession,
-  runVmWorkflow,
-} from "../../../../../services/vms/workflows";
+import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
+import { listVmSessions, openVmSession } from "../../../../../services/vms/workflows";
 import type { CloudVmSessionRow } from "../../../../../services/vms/repository";
-
-export const dynamic = "force-dynamic";
+import {
+  optionalClientIdentifier,
+  optionalString,
+  parseLenientObjectBody,
+} from "../../../../../services/vms/routeInput";
 
 export async function GET(
   request: Request,
@@ -29,18 +27,15 @@ export async function GET(
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
-      try {
-        const sessions = await runVmWorkflow(listVmSessions({
-          userId: user.id,
-          billingTeamId: account.entitlements.billingTeamId,
-          teamIds: user.teamIds,
-          providerVmId: id,
-        }));
-        return jsonResponse({ sessions: sessions.map(sessionPayload) });
-      } catch (err) {
-        if (isVmNotFoundError(err)) return notFoundVm(id);
-        throw err;
-      }
+      const run = await runVmRoute(listVmSessions({
+        userId: user.id,
+        billingTeamId: account.entitlements.billingTeamId,
+        callerPlanId: account.entitlements.planId,
+        teamIds: user.teamIds,
+        providerVmId: id,
+      }), { request });
+      if (!run.ok) return run.response;
+      return jsonResponse({ sessions: run.value.map(sessionPayload) });
     },
   );
 }
@@ -56,7 +51,7 @@ export async function POST(
     "/api/vm/[id]/sessions failed",
     async ({ user, span }) => {
       const { id } = await params;
-      const body = await parseSessionBody(request);
+      const body = await parseLenientObjectBody(request);
       let sessionId: string | undefined;
       let attachmentId: string | undefined;
       try {
@@ -73,52 +68,25 @@ export async function POST(
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
       if (sessionId) setSpanAttributes(span, { "cmux.vm.session.id": sessionId });
-      try {
-        const result = await runVmWorkflow(openVmSession({
-          userId: user.id,
-          billingTeamId: account.entitlements.billingTeamId,
-          teamIds: user.teamIds,
-          providerVmId: id,
-          sessionId,
-          attachmentId,
-          title,
-        }));
-        return jsonResponse({
-          endpoint: result.endpoint,
-          session: result.session ? sessionPayload(result.session) : null,
-        });
-      } catch (err) {
-        if (isVmNotFoundError(err)) return notFoundVm(id);
-        throw err;
-      }
+      const run = await runVmRoute(openVmSession({
+        userId: user.id,
+        billingTeamId: account.entitlements.billingTeamId,
+        maxActiveVms: account.entitlements.maxActiveVms,
+        callerPlanId: account.entitlements.planId,
+        teamIds: user.teamIds,
+        providerVmId: id,
+        sessionId,
+        attachmentId,
+        title,
+      }), { request });
+      if (!run.ok) return run.response;
+      const result = run.value;
+      return jsonResponse({
+        endpoint: result.endpoint,
+        session: result.session ? sessionPayload(result.session) : null,
+      });
     },
   );
-}
-
-async function parseSessionBody(request: Request): Promise<Record<string, unknown>> {
-  try {
-    const body = await request.json();
-    return body && typeof body === "object" && !Array.isArray(body)
-      ? body as Record<string, unknown>
-      : {};
-  } catch {
-    return {};
-  }
-}
-
-function optionalString(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed || null;
-}
-
-function optionalClientIdentifier(value: unknown, fieldName: string): string | undefined {
-  const trimmed = optionalString(value);
-  if (!trimmed) return undefined;
-  if (!/^[A-Za-z0-9._:-]{1,128}$/.test(trimmed)) {
-    throw new Error(`${fieldName} must be 1-128 characters of letters, numbers, dot, underscore, colon, or dash`);
-  }
-  return trimmed;
 }
 
 function sessionPayload(session: CloudVmSessionRow) {

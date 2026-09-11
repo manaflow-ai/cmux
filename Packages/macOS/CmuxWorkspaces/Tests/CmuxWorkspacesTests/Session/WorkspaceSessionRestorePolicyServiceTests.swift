@@ -362,4 +362,81 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         #expect(service.restorableTmuxStartCommand("hudson omx") == nil)
         #expect(service.restorableTmuxStartCommand("omx hud") == "omx hud")
     }
+
+    @Test("cmux-generated local tmux attach commands are restorable")
+    func restorableTmuxStartCommandAcceptsLocalTmuxMarker() {
+        let service = makeService()
+        let command = localTmuxAttachCommand(
+            executable: "/usr/local/bin/tmux",
+            socket: "/tmp/.cmux/local-tmux/server.sock",
+            sessionID: "$7",
+            serverID: UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")!
+        )
+
+        #expect(service.restorableTmuxStartCommand(command) == command)
+        #expect(service.localTmuxStartCommand(command) == command)
+        let legacyCommand = command.replacingOccurrences(
+            of: "/usr/bin/env TMUX= CMUX_LOCAL_TMUX=1",
+            with: "TMUX= CMUX_LOCAL_TMUX=1 exec"
+        )
+        #expect(service.localTmuxStartCommand(legacyCommand) == command)
+        #expect(service.restorableTmuxStartCommand("CMUX_LOCAL_TMUX=1 exec tmux attach -t work") == nil)
+
+        let malformedCommands = [
+            command.replacingOccurrences(of: "'/tmp/.cmux/local-tmux/server.sock'", with: "'/tmp/.cmux/local-tmux/other.sock'"),
+            command.replacingOccurrences(of: "'/tmp/.cmux/local-tmux/server.sock'", with: "'relative/server.sock'"),
+            command.replacingOccurrences(of: "'$7'", with: "'workbench'"),
+            command.replacingOccurrences(of: "'$7'", with: "'work;rm'"),
+            command.replacingOccurrences(of: "'$7'", with: "'wo\u{0007}rk'"),
+        ]
+        for malformed in malformedCommands {
+            #expect(service.localTmuxStartCommand(malformed) == nil)
+        }
+    }
+
+    @Test("local tmux restore rejects shell substitutions in persisted commands")
+    func localTmuxRestoreRejectsShellSubstitution() {
+        let service = makeService()
+        let safeSocket = "/tmp/.cmux/local-tmux/server.sock"
+        let command = localTmuxAttachCommand(
+            executable: "/usr/local/bin/tmux",
+            socket: safeSocket,
+            sessionID: "$7",
+            serverID: UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")!
+        ).replacingOccurrences(
+            of: "'\(safeSocket)'",
+            with: "/tmp/.cmux/local-tmux/$(touch${IFS}/tmp/pwn)/server.sock"
+        )
+
+        #expect(service.localTmuxStartCommand(command) == nil)
+    }
+
+    @Test("local tmux restore accepts canonical custom executable and state paths")
+    func localTmuxRestoreAcceptsCustomPaths() {
+        let service = makeService()
+        let command = localTmuxAttachCommand(
+            executable: "/custom/bin/session-owner",
+            socket: "/var/tmp/cmux-state/server.sock",
+            sessionID: "$42",
+            serverID: UUID(uuidString: "dddddddd-dddd-dddd-dddd-dddddddddddd")!
+        )
+
+        #expect(service.localTmuxStartCommand(command) == command)
+    }
+
+    private func localTmuxAttachCommand(
+        executable: String,
+        socket: String,
+        sessionID: String,
+        serverID: UUID
+    ) -> String {
+        let quote: (String) -> String = {
+            "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        }
+        let action = ["attach-session", "-t", sessionID]
+            .map(quote)
+            .joined(separator: " ")
+        let condition = "#{==:#{@cmux_local_server_id},\(serverID.uuidString.lowercased())}"
+        return "/usr/bin/env TMUX= CMUX_LOCAL_TMUX=1 \(quote(executable)) -S \(quote(socket)) if-shell -F \(quote(condition)) \(quote(action)) \(quote("run-shell false"))"
+    }
 }

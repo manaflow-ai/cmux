@@ -35,11 +35,12 @@ ATTACH_COMMAND = (
 
 def shell_wrapped(command: str) -> str:
     """Mirror CMUXCLI.tmuxShellInvokedStartCommand: respawn shell-commands are run
-    through a POSIX shell (`/bin/sh -c`) so Ghostty's macOS `exec -l <command>`
-    execs a shell rather than the raw expression (issue #6447). Quoting mirrors
+    through a POSIX login shell (`/bin/sh -lc`) so macOS profile/path_helper
+    restores the login PATH before Ghostty's `exec -l <command>` execs a shell
+    rather than the raw expression (issues #6447 and #10189). Quoting mirrors
     tmuxShellQuote (single-quote, with embedded single quotes escaped)."""
     quoted = "'" + command.replace("'", "'\"'\"'") + "'"
-    return "/bin/sh -c " + quoted
+    return "/bin/sh -lc " + quoted
 
 
 class FakeCmuxState:

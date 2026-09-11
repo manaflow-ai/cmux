@@ -2,12 +2,9 @@ import { resolveSubrouterRequestContext } from "../../../../services/subrouter/r
 import { subrouterErrorResponse } from "../../../../services/subrouter/routeHelpers";
 import { env } from "../../../env";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function POST(request: Request): Promise<Response> {
   const resolved = await resolveSubrouterRequestContext(request, {
-    permission: "use-or-manage",
     allowCookie: false,
   });
   if (!resolved.ok) return resolved.response;

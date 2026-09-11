@@ -74,12 +74,12 @@ struct SidebarWorkspaceSnapshotFactory {
             )
         }
         let checklistProgress = workspace.checklistProgressSummary
-
         return SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey,
             title: workspace.title,
             customDescription: settings.showsWorkspaceDescription ? visibleCustomDescription : nil,
             isPinned: workspace.isPinned,
+            isMuted: workspace.isMuted,
             customColorHex: workspace.customColor,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,

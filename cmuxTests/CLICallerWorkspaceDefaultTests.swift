@@ -125,6 +125,7 @@ struct CLICallerWorkspaceDefaultTests {
         let socketPath = Self.makeSocketPath("identify-tty")
         let listenerFD = try Self.bindUnixSocket(at: socketPath)
         defer {
+            CLIMockAcceptLoopRegistry.shared.stop(listenerFD: listenerFD)
             Darwin.close(listenerFD)
             unlink(socketPath)
         }
@@ -181,6 +182,7 @@ struct CLICallerWorkspaceDefaultTests {
         let socketPath = Self.makeSocketPath("caller-ws")
         let listenerFD = try Self.bindUnixSocket(at: socketPath)
         defer {
+            CLIMockAcceptLoopRegistry.shared.stop(listenerFD: listenerFD)
             Darwin.close(listenerFD)
             unlink(socketPath)
         }
@@ -244,7 +246,7 @@ struct CLICallerWorkspaceDefaultTests {
 
     private final class CLICallerWorkspaceDefaultBundleToken {}
 
-    // Records socket callbacks from a background queue; `lock` guards both arrays.
+    // Records socket callbacks from background threads; `lock` guards both arrays.
     private final class ServerState: @unchecked Sendable {
         private let lock = NSLock()
         private var requestLines: [String] = []
@@ -344,46 +346,23 @@ struct CLICallerWorkspaceDefaultTests {
         handler: @escaping @Sendable (String) -> String
     ) -> DispatchSemaphore {
         let handled = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            defer { handled.signal() }
-
-            var clientAddr = sockaddr_un()
-            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { pointer in
-                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+        CLIMockAcceptLoopRegistry.shared.start(
+            listenerFD: listenerFD,
+            onConnection: { clientFD in
+                defer {
+                    Darwin.close(clientFD)
+                    handled.signal()
                 }
-            }
-            guard clientFD >= 0 else {
-                state.recordError("mock socket server failed to accept a client")
-                return
-            }
-            defer { Darwin.close(clientFD) }
-
-            var pending = Data()
-            var buffer = [UInt8](repeating: 0, count: 4096)
-            while true {
-                let count = Darwin.read(clientFD, &buffer, buffer.count)
-                if count < 0 {
-                    if errno == EINTR { continue }
-                    state.recordError("mock socket server read failed with errno \(errno)")
-                    return
-                }
-                if count == 0 { return }
-                pending.append(buffer, count: count)
-
-                while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                    let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                    pending.removeSubrange(0...newlineRange.lowerBound)
-                    guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                cliMockServeLineFramedConnection(clientFD: clientFD) { line in
                     state.record(line)
-                    let response = handler(line) + "\n"
-                    _ = response.withCString { pointer in
-                        Darwin.write(clientFD, pointer, strlen(pointer))
-                    }
+                    return handler(line)
                 }
+            },
+            onListenerClosed: {
+                state.recordError("mock socket server failed to accept a client")
+                handled.signal()
             }
-        }
+        )
         return handled
     }
 
@@ -429,16 +408,13 @@ struct CLICallerWorkspaceDefaultTests {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        let exitSignal = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exitSignal.signal() }
+
         do {
             try process.run()
         } catch {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
-        }
-
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
         }
 
         let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut

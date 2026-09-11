@@ -213,7 +213,14 @@ enum NotificationSettingsFileMapping {
 }
 
 enum TerminalSettingsFileMapping {
+    private static let terminal = TerminalCatalogSection()
+
     static let booleanSettings: [SettingsFileBooleanMapping] = [
+        .init(
+            jsonKey: "adaptiveDefaultTheme",
+            defaultsKey: terminal.adaptiveDefaultTheme.userDefaultsKey,
+            invalidPath: terminal.adaptiveDefaultTheme.id
+        ),
         .init(
             jsonKey: "showScrollBar",
             defaultsKey: TerminalScrollBarSettings.showScrollBarKey,
@@ -372,13 +379,18 @@ enum BrowserSettingsFileMapping {
         ),
         .init(
             jsonKey: "urlsToAlwaysOpenExternally",
-            defaultsKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey,
+            defaultsKey: BrowserExternalURLPolicy.userDefaultsKey,
             invalidPath: "browser.urlsToAlwaysOpenExternally"
         ),
         .init(
             jsonKey: "insecureHttpHostsAllowedInEmbeddedBrowser",
             defaultsKey: BrowserInsecureHTTPSettings.allowlistKey,
             invalidPath: "browser.insecureHttpHostsAllowedInEmbeddedBrowser"
+        ),
+        .init(
+            jsonKey: "urlAllowlist",
+            defaultsKey: BrowserURLAllowlistPolicy.userDefaultsKey,
+            invalidPath: "browser.urlAllowlist"
         ),
     ]
 }
@@ -414,6 +426,7 @@ extension CmuxSettingsFileStore {
         "app.renameSelectsExistingName",
         "app.commandPaletteSearchesAllSurfaces",
         "workspaceGroups.newWorkspacePlacement",
+        "terminal.adaptiveDefaultTheme",
         "terminal.showScrollBar",
         "terminal.scrollSpeed",
         "terminal.copyOnSelect",
@@ -437,8 +450,10 @@ extension CmuxSettingsFileStore {
         "notifications.showInMenuBar",
         "notifications.unreadPaneRing",
         "notifications.paneFlash",
+        "notifications.paneFlashColor",
         "notifications.sound",
         "notifications.customSoundFilePath",
+        "notifications.soundOverrides",
         "notifications.command",
         "notifications.hooks",
         "notifications.hooksMode",
@@ -498,6 +513,7 @@ extension CmuxSettingsFileStore {
         "automation.portBase",
         "automation.portRange",
         "browser.defaultSearchEngine",
+        "browser.defaultZoomLevel",
         "browser.customSearchEngineName",
         "browser.customSearchEngineURLTemplate",
         "browser.showSearchSuggestions",
@@ -510,6 +526,7 @@ extension CmuxSettingsFileStore {
         "browser.hostsToOpenInEmbeddedBrowser",
         "browser.urlsToAlwaysOpenExternally",
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
+        "browser.urlAllowlist",
         "browser.showImportHintOnBlankTabs",
         "browser.reactGrabVersion",
         "mobile.artifactFolderAccess",
@@ -519,6 +536,11 @@ extension CmuxSettingsFileStore {
         "canvas.paneGap",
         "canvas.snappingEnabled",
         "fileEditor.wordWrap",
+        "fileEditor.syntaxHighlighting",
+        "fileEditor.lineNumbers",
+        "fileEditor.indentGuides",
+        "fileEditor.currentLineHighlight",
+        "fileEditor.tabWidth",
         "fileExplorer.doubleClickAction",
         "shortcuts.bindings",
     ]

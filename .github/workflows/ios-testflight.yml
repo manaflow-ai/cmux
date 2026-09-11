@@ -117,6 +117,26 @@ jobs:
                       run_id: run.id,
                       per_page: 100,
                     });
+                    // A run can corrupt into queued limbo: no job ever starts
+                    // and GitHub rejects cancel, force-cancel, and rerun. Such
+                    // a run would block ordering for the full timeout, so skip
+                    // runs whose jobs never started after a generous pickup
+                    // window. Missing created_at parses to NaN and is treated
+                    // as fresh, never skipped.
+                    const anyJobStarted = jobs.data.jobs.some(
+                      (job) => job.status !== 'queued'
+                    );
+                    const createdAtMs = Date.parse(run.created_at ?? '');
+                    const stuckMinutes = Number.isFinite(createdAtMs)
+                      ? (Date.now() - createdAtMs) / 60_000
+                      : 0;
+                    if (!anyJobStarted && stuckMinutes >= 120) {
+                      core.warning(
+                        `ignoring defunct earlier TestFlight run ${run.id}: ` +
+                        `no job started after ${Math.round(stuckMinutes)} minutes`
+                      );
+                      continue;
+                    }
                     const uploadJob = jobs.data.jobs.find(
                       (job) => job.name === 'Upload to TestFlight'
                     );
@@ -452,7 +472,7 @@ jobs:
             # The demo profile is fetched from the ASC API by name instead of a
             # repository secret, so regenerating it in the developer portal
             # needs no secret rotation. Same credentials the upload uses.
-            PROFILE_BASE64="$(python3 ./ios/scripts/asc_download_profile.py --name "cmux Demo Distribution")"
+            PROFILE_BASE64="$(python3 ./ios/scripts/asc_download_profile.py --name "cmux Demo Distribution Push")"
           elif [ "$IOS_BETA_PROFILE_TYPE" = "internal" ]; then
             PROFILE_BASE64="${IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64}"
           else
@@ -475,9 +495,16 @@ jobs:
             echo "$IOS_BETA_PROFILE_TYPE provisioning profile targets unexpected app ID: $APP_ID (expected $IOS_BETA_EXPECTED_APP_ID)" >&2
             exit 1
           fi
+          # TestFlight uses production APNs. Both capabilities must be present
+          # in the installed profile or export can silently strip them.
           APS_ENVIRONMENT="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:aps-environment" "$TMP_PLIST" 2>/dev/null || echo "")"
           if [ -z "$APS_ENVIRONMENT" ] || [ "$APS_ENVIRONMENT" != "production" ]; then
-            echo "$IOS_BETA_PROFILE_TYPE provisioning profile aps-environment is '$APS_ENVIRONMENT', expected 'production'" >&2
+            echo "$IOS_BETA_PROFILE_TYPE provisioning profile aps-environment is '${APS_ENVIRONMENT:-<absent>}', expected 'production'" >&2
+            exit 1
+          fi
+          TIME_SENSITIVE="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.usernotifications.time-sensitive" "$TMP_PLIST" 2>/dev/null || echo "")"
+          if [ "$TIME_SENSITIVE" != "true" ]; then
+            echo "$IOS_BETA_PROFILE_TYPE provisioning profile com.apple.developer.usernotifications.time-sensitive is '${TIME_SENSITIVE:-<absent>}', expected 'true'" >&2
             exit 1
           fi
           PROFILE_NAME="$(/usr/libexec/PlistBuddy -c "Print :Name" "$TMP_PLIST")"
@@ -638,6 +665,27 @@ jobs:
           path: ${{ runner.temp }}/cmux-ios-upload/cmux.xcarchive/dSYMs
           if-no-files-found: error
           retention-days: 30
+
+      - name: Upload dSYMs to Sentry
+        # Sentry symbolicates crashes server-side from its own dSYM store; the
+        # Symbols/ files inside the IPA only serve App Store Connect. Same gate
+        # as the artifact step above: once the IPA reached TestFlight, symbols
+        # must reach Sentry even if a later step fails, or every crash for this
+        # build shows raw addresses. No --include-sources: the archive builds
+        # on a fleet Mac, so its DWARF source paths do not exist on this
+        # runner.
+        if: ${{ !cancelled() && steps.upload.outcome == 'success' && steps.distribution.outputs.assign_internal_group == '1' }}
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: manaflow
+          SENTRY_PROJECT: cmux-ios
+        run: |
+          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
+            echo "SENTRY_AUTH_TOKEN not set, skipping dSYM upload"
+            exit 0
+          fi
+          SENTRY_CLI="$(./scripts/ensure-sentry-cli.sh)"
+          "$SENTRY_CLI" debug-files upload "$RUNNER_TEMP/cmux-ios-upload/cmux.xcarchive/dSYMs"
 
       - name: Cleanup keychain
         if: always()

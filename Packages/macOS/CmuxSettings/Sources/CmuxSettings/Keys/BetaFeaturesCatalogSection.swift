@@ -66,6 +66,16 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarWorkspaceTodosChecklistStyle"
     )
 
+    /// Cloud Machines: the Cloud tab in the right sidebar plus every other
+    /// Cloud VM surface (Settings section, palette commands), and the gate
+    /// for launch-time Cloud work (fleet polling, the Cloud tunnel). Defaults
+    /// off on every build; this toggle is the only way in.
+    public let cloudMachines = DefaultsKey<Bool>(
+        id: "cloud.beta.machines.enabled",
+        defaultValue: false,
+        userDefaultsKey: "cloud.beta.machines.enabled"
+    )
+
     /// Remote tmux: mirror a remote host's tmux sessions in the cmux sidebar
     /// over `ssh … tmux -CC` (iTerm2-style control mode). Sessions appear as
     /// sidebar workspaces, tmux windows as tabs, and tmux panes as splits;

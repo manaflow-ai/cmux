@@ -5,7 +5,10 @@ import {
   withApiRouteSpan,
   type MaybeAttributes,
 } from "@/services/telemetry";
-import { isVaultConfigured } from "@/services/vault/config";
+import {
+  isVaultConfigured,
+  isVaultEnabled,
+} from "@/services/vault/config";
 import {
   unauthorized,
   verifyRequest,
@@ -15,8 +18,13 @@ import {
   enforceBrowserMutationProtection,
   jsonResponse,
 } from "@/services/vms/routeHelpers";
+import { authProviderErrorResponse } from "@/services/vms/authErrors";
 
 type VerifyRequestOptions = NonNullable<Parameters<typeof verifyRequest>[1]>;
+type VaultRouteRequirements = {
+  readonly vaultFeature: boolean;
+  readonly objectStorage: boolean;
+};
 
 export type VaultRouteContext = {
   readonly span: Span;
@@ -41,7 +49,7 @@ export async function withVaultApiRoute(
     route,
     attributes,
     failureLog,
-    true,
+    { vaultFeature: true, objectStorage: true },
     handler,
   );
 }
@@ -60,7 +68,7 @@ export async function withCliAuthApiRoute(
     route,
     attributes,
     failureLog,
-    false,
+    { vaultFeature: false, objectStorage: false },
     handler,
   );
 }
@@ -70,7 +78,7 @@ async function withVaultApiRouteConfiguration(
   route: string,
   attributes: MaybeAttributes,
   failureLog: string,
-  requiresObjectStorage: boolean,
+  requirements: VaultRouteRequirements,
   handler: (context: VaultRouteContext) => Promise<Response>,
 ): Promise<Response> {
   return withApiRouteSpan(
@@ -79,7 +87,10 @@ async function withVaultApiRouteConfiguration(
     { "cmux.subsystem": "vault", ...attributes },
     async (span) => {
       return runVaultRoute(span, failureLog, async (context) => {
-        if (requiresObjectStorage && !isVaultConfigured()) {
+        if (requirements.vaultFeature && !isVaultEnabled()) {
+          return jsonResponse({ error: "vault_disabled" }, 404);
+        }
+        if (requirements.objectStorage && !isVaultConfigured()) {
           return jsonResponse({ error: "vault_not_configured" }, 503);
         }
         return handler(context);
@@ -106,7 +117,7 @@ export async function withAuthedVaultApiRoute(
     failureLog,
     verifyOptions,
     handler,
-    true,
+    { vaultFeature: true, objectStorage: true },
     verify,
   );
 }
@@ -127,7 +138,7 @@ export async function withAuthedCliAuthApiRoute(
     failureLog,
     verifyOptions,
     handler,
-    false,
+    { vaultFeature: false, objectStorage: false },
     verify,
   );
 }
@@ -139,7 +150,7 @@ async function withAuthedVaultApiRouteConfiguration(
   failureLog: string,
   verifyOptions: VerifyRequestOptions,
   handler: (context: AuthedVaultRouteContext) => Promise<Response>,
-  requiresObjectStorage: boolean,
+  requirements: VaultRouteRequirements,
   verify: typeof verifyRequest,
 ): Promise<Response> {
   return withVaultApiRouteConfiguration(
@@ -147,9 +158,14 @@ async function withAuthedVaultApiRouteConfiguration(
     route,
     attributes,
     failureLog,
-    requiresObjectStorage,
+    requirements,
     async (context) => {
-      const user = await verify(request, verifyOptions);
+      let user: Awaited<ReturnType<typeof verify>>;
+      try {
+        user = await verify(request, verifyOptions);
+      } catch (error) {
+        return authProviderErrorResponse(error, `${route}.auth`);
+      }
       if (!user) return unauthorized();
       const mutationForbidden = enforceBrowserMutationProtection(request);
       if (mutationForbidden) return mutationForbidden;

@@ -16,17 +16,22 @@ public import WebKit
 public struct MobileBrowserView: UIViewRepresentable {
     /// The state this view drives and reflects.
     public let state: BrowserSurfaceState
+    private let onDiagnosticEvent: @MainActor (BrowserSurfaceDiagnosticEvent) -> Void
 
     /// Creates a browser view bound to a surface state.
     /// - Parameter state: The browser surface state to host.
-    public init(state: BrowserSurfaceState) {
+    public init(
+        state: BrowserSurfaceState,
+        onDiagnosticEvent: @escaping @MainActor (BrowserSurfaceDiagnosticEvent) -> Void = { _ in }
+    ) {
         self.state = state
+        self.onDiagnosticEvent = onDiagnosticEvent
     }
 
     /// Builds the coordinator that owns the web view and its observations.
     /// - Returns: A new ``Coordinator``.
     public func makeCoordinator() -> Coordinator {
-        Coordinator(state: state)
+        Coordinator(state: state, onDiagnosticEvent: onDiagnosticEvent)
     }
 
     /// Creates and configures the hosted `WKWebView`.
@@ -81,13 +86,18 @@ public struct MobileBrowserView: UIViewRepresentable {
     @MainActor
     public final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         private let state: BrowserSurfaceState
+        private let onDiagnosticEvent: @MainActor (BrowserSurfaceDiagnosticEvent) -> Void
         private weak var webView: WKWebView?
         private var observations: [NSKeyValueObservation] = []
 
         /// Creates a coordinator for a surface state.
         /// - Parameter state: The surface state to mirror web-view changes into.
-        public init(state: BrowserSurfaceState) {
+        public init(
+            state: BrowserSurfaceState,
+            onDiagnosticEvent: @escaping @MainActor (BrowserSurfaceDiagnosticEvent) -> Void = { _ in }
+        ) {
             self.state = state
+            self.onDiagnosticEvent = onDiagnosticEvent
             super.init()
         }
 
@@ -186,10 +196,12 @@ public struct MobileBrowserView: UIViewRepresentable {
 
         public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             state.navigationDidStart()
+            onDiagnosticEvent(.navigateStarted)
         }
 
         public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             state.navigationDidFinish()
+            onDiagnosticEvent(.navigateSucceeded)
             if let title = webView.title, !title.isEmpty {
                 state.title = title
             }
@@ -216,6 +228,7 @@ public struct MobileBrowserView: UIViewRepresentable {
                 return
             }
             state.navigationDidFail(message: error.localizedDescription)
+            onDiagnosticEvent(.navigateFailed(error))
         }
 
         // MARK: - WKUIDelegate

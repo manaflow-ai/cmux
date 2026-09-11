@@ -10,6 +10,68 @@ import Testing
 @Suite("Ghostty desktop notification ingress", .serialized)
 @MainActor
 struct GhosttyDesktopNotificationIngressTests {
+    @Test func newerSynchronousNotificationWinsOverOlderPolicyCompletion() throws {
+        let store = TerminalNotificationStore.shared
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = originalAppDelegate ?? AppDelegate()
+        let manager = appDelegate.tabManager ?? TabManager()
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppDelegate.shared = originalAppDelegate
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        let surfaceId = try #require(workspace.focusedPanelId)
+        let olderPolicyRequest = store.beginDesktopNotificationHookResolution(
+            tabId: workspace.id,
+            surfaceId: surfaceId,
+            title: "Claude Code",
+            body: "Older async policy result"
+        )
+
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: surfaceId,
+            title: "Claude Code",
+            subtitle: "",
+            body: "Newer synchronous result",
+            resolvedHooks: []
+        )
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: surfaceId,
+            title: "Claude Code",
+            subtitle: "",
+            body: "Older async policy result",
+            resolvedHooks: [],
+            preRegisteredPolicyRequestId: olderPolicyRequest
+        )
+
+        #expect(
+            store.notifications.map(\.body) == ["Newer synchronous result"],
+            "A policy completion must not overwrite a newer notification for the same surface"
+        )
+    }
+
     @Test func terminalInteractionDuringHookResolutionPreventsLateNotification() throws {
         let store = TerminalNotificationStore.shared
         let originalAppDelegate = AppDelegate.shared

@@ -115,6 +115,12 @@ echo "$CMUX_NOTIFICATION_TITLE: $CMUX_NOTIFICATION_BODY" >> ~/notifications.log`
     "appFocused": false,
     "focusedPanel": false
   },
+  "agent": {
+    "kind": "claude",
+    "category": "turn-complete",
+    "pending": false,
+    "isSubagent": true
+  },
   "effects": {
     "record": true,
     "markUnread": true,
@@ -133,6 +139,32 @@ echo "$CMUX_NOTIFICATION_TITLE: $CMUX_NOTIFICATION_BODY" >> ~/notifications.log`
           desktop: (chunks) => <code>{chunks}</code>,
           hooksMode: (chunks) => <code>{chunks}</code>,
           replace: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+
+      <DocsHeading level={3} id="agent-event-context">{t("hooksAgentTitle")}</DocsHeading>
+      <p>
+        {t.rich("hooksAgentIntro", {
+          agent: (chunks) => <code>{chunks}</code>,
+          kind: (chunks) => <code>{chunks}</code>,
+          category: (chunks) => <code>{chunks}</code>,
+          pending: (chunks) => <code>{chunks}</code>,
+          isSubagent: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+      <CodeBlock title={t("hooksAgentExampleTitle")} lang="json">{`{
+  "notifications": {
+    "hooks": [
+      {
+        "id": "mute-subagent-completions",
+        "command": "if [ \\"\${CMUX_NOTIFICATION_AGENT_IS_SUBAGENT-0}\\" = \\"1\\" ] && [ \\"$CMUX_NOTIFICATION_AGENT_CATEGORY\\" = \\"turn-complete\\" ]; then printf '{\\"effects\\":{\\"desktop\\":false,\\"sound\\":false,\\"paneFlash\\":false}}'; fi"
+      }
+    ]
+  }
+}`}</CodeBlock>
+      <p>
+        {t.rich("hooksAgentDetails", {
+          suppressSetting: (chunks) => <code>{chunks}</code>,
         })}
       </p>
 

@@ -25,6 +25,10 @@ struct PanelContentView: View {
     let customSidebarUnread: SidebarUnreadModel = TerminalNotificationStore.shared.sidebarUnread
     let hasUnreadNotification: Bool
     let terminalAgentContext: String
+    /// Appearance inherited from the host before this view injects the
+    /// surface-resolved scheme for its rendered panel subtree. Browser WebKit
+    /// system theming may observe this value; browser chrome must not.
+    @Environment(\.colorScheme) private var inheritedColorScheme
     /// Explicit browser pane-ownership signal for hosts whose panels live outside
     /// the main `Workspace` tree (the Dock). `nil` keeps the main-area behavior.
     var paneOwnershipOverride: Bool? = nil
@@ -36,9 +40,12 @@ struct PanelContentView: View {
     let onResumeAgentHibernation: () -> Void
     let onAutoResumeAgentHibernation: () -> Void
     let onTriggerFlash: () -> Void
+    /// Owner action used to materialize a deferred browser after its host reports visibility.
+    let onRequestDeferredBrowserMaterialization: () -> Void
 
     var body: some View {
         renderedPanel
+            .environment(\.colorScheme, windowAppearance.resolvedColorScheme)
             .overlay {
                 paneDropTargetOverlay
             }
@@ -75,12 +82,21 @@ struct PanelContentView: View {
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: portalPriority,
                     paneOwnershipOverride: paneOwnershipOverride,
+                    resolvedColorScheme: windowAppearance.resolvedColorScheme,
+                    inheritedColorScheme: inheritedColorScheme,
+                    resolvedThemeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
                 // Browser chrome owns panel-scoped edit/focus state. Bonsplit reuses this
                 // structural slot when a pane selects another browser, so bind its lifetime
                 // to the panel instead of carrying the prior panel's omnibar draft forward.
                 .id(browserPanel.id)
+            } else if panel is DeferredBrowserPanel {
+                DeferredBrowserPanelView(
+                    isVisibleInUI: isVisibleInUI,
+                    onRequestMaterialization: onRequestDeferredBrowserMaterialization,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
             }
         case .markdown:
             if let markdownPanel = panel as? MarkdownPanel {
@@ -110,7 +126,7 @@ struct PanelContentView: View {
                     panel: rightSidebarToolPanel,
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
-                    appearance: appearance,
+                    resolvedChromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
@@ -184,6 +200,15 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .notifications:
+            if panel is NotificationsPanel {
+                NotificationsPage(
+                    isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI
+                )
+                    .contentShape(Rectangle())
+                    .onTapGesture { onRequestPanelFocus() }
+            }
         case .cloudVMLoading:
             if let loadingPanel = panel as? CloudVMLoadingPanel {
                 CloudVMLoadingPanelView(panel: loadingPanel)
@@ -221,7 +246,7 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .cloudVMLoading, .mobilePairing, .accountSignIn:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn:
             return true
         case .terminal, .browser:
             return false
@@ -246,8 +271,7 @@ private struct CloudVMLoadingPanelView: View {
                         .foregroundStyle(.primary)
                     CloudVMLoadingStatusView(elapsedSeconds: elapsedSeconds)
                 case .failed(let message, let failedElapsedSeconds):
-                    CmuxSystemSymbolImage(systemName: "exclamationmark.triangle.fill", pointSize: 18)
-                        .foregroundStyle(.orange)
+                    CmuxSystemSymbolImage(systemName: "exclamationmark.triangle.fill", pointSize: 18, tint: .orange)
                     Text(String(localized: "panel.cloudVM.loading.failed.headline", defaultValue: "Base unavailable"))
                         .cmuxFont(size: 14, weight: .semibold)
                         .foregroundStyle(.primary)
@@ -354,8 +378,7 @@ private struct CloudVMLoadingStatusRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            CmuxSystemSymbolImage(systemName: icon, pointSize: 12)
-                .foregroundStyle(isActive ? .secondary : .tertiary)
+            CmuxSystemSymbolImage(systemName: icon, pointSize: 12, tint: isActive ? Color.secondary : Color(nsColor: .tertiaryLabelColor))
                 .frame(width: 14)
             Text(text)
                 .cmuxFont(size: 12)
@@ -373,15 +396,14 @@ struct PanelFilePathHeader<TrailingContent: View>: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            CmuxSystemSymbolImage(systemName: iconSystemName, pointSize: 16)
-                .foregroundStyle(.secondary)
+            CmuxSystemSymbolImage(systemName: iconSystemName, pointSize: 16, tint: .secondary)
                 .frame(width: 16)
             Text(filePath)
                 .cmuxFont(size: 11, design: .monospaced)
                 .foregroundStyle(Color(nsColor: foregroundColor).opacity(0.68))
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .textSelection(.enabled)
+                .copyOnlyTextSelection(for: filePath)
             Spacer(minLength: 8)
             trailingContent()
         }
@@ -413,7 +435,7 @@ struct PanelHeaderIconGlyph: View {
     let systemName: String
 
     var body: some View {
-        CmuxSystemSymbolImage(systemName: systemName, pointSize: 13)
+        CmuxSystemSymbolImage(systemName: systemName, pointSize: 13, tint: .secondary)
             .frame(width: 20, height: 20, alignment: .center)
             .contentShape(Rectangle())
     }

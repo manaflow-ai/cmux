@@ -1,4 +1,5 @@
 internal import CmuxMobileRPC
+internal import CMUXMobileCore
 internal import Foundation
 
 extension MobileShellComposite {
@@ -23,6 +24,19 @@ extension MobileShellComposite {
         let supportedHostCapabilities: Set<String>
         let hostDisplayName: String
 
+        /// Canonical exact Mac app-instance identity captured for the request.
+        /// Empty or missing device ids represent the anonymous foreground and
+        /// must not become a physical Mac pairing.
+        private var pairingID: String? {
+            guard let macDeviceID,
+                  !macDeviceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return nil }
+            return CmxMacAppInstanceIdentity(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            ).id
+        }
+
         /// Whether the caller still exposes the same Mac, client, and generation.
         func isCurrent(
             macDeviceID currentMacDeviceID: String?,
@@ -30,10 +44,35 @@ extension MobileShellComposite {
             client currentClient: MobileCoreRPCClient?,
             generation currentGeneration: UUID
         ) -> Bool {
-            macDeviceID == currentMacDeviceID
-                && instanceTag == currentInstanceTag
+            pairingID == Self.pairingID(
+                macDeviceID: currentMacDeviceID,
+                instanceTag: currentInstanceTag
+            )
                 && client === currentClient
                 && generation == currentGeneration
+        }
+
+        func matchesTarget(
+            macDeviceID: String,
+            instanceTag: String?
+        ) -> Bool {
+            pairingID == Self.pairingID(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
+        }
+
+        private static func pairingID(
+            macDeviceID: String?,
+            instanceTag: String?
+        ) -> String? {
+            guard let macDeviceID,
+                  !macDeviceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return nil }
+            return CmxMacAppInstanceIdentity(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            ).id
         }
 
         /// Settles a decoded host success without inviting an unsafe duplicate.

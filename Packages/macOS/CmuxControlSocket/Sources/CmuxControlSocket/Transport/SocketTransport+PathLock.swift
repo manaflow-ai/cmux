@@ -15,7 +15,9 @@ extension SocketTransport {
     /// Creates (or opens) the sibling lock file with `O_NOFOLLOW`, validates it
     /// is a regular single-link file owned by the current user, and takes a
     /// non-blocking exclusive `flock(2)`. On success the caller owns the
-    /// returned descriptor until ``releaseSocketPathLock(_:)``.
+    /// returned descriptor until ``releaseSocketPathLock(_:)``. The returned
+    /// replacement bit is derived from the lock plus a current liveness probe,
+    /// so a process that died before writing the reusable marker is recoverable.
     ///
     /// - Parameter socketPath: The socket path whose lock to acquire.
     /// - Returns: The ``SocketPathLockAcquisition`` outcome.
@@ -62,10 +64,20 @@ extension SocketTransport {
             close(fd)
             return .failed(SocketStageFailure(stage: "lock", errnoCode: errnoCode))
         }
+
+        // Ownership is established by the flock, not by the contents of the
+        // lock file. A process can die before it writes the reusable marker,
+        // leaving an unmarked lock beside a refused socket inode. Once this
+        // process owns the lock, a refused probe is definitive evidence that
+        // the old listener is gone and the inode can be replaced. Keep the
+        // marker and filename checks for compatibility with older paths, but
+        // do not make either one a prerequisite for crash recovery.
+        let canReplaceRefusedSocket = pathLockHasReusableMarker(fd)
+            || canReplaceUnmarkedRefusedSocket(at: socketPath)
+            || pathProbeResult(at: socketPath) == .refused
         return .acquired(
             fd: fd,
-            canReplaceRefusedSocket: pathLockHasReusableMarker(fd)
-                || canReplaceUnmarkedRefusedSocket(at: socketPath)
+            canReplaceRefusedSocket: canReplaceRefusedSocket
         )
     }
 
@@ -152,9 +164,130 @@ extension SocketTransport {
         close(fd)
     }
 
+    /// Removes the socket node and lock pathname while the caller still owns the lock.
+    ///
+    /// The socket is removed first. Both pathnames are compared with the inode
+    /// observed while the lock was acquired, so a replacement listener cannot be
+    /// deleted merely because it reused the same pathname.
+    ///
+    /// - Parameters:
+    ///   - fd: The held path-lock descriptor.
+    ///   - socketPath: The socket path arbitrated by `fd`.
+    /// - Returns: `true` when both paths are absent or were removed safely.
+    func removeSocketPathLockFileWhileHeld(_ fd: Int32, for socketPath: String) -> Bool {
+        guard fd >= 0, validateSocketPathLockFile(fd) == nil else {
+            return false
+        }
+
+        var lockIdentity = stat()
+        guard fstat(fd, &lockIdentity) == 0 else {
+            return false
+        }
+        let lockPath = pathLockPath(for: socketPath)
+        func lockPathStillNamesHeldFile() -> Bool {
+            var currentIdentity = stat()
+            return lstat(lockPath, &currentIdentity) == 0
+                && currentIdentity.st_dev == lockIdentity.st_dev
+                && currentIdentity.st_ino == lockIdentity.st_ino
+        }
+        guard lockPathStillNamesHeldFile() else {
+            return false
+        }
+
+        switch pathProbeResult(at: socketPath) {
+        case .connected, .occupiedOrIndeterminate:
+            return false
+        case .stale:
+            break
+        case .refused:
+            var socketIdentity = stat()
+            guard lstat(socketPath, &socketIdentity) == 0,
+                  (socketIdentity.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK),
+                  socketIdentity.st_uid == getuid(),
+                  socketIdentity.st_nlink == 1
+            else {
+                return false
+            }
+
+            // Re-probe immediately before unlinking. A refused result is the
+            // only live-state evidence that permits removing the socket node.
+            guard pathProbeResult(at: socketPath) == .refused else {
+                return false
+            }
+            var currentSocketIdentity = stat()
+            guard lstat(socketPath, &currentSocketIdentity) == 0,
+                  currentSocketIdentity.st_dev == socketIdentity.st_dev,
+                  currentSocketIdentity.st_ino == socketIdentity.st_ino,
+                  lockPathStillNamesHeldFile()
+            else {
+                return false
+            }
+            if unlink(socketPath) != 0, errno != ENOENT {
+                return false
+            }
+        }
+
+        var currentLockIdentity = stat()
+        guard lstat(lockPath, &currentLockIdentity) == 0 else {
+            return errno == ENOENT
+        }
+        guard currentLockIdentity.st_dev == lockIdentity.st_dev,
+              currentLockIdentity.st_ino == lockIdentity.st_ino
+        else {
+            return false
+        }
+        if unlink(lockPath) != 0, errno != ENOENT {
+            return false
+        }
+        return true
+    }
+
+    /// Removes an unheld socket-path lock when no listener accepts connections.
+    ///
+    /// The non-blocking flock and connect probe are both required. A lock file's
+    /// age is not evidence that it is stale, and a replacement listener may have
+    /// reclaimed the path between the original listener's teardown and cleanup.
+    ///
+    /// - Parameter socketPath: The socket path whose sibling lock may be removed.
+    /// - Returns: True when the lock was absent or removed, false when a live
+    ///   listener or lock holder made cleanup unsafe.
+    public func removeSocketPathLockIfAvailable(for socketPath: String) -> Bool {
+        guard socketPathCanBeCleaned(socketPath) else {
+            return false
+        }
+
+        // Acquire (and, when absent, create) the ownership lock before cleanup.
+        // Treating a missing lock as success would leave a refused socket node
+        // behind, while creating the lock lets the held-lock helper remove both
+        // paths under one ownership decision.
+        guard case .acquired(let fd, _) = acquireSocketPathLock(for: socketPath) else {
+            return false
+        }
+
+        // Hold the lock while removing the refused socket node and lock. A
+        // replacement listener cannot acquire this inode until the decision is
+        // complete, and the helper rechecks both inode identities before unlinking.
+        let didRemove = removeSocketPathLockFileWhileHeld(fd, for: socketPath)
+        releaseSocketPathLock(fd)
+        return didRemove
+    }
+
+    /// Treat only a missing or definitively refused listener as removable.
+    /// An indeterminate nonblocking probe (for example, a full listen backlog)
+    /// must protect the lock just like a successful connection.
+    private func socketPathCanBeCleaned(_ socketPath: String) -> Bool {
+        switch pathProbeResult(at: socketPath) {
+        case .stale, .refused:
+            return true
+        case .connected, .occupiedOrIndeterminate:
+            return false
+        }
+    }
+
     /// Whether a startup listener may claim `path`: either nothing exists there
-    /// (and no foreign lock blocks it), or a socket exists whose lock is free
-    /// and carries the reusable marker.
+    /// (and no foreign lock blocks it), or a current-user socket exists whose
+    /// lock is free and whose probe proves that no listener is accepting
+    /// connections.
     ///
     /// - Parameter path: The socket path to evaluate.
     /// - Returns: True when a startup listener may claim the path.
@@ -167,7 +300,18 @@ extension SocketTransport {
         guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
             return false
         }
-        return pathHasAvailableLock(path, requireReusableMarker: true, treatMissingLockAsAvailable: false)
+        guard st.st_uid == getuid() else {
+            return false
+        }
+        guard pathHasAvailableLock(path, requireReusableMarker: false, treatMissingLockAsAvailable: false) else {
+            return false
+        }
+        switch pathProbeResult(at: path) {
+        case .refused, .stale:
+            return true
+        case .connected, .occupiedOrIndeterminate:
+            return false
+        }
     }
 
     func pathHasAvailableLock(

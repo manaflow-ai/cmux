@@ -18,8 +18,6 @@ const THINKING_CHOICES: OptionChoice[] = [
   { value: "16384", label: "16k thinking" },
   { value: "32768", label: "32k thinking" },
 ];
-const EFFORT_CHOICES: OptionChoice[] = ["low", "medium", "high", "xhigh", "max"]
-  .map((value) => ({ value, label: value }));
 const CONTEXT_CHOICES: OptionChoice[] = [
   { value: "200k", label: "200k" },
   { value: "1m", label: "1M" },
@@ -48,7 +46,7 @@ export function claudeIndependentLaunchEnvironment(
   return launchEnvironment;
 }
 
-function curatedClaudeModels(): Array<{ slug: string; label: string; description?: string; minVersion?: string; context?: boolean; fast?: boolean; deprecated?: boolean }> {
+function curatedClaudeModels(): Array<{ slug: string; label: string; description?: string; minVersion?: string; context?: boolean; fast?: boolean; deprecated?: boolean; efforts?: OptionChoice[]; defaultEffort?: string }> {
   const remote = agentModelCatalog.provider("claude");
   if (remote) return remote.models.map((model) => ({
     slug: model.id,
@@ -58,6 +56,8 @@ function curatedClaudeModels(): Array<{ slug: string; label: string; description
     context: model.supportsOneMillion === true,
     fast: model.fast,
     deprecated: model.deprecated === true,
+    efforts: model.efforts?.map((effort) => ({ value: effort.value, label: effort.label, description: effort.description })),
+    defaultEffort: model.defaultEffort,
   }));
   return agentModelCatalog.hasPayload ? [] : BUILT_IN_MODELS;
 }
@@ -68,6 +68,7 @@ function defaultClaudeModel(): string {
 let claudeVersionCache: { value: string | null; fetchedAt: number; promise?: Promise<string | null> } | null = null;
 interface ClaudeModelMeta {
   efforts: OptionChoice[];
+  defaultEffort: string;
   supportsFastMode: boolean;
   context?: { base: string; extended: string };
 }
@@ -97,7 +98,7 @@ export const claudeAdapter: Adapter = {
       { id: "model", label: "Model", kind: "select", value: DEFAULT_CLAUDE_MODEL, choices: [{ value: DEFAULT_CLAUDE_MODEL, label: "Claude Sonnet 5" }], disabled: true, description: "Loads at start" },
       { id: "permissionMode", label: "Mode", kind: "select", value: "acceptEdits", choices: PERMISSION_CHOICES },
       { id: "thinking", label: "Thinking", kind: "select", value: "0", role: "thinking-budget", choices: THINKING_CHOICES },
-      { id: "effort", label: "Effort", kind: "select", value: "medium", role: "effort", choices: EFFORT_CHOICES },
+      { id: "effort", label: "Effort", kind: "select", value: "", role: "effort", choices: [], disabled: true, description: "Loads with model" },
       { id: "fastMode", label: "Fast", kind: "toggle", value: false },
     ],
   },
@@ -145,7 +146,7 @@ export const claudeAdapter: Adapter = {
       modelMeta: choices.meta,
       permissionMode: "acceptEdits",
       thinking: "0",
-      effort: "medium",
+      effort: "",
       fastMode: false,
       context: "200k",
     };
@@ -162,15 +163,26 @@ export const claudeAdapter: Adapter = {
 function state(sess: SessionCtx): ClaudeState {
   let st = sess.internal.claude as ClaudeState | undefined;
   if (!st) {
+    const seededModel = seededClaudeDefault(sess);
+    const seededChoices = sess.seedOptions?.find((option) => option.id === "model")?.choices;
+    const initialChoices = seededChoices?.length ? seededChoices : [{ value: seededModel, label: seededModel }];
+    const initialMeta = new Map<string, ClaudeModelMeta>();
+    for (const choice of initialChoices) {
+      initialMeta.set(choice.value, {
+        efforts: choice.efforts ?? [],
+        defaultEffort: validDefaultEffort(choice.efforts ?? [], choice.defaultEffort),
+        supportsFastMode: false,
+      });
+    }
     st = {
       nextRequest: 1,
       pending: new Map(),
       model: normalizeStartModel(stringOption(sess, "model", seededClaudeDefault(sess))),
-      modelChoices: [{ value: seededClaudeDefault(sess), label: seededClaudeDefault(sess) }],
-      modelMeta: new Map([[seededClaudeDefault(sess), { efforts: EFFORT_CHOICES, supportsFastMode: false }]]),
+      modelChoices: initialChoices,
+      modelMeta: initialMeta,
       permissionMode: stringOption(sess, "permissionMode", sess.autoApprove ? "acceptEdits" : "default"),
       thinking: stringOption(sess, "thinking", "0"),
-      effort: stringOption(sess, "effort", "medium"),
+      effort: stringOption(sess, "effort", ""),
       fastMode: booleanOption(sess, "fastMode", false),
       context: stringOption(sess, "context", "200k"),
       initialApplied: false,
@@ -231,7 +243,7 @@ function ensureProc(sess: SessionCtx): Bun.Subprocess<"pipe", "pipe", "pipe"> {
   if (fork?.providerSessionId) args.push("--resume", fork.providerSessionId, "--fork-session");
   if (st.permissionMode !== "default") args.push("--permission-mode", st.permissionMode);
   if (sess.autoApprove) args.push("--allowedTools", "Bash Read Edit Write Glob Grep WebFetch WebSearch");
-  if (typeof sess.startOptions.effort === "string") args.push("--effort", st.effort);
+  if (typeof sess.startOptions.effort === "string" && st.effort) args.push("--effort", st.effort);
 
   const proc = Bun.spawn(["claude", ...args], {
     cwd: sess.cwd,
@@ -338,7 +350,7 @@ async function applyInitialOptions(sess: SessionCtx) {
   if (typeof sess.startOptions.thinking === "string" || st.thinking !== "0") {
     await control(sess, "set_max_thinking_tokens", { max_thinking_tokens: Number(st.thinking) || 0 });
   }
-  if (typeof sess.startOptions.effort === "string" || st.effort !== "medium") {
+  if (st.effort) {
     await control(sess, "apply_flag_settings", { settings: { effortLevel: st.effort } });
   }
   if (typeof sess.startOptions.fastMode === "boolean" || st.fastMode) {
@@ -357,7 +369,7 @@ async function setClaudeOption(sess: SessionCtx, id: string, value: OptionValue)
       const model = resolveClaudeModelId(st);
       await control(sess, "set_model", { model });
       const changed = normalizeEffort(st);
-      if (changed.effort) await control(sess, "apply_flag_settings", { settings: { effortLevel: st.effort } });
+      if (changed.effort && st.effort) await control(sess, "apply_flag_settings", { settings: { effortLevel: st.effort } });
       if (changed.fastMode) await control(sess, "apply_flag_settings", { settings: { fastMode: st.fastMode } });
       break;
     }
@@ -383,6 +395,9 @@ async function setClaudeOption(sess: SessionCtx, id: string, value: OptionValue)
     }
     case "effort": {
       if (typeof value !== "string") throw new Error("effort must be a string");
+      if (!modelMeta(st).efforts.some((choice) => choice.value === value)) {
+        throw new Error(`unsupported effort for ${st.model}: ${value}`);
+      }
       await control(sess, "apply_flag_settings", { settings: { effortLevel: value } });
       st.effort = value;
       break;
@@ -419,6 +434,15 @@ function seedModelChoices(sess: SessionCtx, st: ClaudeState): boolean {
   const seeded = sess.seedOptions?.find((o) => o.id === "model")?.choices;
   if (!seeded || seeded.length <= 1 || st.modelChoices.length > 1) return false;
   st.modelChoices = seeded;
+  for (const choice of seeded) {
+    const current = st.modelMeta.get(choice.value);
+    st.modelMeta.set(choice.value, {
+      efforts: choice.efforts ?? [],
+      defaultEffort: validDefaultEffort(choice.efforts ?? [], choice.defaultEffort),
+      supportsFastMode: current?.supportsFastMode ?? false,
+      ...(current?.context ? { context: current.context } : {}),
+    });
+  }
   return true;
 }
 
@@ -440,14 +464,14 @@ function buildOptions(st: Pick<ClaudeState, "model" | "modelChoices" | "modelMet
 }
 
 function modelMeta(st: Pick<ClaudeState, "model" | "modelMeta">): ClaudeModelMeta {
-  return st.modelMeta.get(st.model) ?? st.modelMeta.get(defaultClaudeModel()) ?? { efforts: EFFORT_CHOICES, supportsFastMode: false };
+  return st.modelMeta.get(st.model) ?? { efforts: [], defaultEffort: "", supportsFastMode: false };
 }
 
 function normalizeEffort(st: Pick<ClaudeState, "model" | "modelMeta" | "effort" | "fastMode">): { effort: boolean; fastMode: boolean } {
   const meta = modelMeta(st);
   const beforeEffort = st.effort;
   const beforeFast = st.fastMode;
-  if (!meta.efforts.some((c) => c.value === st.effort)) st.effort = meta.efforts[0]?.value ?? "medium";
+  if (!meta.efforts.some((c) => c.value === st.effort)) st.effort = validDefaultEffort(meta.efforts, meta.defaultEffort);
   if (!meta.supportsFastMode) st.fastMode = false;
   return { effort: st.effort !== beforeEffort, fastMode: st.fastMode !== beforeFast };
 }
@@ -496,10 +520,11 @@ function normalizeModelCatalog(models: any, version: string | null): { choices: 
         supportsFastMode: m.supportsFastMode === true,
         efforts: Array.isArray(m.supportedEffortLevels) && m.supportedEffortLevels.length
           ? m.supportedEffortLevels.map((effort: unknown) => ({ value: String(effort), label: String(effort) }))
-          : EFFORT_CHOICES,
+          : [],
+        defaultEffort: typeof m.defaultEffortLevel === "string" ? m.defaultEffortLevel : "",
       },
     };
-  }).filter(Boolean) as Array<{ rawValue: string; value: string; base: string; suffix: string; label: string; description?: string; meta: { supportsFastMode: boolean; efforts: OptionChoice[] } }>;
+  }).filter(Boolean) as Array<{ rawValue: string; value: string; base: string; suffix: string; label: string; description?: string; meta: { supportsFastMode: boolean; efforts: OptionChoice[]; defaultEffort: string } }>;
   const rawByBase = new Map<string, typeof raw[number]>();
   const extendedByBase = new Map<string, typeof raw[number]>();
   for (const m of raw) if (!m.suffix && !rawByBase.has(m.base)) rawByBase.set(m.base, m);
@@ -508,15 +533,17 @@ function normalizeModelCatalog(models: any, version: string | null): { choices: 
     const disabledReason = model.minVersion && version && !versionAtLeast(version, model.minVersion)
       ? claudeUpgradeMessage(model.slug, model.label, model.minVersion, version)
       : model.deprecated ? `${model.label} is deprecated.` : undefined;
-    choices.push({ value: model.slug, label: model.label, description: model.description, disabled: Boolean(disabledReason), disabledReason });
-    covered.add(model.slug);
-    covered.add(aliasClaudeModel(stripOneMillion(model.slug).base));
     const extended = extendedByBase.get(model.slug)?.value ?? `${model.slug}[1m]`;
     const context = model.context || extendedByBase.has(model.slug)
       ? { base: model.slug, extended }
       : undefined;
     const binary = rawByBase.get(model.slug);
-    meta.set(model.slug, { efforts: binary?.meta.efforts ?? EFFORT_CHOICES, supportsFastMode: model.fast ?? binary?.meta.supportsFastMode ?? false, ...(context ? { context } : {}) });
+    const efforts = model.efforts ?? binary?.meta.efforts ?? [];
+    const defaultEffort = validDefaultEffort(efforts, model.defaultEffort ?? binary?.meta.defaultEffort);
+    choices.push({ value: model.slug, label: model.label, description: model.description, disabled: Boolean(disabledReason), disabledReason, efforts, defaultEffort });
+    covered.add(model.slug);
+    covered.add(aliasClaudeModel(stripOneMillion(model.slug).base));
+    meta.set(model.slug, { efforts, defaultEffort, supportsFastMode: model.fast ?? binary?.meta.supportsFastMode ?? false, ...(context ? { context } : {}) });
   }
   for (const m of raw) {
     if (covered.has(m.base)) {
@@ -527,15 +554,23 @@ function normalizeModelCatalog(models: any, version: string | null): { choices: 
     if (m.suffix && rawByBase.has(m.base)) continue;
     if (extendedByBase.has(m.base)) {
       const extended = extendedByBase.get(m.base)!;
-      meta.set(m.base, { efforts: m.meta.efforts, supportsFastMode: m.meta.supportsFastMode, context: { base: m.base, extended: extended.value } });
-      choices.push({ value: m.base, label: m.label, description: m.description });
+      const defaultEffort = validDefaultEffort(m.meta.efforts, m.meta.defaultEffort);
+      meta.set(m.base, { efforts: m.meta.efforts, defaultEffort, supportsFastMode: m.meta.supportsFastMode, context: { base: m.base, extended: extended.value } });
+      choices.push({ value: m.base, label: m.label, description: m.description, efforts: m.meta.efforts, defaultEffort });
     } else {
-      meta.set(m.base, { efforts: m.meta.efforts, supportsFastMode: m.meta.supportsFastMode });
-      choices.push({ value: m.base, label: m.label, description: m.description });
+      const defaultEffort = validDefaultEffort(m.meta.efforts, m.meta.defaultEffort);
+      meta.set(m.base, { efforts: m.meta.efforts, defaultEffort, supportsFastMode: m.meta.supportsFastMode });
+      choices.push({ value: m.base, label: m.label, description: m.description, efforts: m.meta.efforts, defaultEffort });
     }
     covered.add(m.base);
   }
   return { choices: dedupeChoices(choices), meta };
+}
+
+function validDefaultEffort(efforts: OptionChoice[], requested?: string): string {
+  return requested && efforts.some((effort) => effort.value === requested)
+    ? requested
+    : efforts[0]?.value ?? "";
 }
 
 async function fetchClaudeVersion(): Promise<string | null> {

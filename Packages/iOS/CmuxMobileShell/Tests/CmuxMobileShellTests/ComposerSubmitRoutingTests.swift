@@ -12,6 +12,63 @@ import Testing
 @Suite struct ComposerSubmitRoutingTests {
     private static func bytes(_ s: String) -> Data { Data(s.utf8) }
 
+    @Test func exposesComposerSendProgressAndSettlement() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: router)
+        let terminalID = RoutingHostRouter.terminalA
+        store.selectTerminal(MobileTerminalPreview.ID(rawValue: terminalID))
+        store.addPendingAttachment(Self.bytes("held"), format: "png", forTerminalID: terminalID)
+        store.terminalInputText = "hello"
+
+        await router.setHoldFirstPasteImage(true)
+        let submit = Task { await store.submitComposer() }
+        await router.awaitFirstPasteImageReached()
+
+        #expect(store.terminalSendStatus(forTerminalID: terminalID) == .sending)
+
+        await router.releaseFirstPasteImage()
+        await submit.value
+
+        #expect(store.terminalSendStatus(forTerminalID: terminalID) == .sent)
+    }
+
+    @Test func exposesComposerSendFailure() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: router)
+        let terminalID = RoutingHostRouter.terminalA
+        store.selectTerminal(MobileTerminalPreview.ID(rawValue: terminalID))
+        store.addPendingAttachment(Self.bytes("rejected"), format: "png", forTerminalID: terminalID)
+
+        await router.setRejectPasteImage(true)
+        await store.submitComposer()
+
+        #expect(store.terminalSendStatus(forTerminalID: terminalID) == .failed)
+    }
+
+    @Test func restoredFailedDraftKeepsFailureSettlement() async throws {
+        let router = RoutingHostRouter()
+        let drafts = InMemoryTerminalDraftStore()
+        let store = try await makeRoutingConnectedStore(router: router, draftStore: drafts)
+        let termA = RoutingHostRouter.terminalA
+        let termB = RoutingHostRouter.terminalB
+        store.selectTerminal(MobileTerminalPreview.ID(rawValue: termA))
+        await store.drainDraftOperationsForTesting()
+        store.terminalInputText = "retry me"
+        store.addPendingAttachment(Self.bytes("rejected"), format: "png", forTerminalID: termA)
+
+        await router.setRejectPasteImage(true)
+        await store.submitComposer()
+        #expect(store.terminalSendStatus(forTerminalID: termA) == .failed)
+
+        store.selectTerminal(MobileTerminalPreview.ID(rawValue: termB))
+        await store.drainDraftOperationsForTesting()
+        store.selectTerminal(MobileTerminalPreview.ID(rawValue: termA))
+        await store.drainDraftOperationsForTesting()
+
+        #expect(store.terminalInputText == "retry me")
+        #expect(store.terminalSendStatus(forTerminalID: termA) == .failed)
+    }
+
     /// Images and text both go to the selected terminal when nothing switches.
     @Test func sendsAttachmentsAndTextToSelectedTerminal() async throws {
         let router = RoutingHostRouter()

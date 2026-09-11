@@ -114,6 +114,10 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         return browserSignIn.activeAttemptSignInURL
     }
 
+    var activeSignInURL: URL? {
+        browserSignIn.activeAttemptSignInURL
+    }
+
     /// Runs the same hosted Stack sign-in used by every UI entrypoint, while
     /// allowing socket callers to await a bounded result.
     func signIn(timeout: TimeInterval) async -> Bool {
@@ -141,9 +145,10 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     func copySignInURL(_ url: URL) -> Bool {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        return pasteboard.setString(url.absoluteString, forType: .string)
+        GhosttyApp.terminalPasteboard.writeString(
+            url.absoluteString,
+            to: .general
+        )
     }
 
     func signOut() async {
@@ -198,12 +203,22 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         }
     }
 
+    // `AccountFlow` (CmuxSettingsUI) cannot see `ProUpgradeSource`; its
+    // parameterless calls come from the Settings account card.
     func openProUpgrade() {
-        ProUpgradePresenter.present()
+        openProUpgrade(source: .settingsAccountCard)
     }
 
     func prefetchProUpgrade() {
-        ProUpgradePresenter.prefetch()
+        prefetchProUpgrade(source: .settingsAccountCard)
+    }
+
+    func openProUpgrade(source: ProUpgradeSource) {
+        ProUpgradePresenter.present(source: source)
+    }
+
+    func prefetchProUpgrade(source: ProUpgradeSource) {
+        ProUpgradePresenter.prefetch(source: source)
     }
 
     func openBillingPortal() {

@@ -1,6 +1,21 @@
+import Darwin
+import Dispatch
 import Foundation
 
 extension GitMetadataService {
+    private struct GitTrackedChangesResolution: Sendable {
+        let snapshot: GitTrackedChangesSnapshot
+        let degradationReason: GitMetadataDegradationReason?
+
+        init(
+            snapshot: GitTrackedChangesSnapshot,
+            degradationReason: GitMetadataDegradationReason? = nil
+        ) {
+            self.snapshot = snapshot
+            self.degradationReason = degradationReason
+        }
+    }
+
     private nonisolated static let gitIndexHexAlphabet = Array("0123456789abcdef".utf8)
 
     /// Compares the working tree against the parsed index to decide dirtiness.
@@ -8,73 +23,232 @@ extension GitMetadataService {
     /// Mirrors git's stat-based dirty check: for each tracked entry it reads the
     /// file status and compares size, mode, and mtime. Gitlink entries are dirty
     /// when the submodule's checked-out commit differs from the index object ID.
-    nonisolated func gitTrackedChangesSnapshot(repository: ResolvedGitRepository) -> GitTrackedChangesSnapshot {
-        let indexURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("index")
-        guard let indexSnapshot = Self.gitIndexSnapshot(indexURL: indexURL) else {
-            return GitTrackedChangesSnapshot(
-                isDirty: false,
-                indexSignature: Self.gitIndexFileSignature(indexURL: indexURL),
-                indexContentSignature: nil
+    /// Direct work is capped by entry count and elapsed duration; exceeding
+    /// either bound switches to a cancellable, non-locking `git status` probe.
+    nonisolated func gitTrackedChangesSnapshot(
+        repository: ResolvedGitRepository
+    ) async -> GitTrackedChangesSnapshot {
+        let cancellationSignal = WorkspaceChangesCancellationSignal()
+        let resolution = await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                Self.blockingStatusQueue.async {
+                    let resolution = cancellationSignal.withCurrentBinding {
+                        gitTrackedChangesSnapshotBlocking(repository: repository)
+                    }
+                    continuation.resume(returning: resolution)
+                }
+            }
+        } onCancel: {
+            cancellationSignal.cancel()
+        }
+        if let degradationReason = resolution.degradationReason {
+            await degradationRecorder.record(
+                repositoryRoot: repository.workTreeRoot,
+                reason: degradationReason
+            )
+        }
+        return resolution.snapshot
+    }
+
+    private nonisolated func gitTrackedChangesSnapshotBlocking(
+        repository: ResolvedGitRepository
+    ) -> GitTrackedChangesResolution {
+        let indexPath = Self.joinedPath(root: repository.gitDirectory, relativePath: "index")
+        let indexURL = URL(fileURLWithPath: indexPath)
+        let indexReadResult = GitIndexDataReader().read(
+            at: indexURL,
+            maximumByteCount: safetyConfiguration.directIndexByteCount
+        )
+        if let header = indexReadResult.header {
+            if header.entryCount > safetyConfiguration.directFileStatusEntryCount {
+                return gitStatusFallbackSnapshot(
+                    repository: repository,
+                    // The fallback result is authoritative. Omitting signatures
+                    // prevents sidebar stat-signature reconciliation from
+                    // second-guessing a clean result without a matching
+                    // content-only signature.
+                    indexSignature: nil,
+                    indexContentSignature: nil,
+                    reason: .trackedEntryLimit(
+                        count: header.entryCount,
+                        limit: safetyConfiguration.directFileStatusEntryCount
+                    )
+                )
+            }
+            if header.fileByteCount > Int64(safetyConfiguration.directIndexByteCount) {
+                return gitStatusFallbackSnapshot(
+                    repository: repository,
+                    indexSignature: nil,
+                    indexContentSignature: nil,
+                    reason: .indexByteLimit(
+                        count: header.fileByteCount,
+                        limit: safetyConfiguration.directIndexByteCount
+                    )
+                )
+            }
+        }
+        guard let indexData = indexReadResult.data,
+              let indexSnapshot = GitIndexSnapshotParser().parse(data: indexData) else {
+            return gitStatusFallbackSnapshot(
+                repository: repository,
+                indexSignature: indexReadResult.data.flatMap {
+                    GitIndexSnapshotParser().signature(data: $0)
+                } ?? Self.gitIndexFileSignature(indexURL: indexURL),
+                indexContentSignature: nil,
+                reason: .unreadableIndex
             )
         }
 
+        let scanStart = ContinuousClock.now
+        let directScanDeadline = DispatchTime.now()
+            + (Double(safetyConfiguration.directFileStatusDurationMilliseconds) / 1_000)
         for entry in indexSnapshot.entries {
-            let fileURL = URL(fileURLWithPath: repository.workTreeRoot).appendingPathComponent(entry.path)
+            if WorkspaceChangesCancellationSignal.isCurrentCancelled {
+                return GitTrackedChangesResolution(
+                    snapshot: GitTrackedChangesSnapshot(
+                        isDirty: true,
+                        indexSignature: nil,
+                        indexContentSignature: nil
+                    )
+                )
+            }
+            if scanStart.duration(to: ContinuousClock.now) >= safetyConfiguration.directFileStatusDuration {
+                return gitStatusFallbackSnapshot(
+                    repository: repository,
+                    indexSignature: nil,
+                    indexContentSignature: nil,
+                    reason: .directScanDuration(
+                        milliseconds: safetyConfiguration.directFileStatusDurationMilliseconds
+                    )
+                )
+            }
+            guard DispatchTime.now() < directScanDeadline else {
+                return gitStatusFallbackSnapshot(
+                    repository: repository,
+                    indexSignature: nil,
+                    indexContentSignature: nil,
+                    reason: .directScanDuration(
+                        milliseconds: safetyConfiguration.directFileStatusDurationMilliseconds
+                    )
+                )
+            }
             let gitlinkMode: UInt32 = 0o160000
             if (entry.mode & 0o170000) == gitlinkMode {
-                guard let submoduleCommit = Self.gitlinkWorktreeCommit(
-                    parentRepository: repository,
-                    gitlinkPath: entry.path
-                ) else {
-                    return GitTrackedChangesSnapshot(
-                        isDirty: true,
-                        indexSignature: indexSnapshot.signature,
-                        indexContentSignature: indexSnapshot.contentSignature
+                let gitlinkPath = Self.joinedPath(
+                    root: repository.workTreeRoot,
+                    relativePath: entry.path
+                )
+                guard let submoduleRepository = Self.resolveGitRepository(
+                    containing: gitlinkPath,
+                    deadline: directScanDeadline
+                ),
+                      submoduleRepository.workTreeRoot == gitlinkPath else {
+                    return GitTrackedChangesResolution(
+                        snapshot: GitTrackedChangesSnapshot(
+                            isDirty: true,
+                            indexSignature: indexSnapshot.signature,
+                            indexContentSignature: indexSnapshot.contentSignature
+                        )
+                    )
+                }
+                if referenceReader.requiresGitPlumbing(
+                    repository: submoduleRepository,
+                    deadline: directScanDeadline
+                ) {
+                    return gitStatusFallbackSnapshot(
+                        repository: repository,
+                        indexSignature: nil,
+                        indexContentSignature: nil,
+                        reason: .submoduleReferenceBackend
+                    )
+                }
+                guard let submoduleCommit = referenceReader
+                    .snapshot(
+                        repository: submoduleRepository,
+                        deadline: directScanDeadline
+                    )
+                    .currentCommit else {
+                    return GitTrackedChangesResolution(
+                        snapshot: GitTrackedChangesSnapshot(
+                            isDirty: true,
+                            indexSignature: indexSnapshot.signature,
+                            indexContentSignature: indexSnapshot.contentSignature
+                        )
                     )
                 }
                 if submoduleCommit.caseInsensitiveCompare(entry.objectID) != .orderedSame {
-                    return GitTrackedChangesSnapshot(
-                        isDirty: true,
-                        indexSignature: indexSnapshot.signature,
-                        indexContentSignature: indexSnapshot.contentSignature
+                    return GitTrackedChangesResolution(
+                        snapshot: GitTrackedChangesSnapshot(
+                            isDirty: true,
+                            indexSignature: indexSnapshot.signature,
+                            indexContentSignature: indexSnapshot.contentSignature
+                        )
                     )
                 }
                 continue
             }
 
-            guard let fileStatus = fileStatusReader.status(atPath: fileURL.path) else {
-                return GitTrackedChangesSnapshot(
-                    isDirty: true,
-                    indexSignature: indexSnapshot.signature,
-                    indexContentSignature: indexSnapshot.contentSignature
+            let filePath = Self.joinedPath(root: repository.workTreeRoot, relativePath: entry.path)
+            guard let fileStatus = fileStatusReader.status(atPath: filePath) else {
+                return GitTrackedChangesResolution(
+                    snapshot: GitTrackedChangesSnapshot(
+                        isDirty: true,
+                        indexSignature: indexSnapshot.signature,
+                        indexContentSignature: indexSnapshot.contentSignature
+                    )
                 )
             }
             let size = Self.gitIndexUInt32Field(fileStatus.size)
             let mtimeSeconds = Self.gitIndexUInt32Field(fileStatus.mtimeSeconds)
             let mtimeNanoseconds = Self.gitIndexUInt32Field(fileStatus.mtimeNanoseconds)
             guard let mode = Self.gitIndexComparableMode(for: mode_t(fileStatus.mode)) else {
-                return GitTrackedChangesSnapshot(
-                    isDirty: true,
-                    indexSignature: indexSnapshot.signature,
-                    indexContentSignature: indexSnapshot.contentSignature
+                return GitTrackedChangesResolution(
+                    snapshot: GitTrackedChangesSnapshot(
+                        isDirty: true,
+                        indexSignature: indexSnapshot.signature,
+                        indexContentSignature: indexSnapshot.contentSignature
+                    )
                 )
             }
             if size != entry.size ||
                 mode != entry.mode ||
                 mtimeSeconds != entry.mtimeSeconds ||
                 mtimeNanoseconds != entry.mtimeNanoseconds {
-                return GitTrackedChangesSnapshot(
-                    isDirty: true,
-                    indexSignature: indexSnapshot.signature,
-                    indexContentSignature: indexSnapshot.contentSignature
+                return GitTrackedChangesResolution(
+                    snapshot: GitTrackedChangesSnapshot(
+                        isDirty: true,
+                        indexSignature: indexSnapshot.signature,
+                        indexContentSignature: indexSnapshot.contentSignature
+                    )
                 )
             }
         }
 
-        return GitTrackedChangesSnapshot(
-            isDirty: false,
-            indexSignature: indexSnapshot.signature,
-            indexContentSignature: indexSnapshot.contentSignature
+        return GitTrackedChangesResolution(
+            snapshot: GitTrackedChangesSnapshot(
+                isDirty: false,
+                indexSignature: indexSnapshot.signature,
+                indexContentSignature: indexSnapshot.contentSignature
+            )
+        )
+    }
+
+    private nonisolated func gitStatusFallbackSnapshot(
+        repository: ResolvedGitRepository,
+        indexSignature: String?,
+        indexContentSignature: String?,
+        reason: GitMetadataDegradationReason
+    ) -> GitTrackedChangesResolution {
+        let isDirty = WorkspaceChangesCancellationSignal.isCurrentCancelled
+            ? true
+            : dirtyStatusReader.isDirty(workTreeRoot: repository.workTreeRoot) ?? true
+        return GitTrackedChangesResolution(
+            snapshot: GitTrackedChangesSnapshot(
+                isDirty: isDirty,
+                indexSignature: indexSignature,
+                indexContentSignature: indexContentSignature
+            ),
+            degradationReason: reason
         )
     }
 
@@ -84,108 +258,11 @@ extension GitMetadataService {
     /// and skip-worktree exclusion, and entry padding. Returns `nil` for an
     /// absent, truncated, or unsupported-version index.
     nonisolated static func gitIndexSnapshot(indexURL: URL) -> GitIndexSnapshot? {
-        guard let data = try? Data(contentsOf: indexURL), data.count >= 32 else {
-            return nil
-        }
-        let bytes = [UInt8](data)
-        guard bytes[0] == 0x44, bytes[1] == 0x49, bytes[2] == 0x52, bytes[3] == 0x43 else {
-            return nil
-        }
-        let version = readBigEndianUInt32(bytes, at: 4)
-        guard version == 2 || version == 3 || version == 4 else {
-            return nil
-        }
-        let entryCount = Int(readBigEndianUInt32(bytes, at: 8))
-        let contentEnd = bytes.count - 20
-        var offset = 12
-        var entries: [GitIndexEntryStat] = []
-        var contentEntries: [GitIndexEntryStat] = []
-        entries.reserveCapacity(min(entryCount, 1024))
-        contentEntries.reserveCapacity(min(entryCount, 1024))
-        var previousPathBytes: [UInt8] = []
-
-        for _ in 0..<entryCount {
-            guard offset + 62 <= contentEnd else { return nil }
-            let entryStart = offset
-            let mtimeSeconds = readBigEndianUInt32(bytes, at: offset + 8)
-            let mtimeNanoseconds = readBigEndianUInt32(bytes, at: offset + 12)
-            let mode = readBigEndianUInt32(bytes, at: offset + 24)
-            let size = readBigEndianUInt32(bytes, at: offset + 36)
-            let objectID = gitIndexHexString(bytes[(offset + 40)..<(offset + 60)])
-            let flags = readBigEndianUInt16(bytes, at: offset + 60)
-            let pathLength = Int(flags & 0x0fff)
-            let hasExtendedFlags = version >= 3 && (flags & 0x4000) != 0
-            var extendedFlags: UInt16 = 0
-            offset += 62
-            if hasExtendedFlags {
-                guard offset + 2 <= contentEnd else { return nil }
-                extendedFlags = readBigEndianUInt16(bytes, at: offset)
-                offset += 2
-            }
-
-            let pathBytes: [UInt8]
-            if version == 4 {
-                guard let stripLength = readGitIndexV4PathStripLength(bytes, offset: &offset),
-                      stripLength <= previousPathBytes.count else {
-                    return nil
-                }
-                let suffixStart = offset
-                while offset < contentEnd, bytes[offset] != 0 {
-                    offset += 1
-                }
-                guard offset < contentEnd else { return nil }
-                pathBytes = Array(previousPathBytes.dropLast(stripLength)) + Array(bytes[suffixStart..<offset])
-            } else {
-                let pathStart = offset
-                if pathLength < 0x0fff {
-                    offset += pathLength
-                    guard offset < contentEnd else { return nil }
-                } else {
-                    while offset < contentEnd, bytes[offset] != 0 {
-                        offset += 1
-                    }
-                    guard offset < contentEnd else { return nil }
-                }
-                pathBytes = Array(bytes[pathStart..<offset])
-            }
-
-            let pathData = Data(pathBytes)
-            guard let path = String(data: pathData, encoding: .utf8), !path.isEmpty,
-                  isValidIndexEntryPath(path) else {
-                return nil
-            }
-            previousPathBytes = pathBytes
-            let entryStat = GitIndexEntryStat(
-                path: path,
-                mode: mode,
-                objectID: objectID,
-                mtimeSeconds: mtimeSeconds,
-                mtimeNanoseconds: mtimeNanoseconds,
-                size: size
-            )
-            contentEntries.append(entryStat)
-
-            let assumeUnchangedFlag: UInt16 = 0x8000
-            let skipWorktreeExtendedFlag: UInt16 = 0x4000
-            if (flags & assumeUnchangedFlag) == 0,
-               (extendedFlags & skipWorktreeExtendedFlag) == 0 {
-                entries.append(entryStat)
-            }
-
-            offset += 1
-            if version != 4 {
-                let entryLength = offset - entryStart
-                let padding = (8 - (entryLength % 8)) % 8
-                offset += padding
-            }
-        }
-
-        let checksum = gitIndexHexString(bytes[(bytes.count - 20)..<bytes.count])
-        return GitIndexSnapshot(
-            entries: entries,
-            signature: checksum,
-            contentSignature: gitIndexContentSignature(entries: contentEntries)
+        let result = GitIndexDataReader().read(
+            at: indexURL,
+            maximumByteCount: 32 * 1_024 * 1_024
         )
+        return result.data.flatMap { GitIndexSnapshotParser().parse(data: $0) }
     }
 
     /// An FNV-1a content signature over each entry's path, mode, and object ID
@@ -244,22 +321,6 @@ extension GitMetadataService {
         return String(decoding: encoded, as: UTF8.self)
     }
 
-    /// The submodule's currently checked-out commit for a parent gitlink entry,
-    /// or `nil` when the submodule cannot be resolved.
-    nonisolated static func gitlinkWorktreeCommit(
-        parentRepository: ResolvedGitRepository,
-        gitlinkPath: String
-    ) -> String? {
-        let gitlinkURL = URL(fileURLWithPath: parentRepository.workTreeRoot)
-            .appendingPathComponent(gitlinkPath)
-            .standardizedFileURL
-        guard let submoduleRepository = resolveGitRepository(containing: gitlinkURL.path),
-              submoduleRepository.workTreeRoot == gitlinkURL.path else {
-            return nil
-        }
-        return gitCurrentCommit(repository: submoduleRepository)
-    }
-
     /// Maps a stat mode to the git index mode word for comparison
     /// (regular/executable file or symlink), or `nil` for other file types.
     nonisolated static func gitIndexComparableMode(for statMode: mode_t) -> UInt32? {
@@ -291,10 +352,22 @@ extension GitMetadataService {
     /// is absent/too small. Used as a fallback signature when the index cannot
     /// be parsed into entries.
     nonisolated static func gitIndexFileSignature(indexURL: URL) -> String? {
-        guard let data = try? Data(contentsOf: indexURL), data.count >= 20 else {
-            return nil
+        let descriptor = Darwin.open(indexURL.path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        guard descriptor >= 0 else { return nil }
+        defer { Darwin.close(descriptor) }
+        var status = stat()
+        guard Darwin.fstat(descriptor, &status) == 0,
+              status.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG),
+              status.st_size >= 20 else { return nil }
+        var filesystem = statfs()
+        guard Darwin.fstatfs(descriptor, &filesystem) == 0,
+              (UInt64(filesystem.f_flags) & UInt64(MNT_LOCAL)) != 0 else { return nil }
+        var bytes = [UInt8](repeating: 0, count: 20)
+        let readCount = bytes.withUnsafeMutableBytes { buffer in
+            Darwin.pread(descriptor, buffer.baseAddress, buffer.count, status.st_size - 20)
         }
-        return gitIndexHexString(data.suffix(20))
+        guard readCount == bytes.count else { return nil }
+        return gitIndexHexString(bytes)
     }
 
     /// Decodes a git index v4 path strip-length varint, advancing `offset`.

@@ -4,16 +4,16 @@ import Testing
 
 @Suite(.serialized)
 struct CmxIrohDevelopmentFileStorageTests {
-    @Test func identityRoundTripsWithPrivateFilesystemPermissions() throws {
+    @Test func identityRoundTripsWithPrivateFilesystemPermissions() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let store = CmxIrohDevelopmentFileIdentityStore(
             directory: fixture.directory
         )
 
-        try store.write(Data([1, 2, 3]), account: "identity-scope")
+        try await store.write(Data([1, 2, 3]), account: "identity-scope")
 
-        #expect(try store.read(account: "identity-scope") == Data([1, 2, 3]))
+        #expect(try await store.read(account: "identity-scope") == Data([1, 2, 3]))
         #expect(try fixture.permissions(at: fixture.directory) == 0o700)
         #expect(try fixture.permissions(
             at: fixture.directory.appendingPathComponent(
@@ -52,15 +52,15 @@ struct CmxIrohDevelopmentFileStorageTests {
         #expect(FileManager.default.fileExists(atPath: unrelated.path))
     }
 
-    @Test func traversalScopeIsRejected() throws {
+    @Test func traversalScopeIsRejected() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let store = CmxIrohDevelopmentFileIdentityStore(
             directory: fixture.directory
         )
 
-        #expect(throws: CmxIrohDevelopmentFileStoreError.invalidAccount) {
-            try store.write(Data([1]), account: "../outside")
+        await #expect(throws: CmxIrohDevelopmentFileStoreError.invalidAccount) {
+            try await store.write(Data([1]), account: "../outside")
         }
     }
 

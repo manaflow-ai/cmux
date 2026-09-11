@@ -78,6 +78,23 @@ extension MobileWorkspaceReadStateFilter {
     }
 }
 
+extension MobileWorkspaceSortMode {
+    /// The localized menu title for this All Computers sort mode. The
+    /// `.automatic` case reads "Last Opened": the connected computer counts as
+    /// opened now, the rest order by when this device last used them. The raw
+    /// value (and persistence) keeps the `automatic` spelling.
+    var displayName: String {
+        switch self {
+        case .automatic:
+            return L10n.string("mobile.workspaces.sort.automatic", defaultValue: "Last Opened")
+        case .computerPriority:
+            return L10n.string("mobile.workspaces.sort.connectionOrder", defaultValue: "Custom Order")
+        case .recentActivity:
+            return L10n.string("mobile.workspaces.sort.recentActivity", defaultValue: "Recent Activity")
+        }
+    }
+}
+
 extension MobileWorkspaceListFilter {
     /// Keep the menu-owned machine selection visible and recoverable. The
     /// machine section hides below two present machines, so any selected machine

@@ -6,10 +6,11 @@ import Foundation
 extension TerminalTheme {
     /// Builds the wire ``TerminalTheme`` from the Mac's resolved terminal config.
     ///
-    /// `GhosttyConfig.load()` already folds a named `theme = <name>` directive
-    /// (any of ghostty's bundled themes, e.g. `catppuccin-mocha`), cmux's managed
-    /// default appearance, and the user's explicit `background=`/`palette=`
-    /// overrides into concrete `NSColor`s, so reading those resolved colors here
+    /// `GhosttyConfig.loadForCmux()` already folds a named `theme = <name>`
+    /// directive (any of Ghostty's bundled themes, e.g. `catppuccin-mocha`),
+    /// Ghostty's built-in defaults or cmux's managed fresh-config appearance,
+    /// and the user's explicit `background=`/`palette=` settings into concrete
+    /// `NSColor`s, so reading those resolved colors here
     /// captures the *effective* palette for both custom configs and named ghostty
     /// themes. Any palette index the config did not populate falls back to the
     /// matching Monokai entry so the phone always receives a complete 16-color
@@ -98,7 +99,7 @@ extension TerminalTheme {
     @MainActor
     static func currentMacTerminalThemeSnapshot() -> TerminalTheme {
         let app = GhosttyApp.shared
-        let config = GhosttyConfig.load(
+        let config = GhosttyConfig.loadForCmux(
             preferredColorScheme: app.effectiveTerminalColorSchemePreference,
             useCache: false,
             globalFontMagnificationPercent: GlobalFontMagnification.storedPercent

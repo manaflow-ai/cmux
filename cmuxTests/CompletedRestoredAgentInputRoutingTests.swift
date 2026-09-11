@@ -27,8 +27,11 @@ struct CompletedRestoredAgentInputRoutingTests {
                 source: "test"
             )
         )
-        workspace.restoredAgentSnapshotsByPanelId[panel.id] = snapshot
-        workspace.restoredAgentResumeStatesByPanelId[panel.id] = .observedAgentCommandRunning
+        workspace.restoredAgentLifecycle.setSnapshot(snapshot, panelId: panel.id)
+        workspace.restoredAgentLifecycle.setResumeState(
+            .observedAgentCommandRunning,
+            panelId: panel.id
+        )
 
         let runningContext = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
         #expect(TextBoxAgentDetection.isClaudeCode(context: runningContext))

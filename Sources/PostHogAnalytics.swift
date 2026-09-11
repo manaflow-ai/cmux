@@ -101,6 +101,20 @@ final class PostHogAnalytics: @unchecked Sendable {
         }
     }
 
+    /// Capture one product event with the app version properties attached.
+    /// No-op when telemetry is disabled or the SDK never started. Used by the
+    /// Cloud VM request telemetry (`VMClientTelemetry`).
+    func capture(_ event: String, properties: [String: Any]) {
+        dispatchAsyncOnWorkQueue { [weak self] in
+            guard let self else { return }
+            self.startIfNeededOnWorkQueue()
+            guard self.didStart else { return }
+            var merged = properties
+            merged.merge(Self.versionProperties(infoDictionary: Bundle.main.infoDictionary ?? [:])) { current, _ in current }
+            self.capturePostHog(event, merged)
+        }
+    }
+
     func trackDailyActive(reason: String) {
         dispatchAsyncOnWorkQueue { [weak self] in
             self?.trackDailyActiveOnWorkQueue(reason: reason, flush: true)
@@ -279,8 +293,13 @@ final class PostHogAnalytics: @unchecked Sendable {
         }
     }
 
-    nonisolated private static func versionProperties(infoDictionary: [String: Any]) -> [String: Any] {
-        var properties: [String: Any] = [:]
+    nonisolated private static func versionProperties(
+        infoDictionary: [String: Any],
+        flavor: BuildFlavor = BuildFlavor.current
+    ) -> [String: Any] {
+        // `channel` answers "stable, NIGHTLY or DEV?" for every Mac event; the
+        // web side carries the same value on checkout as `checkout_channel`.
+        var properties: [String: Any] = ["channel": flavor.rawValue]
         if let value = infoDictionary["CFBundleShortVersionString"] as? String, !value.isEmpty {
             properties["app_version"] = value
         }

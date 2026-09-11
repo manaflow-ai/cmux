@@ -41,6 +41,29 @@ rustup target add --toolchain "$DIFF_RUST_TOOLCHAIN" aarch64-apple-darwin x86_64
 rustup run "$DIFF_RUST_TOOLCHAIN" cargo --version
 rustup run "$DIFF_RUST_TOOLCHAIN" rustc --version
 
+# Every app build also runs scripts/build-cmux-cua.sh, which compiles the
+# bundled cmux-cua engine with Cargo (default toolchain). Verify a working
+# cargo is on PATH so the first tagged reload does not fail mid-build.
+echo "==> Checking for cargo (bundled cmux-cua)..."
+if ! command -v cargo &> /dev/null || ! cargo --version &> /dev/null; then
+    echo "Error: a working Rust toolchain (cargo) is required to build the bundled cmux-cua."
+    echo "Install via rustup: https://rustup.rs (or \`brew install rustup && rustup-init\`)"
+    exit 1
+fi
+
+# The Cloud tunnel system extension embeds wireguard-go, built by
+# scripts/build-wireguard-go.sh. Release builds require Go; a Debug build
+# without it gets a stub engine (the extension cannot load in a Debug build
+# anyway), so this is advisory rather than fatal.
+echo "==> Checking for Go (Cloud tunnel extension)..."
+export PATH="/usr/local/go/bin:${HOME}/go/bin:${PATH}"
+if command -v go &> /dev/null; then
+    go version
+else
+    echo "Note: go is not installed; Debug builds will use a stub WireGuard engine."
+    echo "Install via: brew install go (required for Release builds)"
+fi
+
 "$SCRIPT_DIR/ensure-ghosttykit.sh"
 
 "$SCRIPT_DIR/install-git-hooks.sh"

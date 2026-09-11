@@ -129,50 +129,6 @@ final class CmuxConfigContextMenuTests: XCTestCase {
             return XCTFail("Expected default context menu actions.")
         }
         XCTAssertEqual(first.action.id, CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID)
-        XCTAssertEqual(store.newWorkspaceMenuSectionOrder, .cloudFirst)
-        XCTAssertTrue(store.configurationIssues.isEmpty)
-    }
-
-    @MainActor
-    func testNewWorkspaceMenuSectionOrderCanPutCloudFirst() throws {
-        let store = try loadStore(localJSON: """
-        {
-          "ui": {
-            "newWorkspace": {
-              "menuSectionOrder": "cloudFirst"
-            }
-          }
-        }
-        """)
-
-        XCTAssertEqual(store.newWorkspaceMenuSectionOrder, .cloudFirst)
-        XCTAssertTrue(store.configurationIssues.isEmpty)
-    }
-
-    @MainActor
-    func testNewWorkspaceMenuSectionOrderLocalOverridesGlobalAlias() throws {
-        let store = try loadStore(
-            localJSON: """
-            {
-              "ui": {
-                "newWorkspace": {
-                  "sectionOrder": "newWorkspaceFirst"
-                }
-              }
-            }
-            """,
-            globalJSON: """
-            {
-              "ui": {
-                "newWorkspace": {
-                  "menuSectionOrder": "cloudVMFirst"
-                }
-              }
-            }
-            """
-        )
-
-        XCTAssertEqual(store.newWorkspaceMenuSectionOrder, .customFirst)
         XCTAssertTrue(store.configurationIssues.isEmpty)
     }
 

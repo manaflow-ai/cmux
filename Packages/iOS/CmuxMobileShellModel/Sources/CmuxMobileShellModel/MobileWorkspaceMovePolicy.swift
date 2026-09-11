@@ -19,7 +19,12 @@ public struct MobileWorkspaceMovePolicy {
         self.workspaces = workspaces
         self.groups = groups
         groupsByID = Dictionary(groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        groupByAnchorID = Dictionary(groups.map { ($0.anchorWorkspaceID, $0) }, uniquingKeysWith: { first, _ in first })
+        groupByAnchorID = Dictionary(
+            groups.compactMap { group in
+                group.liveAnchorWorkspaceID.map { ($0, group) }
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
     }
 
     /// Validates and canonicalizes a proposed host move for one workspace.
@@ -252,7 +257,9 @@ public struct MobileWorkspaceMovePolicy {
             if let groupID = validGroupID(workspace.groupID),
                let group = groupsByID[groupID],
                emittedGroupIDs.insert(groupID).inserted {
-                let members = anchorFirst(groupedByGroupID[groupID] ?? [], anchorID: group.anchorWorkspaceID)
+                let members = group.liveAnchorWorkspaceID.map {
+                    anchorFirst(groupedByGroupID[groupID] ?? [], anchorID: $0)
+                } ?? (groupedByGroupID[groupID] ?? [])
                 for member in members where emittedWorkspaceIDs.insert(member.id).inserted {
                     reordered.append(member)
                 }
@@ -285,7 +292,7 @@ public struct MobileWorkspaceMovePolicy {
             if let groupID = validGroupID(workspace.groupID),
                let group = groupsByID[groupID] {
                 if emittedGroupIDs.insert(groupID).inserted {
-                    ids.append(group.anchorWorkspaceID)
+                    ids.append(group.liveAnchorWorkspaceID ?? workspace.id)
                 }
             } else {
                 ids.append(workspace.id)
@@ -296,7 +303,7 @@ public struct MobileWorkspaceMovePolicy {
            let workspace = workspacesByID[promotedWorkspaceID],
            let groupID = validGroupID(workspace.groupID),
            let group = groupsByID[groupID],
-           let groupIndex = ids.firstIndex(of: group.anchorWorkspaceID) {
+           let groupIndex = group.liveAnchorWorkspaceID.flatMap({ ids.firstIndex(of: $0) }) {
             let insertionIndex = promotedTopLevelInsertionIndex(
                 ids: ids,
                 groupIndex: groupIndex,
@@ -376,7 +383,7 @@ public struct MobileWorkspaceMovePolicy {
     ) -> Int? {
         guard let groupID = validGroupID(workspace.groupID),
               let group = groupsByID[groupID],
-              workspace.id != group.anchorWorkspaceID else {
+              workspace.id != group.liveAnchorWorkspaceID else {
             return nil
         }
         let memberIndices = order.indices.filter { validGroupID(order[$0].groupID) == groupID }
@@ -386,7 +393,7 @@ public struct MobileWorkspaceMovePolicy {
         }
         let pinnedMemberCount = memberIndices.reduce(into: 0) { count, index in
             let member = order[index]
-            if member.id != group.anchorWorkspaceID, member.isPinned {
+            if member.id != group.liveAnchorWorkspaceID, member.isPinned {
                 count += 1
             }
         }
@@ -426,7 +433,7 @@ public struct MobileWorkspaceMovePolicy {
               let group = groupsByID[groupID] else {
             return beforeWorkspaceID
         }
-        return group.anchorWorkspaceID
+        return group.liveAnchorWorkspaceID ?? beforeWorkspaceID
     }
 
     private func topLevelBeforeWorkspaceID(

@@ -19,6 +19,10 @@ queue (scripts/iphone-install-queue.sh) and auto-installs when the phone
 reconnects. Unless a simulator is named explicitly, the simulator leg uses the
 tag's own isolated device ("cmux-dev-<slug>"), created on demand.
 
+When a trusted phone leg is enabled, the simulator app is installed but not
+launched. The simulator's agent auto-pair would replace the phone's personal
+Mac pairing; use --simulator-only for a connected simulator run.
+
 Every device build requires the same-tag Mac dev build (the iOS app is unusable
 without its Mac); when it is missing, the Mac tag is built first, and the reload
 refuses to ship a phone-only build if that fails.
@@ -31,9 +35,7 @@ the tagged Mac app. Opt out granularly:
 
   --prod-auth    sign this DEV build in against PRODUCTION auth (bakes
                  CMUXAuthEnvironment=production into Info.plist; the presence
-                 worker and API base follow the channel in-app). This does not
-                 change build compatibility: the DEV iOS app still connects
-                 only to the Mac DEV build with the same tag. Implies
+                 worker and API base follow the channel in-app). Implies
                  --no-sign-in (dogfood auto-login creds are dev-channel);
                  sign in in-app with your real account and use the IN-APP
                  scanner.
@@ -82,14 +84,19 @@ ALLOW_DEVICE_REGISTRATION=0
 NO_SIGN_IN=0
 NO_ATTACH=0
 NO_SETUP=0
+# A combined phone + simulator reload uses different auth profiles for each
+# surface. Launching the simulator first would sign the shared tagged Mac into
+# the agent account and invalidate the physical phone's personal pairing. Keep
+# the simulator installed but unlaunched during a trusted phone reload; use
+# --simulator-only for a connected simulator run.
+SIMULATOR_LAUNCH=1
 # Disable AArch64 GlobalISel codegen for this build. Xcode 26's Swift frontend
 # can miscompile under -O/wholemodule on the GlobalISel path, surfacing as bogus
 # "undefined symbol: _abort/_free/..." link failures. Mirrors scripts/reload.sh.
 # Also honored via CMUX_SWIFT_FRONTEND_WORKAROUND=1.
 SWIFT_FRONTEND_WORKAROUND="${CMUX_SWIFT_FRONTEND_WORKAROUND:-0}"
 # --prod-auth: bake CMUXAuthEnvironment=production so the dev build signs in
-# against the production Stack project. Build compatibility remains exact-tag
-# DEV to DEV.
+# against the production Stack project.
 PROD_AUTH=0
 
 while [[ $# -gt 0 ]]; do
@@ -227,6 +234,15 @@ if [[ "$SWIFT_FRONTEND_WORKAROUND" == "1" ]]; then
   )
 fi
 
+XCODEBUILD_PARALLEL_ARGS=()
+if [[ -n "${CMUX_XCODEBUILD_JOBS:-}" ]]; then
+  if [[ ! "$CMUX_XCODEBUILD_JOBS" =~ ^[1-9][0-9]*$ ]]; then
+    echo "error: CMUX_XCODEBUILD_JOBS must be a positive integer" >&2
+    exit 1
+  fi
+  XCODEBUILD_PARALLEL_ARGS=(-jobs "$CMUX_XCODEBUILD_JOBS")
+fi
+
 # --prod-auth: point the build at the production auth channel for production
 # account, registry, and API testing (https://github.com/manaflow-ai/cmux/issues/7145).
 # The value lands in the CMUXAuthEnvironment Info.plist key (a tapped device
@@ -251,15 +267,30 @@ fi
 # server. A physical device cannot: localhost is the phone itself, so Debug
 # device builds use staging unless the caller supplies a reachable override.
 # Production-auth builds retain production origins. Explicit overrides always
-# win, including the shared CMUX_DEV_API_BASE_URL used by tagged Mac builds.
+# win for Debug builds, including the shared CMUX_DEV_API_BASE_URL used by
+# tagged Mac builds. --prod-auth is fail-closed: it cannot be combined with a
+# staging/loopback origin.
+cmux_ios_require_production_origin() {
+  local label="$1"
+  local value="$2"
+  if [[ -n "$value" && "$value" != "https://cmux.com" ]]; then
+    echo "error: --prod-auth cannot use $label '$value'; production builds must use https://cmux.com" >&2
+    return 1
+  fi
+}
+
 cmux_ios_resolve_api_base_url() {
   local target="$1"
   local explicit_base_url="${CMUX_IOS_API_BASE_URL:-${CMUX_DEV_API_BASE_URL:-}}"
 
+  if [[ "$PROD_AUTH" -eq 1 ]]; then
+    cmux_ios_require_production_origin "the API origin" "$explicit_base_url" || return 1
+    printf '%s' "https://cmux.com"
+    return 0
+  fi
+
   if [[ -n "$explicit_base_url" ]]; then
     printf '%s' "$explicit_base_url"
-  elif [[ "$PROD_AUTH" -eq 1 ]]; then
-    printf '%s' "https://cmux.com"
   elif [[ -n "${CMUX_VM_API_BASE_URL:-}" ]]; then
     printf '%s' "$CMUX_VM_API_BASE_URL"
   elif [[ "$target" == "physical_device" ]]; then
@@ -277,14 +308,24 @@ cmux_ios_resolve_api_base_url() {
 cmux_ios_resolve_iroh_broker_base_url() {
   local explicit_base_url="${CMUX_IOS_IROH_BROKER_BASE_URL:-${CMUX_IROH_BROKER_BASE_URL:-}}"
 
+  if [[ "$PROD_AUTH" -eq 1 ]]; then
+    cmux_ios_require_production_origin "the Iroh broker origin" "$explicit_base_url" || return 1
+    printf '%s' "https://cmux.com"
+    return 0
+  fi
+
   if [[ -n "$explicit_base_url" ]]; then
     printf '%s' "$explicit_base_url"
-  elif [[ "$PROD_AUTH" -eq 1 ]]; then
-    printf '%s' "https://cmux.com"
   else
     printf '%s' "https://cmux-staging.vercel.app"
   fi
 }
+
+if [[ "$PROD_AUTH" -eq 1 ]]; then
+  cmux_ios_require_production_origin "the presence origin" "${CMUX_PRESENCE_BASE_URL:-}" || exit 1
+  CMUX_PRESENCE_BASE_URL="https://presence.cmux.dev"
+  export CMUX_PRESENCE_BASE_URL
+fi
 
 CMUX_IOS_SIMULATOR_API_BASE_URL_VALUE="$(cmux_ios_resolve_api_base_url simulator)"
 CMUX_IOS_DEVICE_API_BASE_URL_VALUE="$(cmux_ios_resolve_api_base_url physical_device)"
@@ -332,6 +373,22 @@ if [[ "$RELOAD_DEVICE" -eq 1 && -z "$DEVICE_ID" && -z "$DEVICE_NAME" && -n "$DEF
   DEVICE_ID="$DEFAULT_DEVICE_ID"
 fi
 
+# iPhone auth gate: installed-but-signed-out is a failed install. Build-only
+# staging (--no-launch) still runs the personal auth-contract preflight because
+# mobile-dev-launch performs the signed launch immediately afterward, or the
+# offline queue performs it when the phone reconnects. Only flags that actually
+# skip that launcher (--no-sign-in, --no-setup, --no-attach) require a HUMAN
+# setting CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1 (agents never set it; same
+# convention as CMUX_ALLOW_LOCAL_XCODEBUILD). --prod-auth is exempt: its
+# sign-in is inherently manual and announced above.
+if [[ "$RELOAD_DEVICE" -eq 1 && "$PROD_AUTH" -eq 0 ]] \
+    && [[ "$NO_SIGN_IN" -eq 1 || "$NO_SETUP" -eq 1 || "$NO_ATTACH" -eq 1 ]] \
+    && [[ "${CMUX_ALLOW_UNAUTHENTICATED_INSTALL:-0}" != "1" ]]; then
+  echo "error: refusing an unauthenticated iPhone install: --no-sign-in/--no-setup/--no-attach skip the signed-in+paired auth gate" >&2
+  echo "error: retry without the opt-out flag(s): ios/scripts/reload.sh --tag $TAG --device${DEVICE_ID:+ --device-id $DEVICE_ID}  (humans only: CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1 to skip)" >&2
+  exit 2
+fi
+
 # Isolated per-tag simulator by default: unless the caller explicitly picked a
 # simulator (flag or IOS_SIMULATOR_NAME/IOS_SIMULATOR_ID), resolve or create
 # "cmux-dev-<slug>" so concurrent agent sessions never share a simulator.
@@ -350,6 +407,27 @@ fi
 MOBILE_DEV_LAUNCH="$IOS_DIR/../scripts/mobile-dev-launch.sh"
 DEVICE_PROCESS_HELPER="$IOS_DIR/../scripts/ios-device-process.sh"
 GHOSTTYKIT_ENSURE="$IOS_DIR/../scripts/ensure-ghosttykit.sh"
+DEVICE_AUTH_PROFILE="personal"
+DEVICE_AUTH_CREDENTIALS_FILE="${CMUX_IOS_DOGFOOD_CREDENTIALS_FILE:-$HOME/.secrets/cmuxterm-dev.env}"
+DEVICE_AUTH_ACCOUNT=""
+DEVICE_AUTH_REQUIRED=0
+if [[ "$RELOAD_DEVICE" -eq 1 && "$PROD_AUTH" -eq 0 \
+    && "$NO_SETUP" -eq 0 && "$NO_SIGN_IN" -eq 0 && "$NO_ATTACH" -eq 0 ]]; then
+  DEVICE_AUTH_REQUIRED=1
+  [[ -x "$MOBILE_DEV_LAUNCH" ]] \
+    || { echo "error: $MOBILE_DEV_LAUNCH is required for authenticated iPhone setup" >&2; exit 1; }
+  auth_contract_output="$(
+    "$MOBILE_DEV_LAUNCH" \
+      --check-auth-contract \
+      --auth-profile "$DEVICE_AUTH_PROFILE" \
+      --credentials-file "$DEVICE_AUTH_CREDENTIALS_FILE"
+  )" || exit $?
+  DEVICE_AUTH_ACCOUNT="$(printf '%s\n' "$auth_contract_output" \
+    | awk -F= '$1 == "CMUX_DEV_AUTH_ACCOUNT" { print substr($0, index($0, "=") + 1); exit }')"
+  [[ -n "$DEVICE_AUTH_ACCOUNT" ]] \
+    || { echo "error: iPhone auth preflight returned no selected account" >&2; exit 2; }
+  echo "==> iPhone auth contract: $DEVICE_AUTH_PROFILE ($DEVICE_AUTH_ACCOUNT)"
+fi
 
 # Keep the linked xcframework synchronized with the checked-out Ghostty
 # submodule before Xcode builds either target. Without this, a local cloud
@@ -361,27 +439,51 @@ if [[ ! -x "$GHOSTTYKIT_ENSURE" ]]; then
 fi
 "$GHOSTTYKIT_ENSURE"
 
+# Best-effort user notification (mirrors the queue script's notify).
+reload_device_notify() {
+  local title="$1" body="$2" cmux_bin
+  cmux_bin="$(command -v cmux 2>/dev/null || true)"
+  [[ -z "$cmux_bin" && -x "$HOME/.local/bin/cmux" ]] && cmux_bin="$HOME/.local/bin/cmux"
+  [[ -n "$cmux_bin" ]] || return 0
+  "$cmux_bin" notify --title "$title" --body "$body" >/dev/null 2>&1 || true
+}
+
 # Auto-setup launch: relaunch the just-installed app signed in (dogfood creds
 # injected) and, unless --no-attach, auto-paired to the tagged Mac app. Delegates
 # to scripts/mobile-dev-launch.sh so there is ONE signed-launch path. Returns
-# non-zero on any failure so callers can warn + leave the app installed. $1 =
-# device|simulator, $2 = device install id (device only).
+# non-zero on any failure so callers can warn + leave the app installed (75
+# passes through mobile-dev-launch's phone-offline/locked deferred-delivery
+# code). $1 = device|simulator, $2 = device install id (device only).
 auto_setup_launch() {
   local kind="$1" id="${2:-}"
   local args=(--tag "$TAG")
   if [[ "$kind" == "device" ]]; then
     args+=(--device)
     [[ -n "$id" ]] && args+=(--device-id "$id")
+    if [[ "$DEVICE_AUTH_REQUIRED" -eq 1 ]]; then
+      args+=(
+        --auth-profile "$DEVICE_AUTH_PROFILE"
+        --expected-account "$DEVICE_AUTH_ACCOUNT"
+        --credentials-file "$DEVICE_AUTH_CREDENTIALS_FILE"
+      )
+    fi
   else
     # --detach: do not attach the simulator console (would block this script).
     # Pass the exact resolved UDID so the launch targets the sim we installed
     # onto, not just the first booted sim sharing the name.
     args+=(--simulator "$SIMULATOR_NAME" --detach)
     [[ -n "$id" ]] && args+=(--simulator-id "$id")
+    args+=(--auth-profile agent)
   fi
   # Auto-pair by default (--ensure-mac enables the pairing host + launches the
-  # tagged Mac app if down, then mints a ticket); --no-attach signs in only.
-  [[ "$NO_ATTACH" -eq 0 ]] && args+=(--ensure-mac)
+  # tagged Mac app if down, then mints a ticket). --no-attach must be forwarded
+  # explicitly: mobile-dev-launch now defaults DEVICE launches to --ensure-mac,
+  # so omitting the flag would silently override the caller's opt-out.
+  if [[ "$NO_ATTACH" -eq 0 ]]; then
+    args+=(--ensure-mac)
+  else
+    args+=(--no-attach)
+  fi
   if [[ ! -x "$MOBILE_DEV_LAUNCH" ]]; then
     echo "warning: $MOBILE_DEV_LAUNCH not found/executable; cannot auto-sign-in" >&2
     return 1
@@ -648,6 +750,7 @@ reload_simulator() {
   # slower runtime code. Keep Debug configuration so codesigning and
   # debug info still work, but force the compiler to optimize.
   xcodebuild \
+    ${XCODEBUILD_PARALLEL_ARGS[@]+"${XCODEBUILD_PARALLEL_ARGS[@]}"} \
     -workspace "$WORKSPACE" \
     -scheme "$SCHEME" \
     -configuration Debug \
@@ -701,7 +804,7 @@ PY
   xcrun simctl boot "$SIM_ID" >/dev/null 2>&1 || true
   xcrun simctl install "$SIM_ID" "$APP_PATH"
 
-  if [[ "$LAUNCH" -eq 1 ]]; then
+  if [[ "$LAUNCH" -eq 1 && "$SIMULATOR_LAUNCH" -eq 1 ]]; then
     xcrun simctl terminate "$SIM_ID" "$BUNDLE_ID" >/dev/null 2>&1 || true
     if [[ "$NO_SETUP" -eq 1 || "$NO_SIGN_IN" -eq 1 ]]; then
       xcrun simctl launch "$SIM_ID" "$BUNDLE_ID" >/dev/null
@@ -710,6 +813,8 @@ PY
       echo "error: repair the tagged Mac/Iroh route, or pass --no-attach, --no-sign-in, or --no-setup explicitly" >&2
       return 1
     fi
+  elif [[ "$LAUNCH" -eq 1 ]]; then
+    echo "==> simulator installed but not launched because the trusted phone reload owns the tagged Mac pairing"
   fi
 
   cat <<EOF
@@ -841,6 +946,7 @@ reload_device() {
 
   build_args=(
     xcodebuild
+    ${XCODEBUILD_PARALLEL_ARGS[@]+"${XCODEBUILD_PARALLEL_ARGS[@]}"}
     -workspace "$WORKSPACE"
     -scheme "$SCHEME"
     -configuration Debug
@@ -903,12 +1009,34 @@ reload_device() {
     local enqueue_args
     enqueue_args=(enqueue --tag "$TAG" --app "$device_app_path" \
       --device-id "$queued_device_id" --checkout "$(cd "$IOS_DIR/.." && pwd)")
+    if [[ "$DEVICE_AUTH_REQUIRED" -eq 1 ]]; then
+      enqueue_args+=(
+        --auth-profile "$DEVICE_AUTH_PROFILE"
+        --expected-account "$DEVICE_AUTH_ACCOUNT"
+        --credentials-file "$DEVICE_AUTH_CREDENTIALS_FILE"
+      )
+    elif [[ "$NO_ATTACH" -eq 1 || "$NO_SIGN_IN" -eq 1 || "$NO_SETUP" -eq 1 ]]; then
+      # The preflight above permits this branch only after a human explicitly
+      # opted out of the iPhone auth gate. Keep that intent visible in the
+      # persistent queue entry instead of relying only on the opt-out flags.
+      enqueue_args+=(--allow-unauthenticated)
+    else
+      echo "error: cannot queue a physical iPhone build without its personal auth contract" >&2
+      echo "error: provide the personal profile, or use --prod-auth for a manual in-app sign-in after the phone reconnects" >&2
+      return 1
+    fi
     [[ "$NO_ATTACH" -eq 1 ]] && enqueue_args+=(--no-attach)
     [[ "$NO_SIGN_IN" -eq 1 ]] && enqueue_args+=(--no-sign-in)
     [[ "$NO_SETUP" -eq 1 ]] && enqueue_args+=(--no-setup)
     [[ "$LAUNCH" -eq 0 ]] && enqueue_args+=(--no-launch)
     "$QUEUE_SCRIPT" "${enqueue_args[@]}"
-    return 0
+    # Queued is NOT installed: report it truthfully with a distinct exit code
+    # (75 = delivery deferred), notify so the human can unlock/reconnect, and
+    # exit promptly instead of retrying or watching.
+    reload_device_notify "iPhone offline: $TAG build queued" \
+      "Reconnect/unlock the iPhone to receive the '$TAG' dev build (auto-installs on reconnect). Manual retry: scripts/iphone-install-queue.sh drain"
+    echo "==> queued; unlock/reconnect the iPhone to receive. Retry: scripts/iphone-install-queue.sh drain (then scripts/verify-iphone-auth.sh --tag $TAG --device-id $queued_device_id)"
+    return 75
   fi
 
   echo "==> Installing physical device app"
@@ -919,25 +1047,81 @@ reload_device() {
   "$DEVICE_PROCESS_HELPER" terminate-installed \
     --device-id "$selected_device_install_id" \
     --bundle-id "$BUNDLE_ID"
-  xcrun devicectl device install app --device "$selected_device_install_id" "$device_app_path"
+  # CMUX_SANCTIONED_IPHONE_INSTALL marks this install as coming from the
+  # sanctioned wrapper flow, so the cmuxterm-hq local-build-guards devicectl
+  # interceptor lets it through while refusing raw agent installs (which skip
+  # sign-in). Inert on machines without the guards.
+  CMUX_SANCTIONED_IPHONE_INSTALL=1 \
+    xcrun devicectl device install app --device "$selected_device_install_id" "$device_app_path"
 
+  local device_auth_status
+  if [[ "$DEVICE_AUTH_REQUIRED" -eq 1 ]]; then
+    device_auth_status="staged (--no-launch; authenticated mobile-dev-launch runs separately or on queue reconnect)"
+  else
+    device_auth_status="not launched (--no-launch; auth gate skipped by explicit opt-out)"
+  fi
   if [[ "$LAUNCH" -eq 1 ]]; then
-    # Build + install already succeeded; a launch failure (most commonly a
-    # LOCKED device — "could not be unlocked") must not fail the whole reload
-    # or skip the QR marker update below. Warn and continue.
     if [[ "$NO_SETUP" -eq 1 || "$NO_SIGN_IN" -eq 1 ]]; then
-      # Plain launch (no sign-in / no pair). --no-sign-in implies no auto-setup
-      # since attaching without a signed-in session is meaningless.
+      # Plain launch (no sign-in / no pair); reachable only via --prod-auth or
+      # the human-only CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1. A launch failure
+      # (most commonly a LOCKED device) must not fail the whole reload here.
       if ! xcrun devicectl device process launch --terminate-existing --device "$selected_device_install_id" "$BUNDLE_ID" >/dev/null 2>&1; then
         echo "warning: installed but could not launch $BUNDLE_ID (device locked? unlock the iPhone and tap the app)" >&2
       fi
-    elif ! auto_setup_launch device "$selected_device_install_id"; then
-      # A plain fallback can reuse stale pairing state and look dogfood-ready
-      # while the matching tagged Iroh route is absent. Fail closed unless the
-      # caller explicitly requested a plain launch above.
-      echo "error: installed $BUNDLE_ID, but signed setup failed; refusing an unpaired fallback launch" >&2
-      echo "error: repair the tagged Mac/Iroh route, or pass --no-attach, --no-sign-in, or --no-setup explicitly" >&2
-      return 1
+      if [[ "$PROD_AUTH" -eq 1 ]]; then
+        device_auth_status="manual (--prod-auth): sign in in-app, then pair with the tagged Mac"
+      else
+        device_auth_status="UNVERIFIED (explicit opt-out): NOT signed in; verify later with scripts/verify-iphone-auth.sh --tag $TAG --device-id $selected_device_install_id"
+      fi
+    else
+      local setup_rc=0
+      auto_setup_launch device "$selected_device_install_id" || setup_rc=$?
+      if [[ "$setup_rc" -eq 75 ]]; then
+        # Phone went offline or is LOCKED mid-delivery: park the already-built
+        # signed app in the install queue so it lands on unlock/reconnect,
+        # notify, and exit promptly with the deferred-delivery code. Never
+        # watch for unlock here. Only claim "queued" if the enqueue succeeded.
+        # Preserve the caller's --no-attach so the queued drain honors the
+        # human-authorized unpaired intent instead of escalating to ensure-mac
+        # (this branch only runs with NO_SETUP=0 and NO_SIGN_IN=0).
+        local deferred_enqueue_args
+        deferred_enqueue_args=(enqueue --tag "$TAG" --app "$device_app_path" \
+          --device-id "$selected_device_install_id" --checkout "$(cd "$IOS_DIR/.." && pwd)")
+        if [[ "$DEVICE_AUTH_REQUIRED" -eq 1 ]]; then
+          deferred_enqueue_args+=(
+            --auth-profile "$DEVICE_AUTH_PROFILE"
+            --expected-account "$DEVICE_AUTH_ACCOUNT"
+            --credentials-file "$DEVICE_AUTH_CREDENTIALS_FILE"
+          )
+        else
+          # This can only be reached for a human-authorized opt-out, as
+          # reload's iPhone auth preflight rejects every other no-auth path.
+          deferred_enqueue_args+=(--allow-unauthenticated)
+        fi
+        [[ "$NO_ATTACH" -eq 1 ]] && deferred_enqueue_args+=(--no-attach)
+        if ! "$QUEUE_SCRIPT" "${deferred_enqueue_args[@]}"; then
+          echo "error: iPhone is locked/offline AND the build could NOT be queued; nothing will auto-install" >&2
+          echo "error: retry after unlocking: scripts/mobile-dev-launch.sh --tag $TAG --device --device-id $selected_device_install_id --ensure-mac" >&2
+          return 1
+        fi
+        reload_device_notify "iPhone locked/offline: $TAG build queued" \
+          "Unlock/reconnect the iPhone to receive the '$TAG' dev build (auto-installs via the queue). Manual retry: scripts/iphone-install-queue.sh drain"
+        echo "==> queued; unlock to receive. Retry: scripts/iphone-install-queue.sh drain (then scripts/verify-iphone-auth.sh --tag $TAG --device-id $selected_device_install_id)"
+        return 75
+      elif [[ "$setup_rc" -ne 0 ]]; then
+        # A plain fallback can reuse stale pairing state and look dogfood-ready
+        # while the matching tagged Iroh route is absent. Fail closed unless the
+        # caller explicitly requested a plain launch above.
+        echo "error: installed $BUNDLE_ID, but the iPhone auth gate failed; refusing an unpaired fallback launch" >&2
+        echo "error: retry: scripts/mobile-dev-launch.sh --tag $TAG --device --device-id $selected_device_install_id --ensure-mac" >&2
+        return 1
+      elif [[ "$NO_ATTACH" -eq 1 ]]; then
+        # Signed launch without pairing (human-authorized opt-out): the auth
+        # gate never ran, so this install must not be reported as verified.
+        device_auth_status="UNVERIFIED (--no-attach opt-out): sign-in attempted but not proven; check with scripts/verify-iphone-auth.sh --tag $TAG --device-id $selected_device_install_id"
+      else
+        device_auth_status="verified signed in + paired (iPhone auth gate PASS; re-check: scripts/verify-iphone-auth.sh --tag $TAG --device-id $selected_device_install_id)"
+      fi
     fi
   fi
 
@@ -949,6 +1133,8 @@ Bundle id:
   $BUNDLE_ID
 Device:
   $selected_device_name ($selected_device_id)
+Auth:
+  $device_auth_status
 EOF
   if [[ "$PROD_AUTH" -eq 1 ]]; then
     cat <<EOF
@@ -960,6 +1146,11 @@ EOF
 }
 
 echo "==> iOS reload starting (tag: $TAG)"
+
+if [[ "$RELOAD_DEVICE" -eq 1 && "$LAUNCH" -eq 1 && "$NO_SETUP" -eq 0 && "$NO_SIGN_IN" -eq 0 && "$NO_ATTACH" -eq 0 ]]; then
+  SIMULATOR_LAUNCH=0
+  echo "==> combined phone reload will install but not launch the simulator to preserve the personal Mac pairing"
+fi
 
 if [[ "$RELOAD_SIMULATOR" -eq 1 ]]; then
   reload_simulator

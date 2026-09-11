@@ -33,7 +33,7 @@ public final class SocketAuthorizationRevocationSignal: @unchecked Sendable {
     }
 
     /// Revokes the generation and wakes every reader polling this signal.
-    func revoke() {
+    public func revoke() {
         guard writeFileDescriptor >= 0 else { return }
         let descriptor = writeFileDescriptor
         writeFileDescriptor = -1

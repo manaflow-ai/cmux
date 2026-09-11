@@ -132,6 +132,7 @@ struct FishShellIntegrationTests {
                 "CMUX_SOCKET_PATH": root.appendingPathComponent("cmux-test.sock").path,
                 "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
                 "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_TERMINAL_LIFECYCLE_ID": "33333333-3333-3333-3333-333333333333",
             ]
         )
 
@@ -149,7 +150,7 @@ struct FishShellIntegrationTests {
             result.stdout
         )
         expectTrue(
-            result.stdout.contains("report_shell_state running --tab=11111111-1111-1111-1111-111111111111 --panel=22222222-2222-2222-2222-222222222222"),
+            result.stdout.contains("report_shell_state running --tab=11111111-1111-1111-1111-111111111111 --panel=22222222-2222-2222-2222-222222222222 --terminal-lifecycle-id=33333333-3333-3333-3333-333333333333"),
             result.stdout
         )
         expectTrue(
@@ -157,7 +158,7 @@ struct FishShellIntegrationTests {
             result.stdout
         )
         expectTrue(
-            result.stdout.contains("report_shell_state prompt --tab=11111111-1111-1111-1111-111111111111 --panel=22222222-2222-2222-2222-222222222222"),
+            result.stdout.contains("report_shell_state prompt --tab=11111111-1111-1111-1111-111111111111 --panel=22222222-2222-2222-2222-222222222222 --terminal-lifecycle-id=33333333-3333-3333-3333-333333333333"),
             result.stdout
         )
     }

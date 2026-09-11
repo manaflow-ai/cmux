@@ -185,7 +185,11 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
 
         surface_id = "surface-path-test"
         shim_root = tmpdir / "cmux-cli-shims" / surface_id
-        expected_path = f"{shim_root}::{first}::{last}:"
+        bundled_bin = SHELL_INTEGRATION_DIR.parent / "bin"
+        expected_paths = {
+            "bash": f"{bundled_bin}:{shim_root}::{first}::{last}:",
+            "zsh": f"{shim_root}:{bundled_bin}::{first}::{last}:",
+        }
 
         input_path = f":{first}::{shim_root}:{last}:"
         base_env = minimal_env("/usr/bin:/bin", tmpdir)
@@ -209,6 +213,7 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
                 "-c",
                 'PATH="$CMUX_TEST_INPUT_PATH"; '
                 'source "$CMUX_SHELL_INTEGRATION_DIR/cmux-zsh-integration.zsh"; '
+                '_cmux_fix_path; '
                 'printf "%s\\n" "$PATH"',
             ],
         ]
@@ -221,6 +226,7 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
                     f"{shell_name} path preservation exited {result.returncode}: "
                     f"{(result.stdout + result.stderr).strip()}"
                 )
+            expected_path = expected_paths[shell_name]
             if output != expected_path:
                 failures.append(f"{shell_name} expected PATH {expected_path!r}, got {output!r}")
 

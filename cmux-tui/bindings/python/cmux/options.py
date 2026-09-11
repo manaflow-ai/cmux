@@ -100,6 +100,7 @@ class SplitPaneOptions:
     columns: Optional[int] = None
     rows: Optional[int] = None
     correlation_key: Optional[str] = None
+    viewport_width: Optional[float] = None
 
     def __post_init__(self) -> None:
         _validate_correlation_key(self.correlation_key)
@@ -145,6 +146,36 @@ class RunOptions:
 @dataclass(frozen=True)
 class SessionEventsOptions:
     cursor: Optional[Cursor] = None
+
+
+@dataclass(frozen=True)
+class JournalSubjectFilter:
+    kind: Optional[str] = None
+    id: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class JournalRegexFilter:
+    pattern: str
+    field: Literal["kind", "subjects", "payload", "record", "terminal_output"] = "record"
+    case_sensitive: bool = True
+
+
+@dataclass(frozen=True)
+class JournalFilter:
+    kinds: Optional[Sequence[str]] = None
+    classes: Optional[Sequence[str]] = None
+    subjects: Optional[Sequence[JournalSubjectFilter]] = None
+    max_sensitivity: Optional[Literal["public", "metadata", "sensitive"]] = None
+    regex: Optional[JournalRegexFilter] = None
+
+
+@dataclass(frozen=True)
+class SessionJournalOptions:
+    cursor: Optional[Cursor] = None
+    start: Optional[Literal["tail", "beginning"]] = None
+    follow: Optional[bool] = None
+    filter: Optional[JournalFilter] = None
 
 
 @dataclass(frozen=True)
@@ -270,6 +301,10 @@ __all__ = [
     "RequestOptions",
     "RunOptions",
     "SessionEventsOptions",
+    "JournalFilter",
+    "JournalRegexFilter",
+    "JournalSubjectFilter",
+    "SessionJournalOptions",
     "SidebarEnsureOptions",
     "SidebarInputOptions",
     "SidebarResizeOptions",

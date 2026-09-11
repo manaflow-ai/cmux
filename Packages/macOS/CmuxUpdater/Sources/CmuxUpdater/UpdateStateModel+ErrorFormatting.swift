@@ -104,6 +104,12 @@ extension UpdateStateModel {
                 break
             }
         }
+        if isUpdaterAgentStartupTimeout(nsError) {
+            return String(
+                localized: "update.error.installerAgent.message",
+                defaultValue: "macOS didn’t start cmux’s updater helper in time. Security software can delay it. Retry once; if it still fails, restart your Mac or download and install the latest version below."
+            )
+        }
         if nsError.domain == SUSparkleErrorDomain {
             switch nsError.code {
             case 2001:
@@ -131,20 +137,39 @@ extension UpdateStateModel {
 
 }
 
+/// Whether a Sparkle installation error contains the exact updater-agent startup timeout.
+///
+/// Sparkle uses its internal error code 10 for many installer-helper failures. The message below
+/// is emitted specifically when ``Autoupdate``'s 18-second agent-connection deadline expires, so
+/// endpoint-security guidance must require that signal rather than code 10 alone.
+private func isUpdaterAgentStartupTimeout(_ error: NSError) -> Bool {
+    guard error.domain == SUSparkleErrorDomain, error.code == 4005 else { return false }
+    let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError
+    return [error, underlying].compactMap { $0 }.contains { candidate in
+        let text = [
+            candidate.localizedDescription,
+            (candidate.userInfo[NSLocalizedFailureReasonErrorKey] as? String) ?? "",
+            (candidate.userInfo[NSLocalizedRecoverySuggestionErrorKey] as? String) ?? "",
+        ].joined(separator: "\n").lowercased()
+        return text.contains("agent connection was never initiated")
+    }
+}
+
 /// Whether an error reflects Sparkle's updater helper agent never connecting.
 ///
 /// The login session's launchd domain can wedge into on-demand-only mode after a very long
 /// uptime, so launchd refuses to spawn Sparkle's installer/progress agent and the install times
 /// out ("agent connection was never initiated"). This surfaces as ``SUAgentInvalidationError``
-/// (4010), or as ``SUInstallationError`` (4005) wrapping Sparkle's internal IPC-timeout error
-/// (code 10) or carrying the agent-connection text in its trace.
+/// (4010), or as ``SUInstallationError`` (4005) wrapping Sparkle's internal installer-helper error
+/// (code 10) or carrying agent-connection text in its trace. This broad classification is suitable
+/// for the title; use ``isUpdaterAgentStartupTimeout(_:)`` for cause-specific recovery guidance.
 private func isUpdaterAgentConnectionFailure(_ error: NSError) -> Bool {
     guard error.domain == SUSparkleErrorDomain else { return false }
     if error.code == 4010 { return true }
     guard error.code == 4005 else { return false }
     let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError
-    // Sparkle's internal "agent connection was never initiated" timeout is code 10 in its own
-    // domain; that is the precise wedged-launchd signal.
+    // Sparkle uses code 10 for installer-helper errors. Keep the existing broad title
+    // classification, but do not use this code alone for cause-specific recovery guidance.
     if let underlying, underlying.domain == SUSparkleErrorDomain, underlying.code == 10 {
         return true
     }

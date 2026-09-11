@@ -4,6 +4,19 @@ import Testing
 @testable import CmuxMobileShellUI
 
 @Test @MainActor
+func privatePathMacLabelsExposeSiblingBuilds() {
+    let formatter = MacAppInstanceDisplayFormatter()
+    #expect(formatter.displayName(
+        "MacBook Pro",
+        instanceTag: "stable"
+    ) == "MacBook Pro · Stable")
+    #expect(formatter.displayName(
+        "MacBook Pro",
+        instanceTag: "nightly"
+    ) == "MacBook Pro · Nightly")
+}
+
+@Test @MainActor
 func customPrivatePathEditorValidationUsesSharedAddressLimit() {
     let addresses = (1 ... CmxIrohCustomPrivatePathDraft.maximumAddressCount)
         .map { "10.0.0.\($0)" }

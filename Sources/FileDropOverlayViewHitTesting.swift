@@ -6,6 +6,9 @@ import WebKit
 extension FileDropOverlayView {
     func updateDragTarget(_ sender: any NSDraggingInfo, phase: String) -> NSDragOperation {
         let loc = sender.draggingLocation
+        let previousHitTest = dragUpdateHitTest
+        dragUpdateHitTest = (loc, uncachedViewUnderPoint(loc))
+        defer { dragUpdateHitTest = previousHitTest }
         let hasLocalDraggingSource = sender.draggingSource != nil
         let types = sender.draggingPasteboard.types
         let shouldCapture = DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
@@ -196,11 +199,16 @@ extension FileDropOverlayView {
     }
 
     private func viewUnderPoint(_ windowPoint: NSPoint) -> NSView? {
-        guard let window, let contentView = window.contentView else { return nil }
-        isHidden = true
-        defer { isHidden = false }
-        let point = contentView.convert(windowPoint, from: nil)
-        return contentView.hitTest(point)
+        if let dragUpdateHitTest, dragUpdateHitTest.location == windowPoint {
+            return dragUpdateHitTest.view
+        }
+        return uncachedViewUnderPoint(windowPoint)
+    }
+
+    private func uncachedViewUnderPoint(_ windowPoint: NSPoint) -> NSView? {
+        guard let rootView = hitTestReferenceView ?? window?.contentView else { return nil }
+        let point = rootView.convert(windowPoint, from: nil)
+        return rootView.hitTest(point)
     }
 
     private func editableTextViewUnderPoint(_ windowPoint: NSPoint) -> NSTextView? {
@@ -241,13 +249,7 @@ extension FileDropOverlayView {
             return portalWebView
         }
 
-        guard let window, let contentView = window.contentView else { return nil }
-        isHidden = true
-        defer { isHidden = false }
-        let point = contentView.convert(windowPoint, from: nil)
-        let hitView = contentView.hitTest(point)
-
-        var current: NSView? = hitView
+        var current = viewUnderPoint(windowPoint)
         while let view = current {
             if let webView = view as? WKWebView { return webView }
             current = view.superview
@@ -390,13 +392,7 @@ extension FileDropOverlayView {
             return portalTerminal
         }
 
-        guard let window, let contentView = window.contentView else { return nil }
-        isHidden = true
-        defer { isHidden = false }
-        let point = contentView.convert(windowPoint, from: nil)
-        let hitView = contentView.hitTest(point)
-
-        var current: NSView? = hitView
+        var current = viewUnderPoint(windowPoint)
         while let view = current {
             if let terminal = view as? GhosttyNSView { return terminal }
             current = view.superview
@@ -431,16 +427,13 @@ extension FileDropOverlayView {
 
     private func inlinePaneDropTargetUnderPoint(_ windowPoint: NSPoint) -> PaneDropTargetView? {
         guard let window, let contentView = window.contentView else { return nil }
-        isHidden = true
-        defer { isHidden = false }
-
         let point = contentView.convert(windowPoint, from: nil)
         return paneDropTarget(in: contentView, at: point)
     }
 
     private func paneDropTarget(in view: NSView, at point: NSPoint) -> PaneDropTargetView? {
         for subview in view.subviews.reversed() {
-            guard !subview.isHidden, subview.alphaValue > 0 else { continue }
+            guard subview !== self, !subview.isHidden, subview.alphaValue > 0 else { continue }
             let pointInSubview = subview.convert(point, from: view)
             guard subview.bounds.contains(pointInSubview) else { continue }
             if let paneTarget = subview as? PaneDropTargetView {

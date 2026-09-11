@@ -1,9 +1,11 @@
 /// Owns the coupled control and application-lane lifetime of one admitted connection.
 ///
-/// Construct one supervisor per admitted peer. The first child operation to
-/// finish, or cancellation of ``run()``, cancels the sibling before the
-/// connection and application lanes are closed in a stable order. Repeated
-/// calls to ``run()`` are ignored so cleanup cannot run twice for one owner.
+/// Construct one supervisor per admitted peer. The authenticated control
+/// protocol is the sole authority for the connection lifetime. Application
+/// lanes are subordinate work: their accept loop may stop without tearing down
+/// a still-usable RPC session. When control finishes, or ``run()`` is cancelled,
+/// the supervisor cancels lane work before closing everything in a stable order.
+/// Repeated calls to ``run()`` reuse the first result so cleanup cannot run twice.
 ///
 /// ```swift
 /// let supervisor = CmxIrohAdmittedConnectionSupervisor(
@@ -56,7 +58,7 @@ public actor CmxIrohAdmittedConnectionSupervisor {
         self.stopApplicationLanes = stopApplicationLanes
     }
 
-    /// Runs until either child exits, closes owned work, and returns that first exit reason.
+    /// Runs until control exits, closes owned work, and returns the control exit reason.
     public func run() async -> CmxIrohAdmittedConnectionExit {
         if let runTask { return await runTask.value }
         let runControl = runControl
@@ -66,23 +68,17 @@ public actor CmxIrohAdmittedConnectionSupervisor {
 
         let task = Task {
             await withTaskGroup(
-                of: CmxIrohAdmittedConnectionExit.self,
+                of: Void.self,
                 returning: CmxIrohAdmittedConnectionExit.self
             ) { group in
                 group.addTask {
-                    await runControl()
+                    _ = await runApplicationLanes()
                 }
-                group.addTask {
-                    await runApplicationLanes()
-                }
-                let firstExit = await group.next() ?? CmxIrohAdmittedConnectionExit(
-                    lifecycle: .explicitlyInvalidated,
-                    failure: .none
-                )
+                let controlExit = await runControl()
                 group.cancelAll()
                 await closeConnection()
                 await stopApplicationLanes()
-                return firstExit
+                return controlExit
             }
         }
         runTask = task

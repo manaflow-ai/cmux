@@ -94,8 +94,6 @@ extension ControlCommandCoordinator {
             return debugPanelSnapshot(request.params)
         case "debug.panel_snapshot.reset":
             return debugPanelSnapshotReset(request.params)
-        case "debug.window.screenshot":
-            return debugScreenshot(request.params)
         case "debug.canvas.command_scroll_hint":
             return debugCanvasCommandScrollHint(request.params)
         default:
@@ -469,6 +467,8 @@ extension ControlCommandCoordinator {
             return Int(exactly: v)
         case .double(let v):
             return Int(exactly: v)
+        case .decimal(let v):
+            return Int(v.trimmingCharacters(in: .whitespacesAndNewlines))
         case .bool(let v):
             return v ? 1 : 0
         default:
@@ -490,6 +490,10 @@ extension ControlCommandCoordinator {
         case .double(let v) where v == 0:
             return false
         case .double(let v) where v == 1:
+            return true
+        case .decimal("0"):
+            return false
+        case .decimal("1"):
             return true
         default:
             return nil

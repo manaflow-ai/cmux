@@ -24,6 +24,18 @@ extension ControlCommandCoordinator {
         return (trimmed?.isEmpty == false) ? trimmed : nil
     }
 
+    /// A raw string preserved byte-for-byte, or `nil` when it is blank.
+    nonisolated func nonBlankRawString(
+        _ params: [String: JSONValue],
+        _ key: String
+    ) -> String? {
+        guard let raw = rawString(params, key),
+              !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return raw
+    }
+
     /// `v2StringArray`: a JSON string array (trimmed, empties dropped); a single
     /// trimmed non-empty string yields a one-element array; otherwise `nil`.
     func stringArray(_ params: [String: JSONValue], _ key: String) -> [String]? {
@@ -94,6 +106,8 @@ extension ControlCommandCoordinator {
             return value != 0
         case .double(let value):
             return value != 0
+        case .decimal(let value):
+            return NSDecimalNumber(string: value).compare(NSDecimalNumber(string: "0")) != .orderedSame
         case .string(let value):
             switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
             case "1", "true", "yes", "on":
@@ -119,6 +133,8 @@ extension ControlCommandCoordinator {
             return Int(value)
         case .double(let value):
             return NSNumber(value: value).intValue
+        case .decimal(let value):
+            return NSDecimalNumber(string: value).intValue
         case .bool(let value):
             // Legacy `as? NSNumber` caught a JSON boolean and `.intValue` → 1/0.
             return NSNumber(value: value).intValue
@@ -138,6 +154,8 @@ extension ControlCommandCoordinator {
             return value
         case .int(let value):
             return Double(value)
+        case .decimal(let value):
+            return NSDecimalNumber(string: value).doubleValue
         case .bool(let value):
             return NSNumber(value: value).doubleValue
         case .string(let value):
@@ -161,6 +179,8 @@ extension ControlCommandCoordinator {
         case .double(let value):
             guard value.isFinite, floor(value) == value else { return nil }
             return Int(exactly: value)
+        case .decimal(let value):
+            return Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
         case .string(let value):
             return Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
         default:
@@ -176,6 +196,29 @@ extension ControlCommandCoordinator {
             .replacingOccurrences(of: "_", with: "")
             .replacingOccurrences(of: " ", with: "")
             .lowercased()
+    }
+
+    /// Rejects terminal input when an RPC's explicit type is not a terminal string.
+    func incompatibleTerminalCreationInputError(
+        _ params: [String: JSONValue]
+    ) -> ControlCallResult? {
+        guard nonBlankRawString(params, "initial_input") != nil,
+              hasNonNull(params, "type"),
+              let type = params["type"] else {
+            return nil
+        }
+        if let typeRaw = string(params, "type"),
+           normalizedToken(typeRaw) == "terminal" {
+            return nil
+        }
+        guard let message = context?.controlSurfaceInputStrings().initialInputRequiresTerminalType else {
+            return nil
+        }
+        return .err(
+            code: "invalid_params",
+            message: message,
+            data: .object(["type": type])
+        )
     }
 
     /// `v2InitialDividerPosition`: optional clamped `[0.1, 0.9]` divider, or an

@@ -987,7 +987,7 @@
   "CLINotifyProcessIntegrationRegressionTests/testTreeCommandWindowFlagSurvivesLegacyFallback": 70,
   "CLINotifyProcessIntegrationRegressionTests/testVMNewDefaultCreatesPinnedSSHDWorkspaceOverFreestyleSSH": 72,
   "CLINotifyProcessIntegrationRegressionTests/testVMNewDefaultDoesNotReuseTitleOnlySSHDWorkspace": 72,
-  "CLINotifyProcessIntegrationRegressionTests/testVMNewDefaultReusesPinnedSSHDWorkspaceOverFreestyleSSH": 78,
+  "CLINotifyProcessIntegrationRegressionTests/testVMNewDefaultDoesNotReusePinnedSSHDWorkspace": 78,
   "CLINotifyProcessIntegrationRegressionTests/testVMNewExplicitFreestyleProviderCreatesSeparateDetachedVM": 69,
   "CLINotifyProcessIntegrationRegressionTests/testVMNewWindowFlagAcceptsCaseInsensitiveUUID": 77,
   "CLINotifyProcessIntegrationRegressionTests/testVMNewWindowFlagValidatesBeforeCreate": 73,

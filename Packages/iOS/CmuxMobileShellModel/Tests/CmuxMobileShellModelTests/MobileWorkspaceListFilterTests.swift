@@ -63,6 +63,18 @@ import Testing
         #expect(MobileWorkspaceListFilter.machineIDs(in: rows) == ["mac-2", "mac-1"])
     }
 
+    @Test func machineIDsIncludeTheOwningBuild() {
+        var nightly = workspace("nightly", hasUnread: false, mac: "mac-a")
+        nightly.macInstanceTag = "nightly"
+        var stable = workspace("stable", hasUnread: false, mac: "mac-a")
+        stable.macInstanceTag = "stable"
+
+        #expect(MobileWorkspaceListFilter.machineIDs(in: [nightly, stable]) == [
+            "mac-a\u{1F}nightly",
+            "mac-a\u{1F}stable",
+        ])
+    }
+
     @Test func pruneMachinesDropsAbsentSelections() {
         var filter = MobileWorkspaceListFilter(readState: .unread, machines: ["mac-1", "mac-gone"])
         let changed = filter.pruneMachines(notIn: ["mac-1", "mac-2"])
@@ -99,8 +111,8 @@ import Testing
             pairing, deviceID: "mac-b", rowTag: "nightly"))
     }
 
-    @Test func deviceEntryMatchesEveryBuild() {
-        #expect(MobileWorkspaceListFilter.machineEntryMatches(
+    @Test func deviceEntryMatchesOnlyLegacyUntaggedRows() {
+        #expect(!MobileWorkspaceListFilter.machineEntryMatches(
             "mac-a", deviceID: "mac-a", rowTag: "nightly"))
         #expect(MobileWorkspaceListFilter.machineEntryMatches(
             "mac-a", deviceID: "mac-a", rowTag: nil))
@@ -146,11 +158,31 @@ import Testing
         let derived = aggregation.derivedWorkspaces(
             statesByMac: states,
             foregroundMacDeviceID: nil,
-            machineColorIndex: ["mac-a": 0]
+            machineColorIndex: [
+                "mac-a\u{1F}nightly": 0,
+                "mac-a\u{1F}default": 1,
+            ]
         )
         #expect(derived.count == 2)
         #expect(Set(derived.map(\.id)).count == 2)
         #expect(Set(derived.compactMap(\.macInstanceTag)) == ["nightly", "default"])
-        #expect(Set(derived.compactMap(\.machineColorIndex)) == [0])
+        #expect(Set(derived.compactMap(\.machineColorIndex)) == [0, 1])
+    }
+
+    @Test func identitySpellingNormalizesBuildTagsAcrossFiltersAndRows() {
+        var row = MobileWorkspacePreview(
+            id: "nightly",
+            macDeviceID: "mac-a",
+            name: "ws",
+            terminals: []
+        )
+        row.macInstanceTag = " nightly "
+        let filter = MobileWorkspaceListFilter(machines: ["mac-a\u{1F} nightly "])
+
+        #expect(filter.matches(row))
+        #expect(filter.machines == ["mac-a\u{1F}nightly"])
+        #expect(MobileWorkspaceListFilter.machineIDs(in: [row]) == [
+            "mac-a\u{1F}nightly",
+        ])
     }
 }

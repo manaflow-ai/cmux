@@ -159,7 +159,7 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
         }
     }
 
-    private func withJournalLock<Result>(
+    private func withJournalLock<Result: Sendable>(
         fileName: String,
         operation: () throws -> Result
     ) async throws -> Result {

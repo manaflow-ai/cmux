@@ -405,28 +405,5 @@ extension ControlCommandCoordinator {
             : .err(code: "internal_error", message: resp, data: nil)
     }
 
-    // MARK: - debug.window.screenshot
-
-    /// `debug.window.screenshot` — capture a window screenshot (shared v1
-    /// body; the coordinator parses its 2-field response line).
-    func debugScreenshot(_ params: [String: JSONValue]) -> ControlCallResult {
-        let label = string(params, "label") ?? ""
-        let resp = debugContext?.controlDebugCaptureScreenshot(label: label)
-            ?? Self.debugContextUnavailableResponse
-        guard resp.hasPrefix("OK ") else {
-            return .err(code: "internal_error", message: resp, data: nil)
-        }
-        let payload = String(resp.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
-        let parts = payload.split(separator: " ", maxSplits: 1).map(String.init)
-        guard parts.count == 2 else {
-            return .err(code: "internal_error", message: "screenshot parse failed", data: .object([
-                "payload": .string(payload)
-            ]))
-        }
-        return .ok(.object([
-            "screenshot_id": .string(parts[0]),
-            "path": .string(parts[1]),
-        ]))
-    }
 }
 #endif

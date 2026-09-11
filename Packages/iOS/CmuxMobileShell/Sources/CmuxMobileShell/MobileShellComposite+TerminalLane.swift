@@ -4,26 +4,47 @@ import Foundation
 
 extension MobileShellComposite {
     func ensureTerminalLane(surfaceID: String) {
+        // Demo surfaces have no Mac-side lane; without this guard a mounted
+        // demo terminal would open a lane at whatever REAL Mac holds the
+        // foreground ticket, for a surface that Mac has never heard of.
+        guard !demonstrationOwnsSurface(surfaceID) else { return }
         guard let terminalLaneCoordinator,
               connectionState == .connected,
-              terminalOutputTransport != .renderGrid,
               terminalByteContinuationsBySurfaceID[surfaceID] != nil,
               let activeRoute,
               activeRoute.kind == .iroh,
               let activeTicket else {
             return
         }
+        let laneMode: MobileTerminalLaneCoordinator.LaneMode
+        if terminalOutputTransport == .renderGrid {
+            // Render-grid owns terminal output. Use a separate input-only
+            // stream so every key bypasses ordered RPC settlement.
+            guard runtime?.terminalInputLaneProvider != nil else { return }
+            laneMode = .inputOnly
+        } else {
+            laneMode = .output
+        }
+        // A Direct lane request can redial the peer session, so it must carry
+        // the same method-pinned allowlist as the control dial or it could
+        // ride relay or discovered paths the method forbids. Tailscale
+        // sessions use their raw route and never enter this Iroh lane.
         let request = CmxByteTransportRequest(
             route: activeRoute,
             expectedPeerDeviceID: activeTicket.macDeviceID,
             authorizationMode: .transportAdmission,
-            sessionPurpose: .featureLane
+            sessionPurpose: .featureLane,
+            irohDirectOnlyDialCandidates: irohMethodPinnedDialCandidates(
+                forMacDeviceID: activeTicket.macDeviceID,
+                instanceTag: activeMacInstanceTag
+            )
         )
         let connectionGeneration = connectionGeneration
         let lifecycleID = terminalLaneLifecycleID
         let configuration = MobileTerminalLaneCoordinator.Configuration(
             request: request,
             surfaceID: surfaceID,
+            mode: laneMode,
             cursor: { @MainActor [weak self] in
                 guard let self,
                       self.connectionGeneration == connectionGeneration,
@@ -44,6 +65,9 @@ extension MobileShellComposite {
                       self.terminalLaneLifecycleID == lifecycleID else { return }
                 if ready {
                     self.terminalLaneOutputReadySurfaceIDs.insert(surfaceID)
+                    await terminalLaneCoordinator.retireUnfocusedLanes(
+                        surfaceID: surfaceID
+                    )
                 } else {
                     self.terminalLaneOutputReadySurfaceIDs.remove(surfaceID)
                 }
@@ -55,7 +79,7 @@ extension MobileShellComposite {
     func resumeTerminalLaneIfSuspended(surfaceID: String) {
         guard let terminalLaneCoordinator,
               connectionState == .connected,
-              terminalOutputTransport != .renderGrid else { return }
+              terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil else { return }
         Task { await terminalLaneCoordinator.resume(surfaceID: surfaceID) }
     }
 
@@ -64,12 +88,19 @@ extension MobileShellComposite {
         terminalLaneLifecycleID = UUID()
         let lifecycleID = terminalLaneLifecycleID
         terminalLaneOutputReadySurfaceIDs.removeAll()
+        let mountedSurfaceIDs = Array(
+            terminalByteContinuationsBySurfaceID.keys
+        )
+        guard !mountedSurfaceIDs.isEmpty else {
+            Task { await terminalLaneCoordinator.deactivateAll() }
+            return
+        }
         Task { @MainActor [weak self] in
-            await terminalLaneCoordinator.deactivateAll()
             guard let self,
                   self.terminalLaneLifecycleID == lifecycleID,
                   self.connectionState == .connected else { return }
-            for surfaceID in self.terminalByteContinuationsBySurfaceID.keys {
+            for surfaceID in mountedSurfaceIDs
+            where self.terminalByteContinuationsBySurfaceID[surfaceID] != nil {
                 self.ensureTerminalLane(surfaceID: surfaceID)
             }
         }
@@ -83,10 +114,22 @@ extension MobileShellComposite {
     }
 
     func reconcileTerminalLanesForOutputTransport() {
-        if terminalOutputTransport == .renderGrid {
-            deactivateAllTerminalLanes()
-        } else {
-            restartTerminalLanesForMountedSurfaces()
+        // Render-grid keeps its authoritative event stream for output, but
+        // retains an input-only lane for fire-and-forget keystrokes.
+        guard let terminalLaneCoordinator else { return }
+        terminalLaneLifecycleID = UUID()
+        let lifecycleID = terminalLaneLifecycleID
+        terminalLaneOutputReadySurfaceIDs.removeAll()
+        let mountedSurfaceIDs = Array(terminalByteContinuationsBySurfaceID.keys)
+        Task { @MainActor [weak self] in
+            await terminalLaneCoordinator.deactivateAll()
+            guard let self,
+                  self.terminalLaneLifecycleID == lifecycleID,
+                  self.connectionState == .connected else { return }
+            for surfaceID in mountedSurfaceIDs
+            where self.terminalByteContinuationsBySurfaceID[surfaceID] != nil {
+                self.ensureTerminalLane(surfaceID: surfaceID)
+            }
         }
     }
 
@@ -96,6 +139,11 @@ extension MobileShellComposite {
     ) -> MobileTerminalLaneCoordinator.FrameDisposition {
         guard terminalByteContinuationsBySurfaceID[surfaceID] != nil else {
             return .stop
+        }
+        if terminalOutputTransport == .renderGrid {
+            // The input-only lane's baseline only gates readiness. Its output
+            // half is deliberately ignored because render-grid is authoritative.
+            return .accepted(outputReady: true)
         }
         if terminalOutputTransport == .hybrid,
            terminalActiveScreenBySurfaceID[surfaceID] == .alternate {

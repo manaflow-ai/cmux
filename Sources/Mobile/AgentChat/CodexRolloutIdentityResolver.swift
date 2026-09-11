@@ -1,7 +1,7 @@
 import Foundation
 
 /// Collapses open Codex rollout files into one logical parent session.
-nonisolated struct CodexRolloutIdentityResolver: Sendable {
+struct CodexRolloutIdentityResolver: Sendable {
     private let maximumSessionMetaBytes = 4 * 1_024 * 1_024
     private let sessionMetaReadChunkBytes = 4 * 1_024
 

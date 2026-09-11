@@ -379,7 +379,10 @@ extension AgentNotificationRegressionTests {
             hostedView.removeFromSuperview()
             window.orderOut(nil)
         }
-        let ttyName = try #require(await waitForControllingTTYName(for: terminal))
+        let ttyName = try await TerminalControllingTTYWaiter().wait(
+            for: terminal,
+            timeout: .seconds(15)
+        )
         fixture.source.registerReportedSurfaceTTYName(
             ttyName,
             panelId: fixture.panelId
@@ -458,14 +461,4 @@ extension AgentNotificationRegressionTests {
         #expect(code == "not_found")
     }
 
-    private func waitForControllingTTYName(for terminal: TerminalPanel) async -> String? {
-        let deadline = ContinuousClock.now + .seconds(15)
-        while ContinuousClock.now < deadline {
-            if let ttyName = terminal.surface.controllingTTYName() {
-                return ttyName
-            }
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        return terminal.surface.controllingTTYName()
-    }
 }

@@ -1,3 +1,5 @@
+import CmuxNotifications
+import CmuxSettings
 import Foundation
 
 struct TerminalNotification: Identifiable, Hashable, Sendable {
@@ -15,6 +17,11 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
     var paneFlash: Bool = true
     var scrollPosition: TerminalNotificationScrollPosition?
     var clickAction: TerminalNotificationClickAction?
+    var replyShape: TerminalNotificationReplyShape = .none
+    var soundContext: NotificationSoundOverrideContext?
+    /// Who emitted the text. Remote origins are clamped to display-only side effects by
+    /// the store and surface to hooks as `CMUX_NOTIFICATION_ORIGIN`.
+    var origin: TerminalNotificationOrigin = .local
 
     init(
         id: UUID,
@@ -30,7 +37,10 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         isRead: Bool,
         paneFlash: Bool = true,
         scrollPosition: TerminalNotificationScrollPosition? = nil,
-        clickAction: TerminalNotificationClickAction? = nil
+        clickAction: TerminalNotificationClickAction? = nil,
+        replyShape: TerminalNotificationReplyShape = .none,
+        soundContext: NotificationSoundOverrideContext? = nil,
+        origin: TerminalNotificationOrigin = .local
     ) {
         self.id = id
         self.tabId = tabId
@@ -46,6 +56,9 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         self.paneFlash = paneFlash
         self.scrollPosition = scrollPosition
         self.clickAction = clickAction
+        self.replyShape = replyShape
+        self.soundContext = soundContext
+        self.origin = origin
     }
 
     func matches(tabId targetTabId: UUID, surfaceId targetSurfaceId: UUID?) -> Bool {
@@ -58,7 +71,17 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
 
     /// Matches a clear without letting live-owner expansion cross a confined notification's workspace boundary.
     func matchesClear(tabId targetTabId: UUID, liveTabId: UUID, surfaceId targetSurfaceId: UUID?) -> Bool {
-        let matchesWorkspace = tabId == targetTabId || (retargetsToLiveSurfaceOwner && tabId == liveTabId)
-        return matchesWorkspace && matches(tabId: tabId, surfaceId: targetSurfaceId)
+        guard let targetSurfaceId else {
+            let matchesWorkspace = tabId == targetTabId || (retargetsToLiveSurfaceOwner && tabId == liveTabId)
+            return matchesWorkspace && surfaceId == nil && panelId == nil
+        }
+        guard surfaceId == targetSurfaceId || panelId == targetSurfaceId else {
+            return false
+        }
+        // A retargetable notification is owned by the globally unique surface,
+        // not by the workspace in which it happened to be stored when it was
+        // delivered. This lets a completion clear a banner that was recorded
+        // under the pane's previous workspace after a move.
+        return retargetsToLiveSurfaceOwner || tabId == targetTabId
     }
 }

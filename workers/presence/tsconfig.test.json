@@ -10,6 +10,8 @@
     "src/validate.ts",
     "src/sync.ts",
     "src/syncDevices.ts",
-    "src/syncStorage.ts"
+    "src/syncStorage.ts",
+    "src/controlPlane.ts",
+    "src/controlPlaneProof.ts"
   ]
 }

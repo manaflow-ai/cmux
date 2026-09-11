@@ -7,6 +7,62 @@ import Testing
 @Suite
 struct MobileTerminalLaneCoordinatorTests {
     @Test
+    func sameSurfaceOnAnotherPeerMovesInputWithoutClosingFirstPeer() async throws {
+        let firstLane = TerminalLaneTestConnection(
+            frames: [Self.frame(kind: .replay, sequence: 0, bytes: "")],
+            waitsAfterFrames: true
+        )
+        let secondLane = TerminalLaneTestConnection(
+            frames: [Self.frame(kind: .replay, sequence: 0, bytes: "")],
+            waitsAfterFrames: true
+        )
+        let provider = TerminalLaneTestProvider(lanes: [firstLane, secondLane])
+        let coordinator = MobileTerminalLaneCoordinator { request, surfaceID, cursor in
+            try await provider.callAsFunction(request, surfaceID, cursor: cursor)
+        }
+
+        let firstReadiness = TerminalLaneReadinessRecorder()
+        var firstReadinessIterator = await firstReadiness.stream()
+            .makeAsyncIterator()
+        await coordinator.ensure(Self.configuration(
+            providerRequest: try Self.request(
+                peerDeviceID: "mac-a",
+                endpointCharacter: "a"
+            ),
+            cursor: { nil },
+            consume: { _ in .accepted(outputReady: true) },
+            readinessChanged: { await firstReadiness.append($0) }
+        ))
+        #expect(await firstReadinessIterator.next() == true)
+
+        let secondReadiness = TerminalLaneReadinessRecorder()
+        var secondReadinessIterator = await secondReadiness.stream()
+            .makeAsyncIterator()
+        await coordinator.ensure(Self.configuration(
+            providerRequest: try Self.request(
+                peerDeviceID: "mac-b",
+                endpointCharacter: "b"
+            ),
+            cursor: { nil },
+            consume: { _ in .accepted(outputReady: true) },
+            readinessChanged: { await secondReadiness.append($0) }
+        ))
+        #expect(await secondReadinessIterator.next() == true)
+
+        let inputResult = await coordinator.sendInput(
+            "second peer",
+            surfaceID: Self.surfaceID
+        )
+
+        #expect(await provider.requestCount() == 2)
+        #expect(inputResult == .sent)
+        #expect(await firstLane.inputs().isEmpty)
+        #expect(await secondLane.inputs() == ["second peer"])
+        #expect(await firstLane.closeCount() == 0)
+        await coordinator.deactivateAll()
+    }
+
+    @Test
     func replayActivatesIndependentInputAndCancellationReturnsToFallback() async throws {
         let lane = TerminalLaneTestConnection(
             frames: [Self.frame(kind: .replay, sequence: 5, bytes: "abc")],
@@ -40,6 +96,67 @@ struct MobileTerminalLaneCoordinatorTests {
         #expect(await readinessIterator.next() == false)
         #expect(await lane.closeCount() == 1)
         #expect(await coordinator.sendInput("fallback", surfaceID: Self.surfaceID) == .unavailable)
+    }
+
+    @Test
+    func inputOnlyLaneDoesNotValidateAgainstOutputCursor() async throws {
+        let lane = TerminalLaneTestConnection(
+            frames: [Self.frame(kind: .replay, sequence: 12, bytes: "")],
+            waitsAfterFrames: true
+        )
+        let provider = TerminalLaneTestProvider(lanes: [lane])
+        let coordinator = MobileTerminalLaneCoordinator { request, surfaceID, cursor in
+            try await provider.callAsFunction(request, surfaceID, cursor: cursor)
+        }
+        let readiness = TerminalLaneReadinessRecorder()
+        var readinessIterator = await readiness.stream().makeAsyncIterator()
+
+        await coordinator.ensure(Self.configuration(
+            mode: .inputOnly,
+            providerRequest: try Self.request(),
+            cursor: { 5 },
+            consume: { _ in .accepted(outputReady: true) },
+            readinessChanged: { await readiness.append($0) }
+        ))
+
+        #expect(await readinessIterator.next() == true)
+        #expect(await provider.requestedCursors() == [nil])
+        #expect(await coordinator.sendInput("echo fast\\n", surfaceID: Self.surfaceID) == .sent)
+        await coordinator.deactivateAll()
+    }
+
+    @Test
+    func outputLaneDoesNotFallBackToInputOnlyProvider() async throws {
+        let outputProvider = TerminalLaneTestProvider(lanes: [])
+        let inputProvider = TerminalLaneTestProvider(lanes: [
+            TerminalLaneTestConnection(
+                frames: [Self.frame(kind: .replay, sequence: 0, bytes: "")],
+                waitsAfterFrames: true
+            ),
+        ])
+        let coordinator = MobileTerminalLaneCoordinator(
+            provider: { request, surfaceID, cursor in
+                try await outputProvider.callAsFunction(request, surfaceID, cursor: cursor)
+            },
+            inputOnlyProvider: { request, surfaceID, cursor in
+                try await inputProvider.callAsFunction(request, surfaceID, cursor: cursor)
+            }
+        )
+
+        await coordinator.ensure(Self.configuration(
+            providerRequest: try Self.request(),
+            cursor: { nil },
+            consume: { _ in .accepted(outputReady: true) },
+            readinessChanged: { _ in }
+        ))
+        // The output provider is the causal completion signal. Its empty lane
+        // list makes the request fail after recording the attempted selection.
+        await outputProvider.waitUntilRequested()
+
+        #expect(await outputProvider.requestCount() > 0)
+        #expect(await inputProvider.requestCount() == 0)
+        await coordinator.deactivateAll()
+        #expect(await coordinator.isOutputReady(surfaceID: Self.surfaceID) == false)
     }
 
     @Test
@@ -87,6 +204,56 @@ struct MobileTerminalLaneCoordinatorTests {
     }
 
     @Test
+    func consumerBackpressureSuspendsBeforeDrainingNextChunk() async throws {
+        let firstLane = TerminalLaneTestConnection(
+            frames: [
+                Self.frame(kind: .replay, sequence: 0, bytes: "baseline"),
+                Self.frame(kind: .chunk, sequence: 8, bytes: "must-not-drain"),
+            ],
+            waitsAfterFrames: true
+        )
+        let secondLane = TerminalLaneTestConnection(
+            frames: [Self.frame(kind: .replay, sequence: 0, bytes: "baseline")],
+            waitsAfterFrames: true
+        )
+        let provider = TerminalLaneTestProvider(lanes: [firstLane, secondLane])
+        let coordinator = MobileTerminalLaneCoordinator { request, surfaceID, cursor in
+            try await provider.callAsFunction(request, surfaceID, cursor: cursor)
+        }
+        let readiness = TerminalLaneReadinessRecorder()
+        var readinessIterator = await readiness.stream().makeAsyncIterator()
+        let consumed = TerminalLaneFrameRecorder()
+        let shouldRejectFirstFrame = TerminalLaneFlag(value: true)
+
+        await coordinator.ensure(Self.configuration(
+            providerRequest: try Self.request(),
+            cursor: { nil },
+            consume: { frame in
+                await consumed.append(frame)
+                if await shouldRejectFirstFrame.value() {
+                    await shouldRejectFirstFrame.setValue(false)
+                    return .accepted(outputReady: false)
+                }
+                return .accepted(outputReady: true)
+            },
+            readinessChanged: { await readiness.append($0) }
+        ))
+
+        for _ in 0..<100 {
+            if await firstLane.closeCount() == 1 { break }
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        #expect(await firstLane.closeCount() == 1)
+        #expect(await consumed.frames().map(\.kind) == [.replay])
+
+        await coordinator.resume(surfaceID: Self.surfaceID)
+        #expect(await readinessIterator.next() == true)
+        #expect(await consumed.frames().map(\.kind) == [.replay, .replay])
+        #expect(await provider.requestCount() == 2)
+        await coordinator.deactivateAll()
+    }
+
+    @Test
     func replayCursorMismatchNeverBecomesReadyOrAcceptsInput() async throws {
         let mismatchedLane = TerminalLaneTestConnection(
             frames: [Self.frame(kind: .replay, sequence: 7, bytes: "bad")],
@@ -129,24 +296,31 @@ struct MobileTerminalLaneCoordinatorTests {
         )
     }
 
-    private static func request() throws -> CmxByteTransportRequest {
+    private static func request(
+        peerDeviceID: String = "mac",
+        endpointCharacter: Character = "a"
+    ) throws -> CmxByteTransportRequest {
         CmxByteTransportRequest(
             route: try CmxAttachRoute(
                 id: "iroh",
                 kind: .iroh,
                 endpoint: .peer(
                     identity: try CmxIrohPeerIdentity(
-                        endpointID: String(repeating: "a", count: 64)
+                        endpointID: String(
+                            repeating: String(endpointCharacter),
+                            count: 64
+                        )
                     ),
                     pathHints: []
                 )
             ),
-            expectedPeerDeviceID: "mac",
+            expectedPeerDeviceID: peerDeviceID,
             authorizationMode: .transportAdmission
         )
     }
 
     private static func configuration(
+        mode: MobileTerminalLaneCoordinator.LaneMode = .output,
         providerRequest: CmxByteTransportRequest,
         cursor: @escaping @Sendable () async -> UInt64?,
         consume: @escaping @Sendable (MobileTerminalLaneOutputFrame) async -> MobileTerminalLaneCoordinator.FrameDisposition,
@@ -155,6 +329,7 @@ struct MobileTerminalLaneCoordinatorTests {
         MobileTerminalLaneCoordinator.Configuration(
             request: providerRequest,
             surfaceID: surfaceID,
+            mode: mode,
             cursor: cursor,
             consume: consume,
             readinessChanged: readinessChanged
@@ -204,6 +379,7 @@ private actor TerminalLaneTestProvider {
 
     private var lanes: [TerminalLaneTestConnection]
     private var cursors: [UInt64?] = []
+    private var requestWaiters: [CheckedContinuation<Void, Never>] = []
     private var exhaustionWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(lanes: [TerminalLaneTestConnection]) {
@@ -216,6 +392,8 @@ private actor TerminalLaneTestProvider {
         cursor: UInt64?
     ) throws -> any MobileTerminalLaneConnection {
         cursors.append(cursor)
+        for waiter in requestWaiters { waiter.resume() }
+        requestWaiters.removeAll()
         guard !lanes.isEmpty else {
             for waiter in exhaustionWaiters { waiter.resume() }
             exhaustionWaiters.removeAll()
@@ -225,6 +403,14 @@ private actor TerminalLaneTestProvider {
     }
 
     func requestedCursors() -> [UInt64?] { cursors }
+    func requestCount() -> Int { cursors.count }
+
+    func waitUntilRequested() async {
+        if !cursors.isEmpty { return }
+        await withCheckedContinuation { continuation in
+            requestWaiters.append(continuation)
+        }
+    }
 
     func waitUntilExhausted() async {
         if lanes.isEmpty, cursors.count >= 2 { return }
@@ -271,4 +457,15 @@ private actor TerminalLaneCursor {
 
     func value() -> UInt64? { storedValue }
     func setValue(_ value: UInt64?) { storedValue = value }
+}
+
+private actor TerminalLaneFlag {
+    private var storedValue: Bool
+
+    init(value: Bool) {
+        self.storedValue = value
+    }
+
+    func value() -> Bool { storedValue }
+    func setValue(_ value: Bool) { storedValue = value }
 }

@@ -71,6 +71,8 @@ public protocol NotificationDismissalHosting: AnyObject {
 
     /// Whether the workspace carries a manually-set unread indicator.
     func storeHasManualUnread(workspaceId: UUID) -> Bool
+    /// Whether a store-owned surface carries a manually-set unread indicator.
+    func storeHasManualUnread(workspaceId: UUID, surfaceId: UUID) -> Bool
     /// Whether the workspace carries a session-restored unread indicator.
     func storeHasRestoredUnreadIndicator(workspaceId: UUID) -> Bool
     /// Whether an unread notification exists for the workspace (or surface).
@@ -89,6 +91,10 @@ public protocol NotificationDismissalHosting: AnyObject {
     /// anything was cleared.
     @discardableResult
     func storeClearManualUnread(workspaceId: UUID) -> Bool
+    /// Clears a store-owned surface's manual unread indicator; returns whether
+    /// anything was cleared.
+    @discardableResult
+    func storeClearManualUnread(workspaceId: UUID, surfaceId: UUID) -> Bool
     /// Clears the workspace-level restored unread indicator; returns whether
     /// anything was cleared.
     @discardableResult

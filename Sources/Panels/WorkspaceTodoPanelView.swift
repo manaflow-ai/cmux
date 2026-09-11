@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxWorkspaces
 import SwiftUI
 
@@ -87,20 +88,34 @@ enum WorkspaceTodoPaneKeyboardNavigationPolicy {
 }
 
 private struct WorkspaceTodoPanelOpaqueBackground: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        WorkspaceTodoPanelOpaqueBackgroundView()
+    @Environment(\.colorScheme) private var colorScheme
+
+    func makeNSView(context: Context) -> WorkspaceTodoPanelOpaqueBackgroundView {
+        let view = WorkspaceTodoPanelOpaqueBackgroundView()
+        view.colorScheme = colorScheme
+        view.appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
+        return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
+    func updateNSView(_ nsView: WorkspaceTodoPanelOpaqueBackgroundView, context: Context) {
+        nsView.colorScheme = colorScheme
         nsView.needsDisplay = true
     }
 }
 
 private final class WorkspaceTodoPanelOpaqueBackgroundView: NSView {
+    var colorScheme: ColorScheme = .light {
+        didSet {
+            guard colorScheme != oldValue else { return }
+            appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
+            needsDisplay = true
+        }
+    }
+
     override var isOpaque: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.windowBackgroundColor.setFill()
+        WindowAppearanceSnapshot.resolvedColor(.windowBackgroundColor, for: colorScheme).setFill()
         dirtyRect.fill()
     }
 }
@@ -409,8 +424,7 @@ private struct WorkspaceTodoPaneContent: View {
         HStack(alignment: .center, spacing: 7) {
             // A `plus.circle` "add" affordance, not an empty checkbox, so the
             // add row never reads as a real (unchecked) item.
-            CmuxSystemSymbolImage(systemName: "plus.circle", pointSize: Self.checkboxPointSize)
-                .foregroundColor(.secondary)
+            CmuxSystemSymbolImage(systemName: "plus.circle", pointSize: Self.checkboxPointSize, tint: .secondary)
             TextField(
                 String(localized: "sidebar.checklist.addItemPlaceholder", defaultValue: "New checklist item"),
                 text: $pendingItemText,
@@ -528,9 +542,9 @@ private struct WorkspaceTodoPaneItemRow: View {
             } label: {
                 CmuxSystemSymbolImage(
                     systemName: checkboxSymbolName(for: item.state),
-                    pointSize: checkboxPointSize
+                    pointSize: checkboxPointSize,
+                    tint: isCompleted ? .secondary : .primary
                 )
-                .foregroundColor(isCompleted ? .secondary : .primary)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

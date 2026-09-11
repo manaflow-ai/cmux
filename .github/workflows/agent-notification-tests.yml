@@ -1,0 +1,45 @@
+name: Agent notification semantics
+on:
+  pull_request:
+    paths:
+      - Packages/macOS/CmuxAgentJournal/**
+      - CLI/*Notification*.swift
+      - CLI/CMUXCLI+AgentJournalEmission.swift
+      - CLI/CMUXCLI+VMTui.swift
+      - CLI/VMRemoteWorkspaceResolver.swift
+      - CLI/cmux.swift
+      - Sources/AgentNotification*.swift
+      - Sources/TerminalNotification*.swift
+      - Sources/AgentFeedSemanticInput.swift
+      - Sources/Feed/**
+      - cmuxTests/**
+      - Packages/macOS/CMUXAgentLaunch/**
+      - .github/workflows/test-depot.yml
+      - Sources/AgentJournalLifecycleCenter*.swift
+      - .github/workflows/agent-notification-tests.yml
+permissions:
+  contents: read
+jobs:
+  agent-notification-tests:
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Test semantic lifecycle and durable notification admission
+        run: swift test --package-path Packages/macOS/CmuxAgentJournal -Xswiftc -warnings-as-errors
+      - name: Test immutable Feed ingestion
+        run: swift test --package-path Packages/macOS/CMUXAgentLaunch --filter Workstream -Xswiftc -warnings-as-errors
+
+  semantic-delivery-integration:
+    needs: agent-notification-tests
+    uses: ./.github/workflows/test-depot.yml
+    with:
+      ref: ${{ github.event.pull_request.head.sha }}
+      skip_ui_tests: true
+      # CLICodexResumeNotificationTests is red on main independently of this
+      # change: its seeded Stop predates the Codex turn ledger's foreground
+      # admission, the mock never answers agent.resolve_delivery_target, and its
+      # fixture timestamp has aged past the seven-day session prune.
+      unit_test_suites: AgentNotificationRegressionTests,AgentJournalLifecycleCenterTests,FeedWaiterRegistryTests,ClaudeBackgroundWorkNotifyTests,OpenCodeHookRegressionTests

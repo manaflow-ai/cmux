@@ -1,6 +1,17 @@
 public import AppKit
 
 extension NSColor {
+    /// Converts the color to sRGB before using AppKit's RGB-only component APIs.
+    ///
+    /// `getHue`, `getRed`, and the component properties raise an Objective-C
+    /// exception when called on catalog, grayscale, pattern, or other colors
+    /// that are not represented in an RGB color space. AppKit returns `nil`
+    /// when that conversion is unavailable, which gives callers a safe fallback
+    /// instead of allowing an exception to cross into SwiftUI rendering.
+    private var cmuxSRGBColor: NSColor? {
+        usingColorSpace(.sRGB)
+    }
+
     /// Creates a color from a 6-digit hex string (with or without a leading
     /// `#`), or `nil` when the string is not a valid 6-digit hex color.
     public convenience init?(hex: String) {
@@ -37,19 +48,22 @@ extension NSColor {
         var b: CGFloat = 0
         var a: CGFloat = 0
 
-        guard let rgb = usingColorSpace(.sRGB) else { return 0 }
+        guard let rgb = cmuxSRGBColor else { return 0 }
         rgb.getRed(&r, green: &g, blue: &b, alpha: &a)
         return (0.299 * r) + (0.587 * g) + (0.114 * b)
     }
 
     /// Returns a darkened copy of the color, reducing brightness by `amount`
-    /// (0...1) in HSB space.
+    /// (0...1) in HSB space. Returns the original color when it cannot be
+    /// converted to sRGB.
     public func darken(by amount: CGFloat) -> NSColor {
+        guard let rgb = cmuxSRGBColor else { return self }
+
         var h: CGFloat = 0
         var s: CGFloat = 0
         var b: CGFloat = 0
         var a: CGFloat = 0
-        getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        rgb.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
         return NSColor(
             hue: h,
             saturation: s,
@@ -60,9 +74,11 @@ extension NSColor {
 
     /// The color as a `#`-prefixed, uppercased sRGB hex string. Returns a 6-digit
     /// `#RRGGBB` string, or an 8-digit `#RRGGBBAA` string when `includeAlpha` is
-    /// `true`. The inverse of ``init(hex:)``.
+    /// `true`. The inverse of ``init(hex:)``. Returns black when the color cannot
+    /// be converted to sRGB.
     public func hexString(includeAlpha: Bool = false) -> String {
-        let color = usingColorSpace(.sRGB) ?? self
+        let fallback = includeAlpha ? "#000000FF" : "#000000"
+        guard let color = cmuxSRGBColor else { return fallback }
         var red: CGFloat = 0
         var green: CGFloat = 0
         var blue: CGFloat = 0

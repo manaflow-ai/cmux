@@ -1,5 +1,7 @@
 import XCTest
 import AppKit
+import Bonsplit
+import Testing
 import WebKit
 import ObjectiveC.runtime
 
@@ -160,7 +162,28 @@ final class CmuxWebViewDragRoutingTests: XCTestCase {
             CmuxWebView.shouldRejectInternalPaneDrag([
                 DragOverlayRoutingPolicy.bonsplitTabTransferType,
                 NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-url"),
-            ])
+            ], hasLiveTabTransfer: true)
+        )
+    }
+
+    func testResidualInternalDragTypesDoNotBlockWebKit() {
+        XCTAssertFalse(
+            CmuxWebView.shouldRejectInternalPaneDrag([
+                DragOverlayRoutingPolicy.bonsplitTabTransferType
+            ]),
+            "A stale Bonsplit UTI without a live capability must not block WebKit."
+        )
+        XCTAssertFalse(
+            CmuxWebView.shouldRejectInternalPaneDrag([
+                DragOverlayRoutingPolicy.sidebarTabReorderType
+            ]),
+            "A stale sidebar UTI without a live session must not block WebKit."
+        )
+        XCTAssertTrue(
+            CmuxWebView.shouldRejectInternalPaneDrag(
+                [DragOverlayRoutingPolicy.sidebarTabReorderType],
+                hasLiveSidebarDrag: true
+            )
         )
     }
 
@@ -235,23 +258,42 @@ final class CmuxWebViewDragRoutingTests: XCTestCase {
         )
     }
 
-    func testInternalPaneDragDoesNotReachWebKitDragLifecycle() {
-        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.internal-drag.\(UUID().uuidString)"))
-        pasteboard.clearContents()
-        pasteboard.setString("tab-transfer", forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
-        pasteboard.setString("tab-title", forType: .string)
+    func testInternalPaneDragDoesNotReachWebKitDragLifecycle() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            AppDelegate.shared = appDelegate
+            defer { AppDelegate.shared = previousAppDelegate }
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
-        let dragInfo = MockDraggingInfo(pasteboard: pasteboard)
+            let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.internal-drag.\(UUID().uuidString)"))
+            pasteboard.clearContents()
+            let registration = try #require(
+                appDelegate.tabDragTransferRegistry.register(
+                    TabDragTransfer(
+                        tab: Tab(title: "Internal drag", kind: "terminal"),
+                        sourcePaneId: PaneID()
+                    )
+                )
+            )
+            #expect(registration.write(to: pasteboard))
+            pasteboard.setString("tab-title", forType: .string)
+            defer {
+                appDelegate.tabDragTransferRegistry.end(registration)
+                pasteboard.clearContents()
+            }
 
-        cmuxUnitTestWKWebViewDragLifecycleEvents = []
-        XCTAssertEqual(webView.draggingEntered(dragInfo), [])
-        XCTAssertEqual(webView.draggingUpdated(dragInfo), [])
-        XCTAssertFalse(webView.prepareForDragOperation(dragInfo))
-        XCTAssertFalse(webView.performDragOperation(dragInfo))
-        webView.concludeDragOperation(dragInfo)
+            let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+            let dragInfo = MockDraggingInfo(pasteboard: pasteboard)
 
-        XCTAssertEqual(cmuxUnitTestWKWebViewDragLifecycleEvents, [])
+            cmuxUnitTestWKWebViewDragLifecycleEvents = []
+            XCTAssertEqual(webView.draggingEntered(dragInfo), [])
+            XCTAssertEqual(webView.draggingUpdated(dragInfo), [])
+            XCTAssertFalse(webView.prepareForDragOperation(dragInfo))
+            XCTAssertFalse(webView.performDragOperation(dragInfo))
+            webView.concludeDragOperation(dragInfo)
+
+            XCTAssertEqual(cmuxUnitTestWKWebViewDragLifecycleEvents, [])
+        }
     }
 }
 

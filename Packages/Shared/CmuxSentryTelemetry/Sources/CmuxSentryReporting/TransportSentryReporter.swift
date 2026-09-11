@@ -5,19 +5,23 @@ internal import os
 
 /// Bridges the transport diagnostic event stream into Sentry so any user's
 /// connection failure is diagnosable remotely, on both the iOS client and the
-/// macOS host.
+/// macOS host. Simulator streaming/control events use the same integer-only
+/// diagnostic ring and are delivered under a separate `simulator` telemetry
+/// namespace.
 ///
 /// Wire an instance as the ``CMUXMobileCore/DiagnosticLog`` event tap from the
 /// composition root. Each retained event becomes:
 ///
-/// 1. A Sentry **breadcrumb** (category `transport`), so every subsequent
-///    event — including crashes, hangs, and watchdog kills — carries the
-///    recent connection timeline.
-/// 2. A budget-limited Sentry **structured log** line (when the SDK started
-///    with `enableLogs`), searchable without waiting for an error.
-/// 3. When it crosses ``CMUXMobileCore/TransportIncidentPolicy``'s capture
+/// 1. A Sentry **breadcrumb** (category `transport`, `simulator`, or `app`), so
+///    every subsequent event, including crashes, hangs, and watchdog kills,
+///    carries the recent connection and feature timeline.
+/// 2. When it crosses ``CMUXMobileCore/TransportIncidentPolicy``'s capture
 ///    gates, a Sentry **event** fingerprinted by the failure signature and
 ///    carrying the plain-language diagnostic timeline as an attachment.
+///
+/// Production composition disables structured log delivery and individual
+/// failure captures. The remaining Sentry events are sustained outage
+/// escalations, while breadcrumbs preserve the diagnostic timeline.
 ///
 /// Privacy: everything sent derives from the fixed integer diagnostic
 /// taxonomy, so no free text, peer identity, address, account, or terminal
@@ -88,6 +92,11 @@ public final class TransportSentryReporter: Sendable {
         var logBudget: TransportTelemetryLogBudget
     }
 
+    private struct TelemetryNamespace: Sendable {
+        let name: String
+        let attributePrefix: String
+    }
+
     private let roleCode: String
     private let roleDisplayName: String
     private let exportRing: @Sendable () async -> Data
@@ -109,8 +118,8 @@ public final class TransportSentryReporter: Sendable {
     public init(
         role: DiagnosticRuntimeRole,
         exportRing: @escaping @Sendable () async -> Data,
-        incidentConfiguration: TransportIncidentPolicy.Configuration = .init(),
-        logsPerHour: Int = 300,
+        incidentConfiguration: TransportIncidentPolicy.Configuration = .init(captureIndividualFailures: false),
+        logsPerHour: Int = 0,
         delivery: Delivery = .sentry()
     ) {
         self.roleCode = DiagnosticEventPresentation().name(role)
@@ -129,18 +138,18 @@ public final class TransportSentryReporter: Sendable {
         guard delivery.isEnabled() else { return }
 
         let described = DiagnosticEventPresentation().describe(event)
-        let isFailure = TransportIncidentPolicy.failureCodes.contains(event.code)
+        let level = telemetryLevel(for: event)
 
         let (incident, logDropCount) = state.withLock { state in
             (state.policy.decide(event), state.logBudget.admit(tNanos: event.tNanos))
         }
 
-        deliverBreadcrumb(event, described: described, isFailure: isFailure)
+        deliverBreadcrumb(event, described: described, level: level)
         if let logDropCount {
             deliverLog(
                 event,
                 described: described,
-                isFailure: isFailure,
+                level: level,
                 droppedBeforeThis: logDropCount
             )
         }
@@ -152,12 +161,14 @@ public final class TransportSentryReporter: Sendable {
     private func deliverBreadcrumb(
         _ event: DiagnosticEvent,
         described: DiagnosticEventPresentation.DescribedEvent,
-        isFailure: Bool
+        level: LogLevel
     ) {
-        let crumb = Breadcrumb(level: isFailure ? .warning : .info, category: "transport")
-        crumb.type = isFailure ? "error" : "default"
+        let namespace = telemetryNamespace(for: event.code)
+        let crumb = Breadcrumb(level: sentryLevel(for: level), category: namespace.name)
+        crumb.type = level == .info ? "default" : "error"
         crumb.message = DiagnosticEventPresentation().summary(described)
         var data: [String: Any] = [
+            "diagnostic.category": namespace.name,
             "event_code": DiagnosticEventPresentation().name(event.code),
             "role": roleDisplayName,
         ]
@@ -171,25 +182,110 @@ public final class TransportSentryReporter: Sendable {
     private func deliverLog(
         _ event: DiagnosticEvent,
         described: DiagnosticEventPresentation.DescribedEvent,
-        isFailure: Bool,
+        level: LogLevel,
         droppedBeforeThis: Int
     ) {
+        let namespace = telemetryNamespace(for: event.code)
         var attributes: [String: Any] = [
-            "transport.event_code": DiagnosticEventPresentation().name(event.code),
-            "transport.role": roleDisplayName,
-            "transport.role_code": roleCode,
+            "diagnostic.category": namespace.name,
+            "\(namespace.attributePrefix).event_code": DiagnosticEventPresentation().name(event.code),
+            "\(namespace.attributePrefix).role": roleDisplayName,
+            "\(namespace.attributePrefix).role_code": roleCode,
         ]
         for field in described.fields {
-            attributes["transport.\(field.key)"] = field.value
+            attributes["\(namespace.attributePrefix).\(field.key)"] = field.value
         }
         if droppedBeforeThis > 0 {
-            attributes["transport.log_dropped_before_this"] = droppedBeforeThis
+            attributes["\(namespace.attributePrefix).log_dropped_before_this"] = droppedBeforeThis
         }
         delivery.log(
-            isFailure ? .warning : .info,
+            level,
             DiagnosticEventPresentation().summary(described),
             attributes
         )
+    }
+
+    private func telemetryNamespace(for code: DiagnosticEventCode) -> TelemetryNamespace {
+        if code.isSimulatorDiagnosticEvent {
+            return TelemetryNamespace(name: "simulator", attributePrefix: "simulator")
+        }
+        if code.isAppFeatureDiagnosticEvent {
+            return TelemetryNamespace(name: "app", attributePrefix: "app")
+        }
+        return TelemetryNamespace(name: "transport", attributePrefix: "transport")
+    }
+
+    private func sentryLevel(for level: LogLevel) -> SentryLevel {
+        switch level {
+        case .info:
+            return .info
+        case .warning:
+            return .warning
+        case .error:
+            return .error
+        }
+    }
+
+    private func telemetryLevel(for event: DiagnosticEvent) -> LogLevel {
+        if TransportIncidentPolicy.failureCodes.contains(event.code) {
+            return .warning
+        }
+        if event.code.isAppFeatureDiagnosticEvent {
+            guard let failureRaw = event.b,
+                  failureRaw != DiagnosticFailureKind.none.rawValue
+            else { return .info }
+            return .warning
+        }
+        guard event.code.isSimulatorDiagnosticEvent else {
+            return .info
+        }
+        switch event.code {
+        case .simulatorStreamLifecycle:
+            guard let a = event.a,
+                  let state = DiagnosticSimulatorStreamLifecycle(rawValue: a)
+            else { return .warning }
+            switch state {
+            case .locked, .startFailed, .stopFailed, .stalled:
+                return .warning
+            case .startRequested, .started, .stopRequested, .stopped,
+                 .closed, .restartRequested, .pausedForBackground,
+                 .descriptorApplied:
+                return .info
+            }
+        case .simulatorFrameLifecycle:
+            guard let a = event.a,
+                  let state = DiagnosticSimulatorFrameLifecycle(rawValue: a)
+            else { return .warning }
+            switch state {
+            case .readerMissing, .encodeFailed, .refused, .decodeFailed,
+                 .imageDecodeFailed, .unknownPanel:
+                return .warning
+            case .readerAttached, .copied, .sent, .cachedSent,
+                 .subscriptionReasserted, .received, .staleIgnored,
+                 .imageDecoded:
+                return .info
+            }
+        case .simulatorInputLifecycle:
+            guard let a = event.a,
+                  let state = DiagnosticSimulatorInputLifecycle(rawValue: a)
+            else { return .warning }
+            switch state {
+            case .failed, .rejectedLocked, .unavailable, .invalidParameters,
+                 .panelMissing, .featureDisabled, .blockedViewOnly:
+                return .warning
+            case .queued, .sent, .accepted:
+                return .info
+            }
+        case .simulatorCoordinateMapped:
+            guard let c = event.c,
+                  let state = DiagnosticSimulatorCoordinateState(rawValue: c)
+            else { return .warning }
+            return state == .mapped ? .info : .warning
+        case .simulatorOwnershipChanged:
+            return .info
+        default:
+            return .info
+        }
     }
 
     private func captureIncident(_ incident: TransportIncidentPolicy.Incident) {

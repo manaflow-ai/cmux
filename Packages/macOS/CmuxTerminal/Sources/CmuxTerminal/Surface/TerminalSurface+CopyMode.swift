@@ -7,14 +7,53 @@ internal import Darwin
 extension TerminalSurface {
     /// Performs a Ghostty binding action string on the runtime surface.
     ///
-    /// - Returns: Whether the runtime performed the action.
+    /// - Returns: Whether the runtime performed or queued the action.
     @MainActor
     @discardableResult
     public func performBindingAction(_ action: String) -> Bool {
-        guard let surface = surface else { return false }
-        return action.withCString { cString in
-            ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
+        if deferInputDuringRuntimeClipboardRead(
+            estimatedBytes: action.utf8.count,
+            replay: { [weak self] in
+                _ = self?.performBindingAction(action)
+            }
+        ) {
+            return true
         }
+        return performBindingActionImmediately(action)
+    }
+
+    @MainActor
+    private func performBindingActionImmediately(_ action: String) -> Bool {
+        guard let surface = surface else { return false }
+        return withRuntimeClipboardPasteIntent {
+            action.withCString { cString in
+                ghostty_surface_binding_action(
+                    surface,
+                    cString,
+                    UInt(strlen(cString))
+                )
+            }
+        }
+    }
+
+    /// Marks a synchronous native input dispatch as a potential clipboard paste.
+    ///
+    /// Clipboard reads that re-enter through the active runtime callback context
+    /// can claim this intent. Reads arriving independently, such as OSC 52, do
+    /// not participate in paste input sequencing.
+    ///
+    /// - Parameter body: The native input dispatch to perform.
+    /// - Returns: The value returned by `body`.
+    /// - Throws: Any error thrown by `body`.
+    @MainActor
+    public func withRuntimeClipboardPasteIntent<Result>(
+        _ body: () throws -> Result
+    ) rethrows -> Result {
+        guard let callbackContext = surfaceCallbackContext?
+            .takeUnretainedValue() else {
+            return try body()
+        }
+        return try callbackContext.withRuntimeClipboardPasteIntent(body)
     }
 
     /// Performs an internal binding action without treating it as user input.
@@ -25,7 +64,7 @@ extension TerminalSurface {
         defer {
             fontSizeActionObservationSuppressionDepth -= 1
         }
-        return performBindingAction(action)
+        return performBindingActionImmediately(action)
     }
 
     /// Performs a user-initiated Ghostty binding action after notifying the pane host.
@@ -33,12 +72,32 @@ extension TerminalSurface {
     /// Internal actions such as notification scroll restoration continue to use
     /// ``performBindingAction(_:)`` so they do not cancel their own pending state.
     ///
-    /// - Returns: Whether the runtime performed the action.
+    /// - Returns: Whether the runtime performed or queued the action.
     @MainActor
     @discardableResult
     public func performExplicitInputBindingAction(_ action: String) -> Bool {
         didReceiveExplicitInput()
-        return performBindingAction(action)
+        return performExplicitBindingActionAfterInputNotification(action)
+    }
+
+    @MainActor
+    private func performExplicitBindingActionAfterInputNotification(
+        _ action: String
+    ) -> Bool {
+        if deferInputDuringRuntimeClipboardRead(
+            estimatedBytes: action.utf8.count,
+            replay: { [weak self] in
+                _ = self?
+                    .performExplicitBindingActionAfterInputNotification(action)
+            }
+        ) {
+            return true
+        }
+        let handled = performBindingActionImmediately(action)
+        if handled {
+            didAcceptExplicitInput()
+        }
+        return handled
     }
 
     /// Toggles keyboard copy mode through the surface view.
@@ -51,6 +110,7 @@ extension TerminalSurface {
         let handled = surfaceView.toggleKeyboardCopyMode()
         if handled {
             setKeyboardCopyModeActive(surfaceView.isKeyboardCopyModeActive)
+            didAcceptExplicitInput()
         }
         return handled
     }

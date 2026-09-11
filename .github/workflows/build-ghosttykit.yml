@@ -13,7 +13,7 @@ jobs:
     timeout-minutes: 35
     env:
       GHOSTTYKIT_CRASH_REPORT_SUBDIR: cmux/crash
-      GHOSTTYKIT_BUILD_FLAVOR: crashsubdir-cmux-crash-sentry-off-v1
+      GHOSTTYKIT_BUILD_FLAVOR: crashsubdir-cmux-crash-sentry-off-noi18n-v2
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -102,7 +102,10 @@ jobs:
         if: steps.check-release.outputs.exists == 'false'
         run: |
           set -euo pipefail
-          cd ghostty && zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Dsentry=false -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
+          # -Di18n=false matches scripts/ensure-ghosttykit.sh: compiling the
+          # .po catalogs needs gettext's msgfmt (absent on some builders) and
+          # cmux never bundles the .mo output.
+          cd ghostty && zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Dsentry=false -Di18n=false -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
 
       - name: Package xcframework
         if: steps.check-release.outputs.exists == 'false'

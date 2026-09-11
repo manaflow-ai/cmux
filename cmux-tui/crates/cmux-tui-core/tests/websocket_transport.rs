@@ -501,10 +501,33 @@ fn clients_list_identify_resize_and_detach_across_transports() {
             "surface": surface,
             "cols": 101,
             "rows": 37,
-            "size_participating": true,
+            "size_participating": false,
         }])
     );
+    assert_eq!(mux.surface(surface).unwrap().size(), (80, 24));
+
+    send_json(
+        &mut websocket,
+        json!({
+            "id": 61,
+            "cmd": "set-client-sizing",
+            "surface": surface,
+            "enabled": true,
+            "exclusive": true,
+        }),
+    );
+    assert_eq!(read_until(&mut websocket, |value| value["id"] == 61)["ok"], true);
     assert_eq!(mux.surface(surface).unwrap().size(), (101, 37));
+
+    writeln!(unix_writer, r#"{{"id":62,"cmd":"list-clients"}}"#).unwrap();
+    let clients = read_line_until(&mut unix_reader, |value| value["id"] == 62);
+    let ws_client = clients["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|client| client["client"] == ws_id)
+        .unwrap();
+    assert_eq!(ws_client["sizes"][0]["size_participating"], true);
 
     writeln!(unix_writer, r#"{{"id":8,"cmd":"detach-client","client":{ws_id}}}"#).unwrap();
     assert_eq!(
@@ -530,6 +553,14 @@ fn clients_list_identify_resize_and_detach_across_transports() {
             saw_response = true;
         }
     }
+    assert_eq!(mux.surface(surface).unwrap().size(), (101, 37));
+
+    writeln!(
+        unix_writer,
+        r#"{{"id":63,"cmd":"set-client-sizing","surface":{surface},"enabled":true,"exclusive":true}}"#
+    )
+    .unwrap();
+    assert_eq!(read_line_until(&mut unix_reader, |value| value["id"] == 63)["ok"], true);
     assert_eq!(mux.surface(surface).unwrap().size(), (120, 40));
 
     writeln!(unix_writer, r#"{{"id":9,"cmd":"detach-client","client":{unix_id}}}"#).unwrap();
@@ -538,8 +569,15 @@ fn clients_list_identify_resize_and_detach_across_transports() {
         read_line_until(&mut unix_reader, |value| value["event"] == "detached")["surface"],
         surface
     );
-    let mut eof = String::new();
-    assert_eq!(unix_reader.read_line(&mut eof).unwrap(), 0);
+    // A subscription may already have complete event frames queued behind the
+    // detach acknowledgement. The connection must close after draining them.
+    loop {
+        let mut trailing = String::new();
+        if unix_reader.read_line(&mut trailing).unwrap() == 0 {
+            break;
+        }
+        serde_json::from_str::<Value>(&trailing).expect("trailing frame before EOF must be JSON");
+    }
 
     mux.shutdown();
     server::cleanup(&socket_path);

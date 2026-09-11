@@ -18,6 +18,9 @@ Cases:
   (e) Adding a local-path package that itself carries remote pins still fails
       (exit 1), because it changes the reachable remote set.
   (f) Case (b) passes once the matching Package.resolved diffs are included.
+  (g) Removing an Xcode product linkage passes without a lockfile diff because
+      product linkage does not change the resolved package graph.
+  (h) Changing an Xcode remote requirement still fails without a lockfile diff.
 """
 
 import os
@@ -48,6 +51,37 @@ RESOLVED_JSON = """{
   "version" : 3
 }
 """
+
+XCODE_PROJECT = """// !$*UTF8*$!
+{
+  objects = {
+    A /* Project object */ = {
+      isa = PBXProject;
+      packageReferences = (
+        B /* XCRemoteSwiftPackageReference \"sentry-cocoa\" */,
+      );
+    };
+    B /* XCRemoteSwiftPackageReference \"sentry-cocoa\" */ = {
+      isa = XCRemoteSwiftPackageReference;
+      repositoryURL = \"https://github.com/getsentry/sentry-cocoa.git\";
+      requirement = {
+        kind = upToNextMajorVersion;
+        minimumVersion = 9.3.0;
+      };
+    };
+    C /* Sentry */ = {
+      isa = XCSwiftPackageProductDependency;
+      package = B /* XCRemoteSwiftPackageReference \"sentry-cocoa\" */;
+      productName = Sentry;
+    };
+  };
+}
+"""
+
+XCODE_PROJECT_PATH = "cmux.xcodeproj/project.pbxproj"
+XCODE_LOCKFILE_PATH = (
+    "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+)
 
 
 def write_text(path, contents):
@@ -120,6 +154,8 @@ def make_base_repo(repo):
         ),
         RESOLVED_JSON,
     )
+    write_text(os.path.join(repo, XCODE_PROJECT_PATH), XCODE_PROJECT)
+    write_text(os.path.join(repo, XCODE_LOCKFILE_PATH), RESOLVED_JSON)
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "base")
 
@@ -217,6 +253,31 @@ def bump_remote_requirement(repo):
     )
 
 
+def remove_xcode_product_linkage(repo):
+    project_path = os.path.join(repo, XCODE_PROJECT_PATH)
+    with open(project_path, encoding="utf-8") as handle:
+        project = handle.read()
+    product_link = (
+        '      package = B /* XCRemoteSwiftPackageReference "sentry-cocoa" */;\n'
+    )
+    if product_link not in project:
+        raise AssertionError("Xcode product linkage fixture is missing")
+    write_text(project_path, project.replace(product_link, ""))
+
+
+def change_xcode_remote_requirement(repo):
+    project_path = os.path.join(repo, XCODE_PROJECT_PATH)
+    with open(project_path, encoding="utf-8") as handle:
+        project = handle.read()
+    old_requirement = "        minimumVersion = 9.3.0;"
+    if old_requirement not in project:
+        raise AssertionError("Xcode package requirement fixture is missing")
+    write_text(
+        project_path,
+        project.replace(old_requirement, "        minimumVersion = 9.4.0;"),
+    )
+
+
 def touch_all_lockfiles(repo):
     bumped = RESOLVED_JSON.replace("1.1.0", "1.2.0")
     for lockfile in (
@@ -273,6 +334,16 @@ def main():
         "(f) added remote dependency passes with matching lockfile diffs",
         scenario(add_remote_package_with_lockfiles),
         0,
+    )
+    ok &= expect(
+        "(g) removing an Xcode product linkage needs no lockfile diff",
+        scenario(remove_xcode_product_linkage),
+        0,
+    )
+    ok &= expect(
+        "(h) changing an Xcode remote requirement still needs a lockfile diff",
+        scenario(change_xcode_remote_requirement),
+        1,
     )
 
     if not ok:

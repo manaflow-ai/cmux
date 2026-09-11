@@ -11,6 +11,9 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
     /// The account-and-build-scoped app-instance UUID.
     public let appInstanceID: String
 
+    /// Exact installed-app namespace sent to every broker request.
+    public let clientNamespace: String
+
     /// The release channel or tagged-build scope registered with the broker.
     public let tag: String
 
@@ -61,6 +64,7 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
         accountID: String,
         deviceID: String,
         appInstanceID: String,
+        clientNamespace: String,
         tag: String,
         displayName: String?,
         identity: CmxIrohIdentityMaterial,
@@ -73,6 +77,7 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
         self.accountID = accountID
         self.deviceID = cmxCanonicalDeviceID(deviceID)
         self.appInstanceID = appInstanceID.lowercased()
+        self.clientNamespace = clientNamespace
         self.tag = tag
         self.displayName = displayName
         self.identity = identity

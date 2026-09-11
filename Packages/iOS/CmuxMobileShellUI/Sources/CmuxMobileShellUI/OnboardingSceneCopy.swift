@@ -14,11 +14,15 @@ struct OnboardingSceneCopy: View {
                 alignment: alignment
             )
 
+            // The body reserves its full two-line cap so pages with one-line
+            // and two-line copy hand the visual an identical remaining height
+            // (the device frames then render the same size on every page).
             OnboardingBalancedText(
                 message,
                 role: .body,
                 alignment: alignment,
-                maximumNumberOfLines: 2
+                maximumNumberOfLines: 2,
+                reservesMaximumLines: true
             )
         }
         .frame(maxWidth: .infinity, alignment: alignment == .leading ? .leading : .center)

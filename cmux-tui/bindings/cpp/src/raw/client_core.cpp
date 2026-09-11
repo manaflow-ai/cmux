@@ -4,9 +4,12 @@
 #include <chrono>
 #include <mutex>
 #include <utility>
+#include <sys/un.h>
+#include <unistd.h>
 #include <vector>
 
 #include "cmux/raw/generated/commands.hpp"
+#include "socket_path_internal.hpp"
 
 namespace cmux::raw {
 namespace detail {
@@ -265,11 +268,46 @@ Result<ClientCore> ClientCore::connect(ClientOptions options) {
             return std::move(path).error();
         }
         auto resolved_path = std::move(path).value();
+        const bool implicit_path = options.socket_path.empty() && socket_path_from_environment().empty();
+        const bool hashed_path = ::cmux::detail::is_hashed_socket_path_for_uid(
+            resolved_path, static_cast<unsigned long>(::getuid()));
+        std::string legacy_path;
+        if (implicit_path && hashed_path) {
+            legacy_path = "/tmp/cmux-tui-" +
+                std::to_string(static_cast<unsigned long>(::getuid())) + "/" +
+                options.session + ".sock";
+            if (legacy_path.size() >= sizeof(sockaddr_un{}.sun_path)) {
+                legacy_path.clear();
+            }
+        }
+        auto effective_path = std::make_shared<std::string>(resolved_path);
+        const bool has_legacy_path = !legacy_path.empty();
+        control_factory = [effective_path, legacy_path = std::move(legacy_path), timeout = options.timeout,
+                           limits = options.transport_limits]() mutable -> Result<std::unique_ptr<Transport>> {
+            auto first = UnixTransport::connect(*effective_path, timeout, limits);
+            if (first || legacy_path.empty() ||
+                (first.error().system_errno != ENOENT &&
+                 first.error().system_errno != ECONNREFUSED)) {
+                return first;
+            }
+            auto fallback = UnixTransport::connect(legacy_path, timeout, limits);
+            if (fallback) {
+                *effective_path = legacy_path;
+            }
+            return fallback;
+        };
         options.socket_path = resolved_path;
-        control_factory = unix_transport_factory(
-            std::move(resolved_path),
-            options.timeout,
-            options.transport_limits);
+        if (!has_legacy_path) {
+            control_factory = unix_transport_factory(
+                std::move(resolved_path), options.timeout, options.transport_limits);
+        }
+        if (has_legacy_path && !options.stream_transport_factory) {
+            auto stream_path = effective_path;
+            options.stream_transport_factory = [stream_path, timeout = options.timeout,
+                                                limits = options.transport_limits]() {
+                return UnixTransport::connect(*stream_path, timeout, limits);
+            };
+        }
     }
     TransportFactory stream_factory = options.stream_transport_factory;
     if (!stream_factory) {

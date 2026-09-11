@@ -615,18 +615,29 @@ async function sanitizeStartOptions(provider: string, cwd: string, raw: Record<s
 
 function filterOptions(raw: Record<string, OptionValue>, catalog: SessionOption[]): Record<string, OptionValue> {
   const byId = new Map(catalog.map((o) => [o.id, o]));
+  const modelOption = byId.get("model");
+  const requestedModel = typeof raw.model === "string"
+    ? modelOption?.choices?.find((choice) => choice.value === raw.model && !choice.disabled)
+    : undefined;
   const out: Record<string, OptionValue> = {};
   for (const [id, value] of Object.entries(raw)) {
     const option = byId.get(id);
     if (!option) continue;
     if (option.kind === "toggle" && typeof value === "boolean") out[id] = value;
-    if (option.kind === "select" && typeof value === "string" && option.choices?.some((c) => c.value === value && !c.disabled)) out[id] = value;
+    const choices = option.role === "effort" && requestedModel
+      ? requestedModel.efforts ?? []
+      : option.choices ?? [];
+    if (option.kind === "select" && typeof value === "string" && choices.some((c) => c.value === value && !c.disabled)) out[id] = value;
   }
   return out;
 }
 
 function fallbackOptions(provider: string): SessionOption[] {
   return adapters.get(provider)?.capabilities?.options ?? [];
+}
+
+function isOffLikeEffort(value: string): boolean {
+  return /^(off|none|no[-_ ]?reasoning)$/i.test(value);
 }
 
 function mergeRemoteModelOptions(provider: string, options: SessionOption[], remote = agentModelCatalog.provider(provider)): SessionOption[] {
@@ -636,7 +647,25 @@ function mergeRemoteModelOptions(provider: string, options: SessionOption[], rem
   const choices: import("./types").OptionChoice[] = remote.models.map((entry) => {
     const reported = binary.get(entry.id);
     binary.delete(entry.id);
-    return { ...reported, value: entry.id, label: entry.label, description: entry.description ?? reported?.description };
+    const efforts = entry.efforts
+      ?.filter((effort) => !isOffLikeEffort(effort.value))
+      .map((effort) => ({
+        value: effort.value,
+        label: effort.label,
+        description: effort.description,
+      }));
+    return {
+      ...reported,
+      value: entry.id,
+      label: entry.label,
+      description: entry.description ?? reported?.description,
+      ...(efforts?.length ? {
+        efforts,
+        defaultEffort: efforts.some((effort) => effort.value === entry.defaultEffort)
+          ? entry.defaultEffort
+          : efforts[0]!.value,
+      } : {}),
+    };
   });
   choices.push(...binary.values());
   const current = typeof model?.value === "string" ? choices.find((choice) => choice.value === model.value && !choice.disabled) : undefined;

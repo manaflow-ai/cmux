@@ -44,13 +44,9 @@ package struct SimulatorPOSIXProcessLauncher: Sendable {
 
         if let currentDirectoryURL {
             try currentDirectoryURL.path.withCString { path in
-                let status: Int32
-                if #available(macOS 26.0, *) {
-                    status = posix_spawn_file_actions_addchdir(&fileActions, path)
-                } else {
-                    status = posix_spawn_file_actions_addchdir_np(&fileActions, path)
-                }
-                try throwPOSIXErrorIfNeeded(status)
+                try throwPOSIXErrorIfNeeded(
+                    posix_spawn_file_actions_addchdir_np(&fileActions, path)
+                )
             }
         }
 

@@ -382,9 +382,9 @@ enum BrowserProfileAutomation {
     }
 
     @MainActor
-    private static func liveBrowserPanelCount(profileID: UUID) -> Int {
+    static func liveBrowserPanelCount(profileID: UUID) -> Int {
         guard let app = AppDelegate.shared else { return 0 }
-        return app.mainWindowContexts.values.reduce(0) { contextCount, context in
+        let workspaceCount = app.mainWindowContexts.values.reduce(0) { contextCount, context in
             contextCount + context.tabManager.tabs.reduce(0) { workspaceCount, workspace in
                 workspaceCount + workspace.panels.values.reduce(0) { panelCount, panel in
                     guard let browserPanel = panel as? BrowserPanel,
@@ -395,6 +395,16 @@ enum BrowserProfileAutomation {
                 }
             }
         }
+        let dockCount = DockSplitStore.liveStores.reduce(0) { count, dock in
+            count + dock.panels.values.reduce(0) { panelCount, panel in
+                guard let browserPanel = panel as? BrowserPanel,
+                      browserPanel.profileID == profileID else {
+                    return panelCount
+                }
+                return panelCount + 1
+            }
+        }
+        return workspaceCount + dockCount
     }
 }
 

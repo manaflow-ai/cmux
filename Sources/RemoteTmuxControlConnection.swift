@@ -195,6 +195,25 @@ final class RemoteTmuxControlConnection {
     var lastSizingSendAt: ContinuousClock.Instant?
     var pendingPostAttachAction: PostAttachAction?
 
+    /// Session-scoped environment pairs identifying the local mirror, pushed to
+    /// the remote tmux session on every attach AND reconnect (issue #833).
+    /// Session scope (`set-environment -t`) is deliberate: the shell-integration
+    /// pull path runs a session-scoped `show-environment`, which does not see
+    /// global (`-g`) values. Set by the controller when the mirror workspace is
+    /// created; empty until then (and for non-mirror consumers).
+    private(set) var mirrorEnvironment: [String: String] = [:]
+
+    /// Replaces the identity pairs pushed by ``pushMirrorSessionEnvironment()``.
+    /// A connection that already passed its post-attach point (a reused,
+    /// still-connected connection) pushes the fresh pairs immediately;
+    /// otherwise the pending post-attach drain pushes them.
+    func setMirrorEnvironment(_ pairs: [String: String]) {
+        mirrorEnvironment = pairs
+        if connectionState == .connected, attachBlockDrained, pendingPostAttachAction == nil {
+            pushMirrorSessionEnvironment()
+        }
+    }
+
     /// Trailing-edge debounce for `refresh-client -C`. SwiftUI layout settle makes the
     /// rendered grid oscillate (e.g. cols 154→155→156→161→…, ~15 distinct grids in
     /// ~1.3s), and each previously sent its own `refresh-client -C` → ~15 SIGWINCH /

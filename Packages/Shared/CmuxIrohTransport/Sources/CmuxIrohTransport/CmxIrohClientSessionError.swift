@@ -26,4 +26,9 @@ public enum CmxIrohClientSessionError: Error, Equatable, Sendable {
 
     /// This protocol configuration has no production owner for application lanes.
     case applicationLanesUnavailable
+
+    /// One public or private endpoint dial exceeded its cancellable phase bound.
+    /// This is distinct from an established-transport idle timeout: no
+    /// authenticated connection existed when the deadline fired.
+    case dialTimedOut
 }
