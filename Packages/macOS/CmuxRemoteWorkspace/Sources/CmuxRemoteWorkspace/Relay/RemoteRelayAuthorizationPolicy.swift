@@ -32,6 +32,11 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "pane.resize",
     ]
 
+    private static let viewportMethods: Set<String> = [
+        "terminal.viewport.set",
+        "terminal.viewport.reset",
+    ]
+
     private static let allowedMethods: Set<String> = Set([
         "system.ping",
         "system.capabilities",
@@ -59,7 +64,7 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "agent.resolve_delivery_target",
         "notification.create",
         "notification.create_for_target",
-    ]).union(tmuxCompatibleMethods)
+    ]).union(tmuxCompatibleMethods).union(viewportMethods)
 
     private static let workspaceRequiredMethods: Set<String> = Set([
         "workspace.current",
@@ -83,7 +88,7 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "surface.ports_kick",
         "notification.create",
         "notification.create_for_target",
-    ]).union(tmuxCompatibleMethods)
+    ]).union(tmuxCompatibleMethods).union(viewportMethods)
 
     private static let surfaceRequiredMethods: Set<String> = [
         "workspace.remote.terminal_session_launching",
@@ -96,6 +101,8 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "agent.restore.release",
         "surface.read_text",
         "surface.read_selection",
+        "terminal.viewport.set",
+        "terminal.viewport.reset",
         "notification.create_for_target",
         "surface.split",
         "surface.respawn",
@@ -210,6 +217,23 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
                 code: "remote_relay_surface_denied",
                 message: "Relay tmux-compat surface methods require an explicit surface_id selector"
             )
+        }
+
+        // Viewport handlers consume these exact keys. Other validated aliases
+        // must not authorize a request that could fall back to focused routing.
+        if Self.viewportMethods.contains(method) {
+            guard parameters["workspace_id"] is String else {
+                return .denied(
+                    code: "remote_relay_workspace_denied",
+                    message: "Relay viewport methods require an explicit workspace_id selector"
+                )
+            }
+            guard parameters["surface_id"] is String else {
+                return .denied(
+                    code: "remote_relay_surface_denied",
+                    message: "Relay viewport methods require an explicit surface_id selector"
+                )
+            }
         }
 
         if method == "agent.resolve_delivery_target" {
