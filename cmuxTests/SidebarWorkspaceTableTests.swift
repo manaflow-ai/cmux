@@ -624,6 +624,17 @@ struct SidebarWorkspaceTableTests {
     }
 
     @Test
+    @MainActor
+    func zeroSizedShortcutHintPillKeepsLabelInsideBounds() throws {
+        let pill = SidebarShortcutHintPillView()
+        pill.layout()
+        let materialView = try #require(pill.subviews.first as? NSVisualEffectView)
+        let label = try #require(materialView.subviews.first as? NSTextField)
+
+        #expect(label.frame == .zero)
+    }
+
+    @Test
     func rowHeightEstimateAccountsForScaleWrappingAndDetails() {
         let calculator = SidebarWorkspaceTableRowHeightCalculator()
         let compact = calculator.estimatedWorkspaceHeight(

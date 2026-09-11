@@ -762,7 +762,11 @@ final class SidebarShortcutHintPillView: NSView {
         let radius = bounds.height / 2
         materialView.frame = bounds
         materialView.layer?.cornerRadius = radius
-        label.frame = materialView.bounds.insetBy(dx: Self.horizontalPadding, dy: 2)
+        let labelBounds = materialView.bounds
+        label.frame = labelBounds.insetBy(
+            dx: min(Self.horizontalPadding, labelBounds.width / 2),
+            dy: min(2, labelBounds.height / 2)
+        )
         layer?.shadowPath = CGPath(
             roundedRect: bounds,
             cornerWidth: radius,
