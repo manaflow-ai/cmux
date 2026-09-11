@@ -114,15 +114,12 @@ public struct IrxRelayCredentialPolicy: Equatable, Sendable {
             return TimeInterval(components.seconds)
                 + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
         }
-        let retryDelay = expiryDelay ?? boundedPolicyDelay
+        let effectiveRetryDelay = expiryDelay ?? boundedPolicyDelay
         // The host policy supplies the minimum cadence; credential expiry must
         // never turn a broker outage into a tighter retry loop.
-        let acceleratedDelay = max(retryDelay, boundedPolicyDelay)
+        let acceleratedDelay = max(effectiveRetryDelay, boundedPolicyDelay)
         guard let retryAfterSeconds else { return acceleratedDelay }
-        let serverFloor = min(
-            TimeInterval(CmxIrohBrokerCooldown.maximumRetryAfterSeconds),
-            TimeInterval(max(1, retryAfterSeconds))
-        )
+        let serverFloor = TimeInterval(max(1, retryAfterSeconds))
         return max(acceleratedDelay, serverFloor)
     }
 }
