@@ -4881,11 +4881,7 @@ struct CMUXCLI {
             // not activate a window as a side effect of global --window parsing.
             return false
         }
-        if normalizedCommand == "read-screen" || normalizedCommand == "read-selection" {
-            return false
-        }
-        if normalizedCommand == "workspace-font-size" {
-            // Font-size mutation preserves the user's current focus context.
+        if ["read-screen", "read-selection", "workspace-font-size"].contains(normalizedCommand) {
             return false
         }
         if normalizedCommand == "rpc",
