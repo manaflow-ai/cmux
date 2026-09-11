@@ -327,12 +327,20 @@ esac
       expect(run.status).toBe(0);
       expect(run.stdout).toContain([
         "trend      last 7 days 1,303,179 tokens, prior 7 days 400,000",
-        "workspace  chatmux 1,200,000 (70%)   ws_b 400,000 (23%)   outside a workspace 103,179 (6%)",
+        "workspace  chatmux 1,200,000 (70%)   closed workspaces 400,000 (23%)   outside a workspace 103,179 (6%)",
         "agent      claude 1,300,000 (76%)   codex 403,179 (24%)",
         "model      claude-sonnet-5 1,200,000 (70%)   gpt-5.6 403,179 (24%)   claude-haiku-4-5 100,000 (6%)",
         "",
       ].join("\n"));
       expect(run.stdout).not.toContain("sf_1");
+      expect(run.stdout).not.toContain("ws_");
+
+      // No usable name lookup (the default fake cmux-tui echoes its arguments): ids are
+      // never printed, so the workspace line is dropped and the other lines stay.
+      const noNames = runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(JSON.stringify(body)));
+      expect(noNames.stdout).not.toContain("workspace");
+      expect(noNames.stdout).not.toContain("ws_");
+      expect(noNames.stdout).toContain("agent    claude 1,300,000 (76%)   codex 403,179 (24%)");
       const json = runShim(["coderouter", "usage", "--json"], USAGE_ENV, usageCurl(JSON.stringify(body)));
       expect(JSON.parse(json.stdout).terminals).toEqual(body.terminals);
 

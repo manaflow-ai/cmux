@@ -581,11 +581,15 @@ guest_coderouter_usage_render() {
   eval "\$(jq -r '@sh "cmux_cu_period=\\(.periodDays // 30) cmux_cu_asof=\\(.asOf // "?") cmux_cu_name=\\(.displayName // .vmId // "?") cmux_cu_total=\\(.totals.totalTokens // 0)"' "\$cmux_cu_file")"
   # Workspace ids come from the ledger; their names live in this machine's
   # cmux-tui. Best effort: no daemon, or an old one, leaves the ids visible.
+  # Ids are never shown: named (live) workspaces print by name, the rest fold
+  # into one "closed workspaces" entry, and when the lookup itself fails the
+  # workspace line is dropped rather than printed as ids.
   cmux_cu_names='{}'
+  cmux_cu_names_ok=false
   if [ -x "\$CMUX_TUI_BIN" ]; then
     cmux_cu_names="\$("\$CMUX_TUI_BIN" --session "\$LOCAL_SESSION" workspace list --json 2>/dev/null \\
-      | jq -c '[.workspaces[]? | select(.id != null) | {key: .id, value: (.name // .id)}] | from_entries' 2>/dev/null || true)"
-    case "\$cmux_cu_names" in '{'*) ;; *) cmux_cu_names='{}' ;; esac
+      | jq -c '[.workspaces[]? | select(.id != null and .name != null) | {key: .id, value: .name}] | from_entries' 2>/dev/null || true)"
+    case "\$cmux_cu_names" in '{'*) cmux_cu_names_ok=true ;; *) cmux_cu_names='{}' ;; esac
   fi
   cmux_cu_bold=""; cmux_cu_dim=""; cmux_cu_reset=""
   if [ -t 1 ] && [ -z "\${NO_COLOR:-}" ]; then
@@ -601,7 +605,8 @@ guest_coderouter_usage_render() {
     --arg costNote "\$(cmux_message usageCostNote)" --arg costUnpriced "\$(cmux_message usageCostUnpriced)" \\
     --arg trendTpl "\$(cmux_message usageTrend "%1" "%2")" --argjson names "\$cmux_cu_names" \\
     --arg workspace "\$(cmux_message labelWorkspace)" --arg agentLabel "\$(cmux_message labelAgent)" --arg model "\$(cmux_message labelModel)" \\
-    --arg noWorkspace "\$(cmux_message usageNoWorkspace)" --arg moreTpl "\$(cmux_message usageMore "%1")" '
+    --arg noWorkspace "\$(cmux_message usageNoWorkspace)" --arg closedWorkspaces "\$(cmux_message usageClosedWorkspaces)" \\
+    --argjson namesOk "\$cmux_cu_names_ok" --arg moreTpl "\$(cmux_message usageMore "%1")" '
     def commas: tostring | (length - 1) as \$n
       | [range(0; length) as \$i | .[\$i:\$i+1] + (if (\$n - \$i) > 0 and ((\$n - \$i) % 3 == 0) then "," else "" end)] | join("");
     def whole: (. // 0) | floor | commas;
@@ -616,7 +621,14 @@ guest_coderouter_usage_render() {
         "\\(\$label | rpad(\$lw))  " + ([\$items[:5][] | "\\(.name) \\(.totals.totalTokens | whole)\\(.totals.totalTokens | share(\$total))"] | join("   "))
         + (if (\$items | length) > 5 then "   \\(\$dim)\\(\$moreTpl | sub("%1"; ((\$items | length) - 5 | tostring)))\\(\$reset)" else "" end) end;
     .totals as \$t
-    | ((.workspaces // []) | map({name: (if .workspaceId == null then \$noWorkspace else (\$names[.workspaceId] // .workspaceId) end), totals})) as \$ws
+    | (.workspaces // []) as \$rawWs
+    | (\$rawWs | map(select(.workspaceId != null and \$names[.workspaceId] != null) | {name: \$names[.workspaceId], totals})) as \$namedWs
+    | (\$rawWs | map(select(.workspaceId != null and \$names[.workspaceId] == null))) as \$unnamedWs
+    | (\$rawWs | map(select(.workspaceId == null) | {name: \$noWorkspace, totals})) as \$outsideWs
+    | (if (\$unnamedWs | length) > 0 and (\$namesOk | not) then []
+       else (\$namedWs + \$outsideWs
+             + (if (\$unnamedWs | length) > 0 then [{name: \$closedWorkspaces, totals: {totalTokens: (\$unnamedWs | map(.totals.totalTokens) | add)}}] else [] end))
+            | sort_by(-.totals.totalTokens) end) as \$ws
     | ((.agents // []) | map({name: .agent, totals})) as \$ag
     | ((.models // []) | map({name: .model, totals})) as \$md
     | (.days // []) as \$all
