@@ -40,7 +40,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     private var pendingLine = Data()
     private var pendingLineSearchOffset = 0
     // This storage is queue-owned and reused for every socket read.
-    private var readBuffer = [UInt8](repeating: 0, count: Self.readChunkBytes)
+    private var readBuffer = [UInt8](repeating: 0, count: CloudTuiManualIOConnection.readChunkBytes)
     private var pendingWrites: [Data] = []
     private var pendingWriteOffset = 0
     private var pendingWriteBytes = 0
