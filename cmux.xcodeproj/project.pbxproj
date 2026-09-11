@@ -2942,7 +2942,6 @@
 		C0DE00000000000000000C86 /* TerminalController+ControlSurfaceDock.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C85 /* TerminalController+ControlSurfaceDock.swift */; };
 		8126BEEF0000000000000001 /* TerminalController+ControlSurfaceGitContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8126BEEF0000000000000002 /* TerminalController+ControlSurfaceGitContext.swift */; };
 		C51A73000000000000000301 /* TerminalController+ControlSurfacePanelType.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73000000000000000302 /* TerminalController+ControlSurfacePanelType.swift */; };
-		4D1C45F0D885060882EF5093 /* TerminalController+ControlSurfaceRestoreRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DD8CB08491323C4AFEC2787 /* TerminalController+ControlSurfaceRestoreRecord.swift */; };
 		C0DE00000000000000000C7A /* TerminalController+ControlSystemContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C79 /* TerminalController+ControlSystemContext.swift */; };
 		C0DE00000000000000000C7C /* TerminalController+ControlSystemContext2.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C7B /* TerminalController+ControlSystemContext2.swift */; };
 		93300003A1B2C3D4E5F60718 /* TerminalController+ControlTerminalBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93300004A1B2C3D4E5F60718 /* TerminalController+ControlTerminalBinding.swift */; };
@@ -6427,7 +6426,6 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		C0DE00000000000000000C85 /* TerminalController+ControlSurfaceDock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSurfaceDock.swift"; sourceTree = "<group>"; };
 		8126BEEF0000000000000002 /* TerminalController+ControlSurfaceGitContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSurfaceGitContext.swift"; sourceTree = "<group>"; };
 		C51A73000000000000000302 /* TerminalController+ControlSurfacePanelType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSurfacePanelType.swift"; sourceTree = "<group>"; };
-		1DD8CB08491323C4AFEC2787 /* TerminalController+ControlSurfaceRestoreRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSurfaceRestoreRecord.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C79 /* TerminalController+ControlSystemContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSystemContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C7B /* TerminalController+ControlSystemContext2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSystemContext2.swift"; sourceTree = "<group>"; };
 		93300004A1B2C3D4E5F60718 /* TerminalController+ControlTerminalBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlTerminalBinding.swift"; sourceTree = "<group>"; };
@@ -9466,7 +9464,6 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				31B04B98376C9BA8B9E44DCB /* TerminalViewportUITestRecorder.swift */,
 				A36A5D72167E9864FC9EBD8D /* Workspace+SessionSnapshotProjection.swift */,
 				C082F12A68F721A58BCF82A4 /* ControlSurfaceResumeTarget+BindingSanitization.swift */,
-				1DD8CB08491323C4AFEC2787 /* TerminalController+ControlSurfaceRestoreRecord.swift */,
 				06EBC8AC18D6CB2E0C10CBA8 /* SurfaceResumeBindingSnapshot+WorkingDirectory.swift */,
 				B0585E5669F0C3945B3BAB02 /* SurfaceResumeBindingSnapshot+RestoreInput.swift */,
 				D0C2DEE58D119E3588D1DEBE /* TerminalNotificationOrigin.swift */,
@@ -13041,7 +13038,6 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0DE00000000000000000C86 /* TerminalController+ControlSurfaceDock.swift in Sources */,
 				8126BEEF0000000000000001 /* TerminalController+ControlSurfaceGitContext.swift in Sources */,
 				C51A73000000000000000301 /* TerminalController+ControlSurfacePanelType.swift in Sources */,
-				4D1C45F0D885060882EF5093 /* TerminalController+ControlSurfaceRestoreRecord.swift in Sources */,
 				C0DE00000000000000000C7A /* TerminalController+ControlSystemContext.swift in Sources */,
 				C0DE00000000000000000C7C /* TerminalController+ControlSystemContext2.swift in Sources */,
 				93300003A1B2C3D4E5F60718 /* TerminalController+ControlTerminalBinding.swift in Sources */,

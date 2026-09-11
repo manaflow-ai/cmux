@@ -279,27 +279,6 @@ extension DockSplitStore {
             }
         }
     }
-    func markRestoredAgentCompleted(panelId: UUID) {
-        // A live completion belongs to the current session generation. Keep
-        // older cached metadata invalidated, but no longer classify this
-        // current tombstone as the cached generation that was replaced.
-        replacedCachedTransferAgentSessionPanelIds.remove(panelId)
-        let runtimeIdentities = Set(
-            (agentRuntimeByPanelId[panelId]
-                ?? detachedSurfaceTransfersByPanelId[panelId]?.agentRuntime)?
-                .agentPIDProcessIdentities.values.map { $0 } ?? []
-        )
-        restoredAgentLifecycle.markCompleted(
-            panelId: panelId,
-            observation: SharedLiveAgentIndex.shared.index?.entry(
-                workspaceId: detachedSurfaceTransfersByPanelId[panelId]?.sessionRestoreWorkspaceId
-                    ?? workspaceId,
-                panelId: panelId
-            ),
-            runtimeProcessIdentities: runtimeIdentities
-        )
-    }
-
     func agentRuntimeStatusEntry(key: String, panelId: UUID) -> SidebarStatusEntry? {
         agentRuntimeByPanelId[panelId]?.statusEntries[key]
     }
