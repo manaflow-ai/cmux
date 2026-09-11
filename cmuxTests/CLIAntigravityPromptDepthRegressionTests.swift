@@ -662,6 +662,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             )
             XCTAssertGreaterThan(newerRevision, firstRevision)
 
+            let commandCountBeforeRelease = context.state.snapshot().count
             try FileManager.default.removeItem(atPath: barrier)
             wait(for: [terminalEventFinished], timeout: 5)
 
@@ -673,6 +674,28 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertEqual(
                 (finalRecord["promptLifecycleRevision"] as? NSNumber)?.int64Value,
                 newerRevision
+            )
+            let delayedCommands = Array(context.state.snapshot().dropFirst(commandCountBeforeRelease))
+            XCTAssertFalse(
+                AgentJournalAppendCapture.contains(
+                    delayedCommands,
+                    kind: "agent.turn.completed",
+                    agentKey: "antigravity",
+                    sessionId: sessionId
+                ),
+                "A fenced \(event.name) must not journal completion for the newer prompt"
+            )
+            XCTAssertFalse(
+                delayedCommands.contains { $0.contains(#""method":"feed.push""#) },
+                "A fenced \(event.name) must not publish completion to Feed"
+            )
+            XCTAssertFalse(
+                delayedCommands.contains { $0.hasPrefix("notify") },
+                "A fenced \(event.name) must not send a completion notification"
+            )
+            XCTAssertFalse(
+                delayedCommands.contains { $0.hasPrefix("set_status antigravity ") },
+                "A fenced \(event.name) must not replace the newer running status"
             )
         }
     }
