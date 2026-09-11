@@ -23711,16 +23711,19 @@ struct CMUXCLI {
     }
 
     private func createClaudeNodeOptionsRestoreModule() throws -> URL {
-        let rawTemporaryDirectory = ProcessInfo.processInfo.environment["TMPDIR"]?
+        // Must match the guard_dir in Resources/bin/cmux-claude-wrapper. NODE_OPTIONS
+        // outlives the session, so this cannot live under TMPDIR, and the path has to
+        // keep "/cmux-" for isCmuxNodeOptionsRestoreModulePath to recognise it.
+        let overrideDirectory = ProcessInfo.processInfo.environment["CMUX_NODE_OPTIONS_DIR"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let temporaryDirectory: String
-        if let rawTemporaryDirectory, !rawTemporaryDirectory.isEmpty {
-            temporaryDirectory = rawTemporaryDirectory
+        let root: URL
+        if let overrideDirectory, !overrideDirectory.isEmpty {
+            root = URL(fileURLWithPath: overrideDirectory, isDirectory: true)
         } else {
-            temporaryDirectory = NSTemporaryDirectory()
+            root = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".cmux", isDirectory: true)
+                .appendingPathComponent("cmux-node-options", isDirectory: true)
         }
-        let root = URL(fileURLWithPath: temporaryDirectory, isDirectory: true)
-            .appendingPathComponent("cmux-claude-node-options", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: nil)
         let restoreModuleURL = root.appendingPathComponent("restore-node-options.cjs", isDirectory: false)
         try writeShimIfChanged(Self.claudeNodeOptionsRestoreModule, to: restoreModuleURL)

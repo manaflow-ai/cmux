@@ -848,8 +848,16 @@ exec_real_claude_passthrough() {
 REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
 
 ensure_node_options_restore_module() {
-    local guard_dir="${TMPDIR:-/tmp}"
-    guard_dir="${guard_dir%/}/cmux-claude-node-options"
+    # NODE_OPTIONS is inherited by every descendant for the life of the session, so
+    # the module it points at has to outlive the session. TMPDIR is swept, and once
+    # the file goes missing node refuses to start any script at all.
+    # Two constraints on this path, both load-bearing:
+    #   - no spaces, because node splits NODE_OPTIONS on whitespace, so a
+    #     --require= under "Application Support" breaks every node process instead
+    #   - it must still contain "/cmux-", which is how
+    #     isCmuxNodeOptionsRestoreModulePath recognises our own shim when stripping
+    #     injected flags on restore
+    local guard_dir="${CMUX_NODE_OPTIONS_DIR:-${HOME}/.cmux/cmux-node-options}"
     local guard_path="$guard_dir/restore-node-options.cjs"
     mkdir -p "$guard_dir" || return 1
     local temp_path
