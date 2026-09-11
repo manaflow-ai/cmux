@@ -20,6 +20,14 @@ const shortcutChordExample = `{
   }
 }`;
 
+const pluginShortcutExample = `{
+  "shortcuts": {
+    "pluginBindings": {
+      "plugin.dev.example.plugin.open-dashboard": "cmd+shift+d"
+    }
+  }
+}`;
+
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   return auditedDocsMetadata({
@@ -52,6 +60,13 @@ export default function KeyboardShortcutsPage() {
         <li>{t("chordsRuleArray")}</li>
         <li>{t("chordsRuleSyntax")}</li>
       </ul>
+
+      <DocsHeading level={2} id="plugin-shortcuts" className="scroll-mt-24">
+        {t("pluginTitle")}
+      </DocsHeading>
+      <p>{t("pluginIntro")}</p>
+      <Callout type="info">{t("pluginCallout")}</Callout>
+      <CodeBlock title="cmux.json" lang="json">{pluginShortcutExample}</CodeBlock>
 
       <KeyboardShortcuts />
     </>

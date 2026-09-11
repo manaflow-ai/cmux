@@ -21,7 +21,7 @@ final class HostSettingsActions: SettingsHostActions {
     private let computerUseRuntimeService: ComputerUseRuntimeService
     private var runComputerUseOnboardingAction:
         @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void = { _ in }
-
+    let pluginRuntime: CmuxPluginRuntime
     /// Serializes font-size config writes so rapid slider saves persist in order.
     private let fontConfigWriter = FontConfigWriter()
 
@@ -51,12 +51,10 @@ final class HostSettingsActions: SettingsHostActions {
     /// task behind.
     private var notificationSoundPreviewTask: Task<Void, Never>?
 
-    init(
-        configFileURL: URL,
-        computerUseRuntimeService: ComputerUseRuntimeService
-    ) {
+    init(configFileURL: URL, computerUseRuntimeService: ComputerUseRuntimeService, pluginRuntime: CmuxPluginRuntime) {
         self.configFileURL = configFileURL
         self.computerUseRuntimeService = computerUseRuntimeService
+        self.pluginRuntime = pluginRuntime
         startObservingAppIconMode()
     }
 

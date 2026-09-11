@@ -418,7 +418,7 @@ extension CmuxEventBus {
         if let result {
             payload["result"] = result
         }
-
+        if phase == "received" { publishPluginLifecycleProjection(event, payload: payload) }
         publish(
             name: "agent.hook.\(event.hookEventName.rawValue)",
             category: "agent",

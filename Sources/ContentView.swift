@@ -876,6 +876,7 @@ struct ContentView: View {
     @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     @EnvironmentObject var fileExplorerState: FileExplorerState
+    @Environment(\.cmuxPluginRuntime) var pluginRuntime
     @Environment(\.colorScheme) private var colorScheme
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
@@ -941,7 +942,7 @@ struct ContentView: View {
     @State private var isSidebarResizerCursorActive = false
     @State private var sidebarResizerCursorStabilizer = MainActorRepeatingActionScheduler()
     @State private var isCommandPalettePresented = false
-    @State private var commandPaletteQuery: String = ""
+    @State var commandPaletteQuery: String = ""
     @State private var commandPaletteMode: CommandPaletteMode = .commands
     @State private var commandPaletteRenameDraft: String = ""
     @State private var commandPaletteWorkspaceDescriptionDraft: String = ""
@@ -988,7 +989,8 @@ struct ContentView: View {
     @State private var commandPaletteForkableAgentProbeResultExpiryScheduler = MainActorDeferredActionScheduler()
     @State private var isCommandPaletteSearchPending = false
     @State private var commandPalettePendingActivation: CommandPalettePendingActivation?
-    @State private var commandPaletteResultsRevision: UInt64 = 0
+    @State var commandPaletteResultsRevision: UInt64 = 0
+    @State var pluginSnapshotRevision: UInt64 = 0
     @State private var commandPaletteUsageHistoryByCommandId: [String: CommandPaletteUsageEntry] = [:]
     @State private var isFeedbackComposerPresented = false
     @AppStorage(AppCatalogSection().renameSelectsExistingName.userDefaultsKey)
@@ -2884,6 +2886,8 @@ struct ContentView: View {
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .sharedLiveAgentIndexDidChange)) { notification in
             refreshCommandPaletteForkableAgentAvailabilityAfterSharedIndexChange(notification)
         })
+
+        view = applyingPluginChangeObservers(to: view)
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
             sidebarSelectionState.selection = .tabs
@@ -5421,7 +5425,7 @@ struct ContentView: View {
         commandPaletteOverlayRenderModel.scheduleCommandListUpdate(commandPaletteOverlayCommandListStateSnapshot())
     }
 
-    private func scheduleCommandPaletteResultsRefresh(
+    func scheduleCommandPaletteResultsRefresh(
         query: String? = nil,
         forceSearchCorpusRefresh: Bool = false,
         preservePendingActivation: Bool = false
@@ -5663,6 +5667,7 @@ struct ContentView: View {
         var hasher = Hasher()
         hasher.combine(commandsContext.snapshot.fingerprint())
         hasher.combine(cmuxConfigStore.configRevision)
+        hasher.combine(pluginSnapshotRevision)
         return hasher.finalize()
     }
 
@@ -8461,26 +8466,14 @@ struct ContentView: View {
                 )
             )
         }
-        for action in cmuxConfigStore.paletteCustomActions() {
-            let actionTitle = sanitizeCmuxConfigPaletteText(action.title)
-            let subtitleText = action.subtitle
-                .map { sanitizeCmuxConfigPaletteText($0) }
-                .flatMap { $0.isEmpty ? nil : $0 }
-                ?? cmuxConfigDefaultSubtitle
-            contributions.append(
-                CommandPaletteCommandContribution(
-                    commandId: action.id,
-                    title: constant(actionTitle),
-                    subtitle: constant(subtitleText),
-                    keywords: action.keywords
-                )
-            )
-        }
+        contributions.append(contentsOf: pluginAndConfigPaletteContributions(
+            defaultSubtitle: cmuxConfigDefaultSubtitle
+        ))
 
         return contributions
     }
 
-    private func sanitizeCmuxConfigPaletteText(_ text: String) -> String {
+    func sanitizeCmuxConfigPaletteText(_ text: String) -> String {
         let dangerous: Set<Unicode.Scalar> = [
             "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}",
             "\u{202A}", "\u{202B}", "\u{202C}", "\u{202D}", "\u{202E}",
@@ -8491,7 +8484,7 @@ struct ContentView: View {
         return filtered.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func commandPaletteCmuxConfigIssueCommandID(_ issue: CmuxConfigIssue) -> String {
+    func commandPaletteCmuxConfigIssueCommandID(_ issue: CmuxConfigIssue) -> String {
         var hash: UInt64 = 1_469_598_103_934_665_603
         for byte in issue.id.utf8 {
             hash ^= UInt64(byte)
@@ -9315,21 +9308,10 @@ struct ContentView: View {
             }
         }
 
-        for issue in cmuxConfigStore.configurationIssues {
-            let captured = issue
-            registry.register(commandId: commandPaletteCmuxConfigIssueCommandID(issue)) {
-                openCmuxConfigIssue(captured)
-            }
-        }
-        for action in cmuxConfigStore.paletteCustomActions() {
-            let captured = action
-            registry.register(commandId: action.id) {
-                executeConfiguredAction(captured)
-            }
-        }
+        registerPluginAndConfiguredCommandPaletteHandlers(&registry)
     }
 
-    private func openCmuxConfigIssue(_ issue: CmuxConfigIssue) {
+    func openCmuxConfigIssue(_ issue: CmuxConfigIssue) {
         guard let sourcePath = issue.sourcePath,
               FileManager.default.fileExists(atPath: sourcePath) else {
             NSSound.beep()
@@ -9347,7 +9329,7 @@ struct ContentView: View {
     }
 
     @discardableResult
-    private func executeConfiguredAction(_ action: CmuxResolvedConfigAction) -> Bool {
+    func executeConfiguredAction(_ action: CmuxResolvedConfigAction) -> Bool {
         let baseCwd = configuredActionBaseCwd()
         return CmuxConfigExecutor.execute(
             action: action,

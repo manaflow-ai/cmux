@@ -41,6 +41,27 @@ struct JSONConfigStoreTests {
         #expect(parsed?["automation"] == nil)
     }
 
+    @Test func atomicUpdatesPreserveConcurrentMapEntries() async throws {
+        let (store, _, _) = makeStore()
+        let key = JSONKey<[String: String]>(id: "shortcuts.pluginBindings", defaultValue: [:])
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for index in 0..<32 {
+                group.addTask {
+                    try await store.update(key) { bindings in
+                        bindings["plugin.test.\(index)"] = "cmd+\(index)"
+                    }
+                }
+            }
+            try await group.waitForAll()
+        }
+
+        let bindings = await store.value(for: key)
+        #expect(bindings.count == 32)
+        #expect(bindings["plugin.test.0"] == "cmd+0")
+        #expect(bindings["plugin.test.31"] == "cmd+31")
+    }
+
     @Test func toleratesJSONCComments() async throws {
         let (store, fileURL, _) = makeStore()
         let json = """

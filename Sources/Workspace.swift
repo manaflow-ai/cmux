@@ -6339,7 +6339,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func updatePanelGitBranch(panelId: UUID, branch: String, isDirty: Bool) {
         let state = SidebarGitBranchState(branch: branch, isDirty: isDirty)
         let existing = panelGitBranches[panelId]
-        let branchChanged = existing?.branch != nil && existing?.branch != branch
+        let branchChanged = existing?.branch != nil && existing?.branch != state.branch
         if existing?.branch != branch || existing?.isDirty != isDirty {
             panelGitBranches[panelId] = state
         }
@@ -6354,12 +6354,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if panelId == focusedPanelId, gitBranch != state {
             gitBranch = state
         }
+        guard existing?.branch != state.branch else { return }; publishCmuxGitBranchChanged(panelId: panelId, branch: state.branch, isDirty: state.isDirty, previousBranch: existing?.branch)
     }
 
     func clearPanelGitBranch(panelId: UUID) {
-        if panelGitBranches[panelId] != nil {
-            panelGitBranches.removeValue(forKey: panelId)
-        }
+        let previous = panelGitBranches.removeValue(forKey: panelId)
         if panelPullRequests[panelId] != nil {
             panelPullRequests.removeValue(forKey: panelId)
         }
@@ -6371,6 +6370,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 pullRequest = nil
             }
         }
+        if let previous { publishCmuxGitBranchChanged(panelId: panelId, branch: nil, isDirty: nil, previousBranch: previous.branch) }
     }
 
     func updatePanelPullRequest(

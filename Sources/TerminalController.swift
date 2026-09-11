@@ -190,6 +190,9 @@ class TerminalController {
     nonisolated let socketServer: SocketControlServer
     /// App-owned discovery marker store injected into the listener event seam.
     nonisolated let socketPathMarkerStore: SocketPathMarkerStore
+    /// Narrow synchronous slot for the runtime used by blocking socket workers.
+    // Synchronous socket-worker extensions need the injected runtime without a main-actor hop.
+    nonisolated let pluginRuntimeSlot = OSAllocatedUnfairLock<CmuxPluginRuntime?>(initialState: nil)
     // Accepted-connection consumer; runs until process exit (singleton).
     private nonisolated let socketConnectionsTask: Task<Void, Never>
     /// Bounded async connection admission. The pool owns task lifetimes; an
@@ -276,7 +279,6 @@ class TerminalController {
             defaultValue: "The terminal session has ended; reopen it or create a new terminal session."
         )
     }
-
     nonisolated static var terminalInputQueueFullMessage: String {
         String(
             localized: "socket.terminal.inputQueueFull",
@@ -635,6 +637,7 @@ class TerminalController {
             }
         }
     }
+
     nonisolated static func shouldSuppressSocketCommandActivation() -> Bool {
         !currentSocketCommandFocusAllowanceStack().isEmpty
     }
@@ -1949,14 +1952,14 @@ class TerminalController {
             let trimmed = (parsedCommandEnvelope?.command ?? authorizedCommand)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let commandOrigin = commandEnvelope?.origin
+            guard let isLaunchedPlugin = await admitPluginConnection(processID: pid, isEventStreamRequest: isEventsStreamRequest(trimmed), writer: writer, runtime: pluginRuntimeSnapshot()) else { return }
             lineReader.clearLimits()
             if holdsPreauthorizationSlot {
                 holdsPreauthorizationSlot = false
                 await preauthorizationLimiter.release()
             }
-
             if isEventsStreamRequest(trimmed) {
-                if let response = authResponseIfNeeded(
+                if !isLaunchedPlugin, let response = authResponseIfNeeded(
                     for: trimmed,
                     passwordAuthorization: &passwordAuthorization
                 ) {
@@ -1964,18 +1967,16 @@ class TerminalController {
                     continue
                 }
                 // The event-bus subscription has its own bounded slow-consumer
-                // policy. Keep its legacy stream loop isolated to this admitted
+                // policy. Keep its stream loop isolated to this admitted
                 // connection task; ordinary command traffic remains async.
                 handleEventsStreamRequest(
-                    trimmed,
-                    socket: socket,
+                    trimmed, socket: socket, peerProcessID: pid, pluginAuthorizationRequired: isLaunchedPlugin, pluginRuntime: pluginRuntimeSnapshot(),
                     authorizationGeneration: authorizationGeneration,
                     authorizationRevocationSignal: authorizationRevocationSignal,
                     passwordAuthorization: passwordAuthorization
                 )
                 return
             }
-
             let result = await CmuxAutomationInvocationContext.$eventOrigin.withValue(commandOrigin) {
                 await processSocketLineAsync(
                     trimmed,
@@ -16629,7 +16630,6 @@ class TerminalController {
             workspace.terminalPanels(projectedFromPanelID: $0.id)
         }
     }
-
     deinit {
         if let browserDownloadObserver {
             NotificationCenter.default.removeObserver(browserDownloadObserver)

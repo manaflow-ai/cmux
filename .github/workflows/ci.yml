@@ -1912,6 +1912,7 @@ jobs:
             CmuxIrohTransport
             CmuxCommandPalette
             CmuxControlSocket
+            CmuxExtensionKit
             CmuxFoundation
             CmuxGit
             CmuxMobileTerminalKit

@@ -847,6 +847,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Injected before the coordinator is used; the managed-policy extension
     /// re-applies `DisableComputerUse` through it.
     var computerUseRuntimeService: ComputerUseRuntimeService?
+    /// Process-wide plugin graph owned by the app composition root and injected
+    /// into Settings, SwiftUI, shortcut routing, and the control socket.
+    /// Injected by ``cmuxApp`` before any window or socket path starts.
+    private(set) var pluginRuntime: CmuxPluginRuntime!
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
@@ -1524,6 +1528,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
         }
         CmuxTuiSurfaceProviderRegistry.shared.start(catalog: .shared)
+        // Discover user-installed plugins off the main actor. The runtime
+        // starts disabled by default; Settings approval is required before a
+        // plugin can receive events or contribute actions.
+        // Standalone test hosts can construct an AppDelegate without the
+        // SwiftUI composition root. Keep plugin discovery fail-closed until
+        // the injected runtime is available.
+        pluginRuntime?.start()
         let env = ProcessInfo.processInfo.environment
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
         let sentryStartupPolicy = MacSentryStartupPolicy(
@@ -2423,6 +2434,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillTerminate(_ notification: Notification) {
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
+        // The runtime is injected by the composition root; a partially
+        // initialized delegate must still be safe to terminate.
+        pluginRuntime?.stop()
         // Backstop for any terminate path that did not route through
         // prepareForConfirmedAppTermination(). Normal confirmed termination has already
         // persisted a fresh index before AppKit receives its reply; do not overwrite that
@@ -2502,6 +2516,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         notificationStore: TerminalNotificationStore,
         sidebarState: SidebarState,
         settingsRuntime: SettingsRuntime,
+        pluginRuntime: CmuxPluginRuntime,
         auth: MacAuthComposition,
         automationEngine: AutomationEngine,
         computerUseRuntimeService: ComputerUseRuntimeService
@@ -2519,6 +2534,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // available; adopt its coordinators so every later window shares them.
         pullRequestProbeService = tabManager.pullRequestProbeService
         self.settingsRuntime = settingsRuntime
+        self.pluginRuntime = pluginRuntime
+        pluginRuntime.configure(jsonStore: settingsRuntime.jsonStore)
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
         self.auth = auth
@@ -2605,6 +2622,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // pairedMacs backup so a fresh dev iOS build restores it (no manual host
         // entry). No-op on Release / when the flag is off.
         MacPairedMacBackupPublisher.shared.configure(auth: auth.coordinator)
+        TerminalController.shared.configurePluginRuntime(pluginRuntime)
         TerminalController.shared.attachAuth(coordinator: auth.coordinator, accountFlow: auth.accountFlow)
         TerminalController.shared.attachCaffeineController(caffeineController)
         TerminalController.shared.agentChatTranscriptService = agentChatTranscriptService
@@ -5513,6 +5531,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // (cmuxTests/AppDelegateMainWindowTestingSupport.swift, via @testable
     // import) drive the same registration paths.
     func notifyMainWindowContextsDidChange() {
+        refreshConfiguredCmuxShortcutBindingsForPlugins()
         NotificationCenter.default.post(name: .mainWindowContextsDidChange, object: self)
     }
 
@@ -10294,6 +10313,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environmentObject(cmuxConfigStore)
             .environment(\.sessionDragRegistry, sessionDragRegistry)
             .environment(\.tabDragTransferRegistry, tabDragTransferRegistry)
+            .environment(\.cmuxPluginRuntime, pluginRuntime)
             // AppKit hosts this ContentView in its own NSHostingView, which does
             // not inherit the App scene's SwiftUI environment. Inject the
             // settings runtime so `@LiveSetting` can resolve the stores it
@@ -14374,6 +14394,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func reloadCmuxConfigStores(source: String) {
         configStoreReloadCoordinator.reload(source: source)
+        refreshConfiguredCmuxShortcutBindingsForPlugins()
         reconcileSocketListenerConfiguration(source: source)
     }
 
@@ -15039,6 +15060,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                event: event,
                actions: [],
                shortcuts: configuredCmuxShortcutActions.compactMap(\.shortcut)
+                    + configuredPluginShortcutBindings(for: event)
            ) {
             return true
         }
@@ -15119,6 +15141,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             actions: configuredCmuxShortcutActions,
             context: configuredCmuxShortcutContext
         ) {
+            return true
+        }
+
+        if handlePluginShortcut(event: event) {
             return true
         }
 
@@ -17262,7 +17288,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
-    private func matchConfiguredShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
+    func matchConfiguredShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
         guard !shortcut.isUnbound else { return false }
         if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
             guard let secondStroke = shortcut.secondStroke,
@@ -18923,111 +18949,7 @@ private final class CmuxFieldEditorOwningWebViewBox: NSObject {
     }
 }
 
-private extension NSApplication {
-    @objc func cmux_accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
-        if Thread.isMainThread, let cache = AppDelegate.shared?.accessibilityWindowCache {
-            switch cache.resolve(
-                attribute: attribute,
-                application: self
-            ) {
-            case .handled(let value):
-                return value
-            case .passthrough:
-                break
-            }
-        }
-
-        return cmux_accessibilityAttributeValue(attribute)
-    }
-
-    @objc func cmux_applicationSendEvent(_ event: NSEvent) {
-#if DEBUG
-        let typingTimingStart = event.type == .keyDown ? CmuxTypingTiming.start() : nil
-        let phaseTotalStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0
-        if event.type == .keyDown {
-            CmuxTypingTiming.logEventDelay(path: "app.sendEvent", event: event)
-        }
-        defer {
-            if event.type == .keyDown {
-                let totalMs = (ProcessInfo.processInfo.systemUptime - phaseTotalStart) * 1000.0
-                CmuxTypingTiming.logBreakdown(
-                    path: "app.sendEvent.phase",
-                    totalMs: totalMs,
-                    event: event,
-                    thresholdMs: 1.0,
-                    parts: [("dispatchMs", totalMs)]
-                )
-                CmuxTypingTiming.logDuration(
-                    path: "app.sendEvent",
-                    startedAt: typingTimingStart,
-                    event: event
-                )
-            }
-        }
-#endif
-        if event.type == .leftMouseDown,
-           AppDelegate.shared?.handleMinimalModeTitlebarDoubleClickMouseDown(event: event) == true {
-            return
-        }
-        if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(
-            event,
-            preferredWindow: event.window ?? AppDelegate.shared?.shortcutRoutingActiveWindow ?? keyWindow ?? mainWindow
-        ) {
-            return
-        }
-        if AppDelegate.shared?.shouldSuppressStaleCmuxMenuShortcut(event: event) == true {
-            if AppDelegate.shared?.handleFocusedFileExplorerOpenSelectionShortcut(
-                event,
-                preferredWindow: event.window ?? keyWindow ?? mainWindow
-            ) == true {
-#if DEBUG
-                cmuxDebugLog("app.sendEvent routed file explorer shortcut before stale cmux menu shortcut")
-#endif
-                return
-            }
-            if AppDelegate.shared?.handleConfiguredShortcutKeyEquivalent(event) == true {
-#if DEBUG
-                cmuxDebugLog("app.sendEvent routed configured shortcut before stale cmux menu shortcut")
-#endif
-                return
-            }
-            let responder = event.window?.firstResponder
-                ?? AppDelegate.shared?.shortcutRoutingKeyWindow?.firstResponder
-                ?? mainWindow?.firstResponder
-            if let ghosttyView = responder.cmuxTerminalKeyEquivalentOwningGhosttyView() {
-                ghosttyView.keyDown(with: event)
-#if DEBUG
-                cmuxDebugLog("app.sendEvent suppressed stale cmux menu shortcut and forwarded to terminal")
-#endif
-            } else {
-#if DEBUG
-                cmuxDebugLog("app.sendEvent suppressed stale cmux menu shortcut")
-#endif
-            }
-            return
-        }
-        cmux_applicationSendEvent(event)
-    }
-
-    @objc func cmux_sendAction(_ action: Selector, to target: Any?, from sender: Any?) -> Bool {
-        if AppDelegate.shared?.handleDetachedInspectorWindowCloseAction(
-            action: action,
-            target: target,
-            sender: sender
-        ) == true {
-            return true
-        }
-
-        return cmux_sendAction(action, to: target, from: sender)
-    }
-}
-
 private extension AppDelegate {
-    @discardableResult
-    func handleMinimalModeTitlebarDoubleClickMouseDown(event: NSEvent) -> Bool {
-        windowDecorationsController.handleMinimalModeTitlebarDoubleClickMouseDown(event: event)
-    }
-
     @discardableResult
     func handleMinimalModeSidebarChromeMouseDown(window: NSWindow, event: NSEvent) -> Bool {
         windowDecorationsController.handleMinimalModeSidebarChromeMouseDown(window: window, event: event)
@@ -19070,6 +18992,11 @@ private extension AppDelegate {
 }
 
 extension AppDelegate {
+    @discardableResult
+    func handleMinimalModeTitlebarDoubleClickMouseDown(event: NSEvent) -> Bool {
+        windowDecorationsController.handleMinimalModeTitlebarDoubleClickMouseDown(event: event)
+    }
+
     func browserPanelsForInspectorFocusHandoff() -> [BrowserPanel] {
         allBrowserPanelsForInspectorWindowClose()
     }

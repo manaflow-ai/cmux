@@ -15,7 +15,7 @@ import Foundation
 /// check for `nil` callbacks and hide the corresponding buttons
 /// when no host action is available.
 @MainActor
-public protocol SettingsHostActions: AnyObject {
+public protocol SettingsHostActions: AnyObject, PluginSettingsHostActions {
     /// A registry snapshot used to populate the per-agent notification sound
     /// matrix. The host owns discovery so newly registered agents appear
     /// without a second list in the settings package.
@@ -24,7 +24,6 @@ public protocol SettingsHostActions: AnyObject {
     /// Validates and prepares a custom notification sound before a matrix cell
     /// is persisted. Returning `false` keeps the previous cell untouched.
     func validateNotificationSoundFile(path: String) async -> Bool
-
     /// Deletes the user's browser history (visited-page suggestions,
     /// omnibar autocomplete cache). Idempotent.
     func clearBrowserHistory()
@@ -340,7 +339,6 @@ public extension SettingsHostActions {
 
     /// Validates a candidate custom notification sound path on the host.
     func validateNotificationSoundFile(path: String) async -> Bool { false }
-
     /// Default no-op for previews and tests without a live control socket.
     func socketControlConfigurationDidChange() {}
 

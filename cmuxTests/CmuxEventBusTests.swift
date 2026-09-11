@@ -510,11 +510,8 @@ final class CmuxEventBusTests: XCTestCase {
         bus.publishWorkstreamEvent(event, phase: "received")
 
         let published = bus.retainedSnapshot()
-        XCTAssertEqual(published.count, 2)
-        XCTAssertEqual(published.compactMap { $0["name"] as? String }, [
-            "agent.hook.Stop",
-            "feed.item.received",
-        ])
+        XCTAssertEqual(published.count, 3)
+        XCTAssertEqual(published.compactMap { $0["name"] as? String }, ["agent.session.state_changed", "agent.hook.Stop", "feed.item.received"])
         for publishedEvent in published {
             XCTAssertEqual(publishedEvent["surface_id"] as? String, "surface")
             let payload = try XCTUnwrap(publishedEvent["payload"] as? [String: Any])

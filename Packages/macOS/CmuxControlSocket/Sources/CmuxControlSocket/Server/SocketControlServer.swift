@@ -373,21 +373,8 @@ public final class SocketControlServer {
     /// - Returns: Health flags combining listener state and a filesystem
     ///   identity check of `expectedSocketPath`.
     public nonisolated func listenerHealth(expectedSocketPath: String) -> SocketListenerHealth {
-        let snapshot = listenerStateSnapshot()
-        let pathMatches = snapshot.socketPath == expectedSocketPath
-        let currentIdentity = transport.pathIdentity(at: expectedSocketPath)
-        let pathExists = currentIdentity != nil
-        let pathOwnedByListener = currentIdentity.map { current in
-            pathMatches && (snapshot.boundSocketPathIdentity.map { current == $0 } ?? false)
-        } ?? false
-
-        return SocketListenerHealth(
-            isRunning: snapshot.isRunning,
-            acceptLoopAlive: snapshot.acceptLoopAlive,
-            socketPathMatches: pathMatches,
-            socketPathExists: pathExists,
-            socketPathOwnedByListener: pathOwnedByListener
-        )
+        listenerHealthProbeInput(expectedSocketPath: expectedSocketPath)
+            .resolve(using: transport)
     }
 
     nonisolated func listenerStateSnapshot() -> ListenerStateSnapshot {
