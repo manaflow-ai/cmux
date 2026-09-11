@@ -2826,6 +2826,7 @@ class TerminalController {
         case "notification.create_for_caller":
             return v2Result(id: id, self.v2NotificationCreateForCaller(params: params))
         case "agent.resolve_delivery_target": return v2Result(id: id, self.v2AgentResolveDeliveryTarget(params: params))
+        case "agent.hibernation.session_end": return v2Result(id: id, self.v2AgentHibernationSessionEnd(params: params))
         #if DEBUG
         case "debug.notification.status":
             return v2Ok(id: id, result: notificationDebugStatus())
@@ -3061,7 +3062,6 @@ class TerminalController {
             "vm.base_reset",
             "vm.status",
             "vm.stats",
-            "vm.resize",
             "vm.rename",
             "vm.snapshot",
             "vm.fork",
@@ -3221,7 +3221,7 @@ class TerminalController {
             "pane.join",
             "pane.last",
             "notification.create",
-            "notification.create_for_caller", "agent.resolve_delivery_target",
+            "notification.create_for_caller", "agent.resolve_delivery_target", "agent.hibernation.session_end",
             "notification.create_for_surface",
             "notification.create_for_target",
             "notification.list",
@@ -4109,6 +4109,7 @@ class TerminalController {
     nonisolated func v2VmCall(
         id: Any?,
         timeoutSeconds: TimeInterval = 17 * 60,
+        transportUnsupportedMachineID: String? = nil,
         _ work: @escaping () async throws -> [String: Any]
     ) -> String {
         let semaphore = DispatchSemaphore(value: 0)
@@ -4133,6 +4134,34 @@ class TerminalController {
         case .success(let payload):
             return v2Ok(id: id, result: payload)
         case .failure(let error):
+            if case VMClientError.disabledByManagedPolicy = error {
+                return v2Error(id: id, code: "cloud_disabled", message: String(describing: error))
+            }
+            if let deliveryError = error as? CloudFileDelivery.DeliveryError {
+                return v2Error(id: id, code: "vm_file_delivery_failed", message: deliveryError.localizedDescription)
+            }
+            if let combinedError = error as? CloudFileDelivery.OperationAndCleanupError {
+                return v2Error(id: id, code: "vm_file_delivery_failed", message: combinedError.localizedDescription)
+            }
+            if case VMClientError.lifecycleUnsupported = error {
+                return v2Error(id: id, code: "vm_operation_unsupported", message: String(describing: error))
+            }
+            if let deliveryError = error as? CloudEnvDelivery.DeliveryError {
+                return v2Error(id: id, code: "vm_env_delivery_failed", message: deliveryError.localizedDescription)
+            }
+            if let combinedError = error as? CloudEnvDelivery.OperationAndCleanupError {
+                return v2Error(id: id, code: "vm_env_delivery_failed", message: combinedError.localizedDescription)
+            }
+            if let catalogError = error as? SurfaceCatalogError {
+                switch catalogError {
+                case .nothingToOpen:
+                    return v2Error(id: id, code: "not_ready", message: catalogError.localizedDescription)
+                case .destinationNotFound:
+                    return v2Error(id: id, code: "not_found", message: catalogError.localizedDescription)
+                default:
+                    break
+                }
+            }
             if let vmError = error as? VMClientError,
                Self.isCloudVMAuthenticationError(vmError) {
                 // Keep the auth boundary explicit for every VM verb. The CLI
@@ -4159,10 +4188,44 @@ class TerminalController {
                     message: message
                 )
             }
+            if let vmError = error as? VMClientError,
+               let machineID = transportUnsupportedMachineID,
+               Self.isCloudVMTransportUnsupportedError(vmError) {
+                // `vm.cmux_remote_info` is the shared attach path for `vm shell`,
+                // `vm open`, `vm tui`, and the sidebar, so the message names the
+                // machine and the missing transport rather than guessing the
+                // caller, and points at commands that do not need that transport.
+                let alternative = String(
+                    format: String(
+                        localized: "socket.cloudVM.transportUnsupported.useExec",
+                        defaultValue: "Use `cmux vm exec %1$@ -- <command>`; `cmux vm ssh %1$@` works where the provider offers SSH."
+                    ),
+                    machineID,
+                    machineID
+                )
+                let message = String(
+                    format: String(
+                        localized: "socket.cloudVM.transportUnsupported",
+                        defaultValue: "%1$@ offers no `%2$@` transport (its provider has no cmux-tui daemon route), so cmux cannot attach a terminal to it. %3$@"
+                    ),
+                    machineID,
+                    "cmux-remote",
+                    alternative
+                )
+                return v2Error(
+                    id: id,
+                    code: "transport_unsupported",
+                    message: message,
+                    data: Self.cloudVMBackendErrorData(error)
+                )
+            }
             return v2Error(
                 id: id,
                 code: "vm_error",
-                message: String(describing: error),
+                message: String(
+                    localized: "socket.cloudVM.requestFailed",
+                    defaultValue: "The Cloud VM request failed. Retry, or check the machine's status with `cmux vm ls`."
+                ),
                 data: Self.cloudVMBackendErrorData(error)
             )
         case nil:
@@ -4200,9 +4263,20 @@ class TerminalController {
             return true
         case .httpStatus(let status, _):
             return status == 401
-        case .sessionRefreshFailed, .backendUnreachable, .malformedResponse:
+        case .sessionRefreshFailed, .backendUnreachable, .malformedResponse, .lifecycleUnsupported, .disabledByManagedPolicy:
             return false
         }
+    }
+
+    private nonisolated static func isCloudVMTransportUnsupportedError(_ error: VMClientError) -> Bool {
+        guard case let .httpStatus(status, body) = error, status == 501 else {
+            return false
+        }
+        guard let data = body.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+            return false
+        }
+        return object["error"] as? String == "vm_attach_transport_unsupported"
     }
 
     nonisolated func v2AsyncResultCall(
@@ -7134,52 +7208,11 @@ class TerminalController {
                 channel: .javaScript
             ))
         }
-        let scriptLiteral = v2JSONLiteral(script)
-        let framePrelude: String
-        if let frameSelector = v2BrowserCurrentFrameSelector(surfaceId: surfaceId) {
-            let selectorLiteral = v2JSONLiteral(frameSelector)
-            framePrelude = """
-            let __cmuxDoc = document;
-            try {
-              const __cmuxFrame = document.querySelector(\(selectorLiteral));
-              if (__cmuxFrame && __cmuxFrame.contentDocument) {
-                __cmuxDoc = __cmuxFrame.contentDocument;
-              }
-            } catch (_) {}
-            """
-        } else {
-            framePrelude = "const __cmuxDoc = document;"
-        }
-
-        let executionBlock: String
-        if useEval {
-            executionBlock = "const __r = eval(\(scriptLiteral));"
-        } else {
-            executionBlock = "const __r = \(script);"
-        }
-
-        let asyncFunctionBody = """
-        \(framePrelude)
-
-        const __cmuxMaybeAwait = async (__r) => {
-          if (__r !== null && (typeof __r === 'object' || typeof __r === 'function') && typeof __r.then === 'function') {
-            return await __r;
-          }
-          return __r;
-        };
-
-        const __cmuxEvalInFrame = async function() {
-          const document = __cmuxDoc;
-          \(executionBlock)
-          const __value = await __cmuxMaybeAwait(__r);
-          return {
-            __cmux_t: (typeof __value === 'undefined') ? 'undefined' : 'value',
-            __cmux_v: __value
-          };
-        };
-
-        return await __cmuxEvalInFrame();
-        """
+        let asyncFunctionBody = v2BrowserControl.evaluationScript(
+            script: script,
+            useEval: useEval,
+            frameSelector: v2BrowserCurrentFrameSelector(surfaceId: surfaceId)
+        )
 
         var rawResult: BrowserJavaScriptEvaluationResult
         if #available(macOS 11.0, *) {

@@ -34,6 +34,12 @@ export interface MobileMacCompatNightlyRequirement {
   minBuild: string;
 }
 
+export interface MobileMacCompatRequirement {
+  /** Minimums for one iOS distribution build kind. */
+  stableMinVersion: string;
+  nightly?: MobileMacCompatNightlyRequirement;
+}
+
 export interface MobileMacCompatEntry {
   /** Inclusive minimum iOS marketing version this tier applies to. The tier with the greatest minIOSVersion <= the app's version wins; an app below every tier is unconstrained (fail-open). */
   minIOSVersion: string;
@@ -46,9 +52,10 @@ export interface MobileMacCompatEntry {
    * (fail-open), same as an app below every tier.
    */
   maxIOSVersion?: string;
-  /** Inclusive minimum stable-channel Mac marketing version, dotted numeric. */
-  stableMinVersion: string;
-  /** Minimum nightly-channel Mac build. Omitted = nightly channel unconstrained for this tier. */
+  /** Requirements keyed by iOS build kind (`dev`, `beta`, `internal`, `demo`, `prod`). */
+  buildKinds?: Record<string, MobileMacCompatRequirement>;
+  /** @deprecated legacy single-policy fields, accepted during rollout. */
+  stableMinVersion?: string;
   nightly?: MobileMacCompatNightlyRequirement;
 }
 
@@ -73,8 +80,19 @@ export const mobileMacCompatList: MobileMacCompatList = {
   entries: [
     {
       minIOSVersion: "1.0.0",
+      // Keep these mirrored to prod while older iOS clients are still deployed.
       stableMinVersion: "0.64.23",
       nightly: { minBaseVersion: "0.64.22", minBuild: "3345650013202" },
+      buildKinds: {
+        dev: { stableMinVersion: "0.64.0" },
+        beta: { stableMinVersion: "0.64.22" },
+        internal: { stableMinVersion: "0.64.22" },
+        demo: { stableMinVersion: "0.64.22" },
+        prod: {
+          stableMinVersion: "0.64.23",
+          nightly: { minBaseVersion: "0.64.22", minBuild: "3345650013202" },
+        },
+      },
     },
   ],
 };

@@ -26,10 +26,11 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let socketPath = root.appendingPathComponent("cmux.sock").path
         let harnessURL = root.appendingPathComponent("harness.js")
         try Self.openCodeFeedEventHarness.write(to: harnessURL, atomically: true, encoding: .utf8)
+        let bunURL = try Self.bunExecutableURL()
 
         let result = runProcess(
-            executablePath: "/usr/bin/env",
-            arguments: ["node", harnessURL.path, pluginURL.path, socketPath],
+            executablePath: bunURL.path,
+            arguments: [harnessURL.path, pluginURL.path, socketPath],
             environment: ProcessInfo.processInfo.environment,
             timeout: 5
         )
@@ -111,6 +112,23 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         try BundledCLITestSupport.bundledCLIPath(for: Self.self)
     }
 
+    private static func bunExecutableURL() throws -> URL {
+        let fileManager = FileManager.default
+        var candidates: [String] = []
+        if let install = ProcessInfo.processInfo.environment["BUN_INSTALL"], !install.isEmpty {
+            candidates.append(URL(fileURLWithPath: install).appendingPathComponent("bin/bun").path)
+        }
+        candidates += [
+            fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".bun/bin/bun").path,
+            "/opt/homebrew/bin/bun",
+            "/usr/local/bin/bun",
+        ]
+        if let path = candidates.first(where: { fileManager.isExecutableFile(atPath: $0) }) {
+            return URL(fileURLWithPath: path)
+        }
+        throw XCTSkip("Bun runtime is required for the OpenCode plugin harness")
+    }
+
     private static let openCodeFeedEventHarness = #"""
 const net = require("node:net");
 const fs = require("node:fs");
@@ -140,12 +158,23 @@ const fs = require("node:fs");
       }
     });
   });
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(socketPath, () => { server.off("error", reject); resolve(); });
-  });
+  let activeSocketPath = socketPath;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await new Promise((resolve, reject) => {
+        const onError = (error) => { server.off("error", onError); reject(error); };
+        server.once("error", onError);
+        server.listen(activeSocketPath, () => { server.off("error", onError); resolve(); });
+      });
+      break;
+    } catch (error) {
+      if (error?.code !== "EADDRINUSE" || attempt === 2) throw error;
+      activeSocketPath = `${socketPath}.${process.pid}.${attempt + 1}`;
+      try { fs.unlinkSync(activeSocketPath); } catch (_) {}
+    }
+  }
 
-  process.env.CMUX_SOCKET_PATH = socketPath;
+  process.env.CMUX_SOCKET_PATH = activeSocketPath;
   const source = fs.readFileSync(pluginPath, "utf8")
     .replace("export const CMUXFeed = async", "globalThis.CMUXFeed = async");
   eval(source);
@@ -169,7 +198,7 @@ const fs = require("node:fs");
   await framesReady;
   for (const socket of sockets) socket.destroy();
   await new Promise((resolve) => server.close(resolve));
-  try { fs.unlinkSync(socketPath); } catch (_) {}
+  try { fs.unlinkSync(activeSocketPath); } catch (_) {}
   console.log(JSON.stringify(frames));
 })().catch((error) => {
   console.error(error && error.stack ? error.stack : String(error));

@@ -127,6 +127,7 @@ struct MobileTerminalLaneCoordinatorTests {
 
     @Test
     func outputLaneDoesNotFallBackToInputOnlyProvider() async throws {
+        let outputProvider = TerminalLaneTestProvider(lanes: [])
         let inputProvider = TerminalLaneTestProvider(lanes: [
             TerminalLaneTestConnection(
                 frames: [Self.frame(kind: .replay, sequence: 0, bytes: "")],
@@ -134,26 +135,27 @@ struct MobileTerminalLaneCoordinatorTests {
             ),
         ])
         let coordinator = MobileTerminalLaneCoordinator(
-            provider: nil,
+            provider: { request, surfaceID, cursor in
+                try await outputProvider.callAsFunction(request, surfaceID, cursor: cursor)
+            },
             inputOnlyProvider: { request, surfaceID, cursor in
                 try await inputProvider.callAsFunction(request, surfaceID, cursor: cursor)
             }
         )
-        let cursorRead = AsyncStream<Bool>.makeStream()
-        var cursorReadIterator = cursorRead.stream.makeAsyncIterator()
 
         await coordinator.ensure(Self.configuration(
             providerRequest: try Self.request(),
-            cursor: {
-                cursorRead.continuation.yield(true)
-                return nil
-            },
+            cursor: { nil },
             consume: { _ in .accepted(outputReady: true) },
             readinessChanged: { _ in }
         ))
-        #expect(await cursorReadIterator.next() == true)
-        await coordinator.deactivateAll()
+        // The output provider is the causal completion signal. Its empty lane
+        // list makes the request fail after recording the attempted selection.
+        await outputProvider.waitUntilRequested()
+
+        #expect(await outputProvider.requestCount() > 0)
         #expect(await inputProvider.requestCount() == 0)
+        await coordinator.deactivateAll()
         #expect(await coordinator.isOutputReady(surfaceID: Self.surfaceID) == false)
     }
 
@@ -377,6 +379,7 @@ private actor TerminalLaneTestProvider {
 
     private var lanes: [TerminalLaneTestConnection]
     private var cursors: [UInt64?] = []
+    private var requestWaiters: [CheckedContinuation<Void, Never>] = []
     private var exhaustionWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(lanes: [TerminalLaneTestConnection]) {
@@ -389,6 +392,8 @@ private actor TerminalLaneTestProvider {
         cursor: UInt64?
     ) throws -> any MobileTerminalLaneConnection {
         cursors.append(cursor)
+        for waiter in requestWaiters { waiter.resume() }
+        requestWaiters.removeAll()
         guard !lanes.isEmpty else {
             for waiter in exhaustionWaiters { waiter.resume() }
             exhaustionWaiters.removeAll()
@@ -399,6 +404,13 @@ private actor TerminalLaneTestProvider {
 
     func requestedCursors() -> [UInt64?] { cursors }
     func requestCount() -> Int { cursors.count }
+
+    func waitUntilRequested() async {
+        if !cursors.isEmpty { return }
+        await withCheckedContinuation { continuation in
+            requestWaiters.append(continuation)
+        }
+    }
 
     func waitUntilExhausted() async {
         if lanes.isEmpty, cursors.count >= 2 { return }

@@ -2869,7 +2869,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Panes being moved to another workspace: their surface projection moves with them
     /// instead of ending when they leave this one (see `Workspace+SurfaceCatalog.swift`).
     var surfaceTransferringPanelIds: Set<UUID> = []
-
     /// Subscriptions for panel updates (e.g., browser title changes)
     var panelSubscriptions: [UUID: AnyCancellable] = [:]
     private var agentSessionPanelCallbackIds: Set<UUID> = []
@@ -3925,6 +3924,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
     }
 
+    /// The MDM resolver every remote-connection and file-transfer gate on this
+    /// workspace reads; tests inject a probe-backed one.
+    let managedDevicePolicy: ManagedDevicePolicy
+
     init(
         id: UUID? = nil,
         title: String = "Terminal",
@@ -3944,6 +3947,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         allowTextBoxFocusDefault: Bool = true,
         tabDragTransferRegistry: TabDragTransferRegistry? = nil,
         settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
+        managedDevicePolicy: ManagedDevicePolicy = ManagedDevicePolicy(),
         closeTabWarningDefaults: UserDefaults = .standard,
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
@@ -3966,6 +3970,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.settings = settings
+        self.managedDevicePolicy = managedDevicePolicy
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.agentChatResumeIntentRecorder = agentChatResumeIntentRecorder
@@ -6131,12 +6136,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 return false
             }
         }
-        // This check and the assignment are one MainActor mutation, so
-        // concurrent hook publications cannot observe-then-downgrade a TUI
+        // These checks and the assignment are one MainActor mutation, so
+        // concurrent publications cannot downgrade a TUI or trusted same-session
         // binding between separate get/set socket calls.
-        guard binding.allowsCodexAgentHookReplacement(
-            of: surfaceResumeBindingsByPanelId[panelId]
-        ) else {
+        let existingBinding = surfaceResumeBindingsByPanelId[panelId]
+        guard binding.allowsCodexAgentHookReplacement(of: existingBinding),
+              !binding.downgradesTrustedAgentHookBinding(existingBinding) else {
             return false
         }
         if activeRestoreClaim != nil {
@@ -6777,6 +6782,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         operation: TerminalImageTransferOperation,
         completion: @escaping (Result<[String], Error>) -> Void
     ) {
+        // `DisableFileTransfer` (MDM): refuse before the coordinator opens a
+        // transfer channel. Local drops into local terminals do not reach here.
+        guard !managedDevicePolicy.isEnforced(.disableFileTransfer) else {
+            completion(.failure(ManagedFileTransferPolicy.refusalError()))
+            return
+        }
         guard let controller = remoteSessionController else {
             completion(.failure(RemoteDropUploadError.unavailable))
             return
@@ -6970,6 +6981,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         _ configuration: WorkspaceRemoteConfiguration,
         autoConnect: Bool = true
     ) -> Bool {
+        // `DisableRemoteConnections` (MDM): this is the single path that turns
+        // a workspace into a remote one, so refusing here covers the CLI,
+        // command palette, menus, forks, session restore, and automation at
+        // once. Nothing is retained or dialed before the refusal.
+        guard !managedDevicePolicy.isEnforced(.disableRemoteConnections) else { return false }
         var configuration = configuration.scopedToOwnerWorkspace(id)
         let foregroundAuthToken =
             Self.normalizedForegroundAuthToken(
@@ -8706,8 +8722,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         insertFirst: Bool = false,
         focus: Bool = true,
         workingDirectory: String? = nil,
-        initialCommand: String? = nil,
-        tmuxStartCommand: String? = nil,
+        initialCommand: String? = nil, initialInput: String? = nil, tmuxStartCommand: String? = nil,
         startupEnvironment: [String: String] = [:],
         initialDividerPosition: CGFloat? = nil,
         remotePTYSessionID: String? = nil,
@@ -8720,7 +8735,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             insertFirst: insertFirst,
             focus: focus,
             workingDirectory: workingDirectory,
-            initialCommand: initialCommand,
+            initialCommand: initialCommand, initialInput: initialInput,
             tmuxStartCommand: tmuxStartCommand,
             startupEnvironment: startupEnvironment,
             initialDividerPosition: initialDividerPosition,
@@ -8730,7 +8745,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         ).panel
     }
 
-    /// Like ``newTerminalSplit(from:orientation:insertFirst:focus:workingDirectory:initialCommand:tmuxStartCommand:startupEnvironment:initialDividerPosition:remotePTYSessionID:)``
+    /// Like ``newTerminalSplit(from:orientation:insertFirst:focus:workingDirectory:initialCommand:initialInput:tmuxStartCommand:startupEnvironment:initialDividerPosition:remotePTYSessionID:)``
     /// but distinguishes a split routed to the remote tmux mirror from a genuine
     /// failure, so socket/CLI handlers can report the routed request as accepted.
     /// (Reporting an error makes automation retry and duplicate remote panes.)
@@ -8740,7 +8755,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         insertFirst: Bool = false,
         focus: Bool = true,
         workingDirectory: String? = nil,
-        initialCommand: String? = nil,
+        initialCommand: String? = nil, initialInput: String? = nil,
         tmuxStartCommand: String? = nil,
         startupEnvironment: [String: String] = [:],
         initialDividerPosition: CGFloat? = nil,
@@ -8769,11 +8784,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         // A split next to a pane projecting a cloud resource creates the terminal ON
         // that machine and projects it back (Workspace+CloudPaneRouting). Only plain
-        // requests route: an explicit command, cwd, PTY session, or restore scaffold
-        // is a local-terminal request by construction (including the attach panes the
-        // routed create itself materializes, whose initialCommand is the attach argv).
-        if initialCommand == nil, tmuxStartCommand == nil, remotePTYSessionID == nil,
-           workingDirectory == nil, !suppressWorkspaceRemoteStartupCommand,
+        // requests route: an explicit command or input, cwd, PTY session, or restore
+        // scaffold is local-terminal by construction (including attach panes whose
+        // initialCommand is the attach argv).
+        if initialCommand == nil, initialInput == nil, tmuxStartCommand == nil,
+           remotePTYSessionID == nil, workingDirectory == nil,
+           !suppressWorkspaceRemoteStartupCommand,
            routeCloudPaneTerminalSplit(from: panelId, orientation: orientation, insertFirst: insertFirst, focus: focus) {
             return .routedToRemote
         }
@@ -8783,7 +8799,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             insertFirst: insertFirst,
             focus: focus,
             workingDirectory: workingDirectory,
-            initialCommand: initialCommand,
+            initialCommand: initialCommand, initialInput: initialInput,
             tmuxStartCommand: tmuxStartCommand,
             startupEnvironment: startupEnvironment,
             initialDividerPosition: initialDividerPosition,
@@ -8800,7 +8816,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         insertFirst: Bool,
         focus: Bool,
         workingDirectory: String?,
-        initialCommand: String?,
+        initialCommand: String?, initialInput: String?,
         tmuxStartCommand: String?,
         startupEnvironment: [String: String],
         initialDividerPosition: CGFloat?,
@@ -8887,7 +8903,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             workingDirectory: splitWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
-            tmuxStartCommand: tmuxStartCommand,
+            tmuxStartCommand: tmuxStartCommand, initialInput: initialInput,
             additionalEnvironment: effectiveStartupEnvironment
         )
         configureNewTerminalPanel(
@@ -10617,6 +10633,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// ``retireFromOwningTabManager()`` passes `retireDock: true` at the
     /// authoritative workspace-removal boundary.
     func teardownAllPanels(retireDock: Bool = false) {
+        SurfaceCatalog.shared.withProjectionEndReason(for: Array(panels.keys), reason: .workspaceTeardown) {
+            teardownPanelResources(retireDock: retireDock)
+        }
+    }
+
+    private func teardownPanelResources(retireDock: Bool) {
         portalRenderingEnabled = false
         clearLayoutFollowUp()
         hideAllTerminalPortalViews()

@@ -33,11 +33,29 @@ export type VmSelfResponse = {
   readonly machines: readonly VmSelfMachine[];
 };
 
-function machineName(machine: TeamMachine): string {
+/** The row facts one `VmSelfMachine` is built from; `TeamMachine` and the reflection row both satisfy it. */
+export type VmSelfMachineSource = {
+  readonly vmId: string;
+  readonly providerVmId: string | null;
+  readonly displayName: string | null;
+  readonly slug: string | null;
+  readonly status: string;
+  /** ISO-8601. */
+  readonly createdAt: string;
+};
+
+function machineName(machine: VmSelfMachineSource): string {
   return machine.displayName ?? machine.slug ?? machine.providerVmId ?? machine.vmId;
 }
 
-function selfMachine(machine: TeamMachine, selfVmId: string): VmSelfMachine | null {
+/**
+ * One machine as the guest sees it. Null when the row has no provider id yet
+ * (still provisioning): such a machine has no address a verb could take, so it
+ * is hidden — the same filter the Mac's `cmux vm ls` applies. Shared with
+ * reflection (services/vms/reflection.ts) so `cmux self` and `cmux vm ls` read
+ * one shape whichever endpoint answers.
+ */
+export function vmSelfMachine(machine: VmSelfMachineSource, selfVmId: string): VmSelfMachine | null {
   if (!machine.providerVmId) return null;
   return {
     id: machine.providerVmId,
@@ -49,6 +67,10 @@ function selfMachine(machine: TeamMachine, selfVmId: string): VmSelfMachine | nu
     createdAt: machine.createdAt,
     self: machine.vmId === selfVmId,
   };
+}
+
+function selfMachine(machine: TeamMachine, selfVmId: string): VmSelfMachine | null {
+  return vmSelfMachine(machine, selfVmId);
 }
 
 /**
