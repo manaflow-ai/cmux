@@ -142,4 +142,59 @@ import Testing
                 == "light:Solarized Light,dark:Solarized Light"
         )
     }
+
+    @Test(arguments: ["light", "dark"])
+    func conditionalOverrideRepairsTheMissingManagedAppearance(_ side: String) throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-theme-repair-override-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: path) }
+        let contents = """
+        # cmux themes start
+        theme = \(side):Legacy Theme
+        # cmux themes end
+        """
+        try contents.write(to: path, atomically: true, encoding: .utf8)
+        let preferredColorScheme: GhosttyConfig.ColorSchemePreference = side == "light" ? .dark : .light
+
+        #expect(GhosttyConfig.userAppearanceConfigSummary(configPaths: [path.path]).lastThemeDirective
+            == "light:Legacy Theme,dark:Legacy Theme")
+        #expect(GhosttyConfigDiscovery().conditionalThemeOverrideConfigContents(
+            preferredColorScheme: preferredColorScheme,
+            configPaths: [path.path]
+        ) == "theme = Legacy Theme")
+        #expect(try String(contentsOf: path, encoding: .utf8) == contents)
+    }
+
+    @Test(arguments: ["same-file", "later-file", "included-file"])
+    func conditionalOverridePreservesLaterUnmarkedDirective(_ location: String) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-theme-repair-override-precedence-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let rootPath = directory.appendingPathComponent("config")
+        let userPath = directory.appendingPathComponent("user.conf")
+        try "theme = light:Legacy Theme".write(to: userPath, atomically: true, encoding: .utf8)
+        var contents = """
+        # cmux themes start
+        theme = light:Legacy Theme
+        # cmux themes end
+        """
+        var configPaths = [rootPath.path]
+        switch location {
+        case "same-file":
+            contents += "\ntheme = light:Legacy Theme"
+        case "later-file":
+            configPaths.append(userPath.path)
+        default:
+            contents += "\nconfig-file = \(userPath.path)"
+        }
+        try contents.write(to: rootPath, atomically: true, encoding: .utf8)
+
+        #expect(GhosttyConfig.userAppearanceConfigSummary(configPaths: configPaths).lastThemeDirective
+            == "light:Legacy Theme")
+        #expect(GhosttyConfigDiscovery().conditionalThemeOverrideConfigContents(
+            preferredColorScheme: .dark,
+            configPaths: configPaths
+        ) == nil)
+    }
 }
