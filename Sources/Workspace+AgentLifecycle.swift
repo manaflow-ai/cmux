@@ -380,15 +380,6 @@ extension Workspace {
         }
     }
 
-    func resendRestoredStartupInputIfStillIdle(panelId: UUID) {
-        let shellState = panelShellActivityStates[panelId] ?? .unknown
-        guard !isRetiredFromOwningTabManager,
-              let terminal = panels[panelId] as? TerminalPanel,
-              let input = restoredAgentLifecycle.takeStartupInputForResend(panelId: panelId, shellState: shellState),
-              terminal.surface.surface != nil else { return }
-        _ = terminal.sendInputResult(input)
-    }
-
     private func invalidateRestoredAgentSnapshot(
         panelId: UUID,
         restoredAgent: SessionRestorableAgentSnapshot
