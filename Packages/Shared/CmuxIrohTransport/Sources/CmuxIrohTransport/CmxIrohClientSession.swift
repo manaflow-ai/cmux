@@ -368,9 +368,7 @@ public actor CmxIrohClientSession {
                 }
             case let .direct(address):
                 // Native Iroh may discover a fresh public direct address after
-                // the initial relay/direct plan was built. Public direct
-                // evidence remains allowed; provider-attributed private paths
-                // stay constrained by source-qualified matching below.
+                // the initial relay/direct plan was built.
                 _ = address
                 return true
             case .privateNetwork:
@@ -408,8 +406,6 @@ public actor CmxIrohClientSession {
             guard let address else { return .irohDirect }
             // A public direct observation is native Iroh evidence even when
             // discovery learned it after this session's initial dial plan.
-            // Private observations below still require source-qualified hint
-            // matching before they can be attributed to a concrete network.
             return projectedAddressPath(address, unmatchedPath: .irohDirect)
         case .relay:
             return .irohRelay(region: nil)
