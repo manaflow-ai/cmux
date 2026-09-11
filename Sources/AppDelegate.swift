@@ -2528,6 +2528,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         let cloudTunnel = makeCloudTunnelCoordinator()
         cloudTunnelCoordinator = cloudTunnel
+        CmuxTuiSurfaceProviderRegistry.shared.portAccess.coordinator = cloudTunnel
         VMClient.bootstrap(auth: auth.coordinator)
         TerminalController.shared.cloudTunnel = cloudTunnel
         RemotesClient.bootstrap(auth: auth.coordinator)

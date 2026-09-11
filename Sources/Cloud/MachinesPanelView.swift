@@ -81,29 +81,31 @@ struct MachinesPanelView: View {
     @ViewBuilder
     private var authenticatedContent: some View {
         controlBar
-        Button {
-            AppDelegate.shared?.openCloudVPNSetupWorkspace(preferredTabManager: tabManager)
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "network")
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(tunnelStatus.status?.state == .up
-                        ? String(localized: "cloud.vpn.setup.title", defaultValue: "Cloud VPN")
-                        : String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…"))
-                        .cmuxFont(size: 12, weight: .medium)
-                    Text(String(localized: "cloud.vpn.setup.entry.subtitle", defaultValue: "Optional private IP access for other apps"))
-                        .cmuxFont(size: 11)
-                        .foregroundStyle(.secondary)
+        if tunnelStatus.status?.state != .up {
+            Button {
+                AppDelegate.shared?.openCloudVPNSetupWorkspace(preferredTabManager: tabManager)
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "network")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(tunnelStatus.status?.state == .up
+                            ? String(localized: "cloud.vpn.setup.title", defaultValue: "Cloud VPN")
+                            : String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…"))
+                            .cmuxFont(size: 12, weight: .medium)
+                        Text(String(localized: "cloud.vpn.setup.entry.subtitle", defaultValue: "Optional private IP access for other apps"))
+                            .cmuxFont(size: 11)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right").font(.system(size: 10))
                 }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right").font(.system(size: 10))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("CloudVPNSetupEntryButton")
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("CloudVPNSetupEntryButton")
         if let banner = tunnelStatus.banner, banner.showsInMachinesPanel {
             MachinesTunnelBanner(banner: banner, backgroundColor: chromeBackgroundColor) {
                 SystemExtensionSettingsLink.open()

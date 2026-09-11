@@ -21,6 +21,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Loopback forwards into this machine's private address over the hub; nil
     /// when the build has no hub. Owned by the registry, shared by every provider.
     let portForwards: CloudHubPortForwarder?
+    let portAccessStore: CloudPortAccessStore
     /// Invalidates suspended work when this provider is stopped or replaced.
     private var lifecycleGeneration: UInt64 = 0
     /// Invalidates an older refresh before it can publish over a newer one.
@@ -103,13 +104,15 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         summary: VMSummary,
         links: CloudMachineLinkManager,
         catalog: SurfaceCatalog,
-        portForwards: CloudHubPortForwarder? = nil
+        portForwards: CloudHubPortForwarder? = nil,
+        portAccessStore: CloudPortAccessStore? = nil
     ) {
         machineID = summary.id
         self.summary = summary
         self.links = links
         self.catalog = catalog
         self.portForwards = portForwards
+        self.portAccessStore = portAccessStore ?? CloudPortAccessStore()
         info = Self.info(from: summary, linkState: summary.status == "running" ? .connecting : .asleep, linkError: nil, stats: nil)
         installNotificationSync()
     }
@@ -145,6 +148,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
     }
     func stop() {
+        portAccessStore.remove(machineID: machineID)
         lifecycleGeneration &+= 1
         refreshCoordinator.cancel()
         for task in browserPaneTasks.values { task.cancel() }
@@ -1073,9 +1077,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             created = (manual.workspaceID, manual.panelID)
             createdPlacement = manual.remotePlacement
         case .display, .browser:
-            // Ports and the desktop are reached through the user-space
-            // WireGuard hub on a loopback forward: no system VPN, no
-            // extension approval, on every build (`CloudPortRoutePlan`).
+            // Browser access is private by default. The browser owns the native
+            // VPN/forwarding controls before any connection is attempted.
             created = try await materializeBrowserPane(resource, at: destination, focus: focus)
         }
         materializedPanels.insert(created.panelID)
@@ -1700,13 +1703,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Turn a VM-local browser URL into the same URL on the VM private address.
     /// Path, query, fragment, scheme, and port stay unchanged.
     nonisolated static func privateBrowserURL(_ raw: String, privateAddress: String) -> String? {
-        guard var parts = URLComponents(string: raw),
-              let host = parts.host?.lowercased(),
-              host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0" || host == "::1" else {
-            return nil
-        }
-        parts.host = privateAddress
-        return parts.url?.absoluteString
+        guard let parts = URLComponents(string: raw),
+              let host = parts.host?.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]")),
+              ["localhost", "127.0.0.1", "0.0.0.0", "::1"].contains(host) else { return nil }
+        return CloudPortRoutePlan.privateURL(raw, address: privateAddress)?.absoluteString
     }
 
     /// Add the local URL used when this resource is projected on the Mac.

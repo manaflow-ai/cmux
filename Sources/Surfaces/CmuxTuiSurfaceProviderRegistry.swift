@@ -25,6 +25,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// Loopback forwards to VM ports over the hub (Ports and Desktop rows); nil
     /// without a hub. One table for the fleet so a (machine, port) keeps its
     /// local port until the machine leaves the fleet or the account signs out.
+    let portAccess = CloudPortAccessStore()
     let portForwards: CloudHubPortForwarder?
     private var pollTask: Task<Void, Never>?
     private var accessObserver: NSObjectProtocol?
@@ -292,6 +293,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         // registry keys everything by the control plane's own `summary.id`;
         // resolve to the registered key so no table is left behind.
         let id = registeredMachineID(matching: rawID)
+        portAccess.remove(machineID: id)
         providers[id]?.stop()
         providers[id] = nil
         catalog?.unregister(machine: .cloud(id))
@@ -371,7 +373,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             if let provider = providers[summary.id] {
                 provider.update(summary: summary)
             } else {
-                let provider = CmuxTuiSurfaceProvider(summary: summary, links: links, catalog: catalog, portForwards: portForwards)
+                let provider = CmuxTuiSurfaceProvider(summary: summary, links: links, catalog: catalog, portForwards: portForwards, portAccessStore: portAccess)
                 providers[summary.id] = provider
                 catalog.register(provider)
             }

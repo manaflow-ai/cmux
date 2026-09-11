@@ -105,19 +105,18 @@ struct TerminalLinkOpenCoordinator {
             )
         }
 
-        guard BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults) else {
-            return openExternally(target.url, reason: "cmux browser disabled")
+        let cloudURL = request.sourcePanelId.flatMap {
+            container?.cloudTerminalLinkTarget(url: target.url, sourcePanelId: $0)?.url
         }
-
+        let destinationURL = cloudURL ?? target.url
+        guard BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults) else {
+            return openExternally(destinationURL, reason: "cmux browser disabled")
+        }
         switch target {
-        case .external(let url):
-            return openExternally(url, reason: "external target")
-        case .embeddedBrowser(let url):
-            let privateURL: URL? = {
-                guard let sourcePanelId = request.sourcePanelId else { return nil }
-                return container?.cloudTerminalLinkTarget(url: url, sourcePanelId: sourcePanelId)?.url
-            }()
-            return openEmbeddedBrowserURL(privateURL ?? url, request: request, container: container)
+        case .external:
+            return openExternally(destinationURL, reason: "external target")
+        case .embeddedBrowser:
+            return openEmbeddedBrowserURL(destinationURL, request: request, container: container)
         }
     }
 

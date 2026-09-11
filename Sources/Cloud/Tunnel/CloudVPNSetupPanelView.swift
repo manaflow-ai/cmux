@@ -5,6 +5,7 @@ struct CloudVPNSetupPanelView: View {
     let appearance: PanelAppearance
     let onRequestPanelFocus: () -> Void
     let model: CloudVPNSetupModel
+    var portAccessStore: CloudPortAccessStore? = nil
 
     var body: some View {
         ScrollView {
@@ -15,6 +16,14 @@ struct CloudVPNSetupPanelView: View {
                 actions
                 if model.state != .up && model.unavailableMessage == nil { approvalSteps }
                 addressHelp
+                if let portAccessStore {
+                    let models = portAccessStore.models.values.filter(\.prefersForwarding).sorted {
+                        ($0.id.machineID, $0.id.port) < ($1.id.machineID, $1.id.port)
+                    }
+                    if !models.isEmpty {
+                        CloudPortsTable(models: models)
+                    }
+                }
             }
             .padding(28)
             .frame(maxWidth: 640, alignment: .leading)
