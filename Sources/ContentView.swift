@@ -15941,7 +15941,7 @@ struct TabItemView: View, Equatable {
         let workspaceSnapshot = self.workspaceSnapshot
         let rowBackgroundColor = backgroundColor(for: workspaceSnapshot)
         let rowRailColor = railColor(for: workspaceSnapshot)
-        let accessibilityTitle = accessibilityTitle(for: workspaceSnapshot)
+        let accessibilityTitle = workspaceSnapshot.accessibilityLabel(index: index, workspaceCount: accessibilityWorkspaceCount)
         let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
         let protectedWorkspaceTooltip = String(
             localized: "sidebar.pinnedWorkspaceProtected.tooltip",
@@ -16080,12 +16080,7 @@ struct TabItemView: View, Equatable {
                         .layoutPriority(1)
                 }
 
-                if let cloudLabel = workspaceSnapshot.cloudWorkspaceLabel {
-                    CmuxSystemSymbolImage(magnified: "cloud", pointSize: scaledFontSize(10), weight: .regular, tint: activeSecondaryColor(0.7))
-                        .fixedSize()
-                        .safeHelp(cloudLabel)
-                        .accessibilityHidden(true)
-                }
+                SidebarCloudWorkspaceBadgeView(label: workspaceSnapshot.cloudWorkspaceLabel, pointSize: scaledFontSize(10), tint: activeSecondaryColor(0.7))
 
                 if trailingStatusActive || canCloseWorkspace {
                     SidebarWorkspaceTrailingStatusSlot(showsSpinner: spinnerOnTrailing, showsBadge: badgeOnTrailing, unreadCount: unreadCount, side: scaledUnreadBadgeSize, width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, badgeFont: badgeFont, badgeFillColor: activeUnreadBadgeFillColor, badgeTextColor: activeUnreadBadgeTextColor, spinnerColor: spinnerColor, spinnerTooltip: spinnerTooltip, canCloseWorkspace: canCloseWorkspace, showsCloseButton: showCloseButton, closeButtonTooltip: closeButtonTooltip, closeButtonColor: activeSecondaryColor(0.7), closeButtonFontSize: scaledFontSize(9), closeAction: actions.closeWorkspace)
@@ -16501,12 +16496,6 @@ struct TabItemView: View, Equatable {
             colorScheme: colorScheme,
             forceBright: activeTabIndicatorStyle == .leftRail
         ) ?? NSColor(hex: hex) ?? .gray
-    }
-
-    private func accessibilityTitle(
-        for workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
-    ) -> String {
-        workspaceSnapshot.accessibilityLabel(index: index, workspaceCount: accessibilityWorkspaceCount)
     }
 
     func moveBy(_ delta: Int) {
