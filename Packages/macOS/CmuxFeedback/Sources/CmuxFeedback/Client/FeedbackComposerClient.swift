@@ -237,7 +237,7 @@ public struct FeedbackComposerClient {
         to body: inout Data,
         boundary: String
     ) {
-        let sanitizedFileName = attachment.fileName.replacingOccurrences(of: "\"", with: "")
+        let sanitizedFileName = attachment.sanitizedMultipartFileName
 
         body.append(Data("--\(boundary)\r\n".utf8))
         body.append(
@@ -249,4 +249,5 @@ public struct FeedbackComposerClient {
         body.append(attachment.data)
         body.append(Data("\r\n".utf8))
     }
+
 }
