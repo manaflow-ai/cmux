@@ -351,8 +351,8 @@ extension Array where Element == CuratedSettingEntry {
                 id: "devices",
                 title: String(localized: "settings.betaFeatures.devices", defaultValue: "My Devices"),
                 detailText: [
-                    String(localized: "settings.betaFeatures.devices.subtitleOn", defaultValue: "Adds My Devices as a separate right-sidebar category. Control discovery and access to this Mac separately in Computers settings."),
-                    String(localized: "settings.betaFeatures.devices.subtitleOff", defaultValue: "Hides My Devices from the right sidebar. Incoming access is controlled separately in Computers settings."),
+                    String(localized: "settings.betaFeatures.devices.subtitleOn", defaultValue: "Adds My Devices to the Cloud sidebar. Control discovery and access to this Mac separately in Computers settings."),
+                    String(localized: "settings.betaFeatures.devices.subtitleOff", defaultValue: "Hides My Devices from the Cloud sidebar. Incoming access is controlled separately in Computers settings."),
                 ].joined(separator: " "),
                 paths: ["devices.beta.enabled"],
                 synonyms: "devices macs other mac computers presence hive right sidebar remote beta unstable"

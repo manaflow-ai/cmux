@@ -443,10 +443,8 @@ extension CMUXCLI {
         switch value.lowercased() {
         case "files", "find", "vault", "sessions", "feed", "dock", "machines", "custom", "custom-sidebar":
             return value.lowercased()
-        case "cloud", "vms":
+        case "cloud", "vms", "devices", "device", "macs":
             return "machines"
-        case "devices", "device", "macs":
-            return "devices"
         default:
             return value
         }

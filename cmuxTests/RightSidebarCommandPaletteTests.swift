@@ -15,7 +15,6 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
-            defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.devicesEnabledKey)
             let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
             let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
             let context = CommandPaletteContextSnapshot()
@@ -86,12 +85,10 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         let previousFeed = defaults.object(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
         let previousDock = defaults.object(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
         let previousCloudMachines = defaults.object(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
-        let previousDevices = defaults.object(forKey: RightSidebarBetaFeatureSettings.devicesEnabledKey)
         defer {
             restore(previousFeed, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             restore(previousDock, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
             restore(previousCloudMachines, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
-            restore(previousDevices, forKey: RightSidebarBetaFeatureSettings.devicesEnabledKey)
         }
         try body()
     }

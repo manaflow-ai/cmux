@@ -42,13 +42,11 @@ struct MachinesPanelView: View {
     /// and @AppStorage re-renders the live panel the moment it changes.
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
     let chromeBackgroundColor: NSColor
-    let mode: RightSidebarMode
     var tabManager: TabManager? = nil
 
-    init(chromeBackgroundColor: NSColor, devicesModel: DevicesPanelViewModel? = nil, tabManager: TabManager? = nil, mode: RightSidebarMode = .machines) {
+    init(chromeBackgroundColor: NSColor, devicesModel: DevicesPanelViewModel? = nil, tabManager: TabManager? = nil) {
         self.chromeBackgroundColor = chromeBackgroundColor
         self.tabManager = tabManager
-        self.mode = mode
         _devicesModel = State(initialValue: devicesModel ?? DevicesPanelViewModel())
     }
 
@@ -68,16 +66,16 @@ struct MachinesPanelView: View {
 
     private var includesDevices: Bool {
         _ = devicesBetaEnabled
-        return mode == .devices && DevicesFeature.isEnabled && (devicesModel.preferences?.discoveryEnabled ?? true)
+        return DevicesFeature.isEnabled && (devicesModel.preferences?.discoveryEnabled ?? true)
     }
 
     private var includesCloud: Bool {
         _ = cloudBetaEnabled
-        return mode == .machines && CloudMachinesFeature.isEnabled
+        return CloudMachinesFeature.isEnabled
     }
 
     private var treeSource: CloudTreeMachineSource {
-        includesDevices ? .devices : .cloud
+        includesDevices ? .cloudWithDevicesSection : .cloud
     }
 
     private var treeSnapshot: SurfaceCatalogSnapshot {
@@ -130,7 +128,7 @@ struct MachinesPanelView: View {
     @ViewBuilder
     private var authenticatedContent: some View {
         controlBar
-        if includesCloud, let plan = viewModel.plan, !plan.isPaidPlan, let text = plan.freeAccessBannerText {
+        if let plan = viewModel.plan, !plan.isPaidPlan, let text = plan.freeAccessBannerText {
             MachinesFreeAccessBanner(
                 text: text,
                 isExpired: plan.freeAccessBanner == .expired,
@@ -171,7 +169,7 @@ struct MachinesPanelView: View {
                             .lineLimit(1)
                             .truncationMode(.tail)
                     }
-                } else if viewModel.lastErrorDescription != nil, includesCloud && (!viewModel.machines.isEmpty || includesDevices) {
+                } else if viewModel.lastErrorDescription != nil, includesCloud && !includesDevices && !viewModel.machines.isEmpty {
                     HStack(spacing: 5) {
                         Image(systemName: "exclamationmark.triangle")
                             .font(.system(size: 10, weight: .semibold))
@@ -283,6 +281,11 @@ struct MachinesPanelView: View {
             .foregroundStyle(.secondary)
             .padding(12)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        } else if includesCloud && includesDevices && viewModel.hasLoadedOnce && viewModel.lastErrorDescription != nil {
+            VStack(spacing: 0) {
+                cloudMachinesUnavailableNotice
+                machinesList
+            }
         } else if CloudTreeNodeBuilder.isEmpty(
             machines: includesCloud ? viewModel.machines : [],
             pendingCreates: includesCloud ? viewModel.pendingCreates : [],
@@ -293,6 +296,27 @@ struct MachinesPanelView: View {
         } else {
             machinesList
         }
+    }
+
+    private var cloudMachinesUnavailableNotice: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "cloud.slash")
+                .font(.system(size: 11, weight: .semibold))
+            Text(String(localized: "machines.unavailable.title", defaultValue: "Cloud is unreachable"))
+                .cmuxFont(size: 11)
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            Button(String(localized: "machines.unavailable.retry", defaultValue: "Retry")) {
+                viewModel.refresh()
+            }
+            .buttonStyle(.link)
+            .cmuxFont(size: 11)
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color.orange.opacity(0.08))
+        .accessibilityIdentifier("CloudMachinesUnavailableNotice")
     }
 
     private var authCheckingState: some View {

@@ -43,8 +43,7 @@ class SidebarAliasTests(unittest.TestCase):
                                     env=env, capture_output=True, text=True, timeout=15
                                 )
                                 self.assertEqual(result.returncode, 0, result.stderr)
-                                expected_mode = "devices" if alias.lower() in {"devices", "device", "macs"} else "machines"
-                                self.assertEqual(server.commands, [["right_sidebar", "set", expected_mode, *suffix]])
+                                self.assertEqual(server.commands, [["right_sidebar", "set", "machines", *suffix]])
                 finally:
                     server.shutdown()
                     thread.join(timeout=5)
