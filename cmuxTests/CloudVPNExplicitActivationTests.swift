@@ -12,6 +12,7 @@ import Testing
 struct CloudVPNExplicitActivationTests {
     private let backend = CloudTunnelBackend.networkExtension(extensionBundleIdentifier: "test.cloud.vpn")
 
+    /// Repeated explicit requests reuse the already connected tunnel.
     @Test("Repeated explicit up requests do not enroll or request extension approval again")
     func repeatedUpIsIdempotent() async throws {
         let controller = FakeTunnelController()
@@ -28,6 +29,7 @@ struct CloudVPNExplicitActivationTests {
         await coordinator.requestDown()
     }
 
+    /// Passive status reads and opening the guide do not build the controller.
     @Test("Launch, status observation, and opening setup do not materialize NetworkExtension")
     func browsingStatusIsPassive() async {
         let controller = FakeTunnelController()
@@ -56,6 +58,7 @@ struct CloudVPNExplicitActivationTests {
         await setup.disconnect()
     }
 
+    /// Cancelling the guide while macOS waits for approval leaves the tunnel off.
     @Test("Cancelling approval returns setup to off without starting the VPN")
     func cancelApprovalReturnsToOff() async {
         let controller = FakeTunnelController()
