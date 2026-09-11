@@ -61,6 +61,39 @@ import Testing
         }
     }
 
+    @Test func cancellingWhileWaitingForTheRestOfALineFinishes() async throws {
+        try await Self.withConnection { connection, peer in
+            var sendBuffer: Int32 = 4096
+            setsockopt(peer, SOL_SOCKET, SO_SNDBUF, &sendBuffer, socklen_t(MemoryLayout<Int32>.size))
+            let consumer = Task {
+                var iterator = connection.events.makeAsyncIterator()
+                return await iterator.next()
+            }
+            // More than the peer can buffer: completion proves the consumer
+            // has started reading and is waiting for an unfinished JSON line.
+            try await Self.blocking { try Self.write(peer, Data(repeating: 0x20, count: 128 * 1024)) }
+            consumer.cancel()
+            #expect(await consumer.value == nil)
+        }
+    }
+
+    @Test func oversizedLineClosesInsteadOfDeliveringLaterOutput() async throws {
+        try await Self.withConnection { connection, peer in
+            async let writer: Void = Self.blocking {
+                do {
+                    try Self.write(peer, Data(repeating: 0x20, count: 16 * 1024 * 1024 + 1))
+                    try Self.write(peer, Data("\n".utf8) + Self.outputLine(Data("after-limit".utf8)))
+                    shutdown(peer, SHUT_WR)
+                } catch let error as NSError where error.code == Int(EPIPE) || error.code == Int(ECONNRESET) {
+                    // A protocol limit violation is supposed to close the peer.
+                }
+            }
+            var iterator = connection.events.makeAsyncIterator()
+            #expect(await iterator.next() == nil)
+            try await writer
+        }
+    }
+
     @Test func closingWithBufferedOutputReleasesTheSocket() async throws {
         try await Self.withConnection { connection, peer in
             try Self.write(peer, Self.outputLine(Data("first".utf8)) + Self.outputLine(Data("second".utf8)))
