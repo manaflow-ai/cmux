@@ -215,10 +215,11 @@ struct CodexTurnCompletionOwnershipTests {
             harness,
             activities: [
                 (id: "child-a", kind: "interrupted"),
+                (id: "child-a", kind: "interacted"),
                 (id: "child-b", kind: "started"),
-                (id: "child-b", kind: "interrupted"),
                 (id: "child-b", kind: "interacted"),
-            ]
+            ],
+            trailingPaddingBytes: 768 * 1024
         )
         let beforeLiveChildStop = harness.context.state.snapshot().count
         try runHook(
@@ -235,7 +236,7 @@ struct CodexTurnCompletionOwnershipTests {
         )
         #expect(
             !liveChildCommands.contains { $0.hasPrefix("notify_target_async ") },
-            "A restarted or interacting child must continue to suppress completion: \(liveChildCommands)"
+            "An interaction-only record must not clear a still-live child: \(liveChildCommands)"
         )
         #expect(
             liveChildCommands.contains { $0.hasPrefix("set_status codex Running ") },
@@ -246,21 +247,22 @@ struct CodexTurnCompletionOwnershipTests {
             harness,
             activities: [
                 (id: "child-a", kind: "interrupted"),
+                (id: "child-a", kind: "interacted"),
                 (id: "child-b", kind: "started"),
-                (id: "child-b", kind: "interrupted"),
                 (id: "child-b", kind: "interacted"),
                 (id: "child-b", kind: "interrupted"),
-            ]
+            ],
+            trailingPaddingBytes: 768 * 1024
         )
         let beforeSettledStop = harness.context.state.snapshot().count
-        try runHook(
-            harness,
-            subcommand: "stop",
-            input: stopPayload(
-                harness,
-                turnId: "turn-1",
-                transcriptPath: transcriptPath
-            )
+        #expect(
+            waitUntil(timeout: 8) {
+                let commands = Array(
+                    harness.context.state.snapshot().dropFirst(beforeSettledStop)
+                )
+                return commands.contains { $0.hasPrefix("set_status codex Idle ") }
+            },
+            "A bounded Stop retry must reconcile child state flushed after the original callback"
         )
         let settledCommands = Array(
             harness.context.state.snapshot().dropFirst(beforeSettledStop)
@@ -400,11 +402,18 @@ struct CodexTurnCompletionOwnershipTests {
 
     private func writeSubagentTranscript(
         _ harness: Harness,
-        activities: [(id: String, kind: String)]
+        activities: [(id: String, kind: String)],
+        trailingPaddingBytes: Int = 0
     ) throws -> String {
         let transcriptURL = harness.context.root.appendingPathComponent("parent-rollout.jsonl")
-        let lines = activities.enumerated().map { index, activity in
+        var lines = activities.enumerated().map { index, activity in
             #"{"ordinal":\#(index),"type":"event_msg","payload":{"type":"item_completed","turn_id":"turn-1","item":{"type":"SubAgentActivity","kind":"\#(activity.kind)","agent_thread_id":"\#(activity.id)"}}}"#
+        }
+        if trailingPaddingBytes > 0 {
+            let padding = String(repeating: "x", count: trailingPaddingBytes)
+            lines.append(
+                #"{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"\#(padding)"}]}}"#
+            )
         }
         try (lines.joined(separator: "\n") + "\n").write(
             to: transcriptURL,
@@ -441,6 +450,18 @@ struct CodexTurnCompletionOwnershipTests {
         let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         let path = try #require(harness.environment["CMUX_CODEX_TURN_LEDGER_PATH"])
         try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
+    private func waitUntil(
+        timeout: TimeInterval,
+        condition: () -> Bool
+    ) -> Bool {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        repeat {
+            if condition() { return true }
+            Thread.sleep(forTimeInterval: 0.02)
+        } while Date.now < deadline
+        return condition()
     }
 
     private func stopPayload(
