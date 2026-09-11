@@ -149,6 +149,7 @@ final class MobileHostIrxRuntime {
         else {
             return
         }
+        await withdrawPublishedAvailability()
         await deactivate()
         activeAccountID = nil
     }

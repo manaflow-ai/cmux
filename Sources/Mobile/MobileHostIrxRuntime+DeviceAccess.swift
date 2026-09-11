@@ -53,6 +53,24 @@ extension MobileHostIrxRuntime {
         }
     }
 
+    /// A policy- or preference-driven stop tears the endpoint down, but the
+    /// broker keeps the last registration until it expires. When this Mac is
+    /// still published as pairing-enabled (incoming access switched off after
+    /// discovery already was, or a managed policy landed), re-register it
+    /// disabled first so the account's other devices stop listing it.
+    func withdrawPublishedAvailability() async {
+        guard registeredIncomingAccess == true, let broker = brokerService else { return }
+        do {
+            _ = try await broker.register(
+                pairingEnabled: false, relayURLHint: nil, directAddresses: [], directPorts: nil
+            )
+            registeredIncomingAccess = false
+        } catch {
+            // The listing expires on its own; the endpoint is torn down regardless.
+            Self.journal.record("host-runtime", "availability-withdraw-failed")
+        }
+    }
+
     /// Both initial activation and re-enabling hosting restore the same LAN advertisement.
     func activateLANAdvertising(discovery: CmxIrohDiscoveryResponse) async {
         guard !Self.forceRelayOnly, MobileHostService.isListeningEnabled,
