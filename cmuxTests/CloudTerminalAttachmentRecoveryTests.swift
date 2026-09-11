@@ -152,6 +152,58 @@ import Testing
         #expect(reconnects.count >= 1)
     }
 
+    /// One open retries a couple of times, then reports "did not answer";
+    /// an open pane keeps retrying at the capped interval forever.
+    @Test
+    func retryPoliciesBoundOneOpenAndCapBackgroundRecovery() {
+        let materialize = CloudTerminalAttachmentRetryPolicy.materialize
+        #expect(materialize.boundedDelay(afterFailures: 1) == .seconds(1))
+        #expect(materialize.boundedDelay(afterFailures: 2) == .seconds(2))
+        #expect(materialize.boundedDelay(afterFailures: 3) == nil)
+        let background = CloudTerminalAttachmentRetryPolicy.background
+        #expect(background.cappedDelay(afterFailures: 1) == .seconds(1))
+        #expect(background.cappedDelay(afterFailures: 6) == .seconds(30))
+        #expect(background.cappedDelay(afterFailures: 60) == .seconds(30))
+    }
+
+    /// The scheduler arms exactly one retry per failed pass, replaces an
+    /// armed one instead of stacking, and a fully resolved pass resets the
+    /// backoff so the next failure starts from the shortest delay again.
+    @Test @MainActor
+    func retrySchedulerArmsOneRetryPerFailedPassAndResetsOnSuccess() async {
+        let scheduler = CloudTerminalAttachmentRetryScheduler(
+            policy: CloudTerminalAttachmentRetryPolicy(delays: [.milliseconds(50), .milliseconds(80)])
+        )
+        let fired = ReconnectCounter()
+        #expect(scheduler.scheduleRetry { fired.increment() } == .milliseconds(50))
+        #expect(scheduler.scheduleRetry { fired.increment() } == .milliseconds(80))
+        #expect(scheduler.failures == 2)
+        #expect(scheduler.isPending)
+        #expect(await Self.waitUntil { fired.count == 1 })
+        #expect(!scheduler.isPending)
+        scheduler.reset()
+        #expect(scheduler.failures == 0)
+        #expect(scheduler.scheduleRetry { fired.increment() } == .milliseconds(50))
+        scheduler.cancel()
+        #expect(!scheduler.isPending)
+        #expect(!(await Self.waitUntil(timeout: .milliseconds(200)) { fired.count == 2 }))
+    }
+
+    /// The pane shows nothing while attached and a reason while reconnecting.
+    @Test
+    func attachmentBannerNamesTheMachineAndTheReason() {
+        #expect(CloudTerminalAttachmentBanner.text(for: .attached, machineID: "vm-1") == nil)
+        #expect(CloudTerminalAttachmentBanner.text(for: .ended, machineID: "vm-1") == nil)
+        let attaching = CloudTerminalAttachmentBanner.text(for: .attaching(attempt: 1), machineID: "vm-1")
+        #expect(attaching?.contains("vm-1") == true)
+        let reconnecting = CloudTerminalAttachmentBanner.text(
+            for: .reconnecting(attempt: 3, reason: .livenessTimedOut), machineID: "vm-1"
+        )
+        #expect(reconnecting?.contains("vm-1") == true)
+        #expect(reconnecting?.contains("3") == true)
+        #expect(reconnecting?.contains(CloudTerminalAttachmentInterruption.livenessTimedOut.localizedDescription) == true)
+    }
+
     // MARK: - Fixtures
 
     private static func daemonRejection(_ code: String) -> CloudMachineLink.LinkError {

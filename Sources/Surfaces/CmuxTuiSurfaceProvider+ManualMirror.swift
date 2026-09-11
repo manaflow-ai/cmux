@@ -53,7 +53,8 @@ extension CmuxTuiSurfaceProvider {
                 },
                 onFocus: { [weak session] in
                     session?.claimGeometry()
-                }
+                },
+                attachment: session.attachmentStatus
             )
             session.bind(surface: created.surface)
             // Preserve the workspace's existing notification-dismissal hook
@@ -80,38 +81,54 @@ extension CmuxTuiSurfaceProvider {
         }
     }
 
-    /// Resolves the daemon-local surface needed by a byte attachment. A live terminal with
-    /// zero remote views intentionally resolves to `surface:null`; create one unfocused remote
-    /// tab in the daemon's focused pane before resolving again. The operation is retried once
-    /// after the projection to cover the commit-to-snapshot handoff without ever selecting a
-    /// stale numeric id.
+    /// Resolves the daemon-local surface needed by a byte attachment.
+    ///
+    /// A live terminal with zero remote views resolves to `noPlacement`; one
+    /// unfocused remote tab is projected before resolving again. A daemon that
+    /// does not answer in time is retried on the bounded materialize schedule
+    /// and then reported as "did not answer", never as "not created": the
+    /// terminal keeps running on the machine either way.
     private func resolveSurfaceIDForMaterialization(
         terminalID: String,
         socketPath: String,
         link: CloudMachineLink,
         preferredWorkspaceID: String? = nil
     ) async throws -> (surfaceID: UInt64, placement: SurfaceRemotePlacement?) {
-        let resolver = CloudTerminalAttachmentResolver(commandRunner: link, socketPath: socketPath)
-        switch await resolver.resolve(terminalID: terminalID) {
-        case let .resolved(surfaceID):
-            return (surfaceID, nil)
-        case .unsupported, .retryable, .failed:
-            throw ProviderError.terminalNotCreated(terminalID)
-        case .exited:
-            // The remote shell already ended. Opening a pane for it would show
-            // a frozen screen that never reconnects.
-            throw ProviderError.terminalNotCreated(terminalID)
-        case .noPlacement:
-            let placement = try await ensureRemoteTerminalView(
-                terminalID: terminalID,
-                socketPath: socketPath,
-                link: link,
-                preferredWorkspaceID: preferredWorkspaceID
-            )
-            if case let .resolved(surfaceID) = await resolver.resolveModern(terminalID: terminalID) {
-                return (surfaceID, placement)
+        let resolver = CloudTerminalAttachmentResolver(machineID: machineID, commandRunner: link, socketPath: socketPath)
+        var failures = 0
+        var lastReason = ""
+        while true {
+            try Task.checkCancellation()
+            let resolution = await resolver.resolve(terminalID: terminalID)
+            attachmentLog.resolution(machineID: machineID, terminalID: terminalID, attempt: failures + 1, outcome: resolution)
+            switch resolution {
+            case let .resolved(surfaceID):
+                return (surfaceID, nil)
+            case .exited:
+                // The remote shell already ended. Opening a pane for it would
+                // show a frozen screen that never reconnects.
+                throw ProviderError.terminalExited(terminalID)
+            case .noPlacement:
+                let placement = try await ensureRemoteTerminalView(
+                    terminalID: terminalID,
+                    socketPath: socketPath,
+                    link: link,
+                    preferredWorkspaceID: preferredWorkspaceID
+                )
+                attachmentLog.projection(machineID: machineID, terminalID: terminalID, placement: placement)
+                if case let .resolved(surfaceID) = await resolver.resolve(terminalID: terminalID) {
+                    return (surfaceID, placement)
+                }
+                lastReason = "the projected view did not resolve"
+            case let .retryable(reason):
+                lastReason = reason
             }
-            throw ProviderError.terminalNotCreated(terminalID)
+            failures += 1
+            guard let delay = CloudTerminalAttachmentRetryPolicy.materialize.boundedDelay(afterFailures: failures) else {
+                attachmentLog.giveUp(machineID: machineID, terminalID: terminalID, attempts: failures, reason: lastReason)
+                throw ProviderError.terminalAttachTimedOut(terminalID: terminalID, reason: lastReason)
+            }
+            try await attachmentClock.sleep(for: delay)
         }
     }
 
@@ -154,7 +171,7 @@ extension CmuxTuiSurfaceProvider {
         socketPath: String,
         link: CloudMachineLink
     ) async -> [String: CloudTuiSurfaceIDResolution] {
-        let resolver = CloudTerminalAttachmentResolver(commandRunner: link, socketPath: socketPath)
+        let resolver = CloudTerminalAttachmentResolver(machineID: machineID, commandRunner: link, socketPath: socketPath)
         var resolutions = await resolver.resolve(terminalIDs: Set(sessions.map(\.terminalID)))
         let terminalsWithoutPlacement: Set<String> = Set(
             sessions.compactMap { session in
@@ -178,7 +195,7 @@ extension CmuxTuiSurfaceProvider {
                     preferredWorkspaceID: preferredWorkspaceID
                 )
             }
-            resolutions[terminalID] = await resolver.resolveModern(terminalID: terminalID)
+            resolutions[terminalID] = await resolver.resolve(terminalID: terminalID)
         }
         return resolutions
     }
@@ -215,11 +232,5 @@ extension CmuxTuiSurfaceProvider {
         } catch {
             materializedPanels.remove(projection.panelID)
         }
-    }
-
-    /// Whether the daemon's answer means "this resolver cannot serve me". See
-    /// ``CloudTerminalAttachmentResolver/isExplicitUnsupportedResolverError(_:)``.
-    nonisolated static func isExplicitUnsupportedResolverError(_ error: Error) -> Bool {
-        CloudTerminalAttachmentResolver.isExplicitUnsupportedResolverError(error)
     }
 }

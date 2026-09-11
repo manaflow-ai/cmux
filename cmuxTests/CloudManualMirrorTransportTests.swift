@@ -405,41 +405,55 @@ struct CloudManualMirrorTransportTests {
         #expect(!arguments.contains { $0 == "list-workspaces" })
     }
 
-    /// `resolve-terminal` takes a terminal *host* id (UUIDv4 hex); the app only
-    /// ever holds a public `term_…` resource id, whose hex is not a UUIDv4 and
-    /// which no command maps to a host id. The daemon answers
-    /// `invalid_terminal_id`, and treating that as a hard failure made every
-    /// cloud terminal fail with "cmux-tui did not report the new terminal"
-    /// instead of falling back to the tree that can resolve it.
+    /// `resolve-terminal` on a daemon that predates public-id mapping takes a
+    /// *terminal host* id (UUIDv4 hex), while everything the app holds is a
+    /// public `term_…` id. Its `invalid_terminal_id` (and, for the 1-in-64
+    /// ids that happen to look like a UUIDv4, `terminal_not_found`) means "I
+    /// cannot serve this id", which sends the resolver to the authoritative
+    /// snapshot; a transport timeout is retryable; an unrelated rejection is
+    /// neither, so the resolver never silently attaches against a stale tree.
     @Test
-    func idSpaceRejectionFallsBackToTheCompatibilityTree() {
-        let daemonAnswer = """
+    func daemonAnswersSeparateUnservableIdsFromTransportFailures() {
+        let rejection = """
         {"code":"raw.command_failed","details":{"error":"invalid_terminal_id","id":1,"ok":false},        "message":"invalid_terminal_id","retryable":false}
         """
-        #expect(
-            CmuxTuiSurfaceProvider.isExplicitUnsupportedResolverError(
-                CloudMachineLink.LinkError.exited(status: 1, output: daemonAnswer)
-            )
-        )
-        // A daemon predating the resolver keeps its own fallback signal.
-        #expect(
-            CmuxTuiSurfaceProvider.isExplicitUnsupportedResolverError(
-                CloudMachineLink.LinkError.exited(
-                    status: 1,
-                    output: #"{"code":"operation.unsupported"}"#
-                )
-            )
-        )
-        // An unrelated failure must still fail closed rather than silently
-        // resolving a terminal against a stale tree.
-        #expect(
-            !CmuxTuiSurfaceProvider.isExplicitUnsupportedResolverError(
-                CloudMachineLink.LinkError.exited(
-                    status: 1,
-                    output: #"{"code":"internal","message":"boom"}"#
-                )
-            )
-        )
+        let invalidID = CloudTuiDaemonAnswer(error: CloudMachineLink.LinkError.exited(status: 1, output: rejection))
+        #expect(invalidID == .rejected("invalid_terminal_id"))
+        #expect(invalidID.cannotServeTerminalID)
+        #expect(!invalidID.isRetryable)
+
+        let notFound = CloudTuiDaemonAnswer(error: CloudMachineLink.LinkError.exited(
+            status: 1,
+            output: #"{"code":"raw.command_failed","details":{"error":"terminal_not_found","id":1,"ok":false},"message":"terminal_not_found","retryable":false}"#
+        ))
+        #expect(notFound.cannotServeTerminalID)
+
+        // A daemon predating the resolver keeps its own signal.
+        let unsupported = CloudTuiDaemonAnswer(error: CloudMachineLink.LinkError.exited(
+            status: 1, output: #"{"code":"operation.unsupported"}"#
+        ))
+        #expect(unsupported.cannotServeTerminalID)
+
+        let timeout = CloudTuiDaemonAnswer(error: CloudMachineLink.LinkError.exited(
+            status: 3, output: "transport timed out before raw response: Resource temporarily unavailable (os error 35)"
+        ))
+        #expect(timeout.isRetryable)
+        #expect(!timeout.cannotServeTerminalID)
+        #expect(CloudTuiDaemonAnswer(error: CloudMachineLink.LinkError.timedOut).isRetryable)
+
+        // The structured form a current client prints for the same timeout.
+        let structuredTimeout = CloudTuiDaemonAnswer(error: CloudMachineLink.LinkError.exited(
+            status: 3, output: #"{"code":"transport.timeout","message":"transport timed out before raw response","retryable":true}"#
+        ))
+        #expect(structuredTimeout.isRetryable)
+
+        // An unrelated rejection is an authoritative answer about the request,
+        // not about the terminal's existence.
+        let boom = CloudTuiDaemonAnswer(error: CloudMachineLink.LinkError.exited(
+            status: 1, output: #"{"code":"internal","message":"boom"}"#
+        ))
+        #expect(boom == .rejected("boom"))
+        #expect(!boom.cannotServeTerminalID)
     }
 
     @Test
@@ -481,7 +495,9 @@ struct CloudManualMirrorTransportTests {
             JSONSerialization.jsonObject(with: Data(arguments[requestIndex].utf8)) as? [String: Any]
         )
         #expect(request["cmd"] as? String == "resolve-terminal")
-        #expect(request["terminal_id"] as? String == "0123456789abcdef0123456789abcdef")
+        // The full public id: a current daemon maps it, and a daemon that only
+        // knows host ids rejects both spellings identically.
+        #expect(request["terminal_id"] as? String == "term_0123456789abcdef0123456789abcdef")
     }
 
     @Test

@@ -1,17 +1,17 @@
 /// Resolution outcome for a cloud terminal's daemon-local surface identifier.
 ///
-/// Only an explicitly unsupported modern resolver permits a compatibility-tree
-/// fallback; malformed and failed responses remain fail-closed. A transport
-/// deadline or a busy daemon is `retryable`: the terminal may well be alive,
-/// so the caller retries on a bounded schedule instead of reporting it missing.
+/// Every outcome is an authoritative statement or an explicit "try again":
+/// a transport deadline or an unusable answer is `retryable`, never "missing",
+/// because the terminal may well be alive on the machine.
 enum CloudTuiSurfaceIDResolution: Equatable, Sendable {
     case resolved(UInt64)
+    /// The terminal is alive but no daemon view shows it. Project one, then
+    /// resolve again.
     case noPlacement
-    /// The remote terminal exited (or the daemon has no record of it).
+    /// The remote terminal exited, or the daemon's authoritative graph has no
+    /// record of it.
     case exited
-    case unsupported
     /// The daemon did not answer in time or the answer was unusable for a
     /// reason that says nothing about the terminal itself.
     case retryable(String)
-    case failed
 }

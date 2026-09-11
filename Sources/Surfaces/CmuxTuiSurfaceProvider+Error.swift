@@ -7,6 +7,11 @@ extension CmuxTuiSurfaceProvider {
         case machineAsleep(String)
         case noWorkspaceOnMachine(String)
         case terminalNotCreated(String)
+        /// The terminal's process already ended on the machine.
+        case terminalExited(String)
+        /// The daemon did not answer the resolver within the bounded retries.
+        /// The terminal may still be running; this is never "not created".
+        case terminalAttachTimedOut(terminalID: String, reason: String)
         case invalidSnapshot(String)
         case snapshotOnly(String)
         case stateUnavailable(String)
@@ -26,6 +31,23 @@ extension CmuxTuiSurfaceProvider {
                 return "\(id) has no cmux-tui workspace yet."
             case .terminalNotCreated(let detail):
                 return "cmux-tui did not report the new terminal: \(detail)"
+            case .terminalExited(let id):
+                return String(
+                    format: String(
+                        localized: "cloudTree.error.terminalExited",
+                        defaultValue: "%@ already exited on the machine."
+                    ),
+                    id
+                )
+            case let .terminalAttachTimedOut(terminalID, reason):
+                return String(
+                    format: String(
+                        localized: "cloudTree.error.terminalAttachTimedOut",
+                        defaultValue: "cmux-tui did not answer for %@ in time (%@). The terminal keeps running on the machine; open it again."
+                    ),
+                    terminalID,
+                    reason
+                )
             case .invalidSnapshot(let id):
                 return "cmux-tui returned an unversioned or malformed session snapshot for \(id)."
             case .snapshotOnly(let id):

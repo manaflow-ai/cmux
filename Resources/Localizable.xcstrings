@@ -121831,6 +121831,176 @@
         }
       }
     },
+    "cloudPane.attachment.attaching": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attaching to %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に接続しています…"
+          }
+        }
+      }
+    },
+    "cloudPane.attachment.attachingAgain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attaching to %@… (attempt %lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に接続しています…（%lld 回目）"
+          }
+        }
+      }
+    },
+    "cloudPane.attachment.reconnecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnecting to %@… (attempt %lld; %@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に再接続しています…（%lld 回目: %@）"
+          }
+        }
+      }
+    },
+    "cloudPane.attachment.reason.handshakeTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the machine did not finish the attach handshake"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンが接続ハンドシェイクを完了しませんでした"
+          }
+        }
+      }
+    },
+    "cloudPane.attachment.reason.livenessTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the connection stopped answering"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続が応答しなくなりました"
+          }
+        }
+      }
+    },
+    "cloudPane.attachment.reason.transportClosed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the connection closed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続が閉じられました"
+          }
+        }
+      }
+    },
+    "cloudPane.attachment.reason.rejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the machine rejected the attachment (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンが接続を拒否しました（%@）"
+          }
+        }
+      }
+    },
+    "cloudPane.attachment.reason.unresolved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui has not reported this terminal yet (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui がこのターミナルをまだ報告していません（%@）"
+          }
+        }
+      }
+    },
+    "cloudTree.error.terminalAttachTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui did not answer for %@ in time (%@). The terminal keeps running on the machine; open it again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui が %@ に時間内に応答しませんでした（%@）。ターミナルはマシン上で実行されたままです。もう一度開いてください。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.terminalExited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ already exited on the machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はマシン上ですでに終了しています。"
+          }
+        }
+      }
+    },
     "cloudPane.layoutSyncFailed.ambiguous": {
       "extractionState": "manual",
       "localizations": {

@@ -4,135 +4,190 @@ import Foundation
 /// attachment needs.
 ///
 /// One value per link socket. Every daemon round trip goes through
-/// ``CloudTuiCommandRunning`` under a bounded deadline, so the mapping is
-/// testable against scripted daemon answers and never depends on a machine.
+/// ``CloudTuiCommandRunning`` under a bounded deadline, and every outcome is
+/// either an authoritative statement about the terminal or an explicit "try
+/// again": a slow daemon or a busy lane is never reported as a missing
+/// terminal.
+///
+/// Resolution order:
+/// 1. `resolve-terminal` with the public id. A daemon that maps public ids
+///    answers directly, including `surface:null` for a live terminal with no
+///    view.
+/// 2. If the daemon cannot serve that id (the deployed 897bb7a9 build
+///    validates it as a UUIDv4 host id and answers `invalid_terminal_id`, or
+///    misses it as a host id for the 1-in-64 ids that happen to have that
+///    shape), the authoritative public snapshot decides: absent or exited →
+///    exited, no tab → a projection is needed, a tab → the compatibility tree
+///    joins that tab to its numeric surface.
+/// 3. Anything that never produced an answer is retryable.
 struct CloudTerminalAttachmentResolver: Sendable {
+    let machineID: String
     let commandRunner: any CloudTuiCommandRunning
     let socketPath: String
-    /// Deadline for each daemon round trip.
-    var commandDeadline: Duration = .seconds(30)
+    /// Deadline for each daemon round trip. The bundled client's raw bridge
+    /// gives up after 10 s; this bound only covers a client that never starts.
+    var commandDeadline: Duration
+    private let log = CloudTerminalAttachmentLog()
 
     init(
+        machineID: String = "",
         commandRunner: any CloudTuiCommandRunning,
         socketPath: String,
-        commandDeadline: Duration = .seconds(30)
+        commandDeadline: Duration = .seconds(15)
     ) {
+        self.machineID = machineID
         self.commandRunner = commandRunner
         self.socketPath = socketPath
         self.commandDeadline = commandDeadline
     }
 
-    /// Resolves one terminal, using the legacy tree only when the daemon
-    /// explicitly reports that the private resolver cannot serve the id. Other
-    /// failures fail closed to prevent stale-id routing.
-    func resolve(terminalID: String) async -> CloudTuiSurfaceIDResolution {
-        let modern = await resolveModern(terminalID: terminalID)
-        guard modern == .unsupported else { return modern }
-        guard let surfaceID = await resolveLegacy(terminalIDs: [terminalID])[terminalID] else {
-            return .failed
-        }
-        return .resolved(surfaceID)
+    /// The private resolver's verdict, before any snapshot fallback.
+    enum ModernOutcome: Equatable, Sendable {
+        case decided(CloudTuiSurfaceIDResolution)
+        /// The daemon cannot map this id at all; the public snapshot decides.
+        case cannotServeID
     }
 
-    /// Resolves a set of terminal ids with one modern request per id and at
-    /// most one legacy tree fallback. The compatibility parser performs one
-    /// O(N) traversal for all unresolved ids.
+    func resolve(terminalID: String) async -> CloudTuiSurfaceIDResolution {
+        await resolve(terminalIDs: [terminalID])[terminalID] ?? .retryable("resolver produced no outcome")
+    }
+
+    /// Resolves a set of terminal ids with one modern request per id, at most
+    /// one snapshot read, and at most one compatibility-tree fetch.
     func resolve(terminalIDs: Set<String>) async -> [String: CloudTuiSurfaceIDResolution] {
         guard !terminalIDs.isEmpty else { return [:] }
         var results: [String: CloudTuiSurfaceIDResolution] = [:]
-        var legacyIDs: Set<String> = []
+        var unserved: Set<String> = []
         for terminalID in terminalIDs {
-            let result = await resolveModern(terminalID: terminalID)
-            results[terminalID] = result
-            if result == .unsupported {
-                legacyIDs.insert(terminalID)
+            switch await resolveModern(terminalID: terminalID) {
+            case let .decided(outcome):
+                results[terminalID] = outcome
+            case .cannotServeID:
+                unserved.insert(terminalID)
             }
         }
-        if !legacyIDs.isEmpty {
-            let legacy = await resolveLegacy(terminalIDs: legacyIDs)
-            for terminalID in legacyIDs {
-                results[terminalID] = legacy[terminalID].map(CloudTuiSurfaceIDResolution.resolved) ?? .failed
+        guard !unserved.isEmpty else { return results }
+        let fromSnapshot = await resolveThroughSnapshot(terminalIDs: unserved)
+        results.merge(fromSnapshot) { _, new in new }
+        return results
+    }
+
+    /// Resolves the private command without a compatibility-tree traversal.
+    func resolveModern(terminalID: String) async -> ModernOutcome {
+        guard let arguments = CloudTuiCommandLine.resolveTerminalArguments(
+            socketPath: socketPath,
+            terminalID: terminalID
+        ) else { return .decided(.retryable("terminal id is not a public term_ id")) }
+        do {
+            let resolved = try await commandRunner.runTuiCommand(arguments: arguments, deadline: commandDeadline)
+            switch CloudTuiLegacySnapshotParser().resolvedSurface(from: resolved) {
+            case let .surface(surfaceID):
+                return .decided(.resolved(surfaceID))
+            case .noPlacement:
+                return .decided(.noPlacement)
+            case .exited:
+                return .decided(.exited)
+            case .malformed:
+                return .decided(.retryable("malformed resolve-terminal answer"))
+            }
+        } catch {
+            let answer = CloudTuiDaemonAnswer(error: error)
+            log.daemonAnswer(machineID: machineID, terminalID: terminalID, command: "resolve-terminal", answer: answer)
+            if answer.cannotServeTerminalID { return .cannotServeID }
+            return .decided(.retryable(answer.reason))
+        }
+    }
+
+    /// The authoritative public snapshot carries every terminal with its
+    /// lifecycle and views, whether or not the daemon can map its id. A
+    /// terminal with a view is joined to its numeric surface through the
+    /// compatibility tree, which lists tabs (not terminals) beside `surface`.
+    private func resolveThroughSnapshot(terminalIDs: Set<String>) async -> [String: CloudTuiSurfaceIDResolution] {
+        let snapshot: [String: Any]
+        do {
+            let data = try await commandRunner.runTuiCommand(
+                arguments: CloudTuiCommandLine.snapshotArguments(socketPath: socketPath),
+                deadline: commandDeadline
+            )
+            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  CmuxTuiSnapshotParser.authoritativeGraphIsValid(object) else {
+                return Self.uniform(terminalIDs, .retryable("session snapshot was not an authoritative graph"))
+            }
+            snapshot = object
+        } catch {
+            let answer = CloudTuiDaemonAnswer(error: error)
+            for terminalID in terminalIDs {
+                log.daemonAnswer(machineID: machineID, terminalID: terminalID, command: "session current snapshot", answer: answer)
+            }
+            return Self.uniform(terminalIDs, .retryable("snapshot: \(answer.reason)"))
+        }
+        var results: [String: CloudTuiSurfaceIDResolution] = [:]
+        var placedTabs: [String: String] = [:]
+        for terminalID in terminalIDs {
+            switch Self.placement(in: snapshot, terminalID: terminalID) {
+            case .absent, .exited:
+                results[terminalID] = .exited
+            case .detached:
+                results[terminalID] = .noPlacement
+            case let .notReady(lifecycle):
+                results[terminalID] = .retryable("terminal is \(lifecycle)")
+            case let .placed(tabID):
+                placedTabs[terminalID] = tabID
+            }
+        }
+        guard !placedTabs.isEmpty else { return results }
+        do {
+            let tree = try await commandRunner.runTuiCommand(
+                arguments: CloudTuiCommandLine.legacyListWorkspacesArguments(socketPath: socketPath),
+                deadline: commandDeadline
+            )
+            let joined = CloudTuiLegacySnapshotParser().surfaceIDs(from: tree, terminalIDs: Set(placedTabs.keys))
+            for (terminalID, tabID) in placedTabs {
+                results[terminalID] = joined[terminalID].map(CloudTuiSurfaceIDResolution.resolved)
+                    ?? .retryable("tab \(tabID) is in the snapshot but not yet in the compatibility tree")
+            }
+        } catch {
+            let answer = CloudTuiDaemonAnswer(error: error)
+            for terminalID in placedTabs.keys {
+                log.daemonAnswer(machineID: machineID, terminalID: terminalID, command: "list-workspaces", answer: answer)
+                results[terminalID] = .retryable("compatibility tree: \(answer.reason)")
             }
         }
         return results
     }
 
-    /// Resolves the private command without a compatibility-tree traversal.
-    func resolveModern(terminalID: String) async -> CloudTuiSurfaceIDResolution {
-        guard let arguments = CloudTuiCommandLine.resolveTerminalArguments(
-            socketPath: socketPath,
-            terminalID: terminalID
-        ) else { return .failed }
-        let parser = CloudTuiLegacySnapshotParser()
-        do {
-            let resolved = try await commandRunner.runTuiCommand(arguments: arguments, deadline: commandDeadline)
-            switch parser.resolvedSurface(from: resolved) {
-            case let .surface(surfaceID):
-                return .resolved(surfaceID)
-            case .noPlacement:
-                return .noPlacement
-            case .exited:
-                return .exited
-            case .malformed:
-                return .failed
-            }
-        } catch {
-            if Self.isExplicitUnsupportedResolverError(error) {
-                return .unsupported
-            }
-            // A pre-protocol-9 daemon has no generation-aware resolver. Probe
-            // the authoritative identify response before allowing the legacy
-            // tree fallback; all other failures remain fail-closed.
-            guard let identifyArguments = CloudTuiCommandLine.identifyArguments(socketPath: socketPath),
-                  let identify = try? await commandRunner.runTuiCommand(arguments: identifyArguments, deadline: commandDeadline),
-                  let protocolVersion = parser.protocolVersion(from: identify) else {
-                return .failed
-            }
-            return protocolVersion < 9 ? .unsupported : .failed
-        }
+    private enum SnapshotPlacement: Equatable {
+        case absent
+        case exited
+        case detached
+        case notReady(String)
+        case placed(tabID: String)
     }
 
-    /// One compatibility-tree fetch joined for every requested id.
-    func resolveLegacy(terminalIDs: Set<String>) async -> [String: UInt64] {
-        guard !terminalIDs.isEmpty,
-              let tree = try? await commandRunner.runTuiCommand(
-                  arguments: CloudTuiCommandLine.legacyListWorkspacesArguments(socketPath: socketPath),
-                  deadline: commandDeadline
-              ) else { return [:] }
-        return CloudTuiLegacySnapshotParser().surfaceIDs(from: tree, terminalIDs: terminalIDs)
+    /// Where the authoritative graph puts one terminal. Several views of one
+    /// terminal are legal; any of them is attachable, so the first is used.
+    private static func placement(in snapshot: [String: Any], terminalID: String) -> SnapshotPlacement {
+        let terminals = snapshot["terminals"] as? [[String: Any]] ?? []
+        guard let terminal = terminals.first(where: { $0["id"] as? String == terminalID }) else { return .absent }
+        let lifecycle = (terminal["lifecycle"] as? String) ?? "running"
+        switch lifecycle {
+        case "exited", "tombstoned":
+            return .exited
+        case "running":
+            break
+        default:
+            return .notReady(lifecycle)
+        }
+        let tabs = (snapshot["tabs"] as? [[String: Any]] ?? []).filter {
+            $0["content_kind"] as? String == "terminal" && $0["content_id"] as? String == terminalID
+        }
+        if let tabID = tabs.first?["id"] as? String, !tabID.isEmpty {
+            return .placed(tabID: tabID)
+        }
+        return .detached
     }
 
-    /// Whether the daemon's answer means "this resolver cannot serve me",
-    /// which sends the caller to the compatibility tree instead of failing
-    /// closed.
-    ///
-    /// Two answers qualify. `operation.unsupported` is a daemon that predates
-    /// the resolver. `invalid_terminal_id` is an id-space mismatch:
-    /// `resolve-terminal` takes a *terminal host* id (UUIDv4 hex, per
-    /// spec/sdk-schema.json), while everything the app holds is a public
-    /// `term_…` resource id whose hex is not a UUIDv4 and which no command maps
-    /// to a host id. So the modern resolver can never answer for the ids this
-    /// app has, and treating that as a hard failure made every cloud terminal
-    /// fail with "cmux-tui did not report the new terminal". The compatibility
-    /// tree does carry the mapping (`terminal_resource_id` beside `surface`),
-    /// so the fallback is the path that actually resolves.
-    static func isExplicitUnsupportedResolverError(_ error: Error) -> Bool {
-        guard case let CloudMachineLink.LinkError.exited(_, output) = error else { return false }
-        let lines = output.split(whereSeparator: \.isNewline)
-        for line in lines {
-            guard let data = String(line).data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-            else { continue }
-            if object["code"] as? String == "operation.unsupported"
-                || object["error_code"] as? String == "operation.unsupported" {
-                return true
-            }
-            let detailError = (object["details"] as? [String: Any])?["error"] as? String
-            if object["message"] as? String == "invalid_terminal_id"
-                || detailError == "invalid_terminal_id" {
-                return true
-            }
-        }
-        return false
+    private static func uniform(_ terminalIDs: Set<String>, _ outcome: CloudTuiSurfaceIDResolution) -> [String: CloudTuiSurfaceIDResolution] {
+        Dictionary(uniqueKeysWithValues: terminalIDs.map { ($0, outcome) })
     }
 }

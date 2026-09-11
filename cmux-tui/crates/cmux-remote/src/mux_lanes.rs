@@ -162,9 +162,13 @@ pub(crate) fn classify_client_line(line: &[u8]) -> Lane {
         Some("copy") if envelope.mode.as_ref().map(MuxName::as_str) == Some("scrollback") => {
             Lane::Bulk
         }
+        // Read-only lookups never wait behind PTY input or a slow mutation
+        // commit; a stalled Interactive lane must not make a live terminal
+        // look missing to the client resolving it.
         Some(
             "identify" | "ping" | "list-clients" | "list-workspaces" | "export-layout" | "wait-for"
-            | "ids" | "list-agents" | "pane-neighbor" | "process-info" | "subscribe",
+            | "ids" | "list-agents" | "pane-neighbor" | "process-info" | "subscribe"
+            | "resolve-terminal",
         ) => Lane::Control,
         // Mutations default to one ordered lane with compact PTY input. This
         // keeps a later close, move, focus, resize, or configuration change
