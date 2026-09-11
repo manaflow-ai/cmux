@@ -148,7 +148,7 @@ final class DeviceSurfaceProvider: SurfaceProvider {
                             _ = self.discardMaterialization(created)
                             return
                         }
-                        self.catalog.replaceProjection(projection, withPanel: created.panelID, in: created.workspaceID, remotePlacement: created.remotePlacement)
+                        self.catalog.replaceProjection(projection, withPanel: created.panelID, in: created.workspaceID, remotePlacement: nil)
                         SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
                     } catch {
                         // The next authoritative catalog update retries an unavailable pane.
