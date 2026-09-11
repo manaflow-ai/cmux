@@ -211,6 +211,7 @@ exit 0
         env.pop("NODE_OPTIONS", None)
         if tmpdir is not None:
             env["TMPDIR"] = tmpdir
+        env["CMUX_NODE_OPTIONS_DIR"] = str(tmp / "node-options")
         if extra_env:
             env.update(extra_env)
         if node_options == "__CMUX_TEST_PRELOAD__":
@@ -2441,6 +2442,28 @@ def test_live_socket_enforces_heap_cap_for_space_separated_flag(failures: list[s
     expect(child_node_options == restored, f"space-separated heap flag: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
 
 
+def test_node_options_directory_contract(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="guard-contract-") as td:
+        for directory in [td + "/with space", td + '/with"quote', td + "/with\\slash", "relative/path"]:
+            result = run_wrapper(socket_state="live", argv=["hello"],
+                                 node_options="--trace-warnings",
+                                 extra_env={"CMUX_NODE_OPTIONS_DIR": directory})
+            expect(result[0] == 0, f"unsafe directory {directory!r}: {result[3]}", failures)
+            expect(result[5:8] == ("--trace-warnings",) * 3,
+                   f"unsafe directory {directory!r}: options {result[5:8]!r}", failures)
+        for override in [td + "/custom", "~/custom", ""]:
+            result = run_wrapper(socket_state="live", argv=["hello"],
+                                 extra_env={"HOME": td, "CMUX_NODE_OPTIONS_DIR": override})
+            root = Path(td) / ("custom" if override else ".cmux")
+            module = root / "cmux-node-options" / "restore-node-options.cjs"
+            expect(result[0] == 0, f"durable directory: {result[3]}", failures)
+            expect(result[5].startswith(f"--require={module} "),
+                   f"durable directory: unexpected options {result[5]!r}", failures)
+            expect(module.is_file(), f"durable directory: missing {module}", failures)
+            expect(result[6:8] == ("__UNSET__",) * 2,
+                   f"durable directory: descendants {result[6:8]!r}", failures)
+
+
 def test_live_socket_guard_dir_failure_skips_node_options_injection(failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-bad-guard-") as td:
         blocker = Path(td) / "not-a-directory"
@@ -2677,6 +2700,7 @@ def main() -> int:
     test_live_socket_auto_preserve_accepts_all_documented_truthy_variants(failures)
     test_live_socket_explicit_key_list_is_additive_to_vertex_auto_preserve(failures)
     test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)
+    test_node_options_directory_contract(failures)
     test_live_socket_guard_dir_failure_skips_node_options_injection(failures)
     test_live_socket_preserves_explicit_bypass_availability_flag(failures)
     test_live_socket_stale_mktemp_literal_does_not_warn(failures)
