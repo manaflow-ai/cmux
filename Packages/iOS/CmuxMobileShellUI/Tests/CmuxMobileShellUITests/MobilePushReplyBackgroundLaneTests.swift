@@ -1,5 +1,6 @@
 import CmuxAuthRuntime
 import Foundation
+import os
 import Testing
 
 @testable import CmuxMobileShellUI
@@ -116,20 +117,19 @@ private final class ReplyRelayFake: ReplyRelaying, @unchecked Sendable {
 }
 
 private final class RateLimitedReplyURLProtocol: URLProtocol, @unchecked Sendable {
-    private static let lock = NSLock()
-    private static var storedRequestCount = 0
+    private static let requestCounter = OSAllocatedUnfairLock(initialState: 0)
 
-    static var requestCount: Int { lock.withLock { storedRequestCount } }
+    static var requestCount: Int { requestCounter.withLock { $0 } }
 
     static func reset() {
-        lock.withLock { storedRequestCount = 0 }
+        requestCounter.withLock { $0 = 0 }
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        Self.lock.withLock { Self.storedRequestCount += 1 }
+        Self.requestCounter.withLock { $0 += 1 }
         let response = HTTPURLResponse(
             url: request.url!,
             statusCode: 429,
