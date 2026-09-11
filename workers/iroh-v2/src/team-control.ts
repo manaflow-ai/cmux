@@ -71,7 +71,11 @@ export class TeamControl extends DurableObject<Environment> {
         for (const old of this.ctx.getWebSockets("device:" + deviceKey)) if (old !== server) this.close(old, "session_replaced");
         return new Response(null, { status: 101, webSocket: client });
       } finally { this.opening.delete(session.sessionId); }
-    } catch (error) { return httpFailure(error, requestId); }
+    } catch (error) {
+      const failure = publicError(error);
+      console.log(JSON.stringify({ event: "iroh.team.failure", requestId, code: failure.code, status: failure.status, retryable: failure.retryable }));
+      return httpFailure(error, requestId);
+    }
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {

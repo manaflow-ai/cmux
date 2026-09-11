@@ -101,12 +101,18 @@ export class StackAuthority {
 
   private async get(path: string, headers: Record<string, string>, server = false): Promise<unknown> {
     let response: Response;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
     try {
       response = await this.request(new URL(path, this.configuration.apiURL).href, {
-        headers, signal: AbortSignal.timeout(5000), redirect: "error",
+        headers, signal: controller.signal, redirect: "manual",
       });
-    } catch { throw new OperationError("upstream_unavailable", 503, true, 2000); }
+    } catch (error) {
+      console.log(JSON.stringify({ event: "iroh.stack.fetch_failed", path, error: error instanceof Error ? error.name : "unknown", message: error instanceof Error ? error.message.slice(0, 160) : "unknown" }));
+      throw new OperationError("upstream_unavailable", 503, true, 2000);
+    } finally { clearTimeout(timeout); }
     if (!response.ok) {
+      console.log(JSON.stringify({ event: "iroh.stack.response_failed", path, status: response.status }));
       await response.body?.cancel();
       // A bad server credential is an outage, never evidence against this user.
       if (!server && response.status === 401) throw new OperationError("unauthorized", 401);

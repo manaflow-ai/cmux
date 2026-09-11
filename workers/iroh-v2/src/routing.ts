@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { StackAuthority, VerifiedAuthority } from "./auth";
-import { decodeJSON, httpFailure, inputRequestId, parseInput, parseSocketSetup, readBoundedBody, INPUT_BYTES } from "./boundary";
+import { decodeJSON, errorResponse, httpFailure, inputRequestId, parseInput, parseSocketSetup, readBoundedBody, INPUT_BYTES } from "./boundary";
 import { identifier, timestamp } from "./contracts/common";
 import { SocketSetupSchema, type SocketSetup } from "./contracts/requests";
 import { API_TICKET_SECONDS, canonicalJSON, decodeBase64URL, encodeBase64URL, verifyTicket } from "./crypto";
@@ -72,7 +72,11 @@ export async function routeControl(request: Request, dependencies: RoutingDepend
       ...(socket ? {} : { body: JSON.stringify({ setup, ...(operation ? { input } : {}) }) }),
     });
     return await dependencies.dispatchTeam(setup.device.identity.teamId, forwarded);
-  } catch (error) { return httpFailure(error, requestId); }
+  } catch (error) {
+    const failure = errorResponse(error, requestId).failure;
+    console.log(JSON.stringify({ event: "iroh.control.failure", requestId, code: failure.code, status: failure.status, retryable: failure.retryable }));
+    return httpFailure(error, requestId);
+  }
 }
 
 function readSetup(request: Request): SocketSetup {
