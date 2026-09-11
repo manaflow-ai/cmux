@@ -61,17 +61,6 @@ enum CloudPortRoutePlan: Equatable, Sendable {
         return parts.url
     }
 
-    /// Extracts the app-owned listener port from a URL. A loopback port is
-    /// intentionally independent from the VM service port, so callers must
-    /// never infer the remote target from this value.
-    static func loopbackPort(from url: String) -> UInt16? {
-        guard let components = URLComponents(string: url),
-              components.host == "127.0.0.1",
-              let port = components.port,
-              let localPort = UInt16(exactly: port) else { return nil }
-        return localPort
-    }
-
     /// The stable primary label for a discovered port. It names the VM port,
     /// rather than the implementation detail of the local listener.
     static func sidebarTitle(remotePort: Int) -> String {
