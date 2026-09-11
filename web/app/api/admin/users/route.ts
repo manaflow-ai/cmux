@@ -11,6 +11,7 @@ import {
   searchAdminUsers,
   setManualPlanGrant,
 } from "../../../../services/admin/proGrants";
+import { auditRequestId, withAdminAudit } from "../../../../services/admin/auditLog";
 import {
   adminJsonResponse,
   readJsonBody,
@@ -45,13 +46,29 @@ export async function POST(request: NextRequest) {
   if (!gate.ok) return gate.response;
 
   const parsed = parseGrantBody(await readJsonBody(request));
-  if (!parsed) return adminJsonResponse({ error: "invalid_body" }, 400);
+  // Audited from here on: a malformed body from an admin is still recorded.
+  return withAdminAudit(
+    {
+      actor: gate.admin,
+      action: "user_grant_set",
+      targetKind: "user",
+      targetId: parsed?.userId ?? null,
+      details: parsed ? { plan: parsed.plan } : null,
+      requestId: auditRequestId(request),
+    },
+    async () => (parsed ? applyUserGrant(parsed, gate.admin) : adminJsonResponse({ error: "invalid_body" }, 400)),
+  );
+}
 
+async function applyUserGrant(
+  parsed: { userId: string; plan: "pro" | "founders" | null },
+  admin: { id: string; primaryEmail: string | null },
+): Promise<Response> {
   try {
     const user = await setManualPlanGrant({
       targetUserId: parsed.userId,
       plan: parsed.plan,
-      admin: gate.admin,
+      admin,
     });
     return adminJsonResponse({ user });
   } catch (error) {

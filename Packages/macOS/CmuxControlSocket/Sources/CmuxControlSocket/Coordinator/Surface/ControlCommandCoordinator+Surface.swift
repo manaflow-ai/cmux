@@ -330,6 +330,9 @@ extension ControlCommandCoordinator {
 
     /// `surface.split` — split a surface into a new pane.
     func surfaceSplit(_ params: [String: JSONValue]) -> ControlCallResult {
+        if let error = incompatibleTerminalCreationInputError(params) {
+            return error
+        }
         let routing = routingSelectors(params)
         guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -363,6 +366,7 @@ extension ControlCommandCoordinator {
             requestedSourceSurfaceID: uuid(params, "surface_id"),
             workingDirectory: optionalTrimmedRawString(params, "working_directory"),
             initialCommand: optionalTrimmedRawString(params, "initial_command"),
+            initialInput: nonBlankRawString(params, "initial_input"),
             tmuxStartCommand: optionalTrimmedRawString(params, "tmux_start_command"),
             remotePTYSessionID: optionalTrimmedRawString(params, "remote_pty_session_id"),
             remoteContextRaw: optionalTrimmedRawString(params, "remote_context"),
@@ -513,6 +517,9 @@ extension ControlCommandCoordinator {
 
     /// `surface.create` — create a surface in a pane.
     func surfaceCreate(_ params: [String: JSONValue]) -> ControlCallResult {
+        if let error = incompatibleTerminalCreationInputError(params) {
+            return error
+        }
         let routing = routingSelectors(params)
         guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -525,6 +532,7 @@ extension ControlCommandCoordinator {
             urlRaw: string(params, "url"),
             workingDirectory: optionalTrimmedRawString(params, "working_directory"),
             initialCommand: optionalTrimmedRawString(params, "initial_command"),
+            initialInput: nonBlankRawString(params, "initial_input"),
             tmuxStartCommand: optionalTrimmedRawString(params, "tmux_start_command"),
             remotePTYSessionID: optionalTrimmedRawString(params, "remote_pty_session_id"),
             remoteContextRaw: optionalTrimmedRawString(params, "remote_context"),

@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 import Observation
 import PostHog
@@ -45,11 +46,6 @@ final class CmuxFeatureFlags {
     private static let mobileConnectButtonDefault = false
     private static let sidebarAccountButtonDefault = true
 
-    #if DEBUG
-    private nonisolated static let cloudVMUIDefault = true
-    #else
-    private nonisolated static let cloudVMUIDefault = false
-    #endif
     private static let agentChatUIDefault = false
     #if DEBUG
     private nonisolated static let mobileWorkspaceChangesDefault = true
@@ -71,6 +67,7 @@ final class CmuxFeatureFlags {
     private static let releaseControlDistinctIDPrefix =
         releaseControlProductWideDistinctID + "-"
     private nonisolated static let maximumPostHogControlPlaneResponseBytes = 1_048_576
+    private nonisolated static let releaseControlRetryAfterGate = CmxRetryAfterGate()
 
     // FLAG(key: sidebar-appkit-list-experiment, owner: lawrencecchen,
     //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
@@ -137,25 +134,6 @@ final class CmuxFeatureFlags {
     // remote value provides a release kill switch. Declared nonisolated so
     // the mobile host's off-main capability list can gate the advertised
     // simulator capabilities on the same flag as RPC dispatch.
-    // FLAG(key: cloud-vm-ui-enabled-release, owner: lawrencecchen,
-    //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
-    // Shows the Cloud VM entrypoints: the new-workspace dropdown section
-    // (Open/Fork/Checkpoint/Restore/Advanced), the caret's direct Cloud
-    // VM menu, the command-palette Cloud VM commands, and the right-sidebar
-    // Machines tab. Release builds hide them until the PostHog flag is
-    // enabled; DEBUG keeps them visible for dogfood. Declared nonisolated so
-    // off-main readers (right-sidebar mode availability) can consult the
-    // published snapshot.
-    nonisolated static let cloudVMUIFlag = CmuxFeatureFlagDefinition(
-        key: "cloud-vm-ui-enabled-release",
-        title: String(localized: "featureFlags.cloudVM.title", defaultValue: "Cloud VM UI"),
-        flagDescription: String(
-            localized: "featureFlags.cloudVM.description",
-            defaultValue: "Shows Cloud VM entrypoints in the new-workspace dropdown and command palette."
-        ),
-        defaultWhenUnavailable: CmuxFeatureFlags.cloudVMUIDefault
-    )
-
     nonisolated static let simulatorFlag = CmuxFeatureFlagDefinition(
         key: "simulator-enabled-release",
         title: String(
@@ -236,8 +214,6 @@ final class CmuxFeatureFlags {
                 ),
                 defaultWhenUnavailable: CmuxFeatureFlags.sidebarAccountButtonDefault
             ),
-
-            CmuxFeatureFlags.cloudVMUIFlag,
 
             // FLAG(key: agent-chat-ui-enabled-release, owner: lawrencecchen,
             //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
@@ -323,19 +299,8 @@ final class CmuxFeatureFlags {
         effectiveValue(for: Self.allFlags[1])
     }
 
-    var isCloudVMUIEnabled: Bool {
-        effectiveValue(for: Self.cloudVMUIFlag)
-    }
-
-    /// Mirror of ``isCloudVMUIEnabled`` for nonisolated readers (right-sidebar
-    /// mode availability). Reads the published off-main snapshot; before the
-    /// shared instance publishes, it falls back to the compile-time default.
-    nonisolated static var offMainIsCloudVMUIEnabled: Bool {
-        offMainEffectiveValue(for: cloudVMUIFlag)
-    }
-
     var isAgentChatUIEnabled: Bool {
-        effectiveValue(for: Self.allFlags[4])
+        effectiveValue(for: Self.allFlags[3])
     }
 
     var isSidebarAccountButtonEnabled: Bool {
@@ -343,11 +308,11 @@ final class CmuxFeatureFlags {
     }
 
     var isSidebarWorkspaceAgentSpinnerEnabled: Bool {
-        effectiveValue(for: Self.allFlags[5])
+        effectiveValue(for: Self.allFlags[4])
     }
 
     var isComputerUseUXEnabled: Bool {
-        effectiveValue(for: Self.allFlags[6])
+        effectiveValue(for: Self.allFlags[5])
     }
 
     var isSimulatorEnabled: Bool {
@@ -355,7 +320,7 @@ final class CmuxFeatureFlags {
     }
 
     var isWorkspaceTodoControlsEnabled: Bool {
-        effectiveValue(for: Self.allFlags[8])
+        effectiveValue(for: Self.allFlags[7])
     }
 
     var isAppKitSidebarListEnabled: Bool {
@@ -580,6 +545,7 @@ final class CmuxFeatureFlags {
         distinctID: String,
         personProperties: [String: String]
     ) async -> [String: Bool]? {
+        guard (try? await releaseControlRetryAfterGate.wait()) != nil else { return nil }
         guard let request = postHogControlPlaneRequest(
             distinctID: distinctID,
             personProperties: personProperties
@@ -590,8 +556,16 @@ final class CmuxFeatureFlags {
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
         guard let (bytes, response) = try? await session.bytes(for: request),
-              let http = response as? HTTPURLResponse,
-              (200..<300).contains(http.statusCode),
+              let http = response as? HTTPURLResponse else { return nil }
+        if http.statusCode == 429 {
+            let seconds = CmxRetryAfterPolicy.seconds(
+                from: http,
+                defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
+            ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+            await releaseControlRetryAfterGate.extend(by: seconds)
+            return nil
+        }
+        guard (200..<300).contains(http.statusCode),
               response.expectedContentLength < 0
                 || response.expectedContentLength <= maximumPostHogControlPlaneResponseBytes,
               let data = try? await boundedPostHogControlPlaneData(
