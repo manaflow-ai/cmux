@@ -1090,12 +1090,7 @@ class GhosttyApp {
                 prefix: "cmux-titlebar-proxy-icon",
                 logLabel: "titlebar proxy icon (fallback)"
             )
-            loadInlineGhosttyConfig(
-                "shell-integration = none",
-                into: fallbackConfig,
-                prefix: "cmux-shell-integration-override",
-                logLabel: "shell integration override (fallback)"
-            )
+            loadCmuxShellIntegrationOverride(fallbackConfig)
             loadCmuxManagedTerminalSettingsConfig(fallbackConfig)
             loadGlobalFontMagnificationConfig(fallbackConfig)
             loadCmuxOwnedGhosttyKeybindOverrides(fallbackConfig)
@@ -1225,6 +1220,20 @@ class GhosttyApp {
                 )
             }
         }
+    }
+
+    /// cmux sources Ghostty's shell integration from its own bootstrap files,
+    /// so keep Ghostty's prompt cursor escape out of that managed path.
+    private func loadCmuxShellIntegrationOverride(_ config: ghostty_config_t) {
+        loadInlineGhosttyConfig(
+            """
+            shell-integration = none
+            shell-integration-features = no-cursor
+            """,
+            into: config,
+            prefix: "cmux-shell-integration-override",
+            logLabel: "shell integration override"
+        )
     }
 
     private func loadCmuxDefaultAppearanceConfig(
@@ -1386,12 +1395,7 @@ class GhosttyApp {
 
         // Prevent Ghostty from overriding ZDOTDIR — cmux handles shell
         // integration itself via the .zshenv bootstrap (#2594).
-        loadInlineGhosttyConfig(
-            "shell-integration = none",
-            into: config,
-            prefix: "cmux-shell-integration-override",
-            logLabel: "shell integration override"
-        )
+        loadCmuxShellIntegrationOverride(config)
         loadCmuxManagedTerminalSettingsConfig(config)
         loadGlobalFontMagnificationConfig(config)
         loadCmuxOwnedGhosttyKeybindOverrides(config)
