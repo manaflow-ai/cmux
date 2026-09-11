@@ -223,7 +223,7 @@ extension TerminalController {
         }
     }
 
-    /// `vm.port_open {id, port, workspace_id?, …dest}` → `{surface_id, workspace_id, url, open_url}`.
+    /// `vm.port_open {id, port, workspace_id?, …dest}` → `{surface_id, workspace_id, remote_port, url, local_url, local_port, private_url}`.
     nonisolated func socketWorkerVMPortOpenResponse(id: Any?, params: [String: Any]) -> String {
         if ManagedDevicePolicy().isEnforced(.disableCloud) {
             return v2Error(id: id, code: "cloud_disabled", message: String(localized: "cloud.managed.disabled", defaultValue: "Cloud Machines are disabled by your administrator."))
@@ -297,24 +297,24 @@ extension TerminalController {
                 reuseExisting: false
             )
             var payload = Self.surfaceProjectPayload(opened.projection, reused: opened.reused)
-            // `url` is what the pane loads and what works from any app on this
-            // Mac: the loopback forward over the user-space hub, or, for a
-            // machine without a private address, the control plane's preview
-            // URL. A route that cannot be made is an error for the caller,
-            // never a silent fall-back to an address only `cmux vpn up` can
-            // reach; that address stays available as `private_url`.
+            // `url` remains the compatibility link. `remote_port` identifies
+            // the VM service; `local_url`/`local_port` identify the app-owned
+            // listener when a private route exists, and `private_url` remains
+            // the raw address for callers using `cmux vpn up`.
             let privateURL = await catalog.resources[resource]?.url
             guard let provider = await catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider else {
                 throw SurfaceCatalogError.unsupported(SurfaceCatalog.portPreviewUnavailableMessage(machineID: resource.machine.rawValue))
             }
-            let url = try await provider.portLinkURL(port: port)
-            payload["url"] = url
-            payload["open_url"] = url
-            payload["private_url"] = privateURL ?? NSNull()
+            let link = try await provider.portLink(port: port)
+            payload["remote_port"] = link.remotePort
+            payload["url"] = link.url
+            payload["open_url"] = link.url
+            payload["local_url"] = link.localPort == nil ? NSNull() : link.url
+            payload["local_port"] = link.localPort.map { Int($0) } ?? NSNull()
+            payload["private_url"] = link.privateURL ?? privateURL ?? NSNull()
             return payload
         }
     }
-
     /// `vm.link_socket {id}` → `{socket_path, session}`.
     nonisolated func socketWorkerVMLinkSocketResponse(id: Any?, params: [String: Any]) -> String {
         guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty else {

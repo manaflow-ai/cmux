@@ -61,11 +61,14 @@ cmux browser pane (http://127.0.0.1:<local port>)
 
 `CloudHubPortForwarder` keeps one listener per machine port for as long as the
 machine is in the fleet; an idle listener holds no hub lease, and each accepted
-connection claims the hub for exactly its lifetime. The Ports row's "Copy Link"
-hands out the loopback URL, which works in any app on the Mac while cmux runs;
-"Copy Private Address URL" gives the raw `http://<private ip>:<port>` for a Mac
-with its own route (`cmux vpn up`). A machine without a private address falls
-back to the control plane's tokened preview URL.
+connection claims the hub for exactly its lifetime. The Ports row's "Copy Local
+Link" hands out the loopback URL, which works in any app on the Mac while cmux
+runs. The local listener is intentionally allowed to use an ephemeral port, so
+the UI and `vm.port_open` identify the relationship explicitly: VM port `8000`
+may be reached through local `127.0.0.1:64321`. "Copy VM Address" gives the raw
+`http://<private ip>:<port>` for a Mac with its own route (`cmux vpn up`). A
+machine without a private address falls back to the control plane's tokened
+preview URL.
 
 ## System-wide route (`cmux vpn up`)
 

@@ -125,14 +125,35 @@ extension CmuxTuiSurfaceProvider {
         }
     }
 
-    /// The link `port` opens as, shared by the pane, Copy Link, and
-    /// `vm.port_open`: the loopback forward when the machine has a private
-    /// address, else the control plane's tokened preview URL. Throws when the
-    /// machine supports neither route or the route it has cannot be made;
-    /// never falls back to an address only `cmux vpn up` can reach.
+    /// Resolves the endpoint shared by the pane, Copy Link, and
+    /// `vm.port_open`. The remote port is kept alongside the local URL so a
+    /// caller never mistakes an ephemeral listener port for the VM service.
+    func portLink(port: Int) async throws -> CloudPortLink {
+        let privateURL = info.privateAddress.map {
+            CmuxInternalHostnames.directPortURL(privateAddress: $0, port: port)
+        }
+        if let local = try await localPortURL(port: port) {
+            return CloudPortLink(
+                remotePort: port,
+                url: local,
+                privateURL: privateURL,
+                localPort: CloudPortRoutePlan.loopbackPort(from: local)
+            )
+        }
+        return CloudPortLink(
+            remotePort: port,
+            url: try await controlPlanePreviewURL(port: port).absoluteString,
+            privateURL: privateURL,
+            localPort: nil
+        )
+    }
+
+    /// The URL `port` opens as, retained for callers that only need the link
+    /// string. New callers should use ``portLink(port:)`` to preserve the
+    /// remote/local relationship.
     func portLinkURL(port: Int) async throws -> String {
-        if let local = try await localPortURL(port: port) { return local }
-        return try await controlPlanePreviewURL(port: port).absoluteString
+        let link = try await portLink(port: port)
+        return link.url
     }
 
     /// The control plane's tokened preview URL for `port`, the route for a
