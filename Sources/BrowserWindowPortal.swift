@@ -407,6 +407,11 @@ final class WindowBrowserHostView: NSView {
             return hitView === self ? nil : hitView
         }
 
+        if liveSidebarDivider(at: point) != nil {
+            assertDividerCursor(.vertical)
+            return self
+        }
+
         let dividerHit = splitDividerHit(at: point)
         let hostedInspectorHit = dividerHit == nil ? hostedInspectorDividerHit(at: point) : nil
         updateDividerCursor(at: point, dividerHit: dividerHit, hostedInspectorHit: hostedInspectorHit)
@@ -547,6 +552,10 @@ final class WindowBrowserHostView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        if let sidebarDivider = liveSidebarDivider(at: point) {
+            sidebarDivider.mouseDown(with: event)
+            return
+        }
         guard let hostedInspectorHit = hostedInspectorDividerHit(at: point) else {
             super.mouseDown(with: event)
             return
@@ -705,15 +714,6 @@ final class WindowBrowserHostView: NSView {
             return false
         }
 
-        // The portal is installed above the SwiftUI content, so its cached slot
-        // frames can lag the native divider while a right-sidebar resize is in
-        // flight. Ask the live view hierarchy underneath the portal first. This
-        // delegates ownership to the actual synchronous tracker whenever the
-        // AppKit sidebar path is active, independent of portal geometry timing.
-        if shouldPassThroughToLiveSidebarDivider(at: point) {
-            return true
-        }
-
         // Browser portal host sits above SwiftUI content. Allow pointer/mouse events
         // to reach the SwiftUI sidebar divider resizer zone.
         let visibleSlots = subviews.compactMap { $0 as? WindowBrowserSlotView }
@@ -784,11 +784,12 @@ final class WindowBrowserHostView: NSView {
         return SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: dividerX).contains(point.x)
     }
 
-    private func shouldPassThroughToLiveSidebarDivider(at point: NSPoint) -> Bool {
+    /// Resolves the native tracker even when cached portal slot frames lag a resize.
+    private func liveSidebarDivider(at point: NSPoint) -> SidebarDividerTrackingView? {
         guard let rootView = dividerSearchRootView(),
               let hostIndex = rootView.subviews.firstIndex(where: { $0 === self }),
               let window else {
-            return false
+            return nil
         }
 
         let windowPoint = convert(point, to: nil)
@@ -799,20 +800,43 @@ final class WindowBrowserHostView: NSView {
                 continue
             }
             let pointInSibling = sibling.convert(windowPoint, from: nil)
-            guard sibling.bounds.contains(pointInSibling),
-                  let hitView = sibling.hitTest(pointInSibling) else {
+            guard sibling.bounds.contains(pointInSibling) else {
                 continue
             }
-
-            var current: NSView? = hitView
+            var current: NSView? = sibling.hitTest(pointInSibling)
             while let view = current {
-                if view is SidebarDividerTrackingView {
-                    return true
+                if let divider = view as? SidebarDividerTrackingView {
+                    return divider
                 }
                 current = view.superview
             }
+            // A hosting wrapper can claim itself or a content leaf instead of
+            // delegating to the native divider below it. Resolve that tracker
+            // by its live geometry rather than returning the event to the wrapper.
+            if let divider = liveSidebarDivider(in: sibling, atWindowPoint: windowPoint) {
+                return divider
+            }
         }
-        return false
+        return nil
+    }
+
+    private func liveSidebarDivider(in view: NSView, atWindowPoint point: NSPoint) -> SidebarDividerTrackingView? {
+        guard view.window === window,
+              !view.isHidden,
+              view.alphaValue > 0,
+              view.bounds.contains(view.convert(point, from: nil)) else { return nil }
+        if let divider = view as? SidebarDividerTrackingView { return divider }
+        // Native sidebar trackers are outside terminal and WebKit content.
+        guard !(view is WKWebView),
+              !(view is GhosttySurfaceScrollView),
+              !(view is WindowBrowserHostView),
+              !(view is WindowTerminalHostView) else { return nil }
+        for child in view.subviews.reversed() {
+            if let divider = liveSidebarDivider(in: child, atWindowPoint: point) {
+                return divider
+            }
+        }
+        return nil
     }
 
     private func updateDividerCursor(
@@ -820,6 +844,10 @@ final class WindowBrowserHostView: NSView {
         dividerHit: DividerHit? = nil,
         hostedInspectorHit: HostedInspectorDividerHit? = nil
     ) {
+        if liveSidebarDivider(at: point) != nil {
+            assertDividerCursor(.vertical)
+            return
+        }
         let resolvedDividerHit = dividerHit ?? splitDividerHit(at: point)
         let resolvedHostedInspectorHit = resolvedDividerHit == nil ? (hostedInspectorHit ?? hostedInspectorDividerHit(at: point)) : nil
         if shouldPassThroughToSidebarResizer(
@@ -836,12 +864,16 @@ final class WindowBrowserHostView: NSView {
             clearActiveDividerCursor(restoreArrow: true)
             return
         }
+        assertDividerCursor(nextKind)
+    }
+
+    private func assertDividerCursor(_ kind: DividerCursorKind) {
         guard dividerCursorOcclusion.mayAssertDividerCursor(in: window) else {
             clearActiveDividerCursor(restoreArrow: false)
             return
         }
-        activeDividerCursorKind = nextKind
-        nextKind.cursor.set()
+        activeDividerCursorKind = kind
+        kind.cursor.set()
     }
 
     private func nativeHostedInspectorHit(
@@ -1130,7 +1162,10 @@ final class WindowBrowserHostView: NSView {
     private func splitDividerRegions() -> [DividerRegion] {
         guard let rootView = dividerSearchRootView() else { cachedSplitDividerRegions = []; cachedSplitDividerRootSubviewIds = nil; return [] }
         let rootSubviewIds = rootView.subviews.map { ObjectIdentifier($0) }
-        if let regions = cachedSplitDividerRegions, cachedSplitDividerRootSubviewIds == rootSubviewIds, PortalSplitDividerRegion.allLive(regions) { return regions }
+        if let regions = cachedSplitDividerRegions,
+           cachedSplitDividerRootSubviewIds == rootSubviewIds,
+           splitDividerCacheInvalidator.structureIsCurrent(),
+           PortalSplitDividerRegion.allLive(regions) { return regions }
         let collected = PortalSplitDividerRegion.collect(in: rootView, hostView: self)
         cachedSplitDividerRegions = collected.regions
         cachedSplitDividerRootSubviewIds = rootSubviewIds

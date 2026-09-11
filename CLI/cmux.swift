@@ -11931,11 +11931,19 @@ struct CMUXCLI {
                 controlPathPreflightShellFunction: controlPathPreflightShellFunction
             )
         }
-        if usesPersistentSSHPTY,
-           let remoteTerminalBootstrapScript {
+        if usesPersistentSSHPTY {
+            let persistentBootstrapScript = buildInteractiveRemoteShellScript(
+                remoteRelayPort: sshOptions.remoteRelayPort,
+                shellFeatures: shellFeaturesValue,
+                initialCommand: sshOptions.initialCommand,
+                configuredRemoteCommand: configuredInteractiveRemoteCommand,
+                terminfoSource: terminfoSource,
+                terminalProfile: sshOptions.terminalProfile,
+                protectsFromHangup: true
+            )
             let ptyStartupCommand = buildReusableForegroundAuthThenSSHPTYAttachStartupCommand(
                 options: sshOptions,
-                remoteShellCommand: remoteTerminalBootstrapScript,
+                remoteShellCommand: persistentBootstrapScript,
                 localCommandScript: combinedLocalCommandScript,
                 foregroundAuthToken: deferredRemoteReconnectToken,
                 passwordCredential: sshOptions.passwordCredential
@@ -12859,7 +12867,8 @@ struct CMUXCLI {
         initialCommand: String? = nil,
         configuredRemoteCommand: String? = nil,
         terminfoSource: String? = nil,
-        terminalProfile: WorkspaceRemoteTerminalProfile = .shell
+        terminalProfile: WorkspaceRemoteTerminalProfile = .shell,
+        protectsFromHangup: Bool = false
     ) -> String {
         RemoteInteractiveShellBootstrapBuilder.script(
             remoteRelayPort: remoteRelayPort,
@@ -12870,7 +12879,8 @@ struct CMUXCLI {
             bundledZshIntegration: bundledShellIntegrationScript(named: "cmux-zsh-integration.zsh"),
             bundledBashIntegration: bundledShellIntegrationScript(named: "cmux-bash-integration.bash"),
             bundledFishIntegration: bundledShellIntegrationScript(named: "fish/config.fish"),
-            terminalProfile: terminalProfile
+            terminalProfile: terminalProfile,
+            protectsFromHangup: protectsFromHangup
         )
     }
 

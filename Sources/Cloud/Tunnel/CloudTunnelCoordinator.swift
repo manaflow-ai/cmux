@@ -72,7 +72,7 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
     /// that can still save a configuration later. Replacement starts wait for
     /// those owners to finish before installing their own configuration.
     private var revocationTask: Task<Void, any Error>?
-    private var revokedStarts: [Int: Task<Void, any Error>] = [:]
+    private var retiredStarts: [Int: Task<Void, any Error>] = [:]
     private var lastRevokedStartGeneration = -1
     /// What a superseded start left behind because a newer start was in
     /// flight when it ended: an enrollment written to disk, and a VPN
@@ -242,11 +242,9 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
             return
         }
         lastRevokedStartGeneration = startGeneration
-        if let startTask {
-            revokedStarts[startGeneration] = startTask
-        }
+        let stopped = beginTearDown()
         let task = Task {
-            await self.tearDown()
+            await stopped.value
             guard self.backend.isNetworkExtension else { return }
             try await self.controller.remove()
         }
@@ -359,7 +357,7 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
         // "one start at a time" true. A superseded start owns nothing.
         defer {
             if startGeneration == generation { startTask = nil }
-            revokedStarts[generation] = nil
+            retiredStarts[generation] = nil
         }
         // What this start has written so far: an enrollment on disk, then a
         // VPN configuration in NetworkExtension. Neither may outlive a policy
@@ -370,9 +368,9 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
             if let revocationTask {
                 try await revocationTask.value
             }
-            for (revokedGeneration, revokedStart) in revokedStarts
-                where revokedGeneration < generation {
-                _ = try? await revokedStart.value
+            for (retiredGeneration, retiredStart) in retiredStarts
+                where retiredGeneration <= lastRevokedStartGeneration && retiredGeneration < generation {
+                _ = try? await retiredStart.value
             }
             // A stop may still be draining (idle timer, `vpn down`, sign-out);
             // starting on top of it would race NetworkExtension and fail into
@@ -548,28 +546,37 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
     // MARK: - Stop
 
     private func tearDown() async {
-        if let stopTask {
-            await stopTask.value
-            return
-        }
-        let task = Task { await self.performTearDown() }
-        stopTask = task
-        await task.value
+        await beginTearDown().value
     }
 
-    private func performTearDown() async {
-        defer { stopTask = nil }
+    /// Retire the current start before yielding, so a subsequent up can only
+    /// own a new generation. The stop task never cancels that replacement.
+    private func beginTearDown() -> Task<Void, Never> {
+        let wasOff = state == .off
         cancelIdleTimer()
         clearFailureBackoff()
         if let startTask {
             // Not awaited: a start blocked on the user's extension approval
             // cannot be interrupted, and the generation guard keeps its late
             // resumption from touching the state this stop sets.
+            retiredStarts[startGeneration] = startTask
             startTask.cancel()
             self.startTask = nil
             startGeneration += 1
         }
-        if state == .off {
+        if !wasOff { setState(.stopping) }
+        if let stopTask { return stopTask }
+        let task = Task { await self.performTearDown(wasOff: wasOff) }
+        stopTask = task
+        return task
+    }
+
+    private func performTearDown(wasOff: Bool) async {
+        defer {
+            stopTask = nil
+            if startTask == nil { setState(.off) }
+        }
+        if wasOff {
             // Nothing this instance started — but a tunnel the previous app
             // instance left connected (the extension outlives the app) is
             // still ours to take down on quit, sign-out, or `cmux vpn down`.
@@ -578,7 +585,7 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
             linkStatus = current
         }
         observeLinkIfNeeded()
-        setState(.stopping)
+        if startTask == nil { setState(.stopping) }
         do {
             try await withDeadline(timing.stopTimeout) {
                 try await self.controller.stop()
@@ -586,10 +593,6 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
             }
         } catch {
             logger.error("tunnel stop did not complete cleanly: \(String(describing: error), privacy: .public)")
-        }
-        // A Cloud use that arrived mid-stop already owns the state (`.starting`).
-        if startTask == nil {
-            setState(.off)
         }
     }
 

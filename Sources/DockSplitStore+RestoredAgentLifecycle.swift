@@ -28,10 +28,15 @@ extension DockSplitStore {
         flushPendingTerminalTitleUpdate(panelId: panelId)
         let previousState = terminal.shellActivity.state
         terminal.updateShellActivityState(state)
-        if previousState != state,
+        // A transferred terminal can already report promptIdle before the
+        // destination receives its first prompt marker. Replaying that
+        // idempotent marker is still meaningful to the restore boundary: it
+        // clears any buffered pre-transfer title before commandRunning can
+        // release it as if it came from a new user command.
+        if (previousState != state || state == .promptIdle),
            let pendingTitle = advanceRestoredPanelTitleBoundary(
-               panelId: panelId,
-               state: state
+                panelId: panelId,
+                state: state
            ) {
             applyResolvedTerminalTitle(pendingTitle, to: terminal)
         }

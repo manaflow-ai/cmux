@@ -4084,7 +4084,7 @@ final class WindowTerminalHostViewTests: XCTestCase {
     }
 
     func testHostViewStopsSidebarPassThroughJustInsideTerminalContent() {
-        let terminalSideOverlapWidth: CGFloat = 2
+        let terminalSideOverlapWidth = SidebarResizeInteraction.contentSideHitWidth
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 300, height: 180),
             styleMask: [.titled, .closable],
@@ -4097,33 +4097,29 @@ final class WindowTerminalHostViewTests: XCTestCase {
             return
         }
 
-        let splitView = NSSplitView(frame: contentView.bounds)
-        splitView.autoresizingMask = [.width, .height]
-        splitView.isVertical = true
-        splitView.dividerStyle = .thin
-        let splitDelegate = BonsplitMockSplitDelegate()
-        splitView.delegate = splitDelegate
-        let first = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: contentView.bounds.height))
-        let second = NSView(frame: NSRect(x: 121, y: 0, width: 179, height: contentView.bounds.height))
-        splitView.addSubview(first)
-        splitView.addSubview(second)
-        contentView.addSubview(splitView)
-        splitView.setPosition(1, ofDividerAt: 0)
-        splitView.adjustSubviews()
-        contentView.layoutSubtreeIfNeeded()
+        let dividerX: CGFloat = 120
+        let sidebarDivider = SidebarDividerTrackingView(frame: NSRect(
+            x: SidebarResizeInteraction.Edge.leading.handleX(dividerX: dividerX),
+            y: 0,
+            width: SidebarResizeInteraction.totalHitWidth,
+            height: contentView.bounds.height
+        ))
+        contentView.addSubview(sidebarDivider)
 
         let host = WindowTerminalHostView(frame: contentView.bounds)
         host.autoresizingMask = [.width, .height]
-        let hostedView = makeHostedTerminalView(frame: host.bounds)
+        let hostedView = makeHostedTerminalView(frame: NSRect(
+            x: dividerX,
+            y: 0,
+            width: host.bounds.width - dividerX,
+            height: host.bounds.height
+        ))
         host.addSubview(hostedView)
         contentView.addSubview(host)
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
 
-        let dividerPointInSplit = NSPoint(
-            x: splitView.arrangedSubviews[0].frame.maxX + (splitView.dividerThickness * 0.5),
-            y: splitView.bounds.midY
-        )
-        let dividerPointInWindow = splitView.convert(dividerPointInSplit, to: nil)
-        let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
+        let dividerPointInHost = NSPoint(x: dividerX, y: host.bounds.midY)
 
         let resizeBandPoint = NSPoint(
             x: dividerPointInHost.x + terminalSideOverlapWidth,
@@ -4506,7 +4502,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             return
         }
 
-        let surfaceView = ScrollbarPostingSurfaceView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        let surfaceView = AuthoritativeScrollbarSurfaceView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
         surfaceView.cellSize = CGSize(width: 10, height: 10)
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
         hostedView.frame = contentView.bounds
@@ -4532,7 +4528,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01)
 
-        surfaceView.nextScrollbar = makeScrollbar(total: 100, offset: 40, len: 10)
+        surfaceView.authoritativeScrollbar = makeScrollbar(total: 100, offset: 40, len: 10)
 
         guard let cgEvent = CGEvent(
             scrollWheelEvent2Source: nil,
@@ -6985,12 +6981,13 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         TerminalController.shared.stop(cleanupDiscoveryState: true)
         XCTAssertFalse(FileManager.default.fileExists(atPath: path + ".lock"))
         let listenerFD = try bindUnixSocket(at: path)
-        Darwin.close(listenerFD)
         defer {
+            Darwin.close(listenerFD)
             unlink(path)
             unlink(path + ".lock")
         }
         XCTAssertFalse(transport.pathCanBeReclaimedForStartup(path))
+        let claimedIdentity = try XCTUnwrap(transport.pathIdentity(at: path))
 
         TerminalController.shared.start(
             tabManager: TabManager(),
@@ -6998,7 +6995,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             accessMode: .allowAll
         )
 
-        XCTAssertFalse(transport.pathAcceptsConnections(path))
+        XCTAssertEqual(transport.pathIdentity(at: path), claimedIdentity)
     }
 
     @MainActor

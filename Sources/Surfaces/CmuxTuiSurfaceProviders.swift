@@ -1032,7 +1032,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     func closeRemoteWorkspace(id: String) async throws {
         _ = try await runCloseCommand { CloudTuiCommandLine.closeWorkspaceArguments(socketPath: $0, workspaceID: id) }
         info.remoteWorkspaces = info.remoteWorkspaces?.filter { $0.id != id }
-        catalog.updateMachine(info, from: self)
+        catalog.updateMachine(info, from: self, removedRemoteWorkspaceID: id)
         scheduleRefresh()
     }
 

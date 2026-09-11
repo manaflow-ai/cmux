@@ -1299,64 +1299,67 @@ final class KoreanIMEMarkedTextLeakRegressionTests: XCTestCase {
 
 @MainActor
 final class AccessibilityInsertTextRegressionTests: XCTestCase {
-    func testDirectInsertTextUsesTypedInputSemantics() {
-        _ = NSApplication.shared
+    func testDirectInsertTextUsesTypedInputSemantics() async {
+        await AppContextSerialGate.withExclusiveAppContext {
+            _ = NSApplication.shared
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        let hostedView = surface.hostedView
+            let surface = TerminalSurface(
+                tabId: UUID(),
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: nil,
+                workingDirectory: nil
+            )
+            let hostedView = surface.hostedView
 
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer {
-            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
-            window.orderOut(nil)
-        }
-
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-
-        hostedView.frame = contentView.bounds
-        hostedView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostedView)
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.setVisibleInUI(true)
-        hostedView.setActive(true)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        guard let view = findGhosttyNSView(in: hostedView) else {
-            XCTFail("Expected hosted GhosttyNSView")
-            return
-        }
-
-        var pressedText: [String] = []
-        var pressedKeycodes: [UInt32] = []
-        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
-            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
-            if let text = keyEvent.text {
-                pressedText.append(String(cString: text))
-            } else {
-                pressedKeycodes.append(keyEvent.keycode)
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            defer {
+                GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+                window.orderOut(nil)
             }
+
+            guard let contentView = window.contentView else {
+                XCTFail("Expected content view")
+                return
+            }
+
+            hostedView.frame = contentView.bounds
+            hostedView.autoresizingMask = [.width, .height]
+            contentView.addSubview(hostedView)
+
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            contentView.layoutSubtreeIfNeeded()
+            hostedView.setVisibleInUI(true)
+            hostedView.setActive(true)
+            _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) { surface.surface != nil }
+            XCTAssertNotNil(surface.surface, "Expected native surface before accessibility text insertion")
+
+            guard let view = findGhosttyNSView(in: hostedView) else {
+                XCTFail("Expected hosted GhosttyNSView")
+                return
+            }
+
+            var pressedText: [String] = []
+            var pressedKeycodes: [UInt32] = []
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+                guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+                if let text = keyEvent.text {
+                    pressedText.append(String(cString: text))
+                } else {
+                    pressedKeycodes.append(keyEvent.keycode)
+                }
+            }
+
+            view.insertText("dictated line\n", replacementRange: NSRange(location: NSNotFound, length: 0))
+
+            XCTAssertEqual(pressedText, ["dictated line"])
+            XCTAssertEqual(pressedKeycodes, [36], "Trailing newline should be delivered as Return, not pasted text")
         }
-
-        view.insertText("dictated line\n", replacementRange: NSRange(location: NSNotFound, length: 0))
-
-        XCTAssertEqual(pressedText, ["dictated line"])
-        XCTAssertEqual(pressedKeycodes, [36], "Trailing newline should be delivered as Return, not pasted text")
     }
 
     func testDirectInsertTextPreservesLeadingEscapeForAutomation() {
@@ -1419,64 +1422,67 @@ final class AccessibilityInsertTextRegressionTests: XCTestCase {
         XCTAssertEqual(pressedKeycodes, [], "Direct NSTextInputClient insertText should preserve raw ESC bytes")
     }
 
-    func testAccessibilityValueSanitizesLeadingEscapeSequence() {
-        _ = NSApplication.shared
+    func testAccessibilityValueSanitizesLeadingEscapeSequence() async {
+        await AppContextSerialGate.withExclusiveAppContext {
+            _ = NSApplication.shared
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        let hostedView = surface.hostedView
+            let surface = TerminalSurface(
+                tabId: UUID(),
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: nil,
+                workingDirectory: nil
+            )
+            let hostedView = surface.hostedView
 
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer {
-            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
-            window.orderOut(nil)
-        }
-
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-
-        hostedView.frame = contentView.bounds
-        hostedView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostedView)
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.setVisibleInUI(true)
-        hostedView.setActive(true)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        guard let view = findGhosttyNSView(in: hostedView) else {
-            XCTFail("Expected hosted GhosttyNSView")
-            return
-        }
-
-        var pressedText: [String] = []
-        var pressedKeycodes: [UInt32] = []
-        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
-            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
-            if let text = keyEvent.text {
-                pressedText.append(String(cString: text))
-            } else {
-                pressedKeycodes.append(keyEvent.keycode)
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            defer {
+                GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+                window.orderOut(nil)
             }
+
+            guard let contentView = window.contentView else {
+                XCTFail("Expected content view")
+                return
+            }
+
+            hostedView.frame = contentView.bounds
+            hostedView.autoresizingMask = [.width, .height]
+            contentView.addSubview(hostedView)
+
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            contentView.layoutSubtreeIfNeeded()
+            hostedView.setVisibleInUI(true)
+            hostedView.setActive(true)
+            _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) { surface.surface != nil }
+            XCTAssertNotNil(surface.surface, "Expected native surface before accessibility text insertion")
+
+            guard let view = findGhosttyNSView(in: hostedView) else {
+                XCTFail("Expected hosted GhosttyNSView")
+                return
+            }
+
+            var pressedText: [String] = []
+            var pressedKeycodes: [UInt32] = []
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+                guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+                if let text = keyEvent.text {
+                    pressedText.append(String(cString: text))
+                } else {
+                    pressedKeycodes.append(keyEvent.keycode)
+                }
+            }
+
+            view.setAccessibilityValue("\u{1B}[Adictated line\n")
+
+            XCTAssertEqual(pressedText, ["dictated line"])
+            XCTAssertEqual(pressedKeycodes, [36], "AX value insertion should sanitize injected ESC prefixes before sending text")
         }
-
-        view.setAccessibilityValue("\u{1B}[Adictated line\n")
-
-        XCTAssertEqual(pressedText, ["dictated line"])
-        XCTAssertEqual(pressedKeycodes, [36], "AX value insertion should sanitize injected ESC prefixes before sending text")
     }
 }
 
@@ -1824,11 +1830,11 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
             import tty
 
             fd = 0
-            sys.stdout.write("\\x1b[>3u\(captureReadyMarker)\\n")
-            sys.stdout.flush()
             old = termios.tcgetattr(fd)
             try:
                 tty.setraw(fd)
+                sys.stdout.write("\\x1b[>3u\(captureReadyMarker)\\n")
+                sys.stdout.flush()
                 data = bytearray()
                 if select.select([sys.stdin], [], [], 2.0)[0]:
                     data.extend(os.read(fd, 1))

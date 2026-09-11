@@ -2526,7 +2526,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               if [ -f "$cmux_ssh_auth_marker_path" ]; then
                 # zsh's managed descriptors are close-on-exec. Use a fixed
                 # descriptor so the marker survives the nested env/zsh exec.
-                if exec 7<> "$cmux_ssh_auth_marker_path" 2>/dev/null; then
+                # Scope the diagnostic redirection so the child keeps stderr.
+                if { exec 7<> "$cmux_ssh_auth_marker_path"; } 2>/dev/null; then
                   # Unlink the marker after the inherited descriptor is open.
                   # The helper uses the saved device and inode, not this path.
                   /bin/rm -f -- "$cmux_ssh_auth_marker_path" 2>/dev/null || true
@@ -2570,7 +2571,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # stat accepts -f; the first successful probe supplies numeric device
           # and inode values without assuming a platform-specific path.
           if ( set -C; : > "$cmux_ssh_auth_marker_path" ) 2>/dev/null; then
-            if exec 7<> "$cmux_ssh_auth_marker_path" 2>/dev/null; then
+            if { exec 7<> "$cmux_ssh_auth_marker_path"; } 2>/dev/null; then
               cmux_ssh_auth_marker_device=
               cmux_ssh_auth_marker_inode=
               if [ -n "$cmux_ssh_auth_marker_stat_command" ]; then

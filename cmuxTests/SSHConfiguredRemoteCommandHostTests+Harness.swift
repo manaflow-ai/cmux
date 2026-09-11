@@ -183,7 +183,7 @@ extension SSHConfiguredRemoteCommandHostTests {
         done
         if [ "$mode" = config ]; then
           printf 'invocation kind=config override=%s\\n' "$override" >> "$events"
-          printf 'controlpath none\\n'
+          printf 'controlpath /tmp/cmux-ssh-\(getuid())-remotecommand-fixture-\(UUID().uuidString.lowercased())\\n'
           case "$override" in
             custom) printf 'remotecommand %s\\n' "$remotecommand_value" ;;
             none) printf 'remotecommand none\\n' ;;

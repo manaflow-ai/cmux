@@ -1609,9 +1609,18 @@ final class MarkdownPanelTests: XCTestCase {
     }
 
     private func renderMarkdown(_ markdown: String, in webView: WKWebView) async throws {
-        let data = try JSONSerialization.data(withJSONObject: [markdown])
-        let literal = try XCTUnwrap(String(data: data, encoding: .utf8))
-        _ = try await webView.evaluateJavaScript("window.__cmuxRenderMarkdown(\(literal)[0]);")
+        _ = try await webView.callAsyncJavaScript(
+            """
+            window.__cmuxRenderMarkdown(markdown);
+            // The renderer restores its scroll anchor over two animation frames.
+            // Finish that transaction before a test scrolls or renders again.
+            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            return true;
+            """,
+            arguments: ["markdown": markdown],
+            in: nil,
+            contentWorld: .page
+        )
     }
 
     private func evaluateScrollSnapshot(_ script: String, in webView: WKWebView) async throws -> [String: Double] {

@@ -38,6 +38,7 @@ struct CloudTreeNativeDragOwnershipTests {
             let pasteboard = NSPasteboard(
                 name: NSPasteboard.Name("cloud-tree-provisional-payload-\(UUID().uuidString)")
             )
+            defer { pasteboard.clearContents() }
             #expect(pasteboard.writeObjects([writer]))
             #expect(transferRegistry.resolve(from: pasteboard) != nil)
             let record = try #require(
@@ -55,7 +56,9 @@ struct CloudTreeNativeDragOwnershipTests {
         // No native session was promoted. Releasing the writer is the exact
         // terminal boundary and must revoke both process-local registries now.
         writer = nil
-        await flushMainActor()
+        _ = await AppKitTestEventPump().waitUntil {
+            SurfaceResourceDragRegistry.shared.group(id: dragID) == nil
+        }
 
         #expect(SurfaceResourceDragRegistry.shared.group(id: dragID) == nil)
         #expect(!coordinator.isDragging)
@@ -287,14 +290,6 @@ struct CloudTreeNativeDragOwnershipTests {
         copyPortLink: { _ in },
         refresh: {}
     )
-
-    private func flushMainActor() async {
-        await withCheckedContinuation { continuation in
-            RunLoop.main.perform(inModes: [.common]) {
-                continuation.resume()
-            }
-        }
-    }
 
     private final class TestDraggingSession: NSDraggingSession {
         private let sequence: Int

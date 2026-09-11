@@ -142,7 +142,7 @@ final class SurfaceCatalog {
     private(set) var cloudStateObservations: [SurfaceMachineID: CloudVMStateObservation] = [:]
     /// Only a committed create response may add a workspace ahead of its graph.
     /// Its receipt expires when a graph first contains that workspace.
-    private var pendingCloudWorkspaceIDs: [SurfaceMachineID: Set<String>] = [:]
+    private var pendingCloudWorkspaces: [SurfaceMachineID: [SurfaceRemoteWorkspace]] = [:]
     private var providers: [SurfaceMachineID: any SurfaceProvider] = [:]
     /// The process-wide ordering owner for remote rename intents. A remote identity can
     /// have projections in several local windows, so this cannot live in a TabManager.
@@ -279,7 +279,7 @@ final class SurfaceCatalog {
 
     func register(_ provider: any SurfaceProvider) {
         if let previous = providers[provider.machine], previous !== provider {
-            pendingCloudWorkspaceIDs[provider.machine] = nil
+            pendingCloudWorkspaces[provider.machine] = nil
             let inFlightKeys = inFlightProjects.keys.filter { $0.machine == provider.machine }
             for key in inFlightKeys {
                 cancelInFlightProject(key, error: SurfaceCatalogError.unknownResource(key.resource))
@@ -323,7 +323,7 @@ final class SurfaceCatalog {
         for record in pending { pendingRestoredProjections[record] = nil }
         cloudStates[machine] = nil
         cloudStateObservations[machine] = nil
-        pendingCloudWorkspaceIDs[machine] = nil
+        pendingCloudWorkspaces[machine] = nil
         projections = projections.filter { $0.resource.machine != machine }
         notifyChange()
     }
@@ -459,17 +459,22 @@ final class SurfaceCatalog {
     func updateMachine(
         _ info: SurfaceMachineInfo,
         from source: (any SurfaceProvider)? = nil,
-        createdRemoteWorkspaceID: String? = nil
+        createdRemoteWorkspaceID: String? = nil,
+        removedRemoteWorkspaceID: String? = nil
     ) {
         guard accepts(writeFor: info.id, from: source) else { return }
         if let createdRemoteWorkspaceID,
-           info.remoteWorkspaces?.contains(where: { $0.id == createdRemoteWorkspaceID }) == true {
-            pendingCloudWorkspaceIDs[info.id, default: []].insert(createdRemoteWorkspaceID)
+           let created = info.remoteWorkspaces?.first(where: { $0.id == createdRemoteWorkspaceID }) {
+            var pending = pendingCloudWorkspaces[info.id] ?? []
+            if let index = pending.firstIndex(where: { $0.id == created.id }) {
+                pending[index] = created
+            } else {
+                pending.append(created)
+            }
+            pendingCloudWorkspaces[info.id] = pending
         }
-        if let pendingIDs = pendingCloudWorkspaceIDs[info.id] {
-            pendingCloudWorkspaceIDs[info.id] = pendingIDs.intersection(
-                Set((info.remoteWorkspaces ?? []).map(\.id))
-            )
+        if let removedRemoteWorkspaceID {
+            pendingCloudWorkspaces[info.id]?.removeAll { $0.id == removedRemoteWorkspaceID }
         }
         machines[info.id] = machineInfoPreservingCanonicalCloudState(info)
         notifyChange()
@@ -648,7 +653,7 @@ final class SurfaceCatalog {
     func clearCloudState(on machine: SurfaceMachineID) {
         let removedState = cloudStates.removeValue(forKey: machine) != nil
         let removedObservation = cloudStateObservations.removeValue(forKey: machine) != nil
-        let removedPending = pendingCloudWorkspaceIDs.removeValue(forKey: machine) != nil
+        let removedPending = pendingCloudWorkspaces.removeValue(forKey: machine) != nil
         guard removedState || removedObservation || removedPending else { return }
         notifyChange()
     }
@@ -705,21 +710,23 @@ final class SurfaceCatalog {
         _ info: SurfaceMachineInfo,
         state: CloudVMState? = nil
     ) -> SurfaceMachineInfo {
-        guard case .cloud = info.id,
-              let state = state ?? cloudStates[info.id] else { return info }
+        guard case .cloud = info.id else { return info }
+        let acceptedState = state ?? cloudStates[info.id]
+        let acknowledgedIDs = Set(acceptedState?.workspaces.map(\.id) ?? [])
+        let pending = (pendingCloudWorkspaces[info.id] ?? []).filter {
+            !acknowledgedIDs.contains($0.id)
+        }
+        pendingCloudWorkspaces[info.id] = pending.isEmpty ? nil : pending
+        if acceptedState == nil, pending.isEmpty { return info }
         var adjusted = info
-        let canonical = state.workspaces.map {
+        let canonical = acceptedState?.workspaces.map {
             SurfaceRemoteWorkspace(id: $0.id, name: $0.name, index: $0.index, focused: $0.focused)
+        } ?? (info.remoteWorkspaces ?? []).filter { workspace in
+            !pending.contains(where: { $0.id == workspace.id })
         }
-        var seen = Set(canonical.map(\.id))
-        let pendingIDs = (pendingCloudWorkspaceIDs[info.id] ?? []).subtracting(seen)
-        pendingCloudWorkspaceIDs[info.id] = pendingIDs.isEmpty ? nil : pendingIDs
         // A create response can expose a new empty workspace before the next
-        // journal snapshot. Keep such genuinely new rows, but never retain an
-        // incoming row whose id the accepted graph removed.
-        let pending = (info.remoteWorkspaces ?? []).filter {
-            pendingIDs.contains($0.id) && seen.insert($0.id).inserted
-        }
+        // journal snapshot. Retain that response's payload until the graph
+        // acknowledges it; unrelated stale metadata is not an acknowledgment.
         adjusted.remoteWorkspaces = canonical + pending
         return adjusted
     }

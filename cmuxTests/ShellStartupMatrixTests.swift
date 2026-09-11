@@ -629,7 +629,8 @@ struct ShellStartupMatrixTests {
             initialCommand: initialCommand,
             bundledZshIntegration: "cmux_zsh_marker=1",
             bundledBashIntegration: "cmux_bash_marker=1",
-            bundledFishIntegration: "set -gx CMUX_FISH_MARKER 1"
+            bundledFishIntegration: "set -gx CMUX_FISH_MARKER 1",
+            protectsFromHangup: true
         )
         if let workspaceID {
             script = script.replacingOccurrences(of: "__CMUX_WORKSPACE_ID__", with: workspaceID)

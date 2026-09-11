@@ -405,6 +405,13 @@ extension DockSplitStore {
         // without emitting `didClosePane`, so this callback must reconcile the
         // full ownership snapshot.
         synchronizeOwnedPaneIds(with: controller)
+        // Some Bonsplit paths retain an emptied source pane when a programmatic
+        // move completes. Keep Dock ownership aligned with the visible split
+        // tree by closing that pane explicitly once the move has landed.
+        if controller.tabs(inPane: source).isEmpty,
+           controller.allPaneIds.contains(source) {
+            _ = controller.closePane(source)
+        }
         let movedPanel = panel(for: tab.id)
         (movedPanel as? TerminalPanel)?.recordPortalHostOwnershipChange()
         if let movedPanel {

@@ -6438,12 +6438,14 @@ extension SessionPersistenceTests {
             promptForApproval: false
         ))
 
+        let words = expandedStartupShellWords(input)
+
         XCTAssertTrue(input.contains("config set model.provider"))
         XCTAssertTrue(input.contains("config set model.base_url"))
         XCTAssertTrue(input.contains("config set model.api_mode"))
         XCTAssertTrue(input.contains("codex_responses"))
         XCTAssertTrue(input.contains("gpt-5.5"))
-        XCTAssertTrue(input.contains("'--provider' '\\''custom'\\'''") || input.contains("'--provider' 'custom'"))
+        XCTAssertTrue(zip(words, words.dropFirst()).contains { $0 == "--provider" && $1 == "custom" })
         XCTAssertFalse(input.contains("openai-codex"))
     }
 
@@ -6489,11 +6491,14 @@ extension SessionPersistenceTests {
             promptForApproval: false
         ))
 
-        let cdRange = try XCTUnwrap(input.range(of: "cd --"))
-        let bootstrapRange = try XCTUnwrap(input.range(of: "config set model.provider"))
-        XCTAssertLessThan(cdRange.lowerBound, bootstrapRange.lowerBound)
-        XCTAssertTrue(input.contains("'./hermes' config set model.provider"))
-        XCTAssertTrue(input.contains("'./hermes' '--provider' 'custom' '--resume'"))
+        let words = expandedStartupShellWords(input)
+
+        let cdIndex = try XCTUnwrap(words.firstIndex(of: "cd"))
+        let bootstrapIndex = try XCTUnwrap(words.firstIndex(of: "model.provider"))
+        XCTAssertLessThan(cdIndex, bootstrapIndex)
+        XCTAssertEqual(Array(words.prefix(bootstrapIndex + 1).suffix(3)), ["config", "set", "model.provider"])
+        XCTAssertTrue(words.contains("CMUX_CUSTOM_HERMES_AGENT_PATH=./hermes"))
+        XCTAssertTrue(zip(words, words.dropFirst()).contains { $0 == "--provider" && $1 == "custom" })
     }
 
     func testRemoteHermesAgentHookSurfaceResumeReplacesExistingBootstrap() throws {
@@ -6561,8 +6566,28 @@ extension SessionPersistenceTests {
             promptForApproval: false
         ))
 
+        let words = expandedStartupShellWords(input)
+
         XCTAssertFalse(input.contains("config set model.provider"))
-        XCTAssertTrue(input.contains("'--provider' '\\''anthropic'\\'''") || input.contains("'--provider' 'anthropic'"))
+        XCTAssertTrue(zip(words, words.dropFirst()).contains { $0 == "--provider" && $1 == "anthropic" })
+    }
+
+    private func expandedStartupShellWords(_ command: String) -> [String] {
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command).map(\.value)
+        var expanded: [String] = []
+        var index = 0
+        while index < words.count {
+            if ["/bin/sh", "/bin/zsh"].contains(words[index]),
+               index + 2 < words.count,
+               ["-c", "-lc", "-fc"].contains(words[index + 1]) {
+                expanded.append(contentsOf: expandedStartupShellWords(words[index + 2]))
+                index += 3
+            } else {
+                expanded.append(words[index])
+                index += 1
+            }
+        }
+        return expanded
     }
 
     private func makeSurfaceResumeApprovalStoreURL() throws -> URL {

@@ -10,7 +10,7 @@ import Testing
 @testable import cmux
 #endif
 
-private final class DockPaneDropMockDraggingInfo: NSObject, NSDraggingInfo {
+final class DockPaneDropMockDraggingInfo: NSObject, NSDraggingInfo {
     let draggingDestinationWindow: NSWindow?
     let draggingSourceOperationMask: NSDragOperation
     let draggingLocation: NSPoint

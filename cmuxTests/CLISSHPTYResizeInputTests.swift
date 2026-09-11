@@ -399,6 +399,13 @@ struct CLISSHPTYResizeInputTests {
                     }
                 }
                 if clientFD >= 0 {
+                    // Darwin inherits the listener's nonblocking mode. The
+                    // line reader owns a blocking connection; an initial
+                    // EAGAIN must not drop the bridge request before it arrives.
+                    let clientFlags = fcntl(clientFD, F_GETFL, 0)
+                    if clientFlags >= 0 {
+                        _ = fcntl(clientFD, F_SETFL, clientFlags & ~O_NONBLOCK)
+                    }
                     clientGroup.enter()
                     DispatchQueue.global(qos: .userInitiated).async {
                         defer {

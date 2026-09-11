@@ -430,6 +430,9 @@ struct WindowKeyDownReplayGuardTests {
             window.close()
         }
 
+        window.makeKeyAndOrderFront(nil)
+        #expect(window.makeFirstResponder(textView))
+
         guard let event = makeCommandZKeyDownEvent(modifiers: [.command], windowNumber: window.windowNumber) else {
             Issue.record("Failed to construct Undo key event")
             return

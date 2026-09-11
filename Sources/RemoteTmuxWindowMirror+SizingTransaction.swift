@@ -405,9 +405,9 @@ extension RemoteTmuxWindowMirror {
         guard !inputs.visible || hostingContext != nil else { return }
         pendingSizingPassIntent = .inputChange
         lastCompletedSizingInputs = inputs
-        // A new fixed point gets a fresh re-arm budget; a recovery pass for
-        // the SAME inputs (lastCompletedSizingInputs was nil'd) keeps
-        // spending the old one, or the re-arm edge would loop unbounded.
+        // A new input set gets a fresh re-arm budget. Recovery passes retain
+        // that budget until output parity is restored, so a persistent miss
+        // cannot schedule an unbounded correction loop.
         if outputParityRearmInputs != inputs {
             outputParityRearmInputs = inputs
             outputParityRearmsSpent = 0
@@ -476,8 +476,8 @@ extension RemoteTmuxWindowMirror {
     /// (the settle payload's own comparison, tolerance and all). An apply
     /// may never terminate off-target without a re-arm edge: when the views
     /// miss the plan at an input fixed point, request one recovery pass,
-    /// capped per fixed point so an extent bonsplit genuinely cannot apply
-    /// (a hard minimum) stops after a bounded correction instead of looping.
+    /// capped until parity is restored so an extent bonsplit genuinely cannot
+    /// apply (a hard minimum) stops after a bounded correction instead of looping.
     func rearmIfOutputMissedPlan() {
         guard !isTornDown, !sizingPassScheduled, isEffectivelyVisibleForSizing,
               !bonsplitController.isDividerDragActive,
@@ -492,13 +492,18 @@ extension RemoteTmuxWindowMirror {
               let completed = lastCompletedSizingInputs,
               completed == currentSizingInputs()
         else { return }
-        guard outputParityRearmsSpent < 3 else { return }
         // Re-arm on EITHER a hosted-frame miss (the plan's points never
         // reached the views) OR a grid-lag miss (the pin never followed an
         // assignment that grew); the recovery pass re-imposes the plan and
         // re-applies the pin, and the cap bounds a miss that genuinely cannot
         // converge.
-        guard let mismatch = outputParityMismatch() ?? gridParityMismatch() else { return }
+        guard let mismatch = outputParityMismatch() ?? gridParityMismatch() else {
+            // The previous correction finished. A later layout disturbance
+            // needs its own budget even when the sizing inputs are unchanged.
+            outputParityRearmsSpent = 0
+            return
+        }
+        guard outputParityRearmsSpent < 3 else { return }
         outputParityRearmsSpent += 1
         #if DEBUG
         RemoteTmuxSizingDiagnostics.parityRearmCount += 1
