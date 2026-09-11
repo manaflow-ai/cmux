@@ -12,7 +12,10 @@ public import CmuxTestSupport
 ///    intercepted (no process or system open).
 /// 2. With no configured editor command, the file opens with the system
 ///    default handler.
-/// 3. Otherwise `/bin/sh -c "<command> '<path>'"` is spawned with silenced
+/// 3. A known terminal editor is rejected because a GUI process cannot
+///    provide it a controlling terminal, and the file opens with the system
+///    default handler instead.
+/// 4. Otherwise `/bin/sh -c "<command> '<path>'"` is spawned with silenced
 ///    stdio; a launch failure or a nonzero exit (e.g. command-not-found
 ///    exiting 127) falls back to the system default handler.
 ///
@@ -25,6 +28,128 @@ public import CmuxTestSupport
 /// `DispatchQueue.main.async` fallback.
 @MainActor
 public struct PreferredEditorService: FileOpening {
+    /// Executables that require a terminal and cannot be presented by the
+    /// GUI process with the preferred-editor launch path.
+    nonisolated static let terminalEditorNames: Set<String> = [
+        "vi", "vim", "nvim", "nano", "hx", "helix", "kak",
+        "kakoune", "less"
+    ]
+
+    /// Detects a known terminal editor at the executable position of a
+    /// command, including common env wrappers and assignments.
+    nonisolated static func isTerminalEditorCommand(_ command: String) -> Bool {
+        var tokens = shellWords(command)
+        guard !tokens.isEmpty else { return false }
+
+        var executableIndex = 0
+        while executableIndex < tokens.count {
+            let token = tokens[executableIndex]
+            let basename = URL(fileURLWithPath: token).lastPathComponent
+
+            if basename == "env" {
+                executableIndex += 1
+                while executableIndex < tokens.count {
+                    let value = tokens[executableIndex]
+                    if value == "--" {
+                        executableIndex += 1
+                        break
+                    }
+                    if value == "-S" || value == "--split-string" {
+                        // `env -S` parses its next argument as a fresh
+                        // whitespace-delimited command string. Re-tokenize
+                        // that payload without invoking a shell, preserving
+                        // the same quote and escape handling as the outer
+                        // command parser.
+                        guard executableIndex + 1 < tokens.count else {
+                            executableIndex += 1
+                            continue
+                        }
+                        let payload = shellWords(tokens[executableIndex + 1])
+                        tokens.replaceSubrange((executableIndex + 1)...(executableIndex + 1), with: payload)
+                        executableIndex += 1
+                        continue
+                    }
+                    if value.hasPrefix("--split-string=") {
+                        let payload = String(value.dropFirst("--split-string=".count))
+                        let splitTokens = shellWords(payload)
+                        tokens.replaceSubrange(executableIndex...executableIndex, with: splitTokens)
+                        continue
+                    }
+                    if value.contains("=") {
+                        executableIndex += 1
+                        continue
+                    }
+                    if value == "-u" || value == "--unset" || value == "-C"
+                        || value == "--chdir" {
+                        executableIndex += 2
+                        continue
+                    }
+                    if value.hasPrefix("-") {
+                        executableIndex += 1
+                        continue
+                    }
+                    break
+                }
+                break
+            }
+
+            if ["exec", "command", "nice", "sudo"].contains(basename) {
+                executableIndex += 1
+                while executableIndex < tokens.count, tokens[executableIndex].hasPrefix("-") {
+                    let option = tokens[executableIndex]
+                    executableIndex += 1
+                    if basename == "exec", option == "-a", executableIndex < tokens.count {
+                        executableIndex += 1
+                    } else if basename == "nice", option == "-n", executableIndex < tokens.count {
+                        executableIndex += 1
+                    } else if basename == "sudo",
+                              ["-u", "--user", "-g", "--group", "-C", "--chdir", "-D", "--role", "--type", "-p", "--prompt"].contains(option),
+                              executableIndex < tokens.count {
+                        executableIndex += 1
+                    }
+                }
+                continue
+            }
+
+            // Shell environment assignments may precede the executable
+            // without an explicit env command.
+            if token.contains("=") && !token.hasPrefix("/") {
+                executableIndex += 1
+                continue
+            }
+            break
+        }
+
+        guard executableIndex < tokens.count else { return false }
+        let executable = URL(fileURLWithPath: tokens[executableIndex]).lastPathComponent
+        if terminalEditorNames.contains(executable) { return true }
+        // Emacs is graphical by default. Only its explicit terminal mode
+        // requires a controlling terminal.
+        return executable == "emacs"
+            && tokens.dropFirst(executableIndex + 1).contains {
+                $0 == "-nw" || $0 == "--no-window-system"
+            }
+    }
+
+    /// Tokenizes the command syntax needed to identify its executable without
+    /// invoking a shell.
+    private nonisolated static func shellWords(_ command: String) -> [String] {
+        var words: [String] = [], current = "", quote: Character?, escaped = false
+        for character in command {
+            if escaped { current.append(character); escaped = false; continue }
+            if character == "\\" { escaped = true; continue }
+            if let activeQuote = quote {
+                if character == activeQuote { quote = nil } else { current.append(character) }
+            } else if character == "'" || character == "\"" { quote = character
+            } else if character == " " || character == "\t" || character == "\n" {
+                if !current.isEmpty { words.append(current); current = "" }
+            } else { current.append(character) }
+        }
+        if escaped { current.append("\\") }
+        if !current.isEmpty { words.append(current) }
+        return words
+    }
+
     private let editor: any PreferredEditorReading
     private let capture: any TestCaptureWriting
     private let systemOpener: any SystemFileOpening
@@ -65,6 +190,14 @@ public struct PreferredEditorService: FileOpening {
         }
 
         guard let command = editor.resolvedCommand else {
+            systemOpener.openWithSystemDefault(url)
+            return
+        }
+
+        // A TUI editor has no usable UI when launched from cmux's GUI process.
+        // Reject it before spawning, rather than leaking the editor and its
+        // plugin children with standard streams attached to /dev/null.
+        guard !Self.isTerminalEditorCommand(command) else {
             systemOpener.openWithSystemDefault(url)
             return
         }
