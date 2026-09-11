@@ -140,7 +140,7 @@ public final class JSONValueModel<Value: SettingCodable> {
     ) -> Task<Void, Never> {
         let previousWriteTask = pendingWriteTask
         let keyID = key.id
-        let task = Task { @MainActor [weak self, store, key, previousWriteTask] in
+        let task = Task { @MainActor [weak self, store, key, errorLog, previousWriteTask] in
             _ = await previousWriteTask?.value
             guard !Task.isCancelled else { return }
             do {
@@ -153,7 +153,7 @@ public final class JSONValueModel<Value: SettingCodable> {
             } catch {
                 guard !Task.isCancelled else { return }
                 self?.lastWriteError = error
-                self?.errorLog.record(error, keyID: keyID)
+                errorLog.record(error, keyID: keyID)
             }
         }
         pendingWriteTask = task

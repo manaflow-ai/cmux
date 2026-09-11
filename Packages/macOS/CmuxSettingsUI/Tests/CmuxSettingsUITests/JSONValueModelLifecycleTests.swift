@@ -117,4 +117,27 @@ import Testing
         #expect(persisted[.accent] == accent)
         #expect(persisted[.surface] == surface)
     }
+
+    @Test func queuedWriteFailureIsLoggedAfterModelTeardown() async {
+        let blockedParent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("json-value-model-write-error-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: blockedParent) }
+        try? Data().write(to: blockedParent)
+
+        let store = JSONConfigStore(fileURL: blockedParent.appendingPathComponent("cmux.json"))
+        let key = JSONKey<String>(id: "automation.socketPassword", defaultValue: "")
+        let errorLog = SettingsErrorLog()
+        var model: JSONValueModel<String>? = JSONValueModel(
+            store: store,
+            key: key,
+            errorLog: errorLog
+        )
+
+        let write = model!.set("persisted")
+        model = nil
+        await write.value
+
+        #expect(errorLog.entries.count == 1)
+        #expect(errorLog.entries.first?.keyID == key.id)
+    }
 }
