@@ -118,6 +118,7 @@ let package = Package(
                 "CmuxAuthRuntime",
                 "CmuxClientConfig",
                 "CmuxIrohTransport",
+                "CmuxIrxTransport",
                 "CMUXMobileCore",
                 "CmuxNextTransport",
                 "CmuxMobileAnalytics",

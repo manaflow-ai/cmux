@@ -103,9 +103,12 @@ actor CloudMachineLink {
         case spawnFailed(String)
         case exited(status: Int32, output: String)
         case timedOut
+        case inputTooLarge
 
         var errorDescription: String? {
             switch self {
+            case .inputTooLarge:
+                return String(localized: "cloud.link.inputTooLarge", defaultValue: "The machine input chunk is too large. Split it into smaller chunks and retry.")
             case .clientMissing:
                 return "No cmux-tui client is bundled with this build (Contents/Resources/bin/cmux-tui) and CMUX_TUI_CLIENT is unset."
             case .spawnFailed(let detail):
@@ -424,11 +427,22 @@ actor CloudMachineLink {
     }
 
     /// Runs one cmux-tui command against the link's socket and returns its stdout.
-    func run(arguments: [String], timeout: Duration = .seconds(30)) async throws -> Data {
+    func run(arguments: [String], input: Data? = nil, timeout: Duration = .seconds(30)) async throws -> Data {
         let process = Process()
         process.executableURL = clientURL
         process.arguments = arguments
-        process.standardInput = FileHandle.nullDevice
+        // Secret delivery writes at most 1 KiB per command. Prefill a bounded pipe
+        // before launch (below Darwin's 4 KiB pipe capacity), then close the writer;
+        // this needs no blocking writer task and cancellation cannot strand one.
+        let stdin = input.map { _ in Pipe() }
+        if let input, let stdin {
+            guard input.count <= 1_024 else { throw LinkError.inputTooLarge }
+            try stdin.fileHandleForWriting.write(contentsOf: input)
+            try stdin.fileHandleForWriting.close()
+            process.standardInput = stdin
+        } else {
+            process.standardInput = FileHandle.nullDevice
+        }
         let stdout = Pipe()
         let stderr = Pipe()
         process.standardOutput = stdout
@@ -889,18 +903,40 @@ enum CloudLinkPipe {
     }
 
     private final class LineBuffer {
+        private static let maxLineBytes = 4 * 1_024 * 1_024
         private var pending = Data()
+        private var dropping = false
 
         func append(_ data: Data) -> [String] {
-            pending.append(data)
-            let split = CloudLinkPipe.splitLines(pending)
-            pending = split.rest
-            return split.lines
+            var lines: [String] = []
+            var start = data.startIndex
+            while start < data.endIndex {
+                let newline = data[start...].firstIndex(of: 0x0A)
+                let end = newline ?? data.endIndex
+                if !dropping {
+                    if pending.count + data.distance(from: start, to: end) > Self.maxLineBytes {
+                        pending.removeAll(keepingCapacity: false)
+                        dropping = true
+                    } else {
+                        pending.append(contentsOf: data[start..<end])
+                    }
+                }
+                guard let newline else { break }
+                if !dropping {
+                    var line = String(decoding: pending, as: UTF8.self)
+                    if line.hasSuffix("\r") { line.removeLast() }
+                    lines.append(line)
+                }
+                pending.removeAll(keepingCapacity: true)
+                dropping = false
+                start = data.index(after: newline)
+            }
+            return lines
         }
 
         func flush() -> String? {
-            defer { pending = Data() }
-            guard !pending.isEmpty else { return nil }
+            defer { pending = Data(); dropping = false }
+            guard !dropping, !pending.isEmpty else { return nil }
             var line = String(decoding: pending, as: UTF8.self)
             if line.hasSuffix("\r") { line.removeLast() }
             return line

@@ -12,10 +12,24 @@ import Testing
 
         #expect(policy.source == .user)
         #expect(policy.isActive)
-        // `allows` is the page/delegate path; app-owned loads use the trusted
-        // seam so a local report can open without allowing page file access.
-        #expect(!policy.allows(fileURL))
+        // Local documents never leave the Mac: both the page/delegate path and
+        // the app-owned trusted seam keep them open unless a profile forces
+        // `BrowserAllowLocalFiles` off.
+        #expect(policy.allows(fileURL))
         #expect(policy.allowsTrustedInternalURL(fileURL))
+    }
+
+    @Test func forcingLocalFilesOffDeniesBothPathsForAUserAllowlist() throws {
+        let policy = BrowserURLAllowlistPolicy(
+            managedPatterns: nil,
+            userPatterns: ["reports.example.com"],
+            allowsLocalFiles: false
+        )
+        let fileURL = try #require(URL(string: "file:///tmp/cmux-report.html"))
+
+        #expect(!policy.allows(fileURL))
+        #expect(!policy.allowsTrustedInternalURL(fileURL))
+        #expect(policy.allows(try #require(URL(string: "https://reports.example.com"))))
     }
 
     @Test func localFileURLsRemainAvailableForManagedAllowlist() throws {
@@ -24,7 +38,7 @@ import Testing
 
         #expect(policy.isManaged)
         #expect(policy.isActive)
-        #expect(!policy.allows(fileURL))
+        #expect(policy.allows(fileURL))
         #expect(policy.allowsTrustedInternalURL(fileURL))
         #expect(!policy.allows(try #require(URL(string: "https://outside.example"))))
     }
@@ -36,7 +50,7 @@ import Testing
 
         #expect(policy.isManaged)
         #expect(policy.isActive)
-        #expect(!policy.allows(fileURL))
+        #expect(policy.allows(fileURL))
         #expect(policy.allowsTrustedInternalURL(fileURL))
         #expect(!policy.allows(remoteURL))
     }
@@ -48,11 +62,13 @@ import Testing
         let relativeFileURL = try #require(URL(string: "file:relative-report.html"))
         let credentialedFileURL = try #require(URL(string: "file://user:password@localhost/tmp/cmux-report.html"))
 
-        #expect(!policy.allows(localhostFileURL))
+        #expect(policy.allows(localhostFileURL))
         #expect(policy.allowsTrustedInternalURL(localhostFileURL))
-        #expect(!policy.allowsTrustedInternalURL(networkFileURL))
-        #expect(!policy.allowsTrustedInternalURL(relativeFileURL))
-        #expect(!policy.allowsTrustedInternalURL(credentialedFileURL))
+        // Only well-formed local file URLs qualify, on either path.
+        for url in [networkFileURL, relativeFileURL, credentialedFileURL] {
+            #expect(!policy.allows(url))
+            #expect(!policy.allowsTrustedInternalURL(url))
+        }
     }
 
     @Test(arguments: ["file://", "file://*", "file:///*", "file:*", "*"])
@@ -76,7 +92,7 @@ import Testing
 
         #expect(policy.isActive)
         #expect(policy.patterns.isEmpty)
-        #expect(!policy.allows(fileURL))
+        #expect(policy.allows(fileURL))
         #expect(policy.allowsTrustedInternalURL(fileURL))
         #expect(!policy.allows(remoteURL))
     }

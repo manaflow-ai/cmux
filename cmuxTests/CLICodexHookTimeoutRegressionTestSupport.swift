@@ -2,6 +2,7 @@ import Dispatch
 import Foundation
 import Darwin
 import Testing
+import CMUXAgentLaunch
 
 struct InstalledHookEntry {
     let eventName: String
@@ -30,16 +31,16 @@ func codexHookEntries(in codexHome: URL) throws -> [InstalledHookEntry] {
     let hookURL = codexHome.appendingPathComponent("hooks.json", isDirectory: false)
     let json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
     let hooks = try #require(json["hooks"] as? [String: Any])
-    return try hooks.flatMap { eventName, values -> [InstalledHookEntry] in
+    return hooks.flatMap { eventName, values -> [InstalledHookEntry] in
         guard let groups = values as? [[String: Any]] else { return [] }
-        return try groups
+        return groups
             .compactMap { $0["hooks"] as? [[String: Any]] }
             .flatMap { $0 }
             .compactMap { hook in
                 guard let command = hook["command"] as? String else { return nil }
                 let body: String
-                if command.hasPrefix("/") {
-                    body = (try? String(contentsOfFile: command, encoding: .utf8)) ?? command
+                if let scriptPath = CodexHookScriptName.scriptPath(fromShellCommand: command) {
+                    body = (try? String(contentsOfFile: scriptPath, encoding: .utf8)) ?? command
                 } else {
                     body = command
                 }
@@ -77,7 +78,7 @@ func bindCodexHookUnixSocket(at path: String) throws -> Int32 {
         Darwin.close(fd)
         throw NSError(domain: "cmux.tests", code: Int(ENAMETOOLONG))
     }
-    _ = withUnsafeMutablePointer(to: &addr.sun_path) { pointer in
+    withUnsafeMutablePointer(to: &addr.sun_path) { pointer in
         pointer.withMemoryRebound(to: CChar.self, capacity: maxPathLength) { buffer in
             for index in 0..<utf8.count {
                 buffer[index] = CChar(bitPattern: utf8[index])
