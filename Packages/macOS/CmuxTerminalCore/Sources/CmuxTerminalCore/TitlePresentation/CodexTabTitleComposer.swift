@@ -1,35 +1,5 @@
 import Foundation
 
-/// The Codex lifecycle states that affect terminal-tab presentation.
-public enum CodexTabTitleLifecycle: String, Equatable, Sendable {
-    /// A Codex turn is actively executing.
-    case running
-    /// A Codex turn completed and the session is waiting at its prompt.
-    case idle
-    /// Codex is waiting for user input such as permission or clarification.
-    case needsInput
-    /// The lifecycle source has not established a more precise state.
-    case unknown
-}
-
-/// The transient title and loading presentation for one Codex tab.
-public struct CodexTabTitlePresentation: Equatable, Sendable {
-    /// The title string presented by the tab bar.
-    public let title: String
-    /// Whether the tab bar should show its existing indeterminate indicator.
-    public let isAnimating: Bool
-
-    /// Creates a tab presentation.
-    ///
-    /// - Parameters:
-    ///   - title: The title presented by the tab bar.
-    ///   - isAnimating: Whether the tab bar should show its indeterminate indicator.
-    public init(title: String, isAnimating: Bool) {
-        self.title = title
-        self.isAnimating = isAnimating
-    }
-}
-
 /// Composes Codex lifecycle markers without mutating the stable terminal title.
 public struct CodexTabTitleComposer: Sendable {
     private let runningMarker: String
