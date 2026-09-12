@@ -1,15 +1,16 @@
 declare module "bun:test" {
   type TestCallback = () => unknown | Promise<unknown>;
+  type TestTimeout = number | { timeout?: number };
   type LifecycleHook = (fn: TestCallback, timeout?: number) => void;
   type TestFunction = {
-    (name: string, fn: TestCallback, timeout?: number): void;
+    (name: string, fn: TestCallback, timeout?: TestTimeout): void;
     only: TestFunction;
     skip: TestFunction;
     todo: (name: string) => void;
     each: <Value>(values: readonly Value[]) => (
       name: string,
       fn: (...args: Value extends readonly unknown[] ? [...Value] : [Value]) => unknown | Promise<unknown>,
-      timeout?: number,
+      timeout?: TestTimeout,
     ) => void;
   };
   type MatcherFunction = (...args: unknown[]) => unknown;

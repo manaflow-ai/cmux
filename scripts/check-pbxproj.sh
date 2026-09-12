@@ -29,3 +29,10 @@ if [[ "$actual" != "$EXPECTED_OBJECT_VERSION" ]]; then
 fi
 
 python3 "$SCRIPT_DIR/normalize-pbxproj.py" --check "$PBXPROJ"
+
+# The normalizer checks ordering, not the OpenStep plist grammar. On macOS,
+# use the same native parser family as Xcode to catch malformed string values
+# (for example, an unquoted '+' in a newly wired Swift filename).
+if [[ "$(uname -s)" == Darwin ]]; then
+    plutil -lint "$PBXPROJ"
+fi

@@ -8,10 +8,16 @@ import CryptoKit
 import Foundation
 import OSLog
 
+#if DEBUG
+import CmuxNextTransport
+import CmuxNextTransportBridge
+#endif
+
 nonisolated private let mobileIrohLog = Logger(
     subsystem: "dev.cmux.ios",
     category: "iroh-runtime"
 )
+
 
 /// Resume-once guard for the forget deadline race: whichever racer claims
 /// first owns the continuation, and the loser's late completion is discarded.
@@ -107,6 +113,8 @@ public final class MobileIrohRuntimeComposition:
     MobileIrohMacDiscovering,
     MobileIrohMacForgetting
 {
+    #if DEBUG
+    #endif
     enum SettingsError: Error, Equatable {
         case unavailable
         case incompleteCustomRelay
@@ -237,6 +245,18 @@ public final class MobileIrohRuntimeComposition:
     private let authObserver = MobileIrohAuthObserver()
 
     private weak var auth: AuthCoordinator?
+    #if DEBUG
+    /// Resolves one next-transport route decision for every lane entrypoint.
+    /// A supported Mac returns its admitted connection; a disconnected
+    /// supported Mac throws (fail-hard); all other requests stay on legacy.
+    /// The resolved legacy-broker origin, reused by the DEBUG next-transport
+    /// dial path so a home-screen launch (no dev env) mints relay credentials
+    /// for its next-transport identity through the app's signed-in session.
+    private var nextTransportBrokerBaseURL: URL?
+    /// Composition-owned next-transport coordinator. Keeping it on this graph
+    /// ties bootstrap probes, clients, and routing state to one lifecycle.
+    let nextTransportFacade: NextTransportGraduationFacade
+    #endif
     private var connectivityInvalidationSubscriber:
         CmxConnectivityInvalidationSubscriber?
     private var connectivityInvalidationAccountID: String?
@@ -463,6 +483,9 @@ public final class MobileIrohRuntimeComposition:
             diagnosticLog: diagnosticLog,
             debugDefaults: defaults
         )
+        #if DEBUG
+        nextTransportBrokerBaseURL = baseURL
+        #endif
     }
 
     init(
@@ -542,6 +565,10 @@ public final class MobileIrohRuntimeComposition:
         self.makeRelayPolicyRefreshBackoff = makeRelayPolicyRefreshBackoff
             ?? { CmxIrohReconnectBackoff() }
         self.diagnosticLog = diagnosticLog
+        #if DEBUG
+        self.nextTransportFacade = NextTransportGraduationFacade(
+            defaults: debugDefaults ?? .standard)
+        #endif
     }
 
     private func makeBrokerBundle(
@@ -578,6 +605,15 @@ public final class MobileIrohRuntimeComposition:
         connectivityInvalidationBaseURL: URL? = nil
     ) {
         self.auth = auth
+        #if DEBUG
+        // Off-WiFi relay credentials for the next-transport dial path: with
+        // no dev launch env, the dial client mints through this signed-in
+        // session against the same broker origin the legacy transport uses.
+        nextTransportFacade.configureSessionBroker(
+            brokerBaseURL: nextTransportBrokerBaseURL,
+            auth: auth
+        )
+        #endif
         if let connectivityInvalidationBaseURL {
             connectivityInvalidationSubscriber = CmxConnectivityInvalidationSubscriber(
                 serviceBaseURL: connectivityInvalidationBaseURL,
@@ -609,6 +645,23 @@ public final class MobileIrohRuntimeComposition:
             }
         }
     }
+
+    #if DEBUG
+    /// Runs the authoritative next-transport capability probe for one live
+    /// shell connection. The generation is supplied by the shell so a result
+    /// from a superseded connection cannot mutate routing state.
+    public func nextTransportBootstrapProbe(
+        client: MobileCoreRPCClient, macID: String, generation: UUID
+    ) async {
+        await nextTransportFacade.probeBootstrap(
+            client: client, macID: macID, generation: generation)
+    }
+
+    /// Broker factory injected into the DEBUG dev screen and dial clients.
+    public var nextTransportBrokerFactory: NextTransportDialClient.BrokerFactory? {
+        nextTransportFacade.dialBrokerFactory
+    }
+    #endif
 
     private func setConnectivityInvalidationAccount(_ accountID: String?) async {
         guard connectivityInvalidationAccountID != accountID else { return }
@@ -709,121 +762,6 @@ public final class MobileIrohRuntimeComposition:
         )
     }
 
-    /// Resolves a disconnected transport from the active account runtime.
-    public func transport(
-        for request: CmxByteTransportRequest
-    ) async throws -> any CmxByteTransport {
-        let runtime = try await preparedRuntimeForConnection()
-        return try runtime.transportFactory.makeTransport(for: request)
-    }
-
-    /// Opens a terminal or artifact stream on the pooled admitted connection.
-    ///
-    /// - Parameters:
-    ///   - request: The exact Iroh peer route and intended Mac device binding.
-    ///   - lane: The terminal or artifact lane declaration.
-    ///   - priority: Iroh's relative stream priority.
-    /// - Returns: The opened lane after its binary header is written.
-    public func openBidirectionalLane(
-        for request: CmxByteTransportRequest,
-        lane: CmxIrohLane,
-        priority: Int32
-    ) async throws -> CmxIrohBidirectionalStream {
-        let runtime = try await preparedRuntimeForConnection()
-        return try await runtime.openBidirectionalLane(
-            for: request,
-            lane: lane,
-            priority: priority
-        )
-    }
-
-    /// Opens a production terminal byte lane for one exact Mac surface.
-    ///
-    /// The caller persists `cursor` as it applies raw PTY bytes, then supplies
-    /// that cursor when reopening after a stream failure so the Mac can replay
-    /// from its bounded byte history without duplicating output.
-    public func openTerminalLane(
-        for request: CmxByteTransportRequest,
-        surfaceID: UUID,
-        cursor: UInt64? = nil,
-        priority: Int32 = 0
-    ) async throws -> MobileIrohTerminalLane {
-        let resourceID = try CmxIrohResourceID("terminal:\(surfaceID.uuidString.lowercased())")
-        let stream = try await openBidirectionalLane(
-            for: request,
-            lane: .terminal(resourceID: resourceID, cursor: cursor),
-            priority: priority
-        )
-        return MobileIrohTerminalLane(stream: stream)
-    }
-
-    /// Opens a terminal input-only lane. Render-grid output remains on the
-    /// ordered event stream, while keystrokes use an independent QUIC stream
-    /// whose writes do not wait for an RPC response.
-    public func openTerminalInputLane(
-        for request: CmxByteTransportRequest,
-        surfaceID: UUID,
-        priority: Int32 = 0
-    ) async throws -> MobileIrohTerminalLane {
-        let resourceID = try CmxIrohResourceID("terminal:\(surfaceID.uuidString.lowercased())")
-        let stream = try await openBidirectionalLane(
-            for: request,
-            lane: .terminalInput(resourceID: resourceID),
-            priority: priority
-        )
-        return MobileIrohTerminalLane(stream: stream)
-    }
-
-    /// Opens a simulator-stream v2 lane for one Mac simulator panel. The
-    /// phone-to-Mac half carries start/ack/input messages, so it rides above
-    /// terminal typing (tiny messages, interaction-critical); the Mac sets
-    /// its own video priority below terminal output.
-    public func openSimulatorStreamLane(
-        for request: CmxByteTransportRequest,
-        panelID: UUID,
-        priority: Int32 = 5
-    ) async throws -> MobileIrohSimulatorStreamLane {
-        let resourceID = try CmxIrohResourceID(
-            "simstream:\(panelID.uuidString.lowercased())")
-        let stream = try await openBidirectionalLane(
-            for: request,
-            lane: .simulatorStream(resourceID: resourceID),
-            priority: priority
-        )
-        return MobileIrohSimulatorStreamLane(stream: stream)
-    }
-
-    /// Opens a low-priority raw artifact lane for an opaque Mac-issued capability.
-    public func openArtifactLane(
-        for request: CmxByteTransportRequest,
-        resourceID: String,
-        offset: UInt64,
-        priority: Int32 = -10
-    ) async throws -> any MobileArtifactLaneConnection {
-        let capability = try CmxIrohResourceID(resourceID)
-        let stream = try await openBidirectionalLane(
-            for: request,
-            lane: .artifact(resourceID: capability, offset: offset),
-            priority: priority
-        )
-        do {
-            try await stream.sendStream.finish()
-            return MobileIrohArtifactLane(stream: stream)
-        } catch {
-            await stream.sendStream.reset(errorCode: 0)
-            await stream.receiveStream.stop(errorCode: 0)
-            throw error
-        }
-    }
-
-    /// Starts the one server-event byte stream on the pooled admitted connection.
-    public func serverEventByteStream(
-        for request: CmxByteTransportRequest
-    ) async throws -> CmxIndependentEventByteStream {
-        let runtime = try await preparedRuntimeForConnection()
-        return try await runtime.serverEventByteStream(for: request)
-    }
-
     private func settleConnectionReadiness()
         async -> MobileIrohConnectionReadinessOutcome
     {
@@ -841,7 +779,7 @@ public final class MobileIrohRuntimeComposition:
         ))
     }
 
-    private func preparedRuntimeForConnection() async throws
+    func preparedRuntimeForConnection() async throws
         -> CmxIrohClientRuntime
     {
         let readiness = await settleConnectionReadiness()

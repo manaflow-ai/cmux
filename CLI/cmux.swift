@@ -2820,20 +2820,6 @@ private let codexTeamsThreadEnvironmentKey = "CMUX_CODEX_TEAMS_THREAD_ID"
 private let codexTeamsParentThreadEnvironmentKey = "CMUX_CODEX_TEAMS_PARENT_THREAD_ID"
 private let codexTeamsDepthEnvironmentKey = "CMUX_CODEX_TEAMS_DEPTH"
 
-enum CLIIDFormat: String {
-    case refs
-    case uuids
-    case both
-
-    static func parse(_ raw: String?) throws -> CLIIDFormat? {
-        guard let raw else { return nil }
-        guard let parsed = CLIIDFormat(rawValue: raw.lowercased()) else {
-            throw CLIError(message: "--id-format must be one of: refs, uuids, both")
-        }
-        return parsed
-    }
-}
-
 private enum TopSortKey: Equatable {
     case cpu
     case memory
@@ -5534,6 +5520,12 @@ struct CMUXCLI {
         case "iroh-diag":
             let response = try sendV1Command("iroh_diag", client: client)
             print(response)
+
+        case "next-transport-ticket":
+            try runNextTransportTicket(commandArgs: commandArgs, client: client)
+
+        case "next-transport-grant":
+            try runNextTransportGrant(commandArgs: commandArgs, client: client)
 
         case "capabilities":
             let response = try client.sendV2(method: "system.capabilities")
@@ -18276,6 +18268,8 @@ struct CMUXCLI {
                 the same data as Settings > Networking > Connection Report.
                 """
             )
+        case "next-transport-ticket", "next-transport-grant":
+            return nextTransportHelp(command)
         case "capabilities":
             return """
             Usage: cmux capabilities
@@ -27869,7 +27863,6 @@ struct CMUXCLI {
                 let workspaceId = resolvedTarget.workspaceId
                 let resolvedSurface = resolvedTarget
                 let surfaceId = resolvedSurface.surfaceId
-                let claudePid = localClaudePID(mapped: mappedSession)
                 // Detected once (bounded process-ancestry walk) and reused for
                 // both the suppression gate and the notify payload's subagent
                 // tag, which stays accurate even when suppression is off.
@@ -39489,7 +39482,6 @@ export default CMUXSessionRestore;
         socketPassword: String? = nil,
         telemetry: CLISocketSentryTelemetry
     ) throws {
-        let invocationStartedAt = ProcessInfo.processInfo.systemUptime
         _ = telemetry
         let source = optionValue(commandArgs, name: "--source") ?? ""
         guard !source.isEmpty else {

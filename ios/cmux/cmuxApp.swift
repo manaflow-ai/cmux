@@ -247,7 +247,24 @@ struct cmuxApp: App {
     }
 
     private var mobileRootScene: CMUXMobileRootScene {
-        CMUXMobileRootScene(
+        #if DEBUG
+        // The legacy graduation probe needs the legacy composition's
+        // session-backed broker. In IRX mode that composition is deliberately
+        // dormant, so omitting the probe avoids persisting a LAN-only result
+        // with no relay-capable broker behind it.
+        let nextTransportProbe: MobileShellComposite.NextTransportBootstrapProbe?
+        if Self.root.irx != nil || Self.root.iroh.nextTransportBrokerFactory == nil {
+            nextTransportProbe = nil
+        } else {
+            nextTransportProbe = { client, macID, generation in
+                await Self.root.iroh.nextTransportBootstrapProbe(
+                    client: client, macID: macID, generation: generation)
+            }
+        }
+        #else
+        let nextTransportProbe: MobileShellComposite.NextTransportBootstrapProbe? = nil
+        #endif
+        return CMUXMobileRootScene(
             runtime: Self.root.runtime,
             auth: Self.root.auth,
             reachability: Self.root.reachability,
@@ -269,6 +286,7 @@ struct cmuxApp: App {
             buildCompatibilityPolicy: Self.root.buildCompatibilityPolicy,
             signOutHook: Self.root.signOutHook,
             diagnosticLog: Self.root.diagnosticLog,
+            nextTransportBootstrapProbe: nextTransportProbe,
             appLog: Self.root.appLog
         )
     }

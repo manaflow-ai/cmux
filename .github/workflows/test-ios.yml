@@ -46,7 +46,8 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.ref || github.ref }}
-          fetch-depth: 0
+          # Manual runs always test; only PR change detection needs history.
+          fetch-depth: ${{ github.event_name == 'workflow_dispatch' && 1 || 0 }}
           persist-credentials: false
           submodules: false
 

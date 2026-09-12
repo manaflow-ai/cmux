@@ -152,6 +152,7 @@ struct MobileTerminalLaneCoordinatorTests {
         // The output provider is the causal completion signal. Its empty lane
         // list makes the request fail after recording the attempted selection.
         await outputProvider.waitUntilRequested()
+        await coordinator.waitForRunCompletion(surfaceID: Self.surfaceID)
 
         #expect(await outputProvider.requestCount() > 0)
         #expect(await inputProvider.requestCount() == 0)

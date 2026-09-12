@@ -1,6 +1,334 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "nextTransport.dev.state.idle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"idle"}},"ja":{"stringUnit":{"state":"translated","value":"待機中"}}}},
+    "nextTransport.dev.state.connecting": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"connecting"}},"ja":{"stringUnit":{"state":"translated","value":"接続中"}}}},
+    "nextTransport.dev.state.ready": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"ready"}},"ja":{"stringUnit":{"state":"translated","value":"接続済み"}}}},
+    "nextTransport.dev.state.degraded": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"degraded"}},"ja":{"stringUnit":{"state":"translated","value":"接続不安定"}}}},
+    "nextTransport.dev.state.closed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"closed (%@)"}},"ja":{"stringUnit":{"state":"translated","value":"終了（%@）"}}}},
+    "nextTransport.dev.routing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App traffic"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリの通信"
+          }
+        }
+      }
+    },
+    "nextTransport.dev.routeAppTraffic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Route cmux over next transport"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次世代トランスポートで cmux を接続"
+          }
+        }
+      }
+    },
+    "nextTransport.dev.routeAppTraffic.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off by default. When enabled, app launches bootstrap over the paired channel, then carry control, terminals, and events on the next transport for Macs that support it. A credential denial falls back to the paired channel and re-pairs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトではオフです。有効にすると、起動時にペア設定済みの接続で初期設定を行い、対応する Mac では制御、ターミナル、イベントに次世代トランスポートを使用します。認証情報が拒否された場合は、ペア設定済みの接続に戻り、再度ペア設定します。"
+          }
+        }
+      }
+    },
+    "nextTransport.dev.identity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This phone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この iPhone"
+          }
+        }
+      }
+    },
+    "nextTransport.dev.deviceID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Device ID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイス ID"
+          }
+        }
+      }
+    },
+    "nextTransport.dev.copyKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy public key"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "公開鍵をコピー"
+          }
+        }
+      }
+    },
+    "nextTransport.dev.setup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac ticket + grant"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac のチケットとアクセス許可"
+          }
+        }
+      }
+    },
+    "nextTransport.dev.ticket": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ticket JSON"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チケット JSON"
+          }
+        }
+      }
+    },
+    "nextTransport.dev.grant": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grant JSON"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセス許可 JSON"
+          }
+        }
+      }
+    },
+    "nextTransport.dev.configure": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configure"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定"
+          }
+        }
+      }
+    },
+    "nextTransport.dev.configure.rejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rejected: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒否されました: %@"
+          }
+        }
+      }
+    },
+    "nextTransport.dev.session": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション"
+          }
+        }
+      }
+    },
+    "nextTransport.dev.state": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "State"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "状態"
+          }
+        }
+      }
+    },
+    "nextTransport.dev.lastDenial": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last denial"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直近の拒否"
+          }
+        }
+      }
+    },
+    "nextTransport.dev.connect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続"
+          }
+        }
+      }
+    },
+    "nextTransport.dev.disconnect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続解除"
+          }
+        }
+      }
+    },
+    "nextTransport.dev.echo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run echo (50 chunks)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エコーテストを実行（50 チャンク）"
+          }
+        }
+      }
+    },
+    "nextTransport.dev.events": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Events"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "イベント"
+          }
+        }
+      }
+    },
+    "nextTransport.dev.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next Transport (dev)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次世代トランスポート（開発用）"
+          }
+        }
+      }
+    },
     "mobile.buildType.beta": {
       "extractionState": "manual",
       "localizations": {
@@ -18889,6 +19217,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "이로"
+          }
+        }
+      }
+    },
+    "mobile.settings.activeTransport.nextTransport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next transport"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次世代トランスポート"
           }
         }
       }
@@ -74940,6 +75285,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "이로"
+          }
+        }
+      }
+    },
+    "mobile.connections.method.nextTransport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next transport"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次世代トランスポート"
           }
         }
       }

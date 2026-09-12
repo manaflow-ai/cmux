@@ -11,6 +11,7 @@ import Testing
 #endif
 
 struct MobileHostServiceSettingsTests {
+
     @Test func mobileHostListenerHonorsDevelopmentDefaultUntilIOSPairingIsOverridden() throws {
         let suiteName = "MobileHostServiceSettingsTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

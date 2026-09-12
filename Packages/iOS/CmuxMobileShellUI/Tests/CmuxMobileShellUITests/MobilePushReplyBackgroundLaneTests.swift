@@ -117,7 +117,9 @@ private final class ReplyRelayFake: ReplyRelaying, @unchecked Sendable {
 
 private final class RateLimitedReplyURLProtocol: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
-    private static var storedRequestCount = 0
+    // URLProtocol callbacks are nonisolated; the lock makes this shared test
+    // counter safe while nonisolated(unsafe) documents that synchronization.
+    private nonisolated(unsafe) static var storedRequestCount = 0
 
     static var requestCount: Int { lock.withLock { storedRequestCount } }
 
@@ -388,30 +390,6 @@ private func makeReplyLaneCoordinator(
     #expect(relay.requests.count == 1)
     #expect(runtime.endCount == 0)
     #expect(notifier.cancelCount == 0)
-}
-
-@MainActor
-@Test func confinedRelayPreservesSurfaceRetargetPolicy() async {
-    let runtime = ReplyRuntimeFake()
-    let notifier = ReplyNoticeFake()
-    let relay = ReplyRelayFake(outcomes: [true])
-    let coordinator = makeReplyLaneCoordinator(
-        runtime: runtime,
-        notifier: notifier,
-        nowBox: NowBox(),
-        relay: relay
-    )
-
-    await coordinator.handleReply(
-        text: "stay in this workspace",
-        workspaceId: "workspace-1",
-        surfaceId: "surface-1",
-        macDeviceId: "mac-1",
-        retargetsToLiveSurfaceOwner: false
-    )
-
-    #expect(relay.requests.count == 1)
-    #expect(relay.requests.first?.retargetsToLiveSurfaceOwner == false)
 }
 
 @MainActor

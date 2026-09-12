@@ -1910,6 +1910,7 @@ jobs:
             CmuxAuthRuntime
             CmuxBrowser
             CmuxIrohTransport
+            CmuxNextTransport
             CmuxCommandPalette
             CmuxControlSocket
             CmuxFoundation
@@ -1952,7 +1953,7 @@ jobs:
             # CmuxFoundation has several process-tree suites whose child
             # fixtures share global process resources; run each suite in its
             # own Swift Testing process just like the auth/transport suites.
-            CmuxAgentChat|CmuxAuthRuntime|CmuxFoundation|CmuxIrohTransport)
+            CmuxAgentChat|CmuxAuthRuntime|CmuxFoundation|CmuxIrohTransport|CmuxNextTransport)
               ./scripts/ci/run-swift-testing-suites.sh "$pkgdir"
               ;;
             CmuxTerminal|CmuxTerminalCore)

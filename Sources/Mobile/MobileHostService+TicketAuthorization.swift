@@ -142,6 +142,18 @@ extension MobileHostService {
             // authoritative. A workspace-scoped attach ticket must not make
             // the phone lose this host-wide control.
             return nil
+        case "mobile.next_transport.pair":
+            // DEBUG-only graduation bootstrap. Unlike a read-only host.status,
+            // this mints a durable host-wide credential, so a workspace- or
+            // terminal-scoped attach ticket must not be widened into it.
+            let workspaceID = authorization.ticket.workspaceID
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let terminalID = authorization.ticket.terminalID?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard workspaceID.isEmpty, terminalID.isEmpty else {
+                return scopedTicketError
+            }
+            return nil
         default:
             return scopedTicketError
         }

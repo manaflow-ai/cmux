@@ -25,6 +25,11 @@ import CmuxSidebar
 import CmuxWorkspaces
 import CmuxNotifications
 import CmuxSimulator
+#if DEBUG
+import CmuxIrohTransport
+import CmuxNextTransport
+import CryptoKit
+#endif
 
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")
@@ -1395,6 +1400,14 @@ class TerminalController {
             // wait must never block the main thread.
             case "iroh_diag":
                 return (true, irohDiagText())
+            // Graduation P4 dev verbs: the parallel next-transport host's
+            // dial ticket and per-device grant mint (dev signer), for handing
+            // an iOS dev build everything it needs to dial. Same semaphore
+            // pattern as iroh_diag; DEBUG-only surface.
+            case "next_transport_ticket":
+                return (true, nextTransportTicketText())
+            case "next_transport_grant":
+                return (true, nextTransportGrantText(args))
             // The v1 resolution reads (tranche D): one v2MainSync snapshot
             // hop each, reply lines formatted here on this worker thread.
             // All mainThreadCallable (the hop collapses inline); the bodies
@@ -1721,6 +1734,15 @@ class TerminalController {
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
                 await self.v2MobileAttachTicketCreate(params: request.params)
             }
+        #if DEBUG
+        case "mobile.next_transport.pair":
+            // Socket parity with the phone RPC dispatcher, so tooling can
+            // preflight the graduation bootstrap without a device.
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 15) {
+                await self.v2MobileNextTransportPair(
+                    params: request.params, authorization: .localControlSocket)
+            }
+        #endif
         case "mobile.terminal.set_font":
             return v2Result(id: request.id, v2MobileTerminalSetFont(params: request.params))
         case "mobile.compatible_tags.get":
@@ -1894,6 +1916,7 @@ class TerminalController {
             if request.method == "debug.sidebar.simulate_drag"
                 || request.method == "debug.window.screenshot"
                 || request.method == "debug.mobile.transport.disconnect"
+                || request.method == "mobile.next_transport.pair"
                 || request.method == "debug.cloudtree.gallery" {
                 return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
             }
@@ -4165,7 +4188,7 @@ class TerminalController {
 
     nonisolated func v2Ok(id: Any?, result: Any) -> String {
         guard let idValue = Self.v2WireId(id),
-              let payload = JSONValue(foundationObject: result) else {
+              let payload = CmuxControlSocket.JSONValue(foundationObject: result) else {
             return ControlResponseEncoder.encodeFailureResponse
         }
         return Self.v2Encoder.ok(id: idValue, result: payload)
@@ -4174,9 +4197,9 @@ class TerminalController {
     /// Bridges a legacy `Any?` request id to the wire value: missing ids
     /// encode as JSON `null`; an unencodable id reports overall encode
     /// failure (the legacy `isValidJSONObject` behavior).
-    private nonisolated static func v2WireId(_ id: Any?) -> JSONValue? {
+    private nonisolated static func v2WireId(_ id: Any?) -> CmuxControlSocket.JSONValue? {
         guard let id else { return .null }
-        return JSONValue(foundationObject: id)
+        return CmuxControlSocket.JSONValue(foundationObject: id)
     }
 
     /// Bridge an async throws closure into a socket RPC response. Runs the work on a detached
@@ -4388,9 +4411,9 @@ class TerminalController {
         guard let idValue = Self.v2WireId(id) else {
             return ControlResponseEncoder.encodeFailureResponse
         }
-        var dataValue: JSONValue?
+        var dataValue: CmuxControlSocket.JSONValue?
         if let data {
-            guard let bridgedData = JSONValue(foundationObject: data) else {
+            guard let bridgedData = CmuxControlSocket.JSONValue(foundationObject: data) else {
                 return ControlResponseEncoder.encodeFailureResponse
             }
             dataValue = bridgedData
@@ -4432,7 +4455,7 @@ class TerminalController {
     }
 
     private nonisolated func v2Encode(_ object: Any) -> String {
-        guard let value = JSONValue(foundationObject: object) else {
+        guard let value = CmuxControlSocket.JSONValue(foundationObject: object) else {
             return ControlResponseEncoder.encodeFailureResponse
         }
         return Self.v2Encoder.encode(value)
@@ -12154,106 +12177,6 @@ class TerminalController {
 #endif
 #endif
 
-    private struct ReadScreenOptions {
-        let surfaceArg: String
-        let includeScrollback: Bool
-        let lineLimit: Int?
-    }
-
-    private struct ReadScreenParseError: Error {
-        let message: String
-    }
-
-    private nonisolated func parseReadScreenArgs(_ args: String) -> Result<ReadScreenOptions, ReadScreenParseError> {
-        let tokens = args
-            .split(whereSeparator: { $0.isWhitespace })
-            .map(String.init)
-        var surfaceArg: String?
-        var includeScrollback = false
-        var lineLimit: Int?
-        var idx = 0
-
-        while idx < tokens.count {
-            let token = tokens[idx]
-            switch token {
-            case "--scrollback":
-                includeScrollback = true
-                idx += 1
-            case "--lines":
-                guard idx + 1 < tokens.count, let parsed = Int(tokens[idx + 1]), parsed > 0 else {
-                    return .failure(ReadScreenParseError(message: "ERROR: --lines must be greater than 0"))
-                }
-                lineLimit = parsed
-                includeScrollback = true
-                idx += 2
-            default:
-                guard surfaceArg == nil else {
-                    return .failure(ReadScreenParseError(message: "ERROR: Usage: read_screen [id|idx] [--scrollback] [--lines <n>]"))
-                }
-                surfaceArg = token
-                idx += 1
-            }
-        }
-
-        return .success(
-            ReadScreenOptions(
-                surfaceArg: surfaceArg ?? "",
-                includeScrollback: includeScrollback,
-                lineLimit: lineLimit
-            )
-        )
-    }
-
-    nonisolated static func tailTerminalLines(_ text: String, maxLines: Int) -> String {
-        guard maxLines > 0 else { return "" }
-        var newlineCount = 0
-        var index = text.endIndex
-        while index > text.startIndex {
-            let previous = text.index(before: index)
-            if text[previous] == "\n" {
-                newlineCount += 1
-                if newlineCount == maxLines {
-                    return String(text[index...])
-                }
-            }
-            index = previous
-        }
-        return text
-    }
-
-    private func readTerminalTextBase64(surfaceArg: String, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
-
-        let trimmedSurfaceArg = surfaceArg.trimmingCharacters(in: .whitespacesAndNewlines)
-        var result = "ERROR: No tab selected"
-        v2MainSync {
-            guard let tabId = tabManager.selectedTabId,
-                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
-                return
-            }
-
-            let panelId: UUID?
-            if trimmedSurfaceArg.isEmpty {
-                panelId = tab.focusedPanelId
-            } else {
-                panelId = resolveSurfaceId(from: trimmedSurfaceArg, tab: tab)
-            }
-
-            guard let panelId,
-                  let target = tab.controlSocketTerminalInputTarget(for: panelId) else {
-                result = "ERROR: Terminal surface not found"
-                return
-            }
-
-            result = readTerminalTextBase64(
-                terminalSurface: target.surface,
-                includeScrollback: includeScrollback,
-                lineLimit: lineLimit
-            )
-        }
-        return result
-    }
-
     /// The v1 `read_screen` capture outcome: either a reply string fully
     /// resolved on the main actor (parse/resolution errors), or the raw
     /// Ghostty snapshot for off-main formatting.
@@ -13159,10 +13082,6 @@ class TerminalController {
             result = terminalPanel.hostedView.isSurfaceViewFirstResponder() ? "true" : "false"
         }
         return result
-    }
-
-    func readTerminalText(_ args: String) -> String {
-        readTerminalTextBase64(surfaceArg: args)
     }
 
     private struct RenderStatsResponse: Codable {
@@ -14552,7 +14471,8 @@ class TerminalController {
         return nil
     }
 
-    private func resolveSurfaceId(from arg: String, tab: Workspace) -> UUID? {
+    // Shared by terminal socket commands split across controller extensions.
+    func resolveSurfaceId(from arg: String, tab: Workspace) -> UUID? {
         if let uuid = UUID(uuidString: arg),
            tab.panels[uuid] != nil || tab.remoteTmuxControlPane(surfaceID: uuid) != nil {
             return uuid
@@ -15420,6 +15340,11 @@ class TerminalController {
                 "schema_version": 1,
                 "methods": MobileHostService.irohReleaseGateRPCMethods,
             ])
+        case "mobile.next_transport.pair":
+            result = v2MobileNextTransportPair(
+                params: request.params,
+                authorization: executionContext.map(NextTransportPairAuthorization.mobileRPC)
+            )
 #endif
         case "mobile.attach_ticket.create":
             result = await v2MobileAttachTicketCreate(params: request.params)

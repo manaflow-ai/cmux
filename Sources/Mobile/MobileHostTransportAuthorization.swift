@@ -252,6 +252,12 @@ enum MobileHostPublicStatusCache {
     private static let lock = NSLock()
     private nonisolated(unsafe) static var legacyRoutes: [CmxAttachRoute] = []
     private nonisolated(unsafe) static var irohRoute: CmxAttachRoute?
+    /// The graduation-track parallel host's advertisement (facade-only).
+    /// It rides the same status/presence pipeline as the other routes so
+    /// new clients can discover next-transport support, but it is excluded
+    /// from attach-ticket minting: tickets decode routes strictly on old
+    /// clients, and no legacy path may ever treat it as a dial candidate.
+    private nonisolated(unsafe) static var nextTransportRoute: CmxAttachRoute?
 
     static func update(routes nextRoutes: [CmxAttachRoute]) {
         lock.lock()
@@ -297,10 +303,21 @@ enum MobileHostPublicStatusCache {
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
+    /// Publishes (or clears, with `nil`) the next-transport advertisement.
+    /// Mirrors the `irohRoute` slot: posting the status change lets the
+    /// presence heartbeat and device registry pick it up automatically.
+    static func update(nextTransportRoute route: CmxAttachRoute?) {
+        lock.lock()
+        nextTransportRoute = route
+        lock.unlock()
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+    }
+
     static func removeAll() {
         lock.lock()
         legacyRoutes = []
         irohRoute = nil
+        nextTransportRoute = nil
         lock.unlock()
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
@@ -309,6 +326,15 @@ enum MobileHostPublicStatusCache {
         lock.lock()
         defer { lock.unlock() }
         return mergedRoutesLocked()
+    }
+
+    /// Returns the experimental route separately from the legacy `routes`
+    /// array. Older clients decode that array strictly, so the DEBUG route is
+    /// exposed only as an additive top-level field on authenticated status.
+    static func nextTransportSnapshot() -> CmxAttachRoute? {
+        lock.lock()
+        defer { lock.unlock() }
+        return nextTransportRoute
     }
 
     static func hasIrohRoute() -> Bool {
@@ -342,6 +368,10 @@ enum MobileHostPublicStatusCache {
 
     private static func mergedRoutesLocked() -> [CmxAttachRoute] {
         let routes = irohRoute.map { [$0] } ?? []
+        // Keep the legacy array wire-compatible with pre-graduation clients.
+        // `nextTransportRoute` is published separately by authenticated
+        // status; putting it here would make an old Codable decoder reject the
+        // entire route list on an unknown enum case.
         return routes + legacyRoutes
     }
 }

@@ -530,7 +530,7 @@ actor MobileHostIrohApplicationLaneRouter {
     private static let maximumInputFrameByteCount = 16 * 1_024
     private static let maximumInputBufferByteCount = maximumInputFrameByteCount + 4
 
-    private let session: CmxIrohAdmittedServerSession
+    private let session: any MobileHostRoutableLaneSession
     private let artifactHandler: any MobileHostIrohArtifactLaneHandling
     private let simulatorStreamHandler: any MobileHostIrohSimulatorStreamLaneHandling
     private var laneTasks: [UUID: Task<Void, Never>] = [:]
@@ -538,7 +538,7 @@ actor MobileHostIrohApplicationLaneRouter {
     private var stopped = false
 
     init(
-        session: CmxIrohAdmittedServerSession,
+        session: any MobileHostRoutableLaneSession,
         artifactHandler: any MobileHostIrohArtifactLaneHandling = MobileHostIrohRejectingArtifactLaneHandler(),
         simulatorStreamHandler: any MobileHostIrohSimulatorStreamLaneHandling =
             MobileHostIrohRejectingSimulatorStreamLaneHandler()

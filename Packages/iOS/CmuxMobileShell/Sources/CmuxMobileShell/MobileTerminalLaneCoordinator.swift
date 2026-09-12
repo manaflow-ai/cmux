@@ -198,6 +198,13 @@ actor MobileTerminalLaneCoordinator {
         return entriesByKey[key]?.outputReady == true
     }
 
+    /// Joins the current run without cancelling it or a later replacement.
+    /// An active streaming run ends only when its lane ends or is deactivated.
+    func waitForRunCompletion(surfaceID: String) async {
+        guard let key = focusedKeyBySurfaceID[surfaceID] else { return }
+        await entriesByKey[key]?.task?.value
+    }
+
     private func deactivate(keys: [LaneKey]) async {
         let entries = keys.compactMap { key -> Entry? in
             entriesByKey.removeValue(forKey: key)

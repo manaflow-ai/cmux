@@ -25,10 +25,14 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(
+            url: "https://github.com/manaflow-ai/iroh-ffi.git",
+            exact: "1.0.2-cmux.7"),
         .package(path: "../../Packages/Shared/CMUXAuthCore"),
         .package(path: "../../Packages/Shared/CmuxAuthRuntime"),
         .package(path: "../../Packages/Shared/CmuxClientConfig"),
         .package(path: "../../Packages/Shared/CmuxIrohTransport"),
+        .package(path: "../../Packages/Shared/CmuxNextTransport"),
         .package(path: "../../Packages/Shared/CmuxIrxTransport"),
         .package(path: "../../Packages/Shared/CMUXMobileCore"),
         .package(path: "../../Packages/iOS/CmuxMobileAnalytics"),
@@ -54,10 +58,13 @@ let package = Package(
         .target(
             name: "cmuxFeature",
             dependencies: [
+                .product(name: "IrohLib", package: "iroh-ffi"),
                 "CMUXAuthCore",
                 "CmuxAuthRuntime",
                 "CmuxClientConfig",
                 "CmuxIrohTransport",
+                "CmuxNextTransport",
+                .product(name: "CmuxNextTransportBridge", package: "CmuxNextTransport"),
                 "CmuxIrxTransport",
                 "CMUXMobileCore",
                 "CmuxMobileAnalytics",
@@ -113,6 +120,7 @@ let package = Package(
                 "CmuxIrohTransport",
                 "CmuxIrxTransport",
                 "CMUXMobileCore",
+                "CmuxNextTransport",
                 "CmuxMobileAnalytics",
                 "CmuxMobileBrowser",
                 "CmuxMobileBrowserStream",

@@ -56,6 +56,7 @@ public struct CMUXMobileRootScene: View {
     /// add-device state.
     package let onboardingStore: MobileOnboardingStore
     #endif
+    private let nextTransportBootstrapProbe: MobileShellComposite.NextTransportBootstrapProbe?
     /// The app-root tailnet detector (behind the shell UI's read-only
     /// observing port), injected into the environment so pairing and
     /// disconnected surfaces can explain a Tailscale-off phone. `nil` on
@@ -152,6 +153,7 @@ public struct CMUXMobileRootScene: View {
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         signOutHook: MobileSignOutHook,
         diagnosticLog: DiagnosticLog,
+        nextTransportBootstrapProbe: MobileShellComposite.NextTransportBootstrapProbe? = nil,
         appLog: AppLog? = nil
     ) {
         self.runtime = runtime
@@ -173,6 +175,7 @@ public struct CMUXMobileRootScene: View {
         self.pairedMacStore = Self.openPairedMacStore(diagnosticLog: diagnosticLog)
         self.draftStore = InMemoryTerminalDraftStore()
         self.diagnosticLog = diagnosticLog
+        self.nextTransportBootstrapProbe = nextTransportBootstrapProbe
         self.appLog = appLog
         _toastCenter = State(initialValue: ToastCenter(diagnosticLog: diagnosticLog))
         _whatsNewCenter = State(
@@ -210,6 +213,7 @@ public struct CMUXMobileRootScene: View {
         self.pairedMacStore = Self.openPairedMacStore(diagnosticLog: nil)
         self.draftStore = InMemoryTerminalDraftStore()
         self.diagnosticLog = nil
+        self.nextTransportBootstrapProbe = nil
         self.appLog = nil
         _toastCenter = State(initialValue: ToastCenter())
     }
@@ -437,6 +441,8 @@ public struct CMUXMobileRootScene: View {
             MobileZoomStressView()
         } else if ProcessInfo.processInfo.environment["CMUX_BOTTOM_SCROLL_STRESS"] == "1" {
             MobileBottomScrollStressView()
+        } else if ProcessInfo.processInfo.environment["CMUX_NEXT_TRANSPORT_DEV"] == "1" {
+            NextTransportDevScreen()
         } else if ProcessInfo.processInfo.environment["CMUX_TOAST_GALLERY"] == "1" {
             ToastGalleryView()
         } else {
@@ -447,34 +453,6 @@ public struct CMUXMobileRootScene: View {
         #endif
         #else
         makeMobileAppView()
-        #endif
-    }
-
-    @MainActor
-    private func makeMobileAppView() -> CMUXMobileAppView {
-        let browserStreamStore = BrowserStreamStore()
-        let simulatorStreamStore = MobileSimulatorStreamStore()
-        #if os(iOS)
-        return CMUXMobileAppView(
-            store: makeStore(
-                browserStreamEvents: browserStreamStore,
-                simulatorStreamStore: simulatorStreamStore
-            ),
-            browserStreamStore: browserStreamStore,
-            simulatorStreamStore: simulatorStreamStore,
-            onboardingStore: onboardingStore,
-            signOutHook: signOutHook
-        )
-        #else
-        return CMUXMobileAppView(
-            store: makeStore(
-                browserStreamEvents: browserStreamStore,
-                simulatorStreamStore: simulatorStreamStore
-            ),
-            browserStreamStore: browserStreamStore,
-            simulatorStreamStore: simulatorStreamStore,
-            signOutHook: signOutHook
-        )
         #endif
     }
 
@@ -548,7 +526,8 @@ public struct CMUXMobileRootScene: View {
                 diagnosticLog: diagnosticLog
             ),
             browserStreamEvents: browserStreamEvents,
-            simulatorStreamStore: simulatorStreamStore
+            simulatorStreamStore: simulatorStreamStore,
+            nextTransportBootstrapProbe: nextTransportBootstrapProbe
         )
         #if os(iOS)
         // Install the cached (or baked) Mac minimum-version list before the

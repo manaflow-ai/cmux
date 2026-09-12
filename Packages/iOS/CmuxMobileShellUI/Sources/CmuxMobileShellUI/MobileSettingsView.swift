@@ -649,31 +649,6 @@ struct MobileSettingsView: View {
         }
     }
 
-    private func transportName(_ kind: CmxAttachTransportKind) -> String {
-        switch kind {
-        case .tailscale:
-            L10n.string(
-                "mobile.settings.activeTransport.tailscale",
-                defaultValue: "Tailscale"
-            )
-        case .iroh:
-            L10n.string(
-                "mobile.settings.activeTransport.iroh",
-                defaultValue: "Iroh"
-            )
-        case .websocket:
-            L10n.string(
-                "mobile.settings.activeTransport.websocket",
-                defaultValue: "WebSocket"
-            )
-        case .debugLoopback:
-            L10n.string(
-                "mobile.settings.activeTransport.simulator",
-                defaultValue: "Simulator"
-            )
-        }
-    }
-
     /// One connected Mac: name plus the transport that connection actually
     /// dialed, navigating into the computer's detail (method, addresses,
     /// routes, power) — the same screen the Computers list opens. Focus roles
