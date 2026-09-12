@@ -18,13 +18,13 @@ extension ChromiumBrowserSession {
     /// - Throws: A CDP transport error or Chromium navigation rejection.
     public func navigate(to url: URL) async throws {
         if let owlRuntime {
-            let baselineDocumentEpoch = owlDocumentEpoch(runtime: owlRuntime)
+            let baselineDocumentEpoch = await owlDocumentEpoch(runtime: owlRuntime)
             beginOwlNavigation(
                 .destination(url),
                 baselineDocumentEpoch: baselineDocumentEpoch
             )
             do {
-                try owlRuntime.navigate(url)
+                try await owlRuntime.navigate(url)
             } catch {
                 failOwlNavigation()
                 throw error
@@ -62,7 +62,7 @@ extension ChromiumBrowserSession {
                 completeOwlNoOpNavigation()
                 return
             }
-            let baselineDocumentEpoch = owlDocumentEpoch(runtime: owlRuntime)
+            let baselineDocumentEpoch = await owlDocumentEpoch(runtime: owlRuntime)
             beginOwlNavigation(
                 .back(target),
                 baselineDocumentEpoch: baselineDocumentEpoch
@@ -102,7 +102,7 @@ extension ChromiumBrowserSession {
                 completeOwlNoOpNavigation()
                 return
             }
-            let baselineDocumentEpoch = owlDocumentEpoch(runtime: owlRuntime)
+            let baselineDocumentEpoch = await owlDocumentEpoch(runtime: owlRuntime)
             beginOwlNavigation(
                 .forward(target),
                 baselineDocumentEpoch: baselineDocumentEpoch
@@ -149,7 +149,7 @@ extension ChromiumBrowserSession {
 
     private func reload(ignoreCache: Bool) async throws {
         if let owlRuntime {
-            let baselineDocumentEpoch = owlDocumentEpoch(runtime: owlRuntime)
+            let baselineDocumentEpoch = await owlDocumentEpoch(runtime: owlRuntime)
             beginOwlNavigation(
                 .reload(currentURL),
                 baselineDocumentEpoch: baselineDocumentEpoch
@@ -381,8 +381,8 @@ extension ChromiumBrowserSession {
         }
     }
 
-    func owlDocumentEpoch(runtime: OwlFreshRuntime) -> Double? {
-        guard let raw = try? runtime.evaluate("Number(performance.timeOrigin || 0)"),
+    func owlDocumentEpoch(runtime: OwlFreshRuntime) async -> Double? {
+        guard let raw = try? await runtime.evaluate("Number(performance.timeOrigin || 0)"),
               let data = raw.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) else {
             return nil
@@ -402,12 +402,12 @@ extension ChromiumBrowserSession {
         return documentEpoch > baseline + 0.001
     }
 
-    private func readOwlReadiness(generation: UInt64) -> Bool {
+    private func readOwlReadiness(generation: UInt64) async -> Bool {
         guard lifecycleGeneration == generation,
               let runtime = owlRuntime,
               let intent = owlNavigationIntent else { return true }
         let script = "({href: String(location.href || ''), readyState: String(document.readyState || ''), title: String(document.title || ''), navigationType: String((performance.getEntriesByType('navigation')[0] || {}).type || ''), documentEpoch: Number(performance.timeOrigin || 0)})"
-        guard let raw = try? runtime.evaluate(script),
+        guard let raw = try? await runtime.evaluate(script),
               let data = raw.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let href = object["href"] as? String,

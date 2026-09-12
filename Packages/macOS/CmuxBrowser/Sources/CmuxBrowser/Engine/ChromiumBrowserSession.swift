@@ -384,7 +384,7 @@ public actor ChromiumBrowserSession {
             extensionDirectories: extensionDirectories,
             wrapperDirectory: profileDirectory
         )
-        let runtime = try OwlFreshRuntime(
+        let runtime = try await OwlFreshRuntime.create(
             shell: owlShell,
             runtimeShell: executable,
             initialURL: initialURL,
@@ -407,12 +407,12 @@ public actor ChromiumBrowserSession {
         owlNavigationIntent = nil
         owlNavigationSawLoadingEvent = false
         owlNavigationBaselineDocumentEpoch = nil
-        owlCurrentDocumentEpoch = owlDocumentEpoch(runtime: runtime)
+        owlCurrentDocumentEpoch = await owlDocumentEpoch(runtime: runtime)
         syncOwlHistorySnapshot()
         publish()
         owlPollTask = Task.detached(priority: .userInitiated) { [runtime] in
             while !Task.isCancelled {
-                runtime.poll()
+                await runtime.poll()
             }
         }
     }

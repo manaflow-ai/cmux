@@ -11,7 +11,7 @@ extension ChromiumBrowserSession {
             let stoppedURL: URL?
             let stoppedDocumentEpoch: Double?
             do {
-                let raw = try owlRuntime.evaluate("(window.stop(), {href: String(location.href || ''), documentEpoch: Number(performance.timeOrigin || 0)})")
+                let raw = try await owlRuntime.evaluate("(window.stop(), {href: String(location.href || ''), documentEpoch: Number(performance.timeOrigin || 0)})")
                 if let data = raw.data(using: .utf8),
                    let object = try? JSONSerialization.jsonObject(with: data),
                    let object = object as? [String: Any],
@@ -77,7 +77,7 @@ extension ChromiumBrowserSession {
         deviceScaleFactor: Double = 1
     ) async throws {
         if let owlRuntime {
-            try owlRuntime.resize(width: width, height: height, scale: deviceScaleFactor)
+            try await owlRuntime.resize(width: width, height: height, scale: deviceScaleFactor)
             return
         }
         _ = try await send(
@@ -129,7 +129,7 @@ extension ChromiumBrowserSession {
         awaitPromise: Bool
     ) async throws -> CDPValue {
         if !awaitPromise {
-            return Self.owlValue(from: try runtime.evaluate(script))
+            return Self.owlValue(from: try await runtime.evaluate(script))
         }
 
         let token = "__cmux_owl_eval_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
@@ -140,7 +140,7 @@ extension ChromiumBrowserSession {
             // without executing the caller's source. The async context keeps
             // top-level `await` valid in the probe while page CSP never has to
             // permit eval/new Function.
-            _ = try runtime.evaluate("(async () => 0 && (\(script)))")
+            _ = try await runtime.evaluate("(async () => 0 && (\(script)))")
             isExpression = true
         } catch {
             isExpression = false
@@ -170,33 +170,38 @@ extension ChromiumBrowserSession {
           return globalThis[key];
         })()
         """
-        _ = try runtime.evaluate(startScript)
-        defer {
-            _ = try? runtime.evaluate("delete globalThis[\(quotedToken)]")
+        _ = try await runtime.evaluate(startScript)
+        let cleanup = {
+            _ = try? await runtime.evaluate("delete globalThis[\(quotedToken)]")
         }
-
-        for _ in 0..<750 {
-            try Task.checkCancellation()
-            let raw = try runtime.evaluate("globalThis[\(quotedToken)] || { state: 'pending' }")
-            guard let data = raw.data(using: .utf8),
-                  let parsed = try? JSONSerialization.jsonObject(with: data),
-                  let object = parsed as? [String: Any],
-                  let state = object["state"] as? String else {
-                try await Task.sleep(for: .milliseconds(20))
-                continue
+        do {
+            for _ in 0..<750 {
+                try Task.checkCancellation()
+                let raw = try await runtime.evaluate("globalThis[\(quotedToken)] || { state: 'pending' }")
+                guard let data = raw.data(using: .utf8),
+                      let parsed = try? JSONSerialization.jsonObject(with: data),
+                      let object = parsed as? [String: Any],
+                      let state = object["state"] as? String else {
+                    try await Task.sleep(for: .milliseconds(20))
+                    continue
+                }
+                switch state {
+                case "fulfilled":
+                    let value = CDPValue(any: object["value"])
+                    await cleanup()
+                    return value
+                case "rejected":
+                    let message = object["error"] as? String ?? ChromiumBrowserDiagnostic.javaScriptEvaluationFailed.message
+                    throw CDPError.commandFailed(message)
+                default:
+                    try await Task.sleep(for: .milliseconds(20))
+                }
             }
-            switch state {
-            case "fulfilled":
-                return CDPValue(any: object["value"])
-            case "rejected":
-                throw CDPError.commandFailed(
-                    object["error"] as? String ?? ChromiumBrowserDiagnostic.javaScriptEvaluationFailed.message
-                )
-            default:
-                try await Task.sleep(for: .milliseconds(20))
-            }
+            throw ChromiumBrowserDiagnostic.javascriptTimedOut
+        } catch {
+            await cleanup()
+            throw error
         }
-        throw ChromiumBrowserDiagnostic.javascriptTimedOut
     }
 
     /// Returns a direct async-function body for a statement program. JavaScript
@@ -336,7 +341,7 @@ extension ChromiumBrowserSession {
     /// - Throws: A CDP transport error or malformed screenshot response.
     public func screenshotPNG() async throws -> Data {
         if let owlRuntime {
-            return try owlRuntime.screenshotPNG()
+            return try await owlRuntime.screenshotPNG()
         }
         let value = try await send(
             method: "Page.captureScreenshot",
@@ -373,7 +378,7 @@ extension ChromiumBrowserSession {
         if let owlRuntime {
             let kind = OwlFreshMouseKind(cdpType: type).rawValue
             let buttonValue: UInt32 = button == "right" ? 2 : (button == "middle" ? 1 : 0)
-            try owlRuntime.mouse(kind: kind, x: x, y: y, button: buttonValue, clickCount: UInt32(max(1, clickCount)), deltaX: deltaX, deltaY: deltaY, modifiers: 0)
+            try await owlRuntime.mouse(kind: kind, x: x, y: y, button: buttonValue, clickCount: UInt32(max(1, clickCount)), deltaX: deltaX, deltaY: deltaY, modifiers: 0)
             return
         }
         var values: [String: CDPValue] = [
@@ -403,8 +408,8 @@ extension ChromiumBrowserSession {
             // Input.insertText command. A text-bearing key pair follows the
             // same native path as dispatchKey and produces a char event for
             // IME/paste text without requiring a CDP connection.
-            try owlRuntime.key(down: true, keyCode: 0, text: text, modifiers: 0)
-            try owlRuntime.key(down: false, keyCode: 0, text: nil, modifiers: 0)
+            try await owlRuntime.key(down: true, keyCode: 0, text: text, modifiers: 0)
+            try await owlRuntime.key(down: false, keyCode: 0, text: nil, modifiers: 0)
             return
         }
         _ = try await send(
@@ -433,7 +438,7 @@ extension ChromiumBrowserSession {
         windowsVirtualKeyCode: Int = 0
     ) async throws {
         if let owlRuntime {
-            try owlRuntime.key(down: type != "keyUp", keyCode: UInt32(max(0, windowsVirtualKeyCode)), text: text, modifiers: UInt32(max(0, modifiers)))
+            try await owlRuntime.key(down: type != "keyUp", keyCode: UInt32(max(0, windowsVirtualKeyCode)), text: text, modifiers: UInt32(max(0, modifiers)))
             return
         }
         var parameters: [String: CDPValue] = [
