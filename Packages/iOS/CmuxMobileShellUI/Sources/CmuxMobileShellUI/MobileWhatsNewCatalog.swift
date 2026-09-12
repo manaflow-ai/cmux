@@ -117,15 +117,19 @@ enum MobileWhatsNewCatalog {
                     symbol: "lock.shield",
                     title: L10n.string(
                         "mobile.connectionsUpdate.pairingOptIn.title",
-                        defaultValue: "Turn on iOS pairing on Mac"
+                        defaultValue: "Required: Enable iOS pairing on Mac"
                     ),
                     detail: L10n.string(
                         "mobile.connectionsUpdate.pairingOptIn.detail",
-                        defaultValue: "On every cmux Mac app you want to use with iPhone, turn on Enable iOS pairing in Settings > Mobile. Until then, that Mac stays hidden and does not start iOS pairing networking."
+                        defaultValue: "Before this iPhone can find a cmux Mac, open Settings > Mobile on that Mac and turn on Enable iOS pairing. While it is off, the Mac stays hidden and starts no iOS pairing networking."
                     )
                 ),
             ]),
-            isAnnouncement: false
+            isAnnouncement: false,
+            footnote: L10n.string(
+                "mobile.pairingOptInUpdate.requirement",
+                defaultValue: "Required before connecting: On every cmux Mac you want to use with iPhone, open Settings > Mobile and turn on Enable iOS pairing."
+            )
         )
     }
 
@@ -178,11 +182,11 @@ enum MobileWhatsNewCatalog {
                     symbol: "lock.shield",
                     title: L10n.string(
                         "mobile.connectionsUpdate.pairingOptIn.title",
-                        defaultValue: "Turn on iOS pairing on Mac"
+                        defaultValue: "Required: Enable iOS pairing on Mac"
                     ),
                     detail: L10n.string(
                         "mobile.connectionsUpdate.pairingOptIn.detail",
-                        defaultValue: "On every cmux Mac app you want to use with iPhone, turn on Enable iOS pairing in Settings > Mobile. Until then, that Mac stays hidden and does not start iOS pairing networking."
+                        defaultValue: "Before this iPhone can find a cmux Mac, open Settings > Mobile on that Mac and turn on Enable iOS pairing. While it is off, the Mac stays hidden and starts no iOS pairing networking."
                     )
                 ),
             ]),

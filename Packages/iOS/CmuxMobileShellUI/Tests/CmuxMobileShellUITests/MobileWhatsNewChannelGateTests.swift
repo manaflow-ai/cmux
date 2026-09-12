@@ -71,11 +71,22 @@ import Testing
             return
         }
         let titles = features.map(\.title)
-        #expect(titles.contains("Turn on iOS pairing on Mac"))
+        #expect(titles.contains("Required: Enable iOS pairing on Mac"))
         #expect(!titles.contains("Tailscale, on your terms"))
         #expect(features.last?.symbol == "lock.shield")
         #expect(features.last?.detail.contains("Enable iOS pairing") == true)
         #expect(features.last?.detail.contains("Settings > Mobile") == true)
+    }
+
+    @Test func pairingPageMakesMacSettingRequirementProminent() throws {
+        guard case .features(let features) = MobileWhatsNewCatalog.pairingOptInUpdate.body else {
+            Issue.record("pairing-opt-in.v1 should render native feature rows")
+            return
+        }
+        #expect(features.first?.title.contains("Required:") == true)
+        #expect(features.first?.detail.contains("Settings > Mobile") == true)
+        #expect(MobileWhatsNewCatalog.pairingOptInUpdate.footnote?.contains("Required before connecting") == true)
+        #expect(MobileWhatsNewCatalog.pairingOptInUpdate.footnote?.contains("Enable iOS pairing") == true)
     }
 
     @Test func neverFetchedTeamBuildsKeepTheFullCatalog() {
