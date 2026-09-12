@@ -10,6 +10,27 @@ import Testing
 @Suite("New machine model")
 @MainActor
 struct NewMachineModelTests {
+    @Test func goOffersThePlanThatActuallyUnlocksEachSize() {
+        let model = NewMachineModel(
+            mode: .newMachine,
+            plan: MachinePlanSnapshot(activeCount: 0, maxActiveVms: 1, planId: "go"),
+            memoryOptionsMb: [4096],
+            lockedMemoryOptionsMb: [8192, 32768, 65536],
+            memoryUpgradePlanId: "pro",
+            memoryUpgradePlansByMb: ["8192": "pro", "32768": "max"],
+            submit: { _ in true }
+        )
+        #expect(model.memoryMb == 4096)
+        model.selectSize(8192)
+        #expect(model.showsMaxUpgrade)
+        #expect(model.selectedUpgradePlanId == "pro")
+        model.selectSize(32768)
+        #expect(model.selectedUpgradePlanId == "max")
+        #expect(model.memoryMb == 4096)
+        #expect(model.upgradePlan(for: 65536) == nil)
+        #expect(MachinePlanSnapshot.isPaidPlanID("go"))
+    }
+
     private final class Box<Value> {
         var value: Value
         init(_ value: Value) { self.value = value }
