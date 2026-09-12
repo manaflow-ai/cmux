@@ -17,13 +17,14 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let pluginURL = repoRoot.appendingPathComponent("Resources/opencode-plugin.js", isDirectory: false)
         XCTAssertTrue(fileManager.fileExists(atPath: pluginURL.path))
 
+        // Keep the AF_UNIX socket path short enough for macOS's pathname limit.
         let root = fileManager.temporaryDirectory.appendingPathComponent(
-            "cmux-opencode-feed-\(UUID().uuidString)", isDirectory: true
+            "of-\(UUID().uuidString)", isDirectory: true
         )
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        let socketPath = root.appendingPathComponent("cmux.sock").path
+        let socketPath = root.appendingPathComponent("s").path
         let harnessURL = root.appendingPathComponent("harness.js")
         try Self.openCodeFeedEventHarness.write(to: harnessURL, atomically: true, encoding: .utf8)
 
