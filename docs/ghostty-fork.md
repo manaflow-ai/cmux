@@ -16,10 +16,32 @@ The submodule pinned by this branch is `abd40f6e4`, reachable from fork `main`
 after Ghostty PR #211 was merged. It includes the incremental embedded
 configuration propagation and Fish SSH feature-gating fixes described below,
 plus the renderer/API compatibility pin and the repeated word-selection drag
-anchor fix. Its tree includes the prior fork changes below, including tokened
-iOS render dispositions, VT formatter cursor restoration, VT stream-boundary
-visibility, and Hangul canonical font resolution.
+anchor fix. Its tree includes the prior fork changes below, including the cmux
+theme encoder at `987780a132`, tokened iOS render dispositions, VT formatter
+cursor restoration, VT stream-boundary visibility, and Hangul canonical font
+resolution.
 
+### Conditional cmux theme encoding
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/201
+- Commits:
+  - `afd50666b` (test: cover two-sided cmux theme encoding)
+  - `987780a13` (fix: emit both sides for cmux theme selections)
+- File: `src/cli/list_themes.zig`
+- Summary:
+  - Ghostty's conditional `theme` syntax requires both `light:` and `dark:`
+    entries. The cmux picker now duplicates a selected side when the opposite
+    side is unavailable, so live preview and Enter apply a parser-valid value.
+- Conflict note:
+  - Preserve the two-sided output contract if upstream changes the picker or
+    conditional-theme parser. cmux-managed values must remain valid for the
+    upstream parser, which intentionally rejects single-sided conditionals.
+- Fixes:
+  - https://github.com/manaflow-ai/cmux/issues/10068
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-987780a132a33fd69ab800b09e254b4584537d04-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `6f7a62fbc9ae63e85f12b78e42c0f8a8d7abecb07df13cf6d2a7d0c95dad91fd`
 ### Current main-aligned feature pin
 
 - Branch:

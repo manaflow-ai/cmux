@@ -16,7 +16,7 @@ import Foundation
 extension TerminalController {
     private nonisolated func cloudDisabledSocketError(id: Any?) -> String? {
         guard ManagedDevicePolicy().isEnforced(.disableCloud) else { return nil }
-        return v2Error(
+        return self.v2Error(
             id: id,
             code: "cloud_disabled",
             message: String(localized: "cloud.managed.disabled", defaultValue: "Cloud Machines are disabled by your administrator.")
