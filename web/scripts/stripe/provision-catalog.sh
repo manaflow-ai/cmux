@@ -364,6 +364,8 @@ ensure_personal_plan_switch_portal() {
 echo "Resolving ${MODE} Stripe catalog…" >&2
 pro_product_id="$(canonical_product "cmux-pro-monthly" "cmux Pro" "pro")"
 echo "Resolved Pro product." >&2
+go_product_id="$(canonical_product "cmux-go-monthly-10" "cmux Go" "go")"
+echo "Resolved Go product." >&2
 max_product_id="$(canonical_product "cmux-max-monthly-200" "cmux Max" "max")"
 echo "Resolved Max product." >&2
 team_product_id="$(canonical_product "cmux-team-monthly" "cmux Team" "team")"
@@ -373,6 +375,8 @@ echo "Resolved Team product." >&2
 # immutable, so each price change mints a new lookup key carrying the amount.
 ensure_price "$pro_product_id" "cmux-pro-monthly-50" "5000" "month" "cmux Pro Monthly"
 ensure_price "$pro_product_id" "cmux-pro-yearly-480" "48000" "year" "cmux Pro Yearly"
+# Go is monthly only. Its included VM-hours are enforced by cmux, not Stripe.
+ensure_price "$go_product_id" "cmux-go-monthly-10" "1000" "month" "cmux Go Monthly"
 # Max is monthly only (no yearly Price on purpose).
 ensure_price "$max_product_id" "cmux-max-monthly-200" "20000" "month" "cmux Max Monthly"
 ensure_price "$team_product_id" "cmux-team-monthly-60" "6000" "month" "cmux Team Monthly"

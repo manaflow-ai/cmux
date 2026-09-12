@@ -27,6 +27,7 @@ import {
   "../account/metadataMutation";
 
 export const PRO_PLAN_ID = "pro";
+export const GO_PLAN_ID = "go";
 // Max is Pro plus the 32 GB and 64 GB machine sizes. It is a personal
 // subscription like Pro: same Stripe customer scope, same metadata mirror
 // (`cmuxPlan: "max"`), and it satisfies every "is Pro" check.
@@ -66,17 +67,17 @@ export function isDevelopmentProAccessEnabled(
  * grant Pro without a Stripe subscription. Mirrors `isPaidVmPlan` in
  * services/vms/entitlements.ts so the desktop plan and the VM plan agree.
  */
-export const PAID_PLAN_IDS = [PRO_PLAN_ID, MAX_PLAN_ID, TEAM_PLAN_ID, FOUNDERS_PLAN_ID] as const;
+export const PAID_PLAN_IDS = [GO_PLAN_ID, PRO_PLAN_ID, MAX_PLAN_ID, TEAM_PLAN_ID, FOUNDERS_PLAN_ID] as const;
 /**
  * Plans a person buys for themselves through `/api/billing/checkout`. A
  * user-scoped Stripe subscription row carries one of these in `plan`, derived
  * from its Price (see `personalPlanIdForPrice` in purchase.ts) so a portal
  * upgrade between them re-labels the row on the next webhook.
  */
-export const PERSONAL_PLAN_IDS = [PRO_PLAN_ID, MAX_PLAN_ID] as const;
+export const PERSONAL_PLAN_IDS = [GO_PLAN_ID, PRO_PLAN_ID, MAX_PLAN_ID] as const;
 export type PersonalPlanId = (typeof PERSONAL_PLAN_IDS)[number];
 /** Higher index wins when an account has more than one active personal row. */
-const PERSONAL_PLAN_RANK: Record<PersonalPlanId, number> = { pro: 1, max: 2 };
+const PERSONAL_PLAN_RANK: Record<PersonalPlanId, number> = { go: 1, pro: 2, max: 3 };
 
 export function isPersonalPlanId(planId: string | null | undefined): planId is PersonalPlanId {
   return typeof planId === "string" &&

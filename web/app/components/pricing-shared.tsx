@@ -110,7 +110,7 @@ export function PricingCategorySection({
   title: string;
   description: string;
   children: ReactNode;
-  columns?: "two" | "three";
+  columns?: "two" | "three" | "four";
 }) {
   const headingID = `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-pricing-category`;
   return (
@@ -121,7 +121,7 @@ export function PricingCategorySection({
         </h2>
         <p className="mt-1 text-sm text-muted">{description}</p>
       </div>
-      <div className={`grid items-stretch gap-5 ${columns === "two" ? "md:grid-cols-2" : "md:grid-cols-3"}`}>
+      <div className={`grid items-stretch gap-5 ${columns === "two" ? "md:grid-cols-2" : columns === "four" ? "md:grid-cols-2 lg:grid-cols-4" : "md:grid-cols-3"}`}>
         {children}
       </div>
     </section>

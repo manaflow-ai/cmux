@@ -468,6 +468,12 @@
         "annualPrice": "${monthly}/月（年払い）",
         "grantedBody": "このアカウントの Pro アクセスは cmux チームによって付与されています。管理するサブスクリプションはありません。"
       },
+      "go": {
+        "name": "cmux Go",
+        "activeBody": "Go プランは有効です。次回更新日は {date} です。",
+        "pendingBody": "Go プランは {date} に終了します。",
+        "monthlyPrice": "${amount}/月"
+      },
       "team": {
         "name": "cmux Team",
         "fallbackName": "チーム",
@@ -828,6 +834,16 @@
         "ブラウザパネル、スクリプト可能なソケット API、カスタムスキル",
         "ローカルのセッション履歴",
         "Discord と GitHub でのコミュニティサポート"
+      ]
+    },
+    "go": {
+      "name": "Go",
+      "cta": "Go を入手",
+      "featuresLead": "集中作業向けの小さな Cloud VM:",
+      "features": [
+        "アクティブな Cloud VM 1 台",
+        "2 vCPU、4 GB RAM、16 GB ディスク",
+        "保存 VM 2 台。作業後は一時停止できます"
       ]
     },
     "pro": {

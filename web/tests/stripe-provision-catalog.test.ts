@@ -104,6 +104,14 @@ describe("Stripe catalog provisioning", () => {
     );
     expect(maxPriceLookups.length).toBeGreaterThan(0);
     expect(
+      result.calls.some(
+        (call) =>
+          call.args.includes("https://api.stripe.com/v1/prices") &&
+          call.args.includes("lookup_keys[]=cmux-go-monthly-10") &&
+          call.args.includes("unit_amount=1000"),
+      ),
+    ).toBe(true);
+    expect(
       result.calls.some((call) => call.args.some((argument) => argument.includes("cmux-max-yearly"))),
     ).toBe(false);
     const portalCreate = result.calls.find(

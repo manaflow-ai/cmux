@@ -468,6 +468,12 @@
         "annualPrice": "${monthly}/mo, billed annually",
         "grantedBody": "Pro access was granted to this account by the cmux team. There is no subscription to manage."
       },
+      "go": {
+        "name": "cmux Go",
+        "activeBody": "Your Go plan is active. It renews on {date}.",
+        "pendingBody": "Your Go plan ends on {date}.",
+        "monthlyPrice": "${amount}/mo"
+      },
       "team": {
         "name": "cmux Team",
         "fallbackName": "your team",
@@ -828,6 +834,16 @@
         "Browser panels, a scriptable socket API, and custom skills",
         "Local session history",
         "Community support on Discord and GitHub"
+      ]
+    },
+    "go": {
+      "name": "Go",
+      "cta": "Get Go",
+      "featuresLead": "A small Cloud VM for focused work:",
+      "features": [
+        "1 active Cloud VM",
+        "2 vCPU, 4 GB RAM, and 16 GB disk",
+        "2 saved VMs; pause when you are done"
       ]
     },
     "pro": {

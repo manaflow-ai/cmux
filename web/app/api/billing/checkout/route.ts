@@ -17,6 +17,7 @@ import { cloudDb } from "../../../../db/client";
 import { stripeCustomers } from "../../../../db/schema";
 import {
   MAX_PLAN_ID,
+  GO_PLAN_ID,
   PRO_PLAN_ID,
   isStripePortalRecoverable,
   resolveProPlanStatus,
@@ -28,6 +29,7 @@ import { captureBillingError } from "../../../../services/errors";
 import {
   isStripeBillingConfigured,
   resolveMaxPrice,
+  resolveGoPrice,
   resolveProPrice,
   resolveTeamPrice,
   stripe,
@@ -108,7 +110,7 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
   const plan = checkoutPlan(request.nextUrl.searchParams.get("plan"));
   // Max is sold monthly only, so its checkout ignores the interval selector
   // instead of failing when a shared toggle is on "year".
-  const interval = plan === MAX_PLAN_ID
+  const interval = plan === MAX_PLAN_ID || plan === GO_PLAN_ID
     ? "month"
     : checkoutBillingInterval(request.nextUrl.searchParams.get("interval"));
   const rawCallbackScheme = request.nextUrl.searchParams.get("cmux_scheme");
@@ -162,7 +164,7 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(new URL("/pricing?billing=unavailable", requestOrigin(request)));
   }
 
-  if (plan === "pro" || plan === "max") {
+  if (plan === "go" || plan === "pro" || plan === "max") {
     return stripePersonalCheckout(
       request,
       stackServerApp,
@@ -181,7 +183,7 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
       attribution,
     );
   }
-  // checkoutPlan only yields "pro" | "max" | "team" | null (null handled above);
+  // checkoutPlan only yields "go" | "pro" | "max" | "team" | null (null handled above);
   // this is unreachable but keeps GET returning a NextResponse.
   return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", requestOrigin(request)));
 }
@@ -193,6 +195,7 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
  * flow (Stripe prorates and confirms), and every other active or recoverable
  * state goes to the plain portal as before.
  */
+// oxlint-disable-next-line complexity -- Checkout handles account deletion, recovery, attribution, and three personal plans at one billing boundary.
 async function stripePersonalCheckout(
   request: NextRequest,
   stackServerApp: CheckoutStackServerApp,
@@ -256,7 +259,11 @@ async function stripePersonalCheckout(
       mode: "subscription",
       line_items: [
         {
-          price: plan === MAX_PLAN_ID ? await resolveMaxPrice() : await resolveProPrice(interval),
+          price: plan === MAX_PLAN_ID
+            ? await resolveMaxPrice()
+            : plan === GO_PLAN_ID
+              ? await resolveGoPrice()
+              : await resolveProPrice(interval),
           quantity: 1,
         },
       ],
@@ -507,10 +514,10 @@ async function checkoutTeamSeatCount(team: CheckoutTeamCustomer): Promise<number
   return Math.max(1, users.length);
 }
 
-function checkoutPlan(raw: string | null): "pro" | "max" | "team" | null {
+function checkoutPlan(raw: string | null): "go" | "pro" | "max" | "team" | null {
   if (!raw) return "pro";
   const plan = raw.trim().toLowerCase();
-  if (plan === "pro" || plan === "max" || plan === "team") return plan;
+  if (plan === "go" || plan === "pro" || plan === "max" || plan === "team") return plan;
   return null;
 }
 

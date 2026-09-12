@@ -8,6 +8,7 @@ import {
   FREE_PLAN_ID,
   isDevelopmentProAccessEnabled,
   MAX_PLAN_ID,
+  GO_PLAN_ID,
   PRO_PLAN_ID,
   resolveProPlanStatus,
 } from "../../services/billing/pro";
@@ -51,6 +52,7 @@ import {
 } from "../components/pricing-interval-selector";
 import {
   MAX_PRICING_USD,
+  GO_PRICING_USD,
   PRO_PRICING_USD,
   TEAM_PRICING_USD,
   proBillingInterval,
@@ -63,6 +65,7 @@ const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 const HOSTED_NETWORKING_ENABLED = false;
 
 
+// oxlint-disable-next-line complexity -- Embedded pricing must keep plan actions, native return state, and App Store gating together.
 export default async function AppPricingPage({
   searchParams,
 }: {
@@ -76,7 +79,8 @@ export default async function AppPricingPage({
   // Max satisfies every "is Pro" check, so the Pro card must not call a Max
   // subscriber's plan current; only the Max card does.
   const isMax = snapshot.planId === MAX_PLAN_ID;
-  const isProCurrent = snapshot.isPro && !isMax;
+  const isGo = snapshot.planId === GO_PLAN_ID;
+  const isProCurrent = snapshot.isPro && !isMax && !isGo;
   const headersList = await headers();
   const requestOrigin = appPricingRequestOrigin(headersList);
   const cmuxScheme = validatedNativeCallbackScheme(
@@ -190,6 +194,7 @@ export default async function AppPricingPage({
             <PricingCategorySection
               title={pricing.categories.individual.title}
               description={pricing.categories.individual.description}
+              columns="four"
             >
               <PlanCard
                 name={pricing.free.name}
@@ -216,6 +221,32 @@ export default async function AppPricingPage({
                   {pricing.free.featuresLead}
                 </p>
                 <FeatureList items={pricing.free.features} />
+              </PlanCard>
+
+              <PlanCard
+                name={pricing.go.name}
+                price={`$${GO_PRICING_USD.month.billedAmount}`}
+                period={pricing.perMonth}
+                badge={isGo ? <CurrentPlanBadge>{pricing.currentPlan}</CurrentPlanBadge> : null}
+              >
+                {isGo ? (
+                  <div className="space-y-2">
+                    <DisabledButton>{pricing.currentPlan}</DisabledButton>
+                    {portalVisible ? <SecondaryLink href="/api/billing/portal">{pricing.manageBilling}</SecondaryLink> : null}
+                  </div>
+                ) : appStorePaymentGated ? (
+                  <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
+                ) : (
+                  <PricingCheckoutButton
+                    hrefs={appPricingCheckoutURL("go", requestOrigin, cmuxScheme, "month", attribution)}
+                    location="app_pricing"
+                    plan="go"
+                  >
+                    {pricing.go.cta}
+                  </PricingCheckoutButton>
+                )}
+                <p className="mt-5 text-sm font-medium">{pricing.go.featuresLead}</p>
+                <FeatureList items={pricing.go.features} />
               </PlanCard>
 
               <PlanCard

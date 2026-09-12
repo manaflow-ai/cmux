@@ -42,6 +42,7 @@
                     "subscriptionPlanId": {
                       "enum": [
                         "free",
+                        "go",
                         "pro",
                         "max"
                       ],

@@ -14,6 +14,7 @@ import {
 import { posthog } from "../lib/posthog-client";
 import {
   MAX_PRICING_USD,
+  GO_PRICING_USD,
   PRO_PRICING_USD,
   TEAM_PRICING_USD,
   type BillingInterval,
@@ -26,7 +27,7 @@ import {
 import type { PricingActionSize } from "./pricing-shared";
 
 type PricingSurface = "public_pricing" | "app_pricing" | "dashboard_billing";
-type PricingPlan = "pro" | "max" | "team";
+type PricingPlan = "go" | "pro" | "max" | "team";
 export type PricingCheckoutHrefs = Record<BillingInterval, string>;
 /**
  * Per-interval checkout links, or one link for a plan sold on a single
@@ -196,11 +197,13 @@ export function PricingCheckoutButton({
 }) {
   const { interval: selectedInterval } = usePricingInterval();
   // Max has no annual price: it is billed monthly whatever the selector says.
-  const interval: BillingInterval = plan === "max" ? "month" : selectedInterval;
+  const interval: BillingInterval = plan === "max" || plan === "go" ? "month" : selectedInterval;
   const pricing =
     plan === "max"
       ? MAX_PRICING_USD.month
-      : plan === "pro"
+      : plan === "go"
+        ? GO_PRICING_USD.month
+        : plan === "pro"
         ? PRO_PRICING_USD[interval]
         : TEAM_PRICING_USD[interval];
 
@@ -234,6 +237,7 @@ export function PricingCheckoutButton({
 }
 
 const PLAN_CTA_EVENTS = {
+  go: "cmuxterm_go_cta_clicked",
   pro: "cmuxterm_pro_cta_clicked",
   max: "cmuxterm_max_cta_clicked",
   team: "cmuxterm_team_cta_clicked",

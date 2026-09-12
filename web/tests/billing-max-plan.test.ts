@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  GO_PLAN_ID,
   MAX_PLAN_ID,
   PRO_PLAN_ID,
   highestPersonalPlanId,
@@ -16,6 +17,15 @@ import { resolveVmEntitlements, maxMemoryMbForPlan } from "../services/vms/entit
 const lease = { refresh: async () => undefined } as never;
 
 describe("Max as a personal plan", () => {
+  test("Go is a paid personal plan below Pro", () => {
+    expect(isPaidPlanId(GO_PLAN_ID)).toBe(true);
+    expect(isPersonalPlanId(GO_PLAN_ID)).toBe(true);
+    expect(highestPersonalPlanId([GO_PLAN_ID, "pro", "max"])).toBe("max");
+    expect(personalPlanIdForSubscription({
+      items: { data: [{ price: { lookup_key: "cmux-go-monthly-10" } }] },
+      metadata: {},
+    } as never)).toBe(GO_PLAN_ID);
+  });
   test("a personal Max plan unlocks large machines in a Team without changing its seat limit", () => {
     const user = { id: "user-max", isAnonymous: false, billingCustomerType: "team", billingTeamId: "team-1", billingPlanId: "team", billingSeats: 3, userBillingPlanId: "max", teams: [{ id: "team-1", billingPlanId: "team", billingSeats: 3 }] } as never;
     for (const options of [{}, { requestedBillingTeamId: "team-1" }]) {

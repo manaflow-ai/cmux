@@ -55,6 +55,7 @@ function analyticsPlan(metadata: unknown): "free" | "pro" | "team" {
     return "free";
   }
   const plan = (metadata as Record<string, unknown>).cmuxPlan;
+  if (plan === "go") return "pro";
   return plan === "pro" || plan === "team" ? plan : "free";
 }
 

@@ -235,9 +235,13 @@ describe("localized pricing page", () => {
     expect(html).toContain("$200 /mo");
     expect(html).not.toContain("$200/mo, billed yearly");
     expect(html).toContain("Cloud VMs with 32 GB or 64 GB RAM");
+    expect(html).toContain("Get Go");
+    expect(html).toContain("2 vCPU, 4 GB RAM, and 16 GB disk");
+    expect(html).toContain("For individuals");
+    expect(html).toContain("For teams and businesses");
     expect(html).toContain("Largest Cloud VM");
     expect(html).toContain("What does Max add?");
-    expect(html).toContain("md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5");
+    expect(html).toContain("md:grid-cols-2 lg:grid-cols-4");
     const proIndex = html.indexOf("<span>Get Pro");
     const maxIndex = html.indexOf("<span>Get Max");
     const teamIndex = html.indexOf("<span>Get Teams");

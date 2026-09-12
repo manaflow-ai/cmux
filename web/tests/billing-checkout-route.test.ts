@@ -67,6 +67,7 @@ const resolveTeamPrice = mock(async (interval: unknown) =>
   interval === "month" ? "price_team_month" : "price_team_year",
 );
 const resolveMaxPrice = mock(async () => "price_max_month");
+const resolveGoPrice = mock(async () => "price_go_month");
 const stripeLimit = mock(async () => []);
 let useStubDb = false;
 
@@ -118,6 +119,7 @@ mock.module("../db/client", () => ({
 mock.module("../services/billing/stripe", () => ({
   isStripeBillingConfigured: () => stripeConfigured,
   resolveMaxPrice,
+  resolveGoPrice,
   resolvePersonalPlanSwitchPortalConfiguration: async () => "bpc_switch",
   resolveProPrice,
   resolveTeamPrice,
@@ -212,6 +214,7 @@ describe("billing checkout route", () => {
     createStripeCustomer.mockClear();
     resolveProPrice.mockClear();
     resolveMaxPrice.mockClear();
+    resolveGoPrice.mockClear();
     resolveTeamPrice.mockClear();
     captureBillingCheckoutStarted.mockClear();
     stripeLimit.mockClear();
@@ -654,6 +657,18 @@ describe("billing checkout route", () => {
       line_items: [{ price: "price_max_month", quantity: 1 }],
       metadata: expect.objectContaining({ plan: "max", billingInterval: "month" }),
       subscription_data: { metadata: expect.objectContaining({ plan: "max" }) },
+    });
+  });
+
+  test("creates a monthly Go checkout with its capped entry plan", async () => {
+    stripeConfigured = true;
+    userResponses = [{ ...signedInUser, clientReadOnlyMetadata: {} }];
+    const response = await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=go&interval=year"));
+    expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/session");
+    expect(resolveGoPrice).toHaveBeenCalledTimes(1);
+    expect(createdStripeSessions[0]).toMatchObject({
+      line_items: [{ price: "price_go_month", quantity: 1 }],
+      metadata: expect.objectContaining({ plan: "go", billingInterval: "month" }),
     });
   });
 

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { CHECKOUT_SOURCE_DASHBOARD_BILLING } from "@/services/analytics/checkoutAttribution";
 import {
   MAX_CHECKOUT_URL,
+  GO_CHECKOUT_URL,
   PRO_CHECKOUT_URL,
   TEAM_CHECKOUT_URL,
   withCheckoutSource,
@@ -38,6 +39,7 @@ import {
 import { resolveBillingTeam, type BillingTeamLike } from "@/services/billing/teamResolution";
 import {
   MAX_PRICING_USD,
+  GO_PRICING_USD,
   PRO_PRICING_USD,
   TEAM_PRICING_USD,
   proBillingInterval,
@@ -325,10 +327,12 @@ function FreePlanUpsell({
     },
   });
   const maxFeatures = pricingT.raw("max.features") as string[];
+  const goFeatures = pricingT.raw("go.features") as string[];
   const teamFeatures = pricingT.raw("team.features") as string[];
   const proCheckoutURL = withCheckoutSource(PRO_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING);
   // Max is monthly only: one checkout link, no interval parameter.
   const maxCheckoutHref = withCheckoutSource(MAX_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING);
+  const goCheckoutHref = withCheckoutSource(GO_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING);
   const teamCheckoutURL = withCheckoutSource(TEAM_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING);
   const proCheckoutHrefs = {
     month: withCheckoutInterval(proCheckoutURL, "month"),
@@ -361,7 +365,19 @@ function FreePlanUpsell({
               surface="dashboard_billing"
             />
           </div>
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+            <PlanCard
+              name={pricingT("go.name")}
+              price={`$${GO_PRICING_USD.month.billedAmount}`}
+              period={pricingT("perMonth")}
+            >
+              <PricingCheckoutButton hrefs={goCheckoutHref} location="dashboard_billing" plan="go">
+                {pricingT("go.cta")}
+              </PricingCheckoutButton>
+              <p className="mt-5 text-sm font-medium">{pricingT("go.featuresLead")}</p>
+              <FeatureList items={goFeatures} />
+            </PlanCard>
+
             <PlanCard
               name={pricingT("pro.name")}
               price={
@@ -457,7 +473,7 @@ function StripePlan({
   subscription: StripeSubscriptionRow;
   canManageBilling: boolean;
 }) {
-  const plan = subscription.plan === "max" ? "max" : "pro";
+  const plan = subscription.plan === "max" ? "max" : subscription.plan === "go" ? "go" : "pro";
   const price = priceCopy(subscription, t, plan);
   const periodDate = subscription.currentPeriodEnd
     ? formatBillingDate(subscription.currentPeriodEnd, locale)
@@ -651,7 +667,7 @@ function billingBanner(value: string | undefined) {
 function priceCopy(
   subscription: StripeSubscriptionRow,
   t: Awaited<ReturnType<typeof getTranslations>>,
-  plan: "pro" | "max" | "team",
+  plan: "go" | "pro" | "max" | "team",
 ): string | null {
   const price = stripePrice(subscription);
   const unitAmount = price?.unit_amount;
@@ -669,11 +685,11 @@ function priceCopy(
   }
   const dollars = unitAmount / 100;
   if (interval === "month") {
-    return t(plan === "pro" ? "pro.monthlyPrice" : "team.price", {
+    return t(plan === "pro" ? "pro.monthlyPrice" : plan === "go" ? "go.monthlyPrice" : "team.price", {
       amount: formatUsd(dollars),
     });
   }
-  return t(plan === "pro" ? "pro.annualPrice" : "team.annualPrice", {
+  return t(plan === "pro" ? "pro.annualPrice" : plan === "go" ? "go.monthlyPrice" : "team.annualPrice", {
     monthly: formatUsd(dollars / 12),
   });
 }

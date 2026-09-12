@@ -92,13 +92,22 @@ describe("Cloud VM memory allowance", () => {
     expect(lockedMemoryOptionsMbForPlan("max", {})).toEqual({ memoryOptionsMb: [], upgradePlanId: null });
   });
 
+  test("Go is capped at one 2 vCPU, 4 GB, 16 GB VM", () => {
+    expect(maxActiveVmsForPlan("go", {})).toBe(1);
+    expect(maxMemoryMbForPlan("go", {})).toBe(4096);
+    expect(memoryOptionsMbForPlan("go", {})).toEqual([4096]);
+    expect(lockedMemoryOptionsMbForPlan("go", {})).toEqual({
+      memoryOptionsMb: [8192, 16384, 24576, 32768, 65536],
+      upgradePlanId: "pro",
+    });
+  });
+
   test("an operator ceiling on Max leaves nothing to upgrade to", () => {
-    // If Max itself is capped below a locked size, no plan sells it, so the
-    // locked list stays but no upgrade plan is advertised.
+    // A lower Max ceiling can still advertise Max as the next tier for Pro.
     const env = { CMUX_VM_PLAN_MAX_MAX_MEMORY_MB: "32768" };
     expect(lockedMemoryOptionsMbForPlan("pro", env)).toEqual({
       memoryOptionsMb: [32768, 65536],
-      upgradePlanId: null,
+      upgradePlanId: "max",
     });
     expect(lockedMemoryOptionsMbForPlan("max", env)).toEqual({
       memoryOptionsMb: [65536],

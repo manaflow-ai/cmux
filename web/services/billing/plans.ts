@@ -31,6 +31,16 @@ export const PRO_PRICING_USD = {
   },
 } as const satisfies PlanPricing;
 
+/** Entry Cloud plan, billed monthly with a small capped VM allowance. */
+export const GO_PRICING_USD = {
+  month: {
+    billedAmount: 10,
+    monthlyEquivalent: 10,
+    discountPercent: 0,
+    lookupKey: "cmux-go-monthly-10",
+  },
+} as const satisfies MonthlyOnlyPlanPricing;
+
 export const TEAM_PRICING_USD = {
   month: {
     billedAmount: 60,
@@ -62,6 +72,7 @@ export const MAX_PRICING_USD = {
 
 /** Intervals a plan can be bought on; Max has no annual price. */
 export const MAX_BILLING_INTERVALS: readonly BillingInterval[] = ["month"];
+export const GO_BILLING_INTERVALS: readonly BillingInterval[] = ["month"];
 
 /**
  * Lookup keys that no new checkout may use. Each stays active in Stripe for

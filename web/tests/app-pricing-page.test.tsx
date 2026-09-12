@@ -105,6 +105,10 @@ describe("app pricing page", () => {
     expect(html).not.toContain("/mo.");
     expect(html).toContain("$50");
     expect(html).toContain("$200");
+    expect(html).toContain("$10");
+    expect(html).toContain("Get Go");
+    expect(html).toContain("For individuals");
+    expect(html).toContain("For teams and businesses");
     expect(html).toContain("Get Max");
     expect(html).toContain("Cloud VMs with 32 GB or 64 GB RAM");
     expect(html).toContain("Largest Cloud VM");
@@ -115,7 +119,11 @@ describe("app pricing page", () => {
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain('style="min-height:4rem"');
     expect(html).toContain("text-3xl font-medium tabular-nums tracking-tight");
-    expect(html).toContain("sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5");
+    expect(html).toContain("md:grid-cols-2 lg:grid-cols-4");
+    expect(html).toContain("$10");
+    expect(html).toContain("Get Go");
+    expect(html).toContain("For individuals");
+    expect(html).toContain("For teams and businesses");
     expect(html.split("api/billing/checkout?plan=pro")).toHaveLength(2);
     expect(html.split("api/billing/checkout?plan=max")).toHaveLength(2);
     expect(html.split("api/billing/checkout?plan=team")).toHaveLength(2);
