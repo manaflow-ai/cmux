@@ -625,6 +625,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             _ = CloudTreeGroupPreferences.setVisible(!CloudTreeGroupPreferences.isVisible(group), group: group)
         }
 
+        private func groupMenuItems(_ group: CloudTreeGroupPreferences.Group) -> [NSMenuItem] {
+            [item("Hide Group: \(group.rawValue.capitalized)") { _ = CloudTreeGroupPreferences.setVisible(false, group: group) }]
+        }
+
         private func menuItems(for node: CloudTreeNode) -> [NSMenuItem] {
             switch node.kind {
             case .machine(let machine, _):
