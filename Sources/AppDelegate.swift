@@ -2538,12 +2538,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             coordinator?.authenticatedSessionIdentity
         })
         self.cloudOperations = cloudOperations
-        VMClient.bootstrap(auth: auth.coordinator, operations: cloudOperations)
+        VMClient.bootstrap(auth: auth.coordinator)
         TerminalController.shared.cloudTunnel = cloudTunnel
         RemotesClient.bootstrap(auth: auth.coordinator)
         AIAccountsClient.bootstrap(auth: auth.coordinator)
         CoderouterClient.bootstrap(auth: auth.coordinator)
-        MachineUsageClient.bootstrap(auth: auth.coordinator, operations: cloudOperations)
+        MachineUsageClient.bootstrap(auth: auth.coordinator)
         PhonePushClient.shared.configure(auth: auth.coordinator)
         MobileHostService.shared.configure(auth: auth.coordinator)
         caffeineController.onStateChange = { [weak self] enabled in
