@@ -187,6 +187,7 @@ extension Workspace {
     @discardableResult
     func setCustomTitle(_ title: String?, source: CustomTitleSource = .user) -> Bool {
         let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let previousCustomTitle = customTitle
         if source == .auto {
             guard !trimmed.isEmpty else { return false }
             if hasCustomTitle, (customTitleSource ?? .user) != .auto { return false }
@@ -197,6 +198,15 @@ extension Workspace {
             }
             customTitle = nil
             customTitleSource = nil
+            if processTitle == previousCustomTitle,
+               let focusedPanelId,
+               let focusedPanel = panels[focusedPanelId] {
+                let rawPanelTitle = (panelTitles[focusedPanelId] ?? focusedPanel.displayTitle)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !rawPanelTitle.isEmpty {
+                    processTitle = rawPanelTitle
+                }
+            }
             self.title = processTitle
         } else {
             sidebarProcessTitleObservation.cancelPendingProcessTitleChange()

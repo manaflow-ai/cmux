@@ -4892,11 +4892,9 @@ class TerminalController {
                     panelApplySkipped = true
                 } else if remotePanelOwnershipBlocked {
                     panelApplySkipped = true
-                } else if reconciliationCAS,
-                          let expectedPanelTitle {
+                } else if let expectedPanelTitle {
                     let panelSource = workspace.panelCustomTitleSources[resolvedPanelId]
                     let panelCustomTitle = workspace.panelCustomTitles[resolvedPanelId]
-                    let hasStoredPanelProjection = panelSource != nil || panelCustomTitle != nil
                     if panelSource == .auto {
                         // A different auto title belongs to a newer naming
                         // pass and wins the compare-and-set.
@@ -4909,12 +4907,15 @@ class TerminalController {
                         } else {
                             panelApplySkipped = true
                         }
-                    } else if hasStoredPanelProjection {
-                        // Existing non-auto provenance is authoritative. A
-                        // completely missing local projection is the one safe
-                        // case for reconciliation to recreate.
-                        panelApplySkipped = true
+                    } else if panelSource == .user || panelSource == .remote || panelCustomTitle != nil {
+                        // Existing manual/remote provenance is authoritative,
+                        // but it is a resolved no-op rather than an unresolved
+                        // compare-and-set failure.
+                        panelApplied = false
                     } else {
+                        // A missing local projection is the safe case for
+                        // reconciliation to recreate, even if the raw panel
+                        // title was redrawn after compaction.
                         panelApplied = workspace.setPanelCustomTitle(
                             panelId: resolvedPanelId,
                             title: title,
