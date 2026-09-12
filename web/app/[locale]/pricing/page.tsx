@@ -37,6 +37,7 @@ import {
   DisabledButton,
   FeatureList,
   PlanCard,
+  PricingCategorySection,
   PricingCompareTable,
   PrimaryLink,
   SecondaryLink,
@@ -198,8 +199,10 @@ export default async function PricingPage({
             surface="public_pricing"
           />
 
-          {/* Tier cards */}
-          <div className="mt-6 grid gap-5 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 items-stretch">
+          <PricingCategorySection
+            title={t("categories.individual.title")}
+            description={t("categories.individual.description")}
+          >
             {/* Free */}
             <PlanCard
               name={t("free.name")}
@@ -291,6 +294,13 @@ export default async function PricingPage({
               <FeatureList items={maxFeatures} />
             </PlanCard>
 
+          </PricingCategorySection>
+
+          <PricingCategorySection
+            title={t("categories.business.title")}
+            description={t("categories.business.description")}
+            columns="two"
+          >
             {/* Team */}
             <PlanCard
               name={t("team.name")}
@@ -331,7 +341,7 @@ export default async function PricingPage({
               </p>
               <FeatureList items={enterpriseFeatures} />
             </PlanCard>
-          </div>
+          </PricingCategorySection>
 
           <p className="mt-6 text-sm text-muted">
             <Link

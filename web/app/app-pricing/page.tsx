@@ -33,6 +33,7 @@ import {
   DisabledButton,
   FeatureList,
   PlanCard,
+  PricingCategorySection,
   PricingCompareTable,
   PrimaryLink,
   SecondaryLink,
@@ -186,7 +187,10 @@ export default async function AppPricingPage({
               surface="app_pricing"
             />
 
-            <div className="mt-6 grid items-stretch gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            <PricingCategorySection
+              title={pricing.categories.individual.title}
+              description={pricing.categories.individual.description}
+            >
               <PlanCard
                 name={pricing.free.name}
                 price={pricing.free.price}
@@ -282,6 +286,13 @@ export default async function AppPricingPage({
                 <FeatureList items={pricing.max.features} />
               </PlanCard>
 
+            </PricingCategorySection>
+
+            <PricingCategorySection
+              title={pricing.categories.business.title}
+              description={pricing.categories.business.description}
+              columns="two"
+            >
               <PlanCard
                 name={pricing.team.name}
                 price={
@@ -330,7 +341,7 @@ export default async function AppPricingPage({
                 </p>
                 <FeatureList items={pricing.enterprise.features} />
               </PlanCard>
-            </div>
+            </PricingCategorySection>
 
           <section className="mt-16">
             <h2 className="mb-5 text-lg font-medium tracking-tight">

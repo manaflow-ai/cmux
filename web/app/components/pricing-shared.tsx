@@ -101,6 +101,33 @@ export function PlanCard({
   );
 }
 
+export function PricingCategorySection({
+  title,
+  description,
+  children,
+  columns = "three",
+}: {
+  title: string;
+  description: string;
+  children: ReactNode;
+  columns?: "two" | "three";
+}) {
+  const headingID = `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-pricing-category`;
+  return (
+    <section className="mt-12 first:mt-8" aria-labelledby={headingID}>
+      <div className="mb-4 max-w-2xl">
+        <h2 id={headingID} className="text-lg font-medium tracking-tight">
+          {title}
+        </h2>
+        <p className="mt-1 text-sm text-muted">{description}</p>
+      </div>
+      <div className={`grid items-stretch gap-5 ${columns === "two" ? "md:grid-cols-2" : "md:grid-cols-3"}`}>
+        {children}
+      </div>
+    </section>
+  );
+}
+
 export function FeatureList({ items }: { items: string[] }) {
   return (
     <ul className="mt-4 space-y-2.5 text-[15px] leading-relaxed">

@@ -792,6 +792,16 @@
     "metaDescriptionNoVault": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for isolated Cloud VMs. Enterprise adds SSO and self-hosting.",
     "metaDescriptionNoVaultShort": "cmux is a free, open source macOS terminal. Pro adds isolated Cloud VMs; Enterprise adds SSO and self-hosting.",
     "title": "Pricing",
+    "categories": {
+      "individual": {
+        "title": "For individuals",
+        "description": "Start free, then add cloud capacity as your work grows."
+      },
+      "business": {
+        "title": "For teams and businesses",
+        "description": "Shared billing, administration, and controls for your organization."
+      }
+    },
     "alreadyPaid": "Already paid? Connect Founder's Edition",
     "perMonth": "/mo",
     "perMonthBilledYearly": "/mo, billed yearly",

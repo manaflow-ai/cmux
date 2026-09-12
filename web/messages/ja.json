@@ -792,6 +792,16 @@
     "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では分離された Cloud VM が使えます。Enterprise は SSO とセルフホストに対応します。",
     "metaDescriptionNoVaultShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM を利用でき、Enterprise では SSO とセルフホストに対応します。",
     "title": "料金",
+    "categories": {
+      "individual": {
+        "title": "個人向け",
+        "description": "無料で始めて、必要に応じて Cloud の容量を追加できます。"
+      },
+      "business": {
+        "title": "チームとビジネス向け",
+        "description": "組織向けの一元請求、管理、コントロール。"
+      }
+    },
     "alreadyPaid": "購入済みですか？Founder's Edition を接続する",
     "perMonth": "/月",
     "perMonthBilledYearly": "/月（年払い）",
