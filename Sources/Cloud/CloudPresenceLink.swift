@@ -5,8 +5,8 @@ import Foundation
 /// The link never attaches a surface. It identifies, names itself, subscribes
 /// with `presence_only`, and then forwards every `presence-changed` frame to
 /// its owner while publishing this Mac's own pointer at a bounded rate.
-/// Reconnection is the owner's call: when the socket closes the link reports
-/// `.disconnected` and stays inert until it is replaced.
+/// When the socket closes the link reports `.disconnected` and retries with a
+/// bounded backoff while its pane registration remains alive.
 @MainActor
 final class CloudPresenceLink {
     enum Phase: Equatable {
@@ -29,8 +29,13 @@ final class CloudPresenceLink {
     private var connection: CloudTuiManualIOConnection?
     private var connectTask: Task<Void, Never>?
     private var eventTask: Task<Void, Never>?
+    private var reconnectTask: Task<Void, Never>?
     private var nextRequestID: UInt64 = 1
     private var identifyRequestID: UInt64 = 0
+    private var listClientsRequestID: UInt64 = 0
+    private var selfClientID: UInt64?
+    private var reconnectAttempt = 0
+    private var stopping = false
     private var lastPublish: TimeInterval = 0
     private var lastPublished: (surface: UInt64, pointer: CloudPresenceAnchor?, highlight: CloudPresenceHighlight?)?
     private let onEntry: @MainActor (CloudPresenceEntry) -> Void
@@ -47,6 +52,13 @@ final class CloudPresenceLink {
         self.socketPath = socketPath
         self.onEntry = onEntry
         self.onPhaseChange = onPhaseChange
+        startConnection()
+    }
+
+    private func startConnection() {
+        guard !stopping else { return }
+        phase = .connecting
+        selfClientID = nil
         connectTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let connection = CloudTuiManualIOConnection(
@@ -57,10 +69,11 @@ final class CloudPresenceLink {
                 try await connection.start()
             } catch {
                 guard !Task.isCancelled else { return }
+                connection.close()
                 self.transition(to: .disconnected)
                 return
             }
-            guard !Task.isCancelled, self.phase == .connecting else {
+            guard !Task.isCancelled, !self.stopping, self.phase == .connecting else {
                 connection.close()
                 return
             }
@@ -80,8 +93,11 @@ final class CloudPresenceLink {
     }
 
     func stop() {
+        stopping = true
         connectTask?.cancel()
         eventTask?.cancel()
+        reconnectTask?.cancel()
+        reconnectTask = nil
         if phase == .ready, let connection {
             connection.send(commandBuilder.presenceClear(requestID: takeRequestID()))
         }
@@ -137,18 +153,33 @@ final class CloudPresenceLink {
     private func handle(frame: CloudTuiManualIOFrame, on connection: CloudTuiManualIOConnection) {
         switch frame {
         case let .presence(entry):
+            guard entry.client != selfClientID else { return }
             onEntry(entry)
-        case let .response(requestID, ok, _, capabilities, _, _, _):
-            guard requestID == identifyRequestID else { return }
-            identifyRequestID = 0
-            guard ok else {
+        case let .response(requestID, ok, _, capabilities, _, _, _, clientID):
+            if requestID == identifyRequestID {
+                identifyRequestID = 0
+                guard ok else {
+                    transition(to: .disconnected)
+                    return
+                }
+                serverSupportsPresence = capabilities.contains(commandBuilder.presenceCapability)
+                guard serverSupportsPresence else {
+                    transition(to: .ready)
+                    return
+                }
+                let listRequestID = takeRequestID()
+                listClientsRequestID = listRequestID
+                connection.send(commandBuilder.listClients(requestID: listRequestID))
+                return
+            }
+            guard requestID == listClientsRequestID else { return }
+            listClientsRequestID = 0
+            guard ok, let clientID else {
                 transition(to: .disconnected)
                 return
             }
-            serverSupportsPresence = capabilities.contains(commandBuilder.presenceCapability)
-            if serverSupportsPresence {
-                connection.send(commandBuilder.subscribePresence(requestID: takeRequestID()))
-            }
+            selfClientID = clientID
+            connection.send(commandBuilder.subscribePresence(requestID: takeRequestID()))
             transition(to: .ready)
         case .snapshot, .output, .resized, .detached:
             return
@@ -163,8 +194,34 @@ final class CloudPresenceLink {
     }
 
     private func transition(to phase: Phase) {
-        guard self.phase != phase else { return }
+        guard self.phase != phase else {
+            if phase == .disconnected { scheduleReconnect() }
+            return
+        }
         self.phase = phase
+        if phase == .ready {
+            reconnectAttempt = 0
+        } else if phase == .disconnected {
+            scheduleReconnect()
+        }
         onPhaseChange(self)
+    }
+
+    private func scheduleReconnect() {
+        guard !stopping, reconnectTask == nil else { return }
+        let delay = min(30, 1 << min(reconnectAttempt, 5))
+        reconnectAttempt = min(reconnectAttempt + 1, 5)
+        reconnectTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000_000)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, !self.stopping else { return }
+            self.reconnectTask = nil
+            self.transition(to: .connecting)
+            self.startConnection()
+        }
     }
 }

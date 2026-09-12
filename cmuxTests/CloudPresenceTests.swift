@@ -108,6 +108,22 @@ struct CloudPresenceTests {
         #expect((highlight["end"] as? [String: Any])?["kind"] as? String == "point")
         #expect(JSONSerialization.isValidJSONObject(update))
 
+        let list = commands.listClients(requestID: 6)
+        #expect(list["cmd"] as? String == "list-clients")
+
+        let listResponse = try #require(decoder.decode(try Self.line([
+            "id": 6,
+            "ok": true,
+            "data": [["client": 42, "self": true]],
+        ])))
+        guard case let .response(requestID, ok, _, _, _, _, _, selfClientID) = listResponse else {
+            Issue.record("expected a list-clients response")
+            return
+        }
+        #expect(requestID == 6)
+        #expect(ok)
+        #expect(selfClientID == 42)
+
         let bare = commands.presenceUpdate(surfaceID: 7, pointer: nil, highlight: nil, requestID: 5)
         #expect(bare["pointer"] == nil)
         #expect(bare["highlight"] == nil)

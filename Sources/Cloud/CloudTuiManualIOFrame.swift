@@ -23,6 +23,7 @@ enum CloudTuiManualIOFrame: Equatable, Sendable {
         capabilities: [String],
         outcome: String?,
         accepted: Bool?,
-        error: String?
+        error: String?,
+        selfClientID: UInt64?
     )
 }
