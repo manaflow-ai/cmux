@@ -1,6 +1,7 @@
 import Foundation
 
 extension CloudWorkspaceRenameService {
+    @MainActor
     func updateCloudDirectories(localWorkspaceID: UUID, catalog: SurfaceCatalog) {
         guard let workspace = environment.workspace(localWorkspaceID) else { return }
         for projection in catalog.snapshot.projections where projection.workspaceID == localWorkspaceID && !projection.resource.machine.isLocal {
