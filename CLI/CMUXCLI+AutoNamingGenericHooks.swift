@@ -182,32 +182,28 @@ extension CMUXCLI {
                     return nil
                 }
                 let historyURL = sessionURL.appendingPathComponent("chat_history.jsonl", isDirectory: false)
-                guard let lines = readRecentTextFileLines(path: historyURL.path, maxBytes: 512 * 1024),
-                      !lines.isEmpty else {
-                    return nil
-                }
+                let lines = readRecentTextFileLines(path: historyURL.path, maxBytes: 512 * 1024) ?? []
                 let lineCount = textFileGrowthMetric(path: historyURL.path, fallbackLineCount: lines.count)
                 return (engine.extractGrokMessages(fromChatHistoryLines: lines), lineCount)
             case .hookMessageCache:
-                guard let snapshot = try? sessionStore.autoNamingRecentMessagesSnapshot(sessionId: sessionId),
-                      !snapshot.messages.isEmpty else {
-                    return nil
-                }
+                let snapshot = try? sessionStore.autoNamingRecentMessagesSnapshot(sessionId: sessionId)
+                let messages = snapshot?.messages ?? []
                 return (
-                    snapshot.messages,
-                    engine.hookMessageLineEquivalentCount(
-                        snapshot.messages,
-                        totalMessageCount: snapshot.totalMessageCount
-                    )
+                    messages,
+                    snapshot.map {
+                        engine.hookMessageLineEquivalentCount(
+                            $0.messages,
+                            totalMessageCount: $0.totalMessageCount
+                        )
+                    } ?? 0
                 )
             }
         }()
         guard let sourceResult else { return }
         if sourceResult.messages.isEmpty {
-            guard workspaceUserOwned else { return }
-            // Even without extractable user/assistant text, a compaction can
-            // change the source high-water. Run the bookkeeping path so the
-            // observation is consumed without forking an LLM summarizer.
+            // Even without extractable user/assistant text, a compaction or
+            // source reset can change the high-water. Run the bookkeeping path
+            // so the observation is consumed without forking an LLM summarizer.
             runAutoNamingPass(
                 sessionId: sessionId,
                 workspaceId: workspaceId,
@@ -276,7 +272,6 @@ extension CMUXCLI {
         telemetry: CLISocketSentryTelemetry,
         rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> (response: String, missingOverride: String?)?
     ) {
-        guard !lines.isEmpty else { return }
         runAutoNamingPass(
             sessionId: sessionId,
             workspaceId: workspaceId,

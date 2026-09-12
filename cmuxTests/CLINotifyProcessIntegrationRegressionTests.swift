@@ -3407,6 +3407,75 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexEmptyTranscriptSettlesDetachedObservation() throws {
+        let context = try makeClaudeHookContext(name: "codex-empty-progress")
+        defer { context.cleanup() }
+
+        let sessionId = "codex-empty-progress-session"
+        let transcriptURL = context.root.appendingPathComponent("empty-rollout.jsonl")
+        try Data().write(to: transcriptURL)
+        startAgentHookMockServerAccepting(context: context)
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        let prompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"Investigate auth"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+        try updateAgentHookSession(
+            sessionId,
+            sessionStoreSuffix: "codex",
+            context: context
+        ) { session in
+            session["autoNameLastTitle"] = "Investigate auth"
+            session["autoNameLastLineCount"] = 100
+            session["autoNameLastObservedLineCount"] = 100
+            session["autoNameLastNamedAt"] = Date().timeIntervalSince1970 - 600
+        }
+
+        let firstDetachedProbe = expectation(description: "empty-transcript detached auto-name probe")
+        _ = startManualWorkspaceAutoNamingProbeServer(
+            context: context,
+            expectedProbeCount: 2,
+            expectation: firstDetachedProbe
+        )
+        let firstStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"Done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(firstStop.timedOut, firstStop.stderr)
+        XCTAssertEqual(firstStop.status, 0, firstStop.stderr)
+        wait(for: [firstDetachedProbe], timeout: 5)
+
+        let repeatedDetachedProbe = expectation(description: "repeated empty-transcript detached probe")
+        repeatedDetachedProbe.isInverted = true
+        let secondStart = startManualWorkspaceAutoNamingProbeServer(
+            context: context,
+            expectedProbeCount: 2,
+            expectation: repeatedDetachedProbe
+        )
+        let secondStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-2","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"Done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(secondStop.timedOut, secondStop.stderr)
+        XCTAssertEqual(secondStop.status, 0, secondStop.stderr)
+        wait(for: [repeatedDetachedProbe], timeout: 1)
+
+        let secondCommands = Array(context.state.snapshot().dropFirst(secondStart))
+        XCTAssertEqual(
+            autoNamingProbeRequestCount(in: secondCommands),
+            1,
+            "An empty transcript must settle the detached observation instead of respawning on every Stop"
+        )
+    }
+
     func testCodexStopDoesNotSpawnAfterReconciliationExhaustion() throws {
         let context = try makeClaudeHookContext(name: "codex-reconcile-exhausted")
         defer { context.cleanup() }

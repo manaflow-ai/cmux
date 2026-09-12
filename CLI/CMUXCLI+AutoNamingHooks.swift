@@ -281,11 +281,8 @@ extension CMUXCLI {
         // identity must come from this hook invocation or its persisted
         // cmux-owned session binding, never a newest-file/mtime scan.
         let transcriptPath = suppliedTranscriptPath ?? normalizedHookValue(currentSession?.transcriptPath)
-        guard let transcriptPath,
-              let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024),
-              !lines.isEmpty else {
-            return
-        }
+        guard let transcriptPath else { return }
+        let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024) ?? []
         runFileBackedAutoName(
             sessionId: sessionId,
             workspaceId: workspaceId,
