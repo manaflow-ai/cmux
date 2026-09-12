@@ -75,6 +75,8 @@ export default async function AppPricingPage({
   const params = await searchParams;
   if (firstParam(params.cmux_app) !== "1") redirect("/pricing");
 
+  // Establish request-time rendering before Stack reads its session clock.
+  const headersList = await headers();
   const snapshot = await currentPlanSnapshot();
   const canManageBilling = snapshot.billingManagement === "stripe";
   // Max satisfies every "is Pro" check, so the Pro card must not call a Max
@@ -82,7 +84,6 @@ export default async function AppPricingPage({
   const isMax = snapshot.planId === MAX_PLAN_ID;
   const isGo = snapshot.planId === GO_PLAN_ID;
   const isProCurrent = snapshot.isPro && !isMax && !isGo;
-  const headersList = await headers();
   const requestOrigin = appPricingRequestOrigin(headersList);
   const cmuxScheme = validatedNativeCallbackScheme(
     firstParam(params.cmux_scheme),
@@ -92,7 +93,7 @@ export default async function AppPricingPage({
   const proAction = personalPlanActionState({
     isCurrent: isProCurrent,
     appStorePaymentGated,
-    manageBilling: canManageBilling || isMax,
+    manageBilling: (canManageBilling && !isGo) || isMax,
   });
   // A Pro subscriber keeps the Max checkout link; the server routes an active
   // Pro subscription to the Stripe portal upgrade flow.

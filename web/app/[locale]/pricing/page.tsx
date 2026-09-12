@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import { getTranslations } from "next-intl/server";
 import { Suspense } from "react";
 import { SiteHeader } from "../components/site-header";
@@ -552,6 +553,7 @@ async function currentPlanSnapshot(): Promise<PlanSnapshot> {
     return { planId: "free", isPro: false, billingManagement: "none" };
   }
 
+  await headers();
   const user = await getStackServerApp().getUser({ or: ANONYMOUS_IF_EXISTS });
   if (!user) {
     return { planId: "free", isPro: false, billingManagement: "none" };

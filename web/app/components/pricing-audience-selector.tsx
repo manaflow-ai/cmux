@@ -24,7 +24,7 @@ export function PricingAudienceSelector({ individualLabel, teamLabel, ariaLabel,
   }
   return (
     <>
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b border-border pb-4" data-testid="pricing-controls">
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-x-3 gap-y-3 sm:gap-x-6 border-b border-border pb-4" data-testid="pricing-controls">
       <div className="flex items-center text-xs sm:text-sm" role="tablist" aria-label={ariaLabel}>
         {audiences.map((value, index) => (
           <button key={value} ref={(button) => { buttons.current[index] = button; }}
