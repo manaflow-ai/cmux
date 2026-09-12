@@ -9,6 +9,9 @@ import { createNextNavigationMock } from "./helpers/next-navigation-mock";
 import { withAccountMutationLeaseSupport } from
   "./helpers/account-mutation-db-mock";
 
+const nextServer = { ...await import("next/server") };
+mock.module("next/server", () => ({ ...nextServer, connection: async () => undefined }));
+
 const dbClientModule = await import("../db/client");
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
 const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
