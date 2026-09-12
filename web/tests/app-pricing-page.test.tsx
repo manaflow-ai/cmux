@@ -56,6 +56,7 @@ mock.module("../db/client", () => ({
     select: () => ({
       from: (table: unknown) => ({
         where: () => ({
+          then: (resolve: (rows: unknown[]) => unknown) => resolve(table === stripeSubscriptions ? stripeSubscriptionRows : []),
           limit: async () => (table === stripeSubscriptions ? stripeSubscriptionRows : []),
         }),
       }),
@@ -110,7 +111,7 @@ describe("app pricing page", () => {
     expect(html).toContain("For individuals");
     expect(html).toContain("For teams and businesses");
     expect(html).toContain("Get Max");
-    expect(html).toContain("Cloud VMs with 32 GB or 64 GB RAM");
+    expect(html).toContain("Up to 64 GB RAM per machine");
     expect(html).toContain("Largest Cloud VM");
     expect(html).toContain("$60/user/mo");
     expect(html).toContain(
@@ -230,9 +231,9 @@ describe("app pricing page", () => {
     expect(html).toContain("--cmux-product-blue:#0091ff");
     expect(html).toContain("--cmux-product-blue-on-background:#0091ff");
     expect(html).toContain("--cmux-product-blue-on-foreground:#006CBF");
-    expect(html).toContain("mx-auto mt-6 flex w-fit");
+    expect(html).toContain('data-testid="pricing-controls"');
     expect(html).toContain(
-      '<span class="ml-1.5 text-xs font-medium" style="color:inherit">Save 20%</span>',
+      '<span class="ml-1.5 hidden text-xs font-medium sm:inline" style="color:inherit">Save 20%</span>',
     );
     expect(html).toContain('href="/enterprise?cmux_external_browser=1"');
   });
@@ -248,7 +249,7 @@ describe("app pricing page", () => {
     const html = renderToStaticMarkup(element);
 
     expect(html).toContain(
-      '<span class="ml-1.5 text-xs font-medium" style="color:var(--cmux-product-blue-on-background, var(--cmux-product-blue, #0088ff))">Save 20%</span>',
+      '<span class="ml-1.5 hidden text-xs font-medium sm:inline" style="color:var(--cmux-product-blue-on-background, var(--cmux-product-blue, #0088ff))">Save 20%</span>',
     );
   });
 
@@ -291,7 +292,7 @@ describe("app pricing page", () => {
   test("hides the billing portal link for Pro users in App Store distribution mode", async () => {
     stackConfigured = true;
     currentUser = proUser;
-    stripeSubscriptionRows = [{ id: "sub_123" }];
+    stripeSubscriptionRows = [{ id: "sub_123", plan: "pro" }];
 
     const element = await AppPricingPage({
       searchParams: Promise.resolve({
@@ -310,7 +311,7 @@ describe("app pricing page", () => {
   test("renders Manage billing for Stripe-managed Pro users", async () => {
     stackConfigured = true;
     currentUser = proUser;
-    stripeSubscriptionRows = [{ id: "sub_123" }];
+    stripeSubscriptionRows = [{ id: "sub_123", plan: "pro" }];
 
     const element = await AppPricingPage({
       searchParams: Promise.resolve({

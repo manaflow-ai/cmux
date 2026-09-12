@@ -89,6 +89,7 @@ mock.module("../db/client", () => ({
           select: () => ({
             from: (table: unknown) => ({
               where: () => ({
+                then: (resolve: (rows: unknown[]) => unknown) => resolve(table === stripeSubscriptions ? stripeActiveSubscriptionRows : stripeCustomerRows),
                 limit: table === stripeCustomers
                   ? mock(async () => stripeCustomerRows)
                   : table === stripeSubscriptions

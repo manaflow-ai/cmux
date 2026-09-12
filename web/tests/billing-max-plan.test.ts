@@ -49,7 +49,7 @@ describe("Max as a personal plan", () => {
     expect(highestPersonalPlanId(["team", "founders"])).toBeNull();
   });
 
-  test("a subscription's plan comes from its Price lookup key, then metadata, then pro", () => {
+  test("a subscription's plan comes from its Price lookup key or known metadata; unknown data grants nothing", () => {
     const withKey = (lookup_key: string | null) => ({
       items: { data: [{ price: { lookup_key } }] },
       metadata: { plan: "pro" },
@@ -66,7 +66,8 @@ describe("Max as a personal plan", () => {
       items: { data: [] },
       metadata: {},
     } as never, { plan: "max" } as never)).toBe(MAX_PLAN_ID);
-    expect(personalPlanIdForSubscription({ items: { data: [] }, metadata: {} } as never)).toBe(PRO_PLAN_ID);
+    expect(personalPlanIdForSubscription({ items: { data: [] }, metadata: {} } as never)).toBeNull();
+    expect(personalPlanIdForSubscription(withKey("unrelated-product"))).toBeNull();
   });
 
   test("the cmuxPlan mirror is rewritten from pro to max on upgrade and cleared on lapse", async () => {

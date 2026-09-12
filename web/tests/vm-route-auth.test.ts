@@ -10,6 +10,7 @@ import { vmCapabilitiesFor } from "../services/vms/drivers";
 // machine. The manifest keeps one snapshot per Freestyle size, and the pro
 // plan machine (8 GiB, `memoryMb: 8192` below) boots the smallest size with at
 // least that much memory.
+const originalManifestImages = manifestJson.images;
 const PRO_PLAN_MEMORY_MB = 8192;
 const PRO_PLAN_SIZE = pickVmImageSizeForMemory(PRO_PLAN_MEMORY_MB)!.name;
 type ManifestTestEntry = {
@@ -244,6 +245,7 @@ afterAll(() => {
 });
 
 beforeEach(() => {
+  manifestJson.images = originalManifestImages;
   restoreVmEnv();
   clearNativeAuthCacheForTests();
   getUser.mockClear();
@@ -278,6 +280,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  manifestJson.images = originalManifestImages;
   restoreVmEnv();
 });
 
@@ -596,12 +599,11 @@ describe("VM REST auth", () => {
 
   }
 
-  test("a plan size the manifest ladder cannot serve fails with an actionable image config error", async () => {
+  test("a missing desktop default fails with an actionable image config error", async () => {
     // Both kinds have a manifest ladder, so the only way nothing resolves is a
     // plan machine above the ladder's largest snapshot (2xl, 64 GiB). The
     // route must 503 with a config error rather than boot a smaller machine.
-    process.env.CMUX_VM_PLAN_PRO_MAX_MEMORY_MB = "131072";
-    process.env.CMUX_VM_PLAN_PRO_DEFAULT_MEMORY_MB = "131072";
+    manifestJson.images = originalManifestImages.map((entry) => entry.kind === "desktop" ? { ...entry, defaultForKind: false } : entry);
     getUser.mockResolvedValue(authedStackUser());
 
     const create = await POST(
@@ -622,7 +624,7 @@ describe("VM REST auth", () => {
         source: "default",
         // What the provider serves at its smallest size, so a client can still
         // offer both kinds.
-        allowedKinds: ["desktop", "base"],
+        allowedKinds: ["base"],
       },
     });
     expectNoCloudVmImplementationLeaks(createPayload);
@@ -787,7 +789,7 @@ describe("VM REST auth", () => {
       error: "vm_memory_requires_plan",
       upgradeRequired: true,
       upgradePlanId: "max",
-      upgradeUrl: "https://cmux.com/pricing?plan=max",
+      upgradeUrl: "https://cmux.com/api/billing/checkout?plan=max&cmux_source=vm_memory_limit",
       memoryMb: 32768,
       maxMemoryMb: 24576,
     });
@@ -2593,8 +2595,7 @@ describe("VM REST auth", () => {
     // resolves; the error must not name an image.
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "preview";
-    process.env.CMUX_VM_PLAN_PRO_MAX_MEMORY_MB = "131072";
-    process.env.CMUX_VM_PLAN_PRO_DEFAULT_MEMORY_MB = "131072";
+    manifestJson.images = originalManifestImages.map((entry) => entry.kind === "desktop" ? { ...entry, defaultForKind: false } : entry);
     getUser.mockResolvedValue(authedStackUser());
 
     const response = await POST(
@@ -2702,6 +2703,7 @@ function stackUserForPlan(plan: string | undefined) {
   const clientReadOnlyMetadata = plan ? { cmuxVmPlan: plan } : {};
   return {
     id: "user-1",
+    ...(plan === "max" ? { clientReadOnlyMetadata: { cmuxVmPlan: "max" } } : {}),
     displayName: null,
     primaryEmail: "user@example.com",
     selectedTeam: {

@@ -85,6 +85,7 @@ mock.module("../db/client", () => ({
     select: () => ({
       from: (table: unknown) => ({
         where: () => ({
+          then: (resolve: (rows: unknown[]) => unknown) => resolve(table === stripeSubscriptions ? stripeSubscriptionRows : []),
           limit: async () => (table === stripeSubscriptions ? stripeSubscriptionRows : []),
         }),
       }),
@@ -236,9 +237,9 @@ describe("localized pricing page", () => {
     expect(html).toContain("$200");
     expect(html).toContain("$200 /mo");
     expect(html).not.toContain("$200/mo, billed yearly");
-    expect(html).toContain("Cloud VMs with 32 GB or 64 GB RAM");
+    expect(html).toContain("Up to 64 GB RAM per machine");
     expect(html).toContain("Get Go");
-    expect(html).toContain("2 vCPU, 4 GB RAM, and 16 GB disk");
+    expect(html).toContain("2 vCPU, 4 GiB RAM, and 16 GiB disk");
     expect(html).toContain("For individuals");
     expect(html).toContain("For teams and businesses");
     expect(html).toContain("Largest Cloud VM");
@@ -252,7 +253,7 @@ describe("localized pricing page", () => {
     expect(teamIndex).toBeGreaterThan(maxIndex);
     // Six plan columns include Go.
     expect(html.match(/<col class="w-\[12\.5%\]"/g)).toHaveLength(6);
-    expect(html).toContain("repeat(6,minmax(7.5rem,1fr))");
+    expect(html).toContain("25% repeat(6,12.5%)");
   });
 
   test("only advertises Vault when its release flag is enabled", async () => {
@@ -280,7 +281,7 @@ describe("localized pricing page", () => {
 
   test("renders Manage billing for Stripe-managed Pro snapshots", async () => {
     stackConfigured = true;
-    stripeSubscriptionRows = [{ id: "sub_123" }];
+    stripeSubscriptionRows = [{ id: "sub_123", plan: "pro" }];
 
     const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
     const html = renderToStaticMarkup(element);
@@ -322,7 +323,7 @@ describe("localized pricing page", () => {
     expect(html).toContain('role="tablist"');
     expect(html).toMatch(/<button[^>]*role="tab"[^>]*aria-selected="true"/);
     expect(html).not.toContain('href="?interval=');
-    expect(html).toContain("mx-auto mt-6 flex w-fit");
+    expect(html).toContain('data-testid="pricing-controls"');
   });
 
   test("forwards an inbound source and campaign tags to checkout", async () => {
