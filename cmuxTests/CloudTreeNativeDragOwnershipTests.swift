@@ -285,7 +285,8 @@ struct CloudTreeNativeDragOwnershipTests {
         renameTerminal: { _, _ in },
         selectLocalWorkspace: { _ in },
         copyToPasteboard: { _ in },
-        refresh: {}
+        refresh: {},
+        openVPNOnboarding: {}
     )
 
     private func flushMainActor() async {

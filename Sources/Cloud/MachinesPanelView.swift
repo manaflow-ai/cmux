@@ -436,7 +436,8 @@ struct MachinesPanelView: View {
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
-            refresh: { [weak viewModel] in viewModel?.refresh(tree: true) }
+            refresh: { [weak viewModel] in viewModel?.refresh(tree: true) },
+            openVPNOnboarding: { VPNOnboardingPresenter.present() }
         )
         return CloudTreeOutlineView(
             machines: viewModel.machines,
@@ -564,6 +565,20 @@ struct MachinesPanelView: View {
             format: String(localized: "machines.empty.planIncludes", defaultValue: "Your plan includes %d machines"),
             maxActiveVms
         )
+    }
+}
+
+/// Opens the Cloud VPN guide in cmux's embedded browser so the explanation is
+/// available beside the machine tree without sending the user to another app.
+@MainActor
+enum VPNOnboardingPresenter {
+    static func present() {
+        let url = AuthEnvironment.appWebOrigin.appendingPathComponent("docs/cloud-vpn")
+        guard BrowserAvailabilitySettings.isEnabled() else {
+            NSWorkspace.shared.open(url)
+            return
+        }
+        ProUpgradePresenter.presentBrowserSplit(url: url, transparentBackground: true)
     }
 }
 

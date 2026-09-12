@@ -49,6 +49,8 @@ struct CloudTreeNodeActions {
     let selectLocalWorkspace: @MainActor (_ workspaceID: UUID) -> Void
     let copyToPasteboard: @MainActor (_ text: String) -> Void
     let refresh: @MainActor () -> Void
+    /// Open the Cloud VPN onboarding guide in an in-app browser surface.
+    let openVPNOnboarding: @MainActor () -> Void
 
     @MainActor
     static func bound(
@@ -58,7 +60,8 @@ struct CloudTreeNodeActions {
         onWillMutate: @escaping @MainActor (String) -> Void,
         onDidMutate: @escaping @MainActor () -> Void,
         onFailure: @escaping @MainActor (String) -> Void,
-        refresh: @escaping @MainActor () -> Void
+        refresh: @escaping @MainActor () -> Void,
+        openVPNOnboarding: @escaping @MainActor () -> Void = { }
     ) -> CloudTreeNodeActions {
         func run(_ label: String, _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void) {
             onWillMutate(label)
@@ -346,7 +349,8 @@ struct CloudTreeNodeActions {
                 cmuxDebugLog("cloudTree.copyToPasteboard ok=\(ok) chars=\(text.count)")
                 #endif
             },
-            refresh: refresh
+            refresh: refresh,
+            openVPNOnboarding: openVPNOnboarding
         )
     }
 

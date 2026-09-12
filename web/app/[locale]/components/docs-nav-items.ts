@@ -75,6 +75,7 @@ export const navItems: NavEntry[] = [
   },
   { titleKey: "concepts", href: "/docs/concepts" },
   { titleKey: "base", href: "/docs/base", locales: baseDocsLocales },
+  { titleKey: "cloudVpn", href: "/docs/cloud-vpn", locales: baseDocsLocales },
   { titleKey: "workspaceGroups", href: "/docs/workspace-groups" },
   { titleKey: "configuration", href: "/docs/configuration" },
   { titleKey: "textBox", href: "/docs/textbox" },

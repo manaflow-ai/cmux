@@ -796,11 +796,10 @@ enum CloudTreeNodeBuilder {
                 let right = ($1.id.forwardedPort ?? $1.port ?? 0, $1.id.key)
                 return left.0 != right.0 ? left.0 < right.0 : left.1 < right.1
             }
-        if !portBrowsers.isEmpty {
-            children.append(CloudTreeNode(
-                id: nodeID(portsGroup: machine),
-                kind: .portsGroup(machine: machine),
-                children: portBrowsers.map {
+        children.append(CloudTreeNode(
+            id: nodeID(portsGroup: machine),
+            kind: .portsGroup(machine: machine),
+            children: portBrowsers.map {
                     CloudTreeNode(
                         id: nodeID(resource: $0.id),
                         kind: .port(
@@ -814,8 +813,7 @@ enum CloudTreeNodeBuilder {
                         )
                     )
                 }
-            ))
-        }
+        ))
 
         // Displays stay reachable while the session link reconnects.
         if !displays.isEmpty {
