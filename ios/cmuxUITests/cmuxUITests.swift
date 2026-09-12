@@ -7450,6 +7450,128 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    /// Uses the real input responder and RPC transport. The mock host echoes only
+    /// bytes it receives, so a composer draft or local echo cannot pass this test.
+    @MainActor
+    func testWorkspaceListTerminalInputRoundTripAndScrollback() async throws {
+        let history = (1...120).map { String(format: "history line %03d", $0) }
+        let server = try MobileSyncMockHostServer(
+            defaultTerminalLines: history,
+            echoesTerminalInput: true
+        )
+        let port = try await server.start()
+        defer { server.stop() }
+        XCUIDevice.shared.orientation = .portrait
+        let app = launchApp(mockData: true, environment: [
+            "CMUX_UITEST_ATTACH_URL": try attachURL(port: port).absoluteString,
+            "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "0",
+        ])
+        defer { app.terminate() }
+
+        func capture(_ name: String) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        func visibleTerminalText() throws -> String {
+            let image = try XCTUnwrap(
+                app.otherElements["MobileTerminalSurface"].screenshot().image.cgImage
+            )
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.recognitionLanguages = ["en-US"]
+            try VNImageRequestHandler(cgImage: image).perform([request])
+            return (request.results ?? []).compactMap {
+                $0.topCandidates(1).first?.string
+            }.joined(separator: "\n")
+        }
+
+        waitForWorkspaceShell(in: app)
+        grantNotificationAuthorizationIfRequested()
+        let workspaceRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+        XCTAssertTrue(workspaceRow.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.descendants(matching: .any)["MobileWorkspaceRow-workspace-docs"].exists)
+        capture("ios18-01-workspace-list")
+        workspaceRow.tap()
+
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+        capture("ios18-02-terminal-history")
+        surface.tap()
+        _ = waitForDock(in: app, describe: "direct terminal responder before input") {
+            $0["proxyFirstResponder"] == "1"
+                && $0["inputRequested"] == "terminal"
+                && $0["inputActual"] == "terminal"
+                && $0["keyboardUp"] == "1"
+        }
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+        let marker = "ios18 input verified"
+        app.typeText(marker + "\n")
+        let received = await server.waitForTerminalInput(marker + "\r", timeout: 12)
+        XCTAssertTrue(received, "Direct terminal keyboard bytes must reach the host exactly once and in order")
+        let requests = await server.terminalInputReceipt()
+        XCTAssertFalse(requests.isEmpty)
+        XCTAssertTrue(requests.allSatisfy {
+            $0.workspaceID == "workspace-main" && $0.terminalID == "terminal-build"
+        }, "Every input chunk must target the visible terminal")
+        XCTAssertEqual(requests.map(\.text).joined(), marker + "\r")
+        let receipt = XCTAttachment(string: requests.map {
+            "terminal.input workspace=\($0.workspaceID) surface=\($0.terminalID) text=\(String(reflecting: $0.text))"
+        }.joined(separator: "\n"))
+        receipt.name = "ios18-terminal-input-host-receipt"
+        receipt.lifetime = .keepAlways
+        add(receipt)
+
+        let echo = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            self.terminalRows(in: app).contains("echo: " + marker)
+        }, object: app)
+        XCTAssertEqual(XCTWaiter.wait(for: [echo], timeout: 15), .completed,
+                       "Host echo must return through replay into Ghostty")
+        capture("ios18-03-terminal-input-echo-keyboard")
+        app.buttons["terminal.inputAccessory.hideKeyboard"].tap()
+        XCTAssertTrue(waitForKeyboardDismissal(in: app))
+        let bottom = waitForDock(in: app, describe: "terminal history at bottom") {
+            $0["scrollAtBottom"] == "1" && (Int($0["scrollTotal"] ?? "") ?? 0) > 100
+        }
+        let bottomOffset = try XCTUnwrap(Int(bottom["scrollOffset"] ?? ""))
+        let bottomText = try visibleTerminalText()
+        XCTAssertTrue(bottomText.contains(marker), "Rendered pixels must show the host echo. OCR: \(bottomText)")
+        capture("ios18-04-terminal-input-echo")
+
+        surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)).press(
+            forDuration: 0.05,
+            thenDragTo: surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.70)),
+            withVelocity: .slow,
+            thenHoldForDuration: 0.5
+        )
+        _ = waitForDock(in: app, describe: "drag moves the primary terminal into scrollback") {
+            guard let offset = Int($0["scrollOffset"] ?? "") else { return false }
+            return $0["scrollAtBottom"] == "0" && offset != bottomOffset
+        }
+        let scrolledText = try visibleTerminalText()
+        XCTAssertTrue(scrolledText.contains("history"), "Scrolled pixels must contain terminal history. OCR: \(scrolledText)")
+        XCTAssertNotEqual(scrolledText, bottomText, "Scrolling must change the rendered terminal viewport")
+        capture("ios18-05-terminal-scrollback")
+
+        // Primary scrollback is local. An alternate-screen application receives
+        // wheel events at the host, so check this path separately.
+        try await switchToTUITerminal(in: app, server: server)
+        assertTerminalRow(0, label: "LAZYGIT", in: app)
+        capture("ios18-06-alternate-terminal")
+        await server.resetTerminalScrollRequests()
+        surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.70)).press(
+            forDuration: 0.05,
+            thenDragTo: surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)),
+            withVelocity: .slow,
+            thenHoldForDuration: 0.5
+        )
+        let forwarded = await server.waitForTerminalScrollRequest(timeout: 5)
+        XCTAssertTrue(forwarded, "Alternate terminal drag must reach the host as mobile.terminal.scroll")
+        capture("ios18-07-alternate-terminal-after-scroll")
+    }
+
     @MainActor
     func testTerminalReplayRendersGhosttyText() async throws {
         let server = try MobileSyncMockHostServer()
@@ -10031,6 +10153,12 @@ private enum MockColorBands {
 }
 
 private final class MobileSyncMockHostServer: @unchecked Sendable {
+    struct TerminalInputRequest: Sendable {
+        let workspaceID: String
+        let terminalID: String
+        let text: String
+    }
+
     struct WorkspaceCreateRequest: Sendable {
         let title: String?
         let workingDirectory: String?
@@ -10060,6 +10188,8 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let supportsManualAttachTicket: Bool
     private let workspaceCreateSelectsCreatedWorkspace: Bool
     private let holdsTerminalPasteResponse: Bool
+    private let echoesTerminalInput: Bool
+    private var terminalInputRequests: [TerminalInputRequest] = []
     private let rejectsTerminalPaste: Bool
     private let advertisesTaskAttachments: Bool
     private let advertisesWorkspaceMetadata: Bool
@@ -10147,6 +10277,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         supportsManualAttachTicket: Bool = false,
         workspaceCreateSelectsCreatedWorkspace: Bool = true,
         holdsTerminalPasteResponse: Bool = false,
+        echoesTerminalInput: Bool = false,
         rejectsTerminalPaste: Bool = false,
         advertisesTaskAttachments: Bool = false,
         advertisesWorkspaceMetadata: Bool = false,
@@ -10160,6 +10291,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         self.supportsManualAttachTicket = supportsManualAttachTicket
         self.workspaceCreateSelectsCreatedWorkspace = workspaceCreateSelectsCreatedWorkspace
         self.holdsTerminalPasteResponse = holdsTerminalPasteResponse
+        self.echoesTerminalInput = echoesTerminalInput
         self.rejectsTerminalPaste = rejectsTerminalPaste
         self.advertisesTaskAttachments = advertisesTaskAttachments
         self.advertisesWorkspaceMetadata = advertisesWorkspaceMetadata
@@ -10355,6 +10487,23 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 continuation.resume(returning: description.isEmpty ? "none" : description)
             }
         }
+    }
+
+    func terminalInputReceipt() async -> [TerminalInputRequest] {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                continuation.resume(returning: self.terminalInputRequests)
+            }
+        }
+    }
+
+    func waitForTerminalInput(_ expected: String, timeout: TimeInterval) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if await terminalInputReceipt().map(\.text).joined() == expected { return true }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        return await terminalInputReceipt().map(\.text).joined() == expected
     }
 
     func waitForTerminalScrollRequest(timeout: TimeInterval) async -> Bool {
@@ -10697,6 +10846,32 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             ]
         case "mobile.terminal.replay", "terminal.replay":
             result = terminalReplayResult(params: params)
+        case "terminal.input":
+            if echoesTerminalInput {
+                guard let workspaceID = params["workspace_id"] as? String,
+                      let terminalID = params["surface_id"] as? String,
+                      let text = params["text"] as? String,
+                      let workspaceIndex = workspaces.firstIndex(where: { $0.id == workspaceID }),
+                      let terminalIndex = workspaces[workspaceIndex].terminals.firstIndex(where: { $0.id == terminalID }) else {
+                    throw serverError("Terminal input must name an existing workspace and terminal and contain text.")
+                }
+                terminalInputRequests.append(TerminalInputRequest(
+                    workspaceID: workspaceID, terminalID: terminalID, text: text
+                ))
+                let typed = terminalInputRequests.filter {
+                    $0.workspaceID == workspaceID && $0.terminalID == terminalID
+                }.map(\.text).joined()
+                // Preserve history and replace only the host's echoed command.
+                // The client gets this text only through a subsequent replay.
+                var lines = workspaces[workspaceIndex].terminals[terminalIndex].lines
+                if lines.last?.hasPrefix("echo: ") == true { lines.removeLast() }
+                lines.append("echo: " + typed.trimmingCharacters(in: .newlines))
+                workspaces[workspaceIndex].terminals[terminalIndex].lines = lines
+                streamOffset += 1
+                result = ["terminal_seq": streamOffset]
+            } else {
+                result = [:]
+            }
         case "mobile.terminal.scroll":
             terminalScrollRequestsReceived += 1
             result = [:]
