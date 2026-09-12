@@ -1,6 +1,67 @@
 import Darwin
 import Foundation
 
+extension CMUXCLI {
+    static let localContainerUsage = String(localized: "cli.localContainer.usage", defaultValue: """
+        Usage: cmux local-container lease [--json]
+
+        Mint a same-user capability for a local container whose process ancestry
+        cannot be observed by cmux. The result includes the live socket path and
+        the capability used in a _cmux_capability_v1 command envelope.
+        """)
+
+    func runLocalContainerCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool
+    ) throws {
+        let subcommand = commandArgs.first?.lowercased() ?? "lease"
+        guard subcommand == "lease" || subcommand == "help" || subcommand == "--help" || subcommand == "-h" else {
+            throw CLIError(message: localContainerLocalizedFormat(
+                "cli.localContainer.unknownSubcommand",
+                defaultValue: "Unknown local-container subcommand: %@\n\n%@",
+                subcommand,
+                Self.localContainerUsage
+            ))
+        }
+        guard subcommand == "lease" else {
+            print(Self.localContainerUsage)
+            return
+        }
+        let response = try client.sendV2(method: "system.socket_capability_lease")
+        guard let socketPath = response["socket_path"] as? String,
+              let capability = response["capability"] as? String,
+              let protocolName = response["protocol"] as? String else {
+            throw CLIError(message: String(
+                localized: "cli.localContainer.invalidLease",
+                defaultValue: "The cmux socket did not return a usable local-container lease"
+            ))
+        }
+        if jsonOutput {
+            print(jsonString(response))
+            return
+        }
+        print("CMUX_SOCKET_PATH=\(localContainerShellQuote(socketPath))")
+        print("CMUX_SOCKET_CAPABILITY=\(localContainerShellQuote(capability))")
+        print("CMUX_SOCKET_CAPABILITY_PROTOCOL=\(localContainerShellQuote(protocolName))")
+    }
+
+    private func localContainerShellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
+    private func localContainerLocalizedFormat(
+        _ key: String,
+        defaultValue: String,
+        _ arguments: CVarArg...
+    ) -> String {
+        String(
+            format: NSLocalizedString(key, bundle: .main, value: defaultValue, comment: ""),
+            arguments: arguments
+        )
+    }
+}
+
 // `cmux remotes` (alias `remote`): manage the team's device-registry routes so
 // remote Macs show up in the iOS app's device list and the phone can attach.
 // The CLI is presentation only; each verb maps to one `remotes.*` socket method
