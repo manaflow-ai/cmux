@@ -7565,8 +7565,8 @@ final class cmuxUITests: XCTestCase {
             app.buttons["terminal.inputAccessory.hideKeyboard"].tap()
             _ = waitForKeyboardDismissal(in: app)
         }
-        surface.swipeUp(velocity: .slow)
-        surface.swipeUp(velocity: .slow)
+        surface.swipeDown(velocity: .slow)
+        surface.swipeDown(velocity: .slow)
         _ = waitForDock(in: app, describe: "drag moves the primary terminal into scrollback") {
             guard let offset = Int($0["scrollOffset"] ?? "") else { return false }
             return $0["scrollAtBottom"] == "0" && offset != bottomOffset
