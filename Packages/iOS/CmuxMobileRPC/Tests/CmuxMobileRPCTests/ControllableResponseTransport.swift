@@ -116,4 +116,12 @@ actor ControllableResponseTransport: CmxByteTransport {
         receiveWaiters = []
         for waiter in waiters { waiter.resume(returning: nil) }
     }
+
+    func deliverRawChunk(_ chunk: Data) {
+        if !receiveWaiters.isEmpty {
+            receiveWaiters.removeFirst().resume(returning: chunk)
+        } else {
+            queuedFrames.append(chunk)
+        }
+    }
 }

@@ -80,6 +80,31 @@ struct MobileCoreRPCNativeWriteLifetimeTests {
         await session.tearDown(error: .connectionClosed)
     }
 
+    @Test func coalescedFrameTailRespectsPerFrameLimit() async throws {
+        let base = ControllableResponseTransport(closeEndsReceive: true)
+        let session = MobileCoreRPCSession(makeTransport: { base })
+        let request = Task {
+            try await session.send(
+                payload: try Self.request("after-large-frame"),
+                requestID: "after-large-frame",
+                deadlineUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds + 5_000_000_000
+            )
+        }
+        await base.waitUntilSent(count: 1)
+        var payload = Data(#"{"kind":"event","topic":"workspace.updated","payload":{}}"#.utf8)
+        payload.append(Data(repeating: 0x20, count: MobileSyncFrameCodec.defaultMaximumFrameByteCount - payload.count))
+        let frame = try MobileSyncFrameCodec.encodeFrame(payload)
+        await base.deliverRawChunk(Data(frame.dropLast()))
+        var tail = Data(frame.suffix(1))
+        tail.append(try MobileSyncFrameCodec.encodeFrame(
+            Data(#"{"id":"after-large-frame","ok":true,"result":{}}"#.utf8)
+        ))
+        await base.deliverRawChunk(tail)
+        _ = try await request.value
+        #expect(await !base.closed())
+        await session.tearDown(error: .connectionClosed)
+    }
+
     private static func request(_ id: String) throws -> Data {
         try MobileCoreRPCClient.requestData(method: "terminal.input", params: ["text": id], id: id)
     }

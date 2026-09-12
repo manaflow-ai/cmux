@@ -644,6 +644,29 @@ extension MobileHostAuthorizationTests {
         #expect(await transport.observedCloseCount() == 0)
         await session.close(reason: "test complete")
     }
+    @Test func testMobileHostAcceptsCoalescedTailOfMaximumSizeFrame() async throws {
+        let transport = RecordingMobileHostByteTransport()
+        let session = MobileHostConnection(
+            id: UUID(), transport: transport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        var payload = Data(#"{"id":"large","method":"workspace.list","params":{}}"#.utf8)
+        payload.append(Data(repeating: 0x20, count: MobileSyncFrameCodec.defaultMaximumFrameByteCount - payload.count))
+        let frame = try MobileSyncFrameCodec.encodeFrame(payload)
+        await session.debugHandleReceiveDataForTesting(Data(frame.dropLast()))
+        var tail = Data(frame.suffix(1))
+        tail.append(try MobileSyncFrameCodec.encodeFrame(
+            Data(#"{"id":"following","method":"workspace.list","params":{}}"#.utf8)
+        ))
+        await session.debugHandleReceiveDataForTesting(tail)
+        try #require(await transport.observedCloseCount() == 0)
+        #expect(await transport.waitForSentBufferCount(2).count == 2)
+        await session.close(reason: "test complete")
+    }
+
     // MARK: - Advertised mobile host capabilities
     @Test func testMobileHostAdvertisesWorkspaceActionCapabilities() {
         let capabilities = MobileHostService.mobileHostCapabilities
