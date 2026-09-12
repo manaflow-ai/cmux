@@ -112,7 +112,9 @@ function sameRedirectURL(location: string | null, requestURL: string): boolean {
   try {
     const target = new URL(location, requestURL);
     const current = new URL(requestURL);
-    return target.pathname === current.pathname && target.search === current.search;
+    const normalizePath = (pathname: string) => pathname.replace(/\/+$/u, "") || "/";
+    return normalizePath(target.pathname) === normalizePath(current.pathname) &&
+      target.search === current.search;
   } catch {
     return false;
   }
