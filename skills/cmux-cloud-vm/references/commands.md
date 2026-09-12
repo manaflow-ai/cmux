@@ -133,6 +133,13 @@ cmux vm stats <id> [--json]            # alias: cmux vm top
 
 Socket `vm.stats`. CPU, memory, and disk right now; a sleeping machine reports `asleep` and is not woken. `--json`: `{id, state: awake|asleep, cpu_percent, cpus, memory_used_mb, memory_total_mb, disk_used_mb, disk_total_mb}`. The router uses this to pick the least-loaded pool machine.
 
+### Cloud diagnostics (socket method)
+
+`vm.diagnostics` returns the current cloud operation report without contacting the
+control plane. Send `{show: true}` when the caller also wants cmux to open the
+Cloud Diagnostics window; omit `show` for a read-only report. The response is
+`{report: <text>}`.
+
 ### `cmux pane resize`
 
 ```bash
