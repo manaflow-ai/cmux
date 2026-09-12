@@ -8246,6 +8246,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func pooledRouteForTesting(macDeviceID: String) -> CmxAttachRoute? {
         connections[macDeviceID]?.route
     }
+    func adoptForegroundMacIdentityForTesting(
+        _ macDeviceID: String,
+        previousKey: MacPairingKey? = nil
+    ) {
+        adoptForegroundMacIdentity(macDeviceID, previousKey: previousKey)
+    }
     func refreshRoutesFromRegistryForTesting(
         for mac: MobilePairedMac,
         scope: MobileShellScopeSnapshot

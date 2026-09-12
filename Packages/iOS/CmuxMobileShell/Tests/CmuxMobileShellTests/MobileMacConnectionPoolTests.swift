@@ -5453,6 +5453,100 @@ import Testing
         await client.disconnect()
     }
 
+    @Test func adoptedForegroundIdentityReusesStoredFocusedOwner()
+        async throws {
+        let route = try CmxAttachRoute(
+            id: "adopted-focused-owner",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-a",
+            terminalID: "terminal-a",
+            macDeviceID: "mac-a",
+            macDisplayName: "Mac A",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: LivenessHostRouter(),
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            connectionState: .connected
+        )
+        let storedOwnerKey = MacPairingKey(
+            macDeviceID: "mac-a",
+            instanceTag: "stored-tag"
+        )
+        let oldAuthenticatedKey = MacPairingKey(
+            macDeviceID: "mac-a",
+            instanceTag: "old-auth-tag"
+        )
+        let newAuthenticatedKey = MacPairingKey(
+            macDeviceID: "mac-a",
+            instanceTag: "new-auth-tag"
+        )
+        let connection = MacConnection(
+            macDeviceID: "mac-a",
+            ticket: ticket,
+            route: route,
+            client: client,
+            generation: UUID(),
+            displayName: "Mac A",
+            storedInstanceTag: "stored-tag",
+            authenticatedInstanceTag: "old-auth-tag",
+            supportedHostCapabilities: ["events.v1"],
+            actionCapabilities: .none
+        )
+        let subscription = SecondaryMacSubscription(
+            macDeviceID: "mac-a",
+            client: client,
+            route: route,
+            ticket: ticket,
+            storedInstanceTag: "stored-tag",
+            authenticatedInstanceTag: "old-auth-tag",
+            supportedHostCapabilities: ["events.v1"],
+            actionCapabilities: .none,
+            displayName: "Mac A"
+        )
+        shell.remoteClient = client
+        shell.activeTicket = ticket
+        shell.activeRoute = route
+        shell.activeMacInstanceTag = "new-auth-tag"
+        shell.connectedHostName = "Mac A"
+        shell.supportedHostCapabilities = ["events.v1"]
+        shell.foregroundMacDeviceID = "mac-a"
+        shell.connections[storedOwnerKey] = connection
+        shell.secondaryMacSubscriptions[storedOwnerKey] = subscription
+
+        shell.adoptForegroundMacIdentityForTesting(
+            "mac-a",
+            previousKey: oldAuthenticatedKey
+        )
+
+        #expect(shell.connections[storedOwnerKey]?.client === client)
+        #expect(shell.connections[storedOwnerKey]?.authenticatedInstanceTag
+            == "new-auth-tag")
+        #expect(shell.connections[oldAuthenticatedKey] == nil)
+        #expect(shell.connections[newAuthenticatedKey] == nil)
+        #expect(shell.liveMacConnections.filter { $0.role == .focused }.count
+            == 1)
+        #expect(shell.secondaryMacSubscriptions[storedOwnerKey] === subscription)
+        await client.disconnect()
+    }
+
     @Test func taggedForegroundReplacementRetiresExactFocusedOwner()
         async throws {
         let runtime = LivenessTestRuntime(
