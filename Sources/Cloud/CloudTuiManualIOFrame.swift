@@ -23,7 +23,8 @@ enum CloudTuiManualIOFrame: Equatable, Sendable {
         capabilities: [String],
         outcome: String?,
         accepted: Bool?,
-        error: String?
+        error: String?,
+        selfClientID: UInt64?
     )
     /// Undecoded envelope for the per-machine resource multiplexer.
     case message(Data)
