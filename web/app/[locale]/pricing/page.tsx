@@ -65,6 +65,7 @@ import {
   proBillingInterval,
 } from "../../../services/billing/plans";
 import { isVaultEnabled } from "../../../services/vault/config";
+import { isGoPlanEnabled } from "../../../services/billing/goPlanFlag";
 
 const ENTERPRISE_CTA_URL = "/enterprise";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
@@ -117,6 +118,7 @@ export default async function PricingPage({
   const query = searchParams ? await searchParams : {};
   const t = await getTranslations({ locale, namespace: "pricing" });
   const snapshot = await currentPlanSnapshot();
+  const goPlanEnabled = await isGoPlanEnabled();
   const canManageBilling = snapshot.billingManagement === "stripe";
   // Max satisfies every "is Pro" check, so the Pro card must not call a Max
   // subscriber's plan current; only the Max card does.
@@ -215,7 +217,7 @@ export default async function PricingPage({
             id="individual-pricing-category"
             title={t("categories.individual.title")}
             description={t("categories.individual.description")}
-            columns="four"
+            columns={goPlanEnabled ? "four" : "three"}
           >
             {/* Free */}
             <PlanCard
@@ -230,6 +232,7 @@ export default async function PricingPage({
               <FeatureList items={freeFeatures} />
             </PlanCard>
 
+            {goPlanEnabled ? <>
             {/* Go: one small, capped Cloud VM for focused work. */}
             <PlanCard
               name={t("go.name")}
@@ -254,6 +257,7 @@ export default async function PricingPage({
               <p className="mt-5 text-sm font-medium">{t("go.featuresLead")}</p>
               <FeatureList items={t.raw("go.features") as string[]} />
             </PlanCard>
+            </> : null}
 
             {/* Pro */}
             <PlanCard
@@ -404,6 +408,7 @@ export default async function PricingPage({
           <section className="mt-16">
             <PricingCompareTable
               rows={compareRows}
+              showGo={goPlanEnabled}
               names={{
                 free: t("free.name"),
                 go: t("go.name"),

@@ -45,6 +45,7 @@ import {
   proBillingInterval,
 } from "@/services/billing/plans";
 import { isVaultEnabled } from "@/services/vault/config";
+import { isGoPlanEnabled } from "@/services/billing/goPlanFlag";
 import { AccountPlanBadge } from "../components/account-plan-badge";
 
 
@@ -102,6 +103,7 @@ export default async function DashboardBillingPage({
     billingTeam ? latestActiveStripeSubscriptionForTeam(billingTeam.id) : Promise.resolve(null),
     billingTeam ? hasTeamCustomerRow(billingTeam.id) : Promise.resolve(false),
   ]);
+  const goPlanEnabled = await isGoPlanEnabled(user.id);
   const banner = billingBanner(Array.isArray(query?.billing) ? query?.billing[0] : query?.billing);
   const interval = proBillingInterval(
     Array.isArray(query?.interval) ? query.interval[0] : query?.interval,
@@ -157,7 +159,7 @@ export default async function DashboardBillingPage({
       ) : null}
 
       {isFreePlan ? (
-        <FreePlanUpsell t={t} pricingT={pricingT} interval={interval} />
+        <FreePlanUpsell t={t} pricingT={pricingT} interval={interval} goPlanEnabled={goPlanEnabled} />
       ) : !status.isPro ? (
         <FreePlan t={t} showBillingPortal={canManagePersonalBilling} />
       ) : subscription ? (
@@ -312,10 +314,12 @@ function FreePlanUpsell({
   t,
   pricingT,
   interval,
+  goPlanEnabled,
 }: {
   t: Awaited<ReturnType<typeof getTranslations>>;
   pricingT: Awaited<ReturnType<typeof getTranslations>>;
   interval: "month" | "year";
+  goPlanEnabled: boolean;
 }) {
   const proFeatures = visibleProFeatures({
     base: pricingT.raw("pro.features") as string[],
@@ -365,8 +369,8 @@ function FreePlanUpsell({
               surface="dashboard_billing"
             />
           </div>
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-            <PlanCard
+          <div className={`grid gap-3 md:grid-cols-2 ${goPlanEnabled ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
+            {goPlanEnabled ? <PlanCard
               name={pricingT("go.name")}
               price={`$${GO_PRICING_USD.month.billedAmount}`}
               period={pricingT("perMonth")}
@@ -376,7 +380,7 @@ function FreePlanUpsell({
               </PricingCheckoutButton>
               <p className="mt-5 text-sm font-medium">{pricingT("go.featuresLead")}</p>
               <FeatureList items={goFeatures} />
-            </PlanCard>
+            </PlanCard> : null}
 
             <PlanCard
               name={pricingT("pro.name")}

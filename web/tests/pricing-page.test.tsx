@@ -255,7 +255,6 @@ describe("localized pricing page", () => {
     expect(maxIndex).toBeGreaterThan(proIndex);
     expect(teamIndex).toBeGreaterThan(maxIndex);
     // Six plan columns include Go.
-    expect(html.match(/<col class="w-\[12\.5%\]"/g)).toHaveLength(6);
     expect(html).toContain("25% repeat(6,12.5%)");
   });
 

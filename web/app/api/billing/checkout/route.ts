@@ -47,6 +47,7 @@ import {
 } from "../../../../services/analytics/checkoutAttribution";
 import { parseNativeStackTokens, verifyRequest } from "../../../../services/vms/auth";
 import { personalPortalSession } from "../../../../services/billing/personalPortal";
+import { isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
 
 
 type CheckoutStackServerApp = StackServerApp<true>;
@@ -71,14 +72,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
 // Action codes are stable across locales. The fallback action contains only
 // invariant command syntax or a URL, which older CLI clients can still use.
-function nativeCheckoutError(error: "unauthorized" | "invalid_plan" | "billing_unavailable") {
+function nativeCheckoutError(error: "unauthorized" | "invalid_plan" | "billing_unavailable" | "plan_unavailable") {
   const actions = {
     unauthorized: { actionCode: "auth_login", action: "cmux auth login", status: 401 },
     invalid_plan: { actionCode: "choose_plan", action: "cmux billing checkout --plan <go|pro|max>", status: 400 },
     billing_unavailable: { actionCode: "open_pricing", action: "https://cmux.com/pricing", status: 503 },
+    plan_unavailable: { actionCode: "plan_unavailable", action: "cmux billing checkout --plan pro", status: 403 },
   } as const;
   const { status, ...action } = actions[error];
   return NextResponse.json({ error, ...action }, { status });
+}
+
+async function goPlanUnavailable(userID: string, plan: unknown): Promise<boolean> {
+  return plan === "go" && !(await isGoPlanEnabled(userID));
 }
 
 /** Native/CLI checkout binds the purchaser to the app's authenticated account. */
@@ -89,6 +95,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!user || user.isAnonymous) return nativeCheckoutError("unauthorized");
     const body = await request.json();
     if (body?.plan !== "go" && body?.plan !== "max" && body?.plan !== "pro") return nativeCheckoutError("invalid_plan");
+    if (await goPlanUnavailable(user.id, body.plan)) return nativeCheckoutError("plan_unavailable");
     const app = await checkoutStackServerApp();
     if (!app || !isStripeBillingConfigured()) return nativeCheckoutError("billing_unavailable");
     const attribution = checkoutAttributionFromRequest({ searchParams: new URLSearchParams({ cmux_source: "cli_billing_checkout", cmux_client: "cli" }) });
@@ -120,6 +127,9 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
   }
 
   const plan = checkoutPlan(request.nextUrl.searchParams.get("plan"));
+  if (plan === GO_PLAN_ID && !(await isGoPlanEnabled())) {
+    return NextResponse.redirect(new URL("/pricing?billing=plan_unavailable", requestOrigin(request)));
+  }
   // Max is sold monthly only, so its checkout ignores the interval selector
   // instead of failing when a shared toggle is on "year".
   const interval = plan === MAX_PLAN_ID || plan === GO_PLAN_ID

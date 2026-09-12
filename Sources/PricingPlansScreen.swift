@@ -569,20 +569,22 @@ private struct NativePricingPlansView: View {
                     String(localized: "pricing.native.free.feature.community", defaultValue: "Community support on Discord and GitHub"),
                 ]
             )
-            NativePricingPlanCard(
-                name: String(localized: "pricing.native.plan.go", defaultValue: "Go"),
-                price: String(localized: "pricing.native.go.price", defaultValue: "$10"),
-                period: String(localized: "pricing.native.period.month", defaultValue: "/month"),
-                isCurrent: snapshot.isGo,
-                actionTitle: snapshot.isGo ? String(localized: "pricing.native.currentPlan", defaultValue: "Current plan") : String(localized: "pricing.native.go.cta", defaultValue: "Get Go"),
-                action: snapshot.isGo ? { ProUpgradePresenter.presentBillingPortal() } : { ProUpgradePresenter.presentCheckout(source: .nativePricingPreview, plan: .go) },
-                isProminent: snapshot.isGo,
-                features: [
-                    String(localized: "pricing.native.go.feature.vm", defaultValue: "1 active Cloud VM, 2 vCPU, 4 GiB RAM, 16 GiB disk"),
-                    String(localized: "pricing.native.go.feature.saved", defaultValue: "2 saved VMs"),
-                    String(localized: "pricing.native.go.feature.hours", defaultValue: "40 included VM-hours each month; pauses at the limit"),
-                ]
-            )
+            if CmuxFeatureFlags.shared.isGoPlanEnabled {
+                NativePricingPlanCard(
+                    name: String(localized: "pricing.native.plan.go", defaultValue: "Go"),
+                    price: String(localized: "pricing.native.go.price", defaultValue: "$10"),
+                    period: String(localized: "pricing.native.period.month", defaultValue: "/month"),
+                    isCurrent: snapshot.isGo,
+                    actionTitle: snapshot.isGo ? String(localized: "pricing.native.currentPlan", defaultValue: "Current plan") : String(localized: "pricing.native.go.cta", defaultValue: "Get Go"),
+                    action: snapshot.isGo ? { ProUpgradePresenter.presentBillingPortal() } : { ProUpgradePresenter.presentCheckout(source: .nativePricingPreview, plan: .go) },
+                    isProminent: snapshot.isGo,
+                    features: [
+                        String(localized: "pricing.native.go.feature.vm", defaultValue: "1 active Cloud VM, 2 vCPU, 4 GiB RAM, 16 GiB disk"),
+                        String(localized: "pricing.native.go.feature.saved", defaultValue: "2 saved VMs"),
+                        String(localized: "pricing.native.go.feature.hours", defaultValue: "40 included VM-hours each month; pauses at the limit"),
+                    ]
+                )
+            }
             NativePricingPlanCard(
                 name: String(localized: "pricing.native.plan.pro", defaultValue: "Pro"),
                 price: String(localized: "pricing.native.pro.price", defaultValue: "$50"),

@@ -11,6 +11,17 @@ import Testing
 @Suite(.serialized)
 struct CmuxAgentChatConfigTests {
 
+    @Test("Go plan is disabled when its rollout flag is off")
+    @MainActor
+    func goPlanRolloutFlagDefaultsOff() {
+        let flags = CmuxFeatureFlags.shared
+        let definition = CmuxFeatureFlags.goPlanFlag
+        let previous = flags.overrideValue(for: definition)
+        flags.setOverride(false, for: definition)
+        defer { flags.setOverride(previous, for: definition) }
+        #expect(flags.isGoPlanEnabled == false)
+    }
+
     @MainActor
     private func withAgentChatUIFlag<T>(_ enabled: Bool, _ body: () throws -> T) throws -> T {
         let flags = CmuxFeatureFlags.shared

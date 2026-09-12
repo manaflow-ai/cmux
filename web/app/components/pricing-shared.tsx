@@ -218,16 +218,18 @@ export function PricingCompareTable({
   names,
   prices,
   actions,
+  showGo = true,
   stickyTopClassName = "top-12",
 }: {
   rows: CompareRow[];
   names: Record<PlanColumn, string>;
   prices: Record<PlanColumn, ReactNode>;
   actions?: Partial<Record<PlanColumn, ReactNode>>;
+  showGo?: boolean;
   stickyTopClassName?: string;
 }) {
   // The header and table use identical tracks at every supported width.
-  const gridTemplateColumns = "25% repeat(6,12.5%)";
+  const gridTemplateColumns = showGo ? "25% repeat(6,12.5%)" : "25% repeat(5,15%)";
 
   return (
     <div className="max-lg:overflow-x-auto">
@@ -238,7 +240,7 @@ export function PricingCompareTable({
         >
           <div className="pr-4" />
           <ColumnHead name={names.free} price={prices.free} action={actions?.free} />
-          <ColumnHead name={names.go} price={prices.go} action={actions?.go} />
+          {showGo ? <ColumnHead name={names.go} price={prices.go} action={actions?.go} /> : null}
           <ColumnHead name={names.pro} price={prices.pro} action={actions?.pro} />
           <ColumnHead name={names.max} price={prices.max} action={actions?.max} />
           <ColumnHead name={names.team} price={prices.team} action={actions?.team} />
@@ -250,13 +252,13 @@ export function PricingCompareTable({
         </div>
         <table className="w-full table-fixed border-separate border-spacing-0 text-[15px]">
           <colgroup>
-            <col className="w-[25%]" />
-            <col className="w-[12.5%]" />
-            <col className="w-[12.5%]" />
-            <col className="w-[12.5%]" />
-            <col className="w-[12.5%]" />
-            <col className="w-[12.5%]" />
-            <col className="w-[12.5%]" />
+            <col style={{ width: "25%" }} />
+            {showGo ? <col style={{ width: "12.5%" }} /> : null}
+            {showGo ? <col style={{ width: "12.5%" }} /> : null}
+            <col style={{ width: showGo ? "12.5%" : "15%" }} />
+            <col style={{ width: showGo ? "12.5%" : "15%" }} />
+            <col style={{ width: showGo ? "12.5%" : "15%" }} />
+            <col style={{ width: showGo ? "12.5%" : "15%" }} />
           </colgroup>
           <tbody>
           {rows.map((row, i) => (
@@ -268,7 +270,7 @@ export function PricingCompareTable({
                 {row.label}
               </th>
               <CompareCell value={row.free} />
-              <CompareCell value={row.go} />
+              {showGo ? <CompareCell value={row.go} /> : null}
               <CompareCell value={row.pro} />
               <CompareCell value={row.max} />
               <CompareCell value={row.team} />

@@ -59,6 +59,7 @@ import {
   proBillingInterval,
 } from "../../services/billing/plans";
 import { isVaultEnabled } from "../../services/vault/config";
+import { isGoPlanEnabled } from "../../services/billing/goPlanFlag";
 
 const ENTERPRISE_CTA_URL = withExternalBrowserIntent("/enterprise");
 const pricing = enMessages.pricing;
@@ -77,6 +78,7 @@ export default async function AppPricingPage({
 
   const headersList = await headers();
   const snapshot = await currentPlanSnapshot();
+  const goPlanEnabled = await isGoPlanEnabled();
   const canManageBilling = snapshot.billingManagement === "stripe";
   // Max satisfies every "is Pro" check, so the Pro card must not call a Max
   // subscriber's plan current; only the Max card does.
@@ -204,7 +206,7 @@ export default async function AppPricingPage({
             id="individual-pricing-category"
               title={pricing.categories.individual.title}
               description={pricing.categories.individual.description}
-              columns="four"
+              columns={goPlanEnabled ? "four" : "three"}
             >
               <PlanCard
                 name={pricing.free.name}
@@ -233,7 +235,7 @@ export default async function AppPricingPage({
                 <FeatureList items={pricing.free.features} />
               </PlanCard>
 
-              <PlanCard
+              {goPlanEnabled ? <PlanCard
                 name={pricing.go.name}
                 price={`$${GO_PRICING_USD.month.billedAmount}`}
                 period={pricing.perMonth}
@@ -257,7 +259,7 @@ export default async function AppPricingPage({
                 )}
                 <p className="mt-5 text-sm font-medium">{pricing.go.featuresLead}</p>
                 <FeatureList items={pricing.go.features} />
-              </PlanCard>
+              </PlanCard> : null}
 
               <PlanCard
                 name={pricing.pro.name}
@@ -395,6 +397,7 @@ export default async function AppPricingPage({
             </h2>
             <PricingCompareTable
               rows={compareRows}
+              showGo={goPlanEnabled}
               stickyTopClassName="top-0"
               names={{
                 free: pricing.free.name,
