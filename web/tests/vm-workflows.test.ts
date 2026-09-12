@@ -149,7 +149,7 @@ describe("VM Effect workflows", () => {
       id: "00000000-0000-4000-8000-000000000151",
       userId: "user-workflow-legacy-fork-shape",
       billingTeamId: "team-workflow-legacy-fork-shape",
-      billingPlanId: "max",
+      billingPlanId: "pro",
       providerVmId: "provider-vm-legacy-fork-source",
       status: "running",
       providerMetadata: {},
@@ -158,7 +158,7 @@ describe("VM Effect workflows", () => {
       id: "00000000-0000-4000-8000-000000000152",
       userId: source.userId,
       billingTeamId: source.billingTeamId,
-      billingPlanId: "max",
+      billingPlanId: "pro",
       providerVmId: null,
       status: "provisioning",
       providerMetadata: {},
@@ -166,7 +166,6 @@ describe("VM Effect workflows", () => {
     let reservation: unknown;
     let beginInput: { resourceReservation?: unknown; forkPending?: boolean; forkMinimumResourceReservation?: unknown } | undefined;
     let finalizedReservation: unknown;
-    const observedStatsVmIds: string[] = [];
     const repo = {
       ...testWorkflowRepo({ vm: source }),
       beginCreate: (input: { resourceReservation?: unknown; forkPending?: boolean; forkMinimumResourceReservation?: unknown }) => {
@@ -200,7 +199,7 @@ describe("VM Effect workflows", () => {
       getStatus: () => Effect.succeed("running"),
       resume: () => Effect.succeed(testVmHandle({ providerVmId: source.providerVmId! })),
       getStats: (_provider: string, providerVmId: string) => {
-        observedStatsVmIds.push(providerVmId);
+        expect(providerVmId).toBe("provider-vm-legacy-fork-copy");
         return Effect.succeed({
           state: "awake" as const,
           sampledAt: Date.now(),
@@ -218,7 +217,7 @@ describe("VM Effect workflows", () => {
         billingCustomerType: "team",
         billingTeamId: source.billingTeamId!,
         teamIds: [source.billingTeamId!],
-        billingPlanId: "max",
+        billingPlanId: "pro",
         maxActiveVms: 50,
         providerVmId: source.providerVmId!,
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
@@ -228,8 +227,6 @@ describe("VM Effect workflows", () => {
     expect(beginInput?.forkPending).toBe(true);
     expect(beginInput?.forkMinimumResourceReservation).toEqual({ vcpus: 1, memoryMb: 4 * 1024, diskMb: 16 * 1024 });
     expect(finalizedReservation).toEqual({ vcpus: 16, memoryMb: 32768, diskMb: 65536 });
-    expect(observedStatsVmIds[0]).toBe(source.providerVmId);
-    expect(observedStatsVmIds[observedStatsVmIds.length - 1]).toBe("provider-vm-legacy-fork-copy");
   });
 
   test("uses the legacy machine fallback for implausible legacy fork stats", async () => {
@@ -237,7 +234,7 @@ describe("VM Effect workflows", () => {
       id: "00000000-0000-4000-8000-000000000155",
       userId: "user-workflow-legacy-fork-invalid-shape",
       billingTeamId: "team-workflow-legacy-fork-invalid-shape",
-      billingPlanId: "max",
+      billingPlanId: "pro",
       providerVmId: "provider-vm-legacy-fork-invalid-source",
       status: "running",
       providerMetadata: {},
@@ -246,7 +243,7 @@ describe("VM Effect workflows", () => {
       id: "00000000-0000-4000-8000-000000000156",
       userId: source.userId,
       billingTeamId: source.billingTeamId,
-      billingPlanId: "max",
+      billingPlanId: "pro",
       providerVmId: null,
       status: "provisioning",
       providerMetadata: {},
@@ -254,7 +251,6 @@ describe("VM Effect workflows", () => {
     let reservation: unknown;
     let beginInput: { resourceReservation?: unknown; forkPending?: boolean; forkMinimumResourceReservation?: unknown } | undefined;
     let finalizedReservation: unknown;
-    const observedStatsVmIds: string[] = [];
     const repo = {
       ...testWorkflowRepo({ vm: source }),
       beginCreate: (input: { resourceReservation?: unknown; forkPending?: boolean; forkMinimumResourceReservation?: unknown }) => {
@@ -288,7 +284,7 @@ describe("VM Effect workflows", () => {
       getStatus: () => Effect.succeed("running"),
       resume: () => Effect.succeed(testVmHandle({ providerVmId: source.providerVmId! })),
       getStats: (_provider: string, providerVmId: string) => {
-        observedStatsVmIds.push(providerVmId);
+        expect(providerVmId).toBe("provider-vm-legacy-fork-invalid-copy");
         return Effect.succeed({
           state: "awake" as const,
           sampledAt: Date.now(),
@@ -306,7 +302,7 @@ describe("VM Effect workflows", () => {
         billingCustomerType: "team",
         billingTeamId: source.billingTeamId!,
         teamIds: [source.billingTeamId!],
-        billingPlanId: "max",
+        billingPlanId: "pro",
         maxActiveVms: 50,
         providerVmId: source.providerVmId!,
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
@@ -316,8 +312,6 @@ describe("VM Effect workflows", () => {
     expect(beginInput?.forkPending).toBe(true);
     expect(beginInput?.forkMinimumResourceReservation).toEqual({ vcpus: 1, memoryMb: 4 * 1024, diskMb: 16 * 1024 });
     expect(finalizedReservation).toEqual({ vcpus: 5, memoryMb: 20 * 1024, diskMb: VM_DISK_MB_MAX });
-    expect(observedStatsVmIds[0]).toBe(source.providerVmId);
-    expect(observedStatsVmIds[observedStatsVmIds.length - 1]).toBe("provider-vm-legacy-fork-invalid-copy");
   });
 
   test("keeps the supported 1-vCPU legacy fork shape", async () => {
@@ -342,7 +336,6 @@ describe("VM Effect workflows", () => {
     let reservation: unknown;
     let beginInput: { resourceReservation?: unknown; forkPending?: boolean; forkMinimumResourceReservation?: unknown } | undefined;
     let finalizedReservation: unknown;
-    const observedStatsVmIds: string[] = [];
     const repo = {
       ...testWorkflowRepo({ vm: source }),
       beginCreate: (input: { resourceReservation?: unknown; forkPending?: boolean; forkMinimumResourceReservation?: unknown }) => {
@@ -376,7 +369,7 @@ describe("VM Effect workflows", () => {
       getStatus: () => Effect.succeed("running"),
       resume: () => Effect.succeed(testVmHandle({ providerVmId: source.providerVmId! })),
       getStats: (_provider: string, providerVmId: string) => {
-        observedStatsVmIds.push(providerVmId);
+        expect(providerVmId).toBe("provider-vm-legacy-fork-one-vcpu-copy");
         return Effect.succeed({
           state: "awake" as const,
           sampledAt: Date.now(),
@@ -404,8 +397,6 @@ describe("VM Effect workflows", () => {
     expect(beginInput?.forkPending).toBe(true);
     expect(beginInput?.forkMinimumResourceReservation).toEqual({ vcpus: 1, memoryMb: 4 * 1024, diskMb: 16 * 1024 });
     expect(finalizedReservation).toEqual({ vcpus: 1, memoryMb: 4096, diskMb: 16384 });
-    expect(observedStatsVmIds[0]).toBe(source.providerVmId);
-    expect(observedStatsVmIds[observedStatsVmIds.length - 1]).toBe("provider-vm-legacy-fork-one-vcpu-copy");
   });
 
 
@@ -4514,8 +4505,8 @@ describe("VM Effect workflows", () => {
     await sql`
       insert into cloud_vm_usage_events (user_id, billing_team_id, billing_plan_id, event_type, provider, image_id, metadata)
       values
-        ('user-workflow-restore', 'team-other-restore', 'pro', 'vm.snapshot.created', 'freestyle', 'snapshot-test', '{"snapshotId":"snapshot-owned"}'::jsonb),
-        ('user-workflow-restore', 'team-workflow-restore', 'pro', 'vm.snapshot.created', 'freestyle', 'snapshot-test', '{"snapshotId":"snapshot-owned"}'::jsonb)
+        ('user-workflow-restore', 'team-other-restore', 'free', 'vm.snapshot.created', 'freestyle', 'snapshot-test', '{"snapshotId":"snapshot-owned"}'::jsonb),
+        ('user-workflow-restore', 'team-workflow-restore', 'free', 'vm.snapshot.created', 'freestyle', 'snapshot-test', '{"snapshotId":"snapshot-owned"}'::jsonb)
     `;
 
     let createCalls = 0;
@@ -4544,7 +4535,7 @@ describe("VM Effect workflows", () => {
         userId: "user-workflow-restore",
         billingCustomerType: "team",
         billingTeamId: "team-workflow-restore",
-        billingPlanId: "pro",
+        billingPlanId: "free",
         maxActiveVms: 1,
         provider: "freestyle",
         snapshotId: "snapshot-owned",
