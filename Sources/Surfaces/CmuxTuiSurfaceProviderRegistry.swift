@@ -25,6 +25,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// Loopback forwards to VM ports over the hub (Ports and Desktop rows); nil
     /// without a hub. One table for the fleet so a (machine, port) keeps its
     /// local port until the machine leaves the fleet or the account signs out.
+    let portAccess = CloudPortAccessStore()
     let portForwards: CloudHubPortForwarder?
     private var pollTask: Task<Void, Never>?
     private var accessObserver: NSObjectProtocol?
@@ -292,16 +293,20 @@ final class CmuxTuiSurfaceProviderRegistry {
         // registry keys everything by the control plane's own `summary.id`;
         // resolve to the registered key so no table is left behind.
         let id = registeredMachineID(matching: rawID)
-        providers[id]?.stop()
-        providers[id] = nil
+        let provider = providers.removeValue(forKey: id)
         catalog?.unregister(machine: .cloud(id))
         // Teardowns for one machine run in order: a repeated delete waits for
         // the earlier pass instead of racing it (cancellation would not stop
         // a pass already inside the managers), so a refresh that re-lists the
         // machine awaits the whole chain through the newest task.
         let previousTeardown = machineTeardowns[id]
-        machineTeardowns[id] = Task { [links, portForwards] in
+        machineTeardowns[id] = Task { [links, portForwards, portAccess] in
             await previousTeardown?.value
+            if let provider {
+                await provider.stop()
+            } else {
+                await portAccess.remove(machineID: id)
+            }
             await portForwards?.close(machineID: id)
             await links.disconnect(machineID: id)
         }
@@ -371,7 +376,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             if let provider = providers[summary.id] {
                 provider.update(summary: summary)
             } else {
-                let provider = CmuxTuiSurfaceProvider(summary: summary, links: links, catalog: catalog, portForwards: portForwards)
+                let provider = CmuxTuiSurfaceProvider(summary: summary, links: links, catalog: catalog, portForwards: portForwards, portAccessStore: portAccess)
                 providers[summary.id] = provider
                 catalog.register(provider)
             }
@@ -396,7 +401,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         discoveryInFlight = nil
         refreshInFlight?.cancel()
         refreshInFlight = nil
-        for provider in providers.values { provider.stop() }
+        for provider in providers.values { await provider.stop() }
         for id in providers.keys { catalog?.unregister(machine: .cloud(id)) }
         providers.removeAll()
         let teardowns = Array(machineTeardowns.values)

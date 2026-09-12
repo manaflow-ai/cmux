@@ -2530,6 +2530,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         let cloudTunnel = makeCloudTunnelCoordinator()
         cloudTunnelCoordinator = cloudTunnel
+        CmuxTuiSurfaceProviderRegistry.shared.portAccess.coordinator = cloudTunnel
         let cloudUploader = CloudTelemetryUploader(
             auth: auth.coordinator, baseURL: AuthEnvironment.vmAPIBaseURL, client: .current()
         )
