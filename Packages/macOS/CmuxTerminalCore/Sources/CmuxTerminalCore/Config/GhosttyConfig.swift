@@ -968,9 +968,10 @@ public struct GhosttyConfig {
         recursiveConfigPaths: inout [String]
     ) {
         let resolved = (path as NSString).standardizingPath
-        guard let contents = try? String(contentsOfFile: resolved, encoding: .utf8) else {
+        guard let rawContents = try? String(contentsOfFile: resolved, encoding: .utf8) else {
             return
         }
+        let contents = contentsByRepairingCmuxManagedTheme(in: rawContents)
         let parentDir = (resolved as NSString).deletingLastPathComponent
 
         for line in contents.components(separatedBy: .newlines) {
@@ -984,12 +985,6 @@ public struct GhosttyConfig {
                 parentDir: parentDir,
                 recursiveConfigPaths: &recursiveConfigPaths
             )
-        }
-
-        // Keep discovery and the runtime loader aligned for legacy managed
-        // blocks that contain only one conditional theme side.
-        if let repairedThemeValue = normalizedCmuxManagedThemeValue(in: contents) {
-            summary.recordDirective(key: "theme", value: repairedThemeValue)
         }
     }
 
@@ -1041,6 +1036,9 @@ public struct GhosttyConfig {
         )
     }
 
+    /// Loads the named theme into this config, resolving paired
+    /// `light:.../dark:...` themes for `preferredColorScheme` and searching the
+    /// given `environment`/`bundleResourceURL` theme directories.
     public mutating func loadTheme(
         _ name: String,
         environment: [String: String],
@@ -1072,6 +1070,8 @@ public struct GhosttyConfig {
         }
     }
 
+    /// The current light/dark terminal color-scheme preference, resolved from
+    /// the given defaults and optional system appearance.
     public static func currentColorSchemePreference(
         appAppearance _: NSAppearance? = nil,
         defaults: UserDefaults = .standard,
@@ -1125,7 +1125,6 @@ public struct GhosttyConfig {
                 }
             }
         }
-
         switch preferredColorScheme {
         case .light:
             if let lightTheme {
@@ -1149,6 +1148,7 @@ public struct GhosttyConfig {
         return rawThemeValue.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Returns the theme name that the raw `theme` value *explicitly* assigns to
     /// `preferredColorScheme` via ghostty's conditional `light:...`/`dark:...`
     /// syntax, or `nil` when that side is not conditionally specified.
     ///

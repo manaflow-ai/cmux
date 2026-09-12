@@ -109,4 +109,15 @@ import Testing
         #expect(darkConfig.backgroundColor.hexString() == Self.lightThemeBackgroundHex)
         #expect(darkConfig.foregroundColor.hexString() == "#657B83")
     }
+
+    @Test func emptyManagedThemeDoesNotRewriteExternalTheme() {
+        let contents = """
+        theme = light:User Theme
+        # cmux themes start
+        theme =
+        # cmux themes end
+        """
+
+        #expect(GhosttyConfig.contentsByRepairingCmuxManagedTheme(in: contents) == contents)
+    }
 }

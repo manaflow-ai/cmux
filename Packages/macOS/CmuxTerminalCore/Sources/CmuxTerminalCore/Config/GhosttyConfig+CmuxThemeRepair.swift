@@ -28,9 +28,7 @@ extension GhosttyConfig {
         in contents: String
     ) -> (lineIndex: Int, value: String)? {
         var insideManagedBlock = false
-        var rawThemeValue: String?
-        var rawThemeLineIndex: Int?
-        var lastThemeWasManaged = false
+        var lastThemeDirective: (lineIndex: Int, value: String, isManaged: Bool)?
 
         for (lineIndex, line) in contents.components(separatedBy: .newlines).enumerated() {
             let trimmed = line.trimmingCharacters(
@@ -51,19 +49,16 @@ extension GhosttyConfig {
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                     .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
                 if !value.isEmpty {
-                    rawThemeValue = value
-                    rawThemeLineIndex = lineIndex
+                    lastThemeDirective = (lineIndex, value, insideManagedBlock)
                 }
-                lastThemeWasManaged = insideManagedBlock
             }
         }
 
-        guard lastThemeWasManaged,
-              let rawThemeValue,
-              let rawThemeLineIndex else {
+        guard let directive = lastThemeDirective,
+              directive.isManaged else {
             return nil
         }
-        return (lineIndex: rawThemeLineIndex, value: rawThemeValue)
+        return (lineIndex: directive.lineIndex, value: directive.value)
     }
 
     // Shared by the primary config parser and this repair extension. It stays
