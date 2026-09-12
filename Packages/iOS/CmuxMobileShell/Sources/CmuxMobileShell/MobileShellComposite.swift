@@ -8273,7 +8273,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// previous Mac is re-added as a secondary by the `scheduleSecondaryAggregation`
     /// the callers kick right after — so this never drops a real secondary's rows
     /// (including an intentionally-kept offline secondary).
-    func dropStalePreviousForeground(_ previousKey: MacPairingKey) {
+    func dropStalePreviousForeground(
+        _ previousKey: MacPairingKey,
+        retainingConnection: MacConnection? = nil
+    ) {
+        _ = retainingConnection
         guard previousKey != foregroundMacKey,
               secondaryMacSubscriptions[previousKey] == nil else { return }
         workspacesByMac[previousKey] = nil
