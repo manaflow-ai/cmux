@@ -20,6 +20,7 @@ PROMPT = "Press space to interact, D to debug, or any other key to quit"
 # deadlines exercised by each child process.
 HELPER_TEST_TIMEOUT_SECONDS = 15
 SWIFT_TESTING_FAILED_EXIT_CODE = 123
+POST_TEST_FAILED_EXIT_CODE = 125
 EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE = 126
 TOTAL_TIMEOUT_EXIT_CODE = 127
 
@@ -760,6 +761,38 @@ def main() -> int:
         print(
             "FAIL: a later passing Swift Testing phase must not hide an earlier failure, "
             f"got {failed_then_passing_swift_testing_result.returncode}"
+        )
+        return 1
+
+    failed_then_passing_xctest_child = textwrap.dedent(
+        """
+        print("Test Suite 'Selected tests' failed at now", flush=True)
+        print("\\t Executed 1 test, with 1 failure (1 unexpected) in 0.001 seconds", flush=True)
+        print("Test Suite 'Selected tests' passed at later", flush=True)
+        print("\\t Executed 1 test, with 0 failures (0 unexpected) in 0.001 seconds", flush=True)
+        """
+    )
+    failed_then_passing_xctest_result = subprocess.run(
+        [
+            sys.executable,
+            str(HELPER),
+            sys.executable,
+            "-c",
+            failed_then_passing_xctest_child,
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
+        env=post_test_env,
+    )
+    if failed_then_passing_xctest_result.returncode != POST_TEST_FAILED_EXIT_CODE:
+        print(failed_then_passing_xctest_result.stdout, end="")
+        print(failed_then_passing_xctest_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: a later passing XCTest summary must not hide an earlier failure, "
+            f"got {failed_then_passing_xctest_result.returncode}"
         )
         return 1
 

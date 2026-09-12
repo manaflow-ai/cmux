@@ -10,6 +10,7 @@ import Testing
     @Test(arguments: [
         ("http://localhost:5173/docs/page?q=one#result", "10.16.4.9", "http://10.16.4.9:5173/docs/page?q=one#result"),
         ("https://127.0.0.1:8443/path", "fd98:deb9:4c94::8", "https://[fd98:deb9:4c94::8]:8443/path"),
+        ("https://127.0.0.1:8443/path", "[fd98:deb9:4c94::8]", "https://[fd98:deb9:4c94::8]:8443/path"),
         ("https://[::1]:8443/a%20b?q=one%2Ftwo#result", "fd98:deb9:4c94::8", "https://[fd98:deb9:4c94::8]:8443/a%20b?q=one%2Ftwo#result"),
         ("http://[::1]/", "10.16.4.9", "http://10.16.4.9/")
     ])

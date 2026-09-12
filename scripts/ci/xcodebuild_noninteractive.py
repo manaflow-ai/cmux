@@ -441,7 +441,11 @@ def main() -> int:
             line, test_output_buffer = test_output_buffer.split(b"\n", 1)
             selected_match = SELECTED_TESTS_DONE_RE.search(line)
             if selected_match:
-                selected_tests_result = selected_match.group(1).decode("ascii")
+                selected_result = selected_match.group(1).decode("ascii")
+                # A restarted app host may print a later passing summary after
+                # an earlier batch failed; keep XCTest failures authoritative.
+                if selected_tests_result != "failed" or selected_result == "failed":
+                    selected_tests_result = selected_result
                 if post_test_timeout and not swift_testing_active:
                     post_test_deadline = time.monotonic() + post_test_timeout
 
