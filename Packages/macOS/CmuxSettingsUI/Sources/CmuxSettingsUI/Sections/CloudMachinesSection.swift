@@ -26,6 +26,13 @@ public struct CloudMachinesSection: View {
                     planRow
                     Divider().padding(.horizontal, 14)
                     panelRow
+                    Divider().padding(.horizontal, 14)
+                    Button(String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…")) {
+                        hostActions.openCloudVPNSetup()
+                    }
+                    .buttonStyle(.bordered)
+                    .padding(14)
+                    .id("setting:cloudMachines:vpn")
                 }
             }
             .settingsSearchAnchors([
