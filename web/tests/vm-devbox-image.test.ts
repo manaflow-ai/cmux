@@ -792,10 +792,17 @@ describe("devbox image template", () => {
         'model_provider="openai"\n',
         '  model_provider\t=  "openai"\n',
         '"model_provider" = "openai"\n',
+        "'model_provider' = \"openai\"\n",
+        '"model\\u005fprovider" = "openai"\n',
         '[ model_providers . cmux ]\nname = "x"\n',
         '[ "model_providers" . "cmux" ]\nname = "x"\n',
+        "[ 'model_providers' . 'cmux' ]\nname = \"x\"\n",
+        'model_providers.cmux.name = "x"\n',
         ' [history]\npersistence = "none"\n',
         ' [ "history" ]\npersistence = "none"\n',
+        "['history']\npersistence = \"none\"\n",
+        'history = { persistence = "none" }\n',
+        'model_provider = "unterminated\n',
       ]) {
         writeFileSync(path.join(home, ".codex/config.toml"), theirs);
         expect(spawnSync("bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env }).status).toBe(0);
