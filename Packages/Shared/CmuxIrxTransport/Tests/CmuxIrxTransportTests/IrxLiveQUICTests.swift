@@ -201,6 +201,79 @@ struct IrxLiveQUICTests {
         try? await client.close()
     }
 
+    @Test("cancelling a control read retires the owner locally")
+    func cancelledControlReadRetiresLocally() async throws {
+        let journal = IrxLiveTestSupport.journal()
+        let server = try await IrxLiveTestSupport.bindLoopback(
+            seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 1)
+        let client = try await IrxLiveTestSupport.bindLoopback(
+            seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 0)
+        let serverTask = Task { () -> IrxConnection? in
+            guard let incoming = await server.acceptNext() else { return nil }
+            let accepting = try await incoming.accept()
+            let connection = try await accepting.connect()
+            let irx = IrxConnection(
+                connection: connection, role: .acceptor, journal: journal)
+            guard await IrxAdmission.performServer(
+                connection: irx,
+                judgment: IrxLiveTestSupport.fixedJudgment(accepting: "good-grant"),
+                journal: journal
+            ) != nil else {
+                return nil
+            }
+            return irx
+        }
+
+        let connection = try await client.connect(
+            addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol.alpnData)
+        let irx = IrxConnection(connection: connection, role: .dialer, journal: journal)
+        let (_, control) = try await IrxAdmission.performClient(
+            connection: irx, grantJWS: "good-grant", journal: journal)
+        let establishmentStarted = IrxAsyncLatch()
+        let releaseEstablishment = IrxAsyncLatch()
+        let releaseProbe = IrxControlReleaseProbe()
+        let transport = IrxControlByteTransport(
+            closeCode: .explicitRedial,
+            establish: {
+                await establishmentStarted.signal()
+                await releaseEstablishment.wait()
+                return (irx, control)
+            },
+            onClose: { _, closeCode, retiresConnection in
+                await releaseProbe.record(
+                    closeCode: closeCode,
+                    retiresConnection: retiresConnection
+                )
+            }
+        )
+
+        let receiveTask = Task { try await transport.receive() }
+        await establishmentStarted.wait()
+        receiveTask.cancel()
+        await releaseEstablishment.signal()
+
+        do {
+            _ = try await receiveTask.value
+            Issue.record("cancelled control read unexpectedly succeeded")
+        } catch is CancellationError {
+        } catch {
+            // The native stream may surface cancellation as an Iroh transport
+            // error; the owner classification is the behavior under test.
+        }
+
+        #expect(await releaseProbe.count == 1)
+        #expect(await releaseProbe.closeCodes == [.explicitRedial])
+        #expect(await releaseProbe.retiresConnections == [true])
+        #expect(await irx.isClosed)
+
+        let serverConnection = try #require(try await serverTask.value)
+        await transport.close()
+        await irx.close(code: .userRequested, origin: .local)
+        await serverConnection.close(code: .userRequested, origin: .local)
+        try? await server.close()
+        try? await client.close()
+    }
+
     @Test("closing while establishment is in flight releases the owner once")
     func closeDuringEstablishmentReleasesOwner() async throws {
         let journal = IrxLiveTestSupport.journal()
