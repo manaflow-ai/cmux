@@ -3173,7 +3173,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     var remoteDisconnectPlaceholderPanelIds: Set<UUID> = []
     /// A restored Cloud terminal can fail before its mirror session exists.
     /// Keep that failure on the placeholder panel so it cannot remain blank.
-    private var cloudMaterializationFailures: [UUID: (detail: String, reference: String?)] = [:]
+    fileprivate var cloudMaterializationFailures: [UUID: (detail: String, reference: String?)] = [:]
 
     private static let remoteErrorStatusKey = "remote.error"
     private static let remotePortConflictStatusKey = "remote.port_conflicts"
