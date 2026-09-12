@@ -7508,7 +7508,7 @@ final class cmuxUITests: XCTestCase {
         }
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
         let marker = "ios18 input verified"
-        app.typeText(marker + "\n")
+        surface.typeText(marker + "\n")
         let received = await server.waitForTerminalInput(marker + "\r", timeout: 12)
         XCTAssertTrue(received, "Direct terminal keyboard bytes must reach the host exactly once and in order")
         let requests = await server.terminalInputReceipt()
