@@ -329,6 +329,7 @@ class TerminalController {
         "browser.focus",
         "browser.focus_mode.set",
         "browser.tab.switch",
+        "artifacts.open",
         "notification.open",
         "notification.jump_to_unread",
         "debug.command_palette.toggle", "debug.pro_welcome_checklist.show",

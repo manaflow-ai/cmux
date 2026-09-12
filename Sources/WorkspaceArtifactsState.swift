@@ -84,7 +84,7 @@ final class WorkspaceArtifactsState {
 
         guard let repository else { return }
         let (stream, continuation) = AsyncStream<PersistenceEvent>.makeStream(
-            bufferingPolicy: .bufferingOldest(256)
+            bufferingPolicy: .bufferingNewest(256)
         )
         self.persistenceContinuation = continuation
         self.persistenceTask = Task {
@@ -286,9 +286,14 @@ final class WorkspaceArtifactsState {
             let loaded = try await repository.list(scope: .workspace(workspaceID.uuidString))
             for record in loaded {
                 if let existing = recordsByIdentity[record.identityKey] {
-                    recordsByIdentity[record.identityKey] = existing.occurrenceCount >= record.occurrenceCount
-                        ? existing
-                        : record
+                    let loadedObservationIsNewer = record.lastSeenAt > existing.lastSeenAt
+                        || (
+                            record.lastSeenAt == existing.lastSeenAt
+                                && record.occurrenceCount > existing.occurrenceCount
+                        )
+                    if loadedObservationIsNewer {
+                        recordsByIdentity[record.identityKey] = record
+                    }
                 } else {
                     recordsByIdentity[record.identityKey] = record
                 }

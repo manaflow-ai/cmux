@@ -124,7 +124,9 @@ extension WorkspaceArtifactsState {
 
     /// Queues every durable mutation through one ordered stream. The stream is
     /// fed only from the main actor, so remove/clear operations cannot overtake
-    /// an earlier record write in a separately-created task.
+    /// an earlier record write in a separately-created task. Newest buffering
+    /// ensures an overflow recovery snapshot displaces stale queued events
+    /// instead of being dropped behind them.
     func enqueue(_ event: PersistenceEvent) {
         guard let continuation = persistenceContinuation else { return }
         if case .dropped = continuation.yield(event), !persistenceNeedsResync {
