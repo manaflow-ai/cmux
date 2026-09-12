@@ -719,7 +719,7 @@ struct CloudTreeRowHoverButtons: View {
                 }
                 if !machine.isLocal {
                     xmark(String(localized: "cloudTree.row.closeWorkspace", defaultValue: "Close Workspace")) {
-                        nodeActions.closeWorkspace(machine, workspace.id)
+                        nodeActions.closeWorkspace(machine, workspace)
                     }
                 }
             }
