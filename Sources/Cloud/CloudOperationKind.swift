@@ -36,12 +36,14 @@ enum CloudOperationKind: String, Codable, Sendable {
 
     static func resolve(_ value: String) -> Self {
         let words = value.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init)
-        if words.contains("new") || words.contains("create") { return .create }
-        if words.contains("rm") || words.contains("destroy") { return .delete }
-        if words.contains("attach") || words.contains("shell") || words.contains("desktop") { return .open }
+        // Prefer the final structured operation token. This keeps `create snapshot`
+        // as `.snapshot` and prevents an earlier verb from hiding the resource kind.
         for word in words.reversed() {
             if let kind = Self(rawValue: word) { return kind }
         }
+        if words.contains("new") || words.contains("create") { return .create }
+        if words.contains("rm") || words.contains("destroy") { return .delete }
+        if words.contains("attach") || words.contains("shell") || words.contains("desktop") { return .open }
         return .unknown
     }
 }

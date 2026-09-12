@@ -599,6 +599,7 @@ final class MachinesPanelViewModel: ObservableObject {
                 await SurfaceCatalog.shared.refreshAll()
             }
             guard !Task.isCancelled, let self else { return }
+            self.treeErrorDescription = nil
             self.readCatalog()
         }
     }

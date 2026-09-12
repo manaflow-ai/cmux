@@ -74,12 +74,12 @@ export function parseCloudTelemetryBatch(value: unknown, now = Date.now()): Clou
 
 function validClient(value: unknown): value is CloudTelemetryClient {
   if (!record(value) || !onlyKeys(value, clientKeys)) return false;
-  return member(value.channel, ["dev", "nightly", "production"])
+  return member(value.channel, ["dev", "nightly", "production", "unknown"])
     && textMatches(value.version, /^[0-9][0-9A-Za-z.+-]{0,39}$/)
     && textMatches(value.build, /^[0-9]{1,20}$/)
     && textMatches(value.revision, /^(?:[0-9a-f]{7,64}|unknown)$/)
     && textMatches(value.osVersion, /^[0-9.]{1,30}$/)
-    && member(value.architecture, ["arm64", "x86_64"]);
+    && member(value.architecture, ["arm64", "x86_64", "unknown"]);
 }
 
 function validSpan(value: unknown, now: number): value is CloudTelemetrySpan {

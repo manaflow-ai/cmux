@@ -57,7 +57,10 @@ final class CloudTuiManualMirrorSession {
     private var lastRemoteGrid: CloudTuiManualIOGrid?
     private(set) var phase: CloudTuiManualMirrorPhase = .idle {
         didSet {
-            if phase == .disconnected, oldValue != .disconnected, diagnosticContext != nil || diagnosticFailure == nil {
+            // Every transport failure calls `transitionToDisconnected(error:)`
+            // explicitly. Surface rebinds can therefore end a stream without
+            // creating a false network error.
+            if phase == .disconnected, oldValue != .disconnected, diagnosticContext != nil {
                 finishDiagnostics(error: CloudDiagnosticFailure.network)
             }
             if phase == .stopped { finishDiagnostics(error: CancellationError()) }
@@ -215,6 +218,7 @@ final class CloudTuiManualMirrorSession {
             serverCapabilities.removeAll(keepingCapacity: true)
             resizeScheduler.resetForReconnect()
             lastRemoteGrid = nil
+            finishDiagnostics(error: CancellationError())
             phase = .disconnected
         }
     }
@@ -242,6 +246,7 @@ final class CloudTuiManualMirrorSession {
         serverCapabilities.removeAll(keepingCapacity: true)
         resizeScheduler.resetForReconnect()
         lastRemoteGrid = nil
+        finishDiagnostics(error: CancellationError())
         phase = .disconnected
     }
 
@@ -299,7 +304,7 @@ final class CloudTuiManualMirrorSession {
                 do { try await Task.sleep(for: .seconds(60)) } catch { return }
                 guard let self, self.diagnosticContext?.spanID == context.spanID else { return }
                 self.finishDiagnostics(error: CloudDiagnosticFailure.timeout)
-                self.transitionToDisconnected()
+                self.transitionToDisconnected(error: nil)
             }
         }
         if hasReceivedRemoteReplay {
@@ -541,7 +546,7 @@ final class CloudTuiManualMirrorSession {
         surface?.processRemoteOutput(delta)
     }
 
-    private func transitionToDisconnected() {
+    private func transitionToDisconnected(error: Error? = CloudDiagnosticFailure.network) {
         if hasReceivedRemoteReplay {
             replayNeedsReset = true
         }
@@ -558,6 +563,7 @@ final class CloudTuiManualMirrorSession {
         resizeScheduler.resetForReconnect()
         lastRemoteGrid = nil
         guard phase != .stopped else { return }
+        finishDiagnostics(error: error ?? CancellationError())
         phase = .disconnected
         onNeedsReconnect()
     }

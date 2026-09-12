@@ -14,6 +14,7 @@ export type { MaybeAttributes, SpanCallback };
 
 export async function withVmSpan<T>(
   name: string,
+  phase: "provider" | "tunnel",
   attributes: MaybeAttributes,
   fn: SpanCallback<T>,
 ): Promise<T> {
@@ -27,7 +28,6 @@ export async function withVmSpan<T>(
     },
     (span) => {
       const progress = currentVmRequestContext()?.progress;
-      const phase = name.includes("network") || name.includes("tunnel") ? "tunnel" : "provider";
       return progress ? progress.run(phase, () => Promise.resolve(fn(span))) : fn(span);
     },
   );
