@@ -5768,6 +5768,7 @@ mod unix {
                     }
                     MessageKind::Input => {
                         if !granted_rights.contains(CapabilityRights::INPUT)
+                            || (frame.request_id != 0 && selected_version < PROTOCOL_VERSION)
                             || !command_host.write_input(
                                 &frame.payload,
                                 frame.request_id,
