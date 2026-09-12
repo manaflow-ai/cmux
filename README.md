@@ -25,6 +25,10 @@
   <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo video</a> · <a href="https://cmux.com/blog/zen-of-cmux">The Zen of cmux</a>
 </p>
 
+<p align="center">
+  <a href="https://cmux.com/docs/getting-started">Docs</a> · <a href="https://cmux.com/blog">Blog</a> · <a href="https://cmux.com/docs/changelog">Changelog</a> · <a href="https://cmux.com/community">Community</a>
+</p>
+
 ## Features
 
 <table>
@@ -448,6 +452,31 @@ cmux is free, open source, and always will be. If you'd like to support developm
 - **Early access: Cloud VMs**
 - **Early access: Voice mode**
 - **My personal iMessage/WhatsApp**
+
+## Install
+
+### DMG (recommended)
+
+<a href="https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg">
+  <img src="./docs/assets/macos-badge.png" alt="Download cmux for macOS" width="180" />
+</a>
+
+Open the `.dmg` and drag cmux to your Applications folder. cmux auto-updates via Sparkle, so you only need to download once.
+
+### Homebrew
+
+```bash
+brew tap manaflow-ai/cmux
+brew install --cask cmux
+```
+
+To update later:
+
+```bash
+brew upgrade --cask cmux
+```
+
+On first launch, macOS may ask you to confirm opening an app from an identified developer. Click **Open** to proceed.
 
 ## License
 
