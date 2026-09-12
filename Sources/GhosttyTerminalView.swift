@@ -9776,11 +9776,16 @@ private final class CloudTerminalReconnectOverlayView: NSView {
         }
     }
 
+    override func menu(for event: NSEvent) -> NSMenu? {
+        currentPresentation.map { CloudErrorCopy.menu($0.copyableError) }
+    }
+
     func apply(_ presentation: CloudTerminalReconnectOverlayPolicy.Presentation) {
         guard currentPresentation != presentation else { return }
         currentPresentation = presentation
         titleLabel.stringValue = presentation.title
         detailLabel.stringValue = presentation.detail
+        reconnectButton.menu = CloudErrorCopy.menu(presentation.copyableError)
         reconnectButton.isHidden = !presentation.showsReconnectButton
         spinner.isHidden = !presentation.showsProgress
         iconView.isHidden = presentation.showsProgress
