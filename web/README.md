@@ -58,13 +58,17 @@ Useful commands:
 ```bash
 bun db:up       # start this worktree's Postgres
 bun db:migrate  # apply Drizzle migrations
-bun db:test     # start an isolated test DB on CMUX_PORT+11000 and run DB behavior tests
+bun db:test     # start an isolated test DB on CMUX_PORT+30000 and run DB behavior tests
 # Slow shared runners can raise the bounded per-test limit without changing
 # concurrency: CMUX_DB_TEST_TIMEOUT_MS=60000 bun db:test
 bun db:status   # print container, volume, port, and redacted DATABASE_URL
 bun db:reset    # delete and recreate this worktree's DB volume
 bun db:down     # stop this worktree's DB
 ```
+
+`bun db:test` sets `CMUX_DB_TEST_DATABASE_URL` to its isolated database. Direct
+`test:db:behavior` runs must set that variable explicitly; the runner maps both
+application database URLs to it and fails closed when it is absent.
 
 The local default URL shape is:
 
