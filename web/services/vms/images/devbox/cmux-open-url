@@ -14,6 +14,16 @@ if [ -z "$cmux_open_url" ]; then
   esac
   exit 0
 fi
+case "$cmux_open_url" in
+  http://*|https://*) ;;
+  *)
+    case "${LC_ALL:-${LC_MESSAGES:-${LANG:-en}}}" in
+      ja*) printf 'この URL を開いてください: %s\n' "$cmux_open_url" ;;
+      *) printf 'Open this URL: %s\n' "$cmux_open_url" ;;
+    esac
+    exit 0
+    ;;
+esac
 
 if cmux_open_cli="$(command -v cmux 2>/dev/null)" && [ -x "$cmux_open_cli" ]; then
   exec "$cmux_open_cli" open "$cmux_open_url"
