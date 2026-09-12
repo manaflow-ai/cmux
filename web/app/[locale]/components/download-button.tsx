@@ -33,10 +33,12 @@ export function DownloadButton({
   size = "default",
   location = "hero",
   className,
+  directDownload = false,
 }: {
   size?: "default" | "sm";
   location?: string;
   className?: string;
+  directDownload?: boolean;
 }) {
   const t = useTranslations("common");
   const tp = useTranslations("platforms");
@@ -61,7 +63,7 @@ export function DownloadButton({
   // straight at the asset there so it still works as a retry; everywhere else
   // it navigates same-tab to the confirmation page (no popup, no new tab).
   const onConfirmationPage = pathname === DOWNLOAD_CONFIRMATION_PATH;
-  const macHref = onConfirmationPage ? DOWNLOAD_URL : DOWNLOAD_CONFIRMATION_HREF;
+  const macHref = onConfirmationPage || directDownload ? DOWNLOAD_URL : DOWNLOAD_CONFIRMATION_HREF;
 
   // Resolve padding from the per-size config; applied inline so odd px render
   // exactly.
@@ -151,9 +153,10 @@ export function DownloadButton({
         }`}
         style={ctaButtonStyle}
       >
-        {onConfirmationPage ? (
+        {onConfirmationPage || directDownload ? (
           <a
             href={macHref}
+            download={directDownload ? "" : undefined}
             onClick={captureMac}
             className={downloadZone}
             style={downloadStyle}
