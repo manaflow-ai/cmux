@@ -17,7 +17,6 @@ app/api/enterprise/contact/route.ts	59834d0588bbdc79cd51791500241b2d478ccdf71f75
 app/api/freestyle/forward-auth/route.ts	260875e349335e792f8c384a1297e9f43ef0d7f657421e070b32e247d998db18	async function `handleForwardAuthRequest` has a complexity of 24. Maximum allowed is 20.
 app/api/relay/token/route.ts	6ade4cdb012efa149c005e993066a799394f97204b9570d914e1302af530bac9	async function `handleRelayTokenRequest` has a complexity of 27. Maximum allowed is 20.
 app/api/stripe/founders-welcome/route.ts	c0c0ad634aa3a9cd96e424f10f245fa73ca6d19e66486cd3b95898c0e7e7b64e	async function has a complexity of 41. Maximum allowed is 20.
-app/api/stripe/webhook/route.ts	214ba60f30a93ed61420bbc68fa93617b6d695549e763ec3c4154300bf58be7c	async function `processStripeEvent` has a complexity of 39. Maximum allowed is 20.
 app/api/support/contact/route.ts	3ae990ffbae762e5770962a2520b8aa9f2844e682db6b9a0a115ea2382b21d8f	async function has a complexity of 22. Maximum allowed is 20.
 app/handler/after-sign-in/handler.ts	2ed6972f1468f3daf7f2096a316faa3d5341d83263a917bb34cfc9c5ffbef89d	async function `GET` has a complexity of 44. Maximum allowed is 20.
 app/handler/app-session-handoff/route.ts	b00db532cf0982aa7f35823e3c7a01313537a82320880e91c3338ffb41e22cdd	async function `POST` has a complexity of 25. Maximum allowed is 20.
