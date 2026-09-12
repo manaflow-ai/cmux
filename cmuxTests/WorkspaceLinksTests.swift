@@ -180,20 +180,30 @@ struct WorkspaceLinksTests {
     @MainActor
     @Test
     func liveAutomaticIngestDoesNotEvictPinnedArtifact() async throws {
-        let state = WorkspaceLinksState(retentionLimit: 1)
-        let saved = try #require(await state.capture(.text("saved note"), source: .manual))
-        let config = WorkspaceLinksIngestConfiguration(ignoreHosts: [], retentionLimit: 1)
+        let state = WorkspaceLinksState(retentionLimit: 10)
+        let baseDate = Date(timeIntervalSince1970: 100)
+        let saved = try #require(await state.capture(
+            .text("saved note"),
+            source: .manual,
+            capturedAt: baseDate
+        ))
+        let config = WorkspaceLinksIngestConfiguration(ignoreHosts: [], retentionLimit: 10)
 
-        state.ingest(
-            url: "https://example.com/automatic",
-            origin: .detected,
-            sourcePanelId: nil,
-            sourceSurfaceTitle: nil,
-            configuration: config
-        )
+        for index in 0..<10 {
+            state.ingest(
+                url: "https://example.com/automatic-\(index)",
+                origin: .detected,
+                sourcePanelId: nil,
+                sourceSurfaceTitle: nil,
+                configuration: config,
+                now: baseDate.addingTimeInterval(TimeInterval(index + 1))
+            )
+        }
 
         #expect(state.artifactRecords.contains(saved))
-        #expect(state.artifactRecords.filter { !$0.isUserOwned }.count == 0)
+        #expect(state.artifactRecords.filter { !$0.isUserOwned }.count == 9)
+        #expect(state.artifactRecords.contains { $0.url == "https://example.com/automatic-9" })
+        #expect(!state.artifactRecords.contains { $0.url == "https://example.com/automatic-0" })
     }
 
     @MainActor

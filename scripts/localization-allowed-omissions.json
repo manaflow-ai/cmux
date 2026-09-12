@@ -3015,5 +3015,93 @@
         ]
       }
     }
+  },
+  "settings.app.linksIgnoreHosts.placeholder": {
+    "source": "localhost:31034",
+    "class": "syntax"
+  },
+  "settings.app.artifactsIgnoreHosts.placeholder": {
+    "source": "localhost:31034",
+    "class": "syntax"
+  },
+  "linksPane.row.sourceAndTime": {
+    "source": "%@ · %@",
+    "class": "format"
+  },
+  "linksPane.repeatCount": {
+    "source": "×%lld",
+    "class": "format"
+  },
+  "artifactsPane.kindFilter.html": {
+    "source": "HTML",
+    "class": "technical"
+  },
+  "artifactsPane.source.value": {
+    "source": "%@",
+    "class": "format"
+  },
+  "artifactsPane.row.detail": {
+    "source": "%@ · %@",
+    "class": "format"
+  },
+  "artifactsPane.repeatCount": {
+    "source": "×%lld",
+    "class": "format"
+  },
+  "artifactsPane.kind.url": {
+    "source": "URL",
+    "class": "technical"
+  },
+  "artifactsPane.kind.html": {
+    "source": "HTML",
+    "class": "technical"
+  },
+  "artifactsPane.kind.json": {
+    "source": "JSON",
+    "class": "technical"
+  },
+  "artifactsPane.kind.pdf": {
+    "source": "PDF",
+    "class": "technical"
+  },
+  "settings.search.alias.setting.app.artifacts-enabled": {
+    "source": "artifacts.enabled links urls files html workspace capture history",
+    "class": "syntax"
+  },
+  "settings.search.alias.setting.app.artifacts-ignore-hosts": {
+    "source": "artifacts.ignoreHosts links urls ignored hosts localhost wildcard filter",
+    "class": "syntax"
+  },
+  "settings.search.alias.setting.app.artifacts-include-file-paths": {
+    "source": "artifacts.includeFilePaths file paths urls workspace artifacts",
+    "class": "syntax"
+  },
+  "settings.search.alias.setting.app.artifacts-retention-limit": {
+    "source": "artifacts.retentionLimit retention limit cap files urls history",
+    "class": "syntax"
+  },
+  "settings.search.alias.setting.app.artifacts-fetch-titles": {
+    "source": "artifacts.fetchTitles title fetch public urls safety",
+    "class": "syntax"
+  },
+  "settings.search.alias.setting.app.links-enabled": {
+    "source": "links.enabled links urls url history capture terminal emitted",
+    "class": "syntax"
+  },
+  "settings.search.alias.setting.app.links-ignore-hosts": {
+    "source": "links.ignoreHosts links urls ignored hosts localhost wildcard filter",
+    "class": "syntax"
+  },
+  "settings.search.alias.setting.app.links-include-file-paths": {
+    "source": "links.includeFilePaths file urls file paths links history",
+    "class": "syntax"
+  },
+  "settings.search.alias.setting.app.links-retention-limit": {
+    "source": "links.retentionLimit retention limit cap count url history",
+    "class": "syntax"
+  },
+  "settings.search.alias.setting.app.links-fetch-titles": {
+    "source": "links.fetchTitles link titles fetch network urls history",
+    "class": "syntax"
   }
 }
