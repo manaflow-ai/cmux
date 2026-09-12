@@ -1,0 +1,99 @@
+name: CI status gate
+
+on:
+  # This workflow is evaluated from the trusted base revision. It never
+  # checks out or executes pull-request files.
+  pull_request_target:
+    branches:
+      - main
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed]
+  # A PR event can arrive before CI has published its checks. Re-evaluate when
+  # the base-owned CI workflow completes so a transient missing-check failure
+  # is replaced by the exact-head result.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+  pull-requests: read
+
+concurrency:
+  group: ci-status-gate-${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  ci-status-gate:
+    name: CI status gate publisher
+    if: ${{ github.event_name == 'pull_request_target' || github.event_name == 'pull_request_review' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request') }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      checks: write
+      pull-requests: read
+    steps:
+      - name: Checkout trusted gate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Workflow-run payloads for external forks can omit pull_requests.
+          # Use the protected main ref in that case, never the event's default
+          # ref or SHA. Pull-request events still pin the exact base commit.
+          ref: ${{ github.event.pull_request.base.sha || github.event.workflow_run.pull_requests[0].base.sha || 'refs/heads/main' }}
+          path: .ci-trusted
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify trusted gate revision
+        env:
+          TRUSTED_REF: ${{ github.event.pull_request.base.sha || github.event.workflow_run.pull_requests[0].base.sha || 'refs/heads/main' }}
+        run: |
+          set -euo pipefail
+          actual_sha="$(git -C .ci-trusted rev-parse --verify 'HEAD^{commit}')"
+          if [[ ! "$actual_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Trusted gate checkout is not a full commit SHA" >&2
+            exit 1
+          fi
+          if [[ "$TRUSTED_REF" != "refs/heads/main" ]]; then
+            if [[ ! "$TRUSTED_REF" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::Trusted gate ref is not a full commit SHA or refs/heads/main" >&2
+              exit 1
+            fi
+            if [[ "$actual_sha" != "$TRUSTED_REF" ]]; then
+              echo "::error::Trusted gate checkout does not match the requested base commit" >&2
+              exit 1
+            fi
+          fi
+
+      - name: Evaluate exact CI check runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python3 .ci-trusted/scripts/ci/ci_status_gate.py
+
+  ci-status:
+    name: ci-status
+    needs: ci-status-gate
+    # Keep the historical required context until the ruleset switches to
+    # ci-status-gate. This alias is also base-owned, so PR workflow edits
+    # cannot forge the legacy result.
+    if: ${{ always() && (github.event_name == 'pull_request_target' || github.event_name == 'pull_request_review' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request')) }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Mirror trusted gate result
+        env:
+          GATE_RESULT: ${{ needs.ci-status-gate.result }}
+        run: |
+          set -euo pipefail
+          if [[ "$GATE_RESULT" != "success" ]]; then
+            echo "::error::Legacy ci-status context mirrors ci-status-gate: $GATE_RESULT" >&2
+            exit 1
+          fi
