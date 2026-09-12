@@ -51,6 +51,22 @@ struct SidebarWorkspaceSnapshotFactory {
             }
             return verticalBranchDirectoryLines(orderedPanelIds: orderedPanelIds)
         }()
+        let repositoryLink: SidebarWorkspaceSnapshotBuilder.RepositoryLinkDisplay? = {
+            guard detailVisibility.showsBranchDirectory,
+                  !workspace.usesRemoteDirectoryProvenance,
+                  let orderedPanelIds else {
+                return nil
+            }
+            let link = workspace.repositoryLink
+                ?? orderedPanelIds.lazy.compactMap { workspace.panelRepositoryLinks[$0] }.first
+            return link.map {
+                SidebarWorkspaceSnapshotBuilder.RepositoryLinkDisplay(
+                    remoteName: $0.remoteName,
+                    displayName: $0.displayName,
+                    url: $0.url
+                )
+            }
+        }()
         let pullRequestRows: [SidebarWorkspaceSnapshotBuilder.PullRequestDisplay] = {
             guard detailVisibility.showsPullRequests, let orderedPanelIds else { return [] }
             return pullRequestDisplays(orderedPanelIds: orderedPanelIds)
@@ -107,6 +123,7 @@ struct SidebarWorkspaceSnapshotFactory {
             branchDirectoryLines: branchDirectoryLines,
             branchLinesContainBranch: settings.showsGitBranch
                 && branchDirectoryLines.contains { $0.branch != nil },
+            repositoryLink: repositoryLink,
             pullRequestRows: pullRequestRows,
             listeningPorts: detailVisibility.showsPorts ? workspace.listeningPorts : [],
             finderDirectoryPath: WorkspaceFinderDirectoryResolver.path(for: workspace),

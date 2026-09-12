@@ -12566,17 +12566,22 @@ struct VerticalTabsSidebar: View, Equatable {
             snapshotProvider: { [snapshot = input.workspace] in snapshot }
         )
         let openInBrowser: @MainActor (URL, Bool) -> Void = { [weak tabManager, workspaceId = tab.id] url, preferBrowser in
-            if preferBrowser,
-               let tabManager,
-               tabManager.openBrowser(
-                   inWorkspace: workspaceId,
-                   url: url,
-                   preferSplitRight: true,
-                   insertAtEnd: true
-               ) != nil {
+            guard preferBrowser else {
+                NSWorkspace.shared.open(url)
                 return
             }
-            NSWorkspace.shared.open(url)
+            SidebarWorkspaceRowActions.preferredBrowserOpenAction(
+                workspaceId: workspaceId,
+                openInWorkspace: { workspaceId, url in
+                    tabManager?.openBrowser(
+                        inWorkspace: workspaceId,
+                        url: url,
+                        preferSplitRight: true,
+                        insertAtEnd: true
+                    ) != nil
+                },
+                openExternally: { NSWorkspace.shared.open($0) }
+            )(url)
         }
         let rowActions = SidebarAppKitRowActions(
             commands: commands,
@@ -12588,6 +12593,9 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             onOpenPullRequest: { [prefer = input.settings.openPullRequestLinksInCmuxBrowser] url in
                 openInBrowser(url, prefer)
+            },
+            onOpenRepository: { url in
+                openInBrowser(url, true)
             },
             onOpenPort: { [prefer = input.settings.openPortLinksInCmuxBrowser] port in
                 guard let url = URL(string: "http://localhost:\(port)") else { return }
@@ -14790,13 +14798,19 @@ struct VerticalTabsSidebar: View, Equatable {
         opensInCmuxBrowser: Bool
     ) {
         selectWorkspaceRow(workspace, index: index, modifiers: NSEvent.modifierFlags)
-        if opensInCmuxBrowser,
-           tabManager.openBrowser(
-               inWorkspace: workspace.id,
-               url: url,
-               preferSplitRight: true,
-               insertAtEnd: true
-           ) != nil {
+        if opensInCmuxBrowser {
+            SidebarWorkspaceRowActions.preferredBrowserOpenAction(
+                workspaceId: workspace.id,
+                openInWorkspace: { workspaceId, url in
+                    tabManager.openBrowser(
+                        inWorkspace: workspaceId,
+                        url: url,
+                        preferSplitRight: true,
+                        insertAtEnd: true
+                    ) != nil
+                },
+                openExternally: { NSWorkspace.shared.open($0) }
+            )(url)
             return
         }
         NSWorkspace.shared.open(url)
@@ -15194,6 +15208,15 @@ struct VerticalTabsSidebar: View, Equatable {
                     workspace: tab,
                     index: index,
                     opensInCmuxBrowser: settings.openPullRequestLinksInCmuxBrowser
+                )
+            },
+            openRepository: { url in
+                guard let tab = workspace() else { return }
+                openWorkspaceRowPullRequest(
+                    url,
+                    workspace: tab,
+                    index: index,
+                    opensInCmuxBrowser: true
                 )
             },
             openPort: { port in
@@ -16289,6 +16312,8 @@ struct TabItemView: View, Equatable {
                 }
             }
 
+            repositoryLinkRow
+
             // Pull request rows
             if detailVisibility.showsPullRequests, !workspaceSnapshot.pullRequestRows.isEmpty {
                 VStack(alignment: .leading, spacing: 1) {
@@ -16631,6 +16656,50 @@ struct TabItemView: View, Equatable {
                 CmuxSystemSymbolImage(magnified: "xmark.circle", pointSize: 7 * fontScale, weight: .regular, tint: color)
                     .frame(width: closedFrameSize, height: closedFrameSize)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var repositoryLinkRow: some View {
+        if let repositoryLink = workspaceSnapshot.repositoryLink {
+            SidebarRepositoryLinkRow(
+                repositoryLink: repositoryLink,
+                font: magnifiedFont(scaledFontSize(10)),
+                symbolPointSize: scaledFontSize(9),
+                color: activeSecondaryColor(0.75),
+                onOpen: { actions.openRepository(repositoryLink.url) }
+            )
+        }
+    }
+
+    private struct SidebarRepositoryLinkRow: View {
+        let repositoryLink: SidebarWorkspaceSnapshotBuilder.RepositoryLinkDisplay
+        let font: Font
+        let symbolPointSize: CGFloat
+        let color: Color
+        let onOpen: () -> Void
+
+        var body: some View {
+            Button(action: onOpen) {
+                HStack(alignment: .center, spacing: 4) {
+                    CmuxSystemSymbolImage(
+                        magnified: "shippingbox",
+                        pointSize: symbolPointSize,
+                        tint: color
+                    )
+                    Text(repositoryLink.displayName)
+                        .underline()
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 0)
+                }
+                .font(font)
+                .foregroundColor(color)
+            }
+            .buttonStyle(.plain)
+            .safeHelp(repositoryLink.openTooltip)
+            .accessibilityLabel(repositoryLink.openTooltip)
+            .accessibilityIdentifier("SidebarRepositoryLinkRow")
         }
     }
 

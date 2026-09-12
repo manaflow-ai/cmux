@@ -47,6 +47,15 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     let probeLimiter: WorkspaceGitMetadataProbeLimiter
     // Drives the initial-probe retry gaps.
     let clock: any GitPollClock
+    // Reads creation-watch targets off-main; injected for deterministic tests.
+    // Justification: FileManager documents its methods as thread-safe, and
+    // this injected reference is immutable for the service lifetime.
+    nonisolated(unsafe) let creationWatchFileManager: FileManager
+    // Home boundary for safe external creation watches; injected with the
+    // process home by the composition root.
+    nonisolated let creationWatchHomeDirectory: String
+    // Off-main snapshots for missing config creation-watch targets.
+    nonisolated let creationWatchPathSnapshotter: CreationWatchPathSnapshotter
     // Mobile-host background-work deferral intervals.
     let mobileHostDeferral: MobileHostDeferralPolicy
     // Debug diagnostics sink (the app injects its debug logger in DEBUG).
@@ -67,6 +76,19 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     var workspaceGitMetadataWatcherKeysBySourceDirectory: [String: Set<WorkspaceGitProbeKey>] = [:]
     var workspaceGitMetadataWatchersByWatchedPathsKey: [WorkspaceGitMetadataWatchedPathsKey: RecursivePathWatcher] = [:]
     var workspaceGitMetadataWatcherRefreshTasksByWatchedPathsKey: [WorkspaceGitMetadataWatchedPathsKey: Task<Void, Never>] = [:]
+    var workspaceGitMetadataCreationWatchersByAncestor: [String: FileWatcher] = [:]
+    var workspaceGitMetadataCreationWatcherTasksByAncestor: [String: Task<Void, Never>] = [:]
+    var workspaceGitMetadataCreationWatchTargetsByAncestor: [String: Set<String>] = [:]
+    var workspaceGitMetadataCreationWatcherProbeKeysByTargetPath: [String: Set<WorkspaceGitProbeKey>] = [:]
+    var workspaceGitMetadataCreationWatcherAncestorByTargetPath: [String: String] = [:]
+    var workspaceGitMetadataCreationWatcherLogicalParentByTargetPath: [String: String] = [:]
+    var workspaceGitMetadataCreationWatcherLogicalSignatureByTargetPath: [String: String?] = [:]
+    var workspaceGitMetadataCreationWatcherTargetExistsByPath: [String: Bool] = [:]
+    var workspaceGitMetadataCreationWatchPathsByProbeKey: [WorkspaceGitProbeKey: Set<String>] = [:]
+    var workspaceGitMetadataCreationWatchAllowedRootsByProbeKey: [WorkspaceGitProbeKey: [String]] = [:]
+    var workspaceGitMetadataCreationWatchRegistrationIncompleteKeys: Set<WorkspaceGitProbeKey> = []
+    var workspaceGitMetadataCreationWatchUpdateGenerationByProbeKey: [WorkspaceGitProbeKey: UInt64] = [:]
+    var workspaceGitMetadataCreationWatchUpdateGeneration: UInt64 = 0
     var workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatchedPathsKey] = [:]
     var workspaceGitMetadataWatcherProbeKeysByWatchedPathsKey: [WorkspaceGitMetadataWatchedPathsKey: Set<WorkspaceGitProbeKey>] = [:]
     var workspaceGitMetadataWatcherDescriptorRequestsByKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatcherDescriptorRequest] = [:]
@@ -91,6 +113,8 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     ///   - pullRequestProbing: The PR poll service driven by probe outcomes.
     ///   - probeLimiter: Process-wide concurrent probe cap.
     ///   - clock: Initial-probe retry clock; tests inject virtual time.
+    ///   - creationWatchFileManager: Filesystem reader for missing config paths.
+    ///   - creationWatchHomeDirectory: Home-directory boundary for safe watches.
     ///   - mobileHostDeferral: Mobile-host deferral intervals.
     ///   - debugLog: Diagnostics sink; defaults to a no-op.
     public init(
@@ -99,6 +123,8 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
         pullRequestProbing: any PullRequestProbing,
         probeLimiter: WorkspaceGitMetadataProbeLimiter,
         clock: any GitPollClock = SystemGitPollClock(),
+        creationWatchFileManager: FileManager = .default,
+        creationWatchHomeDirectory: String? = nil,
         mobileHostDeferral: MobileHostDeferralPolicy = .standard,
         debugLog: @escaping @Sendable (String) -> Void = { _ in }
     ) {
@@ -107,6 +133,13 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
         self.pullRequestProbing = pullRequestProbing
         self.probeLimiter = probeLimiter
         self.clock = clock
+        self.creationWatchFileManager = creationWatchFileManager
+        self.creationWatchPathSnapshotter = CreationWatchPathSnapshotter(
+            fileManager: creationWatchFileManager
+        )
+        self.creationWatchHomeDirectory =
+            creationWatchHomeDirectory
+                ?? FileWatchPathResolver(fileManager: creationWatchFileManager).homeDirectoryPath
         self.mobileHostDeferral = mobileHostDeferral
         self.debugLog = debugLog
     }
@@ -117,6 +150,17 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
         }
         for task in workspaceGitSnapshotTasksByDirectory.values {
             task.cancel()
+        }
+        for task in workspaceGitMetadataCreationWatcherTasksByAncestor.values {
+            task.cancel()
+        }
+        // FileWatcher is an actor, so teardown is requested asynchronously
+        // after cancellation; this drops its dispatch sources even if the
+        // event stream has no further filesystem event to wake it.
+        for watcher in workspaceGitMetadataCreationWatchersByAncestor.values {
+            Task {
+                await watcher.stop()
+            }
         }
     }
 
@@ -263,7 +307,10 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
 
     // MARK: Teardown
 
-    func clearWorkspaceGitProbe(_ key: WorkspaceGitProbeKey) {
+    func clearWorkspaceGitProbe(
+        _ key: WorkspaceGitProbeKey,
+        clearRepositoryLink: Bool = true
+    ) {
         removeWorkspaceGitSnapshotRequest(for: key)
         workspaceGitProbeStateByKey.removeValue(forKey: key)
         workspaceGitCleanIndexSignatureByKey.removeValue(forKey: key)
@@ -271,6 +318,9 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
         workspaceGitHeadSignatureByKey.removeValue(forKey: key)
         cancelWorkspaceGitProbeTask(for: key)
         stopWorkspaceGitMetadataWatcher(for: key)
+        if clearRepositoryLink {
+            host?.clearPanelRepositoryLink(workspaceId: key.workspaceId, panelId: key.panelId)
+        }
     }
 
     func finishWorkspaceGitProbeAttempt(_ key: WorkspaceGitProbeKey) {
@@ -296,9 +346,22 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
         )
     }
 
+    public func clearWorkspaceGitProbeTracking(workspaceId: UUID, panelId: UUID) {
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        clearWorkspaceGitProbe(key, clearRepositoryLink: false)
+        workspaceGitTrackedDirectoryByKey.removeValue(forKey: key)
+        pullRequestProbing.clearWorkspacePullRequestTracking(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+    }
+
     public func clearWorkspaceGitProbes(workspaceId: UUID) {
         let keys = Set(workspaceGitProbeStateByKey.keys.filter { $0.workspaceId == workspaceId })
             .union(workspaceGitProbeTasksByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspaceGitTrackedDirectoryByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspaceGitMetadataWatcherSourceDirectoryByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspaceGitMetadataCreationWatchUpdateGenerationByProbeKey.keys.filter { $0.workspaceId == workspaceId })
         for key in keys {
             clearWorkspaceGitProbe(key)
         }
@@ -319,11 +382,16 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     }
 
     public func resetAllWorkspaceGitProbeTracking() {
+        let existingProbeKeys = Set(workspaceGitProbeStateByKey.keys)
+            .union(workspaceGitProbeTasksByKey.keys)
+            .union(workspaceGitTrackedDirectoryByKey.keys)
+            .union(workspaceGitMetadataWatcherSourceDirectoryByKey.keys)
+            .union(workspaceGitMetadataCreationWatchUpdateGenerationByProbeKey.keys)
+        for key in existingProbeKeys {
+            clearWorkspaceGitProbe(key)
+        }
         stopAllWorkspaceGitMetadataWatchers()
         workspaceGitProbeStateByKey.removeAll()
-        for task in workspaceGitProbeTasksByKey.values {
-            task.cancel()
-        }
         workspaceGitProbeTasksByKey.removeAll()
         cancelAllWorkspaceGitSnapshotTasks()
         workspaceGitTrackedDirectoryByKey.removeAll()

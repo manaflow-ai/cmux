@@ -11,6 +11,13 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
     public let gitMetadataPaths: [String]
     /// Missing config files represented by exact creation sentinels.
     public let metadataSentinelPaths: [String]
+    /// Missing external config files that need a non-recursive creation watch.
+    public let creationWatchPaths: [String]
+    /// Whether all missing external config paths fit within the bounded watch plan.
+    public let creationWatchPathsAreComplete: Bool
+    /// Roots allowed for non-recursive creation watches (effective Git home and
+    /// repository-owned paths).
+    public let creationWatchAllowedRoots: [String]
     /// Sorted native Swift paths for tracked entries used by exact filtering.
     public let trackedEntryPaths: [String]
     /// Work-tree roots whose descendants must be treated as relevant when an
@@ -33,12 +40,15 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
     ///   - repositoryRoot: Native Swift path to the working-tree root.
     ///   - watchedPaths: Existing roots passed to the recursive watcher.
     ///   - gitMetadataPaths: Paths whose changes can rebuild this plan.
-    ///   - metadataSentinelPaths: Missing config paths matched exactly on creation.
     ///   - trackedEntryPaths: Sorted tracked paths used by exact filtering.
     ///   - acceptsAllWorkTreeEvents: Whether every work-tree event is relevant.
     ///   - eventCoalescingInterval: Leading-edge watcher throttle.
     ///   - eventFilterIdentity: Stable identity for the immutable path filter.
     ///   - degradation: Active safety-valve mode, if any.
+    ///   - creationWatchPaths: Missing external config paths watched
+    ///     non-recursively until they are created.
+    ///   - creationWatchPathsAreComplete: Whether no missing paths were omitted.
+    ///   - creationWatchAllowedRoots: Roots that bound creation-watch ancestors.
     public init(
         repositoryRoot: String,
         watchedPaths: [String],
@@ -49,12 +59,18 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
         acceptsAllWorkTreeEvents: Bool,
         eventCoalescingInterval: Duration,
         eventFilterIdentity: String?,
-        degradation: GitWorkspaceMetadataWatchDegradation? = nil
+        degradation: GitWorkspaceMetadataWatchDegradation? = nil,
+        creationWatchPaths: [String] = [],
+        creationWatchAllowedRoots: [String] = [],
+        creationWatchPathsAreComplete: Bool = true
     ) {
         self.repositoryRoot = repositoryRoot
         self.watchedPaths = watchedPaths
         self.gitMetadataPaths = gitMetadataPaths
         self.metadataSentinelPaths = metadataSentinelPaths
+        self.creationWatchPaths = creationWatchPaths
+        self.creationWatchPathsAreComplete = creationWatchPathsAreComplete
+        self.creationWatchAllowedRoots = creationWatchAllowedRoots
         self.trackedEntryPaths = trackedEntryPaths
         self.forcedWorkTreeRoots = forcedWorkTreeRoots
         self.acceptsAllWorkTreeEvents = acceptsAllWorkTreeEvents

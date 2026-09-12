@@ -4,6 +4,51 @@ import Testing
 @testable import CmuxFoundation
 
 @Suite struct FileWatcherTests {
+    @Test func pathResolverReportsTheCurrentUsersHome() {
+        #expect(
+            FileWatchPathResolver(fileManager: .default).homeDirectoryPath
+                == FileManager.default.homeDirectoryForCurrentUser.path
+        )
+    }
+
+    @Test func pathResolverCanRejectFilesystemRootAncestor() {
+        let missingPath = "/cmux-file-watcher-\(UUID().uuidString)/future/file.txt"
+        let resolver = FileWatchPathResolver(fileManager: .default)
+
+        #expect(
+            resolver.nearestExistingDirectory(
+                forPath: missingPath,
+                allowsFilesystemRootAncestor: false
+            ) == nil
+        )
+        #expect(
+            resolver.nearestExistingDirectory(
+                forPath: missingPath,
+                allowsFilesystemRootAncestor: true
+            ) == "/"
+        )
+    }
+
+    @Test func pathResolverRejectsSymlinkedFilesystemRootAncestor() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-watcher-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let rootLink = directory.appendingPathComponent("root-link")
+        try FileManager.default.createSymbolicLink(
+            atPath: rootLink.path,
+            withDestinationPath: "/"
+        )
+        let missingPath = rootLink.appendingPathComponent("future/file.txt").path
+
+        #expect(
+            FileWatchPathResolver(fileManager: .default).nearestExistingDirectory(
+                forPath: missingPath,
+                allowsFilesystemRootAncestor: false
+            ) == nil
+        )
+    }
+
     /// Awaits the watcher's first event, bounded so a broken watcher fails the
     /// test instead of hanging CI.
     private func firstEvent(_ watcher: FileWatcher, within seconds: Double) async -> Bool {
@@ -35,6 +80,46 @@ import Testing
 
         // Mutate after the watcher is listening (sources attach synchronously in init).
         try "changed".write(to: file, atomically: false, encoding: .utf8)
+
+        #expect(await firstEvent(watcher, within: 5))
+    }
+
+    @Test func asynchronouslyStartedWatcherYieldsAfterExplicitStart() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-watcher-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("watched.txt")
+        try "initial".write(to: file, atomically: true, encoding: .utf8)
+
+        let watcher = FileWatcher(path: file.path, startsAsynchronously: true)
+        await watcher.start()
+        defer { Task { await watcher.stop() } }
+
+        try "changed".write(to: file, atomically: false, encoding: .utf8)
+
+        #expect(await firstEvent(watcher, within: 5))
+    }
+
+    @Test func cancelledStartCanBeRetried() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-watcher-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("created-after-cancel.txt")
+
+        let watcher = FileWatcher(path: file.path, startsAsynchronously: true)
+        defer { Task { await watcher.stop() } }
+
+        let cancelledStart = Task {
+            try? await Task.sleep(for: .seconds(1))
+            await watcher.start()
+        }
+        cancelledStart.cancel()
+        await cancelledStart.value
+
+        await watcher.start()
+        try "created".write(to: file, atomically: true, encoding: .utf8)
 
         #expect(await firstEvent(watcher, within: 5))
     }

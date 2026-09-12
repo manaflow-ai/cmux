@@ -34,7 +34,10 @@ extension GitMetadataService {
             // over budget). A conservative forced root only supplies the
             // unreadable-index marker when the descriptor has no diagnosis.
             degradation: descriptor.degradation
-                ?? (anyForcedRoot ? .unreadableIndex : nil)
+                ?? (anyForcedRoot ? .unreadableIndex : nil),
+            creationWatchPaths: descriptor.creationWatchPaths,
+            creationWatchAllowedRoots: descriptor.creationWatchAllowedRoots,
+            creationWatchPathsAreComplete: descriptor.creationWatchPathsAreComplete
         )
     }
 

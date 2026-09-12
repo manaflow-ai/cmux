@@ -208,6 +208,68 @@ import CmuxGit
         #expect(pullRequestProbing.scheduledRefreshes.isEmpty)
     }
 
+    @Test func firstTrustedRemoteReportAtSamePathClearsLocalRepositoryLink() async throws {
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/srv/project")
+        host.workspaces[0].state.isRemote = true
+        host.workspaces[0].state.panels[panelId]?.isRemoteTerminal = true
+        host.updatePanelRepositoryLink(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            remoteName: "origin",
+            displayName: "manaflow-ai/cmux",
+            url: URL(string: "https://github.com/manaflow-ai/cmux")!
+        )
+        let clock = ManualGitPollClock()
+        let service = makeService(
+            host: host,
+            reader: GatedMetadataReader(metadata: .repository(branch: "local-main")),
+            clock: clock
+        )
+
+        service.updateRemoteSurfaceDirectory(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            directory: "/srv/project",
+            displayLabel: nil
+        )
+
+        #expect(host.panelRepositoryLink(workspaceId: workspaceId, panelId: panelId) == nil)
+        #expect(host.events.contains(.clearRepositoryLink(workspaceId, panelId)))
+        #expect(await clock.recordedDurations.isEmpty)
+    }
+
+    @Test func clearingLinkOnlySurfaceStateClearsLinkAndSchedulesProbe() async throws {
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+        host.updatePanelRepositoryLink(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            remoteName: "origin",
+            displayName: "manaflow-ai/cmux",
+            url: URL(string: "https://github.com/manaflow-ai/cmux")!
+        )
+        let clock = ManualGitPollClock()
+        let pullRequestProbing = RecordingPullRequestProbing()
+        let service = makeService(
+            host: host,
+            reader: GatedMetadataReader(metadata: .repository(branch: nil)),
+            clock: clock,
+            pullRequestProbing: pullRequestProbing
+        )
+
+        service.clearSurfaceGitBranch(workspaceId: workspaceId, panelId: panelId)
+        await clock.waitForSleeper(seconds: 0)
+
+        #expect(host.panelRepositoryLink(workspaceId: workspaceId, panelId: panelId) == nil)
+        #expect(host.events.contains(.clearGitBranch(workspaceId, panelId)))
+        #expect(host.events.contains(.clearRepositoryLink(workspaceId, panelId)))
+        #expect(await clock.recordedDurations == [0])
+        #expect(pullRequestProbing.clearedTrackingKeys.contains {
+            $0.workspaceId == workspaceId && $0.panelId == panelId
+        })
+    }
+
     /// A repository probe projects the branch (with dirty flag) onto the
     /// panel and, with PR polling enabled, schedules a PR refresh.
     @Test func repositorySnapshotProjectsBranchAndSchedulesPullRequestRefresh() async throws {

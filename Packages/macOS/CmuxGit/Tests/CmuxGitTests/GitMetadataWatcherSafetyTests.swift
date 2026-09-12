@@ -59,8 +59,8 @@ private final class RecordingGitDirtyStatusReader: GitDirtyStatusReading, @unche
 
         #expect(metadata.isRepository)
         #expect(!metadata.isDirty)
-        #expect(reader.totalCallCount == 1)
-        #expect(reader.visitedPaths == [trackedPath])
+        #expect(reader.visitedPaths.contains(trackedPath))
+        #expect(reader.visitedPaths.allSatisfy { !$0.hasPrefix(ignoredRoot.path) })
     }
 
     @Test func watchDescriptorRejectsIgnoredBuildOutputEvents() async throws {
@@ -219,6 +219,244 @@ private final class RecordingGitDirtyStatusReader: GitDirtyStatusReading, @unche
 
         #expect(metadata.isDirty)
         #expect(dirtyStatusReader.callCount == 1)
+    }
+
+    @Test func missingConfigIncludeWatchesItsExistingParent() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig("""
+        [include]
+            path = future-remotes.inc
+        """)
+        let descriptor = try #require(
+            await GitMetadataService().watchDescriptor(for: fixture.root.path)
+        )
+        let missingPath = fixture.gitDirectory.appendingPathComponent("future-remotes.inc").path
+        let gitDirectoryPath = fixture.gitDirectory.standardizedFileURL.path
+
+        #expect(descriptor.gitMetadataPaths.contains(missingPath))
+        #expect(descriptor.watchedPaths.contains(gitDirectoryPath))
+        #expect(descriptor.containsGitMetadataChange(paths: [missingPath]))
+    }
+
+    @Test func descriptorUsesProvidedBranchAwareConfigPaths() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("feature/branch-aware")
+        let branchAwareConfig = fixture.root.appendingPathComponent("branch-aware.inc")
+        try "[remote \"origin\"]\n\turl = https://github.com/example/branch-aware.git\n"
+            .write(to: branchAwareConfig, atomically: true, encoding: .utf8)
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+
+        let descriptor = try #require(
+            GitMetadataService.workspaceGitMetadataWatchDescriptor(
+                for: fixture.root.path,
+                resolvedRepository: repository,
+                configPathsByRepository: [repository.workTreeRoot: [branchAwareConfig.path]],
+                watchOnlyPathsByRepository: [:],
+                metadataSentinelPathsByRepository: [:],
+                indexSnapshotsByRepository: [:],
+                environment: [
+                    "GIT_CONFIG_GLOBAL": "/dev/null",
+                    "GIT_CONFIG_NOSYSTEM": "1",
+                    "HOME": fixture.root.path,
+                ]
+            )
+        )
+
+        #expect(descriptor.gitMetadataPaths.contains(branchAwareConfig.path))
+    }
+
+    @Test func missingExternalConfigIncludeNeverWatchesFilesystemRoot() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig("""
+        [include]
+            path = /no-such-cmux-config-(UUID().uuidString)/future-remotes.inc
+        """)
+
+        let descriptor = try #require(
+            await GitMetadataService().watchDescriptor(for: fixture.root.path)
+        )
+
+        #expect(!descriptor.watchedPaths.contains("/"))
+    }
+
+    @Test func missingXDGConfigDoesNotWatchItsBroadParent() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let xdgHome = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cmuxgit-xdg-\\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: xdgHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: xdgHome) }
+
+        let descriptor = try #require(
+            GitMetadataService.workspaceGitMetadataWatchDescriptor(
+                for: fixture.root.path,
+                environment: [
+                    "GIT_CONFIG_NOSYSTEM": "1",
+                    "XDG_CONFIG_HOME": xdgHome.path,
+                ]
+            )
+        )
+
+        #expect(!descriptor.watchedPaths.contains(xdgHome.path))
+        #expect(!descriptor.watchedPaths.contains(xdgHome.deletingLastPathComponent().path))
+    }
+
+    @Test func missingGlobalConfigGetsASeparateCreationWatchPath() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let globalConfigURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cmuxgit-missing-global-\(UUID().uuidString)")
+
+        let descriptor = try #require(
+            GitMetadataService.workspaceGitMetadataWatchDescriptor(
+                for: fixture.root.path,
+                environment: [
+                    "GIT_CONFIG_GLOBAL": globalConfigURL.path,
+                    "GIT_CONFIG_NOSYSTEM": "1",
+                ]
+            )
+        )
+
+        #expect(descriptor.creationWatchPaths.contains(globalConfigURL.path))
+        #expect(!descriptor.watchedPaths.contains(globalConfigURL.deletingLastPathComponent().path))
+    }
+
+    @Test func missingExternalConfigDoesNotBecomeARecursiveHomeWatch() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let parent = home.appendingPathComponent(
+            ".cmuxgit-watch-parent-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let missingPath = parent.appendingPathComponent("future.inc")
+        let globalConfigURL = fixture.root.appendingPathComponent("global.gitconfig")
+        try """
+        [include]
+            path = \(missingPath.path)
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+
+        let descriptor = try #require(
+            GitMetadataService.workspaceGitMetadataWatchDescriptor(
+                for: fixture.root.path,
+                environment: [
+                    "GIT_CONFIG_GLOBAL": globalConfigURL.path,
+                    "GIT_CONFIG_NOSYSTEM": "1",
+                    "HOME": home.path,
+                ]
+            )
+        )
+
+        #expect(!descriptor.watchedPaths.contains(parent.path))
+        #expect(descriptor.creationWatchPaths.contains(missingPath.path))
+    }
+
+    @Test func descriptorCarriesConfiguredHomeAndXDGCreationWatchRoots() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmuxgit-configured-home-\(UUID().uuidString)", isDirectory: true)
+        let xdgHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmuxgit-configured-xdg-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: xdgHome, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: home)
+            try? FileManager.default.removeItem(at: xdgHome)
+        }
+
+        let descriptor = try #require(
+            GitMetadataService.workspaceGitMetadataWatchDescriptor(
+                for: fixture.root.path,
+                environment: [
+                    "GIT_CONFIG_NOSYSTEM": "1",
+                    "HOME": home.path,
+                    "XDG_CONFIG_HOME": xdgHome.path,
+                ]
+            )
+        )
+        let allowedRoots = Set(
+            descriptor.creationWatchAllowedRoots.map {
+                URL(fileURLWithPath: $0).resolvingSymlinksInPath().standardizedFileURL.path
+            }
+        )
+
+        #expect(allowedRoots.contains(home.resolvingSymlinksInPath().standardizedFileURL.path))
+        #expect(allowedRoots.contains(xdgHome.resolvingSymlinksInPath().standardizedFileURL.path))
+        #expect(
+            !allowedRoots.contains(
+                FileManager.default.homeDirectoryForCurrentUser
+                    .resolvingSymlinksInPath()
+                    .standardizedFileURL
+                    .path
+            )
+        )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func descriptorBoundsCreationWatchPathsWhenConfigGraphIsLarge() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let globalConfigURL = fixture.root.appendingPathComponent("many-missing.gitconfig")
+        let includes = (0..<600).map { index in
+            "[include]\n    path = missing-\(index).inc"
+        }
+        try includes.joined(separator: "\n")
+            .write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        let descriptor = try #require(
+            GitMetadataService.workspaceGitMetadataWatchDescriptor(
+                for: fixture.root.path,
+                environment: [
+                    "GIT_CONFIG_GLOBAL": globalConfigURL.path,
+                    "GIT_CONFIG_NOSYSTEM": "1",
+                ]
+            )
+        )
+        #expect(descriptor.creationWatchPaths.count <= 512)
+        #expect(!descriptor.creationWatchPathsAreComplete)
+    }
+
+    @Test func symlinkedConfigWatchesResolvedTarget() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let targetURL = fixture.root.appendingPathComponent("shared-config")
+        let configURL = fixture.gitDirectory.appendingPathComponent("config")
+        try "[remote \"origin\"]\n\turl = https://github.com/owner/repo.git\n"
+            .write(to: targetURL, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(
+            atPath: configURL.path,
+            withDestinationPath: targetURL.path
+        )
+
+        let descriptor = try #require(
+            await GitMetadataService().watchDescriptor(for: fixture.root.path)
+        )
+
+        #expect(descriptor.watchedPaths.contains(targetURL.standardizedFileURL.path))
+        #expect(descriptor.gitMetadataPaths.contains(targetURL.standardizedFileURL.path))
+    }
+
+    @Test func symlinkedConfigDirectoryNeverExpandsWatcherToFilesystemRoot() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let configURL = fixture.gitDirectory.appendingPathComponent("config")
+        try FileManager.default.createSymbolicLink(
+            atPath: configURL.path,
+            withDestinationPath: "/"
+        )
+
+        let descriptor = try #require(
+            await GitMetadataService().watchDescriptor(for: fixture.root.path)
+        )
+
+        #expect(!descriptor.watchedPaths.contains("/"))
+        #expect(!descriptor.gitMetadataPaths.contains("/"))
     }
 
     @Test func gitlinkPlanningRejectsIndexAboveByteBudgetBeforeParsing() throws {

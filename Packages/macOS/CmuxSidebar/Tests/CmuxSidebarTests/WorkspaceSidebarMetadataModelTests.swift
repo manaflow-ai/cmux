@@ -152,4 +152,39 @@ private struct FixedLogLimitProvider: SidebarLogEntryLimitProviding {
         #expect(emitted.count == 3)
         #expect(emitted.last == [:])
     }
+
+    @Test func repositoryLinkStateStoresAndPublishes() {
+        let model = makeModel()
+        let panelID = UUID()
+        let link = SidebarRepositoryLinkState(
+            remoteName: "origin",
+            displayName: "manaflow-ai/cmux",
+            url: URL(string: "https://github.com/manaflow-ai/cmux")!
+        )
+        var workspaceLinks: [SidebarRepositoryLinkState?] = []
+        var panelLinks: [[UUID: SidebarRepositoryLinkState]] = []
+        var cancellables: Set<AnyCancellable> = []
+        model.repositoryLinkPublisher
+            .sink { workspaceLinks.append($0) }
+            .store(in: &cancellables)
+        model.panelRepositoryLinksPublisher
+            .sink { panelLinks.append($0) }
+            .store(in: &cancellables)
+        #expect(workspaceLinks == [nil])
+        #expect(panelLinks == [[:]])
+
+        model.updateRepositoryLink(link)
+        model.updatePanelRepositoryLinks([panelID: link])
+        #expect(model.repositoryLink == link)
+        #expect(model.panelRepositoryLinks == [panelID: link])
+        #expect(workspaceLinks == [nil, link])
+        #expect(panelLinks == [[:], [panelID: link]])
+
+        model.updateRepositoryLink(nil)
+        model.updatePanelRepositoryLinks([:])
+        #expect(model.repositoryLink == nil)
+        #expect(model.panelRepositoryLinks.isEmpty)
+        #expect(workspaceLinks == [nil, link, nil])
+        #expect(panelLinks == [[:], [panelID: link], [:]])
+    }
 }

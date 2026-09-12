@@ -308,6 +308,7 @@ final class RemoteTmuxController {
                 titleSource: .auto,
                 select: false,
                 autoWelcomeIfNeeded: false,
+                autoRefreshMetadata: false,
                 applyCreationTitleAsCustomTitle: false
             ) else {
                 connection.stop()

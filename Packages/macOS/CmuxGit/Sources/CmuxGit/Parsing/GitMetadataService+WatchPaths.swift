@@ -2,16 +2,21 @@ import Dispatch
 import Foundation
 
 extension GitMetadataService {
+    private static let maximumGitMetadataWatchPathCount = 4_096
+    private static let maximumCreationWatchPathCount = 512
+
     /// Computes the sorted, existing paths to watch for a directory's git
     /// metadata, including submodule gitlinks. Returns `nil` when `directory` is
     /// not inside a repository.
     nonisolated static func workspaceGitMetadataWatchedPaths(
         for directory: String,
-        safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration()
+        safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String]? {
         workspaceGitMetadataWatchDescriptor(
             for: directory,
-            safetyConfiguration: safetyConfiguration
+            safetyConfiguration: safetyConfiguration,
+            environment: environment
         )?.watchedPaths
     }
 
@@ -27,7 +32,8 @@ extension GitMetadataService {
         watchOnlyPathsByRepository: [String: [String]]? = nil,
         metadataSentinelPathsByRepository: [String: [String]]? = nil,
         indexSnapshotsByRepository: [String: GitIndexSnapshot]? = nil,
-        deadline: DispatchTime? = nil
+        deadline: DispatchTime? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> GitWorkspaceMetadataWatchDescriptor? {
         guard let repository = resolvedRepository
             ?? resolveGitRepository(containing: directory, deadline: deadline) else {
@@ -46,16 +52,34 @@ extension GitMetadataService {
             (watchOnlyPathsByRepository?.values.flatMap { $0 } ?? [])
                 + metadataSentinelParentPaths
         )
-        let gitMetadataPaths = gitRepositoryMetadataWatchPaths(
+        let repositoryConfigSnapshot = gitRemoteConfigSnapshot(
             repository: repository,
-            configPathsByRepository: configPathsByRepository
+            safetyConfiguration: safetyConfiguration,
+            environment: environment
+        )
+        let repositoryConfigURLs = configPathsByRepository?[repository.workTreeRoot]
+            .map { $0.map(URL.init(fileURLWithPath:)) }
+            ?? (repositoryConfigSnapshot.configURLs + repositoryConfigSnapshot.watchFallbackURLs)
+        let sharedGlobalConfigURLs = repositoryConfigSnapshot.globalConfigURLs
+        let rawGitMetadataPaths = gitRepositoryMetadataWatchPaths(
+            repository: repository,
+            configPathsByRepository: configPathsByRepository,
+            configURLsOverride: repositoryConfigURLs,
+            environment: environment
         ) + gitlinkMetadataWatchPaths(
             repository: repository,
             safetyConfiguration: safetyConfiguration,
             configPathsByRepository: configPathsByRepository,
             indexSnapshotsByRepository: indexSnapshotsByRepository,
-            deadline: deadline
+            deadline: deadline,
+            environment: environment,
+            sharedGlobalConfigURLs: sharedGlobalConfigURLs
         )
+        let gitMetadataPaths = Array(
+            rawGitMetadataPaths.prefix(Self.maximumGitMetadataWatchPathCount)
+        )
+        let gitMetadataPathsAreComplete =
+            rawGitMetadataPaths.count <= Self.maximumGitMetadataWatchPathCount
         let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")
         let indexReadResult = GitIndexDataReader().read(
             at: URL(fileURLWithPath: indexPath),
@@ -126,32 +150,76 @@ extension GitMetadataService {
                 .compactMap { $0 }
                 .joined(separator: "\u{1e}")
         }
+        let creationWatchPlan = missingExternalConfigWatchPaths(
+            gitMetadataPaths: gitMetadataPaths,
+            repository: repository
+        )
+        let creationWatchPaths = creationWatchPlan.paths
+        let homeDirectory: URL
+        if let configuredHome = environment["HOME"], !configuredHome.isEmpty {
+            homeDirectory = URL(fileURLWithPath: configuredHome).standardizedFileURL
+        } else {
+            homeDirectory = GitMetadataService.processHomeDirectory
+        }
+        let xdgConfigHome: URL
+        if let configuredXDGHome = environment["XDG_CONFIG_HOME"],
+           !configuredXDGHome.isEmpty {
+            xdgConfigHome = URL(fileURLWithPath: configuredXDGHome)
+        } else {
+            xdgConfigHome = homeDirectory.appendingPathComponent(".config", isDirectory: true)
+        }
+        let creationWatchAllowedRoots = [
+            homeDirectory.resolvingSymlinksInPath().path,
+            xdgConfigHome.resolvingSymlinksInPath().path,
+            URL(fileURLWithPath: repository.workTreeRoot)
+                .resolvingSymlinksInPath()
+                .path,
+            URL(fileURLWithPath: repository.gitDirectory)
+                .resolvingSymlinksInPath()
+                .path,
+            URL(fileURLWithPath: repository.commonDirectory)
+                .resolvingSymlinksInPath()
+                .path,
+        ]
+        let creationWatchPathSet = Set(creationWatchPaths)
+        let recursiveMetadataPaths = gitMetadataPaths.filter {
+            !creationWatchPathSet.contains(nativeStandardizedPath($0))
+        }
         let candidatePaths = (includesWorkTreeRoot ? [repository.workTreeRoot] : [])
-            + gitMetadataPaths
+            + recursiveMetadataPaths
             + watchOnlyPaths
         var watchedPaths: [String] = []
         var seen: Set<String> = []
         for path in candidatePaths {
-            let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
-            let normalized = String(decoding: standardized.utf8, as: UTF8.self)
-            guard seen.insert(normalized).inserted else { continue }
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: normalized, isDirectory: &isDirectory) else {
+            let normalized = nativeStandardizedPath(path)
+            guard let watchRoot = existingWatchRoot(
+                for: normalized,
+                repository: repository
+            ),
+                  seen.insert(watchRoot).inserted else {
                 continue
             }
-            watchedPaths.append(normalized)
+            watchedPaths.append(watchRoot)
         }
 
         return GitWorkspaceMetadataWatchDescriptor(
             repositoryRoot: repository.workTreeRoot,
             watchedPaths: watchedPaths.sorted(),
-            gitMetadataPaths: sortedUniqueNormalizedPaths(gitMetadataPaths),
+            gitMetadataPaths: filteredMetadataWatchPaths(
+                gitMetadataPaths,
+                repository: repository
+            ),
             metadataSentinelPaths: normalizedMetadataSentinelPaths,
             trackedEntryPaths: trackedEntryPaths,
+            forcedWorkTreeRoots: [],
             acceptsAllWorkTreeEvents: acceptsAllWorkTreeEvents,
             eventCoalescingInterval: eventCoalescingInterval,
             eventFilterIdentity: filterIdentity,
-            degradation: degradation
+            degradation: degradation,
+            creationWatchPaths: creationWatchPaths,
+            creationWatchAllowedRoots: creationWatchAllowedRoots,
+            creationWatchPathsAreComplete:
+                gitMetadataPathsAreComplete && creationWatchPlan.isComplete
         )
     }
 
@@ -159,14 +227,18 @@ extension GitMetadataService {
     /// every reachable `config`) for a single resolved repository.
     nonisolated static func gitRepositoryMetadataWatchPaths(
         repository: ResolvedGitRepository,
-        configPathsByRepository: [String: [String]]? = nil
+        configPathsByRepository: [String: [String]]? = nil,
+        configURLsOverride: [URL]? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String] {
         let configPaths: [String]
-        if let configPathsByRepository {
+        if let configURLsOverride {
+            configPaths = configURLsOverride.map(\.path)
+        } else if let configPathsByRepository {
             configPaths = configPathsByRepository[repository.workTreeRoot]
-                ?? gitRootConfigURLs(repository: repository).map(\.path)
+                ?? gitRootConfigURLs(repository: repository, environment: environment).map(\.path)
         } else {
-            configPaths = gitConfigURLs(repository: repository).map(\.path)
+            configPaths = gitConfigURLs(repository: repository, environment: environment).map(\.path)
         }
         return [
             joinedPath(root: repository.gitDirectory, relativePath: "HEAD"),
@@ -176,7 +248,12 @@ extension GitMetadataService {
             joinedPath(root: repository.commonDirectory, relativePath: "refs"),
             joinedPath(root: repository.commonDirectory, relativePath: "packed-refs"),
             joinedPath(root: repository.commonDirectory, relativePath: "reftable"),
-        ] + configPaths
+        ] + configPaths.flatMap { path in
+            [
+                path,
+                URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+            ].filter(isWatchableConfigDependency)
+        }
     }
 
     private nonisolated static func sortedUniqueTrackedPaths(
@@ -206,6 +283,167 @@ extension GitMetadataService {
         return result.sorted()
     }
 
+    /// Returns an existing path to watch, falling back to a bounded existing
+    /// parent when a declared config/include path has not been created yet.
+    private nonisolated static func existingWatchRoot(
+        for path: String,
+        repository: ResolvedGitRepository
+    ) -> String? {
+        var candidate = URL(fileURLWithPath: path).standardizedFileURL
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDirectory) {
+            if isDirectory.boolValue {
+                let resolved = nativeStandardizedPath(
+                    candidate.resolvingSymlinksInPath().path
+                )
+                guard isAllowedDirectoryWatchRoot(resolved, repository: repository) else {
+                    return nil
+                }
+                return nativeStandardizedPath(candidate.path)
+            }
+            return nativeStandardizedPath(candidate.path)
+        }
+
+        // A missing path outside the repository gets at most its immediate,
+        // already-existing parent. Walking farther upward can turn a missing
+        // global config file (for example ~/.config/git/config) into a recursive
+        // watch of an unrelated user directory.
+        let normalizedPath = nativeStandardizedPath(path)
+        guard !isSameOrInside(normalizedPath, root: repository.workTreeRoot),
+              !isSameOrInside(normalizedPath, root: repository.gitDirectory),
+              !isSameOrInside(normalizedPath, root: repository.commonDirectory) else {
+            return existingRepositoryScopedWatchRoot(
+                for: candidate,
+                repository: repository
+            )
+        }
+        let parent = candidate.deletingLastPathComponent()
+        guard parent.path != candidate.path,
+              FileManager.default.fileExists(atPath: parent.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return nil
+        }
+        let normalizedParent = nativeStandardizedPath(parent.path)
+        guard isAllowedDirectoryWatchRoot(normalizedParent, repository: repository) else {
+            return nil
+        }
+        return normalizedParent
+    }
+
+    private nonisolated static func existingRepositoryScopedWatchRoot(
+        for initialCandidate: URL,
+        repository: ResolvedGitRepository
+    ) -> String? {
+        var candidate = initialCandidate
+        var isDirectory: ObjCBool = false
+        while true {
+            if FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDirectory) {
+                let normalized = nativeStandardizedPath(candidate.path)
+                guard isDirectory.boolValue,
+                      isAllowedDirectoryWatchRoot(normalized, repository: repository) else {
+                    return nil
+                }
+                return normalized
+            }
+            let parent = candidate.deletingLastPathComponent()
+            guard parent.path != candidate.path else { return nil }
+            candidate = parent
+        }
+    }
+
+    private nonisolated static func isSameOrInside(_ path: String, root: String) -> Bool {
+        path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
+    }
+
+    private nonisolated static func isAllowedDirectoryWatchRoot(
+        _ path: String,
+        repository: ResolvedGitRepository
+    ) -> Bool {
+        let normalized = nativeStandardizedPath(path)
+        guard normalized != "/" else { return false }
+        let logicalRepositoryRoots = [
+            repository.workTreeRoot,
+            repository.gitDirectory,
+            repository.commonDirectory
+        ].map(nativeStandardizedPath)
+        let resolved = nativeStandardizedPath(
+            URL(fileURLWithPath: normalized).resolvingSymlinksInPath().path
+        )
+        let resolvedRepositoryRoots = logicalRepositoryRoots.map {
+            nativeStandardizedPath(
+                URL(fileURLWithPath: $0).resolvingSymlinksInPath().path
+            )
+        }
+        let home = nativeStandardizedPath(
+            FileManager.default.homeDirectoryForCurrentUser.path
+        )
+        let resolvedHome = nativeStandardizedPath(
+            URL(fileURLWithPath: home).resolvingSymlinksInPath().path
+        )
+        return resolvedRepositoryRoots.contains { isSameOrInside(resolved, root: $0) }
+            || (resolved != resolvedHome && isSameOrInside(resolved, root: resolvedHome))
+    }
+
+    private nonisolated static func filteredMetadataWatchPaths(
+        _ paths: [String],
+        repository: ResolvedGitRepository
+    ) -> [String] {
+        sortedUniqueNormalizedPaths(paths).filter { path in
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else {
+                return true
+            }
+            guard isDirectory.boolValue else { return true }
+            let resolved = nativeStandardizedPath(
+                URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+            )
+            return isAllowedDirectoryWatchRoot(resolved, repository: repository)
+        }
+    }
+
+    private nonisolated static func isWatchableConfigDependency(_ path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else {
+            return true
+        }
+        return !isDirectory.boolValue
+    }
+
+    private nonisolated static func missingExternalConfigWatchPaths(
+        gitMetadataPaths: [String],
+        repository: ResolvedGitRepository
+    ) -> (paths: [String], isComplete: Bool) {
+        let repositoryRoots = [
+            repository.workTreeRoot,
+            repository.gitDirectory,
+            repository.commonDirectory,
+        ]
+        var paths: [String] = []
+        var seen: Set<String> = []
+        var isComplete = true
+        for rawPath in gitMetadataPaths {
+            let path = nativeStandardizedPath(rawPath)
+            guard path != "/",
+                  !FileManager.default.fileExists(atPath: path),
+                  !repositoryRoots.contains(where: { isSameOrInside(path, root: $0) }),
+                  seen.insert(path).inserted else {
+                continue
+            }
+            guard paths.count < Self.maximumCreationWatchPathCount else {
+                isComplete = false
+                break
+            }
+            paths.append(path)
+        }
+        return (paths.sorted(), isComplete)
+    }
+
+    /// Standardizes once outside event loops and copies Foundation-backed path
+    /// strings into native Swift UTF-8 storage for fast comparisons.
+    private nonisolated static func nativeStandardizedPath(_ path: String) -> String {
+        let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
+        return String(decoding: standardized.utf8, as: UTF8.self)
+    }
     /// The metadata paths contributed by gitlink (submodule) entries in the
     /// index, recursing into nested submodules so a checkout change at any
     /// depth wakes the watcher. Cycle-safe via the visited work-tree set.
@@ -214,8 +452,18 @@ extension GitMetadataService {
         safetyConfiguration: GitMetadataSafetyConfiguration,
         configPathsByRepository: [String: [String]]? = nil,
         indexSnapshotsByRepository: [String: GitIndexSnapshot]? = nil,
-        deadline: DispatchTime? = nil
+        deadline: DispatchTime? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        sharedGlobalConfigURLs: [URL]? = nil
     ) -> [String] {
+        let sharedGlobalConfigURLs = sharedGlobalConfigURLs ?? {
+            let configSnapshot = gitRemoteConfigSnapshot(
+                repository: repository,
+                safetyConfiguration: safetyConfiguration,
+                environment: environment
+            )
+            return configSnapshot.globalConfigURLs
+        }()
         var visitedWorkTreeRoots: Set<String> = [repository.workTreeRoot]
         return gitlinkMetadataWatchPaths(
             repository: repository,
@@ -224,7 +472,9 @@ extension GitMetadataService {
             safetyConfiguration: safetyConfiguration,
             configPathsByRepository: configPathsByRepository,
             indexSnapshotsByRepository: indexSnapshotsByRepository,
-            deadline: deadline
+            deadline: deadline,
+            environment: environment,
+            sharedGlobalConfigURLs: sharedGlobalConfigURLs
         )
     }
 
@@ -235,7 +485,9 @@ extension GitMetadataService {
         safetyConfiguration: GitMetadataSafetyConfiguration,
         configPathsByRepository: [String: [String]]?,
         indexSnapshotsByRepository: [String: GitIndexSnapshot]?,
-        deadline: DispatchTime?
+        deadline: DispatchTime?,
+        environment: [String: String],
+        sharedGlobalConfigURLs: [URL]
     ) -> [String] {
         guard depth < safetyConfiguration.submoduleDepth else { return [] }
         if let deadline, deadline <= DispatchTime.now() { return [] }
@@ -269,19 +521,28 @@ extension GitMetadataService {
                   submoduleRepository.workTreeRoot == gitlinkPath else {
                 continue
             }
-            // A missing child entry means the aggregate planner exhausted its
-            // deadline/budget. Use only bounded root sentinels here; starting a
-            // fresh include walk would escape that aggregate bound.
-            let submoduleConfigPaths = configPathsByRepository?[submoduleRepository.workTreeRoot]
-                ?? [
-                    joinedPath(root: submoduleRepository.commonDirectory, relativePath: "config"),
-                    joinedPath(root: submoduleRepository.gitDirectory, relativePath: "config"),
-                    joinedPath(root: submoduleRepository.gitDirectory, relativePath: "config.worktree"),
-                ]
-            paths.append(contentsOf: gitRepositoryMetadataWatchPaths(
+            let localConfigSnapshot = gitRemoteConfigSnapshot(
                 repository: submoduleRepository,
-                configPathsByRepository: [submoduleRepository.workTreeRoot: submoduleConfigPaths]
-            ))
+                safetyConfiguration: safetyConfiguration,
+                configRootURLs: [
+                    URL(fileURLWithPath: submoduleRepository.commonDirectory)
+                        .appendingPathComponent("config"),
+                    URL(fileURLWithPath: submoduleRepository.gitDirectory)
+                        .appendingPathComponent("config"),
+                ],
+                environment: environment
+            )
+            let localConfigURLs = configPathsByRepository?[submoduleRepository.workTreeRoot]
+                .map { $0.map(URL.init(fileURLWithPath:)) }
+                ?? (localConfigSnapshot.configURLs + localConfigSnapshot.watchFallbackURLs)
+            paths.append(
+                contentsOf: gitRepositoryMetadataWatchPaths(
+                    repository: submoduleRepository,
+                    configPathsByRepository: configPathsByRepository,
+                    configURLsOverride: sharedGlobalConfigURLs + localConfigURLs,
+                    environment: environment
+                )
+            )
             paths.append(
                 contentsOf: gitlinkMetadataWatchPaths(
                     repository: submoduleRepository,
@@ -290,7 +551,9 @@ extension GitMetadataService {
                     safetyConfiguration: safetyConfiguration,
                     configPathsByRepository: configPathsByRepository,
                     indexSnapshotsByRepository: indexSnapshotsByRepository,
-                    deadline: deadline
+                    deadline: deadline,
+                    environment: environment,
+                    sharedGlobalConfigURLs: sharedGlobalConfigURLs
                 )
             )
         }

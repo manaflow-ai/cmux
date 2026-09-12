@@ -31,6 +31,28 @@ struct SidebarWorkspaceSnapshotBuilder {
         let isStale: Bool
     }
 
+    struct RepositoryLinkDisplay: Equatable {
+        private static let openTooltipFormat = String(
+            localized: "sidebar.repository.openTooltip",
+            defaultValue: "Open repository %@"
+        )
+
+        let remoteName: String
+        let displayName: String
+        let url: URL
+        let openTooltip: String
+
+        init(remoteName: String, displayName: String, url: URL) {
+            self.remoteName = remoteName
+            self.displayName = displayName
+            self.url = url
+            self.openTooltip = Self.openTooltipFormat.replacingOccurrences(
+                of: "%@",
+                with: displayName
+            )
+        }
+    }
+
     struct Snapshot: Equatable {
         let presentationKey: PresentationKey
         let title: String
@@ -55,6 +77,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let compactBranchDirectoryCandidates: [String]
         let branchDirectoryLines: [VerticalBranchDirectoryLine]
         let branchLinesContainBranch: Bool
+        let repositoryLink: RepositoryLinkDisplay?
         let pullRequestRows: [PullRequestDisplay]
         let listeningPorts: [Int]
         let finderDirectoryPath: String?

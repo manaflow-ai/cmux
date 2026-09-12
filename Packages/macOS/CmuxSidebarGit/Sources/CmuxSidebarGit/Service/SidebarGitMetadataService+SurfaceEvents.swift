@@ -121,7 +121,7 @@ extension SidebarGitMetadataService {
         }
         if !activity.performsActivePolling ||
             host.shouldSkipLocalGitMetadata(workspaceId: workspaceId, panelId: panelId) {
-            clearWorkspaceGitProbe(probeKey)
+            clearWorkspaceGitProbe(probeKey, clearRepositoryLink: false)
             workspaceGitTrackedDirectoryByKey.removeValue(forKey: probeKey)
             pullRequestProbing.clearWorkspacePullRequestTracking(workspaceId: workspaceId, panelId: panelId)
             return
@@ -129,7 +129,11 @@ extension SidebarGitMetadataService {
         guard branchChanged else { return }
         if let directory = host.gitProbeDirectory(workspaceId: workspaceId, panelId: panelId) {
             workspaceGitTrackedDirectoryByKey[probeKey] = directory
-            updateWorkspaceGitMetadataWatcher(for: probeKey, directory: directory)
+            updateWorkspaceGitMetadataWatcher(
+                for: probeKey,
+                directory: directory,
+                forceDescriptorRefresh: true
+            )
         }
         pullRequestProbing.scheduleWorkspacePullRequestRefresh(
             workspaceId: workspaceId,
@@ -147,7 +151,8 @@ extension SidebarGitMetadataService {
         guard let host, host.workspaceExists(workspaceId) else { return }
         let hadBranch = host.panelGitBranch(workspaceId: workspaceId, panelId: panelId) != nil
         let hadPullRequest = host.panelPullRequestBadge(workspaceId: workspaceId, panelId: panelId) != nil
-        guard hadBranch || hadPullRequest else { return }
+        let hadRepositoryLink = host.panelRepositoryLink(workspaceId: workspaceId, panelId: panelId) != nil
+        guard hadBranch || hadPullRequest || hadRepositoryLink else { return }
         pullRequestProbing.clearWorkspacePullRequestTracking(
             workspaceId: workspaceId,
             panelId: panelId
@@ -156,6 +161,7 @@ extension SidebarGitMetadataService {
         workspaceGitTrackedDirectoryByKey.removeValue(forKey: probeKey)
         stopWorkspaceGitMetadataWatcher(for: probeKey)
         host.clearPanelGitBranch(workspaceId: workspaceId, panelId: panelId)
+        host.clearPanelRepositoryLink(workspaceId: workspaceId, panelId: panelId)
         host.clearPanelPullRequest(workspaceId: workspaceId, panelId: panelId)
         scheduleWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: workspaceId,

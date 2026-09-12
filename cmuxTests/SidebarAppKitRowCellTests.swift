@@ -42,6 +42,7 @@ struct SidebarAppKitRowCellTests {
             compactBranchDirectoryCandidates: [],
             branchDirectoryLines: [],
             branchLinesContainBranch: false,
+            repositoryLink: nil,
             pullRequestRows: [],
             listeningPorts: [],
             finderDirectoryPath: nil,
@@ -1851,14 +1852,16 @@ struct SidebarAppKitRowCellTests {
         let pill = SidebarShortcutHintPillView(reduceMotionProvider: { true })
 
         pill.configure(text: "⌘1", fontSize: 9, emphasis: 1)
+        let revealedAnimationKeys = pill.layer?.animationKeys() ?? []
         #expect(!pill.isHidden)
         #expect(pill.layer?.opacity == 1)
-        #expect((pill.layer?.animationKeys() ?? []).isEmpty)
+        #expect(revealedAnimationKeys.isEmpty)
 
         pill.configure(text: nil, fontSize: 9, emphasis: 1)
+        let hiddenAnimationKeys = pill.layer?.animationKeys() ?? []
         #expect(pill.isHidden)
         #expect(pill.layer?.opacity == 0)
-        #expect((pill.layer?.animationKeys() ?? []).isEmpty)
+        #expect(hiddenAnimationKeys.isEmpty)
     }
 
     @Test
@@ -1879,7 +1882,8 @@ struct SidebarAppKitRowCellTests {
         )
 
         #expect(pill.isHidden)
-        #expect((pill.layer?.animationKeys() ?? []).isEmpty)
+        let animationKeys = pill.layer?.animationKeys() ?? []
+        #expect(animationKeys.isEmpty)
     }
 
     @Test
