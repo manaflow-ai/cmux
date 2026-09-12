@@ -63,7 +63,9 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     }
 
     override func mouseExited(with event: NSEvent) {
-        updateHover(at: nil)
+        // Tracking-area replacement can deliver a stale exit after the new
+        // area has refreshed; recompute from the current pointer location.
+        refreshHover()
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
