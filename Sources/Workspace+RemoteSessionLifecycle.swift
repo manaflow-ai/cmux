@@ -210,6 +210,11 @@ extension Workspace {
 
     @discardableResult
     func reconnectCloudTerminalSurface(surfaceId: UUID) -> Bool {
+        if let resource = cloudProjectedResource(forPanel: surfaceId),
+           let machineID = resource.id.machine.cloudMachineID,
+           let session = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID)?.manualMirrorSessions[surfaceId] {
+            return session.retryConnection()
+        }
         guard isManagedCloudVMWorkspace,
               isRemoteTerminalSurface(surfaceId) || remoteDisconnectPlaceholderPanelIds.contains(surfaceId) else {
             return false
