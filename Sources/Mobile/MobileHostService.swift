@@ -731,7 +731,7 @@ final class MobileHostService {
 
     /// Key written by released builds before the setting moved into the
     /// canonical settings catalog. Read only as a migration fallback.
-    nonisolated private static let legacyListeningEnabledDefaultsKey = "cmuxMobilePairingHostEnabled"
+    nonisolated static let legacyListeningEnabledDefaultsKey = "cmuxMobilePairingHostEnabled"
 
     /// Whether the mobile pairing host should bind a network listener at all.
     ///
@@ -764,13 +764,11 @@ final class MobileHostService {
         defaults: UserDefaults,
         buildFlavor: BuildFlavor
     ) -> Bool {
-        if let override = defaults.object(forKey: listeningEnabledDefaultsKey) as? Bool {
-            return override
-        }
-        if let legacyOverride = defaults.object(forKey: legacyListeningEnabledDefaultsKey) as? Bool {
-            return legacyOverride
-        }
-        return buildFlavor != .stable
+        isListeningEnabled(
+            defaults: defaults,
+            buildFlavor: buildFlavor,
+            devicesPublishing: DevicesFeature.isEnabled(defaults: defaults)
+        )
     }
 
     /// User-default key for the preferred iOS pairing listener port.
@@ -1147,7 +1145,7 @@ final class MobileHostService {
         drainReadinessWaiters()
     }
 
-    private func stopLegacyListener(reason: String) {
+    func stopLegacyListener(reason: String) {
         stopNetworkPathMonitor()
         listenerGeneration = UUID()
         listenerUsesEphemeralFallback = false
@@ -1277,6 +1275,20 @@ final class MobileHostService {
     /// Reads `UserDefaults.standard` because the live singleton listener binds
     /// against the app's real store; `start`/`restart` do the same, so there is
     /// no caller-supplied store to honor here.
+    /// Revokes every incoming session while IRX may retain its endpoint for outgoing use.
+    func stopIncomingAccess() {
+        stopLegacyListener(reason: "incoming access disabled")
+        for connection in MobileHostConnectionRegistry.shared.removeAll() {
+            Task { await connection.close(reason: "incoming access disabled") }
+        }
+        MobileHostEventSubscriptionTracker.reset()
+        MobileHostPublicStatusCache.removeAll()
+        TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.accessDisabled")
+        if !MobileHostIrxRuntime.isEnabled {
+            MobileHostIrohRuntime.shared.setDesiredActive(false)
+        }
+    }
+
     func syncToSettings() {
         // IRX is the primary transport. Reconcile it on every settings/policy
         // pass so `DisableIrohNetworking` and `DisableRemoteControl` tear the
@@ -1298,6 +1310,10 @@ final class MobileHostService {
             return
         }
         remoteControlPolicyStopApplied = false
+        guard MobileRemoteControlPolicy.allowsIncomingAccess() else {
+            stopIncomingAccess()
+            return
+        }
         let defaults = UserDefaults.standard
         // Settings control only the legacy TCP/Tailscale listener. Account-
         // authenticated Iroh stays available for signed-in Macs.
@@ -1379,8 +1395,9 @@ final class MobileHostService {
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         idleTimeoutNanoseconds: UInt64? = nil,
         promoteUsableSession: @escaping @Sendable () async -> Bool = { true },
+        irohAdmissionIsAuthorized: @escaping @Sendable () async -> Bool = { true },
         remoteControlDisabledByPolicy: @escaping @Sendable () -> Bool = {
-            MobileRemoteControlPolicy.isDisabled
+            !MobileRemoteControlPolicy.allowsIncomingAccess()
         },
         isCurrent: @escaping @Sendable () async -> Bool
     ) async -> CmxIrohAdmittedConnectionExit {
@@ -1431,6 +1448,12 @@ final class MobileHostService {
                 await Self.retireSupersededIrohConnections(
                     newestConnectionID: id
                 )
+                return true
+            },
+            isAuthorizationCurrent: {
+                if case .irohAdmission = authorization {
+                    return await irohAdmissionIsAuthorized()
+                }
                 return true
             },
             handleRequest: { request in
@@ -2098,6 +2121,9 @@ actor MobileHostConnection {
     private let firstFrameTimeoutNanoseconds: UInt64
     private let idleTimeoutNanoseconds: UInt64
     private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
+    /// Per-request authorization for transports whose admission lease can
+    /// expire while the connection remains open (Iroh).
+    private let isAuthorizationCurrent: @Sendable () async -> Bool
     private let onAuthorizedRequest: @Sendable (MobileHostRPCRequest) async -> Void
     private let onUsableSession: @Sendable () async -> Bool
     private let handleRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
@@ -2150,6 +2176,7 @@ actor MobileHostConnection {
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
         onUsableSession: @escaping @Sendable () async -> Bool = { true },
+        isAuthorizationCurrent: @escaping @Sendable () async -> Bool = { true },
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
         onClose: @escaping @Sendable (UUID) async -> Void,
         requestSimulatorFrameReplay: @escaping @Sendable (UUID, Set<String>) async -> Void = { _, _ in }
@@ -2163,6 +2190,7 @@ actor MobileHostConnection {
         self.idleTimeoutNanoseconds = idleTimeoutNanoseconds
         self.eventSendStallTimeoutNanoseconds = eventSendStallTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
+        self.isAuthorizationCurrent = isAuthorizationCurrent
         self.onAuthorizedRequest = onAuthorizedRequest
         self.onUsableSession = onUsableSession
         self.handleRequest = handleRequest
@@ -2182,6 +2210,7 @@ actor MobileHostConnection {
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
         onUsableSession: @escaping @Sendable () async -> Bool = { true },
+        isAuthorizationCurrent: @escaping @Sendable () async -> Bool = { true },
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
         onClose: @escaping @Sendable (UUID) async -> Void,
         requestSimulatorFrameReplay: @escaping @Sendable (UUID, Set<String>) async -> Void = { _, _ in }
@@ -2194,6 +2223,7 @@ actor MobileHostConnection {
         self.idleTimeoutNanoseconds = idleTimeoutNanoseconds
         self.eventSendStallTimeoutNanoseconds = eventSendStallTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
+        self.isAuthorizationCurrent = isAuthorizationCurrent
         self.onAuthorizedRequest = onAuthorizedRequest
         self.onUsableSession = onUsableSession
         self.handleRequest = handleRequest
@@ -2582,6 +2612,18 @@ actor MobileHostConnection {
     ) async -> PreparedResponse? {
         guard !isClosed, !Task.isCancelled else {
             return nil
+        }
+        guard await isAuthorizationCurrent() else {
+            return PreparedResponse(
+                data: MobileHostRPCEnvelope.encodeResponse(
+                    id: request.id,
+                    result: .failure(MobileHostRPCError(
+                        code: "admission_expired",
+                        message: "The remote device authorization has expired. Reconnect to continue."
+                    ))
+                ),
+                readinessContribution: nil
+            )
         }
         let tracksInteractiveActivity = Self.isInteractiveMobileRequest(request.method)
         if tracksInteractiveActivity {

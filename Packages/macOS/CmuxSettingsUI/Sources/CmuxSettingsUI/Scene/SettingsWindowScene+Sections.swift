@@ -30,6 +30,10 @@ extension SettingsWindowRoot {
             )
         }
 
+        slot(.computers, proxy: proxy) {
+            ComputersSection(hostActions: hostActions, defaultsStore: defaultsStore, catalog: catalog)
+        }
+
         slot(.app, proxy: proxy) {
             AppSection(
                 defaultsStore: defaultsStore,

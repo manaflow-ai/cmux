@@ -1119,9 +1119,28 @@ extension TerminalController {
     }
 
     nonisolated static func surfaceMachinePayload(_ info: SurfaceMachineInfo) -> [String: Any] {
-        [
+        var presence: Any = NSNull()
+        if let record = info.presence {
+            presence = [
+                "state": record.state.rawValue,
+                "last_seen_at": record.lastSeenAt.map { $0.timeIntervalSince1970 } ?? NSNull(),
+                "tag": record.tag,
+                "bundle_id": record.bundleID ?? NSNull(),
+                "account_trust": record.accountTrust.rawValue,
+                "build_label": record.buildLabel ?? NSNull(),
+            ] as [String: Any]
+        }
+        let kind: String
+        switch info.id {
+        case .local: kind = "local"
+        case .cloud: kind = "cloud"
+        case .device: kind = "device"
+        }
+        return [
             "id": info.id.rawValue,
             "local": info.id.isLocal,
+            "kind": kind,
+            "presence": presence,
             "name": info.name,
             "status": info.status,
             "image": info.image ?? NSNull(),

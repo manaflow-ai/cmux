@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
 import Foundation
+import Observation
 
 /// Registers this Mac (and its running cmux app instance's attach routes) in the
 /// team-scoped device registry (`POST /api/devices`), so a phone can look up the
@@ -30,12 +31,24 @@ final class DeviceRegistryClient {
     /// account/team switch with unchanged routes still re-registers in the newly
     /// selected team instead of being deduped away.
     private var lastRegistration: Registration?
+    private var latestRoutes: [CmxAttachRoute] = []
+    private var observedIdentity: AuthenticatedSessionIdentity?
+    private var observedTeamID: String?
+    private var publicationTask: Task<Void, Never>?
+    private var pendingSignOut: Registration?
+    private var activePublication: Registration?
+    private var signingOut = false
+    private var observedSignedOut = false
+    private var lastLeaseRenewal: ContinuousClock.Instant?
+    private var leaseTask: Task<Void, Never>?
 
     /// The identity of a registration POST, for deduplication.
     struct Registration: Equatable {
         var teamID: String?
         var tag: String
         var routes: [CmxAttachRoute]
+        var accountID: String? = nil
+        var generation: UInt64? = nil
     }
 
     private init() {}
@@ -45,6 +58,7 @@ final class DeviceRegistryClient {
     func configure(auth: AuthCoordinator) {
         self.auth = auth
         startObserving()
+        observeAccount()
     }
 
     /// Whether a registration with `current` scope differs from what was last
@@ -68,79 +82,200 @@ final class DeviceRegistryClient {
         // Treat "never registered" as an empty-routes baseline in the same scope
         // so an initial empty set (pairing off at launch) is a no-op, but a later
         // clear, or any team/tag change, still fires.
-        let baseline = previous ?? Registration(teamID: current.teamID, tag: current.tag, routes: [])
+        let baseline = previous ?? Registration(
+            teamID: current.teamID, tag: current.tag, routes: [],
+            accountID: current.accountID, generation: current.generation
+        )
         return baseline != current
     }
 
     private func startObserving() {
         observeTask?.cancel()
-        // Registration is currently driven only by host-route changes. The dedup
-        // key includes the team, so a team switch *does* re-register once the
-        // next status tick arrives, but a mid-session team switch with otherwise
-        // unchanged routes is not registered in the new team until then. Known
-        // limitation; an explicit auth/team-change trigger is a follow-up.
         observeTask = Task { @MainActor [weak self] in
             for await status in MobileHostService.shared.statusUpdates() {
                 if Task.isCancelled { break }
-                await self?.registerIfRoutesChanged(routes: status.routes)
+                self?.latestRoutes = status.routes
+                self?.updateLeaseRenewal()
+                self?.enqueuePublication()
             }
         }
     }
 
-    private func registerIfRoutesChanged(routes: [CmxAttachRoute]) async {
-        // Status, route, and foreground events share this gate. Cached routes
-        // remain valid while the server owns the next registration attempt.
-        guard await retryAfterGate.remainingSeconds() == nil else { return }
+    private func observeAccount() {
         guard let auth else { return }
-        // Await tokens FIRST: this both gates on "signed in" and waits for launch
-        // auth bootstrap. `resolvedTeamID` is derived from `availableTeams`, which
-        // is empty until bootstrap completes, so reading the team before this
-        // await could resolve nil even when the user has a persisted selected team
-        // and publish the Mac into the wrong (Stack-default) team. After bootstrap
-        // `currentTokens()` returns the cached token, so awaiting it per tick is
-        // cheap.
-        let tokens: (accessToken: String, refreshToken: String)
-        do {
-            tokens = try await auth.currentTokens()
-        } catch {
-            return // not signed in → nothing to do
+        let scope = withObservationTracking {
+            (auth.authenticatedSessionIdentity, auth.resolvedTeamID)
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.observeAccount() }
         }
-        // Resolve the team AFTER bootstrap, and use that same scope for both the
-        // dedup decision and the request header, so a team switch with unchanged
-        // routes is detected and the POST targets the intended team.
-        let teamID = auth.resolvedTeamID
-        let tag = MobileHostIdentity.instanceTag()
-        let registration = Registration(teamID: teamID, tag: tag, routes: routes)
-        guard Self.shouldReRegister(previous: lastRegistration, current: registration) else { return }
+        guard scope.0 != observedIdentity || scope.1 != observedTeamID else { return }
+        observedIdentity = scope.0
+        observedTeamID = scope.1
+        updateLeaseRenewal()
+        if scope.0 == nil {
+            if signingOut { observedSignedOut = true }
+            return
+        }
+        if signingOut && !observedSignedOut { return }
+        signingOut = false
+        updateLeaseRenewal()
+        enqueuePublication()
+    }
 
+    private func enqueuePublication(renewLease: Bool = false) {
+        let previous = publicationTask
+        publicationTask = Task { @MainActor [weak self] in
+            await previous?.value
+            guard !Task.isCancelled else { return }
+            await self?.registerCurrentState(renewLease: renewLease)
+        }
+    }
+
+    /// Renews the server's discovery lease independently of presence-worker backpressure.
+    func maintainAvailabilityLease() {
+        guard !signingOut, !latestRoutes.isEmpty,
+              MobileRemoteControlPolicy.allowsIncomingAccess(),
+              Self.leaseRenewalDue(lastSuccess: lastLeaseRenewal, now: .now) else { return }
+        enqueuePublication(renewLease: true)
+    }
+
+    private func updateLeaseRenewal() {
+        let shouldRun = !signingOut && auth?.authenticatedSessionIdentity != nil
+            && !latestRoutes.isEmpty && MobileRemoteControlPolicy.allowsIncomingAccess()
+        if !shouldRun {
+            leaseTask?.cancel()
+            leaseTask = nil
+            return
+        }
+        guard leaseTask == nil else { return }
+        leaseTask = Task { @MainActor [weak self] in
+            let clock = ContinuousClock()
+            while !Task.isCancelled {
+                // This delay is the lease renewal cadence, not UI synchronization.
+                do { try await clock.sleep(for: .seconds(60)) } catch { return }
+                self?.maintainAvailabilityLease()
+            }
+        }
+    }
+
+    nonisolated static func leaseRenewalDue(lastSuccess: ContinuousClock.Instant?, now: ContinuousClock.Instant) -> Bool {
+        guard let lastSuccess else { return true }
+        return lastSuccess.duration(to: now) >= .seconds(60)
+    }
+
+    /// Capture the old registration before the auth coordinator clears local credentials.
+    func beginSignOut() {
+        signingOut = true
+        observedSignedOut = false
+        pendingSignOut = activePublication ?? lastRegistration
+        updateLeaseRenewal()
+    }
+
+    /// Runs in the auth coordinator's bounded teardown hook with its captured old credentials.
+    func withdrawForSignOut(accessToken: String?, refreshToken: String?) async {
+        let registration = pendingSignOut
+        pendingSignOut = nil
+        guard let registration, let accessToken, let refreshToken else { return }
+        let previous = publicationTask
+        let cleanup = Task { @MainActor [weak self] in
+            await previous?.value
+            guard let self, !Task.isCancelled else { return }
+            // A completed re-sign-in supersedes this old session's withdrawal.
+            // Any later publication waits on this cleanup through the same lane.
+            if let identity = self.auth?.authenticatedSessionIdentity,
+               identity.accountID == registration.accountID,
+               identity.generation != registration.generation,
+               !self.signingOut { return }
+            if self.lastRegistration == registration { self.lastRegistration = nil }
+            var withdrawn = registration
+            withdrawn.routes = []
+            _ = await self.publish(withdrawn, tokens: (accessToken, refreshToken))
+        }
+        publicationTask = cleanup
+        await withTaskCancellationHandler {
+            await cleanup.value
+        } onCancel: {
+            cleanup.cancel()
+        }
+    }
+
+    private func registerCurrentState(renewLease: Bool) async {
+        guard !signingOut, let auth else { return }
+        let snapshot: AuthenticatedSessionSnapshot
+        do { snapshot = try await auth.authenticatedSessionSnapshot() } catch { return }
+        guard !signingOut,
+              auth.authenticatedSessionIdentity == AuthenticatedSessionIdentity(
+                generation: snapshot.generation, accountID: snapshot.accountID
+              ) else { return }
+        let teamID = auth.resolvedTeamID
+        let incomingAllowed = MobileRemoteControlPolicy.allowsIncomingAccess()
+        let routes = incomingAllowed ? latestRoutes : []
+        let current = Registration(
+            teamID: teamID, tag: MobileHostIdentity.instanceTag(), routes: routes,
+            accountID: snapshot.accountID, generation: snapshot.generation
+        )
+        let tokens = (accessToken: snapshot.accessToken, refreshToken: snapshot.refreshToken)
+        if let previous = lastRegistration,
+           previous.accountID == snapshot.accountID,
+           previous.teamID != current.teamID {
+            var withdrawn = previous
+            withdrawn.routes = []
+            _ = await publish(withdrawn, tokens: tokens)
+            lastRegistration = nil
+        }
+        if lastRegistration?.accountID != snapshot.accountID { lastRegistration = nil }
+        guard !signingOut,
+              auth.authenticatedSessionIdentity == AuthenticatedSessionIdentity(
+                generation: snapshot.generation, accountID: snapshot.accountID
+              ), auth.resolvedTeamID == teamID else { return }
+        let renew = renewLease && !routes.isEmpty && Self.leaseRenewalDue(lastSuccess: lastLeaseRenewal, now: .now)
+        let withdrawUnknownRegistration = !incomingAllowed && lastRegistration == nil
+        guard Self.shouldReRegister(previous: lastRegistration, current: current) || renew || withdrawUnknownRegistration else { return }
+        // Withdrawals must not be suppressed by a previous positive publication's backoff.
+        if !routes.isEmpty, await retryAfterGate.remainingSeconds() != nil { return }
+        if await publish(current, tokens: tokens) {
+            lastRegistration = current
+            if !routes.isEmpty { lastLeaseRenewal = .now }
+        }
+    }
+
+    private func publish(
+        _ registration: Registration,
+        tokens: (accessToken: String, refreshToken: String)
+    ) async -> Bool {
+        activePublication = registration
+        defer { if activePublication == registration { activePublication = nil } }
         guard var comps = URLComponents(
             url: AuthEnvironment.deviceRegistryAPIBaseURL, resolvingAgainstBaseURL: false
         ) else {
-            return
+            return false
         }
         comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path) + "/api/devices"
-        guard let url = comps.url else { return }
+        guard let url = comps.url else { return false }
 
         let disclosureDate = Date()
         var bodyDict: [String: Any] = [
             "deviceId": MobileHostIdentity.deviceID(),
-            "platform": "mac",
-            "tag": tag,
-            "routes": routes.mobileHostJSONObjects(
+            "tag": registration.tag
+        ]
+        if !registration.routes.isEmpty {
+            bodyDict["platform"] = "mac"
+            bodyDict["discoveryLease"] = true
+            bodyDict["routes"] = registration.routes.mobileHostJSONObjects(
                 for: .cloudRendezvous,
                 at: disclosureDate
-            ),
-        ]
-        if let displayName = MobileHostIdentity.baseDisplayName(), !displayName.isEmpty {
-            bodyDict["displayName"] = displayName
+            )
+            if let displayName = MobileHostIdentity.baseDisplayName(), !displayName.isEmpty {
+                bodyDict["displayName"] = displayName
+            }
         }
 
         var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.timeoutInterval = 10
+        req.httpMethod = registration.routes.isEmpty ? "PATCH" : "POST"
+        req.timeoutInterval = 2
         req.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
         req.setValue(tokens.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
-        if let teamID, !teamID.isEmpty {
+        if let teamID = registration.teamID, !teamID.isEmpty {
             req.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
         }
         req.setValue("application/json", forHTTPHeaderField: "content-type")
@@ -152,7 +287,7 @@ final class DeviceRegistryClient {
                 if (200...299).contains(http.statusCode) {
                     // Only remember the scope once the server accepted it, so a
                     // transient failure retries on the next status tick.
-                    lastRegistration = registration
+                    return true
                 } else {
                     if http.statusCode == 429 {
                         let seconds = CmxRetryAfterPolicy.seconds(
@@ -168,8 +303,9 @@ final class DeviceRegistryClient {
             // Best-effort; the registry must never disrupt the Mac. Still log:
             // a silently unreachable registry strands every paired phone on
             // stale routes with nothing to diagnose from.
-            NSLog("cmux.deviceRegistry register unreachable: %@", String(describing: error))
+            NSLog("cmux.deviceRegistry register unreachable: %@", String(describing: type(of: error)))
         }
+        return false
     }
 
 }

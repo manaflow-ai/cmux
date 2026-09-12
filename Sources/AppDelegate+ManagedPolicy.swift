@@ -23,6 +23,9 @@ extension AppDelegate {
                 // the policy lifts.
                 MobileHostService.shared.syncToSettings()
             },
+            enforceIncomingAccessPolicy: {
+                MobileHostService.shared.syncToSettings()
+            },
             enforceCloudPolicy: { [weak self] in
                 self?.applyManagedCloudPolicy()
             },

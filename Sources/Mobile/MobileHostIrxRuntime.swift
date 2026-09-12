@@ -82,7 +82,8 @@ final class MobileHostIrxRuntime {
     /// Test-constructed runtimes leave that cache alone so parallel suites
     /// cannot clobber the live identity, and so comparing against ``shared``
     /// cannot lazily create it.
-    private let publishesPublicHostStatus: Bool
+    let publishesPublicHostStatus: Bool
+    weak var outgoingDeviceClient: DeviceIrxClient?
 
     init(
         managedDevicePolicy: ManagedDevicePolicy = ManagedDevicePolicy(),
@@ -95,6 +96,7 @@ final class MobileHostIrxRuntime {
     var isNetworkingAllowed: Bool {
         !managedDevicePolicy.isEnforced(.disableIrohNetworking)
             && !managedDevicePolicy.isEnforced(.disableRemoteControl)
+            && (MobileRemoteControlPolicy.allowsIncomingAccess() || DevicesFeature.isDiscoveryEnabled())
     }
 
     /// Tears the host down without treating the transition as a sign-out:
@@ -147,6 +149,7 @@ final class MobileHostIrxRuntime {
         else {
             return
         }
+        await withdrawPublishedAvailability()
         await deactivate()
         activeAccountID = nil
     }
@@ -160,16 +163,18 @@ final class MobileHostIrxRuntime {
         if accountID != activeAccountID {
             await transition(to: accountID)
         }
+        await reconcileIncomingAccess()
     }
 
-    private weak var auth: AuthCoordinator?
+    weak var auth: AuthCoordinator?
     private var authObservationTask: Task<Void, Never>?
-    private var activeAccountID: String?
-    private var activationTask: Task<Void, Never>?
+    private(set) var activeAccountID: String?
+    private(set) var activationTask: Task<Void, Never>?
     /// Chain head for ``enqueueManagedNetworking(_:)``.
     private var managedNetworkingTask: Task<Void, Never>?
     /// Changes on every (de)activation; per-connection supervisors compare it.
-    private var generationToken = UUID()
+    private(set) var generationToken = UUID()
+    var registeredIncomingAccess: Bool?
     /// Consecutive activation failures since the last successful activation.
     /// Drives the doubling retry ladder; reset on success and on transition.
     private var activationFailureCount = 0
@@ -198,10 +203,10 @@ final class MobileHostIrxRuntime {
     private var stateDirectory: URL?
     private(set) var brokerService: IrxBrokerService?
     private(set) var endpointSupervisor: IrxEndpointSupervisor?
-    private var autopilot: IrxRelayCredentialAutopilot?
-    private var registry: IrxServerSessionRegistry?
+    private(set) var autopilot: IrxRelayCredentialAutopilot?
+    private(set) var registry: IrxServerSessionRegistry?
     private var acceptLoop: Task<Void, Never>?
-    private var localBinding: IrxBindingSnapshot?
+    private(set) var localBinding: IrxBindingSnapshot?
     /// The always-on fact channel to the per-account control-plane DO: the
     /// host publishes hint announcements on it (instant propagation to
     /// phones) and ingests pushed relay passes. Never on any serving path.
@@ -209,14 +214,14 @@ final class MobileHostIrxRuntime {
     /// The CURRENT device-list lease the accept loop judges against:
     /// synchronous O(1) reads, atomically swapped on every directory apply,
     /// cleared (fail closed) on deactivation.
-    private var deviceListBox: IrxDeviceListCurrent?
+    private(set) var deviceListBox: IrxDeviceListCurrent?
     /// Durable home of the lease (Keychain in Release, dev file store in
     /// DEBUG), loaded at activation so admission works offline.
     private var deviceListStore: IrxDeviceListStore?
     /// Authenticated Bonjour publisher for the IRX endpoint. Iroh's native
     /// candidate discovery handles public paths, while this publisher makes
     /// same-account LAN candidates available to the client-side fallback.
-    private let lanPublisher = CmxIrohLANHostPublisher()
+    let lanPublisher = CmxIrohLANHostPublisher()
 
     func configure(auth: AuthCoordinator) {
         self.auth = auth
@@ -470,7 +475,7 @@ final class MobileHostIrxRuntime {
             // accepted.
             try Task.checkCancellation()
             let binding = try await broker.register(
-                pairingEnabled: true,
+                pairingEnabled: MobileRemoteControlPolicy.allowsIncomingAccess(),
                 relayURLHint: nil
             )
             try Task.checkCancellation()
@@ -491,7 +496,7 @@ final class MobileHostIrxRuntime {
             let directPorts = CmxIrohDirectPorts(localDirectAddresses: directAddresses)
             try Task.checkCancellation()
             _ = try? await broker.register(
-                pairingEnabled: true,
+                pairingEnabled: MobileRemoteControlPolicy.allowsIncomingAccess(),
                 relayURLHint: homeRelay,
                 directAddresses: directAddresses,
                 directPorts: directPorts
@@ -502,29 +507,7 @@ final class MobileHostIrxRuntime {
             }
             let liveDiscovery = (try? await broker.discover(maximumAge: 0)) ?? initialDiscovery
             try Task.checkCancellation()
-            if !Self.forceRelayOnly,
-               MobileHostService.isListeningEnabled,
-               let discoveredBinding = liveDiscovery.bindings.first(where: {
-                   $0.endpointID.endpointID == identity.endpointIDHex
-               }),
-               let bindingMetadata = try? CmxIrohBrokerBindingMetadata(
-                   bindingID: discoveredBinding.bindingID,
-                   deviceID: discoveredBinding.deviceID,
-                   appInstanceID: discoveredBinding.appInstanceID,
-                   clientNamespace: discoveredBinding.clientNamespace,
-                   tag: discoveredBinding.tag,
-                   platform: discoveredBinding.platform,
-                   endpointID: discoveredBinding.endpointID,
-                   identityGeneration: discoveredBinding.identityGeneration,
-                   pathHints: discoveredBinding.pathHints
-               )
-            {
-                await lanPublisher.activate(
-                    rendezvous: liveDiscovery.lanRendezvous,
-                    binding: bindingMetadata,
-                    directAddresses: { await supervisor.localDirectAddresses() }
-                )
-            }
+            await activateLANAdvertising(discovery: liveDiscovery)
             // Relay hints are server-capped at 1h; refresh the registration on
             // every credential rotation so the advertised hint never expires,
             // and announce it over the socket so phones hear about relay
@@ -537,7 +520,7 @@ final class MobileHostIrxRuntime {
                 let directAddresses = await supervisor.localDirectAddresses()
                 let directPorts = CmxIrohDirectPorts(localDirectAddresses: directAddresses)
                 try? await broker.registerHintIfNeeded(
-                    pairingEnabled: true,
+                    pairingEnabled: MobileRemoteControlPolicy.allowsIncomingAccess(),
                     relayURLHint: relay,
                     directAddresses: directAddresses,
                     directPorts: directPorts
@@ -652,6 +635,7 @@ final class MobileHostIrxRuntime {
         endpointSupervisor = nil
         brokerService = nil
         localBinding = nil
+        registeredIncomingAccess = nil
         hadLiveDiscoveryThisRun = false
         setSettingsPhase(.idle)
         if publishesPublicHostStatus, Self.isEnabled {
@@ -682,15 +666,16 @@ final class MobileHostIrxRuntime {
         )
         guard await deviceListStore.persist(snapshot) else { return false }
         deviceListBox.replace(snapshot)
+        await outgoingDeviceClient?.enforce(snapshot)
         Self.journal.record(
             "host-runtime", "device-list-applied",
             ["rev": String(fact.rev), "entries": String(snapshot.entries.count)]
         )
         if let registry {
-            await registry.closeAll(code: .revoked) { endpointIDHex in
-                guard let entry = snapshot.entries[endpointIDHex] else { return true }
-                return entry.revoked
-            }
+            // Each admitted session re-runs its own authorization against the
+            // snapshot just swapped in: revoked, delisted, or identity-drifted
+            // peers are cut now, not at their next request.
+            await registry.closeUnauthorized(code: .revoked)
         }
         return true
     }
@@ -754,6 +739,10 @@ final class MobileHostIrxRuntime {
         relayURL: String?,
         directAddresses: [String] = []
     ) {
+        guard MobileRemoteControlPolicy.allowsIncomingAccess() else {
+            if publishesPublicHostStatus { MobileHostPublicStatusCache.update(irohIdentity: nil) }
+            return
+        }
         guard let peerIdentity = try? CmxIrohPeerIdentity(endpointID: identity.endpointIDHex)
         else { return }
         var hints: [CmxIrohPathHint] = []
@@ -836,7 +825,8 @@ final class MobileHostIrxRuntime {
                             irx, judge: judge, registry: registry, token: token)
                     }
                 case .foreign(let alpn, let connection):
-                    guard alpn == MobileHostIrxLegacyDialectServer.legacyALPN,
+                    guard MobileRemoteControlPolicy.allowsIncomingAccess(),
+                        alpn == MobileHostIrxLegacyDialectServer.legacyALPN,
                         MobileHostIrxLegacyDialectServer.listenerEnabled,
                         let trust = trustSnapshot(),
                         let adopted = try? CmxIrohLibEndpointFactory
@@ -876,97 +866,9 @@ final class MobileHostIrxRuntime {
         )
     }
 
-    private func superviseConnection(
-        _ irx: IrxConnection,
-        judge: IrxListJudge,
-        registry: IrxServerSessionRegistry,
-        token: UUID
-    ) async {
-        let journal = Self.journal
-        guard
-            let (peer, control, sessionID) = await IrxAdmission.performServer(
-                connection: irx,
-                judgment: judge.judgment(),
-                journal: journal
-            )
-        else { return }
-        let registered = await registry.admit(
-            deviceID: peer.deviceID,
-            sessionID: sessionID,
-            connection: irx,
-            stillAuthorized: { endpointIDHex in
-                do {
-                    _ = try judge.judgment()(nil, endpointIDHex)
-                    return true
-                } catch {
-                    return false
-                }
-            }
-        )
-        guard registered else { return }
-        // Automatic path mode: authorize NAT traversal so the admitted session
-        // can upgrade to a direct/LAN path make-before-break.
-        if !Self.forceRelayOnly {
-            await irx.authorizeDirectPaths()
-        }
-
-        let admittedPeer: CmxIrohAdmittedPeer
-        do {
-            admittedPeer = CmxIrohAdmittedPeer(
-                peer: CmxIrohGrantPeer(
-                    bindingID: peer.bindingID,
-                    deviceID: peer.deviceID,
-                    tag: peer.tag,
-                    platform: .ios,
-                    endpointID: try CmxIrohPeerIdentity(endpointID: peer.endpointIDHex),
-                    identityGeneration: peer.identityGeneration
-                )
-            )
-        } catch {
-            await irx.close(code: .identityMismatch, origin: .local)
-            return
-        }
-
-        let artifactRegistry = MobileHostIrohArtifactTransferRegistry()
-        let eventWriter = MobileHostIrxEventWriter(connection: irx, journal: journal)
-        let laneLoop = Task {
-            await Self.runLaneLoop(
-                irx, admittedPeer: admittedPeer, artifactRegistry: artifactRegistry,
-                journal: journal)
-        }
-        let controlTransport = IrxControlByteTransport(
-            connection: irx, control: control, closeCode: .hostShutdown)
-        let exit = await MobileHostService.acceptTransport(
-            controlTransport,
-            authorization: .irohAdmission(admittedPeer),
-            artifactTransfers: artifactRegistry,
-            independentEventWriter: eventWriter,
-            // The bounded Iroh peer pool stays alive via transport keepalives.
-            // Control-idle timeout is for unowned legacy TCP connections and
-            // must not tear down a healthy multi-lane QUIC session.
-            idleTimeoutNanoseconds: 0,
-            isCurrent: { [weak self] in
-                let runtime = self
-                return await MainActor.run { runtime?.generationToken == token }
-            }
-        )
-        journal.record(
-            "host-runtime", "connection-exit",
-            [
-                "session": sessionID,
-                "lifecycle": String(describing: exit.lifecycle),
-                "failure": String(describing: exit.failure),
-            ]
-        )
-        laneLoop.cancel()
-        await eventWriter.close()
-        await irx.close(code: .hostShutdown, origin: .local)
-        await registry.remove(deviceID: peer.deviceID, sessionID: sessionID)
-    }
-
     /// Post-admission lane dispatch: keepalive echo, terminal streams over
     /// the byte tee, artifact reads. Quotas mirror the legacy router.
-    private nonisolated static func runLaneLoop(
+    nonisolated static func runLaneLoop(
         _ irx: IrxConnection,
         admittedPeer: CmxIrohAdmittedPeer,
         artifactRegistry: MobileHostIrohArtifactTransferRegistry,

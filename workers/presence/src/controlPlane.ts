@@ -999,8 +999,10 @@ export class ControlPlaneCore {
     // receive directory revisions and each client can tear down the other's
     // session while trying to recover.
     for (const candidate of this.deps.sockets()) {
-      if (candidate === socket) continue;
       const candidateAttachment = candidate.getAttachment();
+      // The DO recreates wrappers after hibernation and on each enumeration.
+      // The authenticated session attachment, not wrapper identity, owns the socket.
+      if (candidateAttachment?.sessionId === attachment.sessionId) continue;
       if (!candidateAttachment?.helloed
         || candidateAttachment.endpointId !== payload.endpointId) continue;
       try {

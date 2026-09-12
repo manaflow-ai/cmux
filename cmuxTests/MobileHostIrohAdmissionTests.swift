@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxAgentChat
 import CmuxIrohTransport
+import CmuxIrxTransport
 import CmuxMobileRPC
 import Darwin
 import Foundation
@@ -15,6 +16,84 @@ import Testing
 
 @MainActor
 extension MobileHostAuthorizationTests {
+    @Test func testIrohAdmissionRejectsRequestsAfterAuthorizationExpires() async throws {
+        let transport = LegacyIOSCompatibilityByteTransport()
+        let handled = MobileHostConnectionRequestRecorder()
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: transport,
+            firstFrameTimeoutNanoseconds: 0,
+            idleTimeoutNanoseconds: 0,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            isAuthorizationCurrent: { false },
+            handleRequest: { request in
+                await handled.record(request)
+                return .ok(["handled": true])
+            },
+            onClose: { _ in }
+        )
+        let runTask = Task { await session.run() }
+        let request = Data(#"{"id":"expired","method":"workspace.list","params":{}}"#.utf8)
+        await transport.enqueue(try MobileSyncFrameCodec.encodeFrame(request))
+
+        var responseBuffer = await transport.waitForSentBuffer()
+        let responsePayload = try #require(MobileSyncFrameCodec.decodeFrames(from: &responseBuffer).first)
+        let response = try #require(JSONSerialization.jsonObject(with: responsePayload) as? [String: Any])
+        let error = try #require(response["error"] as? [String: Any])
+        #expect(response["ok"] as? Bool == false)
+        #expect(error["code"] as? String == "admission_expired")
+        #expect(await handled.recordedMethods().isEmpty)
+
+        await transport.finishReceiving()
+        await runTask.value
+    }
+
+    @Test func testAdmittedPeerAuthorizationTracksLeaseAndIdentity() {
+        let now = ContinuousClock.now
+        let endpoint = String(repeating: "a", count: 64)
+        let peer = IrxAdmittedPeerInfo(
+            bindingID: "binding-1", deviceID: "device-1", tag: "default",
+            endpointIDHex: endpoint, identityGeneration: 3
+        )
+        func snapshot(
+            _ entry: IrxDeviceListEntry?, ttl: Int = 600, received: ContinuousClock.Instant = now
+        ) -> IrxDeviceListSnapshot {
+            IrxDeviceListSnapshot(
+                entries: entry.map { [endpoint: $0] } ?? [:], rev: 1, issuedAt: Date(),
+                ttlSeconds: ttl, receivedAtWall: Date(), receivedAtMonotonic: received
+            )
+        }
+        func authorized(_ snapshot: IrxDeviceListSnapshot?) -> Bool {
+            MobileHostIrxRuntime.admittedPeerRemainsAuthorized(snapshot: snapshot, peer: peer, now: now)
+        }
+        let listed = IrxDeviceListEntry(
+            deviceID: "device-1", status: "active", revoked: false,
+            bindingID: "binding-1", tag: "default", identityGeneration: 3
+        )
+        #expect(authorized(snapshot(listed)))
+        #expect(authorized(snapshot(IrxDeviceListEntry(status: "active", revoked: false))),
+                "a directory without tuple material cannot contradict the admission")
+        #expect(!authorized(nil), "no lease fails closed")
+        #expect(!authorized(snapshot(nil)), "a delisted peer loses its session")
+        #expect(!authorized(snapshot(listed, received: now - .seconds(601))), "a stale lease expires the session")
+        var revoked = listed
+        revoked.revoked = true
+        #expect(!authorized(snapshot(revoked)))
+        var rebound = listed
+        rebound.deviceID = "device-2"
+        #expect(!authorized(snapshot(rebound)), "device drift is a revocation")
+        var retagged = listed
+        retagged.tag = "nightly"
+        #expect(!authorized(snapshot(retagged)), "tag drift is a revocation")
+        var rebinding = listed
+        rebinding.bindingID = "binding-2"
+        #expect(!authorized(snapshot(rebinding)), "binding drift is a revocation")
+        var regenerated = listed
+        regenerated.identityGeneration = 4
+        #expect(!authorized(snapshot(regenerated)), "generation drift is a revocation")
+    }
+
     @Test func testPairingPayloadDefaultsCanDiscloseOnlyIrohIdentity() throws {
         let store = MobileAttachTicketStore()
         let endpointID = String(repeating: "a", count: 64)

@@ -780,6 +780,40 @@ jobs:
             echo "::warning::Passwordless sudo unavailable; XCTest will use its default automation-mode setup"
           fi
 
+      - name: Run My Devices regressions
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        env:
+          CMUX_APP_HOST_XCODEBUILD_ATTEMPTS: "1"
+        run: |
+          # The broad app-host suite tolerates ordinary assertion failures.
+          # Gate every My Devices suite directly on xcodebuild's exit status,
+          # with no retry that could hide a lifecycle timeout or host crash.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 120 \
+            -maximum-test-execution-time-allowance 120 \
+            -only-testing:cmuxTests/DeviceDirectoryLifecycleTests \
+            -only-testing:cmuxTests/DeviceDirectoryMergeTests \
+            -only-testing:cmuxTests/DeviceLinkReconnectPolicyTests \
+            -only-testing:cmuxTests/DevicePresenceWireTests \
+            -only-testing:cmuxTests/DeviceRouteSelectorTests \
+            -only-testing:cmuxTests/DeviceTerminalMirrorTests \
+            -only-testing:cmuxTests/DeviceWorkspaceProjectionTests \
+            -only-testing:cmuxTests/DevicesCloudTreeBuilderTests \
+            -only-testing:cmuxTests/DevicesSidebarModeTests \
+            -only-testing:cmuxTests/SurfaceMachineIDDeviceEncodingTests \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            test
+
       - name: Run bundled command PATH regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
@@ -1603,6 +1637,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_vm_transfer_progress.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_layout_focus_contract.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_right_sidebar_aliases.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_simulator_contract.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_browser_profile_cli.py

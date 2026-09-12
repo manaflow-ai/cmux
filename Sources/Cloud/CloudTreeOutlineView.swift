@@ -24,6 +24,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     /// The visual preset the rows render in (the debug gallery pins one per
     /// column; the live panel passes the stored choice).
     var style: CloudTreeStyle = CloudTreeStyleStore.current
+    /// Which catalog machines become top-level rows: the Cloud tab lists the
+    /// fleet, the Devices tab lists the account's other Macs.
+    var source: CloudTreeMachineSource = .cloud
+    /// Expand and select one row (Settings › Computers "Open"); applied once per token.
+    var reveal: CloudTreeRevealRequest? = nil
     /// Fires when a row drag starts (true) and ends (false); the panel freezes catalog
     /// re-reads while a drag is in flight.
     var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
@@ -68,8 +73,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             pendingCreates: pendingCreates,
             snapshot: snapshot,
             localWorkspaces: localWorkspaces,
-            unreadTerminalIDs: unreadTerminalIDs
+            unreadTerminalIDs: unreadTerminalIDs,
+            source: source
         ))
+        context.coordinator.reveal(reveal)
     }
 
     // MARK: - Coordinator
@@ -86,6 +93,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         private var structureSignature: [String] = []
         private var contentSignature: [String] = []
         private var selectedNodeID: String?
+        private var lastRevealToken: UUID?
         private var isUpdatingProgrammatically = false
         private var activeDrag: ActiveDrag?
         // NSDraggingItem retains the writer for the live native session. A weak
@@ -305,6 +313,27 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
         }
 
+        /// Expand, select, and scroll to one row on request, once per token.
+        /// The row's ancestors expand too, so a collapsed machine opens; the
+        /// expansion store remembers it. Never opens a terminal.
+        func reveal(_ request: CloudTreeRevealRequest?) {
+            guard let request, request.token != lastRevealToken, let outlineView else { return }
+            guard let path = request.path(in: nodes), let node = path.last else { return }
+            for ancestor in path.dropLast() where !outlineView.isItemExpanded(ancestor) {
+                expansionStore.setExpanded(true, node: ancestor)
+                outlineView.expandItem(ancestor)
+            }
+            if node.isExpandable, !outlineView.isItemExpanded(node) {
+                expansionStore.setExpanded(true, node: node)
+                outlineView.expandItem(node)
+            }
+            let row = outlineView.row(forItem: node)
+            guard row >= 0 else { return }
+            lastRevealToken = request.token
+            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            outlineView.scrollRowToVisible(row)
+        }
+
         private func restoreSelection(in outlineView: NSOutlineView) {
             guard let selectedNodeID else { return }
             for row in 0..<outlineView.numberOfRows {
@@ -359,9 +388,15 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 // Same rule as usageLine (nil for empty totals), without formatting text per row.
                 let hasUsage = machine.usage.map { !$0.totals.isEmpty } ?? false
                 return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: hasStats, hasUsage: hasUsage))
+            case .device(let row):
+                // Device rows use the iOS Computers hierarchy: avatar, name,
+                // status, and (when online) a resource summary. The height is
+                // independent of the Cloud tree style so the row never clips
+                // under the compact preset, and it grows with the third line.
+                return GlobalFontMagnification.scaledSize(CloudTreeDeviceRowContent.rowHeight(for: row))
             case .localMachine, .pendingMachine:
                 return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
-            case .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup, .workspace, .localWorkspace, .terminal, .display, .browser, .port, .placeholder:
+            case .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup, .workspace, .localWorkspace, .terminal, .display, .browser, .port, .placeholder, .devicesSection:
                 return GlobalFontMagnification.scaledSize(style.rowHeight)
             }
         }
@@ -428,7 +463,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 } else {
                     toggle(node)
                 }
-            case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup:
+            case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup, .device, .devicesSection:
                 toggle(node)
             case .pendingMachine(let operation):
                 // Nothing to open yet. A failed create's click shows why (the
@@ -709,8 +744,20 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
             case .placeholder(let machineID, _):
+                if machineID.isDevice {
+                    return deviceMenuItems(machine: machineID, canCreate: false)
+                }
                 guard let machine = machine(id: machineID) else { return [] }
                 return machineMenuItems(machine)
+            case .device(let row):
+                return deviceMenuItems(machine: row.machine, canCreate: row.canCreateWorkspacesAndTerminals)
+            case .devicesSection:
+                return [
+                    item(String(localized: "devices.manage", defaultValue: "Manage My Devices")) {
+                        SettingsWindowPresenter.show(navigationTarget: .computers)
+                    },
+                    item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
+                ]
             }
         }
 
@@ -839,7 +886,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             return items
         }
 
-        private func item(_ title: String, action: @escaping @MainActor () -> Void) -> NSMenuItem {
+        func item(_ title: String, action: @escaping @MainActor () -> Void) -> NSMenuItem {
             let item = CloudTreeMenuItem(title: title, action: action)
             item.target = item
             return item

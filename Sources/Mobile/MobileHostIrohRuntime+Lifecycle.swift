@@ -255,7 +255,7 @@ extension MobileHostIrohRuntime {
     func setDesiredActive(_ requested: Bool) {
         // Apply the transport policy to every activation/retry entry point,
         // including settings reconciliation while a runtime is already live.
-        let desired = requested && ManagedIrohNetworkingPolicy.isEnabled
+        let desired = requested && ManagedIrohNetworkingPolicy.isEnabled && MobileRemoteControlPolicy.allowsIncomingAccess()
         guard desiredActive != desired else {
             if desired { retryIfNeeded() }
             return

@@ -189,6 +189,8 @@ struct ManagedDevicePolicyTests {
         // configuration profiles.
         #expect(ManagedDevicePolicyKey.disableEmbeddedBrowser.rawValue == "DisableEmbeddedBrowser")
         #expect(ManagedDevicePolicyKey.disableRemoteControl.rawValue == "DisableRemoteControl")
+        #expect(ManagedDevicePolicyKey.disableDeviceDiscovery.rawValue == "DisableDeviceDiscovery")
+        #expect(ManagedDevicePolicyKey.disableIncomingDeviceAccess.rawValue == "DisableIncomingDeviceAccess")
         #expect(ManagedDevicePolicyKey.disableCloud.rawValue == "DisableCloud")
         #expect(ManagedDevicePolicyKey.disableRemoteConnections.rawValue == "DisableRemoteConnections")
         #expect(ManagedDevicePolicyKey.disableFileTransfer.rawValue == "DisableFileTransfer")
@@ -205,5 +207,21 @@ struct ManagedDevicePolicyTests {
         #expect(ManagedDevicePolicyKey.browserAllowLocalFiles.rawValue == "BrowserAllowLocalFiles")
         #expect(ManagedDevicePolicyKey.allowStyleKeys == [.browserAllowLocalhost, .browserAllowLocalFiles])
         #expect(ManagedDevicePolicy.releasePayloadDomain == "com.cmuxterm.app")
+    }
+
+    @Test func independentDevicePoliciesAreForcedOverUserValues() throws {
+        let (defaults, cleanup) = try makeSuite("devicePolicies")
+        defer { cleanup() }
+        defaults.set(false, forKey: ManagedDevicePolicyKey.disableDeviceDiscovery.rawValue)
+        defaults.set(false, forKey: ManagedDevicePolicyKey.disableIncomingDeviceAccess.rawValue)
+        defaults.set(true, forKey: Self.forcedMirrorPrefix + ManagedDevicePolicyKey.disableDeviceDiscovery.rawValue)
+        defaults.set(true, forKey: Self.forcedMirrorPrefix + ManagedDevicePolicyKey.disableIncomingDeviceAccess.rawValue)
+        let policy = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil, forcedObject: Self.probe)
+        #expect(policy.isEnforced(.disableDeviceDiscovery))
+        #expect(policy.isEnforced(.disableIncomingDeviceAccess))
+        #expect(policy.isDeviceDiscoveryDisabled)
+        #expect(policy.isIncomingDeviceAccessDisabled)
+        #expect(policy.isKeyForcedInAppDomain(ManagedDevicePolicyKey.disableDeviceDiscovery.rawValue))
+        #expect(policy.isKeyForcedInAppDomain(ManagedDevicePolicyKey.disableIncomingDeviceAccess.rawValue))
     }
 }

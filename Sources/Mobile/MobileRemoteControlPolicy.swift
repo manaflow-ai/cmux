@@ -29,4 +29,34 @@ enum MobileRemoteControlPolicy {
 
     /// Convenience inverse of ``isDisabled``.
     static var isEnabled: Bool { !isDisabled }
+
+    /// User availability and managed policy both gate every incoming transport.
+    /// Outgoing device connections use their own discovery preference.
+    static func allowsIncomingAccess(defaults: UserDefaults = .standard) -> Bool {
+        let key = DevicesCatalogSection().incomingAccessEnabled
+        let enabled = defaults.object(forKey: key.userDefaultsKey) as? Bool ?? key.defaultValue
+        let policy = ManagedDevicePolicy(defaults: defaults)
+        let broadAllowed = overrideForTesting.map { !$0 }
+            ?? !policy.isEnforced(.disableRemoteControl)
+        let managedAllowed = broadAllowed && !policy.isIncomingDeviceAccessDisabled
+        return managedAllowed && enabled
+    }
+
+    /// Whether MDM independently blocks discovery of other Macs.
+    static func isDeviceDiscoveryDisabled(defaults: UserDefaults = .standard) -> Bool {
+        ManagedDevicePolicy(defaults: defaults).isDeviceDiscoveryDisabled
+    }
+
+    /// Whether MDM independently blocks this Mac from accepting sessions.
+    static func isIncomingAccessDisabled(defaults: UserDefaults = .standard) -> Bool {
+        ManagedDevicePolicy(defaults: defaults).isIncomingDeviceAccessDisabled
+    }
+
+    /// Whether incoming access is managed by either the dedicated or broad ban.
+    static func isIncomingAccessManaged(
+        defaults: UserDefaults = .standard,
+        policy: ManagedDevicePolicy? = nil
+    ) -> Bool {
+        (policy ?? ManagedDevicePolicy(defaults: defaults)).isIncomingDeviceAccessDisabled
+    }
 }

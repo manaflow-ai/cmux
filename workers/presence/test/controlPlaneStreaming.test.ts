@@ -142,6 +142,16 @@ class FakeSocket implements CtlSocket {
   clearFrames(): void {
     this.frames = [];
   }
+
+  /** The Durable Object adapter creates a fresh wrapper on every enumeration. */
+  wrap(): CtlSocket {
+    return {
+      send: (data) => this.send(data),
+      close: (code, reason) => this.close(code, reason),
+      getAttachment: () => this.getAttachment(),
+      setAttachment: (attachment) => this.setAttachment(attachment),
+    };
+  }
 }
 
 type UpstreamHandler = (init: CtlUpstreamInit) => CtlUpstreamResult;
@@ -178,7 +188,7 @@ class Harness {
     scheduleAlarmAt: async (atMs) => {
       this.alarms.push(atMs);
     },
-    sockets: () => [...this.socketList],
+    sockets: () => this.socketList.map((socket) => socket.wrap()),
   });
 
   serveDiscovery(response: () => unknown): void {
@@ -438,6 +448,18 @@ describe("hello fact streaming", () => {
 
     expect(first.closes).toEqual([{ code: 1000, reason: "superseded" }]);
     expect(replacement.closes).toEqual([]);
+  });
+
+  it("keeps its own session and credentials when socket wrappers are recreated", async () => {
+    const harness = new Harness();
+    harness.serveDiscovery(() => discoveryResponse(42));
+    const socket = await harness.connect("current-session");
+    await harness.hello(socket, { endpointId: ENDPOINT_A, haveRev: null, wantPasses: false });
+
+    expect(socket.closes).toEqual([]);
+    expect(socket.types()).toContain("hello_ack");
+    expect(socket.types()).toContain("snapshot_complete");
+    expect(harness.map.has(BEARER_PREFIX + "current-session")).toBe(true);
   });
 });
 
