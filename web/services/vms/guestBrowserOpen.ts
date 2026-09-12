@@ -17,6 +17,16 @@ if [ -z "\$cmux_open_url" ]; then
   esac
   exit 0
 fi
+case "\$cmux_open_url" in
+  http://*|https://*) ;;
+  *)
+    case "\${LC_ALL:-\${LC_MESSAGES:-\${LANG:-en}}}" in
+      ja*) printf 'この URL を開いてください: %s\\n' "\$cmux_open_url" ;;
+      *) printf 'Open this URL: %s\\n' "\$cmux_open_url" ;;
+    esac
+    exit 0
+    ;;
+esac
 
 if cmux_open_cli="\$(command -v cmux 2>/dev/null)" && [ -x "\$cmux_open_cli" ]; then
   exec "\$cmux_open_cli" open "\$cmux_open_url"
@@ -43,6 +53,10 @@ guest_open_url() {
   esac
   [ "\$#" -eq 1 ] && [ -n "\$1" ] || { cmux_message openUsage >&2; return 2; }
   cmux_open_url="\$1"
+  case "\$cmux_open_url" in
+    http://*|https://*) ;;
+    *) cmux_message openFallback "\$cmux_open_url"; return 0 ;;
+  esac
   cmux_open_terminal="\${CMUX_TUI_TERMINAL_ID:-}"
   if [ -x "\$CMUX_TUI_BIN" ] && [ -n "\$cmux_open_terminal" ]; then
     cmux_open_snapshot="\$(tui --json session current snapshot 2>/dev/null || true)"

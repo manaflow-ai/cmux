@@ -123,6 +123,29 @@ esac
     }
   });
 
+  test("open prints unsupported schemes instead of dropping the URL", () => {
+    const dir = mkdtempSync(join(tmpdir(), "cmux-guest-open-invalid-"));
+    const shim = join(dir, "cmux");
+    writeFileSync(shim, GUEST_CMUX_SHIM);
+    chmodSync(shim, 0o755);
+    try {
+      const result = spawnSync("sh", [shim, "open", "mailto:user@example.com"], {
+        encoding: "utf8",
+        env: {
+          NODE_ENV: "test",
+          HOME: dir,
+          CMUX_TUI_BIN: join(dir, "missing-cmux-tui"),
+          CMUX_TUI_TERMINAL_ID: TERMINAL_ID,
+          PATH: `${dir}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+        },
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Open this URL: mailto:user@example.com");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test.each(["existing", "create", "create-failed", "missing-id"])("peer exec selects a supported workspace and fails closed (%s)", async (mode) => {
     const directory = mkdtempSync(join(tmpdir(), "cmux-peer-exec-"));
     const socket = join(directory, "peer.sock");
