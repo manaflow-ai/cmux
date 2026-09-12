@@ -3520,12 +3520,6 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
 function requireAccessibleUserVm(input: ExistingVmAccessInput) {
   return Effect.gen(function* () {
     let vm = yield* requireUserVm(input);
-    if (vm.providerMetadata[GO_PAUSE_INTENT_KEY] != null) {
-      const repo = yield* VmRepository;
-      const providers = yield* VmProviderGateway;
-      yield* pauseGoVm(repo, providers, vm, input.providerVmId);
-      vm = { ...vm, status: "paused", providerMetadata: { ...vm.providerMetadata, [GO_PAUSE_INTENT_KEY]: null } };
-    }
     if (input.callerPlanId === "go") {
       yield* requireGoShape("go", hasVmResourceReservationMetadata(vm.providerMetadata) ? vmResourceReservationFromMetadata(vm.providerMetadata) : null);
     }
@@ -3541,6 +3535,18 @@ function requireAccessibleUserVm(input: ExistingVmAccessInput) {
         catch: (cause) => new VmDatabaseError({ operation: "sync_vm_billing_plan", cause }),
       });
       vm = { ...vm, billingPlanId };
+    }
+    if (vm.providerMetadata[GO_PAUSE_INTENT_KEY] != null) {
+      const repo = yield* VmRepository;
+      if (vm.billingPlanId === "go") {
+        const providers = yield* VmProviderGateway;
+        yield* pauseGoVm(repo, providers, vm, input.providerVmId);
+        vm = { ...vm, status: "paused" };
+      } else {
+        if (!repo.mergeProviderMetadata) return yield* Effect.fail(new VmDatabaseError({ operation: "cancel_go_pause", cause: "Durable metadata writes are unavailable" }));
+        yield* repo.mergeProviderMetadata({ id: vm.id, patch: { [GO_PAUSE_INTENT_KEY]: null } });
+      }
+      vm = { ...vm, providerMetadata: { ...vm.providerMetadata, [GO_PAUSE_INTENT_KEY]: null } };
     }
     if (isVmFreeAccessExpired(input.callerPlanId, vm.createdAt ?? undefined)) {
       return yield* Effect.fail(new VmFreeAccessExpiredError({

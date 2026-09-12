@@ -26,7 +26,11 @@ export function enforceGoRuntimeLimits() {
         catch: (cause) => new VmDatabaseError({ operation: "go_runtime_usage", cause }),
       });
       const pending = vm.providerMetadata[GO_PAUSE_INTENT_KEY] != null;
-      if (!pending && (!usage || usage.remainingSeconds > 0)) return "skipped" as const;
+      if (!usage) {
+        if (pending && repo.mergeProviderMetadata) yield* repo.mergeProviderMetadata({ id: vm.id, patch: { [GO_PAUSE_INTENT_KEY]: null } });
+        return "skipped" as const;
+      }
+      if (!pending && usage.remainingSeconds > 0) return "skipped" as const;
       yield* pauseGoVm(repo, providers, vm, vm.providerVmId, usage?.usedSeconds);
       return "paused" as const;
     }).pipe(Effect.catchAll((error) => Effect.sync(() => {

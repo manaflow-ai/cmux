@@ -478,7 +478,7 @@ export async function vmRequiresProResponse(locale: Locale = "en"): Promise<Resp
  */
 export async function vmMemoryUnavailableResponse(maxMemoryMb: number, locale: Locale): Promise<Response> {
   const copy = await vmMemoryErrorCopy("memoryUnavailable", locale, { max: maxMemoryMb / 1024 });
-  return vmErrorResponse({ error: "vm_memory_unavailable", status: 409, message: copy.message, action: copy.action, phase: "billing" });
+  return vmErrorResponse({ error: "vm_memory_unavailable", status: 409, message: copy.message, action: copy.action, displayTitle: copy.title, phase: "billing" });
 }
 
 export async function vmMemoryRequiresPlanResponse(input: {
@@ -713,7 +713,7 @@ export const vmWorkflowErrorResponders = {
   VmMemoryPlanError: async (error, context) => {
     if (error.memoryMb === null) {
       const copy = await vmMemoryErrorCopy("memoryUnknown", context.locale);
-      return vmErrorResponse({ error: "vm_memory_size_unknown", status: 409, ...copy, phase: "billing", retryable: false });
+      return vmErrorResponse({ error: "vm_memory_size_unknown", status: 409, message: copy.message, action: copy.action, displayTitle: copy.title, phase: "billing", retryable: false });
     }
     const upgradePlanId = upgradePlanForMemory(error.memoryMb, error.planId);
     if (!upgradePlanId) return vmMemoryUnavailableResponse(error.maxMemoryMb, context.locale);
