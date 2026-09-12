@@ -1,6 +1,7 @@
 import CMUXAuthCore
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxPhonePush
 import CmuxMobileSupport
 import CmuxMobileTransport
 import Foundation
@@ -173,11 +174,18 @@ public struct MobileAuthComposition {
             isTokenStorageAvailable: { await MainActor.run { availability.isAvailable } },
             onSignedIn: { await deferredSignIn.run() }
         )
+        let pushIdentity = try? PhonePushKeyStore.current(
+            bundleID: bundle.bundleIdentifier ?? "",
+            accessGroup: keychainAccessGroup
+        )
         let push = PushRegistrationService(
             tokenProvider: coordinator,
             apiBaseURL: resolvedConfig.apiBaseURL,
             bundleID: bundle.bundleIdentifier ?? "",
             apnsEnvironment: Self.apnsEnvironment,
+            pushInstallationID: pushIdentity?.installationID,
+            pushKeyID: pushIdentity?.keyID,
+            pushPublicKey: pushIdentity?.publicKeyData.base64EncodedString(),
             session: .shared
         )
         deferredSignIn.set { await push.syncTokenIfPossible() }
