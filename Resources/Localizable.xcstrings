@@ -520176,6 +520176,655 @@
           }
         }
       }
+    },
+    "machines.menu.increaseDisk": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Increase Disk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Festplatte vergrößern"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Augmenter le disque"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "زيادة القرص"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aumentar disco"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "增加磁碟"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "增加磁盘"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "디스크 늘리기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスクを増やす"
+          }
+        }
+      }
+    },
+    "machines.menu.increaseDiskTo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Increase to %d GiB"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf %d GiB erhöhen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Augmenter à %d Gio"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "زيادة إلى %d جيجابايت"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aumentar a %d GiB"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "增加至 %d GiB"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "增加到 %d GiB"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%dGiB로 늘리기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d GiB に増やす"
+          }
+        }
+      }
+    },
+    "machines.operation.resizeDisk": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Increasing %@ disk to %d GiB…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Festplatte von %@ wird auf %d GiB vergrößert …"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Augmentation du disque de %@ à %d Gio…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتم زيادة قرص %@ إلى %d جيجابايت…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aumentando el disco de %@ a %d GiB…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在將 %@ 磁碟增加至 %d GiB…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在将 %@ 磁盘增加到 %d GiB…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 디스크를 %dGiB로 늘리는 중…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のディスクを %d GiB に増量中…"
+          }
+        }
+      }
+    },
+    "machines.operation.resize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resizing %@…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Größe von %@ wird geändert …"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redimensionnement de %@…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تغيير حجم %@…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiando el tamaño de %@…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在調整 %@ 的大小…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在调整 %@ 的大小…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 크기 조정 중…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のサイズを変更中…"
+          }
+        }
+      }
+    },
+    "command.cloudVM.failed.title.resize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't Resize Machine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maschinengröße konnte nicht geändert werden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de redimensionner la machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر تغيير حجم الجهاز"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cambiar el tamaño de la máquina"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法調整機器大小"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法调整机器大小"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신 크기를 조정할 수 없음"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンのサイズを変更できませんでした"
+          }
+        }
+      }
+    },
+    "command.cloudVM.resize.result.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM Resized"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-VM-Größe geändert"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM redimensionnée"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تغيير حجم Cloud VM"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM redimensionada"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM 大小已調整"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM 大小已调整"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM 크기 조정됨"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM のサイズを変更しました"
+          }
+        }
+      }
+    },
+    "cli.vm.resize.invalidDisk": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm resize: disk must be 4–256 GiB in 4 GiB steps."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm resize: Die Festplatte muss zwischen 4 und 256 GiB liegen und in 4-GiB-Schritten angegeben werden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm resize : le disque doit être compris entre 4 et 256 Gio, par pas de 4 Gio."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm resize: يجب أن يكون القرص بين 4 و256 جيجابايت وبخطوات 4 جيجابايت."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm resize: el disco debe tener entre 4 y 256 GiB, en pasos de 4 GiB."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm resize：磁碟必須介於 4–256 GiB，且以 4 GiB 為增量。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm resize：磁盘必须介于 4–256 GiB，且以 4 GiB 为增量。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm resize: 디스크는 4–256GiB 범위에서 4GiB 단위여야 합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm resize: ディスクは 4〜256 GiB の範囲で 4 GiB 単位で指定してください。"
+          }
+        }
+      }
+    },
+    "cli.vm.resize.success": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %@ disk=%d GiB"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %@ Festplatte=%d GiB"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %@ disque=%d Gio"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم %@ القرص=%d جيجابايت"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %@ disco=%d GiB"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成 %@ 磁碟=%d GiB"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成 %@ 磁盘=%d GiB"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인 %@ 디스크=%dGiB"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %@ ディスク=%d GiB"
+          }
+        }
+      }
+    },
+    "socket.cloudVM.resize.idRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.resize requires `id`. Run `cmux vm ls` to find one."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.resize benötigt `id`. Führen Sie `cmux vm ls` aus, um eine ID zu finden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.resize nécessite `id`. Exécutez `cmux vm ls` pour en trouver une."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب vm.resize قيمة `id`. شغّل `cmux vm ls` للعثور عليها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.resize requiere `id`. Ejecuta `cmux vm ls` para encontrar una."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.resize 需要 `id`。執行 `cmux vm ls` 以尋找 ID。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.resize 需要 `id`。运行 `cmux vm ls` 查找 ID。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.resize에는 `id`가 필요합니다. `cmux vm ls`로 ID를 찾으세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.resize には `id` が必要です。`cmux vm ls` で ID を確認してください。"
+          }
+        }
+      }
+    },
+    "socket.cloudVM.resize.diskRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.resize requires a positive `storage_mb` value."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.resize benötigt einen positiven Wert für `storage_mb`."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.resize nécessite une valeur positive pour `storage_mb`."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب vm.resize قيمة موجبة لـ `storage_mb`."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.resize requiere un valor positivo de `storage_mb`."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.resize 需要正值的 `storage_mb`。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.resize 需要正值的 `storage_mb`。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.resize에는 양수 `storage_mb` 값이 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.resize には正の `storage_mb` 値が必要です。"
+          }
+        }
+      }
+    },
+    "cli.vm.resize.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage:\n  cmux vm resize <id> --disk <GiB>\n\nGrow an existing Cloud VM's disk in 4 GiB steps from 4 GiB through 256 GiB.\nDisk sizes are grow-only; the provider-confirmed size is returned.\nAdd --json for the structured result."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung:\n  cmux vm resize <id> --disk <GiB>\n\nVergrößert die Festplatte einer bestehenden Cloud-VM in 4-GiB-Schritten von 4 bis 256 GiB.\nFestplatten können nur vergrößert werden; die bestätigte Größe wird zurückgegeben.\nMit --json wird das strukturierte Ergebnis ausgegeben."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation :\n  cmux vm resize <id> --disk <GiB>\n\nAugmente le disque d’une Cloud VM existante par pas de 4 Gio, de 4 à 256 Gio.\nLes disques ne peuvent qu’être agrandis ; la taille confirmée est renvoyée.\nAjoutez --json pour le résultat structuré."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام:\n  cmux vm resize <id> --disk <GiB>\n\nكبّر قرص Cloud VM موجودة بخطوات 4 جيجابايت من 4 إلى 256 جيجابايت.\nيمكن تكبير الأقراص فقط؛ يتم إرجاع الحجم المؤكد.\nأضف --json للحصول على النتيجة المنظمة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso:\n  cmux vm resize <id> --disk <GiB>\n\nAumenta el disco de una Cloud VM existente en pasos de 4 GiB, de 4 a 256 GiB.\nLos discos solo pueden crecer; se devuelve el tamaño confirmado.\nAñade --json para el resultado estructurado."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：\n  cmux vm resize <id> --disk <GiB>\n\n以 4 GiB 為增量，將現有 Cloud VM 的磁碟從 4 GiB 增加至 256 GiB。\n磁碟只能增加；會回傳確認的大小。\n加上 --json 以取得結構化結果。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：\n  cmux vm resize <id> --disk <GiB>\n\n以 4 GiB 为增量，将现有 Cloud VM 的磁盘从 4 GiB 增加到 256 GiB。\n磁盘只能增加；将返回确认的大小。\n加上 --json 以获取结构化结果。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법:\n  cmux vm resize <id> --disk <GiB>\n\n기존 Cloud VM 디스크를 4GiB 단위로 4GiB에서 256GiB까지 늘립니다.\n디스크는 늘리기만 가능하며 확인된 크기를 반환합니다.\n구조화된 결과는 --json을 추가하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用方法：\n  cmux vm resize <id> --disk <GiB>\n\n既存の Cloud VM のディスクを 4 GiB 単位で 4 GiB から 256 GiB まで増量します。\nディスクは増量のみ可能で、プロバイダーが確認したサイズを返します。\n構造化された結果には --json を追加してください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
