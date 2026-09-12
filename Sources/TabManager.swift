@@ -4403,8 +4403,7 @@ class TabManager: ObservableObject {
     /// Move focus in the specified direction
     func moveSplitFocus(tabId: UUID, surfaceId: UUID, direction: NavigationDirection) -> Bool {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
-        tab.moveFocus(direction: direction)
-        return true
+        return tab.moveFocus(direction: direction)
     }
 
     /// Cycle focus to the next or previous pane in tree order, wrapping at the ends.

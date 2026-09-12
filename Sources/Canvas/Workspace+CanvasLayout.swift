@@ -58,11 +58,15 @@ extension Workspace {
     }
 
     /// Canvas-mode directional focus: nearest pane spatially, then reveal it.
-    func moveCanvasFocus(direction: NavigationDirection) {
-        guard let from = focusedPanelId ?? orderedPanelIds.first else { return }
-        guard let target = canvasModel.pane(direction.canvasDirection, from: from) else { return }
+    @discardableResult
+    func moveCanvasFocus(direction: NavigationDirection) -> Bool {
+        guard let from = focusedPanelId ?? orderedPanelIds.first else { return false }
+        guard let target = canvasModel.pane(direction.canvasDirection, from: from) else {
+            return false
+        }
         focusPanel(target)
         canvasModel.viewport?.revealPane(target, animated: true)
+        return target != from
     }
 
     /// The bonsplit pane currently containing the panel's tab, used by
