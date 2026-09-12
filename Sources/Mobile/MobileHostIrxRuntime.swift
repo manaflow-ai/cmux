@@ -2,6 +2,7 @@ import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxIrohTransport
 import CmuxIrxTransport
+import CmuxSettings
 import Foundation
 import OSLog
 
@@ -13,6 +14,17 @@ import OSLog
 @MainActor
 final class MobileHostIrxRuntime {
     static let shared = MobileHostIrxRuntime()
+
+    private let managedDevicePolicy: ManagedDevicePolicy
+
+    init(managedDevicePolicy: ManagedDevicePolicy = ManagedDevicePolicy()) {
+        self.managedDevicePolicy = managedDevicePolicy
+    }
+
+    var isNetworkingAllowed: Bool {
+        !managedDevicePolicy.isEnforced(.disableIrohNetworking)
+            && !managedDevicePolicy.isEnforced(.disableRemoteControl)
+    }
 
     nonisolated static let enabledDefaultsKey = "cmux.irx.enabled"
     nonisolated static let forceRelayDefaultsKey = "cmux.irx.force-relay"
@@ -174,7 +186,15 @@ final class MobileHostIrxRuntime {
 
     /// Reconciles the IRX lifecycle with the current managed mobile policy.
     func applyManagedNetworkingPolicy() async {
-        setDesiredActive(MobileRemoteControlPolicy.isEnabled && Self.isEnabled)
+        let allowed = isNetworkingAllowed
+            && MobileRemoteControlPolicy.isEnabled
+            && Self.isEnabled
+        setDesiredActive(allowed)
+        if !allowed {
+            setActivationState(.inactive)
+            setSettingsPhase(.idle)
+            await deactivate()
+        }
     }
 
     private func transition(to identity: AuthenticatedSessionIdentity?) async {
