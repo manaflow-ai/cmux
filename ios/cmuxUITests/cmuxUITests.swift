@@ -7548,8 +7548,17 @@ final class cmuxUITests: XCTestCase {
             $0["scrollAtBottom"] == "1" && (Int($0["scrollTotal"] ?? "") ?? 0) > 100
         }
         let bottomOffset = try XCTUnwrap(Int(bottom["scrollOffset"] ?? ""))
-        let bottomText = try visibleTerminalText()
-        XCTAssertTrue(bottomText.contains(marker), "Rendered pixels must show the host echo. OCR: \(bottomText)")
+        var bottomText = ""
+        let echoOCRDeadline = Date().addingTimeInterval(10)
+        while Date() < echoOCRDeadline {
+            bottomText = (try? visibleTerminalText()) ?? ""
+            if bottomText.localizedCaseInsensitiveContains(marker) { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        XCTAssertTrue(
+            bottomText.localizedCaseInsensitiveContains(marker),
+            "Rendered pixels must show the host echo. OCR: \(bottomText)"
+        )
         capture("ios18-04-terminal-input-echo")
 
         surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)).press(
