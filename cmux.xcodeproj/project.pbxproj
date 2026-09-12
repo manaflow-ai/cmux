@@ -1150,6 +1150,9 @@
 		C51A700000000000000000C3 /* CmuxSimulatorWorker in Frameworks */ = {isa = PBXBuildFile; productRef = C51A700000000000000000C2 /* CmuxSimulatorWorker */; };
 		E7E000000000000000000009 /* CmuxSocketEventMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000A /* CmuxSocketEventMapper.swift */; };
 		7837E0017837E0017837E001 /* CmuxSocketEventMapperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7837E0027837E0027837E002 /* CmuxSocketEventMapperTests.swift */; };
+		583403000000000000000003 /* CmuxSocketObservability in Frameworks */ = {isa = PBXBuildFile; productRef = 583403000000000000000002 /* CmuxSocketObservability */; };
+		583403000000000000000004 /* CmuxSocketObservability in Frameworks */ = {isa = PBXBuildFile; productRef = 583403000000000000000002 /* CmuxSocketObservability */; };
+		583403000000000000000005 /* CmuxSocketObservability in Frameworks */ = {isa = PBXBuildFile; productRef = 583403000000000000000002 /* CmuxSocketObservability */; };
 		C3677002000000000000001 /* CmuxSSHURLRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3677002000000000000002 /* CmuxSSHURLRequest.swift */; };
 		C3677001000000000000001 /* CmuxSSHURLRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3677001000000000000002 /* CmuxSSHURLRequestTests.swift */; };
 		D96970000000000000000001 /* CmuxSudoBroker in Frameworks */ = {isa = PBXBuildFile; productRef = D96973000000000000000001 /* CmuxSudoBroker */; };
@@ -3235,6 +3238,8 @@
 		D3284001A1B2C3D4E5F60718 /* TraditionalChineseIMENumpadRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3284002A1B2C3D4E5F60718 /* TraditionalChineseIMENumpadRegressionTests.swift */; };
 		468100000000000000000003 /* TypingHotPathRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468100000000000000000004 /* TypingHotPathRegressionTests.swift */; };
 		A5001501 /* UITestRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001511 /* UITestRecorder.swift */; };
+		583402080000000000000001 /* UnifiedLogMainThreadSocketCommandWatchdogReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 583401080000000000000001 /* UnifiedLogMainThreadSocketCommandWatchdogReporter.swift */; };
+		583402040000000000000001 /* UnifiedLogSlowSocketCommandSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 583401040000000000000001 /* UnifiedLogSlowSocketCommandSink.swift */; };
 		A500120D /* UpdateLogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001223 /* UpdateLogStore.swift */; };
 		F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */; };
 		C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */; };
@@ -6750,6 +6755,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		D3284002A1B2C3D4E5F60718 /* TraditionalChineseIMENumpadRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TraditionalChineseIMENumpadRegressionTests.swift; sourceTree = "<group>"; };
 		468100000000000000000004 /* TypingHotPathRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypingHotPathRegressionTests.swift; sourceTree = "<group>"; };
 		A5001511 /* UITestRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestRecorder.swift; sourceTree = "<group>"; };
+		583401080000000000000001 /* UnifiedLogMainThreadSocketCommandWatchdogReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedLogMainThreadSocketCommandWatchdogReporter.swift; sourceTree = "<group>"; };
+		583401040000000000000001 /* UnifiedLogSlowSocketCommandSink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedLogSlowSocketCommandSink.swift; sourceTree = "<group>"; };
 		A5001223 /* UpdateLogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateLogStore.swift; sourceTree = "<group>"; };
 		F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillReleaseVisibilityTests.swift; sourceTree = "<group>"; };
 		C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillUITests.swift; sourceTree = "<group>"; };
@@ -7113,6 +7120,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				799F1BEF876006EEB8CD5757 /* CmuxSimulatorStreamKit in Frameworks */,
 				C51A700000000000000000B3 /* CmuxSimulatorUI in Frameworks */,
 				C51A700000000000000000C3 /* CmuxSimulatorWorker in Frameworks */,
+				583403000000000000000003 /* CmuxSocketObservability in Frameworks */,
 				D96970000000000000000001 /* CmuxSudoBroker in Frameworks */,
 				D96970000000000000000004 /* CmuxSudoBrokerUI in Frameworks */,
 				C5A1FED000000000000000C1 /* CmuxSwiftRender in Frameworks */,
@@ -7154,6 +7162,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				CD0CFE5700000000CD0CFE57 /* CmuxSettings in Frameworks */,
 				C5A1FED200000000000000E2 /* CmuxSidebarInterpreterClient in Frameworks */,
 				C51A700000000000000000A5 /* CmuxSimulator in Frameworks */,
+				583403000000000000000004 /* CmuxSocketObservability in Frameworks */,
 				D96970000000000000000002 /* CmuxSudoBroker in Frameworks */,
 				C5A1FED000000000000000C2 /* CmuxSwiftRender in Frameworks */,
 				C5A1FED100000000000000D2 /* CmuxSwiftRenderUI in Frameworks */,
@@ -7194,6 +7203,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				1A0B0C0D0E0F101112132004 /* CmuxMobileTransport in Frameworks */,
 				F0C0A1000000000000000004 /* CmuxPhonePush in Frameworks */,
 				C0DE4A000000000000000005 /* CmuxSidebarProviderKit in Frameworks */,
+				583403000000000000000005 /* CmuxSocketObservability in Frameworks */,
 				D96970000000000000000003 /* CmuxSudoBroker in Frameworks */,
 				D96970000000000000000005 /* CmuxSudoBrokerUI in Frameworks */,
 				C01E00AA00000000000000A4 /* CmuxSyntaxHighlighting in Frameworks */,
@@ -8522,6 +8532,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A61E00010000000000000004 /* AgentHookDeliveryQueue.swift */,
 				A61E00010000000000000006 /* AgentHookDeliveryProcess.swift */,
 				A5001019 /* TerminalController.swift */,
+				583401080000000000000001 /* UnifiedLogMainThreadSocketCommandWatchdogReporter.swift */,
+				583401040000000000000001 /* UnifiedLogSlowSocketCommandSink.swift */,
 				A10020000000000000000004 /* SurfaceSelectionSocketCapture.swift */,
 				A10020000000000000000016 /* SurfaceSelectionSocketCaptureOutcome.swift */,
 				A10020000000000000000014 /* SurfaceSelectionSocketFailure.swift */,
@@ -10886,6 +10898,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				A77A0002A1B2C3D4E5F60001 /* CmuxAgentJournal */,
 				C750100000000000000000A2 /* CmuxControlSocket */,
+				583403000000000000000002 /* CmuxSocketObservability */,
 				CC0DE00000000000000000A2 /* CmuxCore */,
 				C5A1FED000000000000000C3 /* CmuxSwiftRender */,
 				C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */,
@@ -10956,6 +10969,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				A77A0002A1B2C3D4E5F60001 /* CmuxAgentJournal */,
 				C750100000000000000000A2 /* CmuxControlSocket */,
+				583403000000000000000002 /* CmuxSocketObservability */,
 				1A0B0C0D0E0F101112132012 /* CmuxIrohTransport */,
 				1A0B0C0D0E0F101112132112 /* CmuxIrxTransport */,
 				C1A072000000000000000002 /* CmuxMobileRPC */,
@@ -11082,6 +11096,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				E3B7A30000000000000000F1 /* XCLocalSwiftPackageReference "CmuxPanes" */,
 				E3B7A3000000000000000101 /* XCLocalSwiftPackageReference "CmuxWorkspaces" */,
 				C750100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxControlSocket" */,
+				583403000000000000000001 /* XCLocalSwiftPackageReference "CmuxSocketObservability" */,
 				C9A2B00000000000000000B1 /* XCLocalSwiftPackageReference "CmuxAppKitSupportUI" */,
 				C9A2C00000000000000000C1 /* XCLocalSwiftPackageReference "CmuxFeedback" */,
 				C750200000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalCore" */,
@@ -13375,6 +13390,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				E30760000000000000000002 /* TmuxWorkspacePaneOverlayView.swift in Sources */,
 					C01E00020000000000000001 /* TokenTheme+AppKit.swift in Sources */,
 				A5001501 /* UITestRecorder.swift in Sources */,
+				583402080000000000000001 /* UnifiedLogMainThreadSocketCommandWatchdogReporter.swift in Sources */,
+				583402040000000000000001 /* UnifiedLogSlowSocketCommandSink.swift in Sources */,
 				A500120D /* UpdateLogStore.swift in Sources */,
 				A5001208 /* UpdateTitlebarAccessory.swift in Sources */,
 				C2035A070000000000000001 /* URLRequest+BrowserFailedNavigation.swift in Sources */,
@@ -15440,6 +15457,10 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxControlSocket;
 		};
+		583403000000000000000001 /* XCLocalSwiftPackageReference "CmuxSocketObservability" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxSocketObservability;
+		};
 		C9A2B00000000000000000B1 /* XCLocalSwiftPackageReference "CmuxAppKitSupportUI" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxAppKitSupportUI;
@@ -15723,6 +15744,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			isa = XCSwiftPackageProductDependency;
 			package = C750100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxControlSocket" */;
 			productName = CmuxControlSocket;
+		};
+		583403000000000000000002 /* CmuxSocketObservability */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 583403000000000000000001 /* XCLocalSwiftPackageReference "CmuxSocketObservability" */;
+			productName = CmuxSocketObservability;
 		};
 		C9A2B00000000000000000B2 /* CmuxAppKitSupportUI */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -6,6 +6,7 @@ import CmuxAuthRuntime
 import CmuxFeedback
 import CmuxBrowser
 import CmuxControlSocket
+import CmuxSocketObservability
 import CmuxFoundation
 import CmuxPanes
 import CmuxRemoteDaemon
@@ -39,6 +40,11 @@ extension Notification.Name {
 private struct SocketLineProcessingResult: Sendable {
     let response: String?
     let passwordAuthorization: SocketPasswordAuthorization
+}
+
+nonisolated struct SocketCommandProcessingResult: Sendable {
+    let response: String?
+    let descriptor: SocketCommandDescriptor
 }
 // Agent notification gating types (AgentNotifyCategory / AgentTurnCompleteMode /
 // AgentNotificationMeta / agentNotificationShouldDeliver) live in AgentNotificationGate.swift.
@@ -140,6 +146,12 @@ class TerminalController {
     nonisolated let mobileTaskFilesystemJobQuota: MobileTaskFilesystemJobQuota
     /// Actor-isolated ten-minute cache for mobile task model discovery.
     nonisolated let mobileTaskModelDiscovery: MobileTaskModelDiscovery
+    /// Release-visible slow CLI socket command reporter.
+    nonisolated let slowCommandReporter = SlowSocketCommandReporter(sink: UnifiedLogSlowSocketCommandSink())
+    /// Per-command watchdog for socket commands that execute on the main actor.
+    nonisolated let mainThreadSocketCommandWatchdog = MainThreadSocketCommandWatchdog(
+        reporter: UnifiedLogMainThreadSocketCommandWatchdogReporter()
+    )
     var tabManager: TabManager?
     private let externalNavigationHandler = BrowserExternalNavigationHandler()
     let workspaceCreateIdempotencyCache = WorkspaceCreateIdempotencyCache(capacity: 256)
@@ -2056,7 +2068,8 @@ class TerminalController {
                 await processSocketLineAsync(
                     trimmed,
                     passwordAuthorization: passwordAuthorization,
-                    rateLimiter: rateLimiter
+                    rateLimiter: rateLimiter,
+                    peerPid: pid
                 )
             }
             passwordAuthorization = result.passwordAuthorization
@@ -2074,11 +2087,13 @@ class TerminalController {
 
     private nonisolated func processSocketLine(
         _ command: String,
-        passwordAuthorization: SocketPasswordAuthorization
+        passwordAuthorization: SocketPasswordAuthorization,
+        peerPid: pid_t? = nil
     ) -> SocketLineProcessingResult {
+        let commandStartNs = DispatchTime.now().uptimeNanoseconds
 #if DEBUG
         let debugInfo = Self.socketCommandDebugInfo(command)
-        let debugStart = DispatchTime.now().uptimeNanoseconds
+        let debugStart = commandStartNs
         let debugLoggingEnabled = Self.socketCommandDebugLoggingEnabled()
         Self.installSocketCommandMainHopAccumulator()
         if debugLoggingEnabled {
@@ -2100,13 +2115,23 @@ class TerminalController {
                 loggingEnabled: debugLoggingEnabled
             )
 #endif
+            reportSlowSocketCommandIfNeeded(
+                descriptor: Self.socketCommandDescriptor(command: command, peerPid: peerPid),
+                response: response,
+                startNs: commandStartNs
+            )
             return SocketLineProcessingResult(
                 response: response,
                 passwordAuthorization: nextPasswordAuthorization
             )
         }
 
-        let response = processCommandUsingSocketExecutionPolicy(command)
+        let processingResult = processCommandUsingSocketExecutionPolicyResult(
+            command,
+            peerPid: peerPid,
+            commandStartNs: commandStartNs
+        )
+        let response = processingResult.response
 #if DEBUG
         if let response {
             Self.debugLogSocketCommandEndIfNeeded(
@@ -2117,9 +2142,79 @@ class TerminalController {
             )
         }
 #endif
+        reportSlowSocketCommandIfNeeded(
+            descriptor: processingResult.descriptor,
+            response: response,
+            startNs: commandStartNs
+        )
         return SocketLineProcessingResult(
             response: response,
             passwordAuthorization: nextPasswordAuthorization
+        )
+    }
+
+    private nonisolated static let socketCommandTokenAllowedCharacters =
+        CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-:")
+
+    private nonisolated static func sanitizedSocketCommandToken(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let scalars = trimmed.unicodeScalars.map { scalar -> Character in
+            Self.socketCommandTokenAllowedCharacters.contains(scalar) ? Character(scalar) : "_"
+        }
+        let sanitized = String(scalars).prefix(96)
+        return sanitized.isEmpty ? "<empty>" : String(sanitized)
+    }
+
+    nonisolated static func socketCommandDescriptor(
+        protocolName: String,
+        method: String,
+        policy: ControlCommandExecutionPolicy,
+        peerPid: pid_t?
+    ) -> SocketCommandDescriptor {
+        SocketCommandDescriptor(
+            protocolName: protocolName,
+            method: sanitizedSocketCommandToken(method),
+            executedOnMain: !policy.runsOnSocketWorker,
+            peerPid: peerPid
+        )
+    }
+
+    nonisolated static func socketCommandDescriptor(
+        command: String,
+        peerPid: pid_t?
+    ) -> SocketCommandDescriptor {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let request = Self.v2Parser.lenientRequest(fromLine: trimmed) {
+            return Self.socketCommandDescriptor(
+                protocolName: "v2",
+                method: request.method,
+                policy: executionPolicy(forV2Method: request.method),
+                peerPid: peerPid
+            )
+        }
+
+        let commandToken = trimmed.split(separator: " ", maxSplits: 1).first.map(String.init) ?? "<empty>"
+        return Self.socketCommandDescriptor(
+            protocolName: "v1",
+            method: commandToken,
+            policy: ControlCommandExecutionPolicy(forV1Command: commandToken.lowercased()),
+            peerPid: peerPid
+        )
+    }
+
+    nonisolated func reportSlowSocketCommandIfNeeded(
+        descriptor: SocketCommandDescriptor,
+        response: String?,
+        startNs: UInt64
+    ) {
+        let elapsedMs = Double(DispatchTime.now().uptimeNanoseconds &- startNs) / 1_000_000
+        guard SlowSocketCommandReporter.isSlow(durationMs: elapsedMs) else { return }
+        slowCommandReporter.reportIfSlow(
+            SocketCommandObservation(
+                descriptor: descriptor,
+                durationMs: elapsedMs,
+                responseByteCount: response?.utf8.count ?? 0
+            )
         )
     }
 
@@ -2156,13 +2251,7 @@ class TerminalController {
     }
 
     private nonisolated static func sanitizedSocketDebugToken(_ value: String) -> String {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-:")
-        let scalars = trimmed.unicodeScalars.map { scalar -> Character in
-            allowed.contains(scalar) ? Character(scalar) : "_"
-        }
-        let sanitized = String(scalars).prefix(96)
-        return sanitized.isEmpty ? "<empty>" : String(sanitized)
+        sanitizedSocketCommandToken(value)
     }
 
     private nonisolated static func socketCommandDebugStatus(response: String) -> String {
@@ -2368,7 +2457,11 @@ class TerminalController {
     }
 #endif
 
-    private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String? {
+    private nonisolated func processCommandUsingSocketExecutionPolicyResult(
+        _ command: String,
+        peerPid: pid_t? = nil,
+        commandStartNs: UInt64 = DispatchTime.now().uptimeNanoseconds
+    ) -> SocketCommandProcessingResult {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if trimmed.hasPrefix("{") {
@@ -2379,86 +2472,145 @@ class TerminalController {
             let parsedRequest: ControlRequest
             switch Self.v2Parser.request(fromLine: trimmed) {
             case .failure(let parseError):
-                return Self.v2Encoder.response(for: parseError)
+                return SocketCommandProcessingResult(
+                    response: Self.v2Encoder.response(for: parseError),
+                    descriptor: Self.socketCommandDescriptor(command: command, peerPid: peerPid)
+                )
             case .success(let parsed):
                 parsedRequest = parsed
             }
 
             let relayAuthorization = authorizeRemoteRelayRequest(parsedRequest)
-            if let errorResponse = relayAuthorization.errorResponse {
-                return errorResponse
-            }
             let request = relayAuthorization.request
+            let policy = Self.executionPolicy(forV2Method: request.method)
+            let descriptor = Self.socketCommandDescriptor(
+                protocolName: "v2",
+                method: request.method,
+                policy: policy,
+                peerPid: peerPid
+            )
+            if let errorResponse = relayAuthorization.errorResponse {
+                return SocketCommandProcessingResult(
+                    response: errorResponse,
+                    descriptor: descriptor
+                )
+            }
             let automationOrigin = CmuxAutomationInvocationContext.eventOrigin
             if let focusError = Self.focusSuppressionResponse(
                 method: request.method,
                 id: request.id.map(\.foundationObject),
                 params: request.params.mapValues(\.foundationObject)
             ) {
-                return focusError
+                return SocketCommandProcessingResult(
+                    response: focusError,
+                    descriptor: descriptor
+                )
             }
 
-            let policy = Self.executionPolicy(forV2Method: request.method)
             if let action = browserKeyboardAction(for: request.method),
                let rawKey = request.params["key"]?.foundationObject as? String,
                let event = BrowserKeyboardEvent(rawKey: rawKey),
                event.nativeKey != nil {
                 guard !Thread.isMainThread else {
-                    return v2Error(
+                    return SocketCommandProcessingResult(
+                        response: v2Error(
+                            id: request.id.map(\.foundationObject),
+                            code: "invalid_dispatch",
+                            message: "\(request.method) must run off the main thread"
+                        ),
+                        descriptor: descriptor
+                    )
+                }
+                return SocketCommandProcessingResult(
+                    response: CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
+                        v2BrowserKeyboardNativeResponseSync(
+                            request: request,
+                            event: event,
+                            action: action
+                        )
+                    },
+                    descriptor: descriptor
+                )
+            }
+            if Thread.isMainThread, policy == .socketWorker(mainThreadCallable: false) {
+                return SocketCommandProcessingResult(
+                    response: v2Error(
                         id: request.id.map(\.foundationObject),
                         code: "invalid_dispatch",
                         message: "\(request.method) must run off the main thread"
-                    )
-                }
-                return CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
-                    v2BrowserKeyboardNativeResponseSync(
-                        request: request,
-                        event: event,
-                        action: action
-                    )
-                }
-            }
-            if Thread.isMainThread, policy == .socketWorker(mainThreadCallable: false) {
-                return v2Error(
-                    id: request.id.map(\.foundationObject),
-                    code: "invalid_dispatch",
-                    message: "\(request.method) must run off the main thread"
+                    ),
+                    descriptor: descriptor
                 )
             }
             if policy.runsOnSocketWorker {
-                return CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
-                    socketWorkerV2Response(handling: request)
-                }
+                return SocketCommandProcessingResult(
+                    response: CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
+                        socketWorkerV2Response(handling: request)
+                    },
+                    descriptor: descriptor
+                )
             }
-            return CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
-                processParsedV2Command(request)
-            }
+            let preparedRegistration = preparedDiffViewerRegistration(for: request)
+            return SocketCommandProcessingResult(
+                response: CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
+                    processParsedV2Command(
+                        request,
+                        diffViewerRegistration: preparedRegistration,
+                        descriptor: descriptor
+                    )
+                },
+                descriptor: descriptor
+            )
         }
 
         let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
         guard let commandToken = parts.first else {
             // Empty line: let the main-lane dispatcher produce the legacy
             // "ERROR: Empty command" reply.
-            return v2MainSync {
-                self.processCommand(command)
-            }
+            return SocketCommandProcessingResult(
+                response: v2MainSync {
+                    self.processCommand(command)
+                },
+                descriptor: Self.socketCommandDescriptor(command: command, peerPid: peerPid)
+            )
         }
         let cmd = commandToken.lowercased()
         let args = parts.count > 1 ? parts[1] : ""
+        let policy = ControlCommandExecutionPolicy(forV1Command: cmd)
+        let descriptor = Self.socketCommandDescriptor(
+            protocolName: "v1",
+            method: cmd,
+            policy: policy,
+            peerPid: peerPid
+        )
 
         if Thread.isMainThread,
-           ControlCommandExecutionPolicy(forV1Command: cmd) == .socketWorker(mainThreadCallable: false) {
-            return "ERROR: \(cmd) must run off the main thread"
+           policy == .socketWorker(mainThreadCallable: false) {
+            return SocketCommandProcessingResult(
+                response: "ERROR: \(cmd) must run off the main thread",
+                descriptor: descriptor
+            )
         }
 
         let workerV1 = socketWorkerV1ResponseIfHandled(cmd: cmd, args: args)
         if workerV1.handled {
-            return workerV1.response
+            return SocketCommandProcessingResult(
+                response: workerV1.response,
+                descriptor: descriptor
+            )
         }
 
-        return v2MainSync(commandKey: cmd) {
-            self.processCommand(command)
-        }
+        return SocketCommandProcessingResult(
+            response: v2MainSync(commandKey: cmd) {
+                self.mainThreadSocketCommandWatchdog.monitor(
+                    descriptor: descriptor,
+                    startNs: DispatchTime.now().uptimeNanoseconds
+                ) {
+                    self.processCommand(command)
+                }
+            },
+            descriptor: descriptor
+        )
     }
 
     /// Public entry point mirroring the socket's `processCommand` path so
@@ -2466,7 +2618,7 @@ class TerminalController {
     /// request) can reuse the full V1/V2 dispatcher without duplicating
     /// its auth/policy wrappers.
     nonisolated func handleSocketLine(_ line: String) -> String {
-        return processCommandUsingSocketExecutionPolicy(line) ?? ""
+        return processCommandUsingSocketExecutionPolicyResult(line).response ?? ""
     }
 
     func processCommand(_ command: String) -> String {
@@ -2609,6 +2761,9 @@ class TerminalController {
             return readScreenText(args)
 
 #if DEBUG
+        case "debug_socket_command_probe":
+            Thread.sleep(forTimeInterval: Double(min(2000, max(0, Int(args) ?? 1200))) / 1000)
+            return "OK"
         case "send_workspace":
             return sendInputToWorkspace(args)
 
@@ -2686,8 +2841,8 @@ class TerminalController {
     }
 
     /// Parses and dispatches a v2 line on the calling thread. Socket traffic
-    /// enters through `processCommandUsingSocketExecutionPolicy`, which parses
-    /// before this point; this entry serves in-process callers
+    /// enters through the socket execution-policy result dispatcher, which
+    /// parses before this point; this entry serves in-process callers
     /// (`runV2CommandLine`, and `processCommand`'s v2 branch), so it may parse
     /// on its calling thread.
     private nonisolated func processV2Command(_ jsonLine: String) -> String {
@@ -2700,7 +2855,10 @@ class TerminalController {
             return CmuxAutomationInvocationContext.$eventOrigin.withValue(
                 CmuxAutomationInvocationContext.eventOrigin
             ) {
-                processParsedV2Command(request)
+                processParsedV2Command(
+                    request,
+                    diffViewerRegistration: preparedDiffViewerRegistration(for: request)
+                )
             }
         }
     }
@@ -2719,7 +2877,11 @@ class TerminalController {
     /// for in-process callers). Policy checks and response encoding stay on
     /// the calling thread; only the command body crosses to the main actor,
     /// via a single `v2MainSync` hop.
-    private nonisolated func processParsedV2Command(_ request: ControlRequest) -> String {
+    private nonisolated func processParsedV2Command(
+        _ request: ControlRequest,
+        diffViewerRegistration: DiffViewerSessionPreparation = .notNeeded,
+        descriptor: SocketCommandDescriptor? = nil
+    ) -> String {
         if let focusError = Self.focusSuppressionResponse(
             method: request.method,
             id: request.id.map(\.foundationObject),
@@ -2745,23 +2907,21 @@ class TerminalController {
                 return v2Result(id: id, workspaceParamError)
             }
 
-            // `browser.open_split` remains one main-actor UI action, but custom
-            // diff-viewer registration performs its bounded manifest/file/lease
-            // work here on the socket worker before the single main hop.
-            let diffViewerRegistration: DiffViewerSessionPreparation
-            if method == "browser.open_split" {
-                diffViewerRegistration = v2PrepareDiffViewerRegistration(params: params)
-            } else {
-                diffViewerRegistration = .notNeeded
-            }
-
             let outcome = v2MainSync {
-                self.v2MainActorResponse(
-                    request: request,
-                    id: id,
-                    method: method,
-                    params: params,
-                    diffViewerRegistration: diffViewerRegistration
+                let body = {
+                    self.v2MainActorResponse(
+                        request: request,
+                        id: id,
+                        method: method,
+                        params: params,
+                        diffViewerRegistration: diffViewerRegistration
+                    )
+                }
+                guard let descriptor else { return body() }
+                return self.mainThreadSocketCommandWatchdog.monitor(
+                    descriptor: descriptor,
+                    startNs: DispatchTime.now().uptimeNanoseconds,
+                    body
                 )
             }
             switch outcome {
@@ -2771,6 +2931,15 @@ class TerminalController {
                 return response
             }
         }
+    }
+
+    private nonisolated func preparedDiffViewerRegistration(
+        for request: ControlRequest
+    ) -> DiffViewerSessionPreparation {
+        guard request.method == "browser.open_split" else { return .notNeeded }
+        return v2PrepareDiffViewerRegistration(
+            params: request.params.mapValues(\.foundationObject)
+        )
     }
 
     /// The main-actor body of one main-lane v2 command: the known-ref
@@ -2903,6 +3072,18 @@ class TerminalController {
         case "agent.resolve_delivery_target": return v2Result(id: id, self.v2AgentResolveDeliveryTarget(params: params))
         case "agent.hibernation.session_end": return v2Result(id: id, self.v2AgentHibernationSessionEnd(params: params))
         #if DEBUG
+        case "debug.socket_command_probe":
+            let delayMs = min(2000, max(0, params["delay_ms"] as? Int ?? 1200))
+            Thread.sleep(forTimeInterval: Double(delayMs) / 1000)
+            return v2Ok(id: id, result: ["delay_ms": delayMs])
+        case "debug.socket_command_sync_probe":
+            let response: String
+            if params["protocol"] as? String == "v1" {
+                response = handleSocketLine("debug_socket_command_probe 1200")
+            } else {
+                response = handleSocketLine("{\"id\":1,\"method\":\"debug.socket_command_probe\",\"params\":{\"delay_ms\":1200}}")
+            }
+            return v2Ok(id: id, result: ["response": response])
         case "debug.notification.status":
             return v2Ok(id: id, result: notificationDebugStatus())
         case "debug.notification.mode":

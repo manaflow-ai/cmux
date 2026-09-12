@@ -214,6 +214,9 @@
          location = "group:CmuxSimulator">
       </FileRef>
       <FileRef
+         location = "group:CmuxSocketObservability">
+      </FileRef>
+      <FileRef
          location = "group:CmuxSudoBroker">
       </FileRef>
       <FileRef

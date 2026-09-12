@@ -1,4 +1,5 @@
 import CmuxControlSocket
+import CmuxSocketObservability
 import CmuxBrowser
 import Foundation
 
@@ -12,28 +13,47 @@ extension TerminalController {
     nonisolated func processSocketLineAsync(
         _ command: String,
         passwordAuthorization: SocketPasswordAuthorization,
-        rateLimiter: ControlClientRateLimiter
+        rateLimiter: ControlClientRateLimiter,
+        peerPid: pid_t? = nil
     ) async -> (response: String?, passwordAuthorization: SocketPasswordAuthorization) {
+        let commandStartNs = DispatchTime.now().uptimeNanoseconds
         var nextPasswordAuthorization = passwordAuthorization
         if let response = authResponseIfNeeded(
             for: command,
             passwordAuthorization: &nextPasswordAuthorization
         ) {
+            reportSlowSocketCommandIfNeeded(
+                descriptor: Self.socketCommandDescriptor(command: command, peerPid: peerPid),
+                response: response,
+                startNs: commandStartNs
+            )
             return (response, nextPasswordAuthorization)
         }
 
         if let method = Self.socketPollingMethod(in: command),
            case .limited(let retryAfterMilliseconds) = await rateLimiter.admit(method: method) {
-            return (
-                Self.socketRateLimitedResponse(
-                    command: command,
-                    retryAfterMilliseconds: retryAfterMilliseconds
-                ),
-                nextPasswordAuthorization
+            let response = Self.socketRateLimitedResponse(
+                command: command,
+                retryAfterMilliseconds: retryAfterMilliseconds
             )
+            reportSlowSocketCommandIfNeeded(
+                descriptor: Self.socketCommandDescriptor(command: command, peerPid: peerPid),
+                response: response,
+                startNs: commandStartNs
+            )
+            return (response, nextPasswordAuthorization)
         }
 
-        let response = await processCommandUsingSocketExecutionPolicyAsync(command)
+        let processingResult = await processCommandUsingSocketExecutionPolicyResultAsync(
+            command,
+            peerPid: peerPid
+        )
+        let response = processingResult.response
+        reportSlowSocketCommandIfNeeded(
+            descriptor: processingResult.descriptor,
+            response: response,
+            startNs: commandStartNs
+        )
         return (response, nextPasswordAuthorization)
     }
 
@@ -41,43 +61,72 @@ extension TerminalController {
     /// and JSON encoding remain on the connection task; only the minimal
     /// main-actor action is awaited.
     nonisolated func processCommandUsingSocketExecutionPolicyAsync(
-        _ command: String
+        _ command: String,
+        peerPid: pid_t? = nil
     ) async -> String? {
+        await processCommandUsingSocketExecutionPolicyResultAsync(
+            command,
+            peerPid: peerPid
+        ).response
+    }
+
+    private nonisolated func processCommandUsingSocketExecutionPolicyResultAsync(
+        _ command: String,
+        peerPid: pid_t? = nil
+    ) async -> SocketCommandProcessingResult {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasPrefix("{") {
             let request: ControlRequest
             switch Self.v2Parser.request(fromLine: trimmed) {
             case .failure(let parseError):
-                return Self.v2Encoder.response(for: parseError)
+                return SocketCommandProcessingResult(
+                    response: Self.v2Encoder.response(for: parseError),
+                    descriptor: Self.socketCommandDescriptor(command: command, peerPid: peerPid)
+                )
             case .success(let parsed):
                 request = parsed
             }
 
             let relayAuthorization = await authorizeRemoteRelayRequestAsync(request)
-            if let errorResponse = relayAuthorization.errorResponse {
-                return errorResponse
-            }
             let authorizedRequest = relayAuthorization.request
+            let policy = Self.executionPolicy(forV2Method: authorizedRequest.method)
+            let descriptor = Self.socketCommandDescriptor(
+                protocolName: "v2",
+                method: authorizedRequest.method,
+                policy: policy,
+                peerPid: peerPid
+            )
+            if let errorResponse = relayAuthorization.errorResponse {
+                return SocketCommandProcessingResult(
+                    response: errorResponse,
+                    descriptor: descriptor
+                )
+            }
             let automationOrigin = CmuxAutomationInvocationContext.eventOrigin
             if let focusError = Self.focusSuppressionResponse(
                 method: authorizedRequest.method,
                 id: authorizedRequest.id.map(\.foundationObject),
                 params: authorizedRequest.params.mapValues(\.foundationObject)
             ) {
-                return focusError
+                return SocketCommandProcessingResult(
+                    response: focusError,
+                    descriptor: descriptor
+                )
             }
             if let workspaceParamError = v2UnsupportedWorkspaceAliasError(
                 method: authorizedRequest.method,
                 params: authorizedRequest.params.mapValues(\.foundationObject)
             ) {
-                return v2Result(
-                    id: authorizedRequest.id?.foundationObject,
-                    workspaceParamError
+                return SocketCommandProcessingResult(
+                    response: v2Result(
+                        id: authorizedRequest.id?.foundationObject,
+                        workspaceParamError
+                    ),
+                    descriptor: descriptor
                 )
             }
 
-            let policy = Self.executionPolicy(forV2Method: authorizedRequest.method)
-            return await CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
+            let response: String? = await CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
                 await withSocketCommandPolicyAsync(
                     commandKey: authorizedRequest.method,
                     isV2: true,
@@ -128,21 +177,34 @@ extension TerminalController {
                         }
                         return await self.socketWorkerV2ResponseAsync(authorizedRequest)
                     }
-                    return await self.processParsedV2CommandAsync(authorizedRequest)
+                    return await self.processParsedV2CommandAsync(
+                        authorizedRequest,
+                        descriptor: descriptor
+                    )
                 }
             }
+            return SocketCommandProcessingResult(response: response, descriptor: descriptor)
         }
 
         let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
         guard let commandToken = parts.first else {
-            return await v2MainAsync {
-                self.processCommand(command)
-            }
+            return SocketCommandProcessingResult(
+                response: await v2MainAsync {
+                    self.processCommand(command)
+                },
+                descriptor: Self.socketCommandDescriptor(command: command, peerPid: peerPid)
+            )
         }
         let commandName = commandToken.lowercased()
         let args = parts.count > 1 ? parts[1] : ""
         let policy = ControlCommandExecutionPolicy(forV1Command: commandName)
-        return await withSocketCommandPolicyAsync(
+        let descriptor = Self.socketCommandDescriptor(
+            protocolName: "v1",
+            method: commandName,
+            policy: policy,
+            peerPid: peerPid
+        )
+        let response = await withSocketCommandPolicyAsync(
             commandKey: commandName,
             isV2: false,
             params: commandName == "right_sidebar"
@@ -159,10 +221,11 @@ extension TerminalController {
                 )
                 if worker.handled { return worker.response }
             }
-            return await self.v2MainAsync {
+            return await self.monitorMainThreadSocketCommandAsync(descriptor: descriptor) {
                 self.processCommand(command)
             }
         }
+        return SocketCommandProcessingResult(response: response, descriptor: descriptor)
     }
 
     /// Handles a v2 worker request. Snapshot hits are entirely off-main;
@@ -462,7 +525,8 @@ extension TerminalController {
     }
 
     private nonisolated func processParsedV2CommandAsync(
-        _ request: ControlRequest
+        _ request: ControlRequest,
+        descriptor: SocketCommandDescriptor
     ) async -> String {
         if let focusError = Self.focusSuppressionResponse(
             method: request.method,
@@ -484,7 +548,7 @@ extension TerminalController {
         let diffViewerRegistration: DiffViewerSessionPreparation = method == "browser.open_split"
             ? v2PrepareDiffViewerRegistration(params: bridgedParams)
             : .notNeeded
-        let outcome = await v2MainAsync {
+        let outcome = await monitorMainThreadSocketCommandAsync(descriptor: descriptor) {
             let mainParams = request.params.mapValues(\.foundationObject)
             let mainID = request.id?.foundationObject
             return self.v2MainActorResponse(
@@ -503,6 +567,23 @@ extension TerminalController {
             return Self.v2Encoder.response(id: request.id, result)
         case .encoded(let response):
             return response
+        }
+    }
+
+    private nonisolated func monitorMainThreadSocketCommandAsync<T: Sendable>(
+        descriptor: SocketCommandDescriptor,
+        _ body: @escaping @MainActor @Sendable () -> T
+    ) async -> T {
+        guard descriptor.executedOnMain else {
+            return await v2MainAsync(body)
+        }
+        return await v2MainAsync {
+            self.mainThreadSocketCommandWatchdog.monitor(
+                descriptor: descriptor,
+                startNs: DispatchTime.now().uptimeNanoseconds
+            ) {
+                body()
+            }
         }
     }
 
