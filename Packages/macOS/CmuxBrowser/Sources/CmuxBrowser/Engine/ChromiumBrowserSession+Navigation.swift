@@ -455,7 +455,11 @@ extension ChromiumBrowserSession {
         return try ChromiumNavigationHistory(value)
     }
 
-    private func completeNoOpNavigation(_ history: ChromiumNavigationHistory) {
+    func completeNoOpNavigation(_ history: ChromiumNavigationHistory) {
+        // A history-edge command has no document commit, but it still completes
+        // the caller's navigation transaction. Advance the revision so a waiter
+        // captured before goBack/goForward cannot time out on this terminal path.
+        navigationRevision &+= 1
         isLoading = false
         canGoBack = history.canGoBack
         canGoForward = history.canGoForward
