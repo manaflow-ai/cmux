@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { V2DashboardController } from "../app/[locale]/dashboard/iroh/v2-dashboard-controller";
+import { V2DashboardController } from "../app/[locale]/dashboard/vms/v2-dashboard-controller";
 
 const originalFetch = globalThis.fetch;
 const originalSocket = globalThis.WebSocket;
@@ -22,7 +22,7 @@ class FakeSocket {
   message(value: unknown) { this.onmessage?.({ data: JSON.stringify(value) } as MessageEvent); }
 }
 
-describe("IROH Dashboard v2 controller", () => {
+describe("VM Dashboard v2 controller", () => {
   afterEach(() => { globalThis.fetch = originalFetch; globalThis.WebSocket = originalSocket; FakeSocket.instances = []; });
 
   test("uses Stack bearer only to open a session and keeps ticket out of the URL", async () => {

@@ -295,7 +295,8 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "aperçu",
       "team": "équipe",
-      "irohDevices": "IROH devices"
+      "irohDevices": "IROH devices",
+      "vms": "VMs"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -341,11 +342,11 @@
       }
     },
     "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+      "title": "VMs and workspaces",
+      "description": "View the selected team's VMs, workspaces, and terminals in real time.",
       "team": "Team",
       "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
+      "empty": "No VMs are registered for this team.",
       "unavailable": "Dashboard authorization is unavailable.",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
