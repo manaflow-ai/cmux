@@ -99,6 +99,35 @@ extension WorkspaceCoordinatorTests {
     }
 
     @Test
+    func collapseAllGroupsDoesNotHideMembersWithoutALiveAnchor() throws {
+        let (model, host, groups, _) = makeWorld()
+        let groupId = UUID()
+        let emptyGroup = WorkspaceGroup(
+            id: groupId,
+            name: "Empty",
+            isCollapsed: false,
+            isPinned: true,
+            anchor: .empty(groupId),
+            customColor: nil,
+            iconSymbol: nil
+        )
+        let orphanedMember = CoordinatorStubTab(groupId: groupId)
+        let outside = CoordinatorStubTab()
+        model.tabs = [orphanedMember, outside]
+        model.workspaceGroups = [emptyGroup]
+        model.selectedTabId = orphanedMember.id
+        host.sidebarSelectedWorkspaceIds = [orphanedMember.id]
+
+        groups.collapseAllWorkspaceGroups()
+
+        #expect(model.workspaceGroups.allSatisfy { $0.isCollapsed })
+        #expect(model.selectedTabId == orphanedMember.id)
+        #expect(host.sidebarSelectedWorkspaceIds == [orphanedMember.id])
+        #expect(host.selectedWorkspaceIds.isEmpty)
+        #expect(host.subtractedSidebarSelections.isEmpty)
+    }
+
+    @Test
     func expandAllGroupsPreservesFocusAndSelection() throws {
         let (model, host, groups, _) = makeWorld()
         let firstChild = CoordinatorStubTab()
