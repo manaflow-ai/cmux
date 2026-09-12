@@ -644,6 +644,8 @@ public struct WorkspaceListLayoutPreviewView: View {
             host: "Visual Mock Mac",
             connectionStatus: fixtureConnectionStatus,
             navigationStyle: usesSidebarSelectionFixture ? .sidebar : .push,
+            showsNavigationToolbar: false,
+            usesExternalSharedToolbar: true,
             wrapWorkspaceTitles: false,
             previewLineLimit: MobileDisplaySettings.defaultWorkspacePreviewLineCount,
             unreadIndicatorLeftShift: MobileDisplaySettings.defaultUnreadIndicatorLeftShift,
