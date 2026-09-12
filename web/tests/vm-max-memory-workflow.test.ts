@@ -23,7 +23,9 @@ test("create, fork, and restore reject a 64 GB machine on Pro before provisionin
     program: Effect.Effect<A, E, R>,
   ) => {
     try {
-      await Effect.runPromise(program.pipe(Effect.provide(layer)));
+      await Effect.runPromise(
+        program.pipe(Effect.provide(layer)) as Effect.Effect<A, E, never>,
+      );
       throw new Error("expected plan rejection");
     } catch (error) {
       expect(vmWorkflowErrorCause(error)?._tag).toBe("VmMemoryPlanError");
