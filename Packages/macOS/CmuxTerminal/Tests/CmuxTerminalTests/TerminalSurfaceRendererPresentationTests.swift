@@ -63,6 +63,7 @@ private func rendererReleaseWasOccluded() -> Bool
         surface.paneHost.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         surface.surfaceView.frame = surface.paneHost.bounds
         surface.rendererPresentationReadinessDidChange()
+        acknowledgePresentation(on: surface)
 
         #expect(surface.isRendererPresented)
         #expect(rendererRealizedCalls() == [false])
@@ -89,10 +90,15 @@ private func rendererReleaseWasOccluded() -> Bool
         surface.setRendererPortalVisible(true, presentationReady: false)
 
         #expect(surface.isRendererPortalVisible)
+        #expect(surface.renderHealth == .awaitingFrame)
         #expect(!surface.isRendererPresented)
+        acknowledgePresentation(on: surface)
+        #expect(surface.renderHealth == .rendering)
+        #expect(surface.isRendererPresented)
         #expect(rendererRealizedCalls() == [false])
 
         surface.ensureRendererPresented(presentationReady: true)
+        acknowledgePresentation(on: surface)
 
         #expect(surface.isRendererPresented)
         #expect(rendererRealizedCalls() == [false])
@@ -118,6 +124,7 @@ private func rendererReleaseWasOccluded() -> Bool
         #expect(rendererRealizedCalls() == [false])
 
         surface.setRendererPortalVisible(true, presentationReady: true)
+        acknowledgePresentation(on: surface)
 
         #expect(surface.isRendererPortalVisible)
         #expect(surface.isRendererRealized)
@@ -158,6 +165,7 @@ private func rendererReleaseWasOccluded() -> Bool
         surface.setRendererPortalVisible(true, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
+        acknowledgePresentation(on: surface)
         defer {
             surface.releaseSurfaceForTesting()
             runtimeSurface.deallocate()
@@ -203,7 +211,19 @@ private func rendererReleaseWasOccluded() -> Bool
             window.close()
         }
 
+        #expect(surface.renderHealth == .awaitingFrame)
         #expect(!surface.isRendererPresented)
+        acknowledgePresentation(on: surface)
+        #expect(surface.renderHealth == .rendering)
+        #expect(surface.isRendererPresented)
+
+        surface.setRendererPortalVisible(false, presentationReady: true)
+        surface.setRendererPortalVisible(true, presentationReady: true)
+        let firstFailedToken = surface.rendererPresentationState.inFlightToken!
+        surface.rendererFrameDidFail(token: firstFailedToken, status: GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED)
+        let recoveryToken = surface.rendererPresentationState.inFlightToken!
+        surface.rendererFrameDidFail(token: recoveryToken, status: GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED)
+        #expect(surface.renderHealth == .notRendering)
     }
 
     @Test func reclaimedRuntimeIsRebuiltOnceWhenShownAgain() {
@@ -229,6 +249,7 @@ private func rendererReleaseWasOccluded() -> Bool
 
         surface.setRendererPortalVisible(true, presentationReady: true)
         surface.setRendererPortalVisible(true, presentationReady: true)
+        acknowledgePresentation(on: surface)
 
         #expect(surface.isRendererPresented)
         #expect(rendererRealizedCalls() == [false])
@@ -281,6 +302,7 @@ private func rendererReleaseWasOccluded() -> Bool
             GHOSTTY_RENDERER_EVENT_UPDATE_FRAME_END
         )
 
+        acknowledgePresentation(on: surface)
         #expect(surface.isRendererPresented)
         #expect(rendererRealizedCalls().isEmpty)
         #expect(rendererRebuildCallCount() == 2)
@@ -327,6 +349,7 @@ private func rendererReleaseWasOccluded() -> Bool
             GHOSTTY_RENDERER_EVENT_UPDATE_FRAME_END
         )
 
+        acknowledgePresentation(on: surface)
         #expect(surface.isRendererPresented)
         #expect(rendererRealizedCalls().isEmpty)
         #expect(rendererRebuildCallCount() == 3)
@@ -409,6 +432,11 @@ private func rendererReleaseWasOccluded() -> Bool
 
     private func rendererRealizedCalls() -> [Bool] {
         (0..<rendererRealizedCallCount()).map(rendererRealizedCallValue)
+    }
+
+    private func acknowledgePresentation(on surface: TerminalSurface) {
+        guard let token = surface.rendererPresentationState.inFlightToken else { return }
+        surface.rendererFrameDidPresent(token: token)
     }
 
     private func installRendererCallbackContext(
