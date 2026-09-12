@@ -36176,9 +36176,6 @@ export default CMUXSessionRestore;
                     client: client
                 )
             }
-            if def.name != "cursor" {
-                sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
-            }
             let pid = preferredAgentHookEventPID(agentName: def.name, mappedPID: mapped?.pid, inferredPID: inferredPID)
             let codexFailure: CodexHookFailureSummary?
             if def.name == "codex" {
@@ -36354,6 +36351,9 @@ export default CMUXSessionRestore;
                 didSendFeedTelemetry = true
                 print("{}")
                 return
+            }
+            if def.name != "cursor" {
+                sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             }
             // The prompt-depth record is a compatibility ownership signal for
             // legacy same-session nested turns. Do not settle the Codex ledger
