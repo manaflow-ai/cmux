@@ -20,13 +20,19 @@ public struct SocketControlSettings {
     public static let launchTagEnvKey = "CMUX_TAG"
     /// Base bundle identifier shared by all debug builds.
     public static let baseDebugBundleIdentifier = "com.cmuxterm.app.debug"
-    private static let stableSocketFileName = "cmux.sock"
-    /// Legacy stable socket path used before the Application Support location.
+    private static let stableSocketFileName = SocketPathMarkerFiles.releaseSocketFileName
+    /// Legacy `/tmp` stable socket path used before the state-directory location.
     public static let legacyStableDefaultSocketPath = "/tmp/cmux.sock"
 
     /// The stable build's default socket path (within ``CmuxStateDirectory``, falling back to `/tmp`).
     public static var stableDefaultSocketPath: String {
         stableSocketFileURL()?.path ?? legacyStableDefaultSocketPath
+    }
+
+    private static var legacyStateStableSocketPath: String {
+        stableSocketDirectoryURL()?
+            .appendingPathComponent(SocketPathMarkerFiles.legacyReleaseSocketFileName, isDirectory: false)
+            .path ?? legacyStableDefaultSocketPath
     }
 
     /// The result of probing the stable default socket path on disk.
@@ -185,7 +191,11 @@ public struct SocketControlSettings {
             return fallback
         }
 
-        if isTaggedDevBuild(bundleIdentifier: bundleIdentifier),
+        if case .dev(let slug) = SocketPathMarkerFiles.variant(
+            bundleIdentifier: bundleIdentifier,
+            environment: environment,
+            baseDebugBundleIdentifier: baseDebugBundleIdentifier
+        ), slug != nil,
            !isTruthy(environment[allowSocketPathOverrideKey]),
            !pathsMatch(override, fallback) {
             return fallback
@@ -323,7 +333,8 @@ public struct SocketControlSettings {
         var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
         let length = readlink(path, &buffer, buffer.count - 1)
         guard length > 0 else { return nil }
-        let target = String(decoding: buffer.prefix(Int(length)).map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        buffer[Int(length)] = 0
+        let target = String(cString: buffer)
         if target.hasPrefix("/") {
             return target
         }
@@ -341,6 +352,7 @@ public struct SocketControlSettings {
         }
         return [
             stableDefaultSocketPath,
+            legacyStateStableSocketPath,
             userScopedStableSocketPath(currentUserID: currentUserID),
             legacyStableDefaultSocketPath,
             legacyUserScopedStableSocketPath(currentUserID: currentUserID),

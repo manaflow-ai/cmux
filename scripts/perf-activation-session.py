@@ -13,6 +13,12 @@ import tempfile
 import time
 import xml.etree.ElementTree as ET
 
+_SCRIPTS_DIR = pathlib.Path(__file__).resolve().parent
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
+from cmux_socket_paths import socket_path_for_file_name
+
 
 DEFAULT_SCROLLBACK_TARGET_CHARS = 1_500_000
 
@@ -100,7 +106,7 @@ class CmuxPerfRunner:
         self.tag = args.tag
         self.tag_slug = sanitize_path(args.tag)
         self.tag_id = sanitize_bundle(args.tag)
-        self.socket_path = pathlib.Path(f"/tmp/cmux-debug-{self.tag_slug}.sock")
+        self.socket_path = socket_path_for_file_name(f"com.cmuxterm.app.dev.{self.tag_slug}.sock")
         self.cmuxd_socket_path = pathlib.Path(
             os.path.expanduser(f"~/Library/Application Support/cmux/cmuxd-dev-{self.tag_slug}.sock")
         )

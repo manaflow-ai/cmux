@@ -15,7 +15,7 @@ from cmux import cmuxError
 
 SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "").strip()
 if not SOCKET_PATH:
-    raise cmuxError("CMUX_SOCKET_PATH is required (expected /tmp/cmux-debug-<tag>.sock)")
+    raise cmuxError("CMUX_SOCKET_PATH is required (expected a tagged DEV socket)")
 LAST_SOCKET_HINT_PATH = Path("/tmp/cmux-last-socket-path")
 
 

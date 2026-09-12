@@ -448,9 +448,29 @@ derive_socket_marker_names() {
   esac
 }
 
+socket_path_for_file_name() {
+  local file_name="$1"
+  python3 "$SCRIPT_DIR/cmux_socket_paths.py" "$file_name"
+}
+
+socket_file_name_for_tagged_bundle() {
+  local bundle_id="${BUNDLE_ID:-}"
+  local slug="${TAG_SLUG:-}"
+  case "$bundle_id" in
+    com.cmuxterm.app.debug.*)
+      slug="$(sanitize_path "${bundle_id#com.cmuxterm.app.debug.}")"
+      ;;
+  esac
+  if [[ -n "$slug" ]]; then
+    printf 'com.cmuxterm.app.dev.%s.sock\n' "$slug"
+  else
+    printf 'com.cmuxterm.app.dev.sock\n'
+  fi
+}
+
 cleanup_stale_tag_state() {
   local slug="$1"
-  local socket_path="${2:-/tmp/cmux-debug-${slug}.sock}"
+  local socket_path="${2:-$(socket_path_for_file_name "com.cmuxterm.app.dev.${slug}.sock")}"
   local publish_socket_path="${3:-}"
   local publish_cli_path="${4:-}"
   derive_socket_marker_names "${BUNDLE_ID:-}" "$slug"
@@ -502,7 +522,10 @@ cleanup_stale_cli_pointer_target() {
     socket_path="$(/usr/libexec/PlistBuddy -c 'Print :LSEnvironment:CMUX_SOCKET_PATH' "$bundle_path/Contents/Info.plist" 2>/dev/null || true)"
   fi
   socket_path="$(printf '%s' "$socket_path" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-  cleanup_stale_tag_state "$slug" "${socket_path:-/tmp/cmux-debug-${slug}.sock}"
+  if [[ -z "$socket_path" ]]; then
+    socket_path="$(socket_path_for_file_name "com.cmuxterm.app.dev.${slug}.sock")"
+  fi
+  cleanup_stale_tag_state "$slug" "$socket_path"
 }
 
 wait_for_tag_socket_lock_release() {
@@ -1041,6 +1064,29 @@ print_tag_cleanup_reminder() {
   local seen=" "
   local -a stale_tags=()
 
+  print_tag_cleanup_commands() {
+    local cleanup_slug="$1"
+    local cleanup_socket_path=""
+    local cleanup_marker_name=""
+    local cleanup_tmp_marker=""
+    local cleanup_marker_path=""
+    local cleanup_legacy_marker_path=""
+
+    cleanup_socket_path="$(socket_path_for_file_name "com.cmuxterm.app.dev.${cleanup_slug}.sock")"
+    derive_socket_marker_names "com.cmuxterm.app.debug.${cleanup_slug}" "$cleanup_slug"
+    cleanup_marker_name="$CMUX_RELOAD_MARKER_NAME"
+    cleanup_tmp_marker="$CMUX_RELOAD_TMP_MARKER"
+    cleanup_marker_path="${LAST_SOCKET_PATH_DIR}/${cleanup_marker_name}"
+    cleanup_legacy_marker_path="${LEGACY_SOCKET_PATH_DIR}/${cleanup_marker_name}"
+
+    echo "  pkill -f \"cmux DEV ${cleanup_slug}.app/Contents/MacOS/cmux DEV\""
+    echo "  rm -rf \"$(tagged_derived_data_path "$cleanup_slug")\" \"/tmp/cmux-${cleanup_slug}\""
+    echo "  rm -f \"${cleanup_socket_path}\" \"${cleanup_socket_path}.lock\" \"/tmp/cmux-debug-${cleanup_slug}.sock\""
+    echo "  rm -f \"${cleanup_marker_path}\" \"${cleanup_legacy_marker_path}\" \"${cleanup_tmp_marker}\""
+    echo "  rm -f \"/tmp/cmux-debug-${cleanup_slug}.log\""
+    echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${cleanup_slug}.sock\""
+  }
+
   while IFS= read -r -d '' path; do
     if [[ "$path" == /tmp/cmux-* ]]; then
       tag="${path#/tmp/cmux-}"
@@ -1079,17 +1125,11 @@ print_tag_cleanup_reminder() {
     done
     echo "Cleanup stale tags only:"
     for tag in "${stale_tags[@]}"; do
-      echo "  pkill -f \"cmux DEV ${tag}.app/Contents/MacOS/cmux DEV\""
-      echo "  rm -rf \"$(tagged_derived_data_path "$tag")\" \"/tmp/cmux-${tag}\" \"/tmp/cmux-debug-${tag}.sock\""
-      echo "  rm -f \"/tmp/cmux-debug-${tag}.log\""
-      echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${tag}.sock\""
+      print_tag_cleanup_commands "$tag"
     done
   fi
   echo "After you verify current tag, cleanup command:"
-  echo "  pkill -f \"cmux DEV ${current_slug}.app/Contents/MacOS/cmux DEV\""
-  echo "  rm -rf \"$(tagged_derived_data_path "$current_slug")\" \"/tmp/cmux-${current_slug}\" \"/tmp/cmux-debug-${current_slug}.sock\""
-  echo "  rm -f \"/tmp/cmux-debug-${current_slug}.log\""
-  echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${current_slug}.sock\""
+  print_tag_cleanup_commands "$current_slug"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -1230,8 +1270,9 @@ if [[ -n "$TAG" ]]; then
   if [[ "$DERIVED_SET" -eq 0 ]]; then
     DERIVED_DATA="$(tagged_derived_data_path "$TAG_SLUG")"
   fi
+  TAG_SOCKET_PATH="$(socket_path_for_file_name "$(socket_file_name_for_tagged_bundle)")"
   cleanup_stale_cli_pointer_target || true
-  cleanup_stale_tag_state "$TAG_SLUG" || true
+  cleanup_stale_tag_state "$TAG_SLUG" "$TAG_SOCKET_PATH" || true
 fi
 
 CMUX_DEV_PORT="$(choose_cmux_dev_port)"
@@ -1665,7 +1706,7 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
     if [[ -n "${TAG_SLUG:-}" ]]; then
       APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
       CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-dev-${TAG_SLUG}.sock"
-      CMUX_SOCKET_PATH_VALUE="/tmp/cmux-debug-${TAG_SLUG}.sock"
+      CMUX_SOCKET_PATH_VALUE="${TAG_SOCKET_PATH:-$(socket_path_for_file_name "$(socket_file_name_for_tagged_bundle)")}"
       CMUX_DEBUG_LOG="/tmp/cmux-debug-${TAG_SLUG}.log"
       CMUX_AUTH_CALLBACK_SCHEME_VALUE="cmux-dev-${TAG_SLUG}"
       echo "$CMUX_DEBUG_LOG" > /tmp/cmux-last-debug-log-path || true
@@ -1805,7 +1846,7 @@ if [[ -n "$TAG" ]]; then
   /bin/launchctl remove "$TAG_LAUNCHD_LABEL" >/dev/null 2>&1 || true
 fi
 
-if [[ -n "$TAG" ]] && ! wait_for_tag_socket_lock_release "/tmp/cmux-debug-${TAG_SLUG}.sock"; then
+if [[ -n "$TAG" ]] && ! wait_for_tag_socket_lock_release "$TAG_SOCKET_PATH"; then
   CAN_PUBLISH_RELOAD_STATE=0
 fi
 if [[ "$CAN_PUBLISH_RELOAD_STATE" -eq 1 && -n "${TAG_SLUG:-}" ]]; then
@@ -1820,8 +1861,8 @@ if [[ "$CAN_PUBLISH_RELOAD_STATE" -eq 1 && -n "${TAG_SLUG:-}" ]]; then
   fi
   if ! cleanup_stale_tag_state \
       "$TAG_SLUG" \
-      "/tmp/cmux-debug-${TAG_SLUG}.sock" \
-      "/tmp/cmux-debug-${TAG_SLUG}.sock" \
+      "$TAG_SOCKET_PATH" \
+      "$TAG_SOCKET_PATH" \
       "$RELOAD_PUBLISH_CLI_PATH"; then
     # A replacement process may have reclaimed this tag while the old app was
     # terminating. Do not overwrite its discovery marker or ambient CLI pointer.

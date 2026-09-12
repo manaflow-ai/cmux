@@ -46,8 +46,12 @@ sanitize_path() {
 
 tag_slug="$(sanitize_path "$CMUX_TAG")"
 tag_bundle_id="$(sanitize_bundle "$CMUX_TAG")"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-socket_path="/tmp/cmux-debug-${tag_slug}.sock"
+socket_path="$(python3 "$script_dir/cmux_socket_paths.py" "com.cmuxterm.app.dev.${tag_slug}.sock")"
+if [[ ! -S "$socket_path" && -S "/tmp/cmux-debug-${tag_slug}.sock" ]]; then
+  socket_path="/tmp/cmux-debug-${tag_slug}.sock"
+fi
 if [[ ! -S "$socket_path" ]]; then
   cat >&2 <<EOF
 Tagged cmux socket not found:

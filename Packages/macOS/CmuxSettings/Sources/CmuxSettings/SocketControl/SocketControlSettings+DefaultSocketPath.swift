@@ -29,6 +29,7 @@ extension SocketControlSettings {
                 currentUserID: currentUserID,
                 probeStableDefaultPathEntry: probeStableDefaultPathEntry
             ),
+            appSupportDirectory: stableSocketDirectoryURL(),
             baseDebugBundleIdentifier: baseDebugBundleIdentifier
         )
     }

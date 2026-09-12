@@ -109,6 +109,33 @@ import CmuxSettings
         #expect(path == "/tmp/cmux-custom.sock")
     }
 
+    @Test(arguments: ["com.cmuxterm.app.debug", "com.cmuxterm.app.debug.my-tag"], [false, true])
+    func taggedSocketOverrideUsesResolvedVariant(bundleIdentifier: String, allowsOverride: Bool) {
+        let override = "/tmp/cmux-custom.sock"
+        let environment = [
+            "CMUX_TAG": " My_Tag ",
+            "CMUX_SOCKET_PATH": override,
+            "CMUX_ALLOW_SOCKET_OVERRIDE": allowsOverride ? "1" : "0",
+        ]
+        let defaultPath = SocketControlSettings.defaultSocketPath(
+            bundleIdentifier: bundleIdentifier,
+            environment: environment,
+            isDebugBuild: true,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { _ in .missing }
+        )
+        let path = SocketControlSettings.socketPath(
+            environment: environment,
+            bundleIdentifier: bundleIdentifier,
+            isDebugBuild: true,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { _ in .missing }
+        )
+
+        #expect(defaultPath != override)
+        #expect(path == (allowsOverride ? override : defaultPath))
+    }
+
     @Test func bareDebugXCTestLaunchUsesScopedSocketFallback() {
         let environment = [
             "XCTestConfigurationFilePath": "/tmp/Test-cmux-unit-2026.06.17.xctestconfiguration",
@@ -186,7 +213,7 @@ import CmuxSettings
         #expect(first != second)
     }
 
-    @Test func taggedDebugXCTestLaunchStillUsesTaggedSocket() {
+    @Test func taggedDebugXCTestLaunchStillUsesTaggedSocket() throws {
         let path = SocketControlSettings.socketPath(
             environment: [
                 "CMUX_TAG": "ci-split-theme",
@@ -197,7 +224,12 @@ import CmuxSettings
             currentUserID: 501,
             probeStableDefaultPathEntry: { _ in .missing }
         )
-        #expect(path == "/tmp/cmux-debug-ci-split-theme.sock")
+        let directory = try #require(SocketControlSettings.stableSocketDirectoryURL())
+        let expectedPath = SocketPathMarkerFiles.socketPath(
+            fileName: "com.cmuxterm.app.dev.ci-split-theme.sock",
+            directory: directory
+        )
+        #expect(path == expectedPath)
     }
 
     @Test func initialStableLaunchReclaimsSameUserStaleSocketWhenLockIsFree() {
