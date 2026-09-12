@@ -45,9 +45,9 @@ import {
 import {
   PricingCheckoutButton,
   PricingIntervalProvider,
-  PricingIntervalSelector,
   PricingIntervalValue,
 } from "../../components/pricing-interval-selector";
+import { PricingAudienceSelector } from "../../components/pricing-audience-selector";
 import {
   PRO_PRICING_USD,
   TEAM_PRICING_USD,
@@ -175,113 +175,50 @@ export default async function PricingPage({
         <PricingIntervalProvider initialInterval={interval}>
           {/* Title */}
           <h1 className="text-2xl font-medium tracking-tight">{t("title")}</h1>
-          <PricingIntervalSelector
-            billingPeriodLabel={t("billingPeriod")}
-            monthlyLabel={t("monthly")}
-            annualLabel={t("annual")}
-            savingsLabel={t("saveAnnual", {
-              discount: PRO_PRICING_USD.year.discountPercent,
-            })}
-            surface="public_pricing"
+          <PricingAudienceSelector
+            individualLabel={t("audience.individual")}
+            teamLabel={t("audience.team")}
+            ariaLabel={t("audience.label")}
+            individual={
+              <div className="grid gap-5 md:grid-cols-2 items-stretch">
+                <PlanCard name={t("free.name")} price={t("free.price")} period={t("perMonth")}>
+                  <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF}>{t("free.cta")}</PrimaryLink>
+                  <p className="mt-5 text-sm font-medium">{t("free.featuresLead")}</p>
+                  <FeatureList items={freeFeatures} />
+                </PlanCard>
+                <PlanCard
+                  name={t("pro.name")}
+                  price={<PricingIntervalValue monthly={`$${PRO_PRICING_USD.month.billedAmount}`} annual={`$${PRO_PRICING_USD.year.monthlyEquivalent}`} />}
+                  period={<PricingIntervalValue monthly={t("perMonth")} annual={t("perMonthBilledYearly")} />}
+                  badge={snapshot.isPro ? <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge> : null}
+                >
+                  {snapshot.isPro ? <div className="space-y-2"><DisabledButton>{t("currentPlan")}</DisabledButton><SecondaryLink href="/api/billing/portal">{t("manageBilling")}</SecondaryLink></div> : canManageBilling ? <SecondaryLink href="/api/billing/portal">{t("manageBilling")}</SecondaryLink> : <ProCtaLink checkoutHrefs={proCheckoutHrefs}>{t("pro.cta")}</ProCtaLink>}
+                  <p className="mt-3 text-xs text-muted">{t("priceMonthlyNote", { amount: PRO_PRICING_USD.month.billedAmount })}</p>
+                  <p className="mt-5 text-sm font-medium">{t("pro.featuresLead")}</p>
+                  <FeatureList items={proFeatures} />
+                </PlanCard>
+              </div>
+            }
+            team={
+              <div className="grid gap-5 md:grid-cols-2 items-stretch">
+                <PlanCard
+                  name={t("team.name")}
+                  price={<PricingIntervalValue monthly={`$${TEAM_PRICING_USD.month.billedAmount}`} annual={`$${TEAM_PRICING_USD.year.monthlyEquivalent}`} />}
+                  period={<PricingIntervalValue monthly={t("perUserMonth")} annual={t("perUserMonthBilledYearly")} />}
+                >
+                  <PricingCheckoutButton hrefs={teamCheckoutHrefs} location="pricing_page" plan="team">{t("team.cta")}</PricingCheckoutButton>
+                  <p className="mt-3 text-xs text-muted">{t("priceMonthlyPerUserNote", { amount: TEAM_PRICING_USD.month.billedAmount })}</p>
+                  <p className="mt-5 text-sm font-medium">{t("team.featuresLead")}</p>
+                  <FeatureList items={teamFeatures} />
+                </PlanCard>
+                <PlanCard name={t("enterprise.name")} price={t("enterprise.price")}>
+                  <SecondaryLink href={ENTERPRISE_CTA_URL}>{t("enterprise.cta")}</SecondaryLink>
+                  <p className="mt-5 text-sm font-medium">{t("enterprise.featuresLead")}</p>
+                  <FeatureList items={enterpriseFeatures} />
+                </PlanCard>
+              </div>
+            }
           />
-
-          {/* Tier cards */}
-          <div className="mt-6 grid gap-5 md:grid-cols-2 lg:grid-cols-4 items-stretch">
-            {/* Free */}
-            <PlanCard
-              name={t("free.name")}
-              price={t("free.price")}
-              period={t("perMonth")}
-            >
-              <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF}>{t("free.cta")}</PrimaryLink>
-              <p className="mt-5 text-sm font-medium">
-                {t("free.featuresLead")}
-              </p>
-              <FeatureList items={freeFeatures} />
-            </PlanCard>
-
-            {/* Pro */}
-            <PlanCard
-              name={t("pro.name")}
-              price={
-                <PricingIntervalValue
-                  monthly={`$${PRO_PRICING_USD.month.billedAmount}`}
-                  annual={`$${PRO_PRICING_USD.year.monthlyEquivalent}`}
-                />
-              }
-              period={
-                <PricingIntervalValue
-                  monthly={t("perMonth")}
-                  annual={t("perMonthBilledYearly")}
-                />
-              }
-              badge={
-                snapshot.isPro ? (
-                  <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge>
-                ) : null
-              }
-            >
-              {snapshot.isPro ? (
-                <div className="space-y-2">
-                  <DisabledButton>{t("currentPlan")}</DisabledButton>
-                  <SecondaryLink href="/api/billing/portal">
-                    {t("manageBilling")}
-                  </SecondaryLink>
-                </div>
-              ) : canManageBilling ? (
-                <SecondaryLink href="/api/billing/portal">
-                  {t("manageBilling")}
-                </SecondaryLink>
-              ) : (
-                <ProCtaLink checkoutHrefs={proCheckoutHrefs}>
-                  {t("pro.cta")}
-                </ProCtaLink>
-              )}
-              <p className="mt-5 text-sm font-medium">{t("pro.featuresLead")}</p>
-              <FeatureList items={proFeatures} />
-            </PlanCard>
-
-            {/* Team */}
-            <PlanCard
-              name={t("team.name")}
-              price={
-                <PricingIntervalValue
-                  monthly={`$${TEAM_PRICING_USD.month.billedAmount}`}
-                  annual={`$${TEAM_PRICING_USD.year.monthlyEquivalent}`}
-                />
-              }
-              period={
-                <PricingIntervalValue
-                  monthly={t("perUserMonth")}
-                  annual={t("perUserMonthBilledYearly")}
-                />
-              }
-            >
-              <PricingCheckoutButton
-                hrefs={teamCheckoutHrefs}
-                location="pricing_page"
-                plan="team"
-              >
-                {t("team.cta")}
-              </PricingCheckoutButton>
-              <p className="mt-5 text-sm font-medium">{t("team.featuresLead")}</p>
-              <FeatureList items={teamFeatures} />
-            </PlanCard>
-
-            {/* Enterprise */}
-            <PlanCard
-              name={t("enterprise.name")}
-              price={t("enterprise.price")}
-            >
-              <SecondaryLink href={ENTERPRISE_CTA_URL}>
-                {t("enterprise.cta")}
-              </SecondaryLink>
-              <p className="mt-5 text-sm font-medium">
-                {t("enterprise.featuresLead")}
-              </p>
-              <FeatureList items={enterpriseFeatures} />
-            </PlanCard>
-          </div>
 
           <p className="mt-6 text-sm text-muted">
             <Link

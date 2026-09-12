@@ -269,8 +269,8 @@ describe("localized pricing page", () => {
     expect(html).toContain(
       "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_source=pricing_page&amp;interval=year&amp;cmux_placement=pricing_page",
     );
-    expect(html).toContain('role="radiogroup"');
-    expect(html).toContain('<button type="button" role="radio" aria-checked="true"');
+    expect(html).toContain('role="tablist"');
+    expect(html).toContain('<button type="button" role="tab" aria-selected="true"');
     expect(html).not.toContain('href="?interval=');
     expect(html).toContain("mx-auto mt-6 flex w-fit");
   });
@@ -304,7 +304,7 @@ describe("localized pricing page", () => {
     expect(html).toContain("$50");
     expect(html).toContain("$60");
     expect(html).toContain(
-      "Up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs",
+      "Up to 50 Cloud VMs, with 4 vCPUs, 16 GB RAM, and 200 GB disk shared across all VMs",
     );
     expect(html).toContain("Unlimited workspaces");
     expect(html).not.toContain("Unlimited active Cloud VMs");
@@ -314,9 +314,17 @@ describe("localized pricing page", () => {
     expect(html).toContain(
       "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_source=pricing_page&amp;interval=month&amp;cmux_placement=pricing_page",
     );
-    expect(html).toContain(
-      '<button type="button" role="radio" aria-checked="true" tabindex="0" class="bg-foreground px-3 py-1.5 font-medium text-background">Monthly</button>',
-    );
+    expect(html).toContain('<button type="button" role="tab" aria-selected="true"');
+  });
+
+  test("shows individual plans first and includes the team audience view", async () => {
+    const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain("Individual");
+    expect(html).toContain("Team &amp; Enterprise");
+    expect(html).toContain('aria-selected="true"');
+    expect(html).toContain('hidden=""');
   });
 });
 

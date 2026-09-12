@@ -786,6 +786,11 @@
     "metaDescriptionNoVault": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for isolated Cloud VMs. Enterprise adds SSO and self-hosting.",
     "metaDescriptionNoVaultShort": "cmux is a free, open source macOS terminal. Pro adds isolated Cloud VMs; Enterprise adds SSO and self-hosting.",
     "title": "Pricing",
+    "audience": {
+      "label": "Pricing audience",
+      "individual": "Individual",
+      "team": "Team & Enterprise"
+    },
     "alreadyPaid": "Already paid? Connect Founder's Edition",
     "perMonth": "/mo",
     "perMonthBilledYearly": "/mo, billed yearly",
@@ -800,6 +805,8 @@
     "teamAnnualComparePrice": "${monthly}/user/mo",
     "currentPlan": "Current plan",
     "manageBilling": "Manage billing",
+    "priceMonthlyNote": "${amount}/mo when billed monthly",
+    "priceMonthlyPerUserNote": "${amount}/user/mo when billed monthly",
     "free": {
       "name": "Free",
       "price": "$0",
@@ -820,7 +827,7 @@
       "featuresLead": "Everything in Free, plus:",
       "features": [
         "Cloud agents on Cloud VMs in isolated remote sandboxes",
-        "Up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs",
+        "Up to 50 Cloud VMs, with 4 vCPUs, 16 GB RAM, and 200 GB disk shared across all VMs",
         "Unlimited workspaces",
         "The cmux iOS app and email support"
       ],
@@ -918,10 +925,10 @@
           "enterprise": "Custom"
         },
         {
-          "label": "Resources shared across all Cloud VMs",
+          "label": "Shared Cloud VM pool",
           "free": "false",
-          "pro": "24 GB RAM and 6 vCPUs shared across all VMs",
-          "team": "24 GB RAM and 6 vCPUs per user, shared across all their VMs",
+          "pro": "4 vCPUs, 16 GB RAM, and 200 GB disk shared across all VMs",
+          "team": "4 vCPUs, 16 GB RAM, and 200 GB disk per user, shared across their VMs",
           "enterprise": "Custom"
         },
         {
@@ -1000,7 +1007,7 @@
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same limits per user. There is no metering or overage billing."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 50 Cloud VMs with a shared pool of 4 vCPUs, 16 GB RAM, and 200 GB disk. Team includes the same pool per user."
         },
         {
           "q": "What is cmux Vault?",
@@ -1013,7 +1020,7 @@
         },
         {
           "q": "How does billing work?",
-          "a": "Pro is $50/mo, or $40/mo when billed annually (a 20% savings). Team is $60/user/mo, or $48/user/mo when billed annually. Paid plans include up to 50 Cloud VMs per user, with 24 GB RAM and 6 vCPUs per user shared across all their VMs. There is no metering or overage billing. The terminal and local agents stay free."
+          "a": "Pro is $50/mo, or $40/mo when billed annually (a 20% savings). Team is $60/user/mo, or $48/user/mo when billed annually. Paid plans include up to 50 Cloud VMs per user with a shared pool of 4 vCPUs, 16 GB RAM, and 200 GB disk. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",
