@@ -493,8 +493,8 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
             unifySurfaceBackdrops: true,
             sidebarSettings: SidebarBackdropSettingsSnapshot(
                 materialRawValue: CmuxSettings.SidebarMaterialOption.sidebar.rawValue,
-                blendModeRawValue: SidebarBlendModeOption.withinWindow.rawValue,
-                stateRawValue: SidebarStateOption.followWindow.rawValue,
+                blendModeRawValue: CmuxSettings.SidebarBlendModeOption.withinWindow.rawValue,
+                stateRawValue: CmuxSettings.SidebarStateOption.followWindow.rawValue,
                 tintHex: SidebarTintDefaults().hex,
                 tintHexLight: nil,
                 tintHexDark: nil,
@@ -504,7 +504,7 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
                 colorScheme: .light
             ),
             windowGlassSettings: WindowGlassSettingsSnapshot(
-                sidebarBlendModeRawValue: SidebarBlendModeOption.withinWindow.rawValue,
+                sidebarBlendModeRawValue: CmuxSettings.SidebarBlendModeOption.withinWindow.rawValue,
                 isEnabled: false,
                 tintHex: "#000000",
                 tintOpacity: 0,
