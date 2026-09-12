@@ -1614,19 +1614,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         return .partialOperation(id, reason: reason)
     }
 
-    func renameRemoteWorkspace(id: String, name: String) async throws {
-        let connected = try await links.connected(machineID: machineID)
-        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        _ = try await link.run(arguments: CloudTuiCommandLine.renameWorkspaceArguments(socketPath: connected.socketPath, workspaceID: id, name: name))
-        info.remoteWorkspaces = info.remoteWorkspaces?.map { workspace in
-            var renamed = workspace
-            if workspace.id == id { renamed.name = name }
-            return renamed
-        }
-        catalog.updateMachine(info)
-        scheduleRefresh()
-    }
-
     /// The terminal lives in the machine's session; only the local pane went away.
     func projectionDidEnd(_ projection: SurfaceProjection) {
         browserPaneTasks.removeValue(forKey: projection.panelID)?.cancel()
