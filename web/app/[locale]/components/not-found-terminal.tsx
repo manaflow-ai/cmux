@@ -10,6 +10,7 @@ type TerminalProps = {
 };
 
 const ART_LINE_COUNT = 7;
+const TERMINAL_COLUMN_WIDTH = 154;
 const ART_COLORS = ["#60d1fa", "#54b2f4", "#4f94ee", "#5376e9", "#5f58e7", "#694be5", "#743ee4"];
 const ANSI = {
   gray: "text-[#92948b]",
@@ -45,8 +46,8 @@ function renderWelcome(welcome: string): ReactNode[] {
         const match = shortcut ?? link;
         content = (
           <>
-            <span className={ANSI.white}>{match?.[1]}</span>
-            <span className={ANSI.gray}>{match?.[2]}{match?.[3]}</span>
+            <span className={ANSI.white} style={{ display: "inline-block", width: TERMINAL_COLUMN_WIDTH }}>{match?.[1]}</span>
+            <span className={ANSI.gray}>{match?.[3]}</span>
           </>
         );
       } else if (command) {
@@ -155,7 +156,7 @@ export function NotFoundTerminal({ command, welcome, lastLogin, dragLabel }: Ter
             <span className="text-lg font-light leading-none text-[#92948b]">×</span>
           </div>
         </button>
-        <div className="relative min-h-[45rem] overflow-hidden bg-[#272823] px-0 text-[11.6px] leading-[14px] text-[#fdfff2]" style={{ fontFamily: 'Menlo, Monaco, "Courier New", monospace' }}>
+        <div className="relative min-h-[45rem] overflow-hidden bg-[#272823] px-0 text-[11.3px] leading-[14px] text-[#fdfff2]" style={{ fontFamily: 'Menlo, Monaco, "Courier New", monospace' }}>
           <div className="absolute inset-0 whitespace-pre px-0 py-0">
             <p className="text-[#fdfff2]">{lastLogin}</p>
             <p><Prompt command={command} /></p>
