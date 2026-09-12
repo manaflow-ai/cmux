@@ -1,13 +1,9 @@
 "use client";
 
-import { useStackApp, useUser } from "@stackframe/stack";
+import { useStackApp } from "@stackframe/stack";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import { useRouter } from "@/i18n/navigation";
-import {
-  persistCoderouterOrganizationScope,
-  coderouterOrganizationFromCookieHeader,
-} from "@/services/coderouter/organizationScope";
+import { useDashboardTeamScope } from "../dashboard-team-scope";
 import { V2DashboardController, type DashboardDirectory, type DashboardWorkspace } from "./v2-dashboard-controller";
 
 const PROJECT_ID = process.env.NEXT_PUBLIC_STACK_PROJECT_ID ?? "";
@@ -24,9 +20,8 @@ type DashboardVm = { readonly id: string; readonly displayName: string | null; r
 export function VmsDashboard({ userId, userEmail }: Props) {
   const t = useTranslations("dashboard.iroh");
   const stack = useStackApp();
-  const user = useUser({ or: "return-null" });
-  const router = useRouter();
-  const [teamId, setTeamId] = useState<string | null>(() => user?.selectedTeam?.id ?? null);
+  const teamScope = useDashboardTeamScope(userId);
+  const teamId = teamScope.status === "ready" ? teamScope.selected.id : null;
   const [directory, setDirectory] = useState<DashboardDirectory | null>(null);
   const [workspaces, setWorkspaces] = useState<readonly DashboardWorkspace[]>([]);
   const [vms, setVms] = useState<readonly DashboardVm[]>([]);
@@ -35,16 +30,6 @@ export function VmsDashboard({ userId, userEmail }: Props) {
   const [relayURLsDraft, setRelayURLsDraft] = useState("");
   const [savingRelayURLs, setSavingRelayURLs] = useState(false);
   const controllerRef = useRef<V2DashboardController | null>(null);
-  const teams = user?.useTeams() ?? [];
-
-  useEffect(() => {
-    const cookieTeam = coderouterOrganizationFromCookieHeader(
-      typeof document === "undefined" ? null : document.cookie,
-      userId,
-    );
-    setTeamId(cookieTeam ?? user?.selectedTeam?.id ?? teams[0]?.id ?? null);
-  }, [userId, user?.selectedTeam?.id, teams]);
-
   useEffect(() => {
     if (!teamId) return;
     let cancelled = false;
@@ -79,13 +64,6 @@ export function VmsDashboard({ userId, userEmail }: Props) {
     };
   }, [stack, teamId, userId]);
 
-  const chooseTeam = (next: string) => {
-    if (!next || next === teamId) return;
-    persistCoderouterOrganizationScope(userId, next);
-    setTeamId(next);
-    router.refresh();
-  };
-
   const devices = useMemo(() => directory?.devices ?? [], [directory]);
   useEffect(() => {
     if (directory) setRelayURLsDraft(directory.relayURLs.join("\n"));
@@ -99,10 +77,8 @@ export function VmsDashboard({ userId, userEmail }: Props) {
   };
   return (
     <div className="space-y-4" data-testid="iroh-dashboard">
-      <label className="block text-xs text-muted" htmlFor="iroh-team">{t("team")}</label>
-      <select id="iroh-team" value={teamId ?? ""} onChange={event => chooseTeam(event.target.value)} className="border border-border bg-background px-2 py-1.5">
-        {teams.map(team => <option key={team.id} value={team.id}>{team.displayName}</option>)}
-      </select>
+      {teamScope.status === "loading" ? <p className="text-muted">{t("loading")}</p> : null}
+      {teamScope.status === "unavailable" ? <p role="alert" className="border border-red-500/40 p-3 text-sm">{t("unavailable")}</p> : null}
       {error ? <p role="alert" className="border border-red-500/40 p-3 text-sm">{error}</p> : null}
       {!directory && !error ? <p className="text-muted">{t("loading")}</p> : null}
       {directory && devices.length === 0 ? <p className="border border-border p-3 text-muted">{t("empty")}</p> : null}
