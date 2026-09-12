@@ -16,6 +16,7 @@ import SwiftUI
 ///   AppKit/SwiftUI setup.
 @main
 enum CmuxMain {
+    /// Raises inherited descriptor limits before receipt writing or worker routing.
     static func main() {
         FileDescriptorLimitController().raiseSoftLimitIfNeeded()
         AppHostProcessReceipt.writeIfRequired()

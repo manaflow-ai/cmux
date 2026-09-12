@@ -115,17 +115,21 @@ pair, and `writeLimit` returns whether the requested pair was accepted:
 
 ```swift
 import Darwin
+import Testing
+import CmuxFoundation
 
-var limits = rlimit()
-limits.rlim_cur = 256
-limits.rlim_max = 10_240
-let controller = FileDescriptorLimitController(
-    readLimit: { limits },
-    writeLimit: { limits = $0; return true }
-)
-controller.raiseSoftLimitIfNeeded()
-#expect(limits.rlim_cur == 10_240)
-#expect(limits.rlim_max == 10_240)
+@Test func raisesSoftLimitWithinHardLimit() {
+    var limits = rlimit()
+    limits.rlim_cur = 256
+    limits.rlim_max = 10_240
+    let controller = FileDescriptorLimitController(
+        readLimit: { limits },
+        writeLimit: { limits = $0; return true }
+    )
+    controller.raiseSoftLimitIfNeeded()
+    #expect(limits.rlim_cur == 10_240)
+    #expect(limits.rlim_max == 10_240)
+}
 ```
 
 The Codex editor takes fixture strings, so its install/reinstall/uninstall behavior is
