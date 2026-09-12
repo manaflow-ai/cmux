@@ -341,8 +341,8 @@ extension CMUXCLI {
     }
 
     func themeTargetBundleIdentifier(socketPath: String) -> String {
-        bundleIdentifierFromSocketMarker(for: socketPath)
-            ?? bundleIdentifierForThemeReloadSocketPath(socketPath)
+        bundleIdentifierForThemeReloadSocketPath(socketPath)
+            ?? bundleIdentifierFromSocketMarker(for: socketPath)
             ?? currentCmuxAppBundleIdentifier()
             ?? Self.cmuxThemeOverrideBundleIdentifier
     }
@@ -388,7 +388,20 @@ extension CMUXCLI {
             prefix: "\(SocketPathMarkerFiles.releaseBundleIdentifier).dev.",
             suffix: ".sock"
         ) {
-            return "\(SocketPathMarkerFiles.defaultBaseDebugBundleIdentifier).\(slug)"
+            let bundleIdentifier = "\(SocketPathMarkerFiles.defaultBaseDebugBundleIdentifier).\(slug)"
+            let variant = SocketPathMarkerFiles.variant(
+                bundleIdentifier: bundleIdentifier,
+                environment: [:]
+            )
+            let directory = URL(fileURLWithPath: socketPath).deletingLastPathComponent()
+            let expectedPath = SocketPathMarkerFiles.socketPath(
+                fileName: SocketPathMarkerFiles.socketFileName(for: variant),
+                directory: directory
+            )
+            guard SocketControlSettings.pathsMatch(expectedPath, socketPath) else {
+                return nil
+            }
+            return bundleIdentifier
         }
         return nil
     }
@@ -400,6 +413,7 @@ extension CMUXCLI {
             CmuxStateDirectory.legacyApplicationSupportURL(fileManager: fileManager),
             URL(fileURLWithPath: "/tmp", isDirectory: true),
         ].compactMap { $0 }
+        var matchingBundleIdentifiers: Set<String> = []
 
         for directory in markerDirectories {
             guard let markerURLs = try? fileManager.contentsOfDirectory(
@@ -418,43 +432,41 @@ extension CMUXCLI {
                       SocketControlSettings.pathsMatch(markedSocketPath, socketPath) else {
                     continue
                 }
-                return bundleIdentifier
+                matchingBundleIdentifiers.insert(bundleIdentifier)
             }
         }
-        return nil
+
+        guard !matchingBundleIdentifiers.isEmpty else { return nil }
+        if let currentBundleIdentifier = currentCmuxAppBundleIdentifier(),
+           matchingBundleIdentifiers.contains(currentBundleIdentifier) {
+            return currentBundleIdentifier
+        }
+        return matchingBundleIdentifiers.count == 1 ? matchingBundleIdentifiers.first : nil
     }
 
     private func bundleIdentifierForThemeReloadMarkerFile(_ fileName: String) -> String? {
         let suffix = "-last-socket-path"
-        if fileName == SocketPathMarkerFiles.stableMarkerFileName {
+        if fileName == SocketPathMarkerFiles.stableMarkerFileName
+            || fileName == "cmux-\(SocketPathMarkerFiles.stableMarkerFileName)" {
             return SocketPathMarkerFiles.releaseBundleIdentifier
-        }
-        if fileName == "nightly\(suffix)" {
-            return SocketPathMarkerFiles.nightlyBundleIdentifier
-        }
-        if fileName == "staging\(suffix)" {
-            return SocketPathMarkerFiles.stagingBundleIdentifier
-        }
-        if fileName == "dev\(suffix)" {
-            return SocketPathMarkerFiles.defaultBaseDebugBundleIdentifier
         }
         guard fileName.hasSuffix(suffix) else { return nil }
 
-        let variants: [(prefix: String, bundleIdentifier: String)] = [
-            ("nightly-", SocketPathMarkerFiles.nightlyBundleIdentifier),
-            ("staging-", SocketPathMarkerFiles.stagingBundleIdentifier),
-            ("dev-", SocketPathMarkerFiles.defaultBaseDebugBundleIdentifier),
+        let variants: [(prefixes: [String], bundleIdentifier: String)] = [
+            (["nightly-", "cmux-nightly-"], SocketPathMarkerFiles.nightlyBundleIdentifier),
+            (["staging-", "cmux-staging-"], SocketPathMarkerFiles.stagingBundleIdentifier),
+            (["dev-", "cmux-dev-"], SocketPathMarkerFiles.defaultBaseDebugBundleIdentifier),
         ]
         for variant in variants {
-            let prefix = variant.prefix
-            guard fileName.hasPrefix(prefix) else { continue }
-            let start = fileName.index(fileName.startIndex, offsetBy: prefix.count)
-            let end = fileName.index(fileName.endIndex, offsetBy: -suffix.count)
-            let slug = String(fileName[start..<end])
-            guard !slug.isEmpty else {
-                return variant.bundleIdentifier
+            for prefix in variant.prefixes where fileName.hasPrefix(prefix) {
+                let start = fileName.index(fileName.startIndex, offsetBy: prefix.count)
+                let end = fileName.index(fileName.endIndex, offsetBy: -suffix.count)
+                let slug = String(fileName[start..<end])
+                guard !slug.isEmpty else {
+                    return variant.bundleIdentifier
+                }
+                return "\(variant.bundleIdentifier).\(slug.replacingOccurrences(of: "-", with: "."))"
             }
-            return "\(variant.bundleIdentifier).\(slug.replacingOccurrences(of: "-", with: "."))"
         }
         return nil
     }

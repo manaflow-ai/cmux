@@ -2400,6 +2400,51 @@ import Testing
         #expect(responder.receivedRequests.isEmpty)
     }
 
+    @Test func testImplicitDiscoveryAcceptsV2SocketBeforeLegacyProbe() throws {
+        let cliPath = try bundledCLIPath()
+        let home = try makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let socketPath = "/tmp/cmux-v2-only-\(UUID().uuidString.lowercased()).sock"
+        let v2Response = #"{"id":1,"ok":true,"result":{"pong":true}}"#
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            responses: [v2Response, "PONG"]
+        )
+        defer { responder.stop() }
+
+        let stateDirectory = CmuxStateDirectory.url(homeDirectory: home)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        let markerURL = stateDirectory.appendingPathComponent(
+            SocketPathMarkerFiles.stableMarkerFileName,
+            isDirectory: false
+        )
+        try "\(socketPath)\n".write(to: markerURL, atomically: true, encoding: .utf8)
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_BUNDLE_ID"] = SocketPathMarkerFiles.stableBundleIdentifier
+        environment["CFFIXED_USER_HOME"] = home.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["ping"],
+            environment: environment
+        )
+
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        XCTAssertEqual(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "PONG", result.diagnostics)
+        XCTAssertEqual(
+            responder.receivedRequests,
+            [#"{"id":1,"method":"system.ping","params":{}}"#, "ping"],
+            result.diagnostics
+        )
+    }
+
     @Test func testExplicitStableSocketEnvironmentIsNeverReroutedByTaggedCLI() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-explicit-stable-\(UUID().uuidString.lowercased())"
@@ -3187,6 +3232,83 @@ import Testing
             result.diagnostics
         )
         XCTAssertEqual(payload["reload_target_bundle_id"] as? String, expectedBundleIdentifier)
+
+        try? fileManager.removeItem(at: markerURL)
+        let tmpMarkerURL = URL(fileURLWithPath: variant.tmpPath, isDirectory: false)
+        defer { try? fileManager.removeItem(at: tmpMarkerURL) }
+        try "\(socketPath)\n".write(to: tmpMarkerURL, atomically: true, encoding: .utf8)
+
+        let tmpMarkerResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["--json", "themes", "set", "Theme A"],
+            environment: environment
+        )
+
+        XCTAssertFalse(tmpMarkerResult.timedOut, tmpMarkerResult.diagnostics)
+        XCTAssertEqual(tmpMarkerResult.status, 0, tmpMarkerResult.diagnostics)
+        let tmpMarkerPayload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(tmpMarkerResult.stdout.utf8)) as? [String: Any],
+            tmpMarkerResult.diagnostics
+        )
+        XCTAssertEqual(
+            tmpMarkerPayload["reload_target_bundle_id"] as? String,
+            expectedBundleIdentifier
+        )
+    }
+
+    @Test func testThemesSetDoesNotChooseAmbiguousSharedVariantMarker() throws {
+        let cliPath = try bundledCLIPath()
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-themes-ambiguous-marker-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let resourcesURL = root.appendingPathComponent("resources", isDirectory: true)
+        let themesURL = resourcesURL.appendingPathComponent("themes", isDirectory: true)
+        try fileManager.createDirectory(at: themesURL, withIntermediateDirectories: true)
+        try writeTheme(named: "Theme A", background: "#101010", to: themesURL)
+
+        let stateDirectory = CmuxStateDirectory.url(homeDirectory: root)
+        try fileManager.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        let socketPath = stateDirectory
+            .appendingPathComponent(SocketPathMarkerFiles.nightlySocketFileName, isDirectory: false)
+            .path
+        let markerPaths = [
+            stateDirectory.appendingPathComponent("nightly-alpha-last-socket-path", isDirectory: false),
+            stateDirectory.appendingPathComponent("nightly-beta-last-socket-path", isDirectory: false),
+        ]
+        for markerURL in markerPaths {
+            try "\(socketPath)\n".write(to: markerURL, atomically: true, encoding: .utf8)
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CFFIXED_USER_HOME"] = root.path
+        environment["HOME"] = root.path
+        environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_BUNDLE_ID"] = "com.cmuxterm.app.debug.stale"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--json", "themes", "set", "Theme A"],
+            environment: environment
+        )
+
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+            result.diagnostics
+        )
+        XCTAssertEqual(
+            payload["reload_target_bundle_id"] as? String,
+            SocketPathMarkerFiles.nightlyBundleIdentifier
+        )
     }
 
     @Test func testThemesSetNightlyOverridePathIsReadableByNightlyAppConfigResolution() throws {

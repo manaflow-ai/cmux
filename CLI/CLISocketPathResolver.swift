@@ -498,23 +498,23 @@ struct CLISocketPathResolver {
 
     private static func probeCmuxSocket(at path: String) -> SocketProbeResult {
         let deadline = ProcessInfo.processInfo.systemUptime + socketProbeTimeout
-        let legacyResult = probeLegacyCmuxSocket(
+        let v2Result = probeV2CmuxSocket(
             at: path,
-            timeout: socketProbeTimeout
+            timeout: socketProbeTimeout / 2
         )
-        if legacyResult == .cmux {
+        if v2Result == .cmux {
             return .cmux
         }
 
         guard let remainingTimeout = socketProbeTimeoutRemaining(until: deadline) else {
-            return legacyResult
+            return v2Result
         }
 
-        let v2Result = probeV2CmuxSocket(
+        let legacyResult = probeLegacyCmuxSocket(
             at: path,
             timeout: remainingTimeout
         )
-        if v2Result == .cmux {
+        if legacyResult == .cmux {
             return .cmux
         }
         if legacyResult == .notCmux || v2Result == .notCmux {
