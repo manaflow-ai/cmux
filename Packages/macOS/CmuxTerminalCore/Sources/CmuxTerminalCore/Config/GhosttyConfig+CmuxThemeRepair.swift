@@ -1,13 +1,38 @@
 import Foundation
 
 extension GhosttyConfig {
-    /// Returns the final raw theme directive when the file ends in a managed block.
+    /// Returns the final raw theme directive when it is inside a managed block.
     static func lastCmuxManagedThemeDirective(in contents: String) -> String? {
+        lastCmuxManagedThemeDirectiveInfo(in: contents)?.value
+    }
+
+    /// Rewrites a stale managed theme in place so later directives retain their
+    /// original precedence during parsing.
+    static func contentsByRepairingCmuxManagedTheme(in contents: String) -> String {
+        guard let repairedThemeValue = normalizedCmuxManagedThemeValue(in: contents),
+              let directive = lastCmuxManagedThemeDirectiveInfo(in: contents) else {
+            return contents
+        }
+
+        var lines = contents.components(separatedBy: .newlines)
+        guard directive.lineIndex < lines.count,
+              let equalsIndex = lines[directive.lineIndex].firstIndex(of: "=") else {
+            return contents
+        }
+        let valueStart = lines[directive.lineIndex].index(after: equalsIndex)
+        lines[directive.lineIndex] = String(lines[directive.lineIndex][..<valueStart]) + " " + repairedThemeValue
+        return lines.joined(separator: "\n")
+    }
+
+    private static func lastCmuxManagedThemeDirectiveInfo(
+        in contents: String
+    ) -> (lineIndex: Int, value: String)? {
         var insideManagedBlock = false
         var rawThemeValue: String?
+        var rawThemeLineIndex: Int?
         var lastThemeWasManaged = false
 
-        for line in contents.components(separatedBy: .newlines) {
+        for (lineIndex, line) in contents.components(separatedBy: .newlines).enumerated() {
             let trimmed = line.trimmingCharacters(
                 in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{FEFF}"))
             )
@@ -27,12 +52,18 @@ extension GhosttyConfig {
                     .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
                 if !value.isEmpty {
                     rawThemeValue = value
+                    rawThemeLineIndex = lineIndex
                 }
                 lastThemeWasManaged = insideManagedBlock
             }
         }
 
-        return lastThemeWasManaged ? rawThemeValue : nil
+        guard lastThemeWasManaged,
+              let rawThemeValue,
+              let rawThemeLineIndex else {
+            return nil
+        }
+        return (lineIndex: rawThemeLineIndex, value: rawThemeValue)
     }
 
     // Shared by the primary config parser and this repair extension. It stays
@@ -97,7 +128,7 @@ extension GhosttyConfig {
     /// - Returns: A normalized `light:…,dark:…` value when the managed block is
     ///   single-sided, otherwise `nil`.
     public static func normalizedCmuxManagedThemeValue(in contents: String) -> String? {
-        guard let rawThemeValue = lastCmuxManagedThemeDirective(in: contents) else { return nil }
+        guard let rawThemeValue = lastCmuxManagedThemeDirectiveInfo(in: contents)?.value else { return nil }
         let components = conditionalThemeComponents(from: rawThemeValue)
         switch (components.light, components.dark) {
         case let (light?, nil):
