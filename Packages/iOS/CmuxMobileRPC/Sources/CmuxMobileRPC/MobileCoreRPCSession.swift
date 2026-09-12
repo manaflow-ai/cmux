@@ -6,6 +6,9 @@ actor MobileCoreRPCSession {
     typealias IndependentEventByteStreamFactory = @Sendable () async throws -> CmxIndependentEventByteStream
     typealias ConnectedCandidateHook = @Sendable (_ candidate: any CmxByteTransport) async -> Void
     typealias TransportConnectObserver = @Sendable (MobileRPCTransportConnectEvent) -> Void
+    /// Separate path-attribution sink so adding diagnostics does not add a case
+    /// to the public lifecycle enum and break exhaustive client switches.
+    typealias TransportPathObserver = @Sendable (_ attemptID: Int, _ path: DiagnosticPathKind) -> Void
     typealias TearDownRegistrationHook = @Sendable () async -> Void
     enum PendingRequestSettlement {
         case response(Result<Data, MobileShellConnectionError>)
@@ -79,6 +82,7 @@ actor MobileCoreRPCSession {
     private let didReceiveConnectedCandidate: ConnectedCandidateHook?
     private let diagnosticTransport: DiagnosticTransportKind?
     private let transportConnectObserver: TransportConnectObserver?
+    private let transportPathObserver: TransportPathObserver?
     private let tearDownRegistrationHook: TearDownRegistrationHook?
     /// Current shell ownership role. Connected transports that support role
     /// rebinding receive updates without replacing their admitted session.
@@ -141,6 +145,7 @@ actor MobileCoreRPCSession {
         didReceiveConnectedCandidate: ConnectedCandidateHook? = nil,
         diagnosticTransport: DiagnosticTransportKind? = nil,
         transportConnectObserver: TransportConnectObserver? = nil,
+        transportPathObserver: TransportPathObserver? = nil,
         initialTransportSessionPurpose: CmxTransportSessionPurpose? = nil,
         tearDownRegistrationHook: TearDownRegistrationHook? = nil
     ) {
@@ -155,6 +160,7 @@ actor MobileCoreRPCSession {
         self.didReceiveConnectedCandidate = didReceiveConnectedCandidate
         self.diagnosticTransport = diagnosticTransport
         self.transportConnectObserver = transportConnectObserver
+        self.transportPathObserver = transportPathObserver
         self.transportSessionPurpose = initialTransportSessionPurpose
         self.tearDownRegistrationHook = tearDownRegistrationHook
     }
@@ -373,6 +379,40 @@ actor MobileCoreRPCSession {
             await updating.updateSessionPurpose(currentPurpose)
             appliedPurpose = currentPurpose
         }
+    }
+
+    /// Returns the concrete path currently carrying the installed transport,
+    /// or `.unavailable` before admission/after teardown.
+    func currentTransportPath() async -> CmxTransportPath {
+        guard let transport,
+              let observing = transport as? any CmxByteTransportPathObserving else {
+            return .unavailable
+        }
+        return await observing.currentTransportPath()
+    }
+
+    /// Returns the process-local admitted session correlation ID, when the
+    /// installed transport exposes one for diagnostics.
+    func transportDiagnosticSessionID() async -> Int? {
+        guard let transport,
+              let identifying = transport as? any CmxByteTransportDiagnosticSessionIdentifying else {
+            return nil
+        }
+        return await identifying.transportDiagnosticSessionID()
+    }
+
+    /// Subscribes to concrete path changes for the installed transport. The
+    /// stream finishes with the transport lifecycle; callers must recreate it
+    /// after replacing this session's client.
+    func transportPathChanges() async -> AsyncStream<CmxTransportPath> {
+        guard let transport,
+              let observing = transport as? any CmxByteTransportPathObserving else {
+            return AsyncStream { continuation in
+                continuation.yield(.unavailable)
+                continuation.finish()
+            }
+        }
+        return await observing.transportPathChanges()
     }
 
     func tearDown(error: MobileShellConnectionError) async {
@@ -613,6 +653,7 @@ actor MobileCoreRPCSession {
             connectionID = UUID()
             cancellationClose =
                 MobileRPCConnectCancellationClose()
+            let transportPathObserver = self.transportPathObserver
             task = Task.detached {
                 do {
                     if let initialSessionPurpose,
@@ -641,19 +682,41 @@ actor MobileCoreRPCSession {
                     // replacing that result with `CancellationError`.
                     if Task.isCancelled {
                         reportCancelledConnect()
-                    } else if let diagnosticTransport,
-                              let transportConnectObserver {
-                        transportConnectObserver(
-                            .connected(
-                                attemptID: connectAttemptID,
-                                transport: diagnosticTransport,
-                                elapsedMilliseconds:
-                                    Self.elapsedMilliseconds(since: connectStartedAt),
-                                sessionID: await (
-                                    candidate as? any CmxByteTransportDiagnosticSessionIdentifying
-                                )?.transportDiagnosticSessionID()
+                    } else {
+                        if let diagnosticTransport,
+                           let transportConnectObserver {
+                            transportConnectObserver(
+                                .connected(
+                                    attemptID: connectAttemptID,
+                                    transport: diagnosticTransport,
+                                    elapsedMilliseconds:
+                                        Self.elapsedMilliseconds(since: connectStartedAt),
+                                    sessionID: await (
+                                        candidate as? any CmxByteTransportDiagnosticSessionIdentifying
+                                    )?.transportDiagnosticSessionID()
+                                )
                             )
-                        )
+                        }
+                        // Path attribution is an independent observer seam. It
+                        // must still run when a caller only requests path
+                        // diagnostics and does not install the lifecycle sink.
+                        if let observing = candidate as? any CmxByteTransportPathObserving,
+                           let transportPathObserver {
+                            guard !Task.isCancelled else { return candidate }
+                            let currentPath = await observing.currentTransportPath()
+                            guard !Task.isCancelled else { return candidate }
+                            // `.unavailable` is a transient absence of
+                            // attribution, not a negotiated Unknown path. Skip
+                            // it rather than permanently misclassifying this
+                            // successful attempt; the live path stream can
+                            // publish the later authoritative value.
+                            if currentPath != .unavailable {
+                                transportPathObserver(
+                                    connectAttemptID,
+                                    currentPath.diagnosticPathKind
+                                )
+                            }
+                        }
                     }
                     return candidate
                 } catch is CancellationError {

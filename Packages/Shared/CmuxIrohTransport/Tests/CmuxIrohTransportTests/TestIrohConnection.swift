@@ -101,6 +101,10 @@ actor TestIrohConnection: CmxIrohConnection,
         selectedPathStream
     }
 
+    func policySelectedPathChanges() -> AsyncStream<CmxIrohObservedConnectionPath> {
+        selectedPathStream
+    }
+
     func setObservedSelectedPath(_ path: CmxIrohObservedConnectionPath) {
         selectedPath = path
         selectedPathContinuation.yield(path)

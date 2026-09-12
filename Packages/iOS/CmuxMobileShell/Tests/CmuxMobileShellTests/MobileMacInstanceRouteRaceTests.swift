@@ -73,7 +73,7 @@ import Testing
         let cachedA = try #require(shell.pairedMacs.first)
         let scope = MobileShellScopeSnapshot(userID: "user-1", teamID: "team-a", generation: 0)
 
-        shell.refreshRoutesFromRegistryForTesting(for: cachedA, scope: scope)
+        shell.refreshRoutesFromRegistrySnapshot(for: cachedA, scope: scope)
         await registry.waitUntilStarted()
         try await pairedStore.upsert(
             macDeviceID: "shared-mac",

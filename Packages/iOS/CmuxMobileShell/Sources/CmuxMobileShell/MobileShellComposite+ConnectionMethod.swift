@@ -38,6 +38,35 @@ extension MobileShellComposite {
             ?? .automatic
     }
 
+    /// Returns whether a live foreground session should be replaced when the
+    /// app-wide default changes. An explicit per-Computer override owns that
+    /// pairing's policy and therefore makes a global default change irrelevant.
+    func shouldRecoverForegroundForDefaultMethodChange(
+        liveTransportMode: CmxTransportMode?,
+        newDefaultTransportMode: CmxTransportMode,
+        hasExplicitPairingOverride: Bool,
+        hasRecoveryTarget: Bool
+    ) -> Bool {
+        guard !hasExplicitPairingOverride else {
+            return false
+        }
+        guard let liveTransportMode else { return hasRecoveryTarget }
+        return liveTransportMode != newDefaultTransportMode
+    }
+
+    private var foregroundHasExplicitConnectionMethodOverride: Bool {
+        guard let macDeviceID = foregroundMacDeviceID ?? activeTicket?.macDeviceID,
+              !macDeviceID.isEmpty else {
+            return false
+        }
+        let canonicalDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        return pairedMacsForIdentityMatching.contains { pairing in
+            cmxCanonicalDeviceID(pairing.macDeviceID) == canonicalDeviceID
+                && pairing.instanceTag == activeMacInstanceTag
+                && pairing.storedConnectionMethod != nil
+        }
+    }
+
     /// Persist the per-Computer connection method and, when the change affects
     /// the foreground Mac, replace the live connection so the new method takes
     /// effect immediately instead of on the next dial.
@@ -60,11 +89,17 @@ extension MobileShellComposite {
             teamID: scope.teamID
         )
         await loadPairedMacs()
-        // A method change affects dialing whether or not the Mac is currently
-        // connected — the OLD method may be exactly what disconnected it (for
-        // example Tailscale Only without a grant). Mirror the legacy app-wide
-        // observer and always run recovery, which redials with the new method.
-        recoverMobileConnection(trigger: .connectionMethodChanged)
+        // Only replace the foreground session when this exact pairing owns it.
+        // A secondary Computer's setting must not interrupt the user's active
+        // terminal; its next pool reconciliation will use the persisted mode.
+        if connectionMethodChangeAffectsSelectedMac(
+            macDeviceID: canonical,
+            instanceTag: targetInstanceTag
+        ) {
+            recoverMobileConnection(trigger: .connectionMethodChanged)
+        } else {
+            scheduleSecondaryAggregation()
+        }
     }
 
     /// Persist the per-Computer Direct dial candidates and, when the Computer
@@ -87,17 +122,47 @@ extension MobileShellComposite {
         )
         await loadPairedMacs()
         if connectionMethod(forMacDeviceID: canonical, instanceTag: targetInstanceTag) == .direct {
-            recoverMobileConnection(trigger: .connectionMethodChanged)
+            if connectionMethodChangeAffectsSelectedMac(
+                macDeviceID: canonical,
+                instanceTag: targetInstanceTag
+            ) {
+                recoverMobileConnection(trigger: .connectionMethodChanged)
+            } else {
+                scheduleSecondaryAggregation()
+            }
         }
+    }
+
+    /// Before the first foreground connection, the active saved row owns
+    /// method changes, matching startup recovery's selected-Computer policy.
+    private func connectionMethodChangeAffectsSelectedMac(
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> Bool {
+        let pairings = pairedMacsForIdentityMatching
+        let retainedDeviceID = foregroundMacDeviceID ?? recoveryTargetMacDeviceID
+        let retainedKey = retainedDeviceID.map {
+            MacPairingKey(
+                macDeviceID: $0,
+                instanceTag: foregroundMacDeviceID != nil
+                    ? activeMacInstanceTag : recoveryTargetInstanceTag
+            )
+        }
+        let selectedKey = retainedKey.flatMap { key in
+            foregroundMacDeviceID != nil || pairings.contains { MacPairingKey($0) == key }
+                ? key : nil
+        } ?? pairings.first(where: \.isActive).map(MacPairingKey.init)
+        return selectedKey?.isOnDevice(macDeviceID) == true
+            && (instanceTag == nil || selectedKey?.normalizedInstanceTag == instanceTag)
     }
 
     /// The method-pinned Iroh dial allowlist for one pairing, or `nil` when the
     /// pairing's effective method places no address pin on the Iroh dial.
     ///
-    /// Direct pins the dial to the user-enabled addresses. Tailscale Only does
-    /// not pin an Iroh dial: it selects the authorized raw Tailscale route, or
-    /// fails closed when that route is unavailable. Automatic remains the only
-    /// method that can select Iroh.
+    /// Direct pins the Iroh dial to the user-enabled addresses. Tailscale Only
+    /// uses the exact locally authorized raw Tailscale route; it never adds an
+    /// Iroh allowlist or silently changes wire transports. Legacy pairings keep
+    /// the same grant-gated raw host lane.
     ///
     /// An empty array means the method is pinned with nothing dialable:
     /// callers must fail closed and never substitute another path. Entries
@@ -125,19 +190,33 @@ extension MobileShellComposite {
                 )
             }
         case .tailscale:
+            // Tailscale is a distinct plaintext TCP transport. Its local grant
+            // is checked at the route-selection boundary, so it must not be
+            // reinterpreted as a custom private Iroh path.
             return nil
         case .automatic:
+            return nil
+        case .lan, .iroh:
             return nil
         }
     }
 
-
-    /// Zero-touch discovery yields Iroh candidates only. It is pointless only
-    /// when the app default is Tailscale AND no stored pairing opted back into
-    /// the automatic method — a per-Computer Iroh choice keeps discovery alive.
+    /// Zero-touch discovery yields Iroh candidates only. Tailscale-only mode
+    /// intentionally disables it because Iroh is outside that policy. LAN-only
+    /// still needs an Iroh identity as its encrypted bootstrap, so discovery
+    /// remains available for a first pairing or a stale route set.
     var zeroTouchIrohDiscoveryDisabled: Bool {
-        guard connectionMethodStore?.method == .tailscale else { return false }
-        return pairedMacs.allSatisfy { connectionMethod(for: $0) != .automatic }
+        guard let defaultMethod = connectionMethodStore?.method,
+              defaultMethod == .tailscale else {
+            return false
+        }
+        return pairedMacs.allSatisfy {
+            let method = connectionMethod(for: $0)
+            return method != .automatic
+                && method != .iroh
+                && method != .direct
+                && method != .lan
+        }
     }
 
     /// Observes the shared Settings/onboarding choice and replaces any live
@@ -152,7 +231,19 @@ extension MobileShellComposite {
                 guard let self, !Task.isCancelled else { return }
                 guard method != observedMethod else { continue }
                 observedMethod = method
-                self.recoverMobileConnection(trigger: .connectionMethodChanged)
+                if self.shouldRecoverForegroundForDefaultMethodChange(
+                    liveTransportMode: self.remoteClient?.transportMode,
+                    newDefaultTransportMode: method.transportMode,
+                    hasExplicitPairingOverride: self.foregroundHasExplicitConnectionMethodOverride,
+                    hasRecoveryTarget: self.foregroundMacDeviceID != nil
+                        || self.recoveryTargetMacDeviceID != nil
+                ) {
+                    self.recoverMobileConnection(trigger: .connectionMethodChanged)
+                }
+                // Pairings without an override inherit this shared default.
+                // Reconcile warm secondary clients immediately so their
+                // immutable transport requests do not outlive the setting.
+                self.scheduleSecondaryAggregation()
             }
         }
     }

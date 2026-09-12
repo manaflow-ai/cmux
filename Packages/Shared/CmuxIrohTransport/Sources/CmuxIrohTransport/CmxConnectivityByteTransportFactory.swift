@@ -17,6 +17,7 @@ public struct CmxConnectivityByteTransportFactory: CmxRouteAwareByteTransportFac
         for request: CmxByteTransportRequest
     ) throws -> any CmxByteTransport {
         try request.route.validate()
+        try request.validateTransportMode()
         guard request.route.kind == .iroh else {
             throw CmxIrohByteTransportError.unsupportedRouteKind(request.route.kind)
         }

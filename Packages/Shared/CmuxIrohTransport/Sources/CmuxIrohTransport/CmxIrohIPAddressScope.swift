@@ -6,7 +6,7 @@ struct CmxIrohIPAddressScope: Sendable {
     let isPrivate: Bool
 
     init(socketAddress: String) {
-        guard let host = Self.host(from: socketAddress) else {
+        guard let host = socketAddress.cmxIrohSocketHost else {
             isPrivate = false
             return
         }
@@ -47,17 +47,39 @@ struct CmxIrohIPAddressScope: Sendable {
         isPrivate = false
     }
 
-    private static func host(from socketAddress: String) -> String? {
-        if socketAddress.first == "[",
-           let closingBracket = socketAddress.firstIndex(of: "]") {
-            return String(socketAddress[socketAddress.index(after: socketAddress.startIndex) ..< closingBracket])
+}
+
+/// Extracts a host literal from an IPv4/IPv6 socket address.
+extension String {
+    /// The host portion of an Iroh socket address, without its port or brackets.
+    var cmxIrohSocketHost: String? {
+        if first == "[",
+           let closingBracket = firstIndex(of: "]") {
+            return String(self[index(after: startIndex) ..< closingBracket])
         }
-        let colonCount = socketAddress.reduce(into: 0) { count, character in
+        let colonCount = reduce(into: 0) { count, character in
             if character == ":" { count += 1 }
         }
-        if colonCount == 1, let colon = socketAddress.lastIndex(of: ":") {
-            return String(socketAddress[..<colon])
+        if colonCount == 1, let colon = lastIndex(of: ":") {
+            return String(self[..<colon])
         }
-        return colonCount > 1 ? socketAddress : nil
+        return colonCount > 1 ? self : nil
+    }
+
+    /// The port portion of an Iroh socket address, or `nil` when absent.
+    var cmxIrohSocketPort: UInt16? {
+        if first == "[",
+           let closingBracket = firstIndex(of: "]") {
+            let portStart = index(after: closingBracket)
+            guard portStart < endIndex, self[portStart] == ":" else {
+                return nil
+            }
+            return UInt16(self[index(after: portStart)...])
+        }
+        guard let colon = lastIndex(of: ":"),
+              self[..<colon].firstIndex(of: ":") == nil else {
+            return nil
+        }
+        return UInt16(self[index(after: colon)...])
     }
 }

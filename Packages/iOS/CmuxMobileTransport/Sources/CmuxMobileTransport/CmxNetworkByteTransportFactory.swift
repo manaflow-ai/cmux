@@ -1,8 +1,14 @@
 public import CMUXMobileCore
 
-/// Builds Network.framework TCP transports for host/port routes.
+/// Builds Network.framework TCP transports for dialable host/port routes.
+///
+/// Advertised `.lan` routes are status/bootstrap metadata only. LAN Only uses
+/// the authenticated Iroh peer path, so this factory deliberately omits raw
+/// LAN TCP from `supportedKinds` and cannot accidentally advertise a route it
+/// will reject at the request boundary.
 public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory {
-    public var supportedKinds: [CmxAttachTransportKind]
+    /// Route kinds this factory can construct, excluding metadata-only LAN routes.
+    public private(set) var supportedKinds: [CmxAttachTransportKind]
     public var maximumReceiveLength: Int
     public var connectTimeoutNanoseconds: UInt64
     private let tailscaleRouteAuthority: any CmxTailscaleRouteAuthorizing
@@ -12,7 +18,7 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
         maximumReceiveLength: Int = CmxNetworkByteTransport.defaultMaximumReceiveLength,
         connectTimeoutNanoseconds: UInt64 = CmxNetworkByteTransport.defaultConnectTimeoutNanoseconds
     ) {
-        self.supportedKinds = supportedKinds
+        self.supportedKinds = supportedKinds.filter { $0 != .lan }
         self.maximumReceiveLength = maximumReceiveLength
         self.connectTimeoutNanoseconds = max(1, connectTimeoutNanoseconds)
         tailscaleRouteAuthority = CmxSystemTailscaleRouteAuthority()
@@ -24,7 +30,7 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
         connectTimeoutNanoseconds: UInt64 = CmxNetworkByteTransport.defaultConnectTimeoutNanoseconds,
         tailscaleRouteAuthority: any CmxTailscaleRouteAuthorizing
     ) {
-        self.supportedKinds = supportedKinds
+        self.supportedKinds = supportedKinds.filter { $0 != .lan }
         self.maximumReceiveLength = maximumReceiveLength
         self.connectTimeoutNanoseconds = max(1, connectTimeoutNanoseconds)
         self.tailscaleRouteAuthority = tailscaleRouteAuthority
@@ -35,15 +41,14 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
         guard supportedKinds.contains(route.kind) else {
             throw CmxNetworkByteTransportError.unsupportedRouteKind(route.kind)
         }
-        guard case let .hostPort(host, port) = route.endpoint else {
+        guard case .hostPort = route.endpoint else {
             throw CmxNetworkByteTransportError.unsupportedEndpoint(route.endpoint)
         }
-        guard route.kind != .tailscale else {
+        guard route.kind != .tailscale, route.kind != .lan else {
             throw CmxNetworkByteTransportError.authorizationIntentRequired
         }
         return try CmxNetworkByteTransport(
-            host: host,
-            port: port,
+            route: route,
             maximumReceiveLength: maximumReceiveLength,
             connectTimeoutNanoseconds: connectTimeoutNanoseconds
         )
@@ -59,6 +64,7 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
         guard supportedKinds.contains(route.kind) else {
             throw CmxNetworkByteTransportError.unsupportedRouteKind(route.kind)
         }
+        try request.validateTransportMode()
         guard case let .hostPort(host, port) = route.endpoint else {
             throw CmxNetworkByteTransportError.unsupportedEndpoint(route.endpoint)
         }
@@ -89,6 +95,11 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
                 maximumReceiveLength: maximumReceiveLength,
                 connectTimeoutNanoseconds: connectTimeoutNanoseconds
             )
+        case .lan:
+            // Raw LAN TCP is intentionally unavailable to the RPC seam. LAN
+            // Only uses the encrypted Iroh peer route; accepting `.stackBearer`
+            // here would let a caller bypass the shell's auth gate.
+            throw CmxNetworkByteTransportError.authorizationIntentRequired
         case .debugLoopback:
             guard request.authorizationMode == .stackBearer else {
                 throw CmxNetworkByteTransportError.unsupportedAuthorizationMode(
@@ -102,7 +113,8 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
                 host: host,
                 port: port,
                 maximumReceiveLength: maximumReceiveLength,
-                connectTimeoutNanoseconds: connectTimeoutNanoseconds
+                connectTimeoutNanoseconds: connectTimeoutNanoseconds,
+                transportPath: .debugLoopback
             )
         case .iroh, .websocket:
             throw CmxNetworkByteTransportError.unsupportedRouteKind(route.kind)

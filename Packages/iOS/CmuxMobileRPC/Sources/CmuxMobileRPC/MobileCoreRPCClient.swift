@@ -28,6 +28,12 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private let transportRequest: CmxByteTransportRequest
     /// The attach ticket this client uses to authorize RPC requests.
     public var attachTicket: CmxAttachTicket { ticket }
+    /// The mode captured when this client's physical transport was created.
+    public var transportMode: CmxTransportMode { transportRequest.transportMode }
+    /// The complete Direct-mode path allowlist captured for this client.
+    public var irohDirectOnlyDialCandidates: [CmxIrohDirectDialCandidate]? {
+        transportRequest.irohDirectOnlyDialCandidates
+    }
     /// Whether this session is bound to an exact Tailscale endpoint the user
     /// authorized locally, rather than an endpoint learned through discovery.
     public var usesLocallyAuthorizedTailscaleRoute: Bool {
@@ -62,6 +68,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ///     kinds; `nil` = the normal Iroh dial plan.
     ///   - transportConnectObserver: Optional synchronous sink for privacy-safe
     ///     transport dial lifecycle events. The observer must return immediately.
+    ///   - transportPathObserver: Optional synchronous sink for the redacted
+    ///     negotiated path class. Kept separate from lifecycle events so adding
+    ///     path diagnostics does not change the public enum's source contract.
     public init(
         runtime: any MobileSyncRuntime,
         route: CmxAttachRoute,
@@ -77,7 +86,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         lateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000,
         stackTokenGateResetNanoseconds: UInt64 = 30_000_000_000,
         transportConnectObserver: (@Sendable (MobileRPCTransportConnectEvent) -> Void)? = nil,
-        sessionPurpose: CmxTransportSessionPurpose = .foregroundControl
+        transportPathObserver: (@Sendable (_ attemptID: Int, _ path: DiagnosticPathKind) -> Void)? = nil,
+        sessionPurpose: CmxTransportSessionPurpose = .foregroundControl,
+        transportMode: CmxTransportMode = .automatic
     ) {
         self.runtime = runtime
         self.route = route
@@ -116,7 +127,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             sessionPurpose: sessionPurpose,
             irohDirectOnlyDialCandidates: route.kind == .iroh
                 ? irohDirectOnlyDialCandidates
-                : nil
+                : nil,
+            transportMode: transportMode
         )
         self.transportRequest = transportRequest
         self.allowsStackAuthFallback = allowsStackAuthFallback
@@ -149,12 +161,14 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             lateAbandonedConnectCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds,
             makeTransport: { [runtime, transportRequest, lifecycleGate] in
                 try lifecycleGate.makeTransport {
-                    try runtime.transportFactory.makeTransport(for: transportRequest)
+                    try transportRequest.validateTransportMode()
+                    return try runtime.transportFactory.makeTransport(for: transportRequest)
                 }
             },
             makeIndependentEventByteStream: independentEventFactory,
             diagnosticTransport: route.kind.diagnosticTransportKind,
             transportConnectObserver: transportConnectObserver,
+            transportPathObserver: transportPathObserver,
             initialTransportSessionPurpose: sessionPurpose
         )
     }
@@ -224,6 +238,25 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         _ purpose: CmxTransportSessionPurpose
     ) async {
         await session.updateTransportSessionPurpose(purpose)
+    }
+
+    /// Returns the concrete path carrying this client's admitted session.
+    /// Older transports report `.unavailable`, allowing the shell to remain
+    /// compatible while newer transports provide live attribution.
+    public func currentTransportPath() async -> CmxTransportPath {
+        await session.currentTransportPath()
+    }
+
+    /// Returns the process-local admitted session ID used to correlate path
+    /// migrations in the diagnostic ring.
+    public func transportDiagnosticSessionID() async -> Int? {
+        await session.transportDiagnosticSessionID()
+    }
+
+    /// Emits the initial concrete path and every migration until this client is
+    /// disconnected or replaced.
+    public func transportPathChanges() async -> AsyncStream<CmxTransportPath> {
+        await session.transportPathChanges()
     }
 
     /// Subscribe to server-pushed events. Returns a stream of envelopes
@@ -665,8 +698,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     }
 
     /// One authorization decision shared by every token-send site. Generic
-    /// plaintext routes remain restricted to loopback; the legacy mode is valid
-    /// only while its immutable device/IP/port evidence still matches.
+    /// plaintext routes remain restricted to loopback; LAN uses authenticated
+    /// Iroh transport admission and never reaches this Stack-bearer path.
     private var canSendStackBearer: Bool {
         switch transportRequest.authorizationMode {
         case .stackBearer:

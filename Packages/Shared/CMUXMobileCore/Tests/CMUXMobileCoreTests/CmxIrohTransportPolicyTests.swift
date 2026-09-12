@@ -223,6 +223,15 @@ private func profile(
 
     #expect(route.disclosed(for: .publicStatus, at: now) == nil)
 
+    let lanRoute = try CmxAttachRoute(
+        id: "lan",
+        kind: .lan,
+        endpoint: .hostPort(host: "192.168.1.20", port: 58465)
+    )
+    #expect(lanRoute.disclosed(for: .authenticated, at: now) == lanRoute)
+    #expect(lanRoute.disclosed(for: .cloudRendezvous, at: now) == nil)
+    #expect(lanRoute.disclosed(for: .pairedMacCloudBackup, at: now) == nil)
+
     let pairing = try #require(route.disclosed(for: .pairingQRCode, at: now))
     guard case let .peer(_, pairingHints) = pairing.endpoint else {
         Issue.record("Expected pairing Iroh peer route")

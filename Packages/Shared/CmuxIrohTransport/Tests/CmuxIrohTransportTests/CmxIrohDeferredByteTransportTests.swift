@@ -29,6 +29,28 @@ struct CmxIrohDeferredByteTransportTests {
         await transport.close()
     }
 
+    @Test
+    func keepsPathSubscribersUntilDeferredTransportConnects() async throws {
+        let underlying = PathTransport()
+        let transport = CmxIrohDeferredByteTransport(
+            request: try request(),
+            provider: DeferredProvider(transport: underlying)
+        )
+
+        let stream = await transport.transportPathChanges()
+        let observations = Task {
+            var iterator = stream.makeAsyncIterator()
+            let first = await iterator.next()
+            while await iterator.next() != nil {}
+            return first
+        }
+
+        try await transport.connect()
+        await underlying.close()
+        #expect(await observations.value == .irohDirect)
+        await transport.close()
+    }
+
     private func request() throws -> CmxByteTransportRequest {
         let peer = try CmxIrohPeerIdentity(
             endpointID: String(repeating: "ab", count: 32)

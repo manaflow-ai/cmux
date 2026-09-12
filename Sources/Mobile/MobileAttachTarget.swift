@@ -1,9 +1,11 @@
 import CMUXMobileCore
-import Foundation
+import CmuxMobilePairing
 
-/// The consumer of a newly minted attach ticket. The destination owns route
-/// selection and URL representation so simulator and phone policies cannot be
-/// accidentally interchanged after the route set has been minted.
+/// App-target compatibility facade for the package-owned route planner.
+///
+/// Ticket issuance and its error vocabulary stay in the host app; route
+/// selection itself lives in ``CmxMobileAttachRoutePlanner`` so it is testable
+/// without launching the app.
 enum MobileAttachTarget: String, Sendable {
     case ticketOnly = "ticket_only"
     case simulatorInjection = "simulator_injection"
@@ -14,74 +16,20 @@ enum MobileAttachTarget: String, Sendable {
     }
 
     func selectRoutes(from routes: [CmxAttachRoute]) throws -> [CmxAttachRoute] {
-        guard !routes.isEmpty else { throw MobileAttachTicketStoreError.noRoutes }
-        let selected: [CmxAttachRoute]
-        switch self {
-        case .ticketOnly:
-            selected = routes
-        case .simulatorInjection:
-            let irohRoutes = try Self.identityOnlyIrohRoutes(from: routes)
-            selected = irohRoutes.isEmpty
-                ? routes.filter { route in
-                    route.kind == .debugLoopback && CmxLoopbackHost().matches(route)
-                }
-                : irohRoutes
-        case .physicalDevice:
-            let irohRoutes = try Self.identityOnlyIrohRoutes(from: routes)
-            guard irohRoutes.isEmpty else {
-                selected = irohRoutes
-                break
-            }
-            selected = try Self.canonicalTailscaleRoutes(from: routes)
-        }
-        guard !selected.isEmpty else {
-            throw MobileAttachTicketStoreError.routeUnavailable
-        }
-        return selected
-    }
-
-    /// The non-loopback Tailscale routes of `routes`, reindexed to the
-    /// canonical id/priority sequence the v2 pairing decoder resynthesizes.
-    ///
-    /// A route-id filter can leave `tailscale_2` as the only route, and mixed
-    /// snapshots interleave Iroh and loopback entries. Reindexing keeps the
-    /// disclosed subsequence expressible in the bare `host:port` grammar
-    /// (which encodes neither ids nor priorities) without a token-bearing v1
-    /// fallback. Shared by the physical-device destination and the pairing
-    /// window's Tailscale compatibility code.
-    static func canonicalTailscaleRoutes(
-        from routes: [CmxAttachRoute]
-    ) throws -> [CmxAttachRoute] {
-        try routes
-            .filter { $0.kind == .tailscale && !CmxLoopbackHost().matches($0) }
-            .enumerated().map { index, route in
-                try CmxAttachRoute(
-                    id: index == 0
-                        ? CmxAttachTransportKind.tailscale.rawValue
-                        : "\(CmxAttachTransportKind.tailscale.rawValue)_\(index + 1)",
-                    kind: .tailscale,
-                    endpoint: route.endpoint,
-                    priority: 10 + index * 10
-                )
-            }
-    }
-
-    private static func identityOnlyIrohRoutes(
-        from routes: [CmxAttachRoute]
-    ) throws -> [CmxAttachRoute] {
-        try routes.compactMap { route in
-            guard route.kind == .iroh,
-                  case let .peer(identity, _) = route.endpoint else {
-                return nil
-            }
-            return try CmxAttachRoute(
-                id: route.id,
-                kind: .iroh,
-                endpoint: .peer(identity: identity, pathHints: []),
-                priority: route.priority
+        do {
+            return try CmxMobileAttachRoutePlanner().selectRoutes(
+                for: CmxMobileAttachTarget(rawValue: rawValue),
+                from: routes
             )
+        } catch CmxMobileAttachRoutePlanningError.noRoutes {
+            throw MobileAttachTicketStoreError.noRoutes
+        } catch CmxMobileAttachRoutePlanningError.routeUnavailable {
+            throw MobileAttachTicketStoreError.routeUnavailable
+        } catch {
+            throw MobileAttachTicketStoreError.invalidAttachURL
         }
     }
+
 }
 
 extension Optional where Wrapped == MobileAttachTarget {

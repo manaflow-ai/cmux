@@ -16,7 +16,7 @@ import Testing
             macDeviceID: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
             terminalID: "secondary-terminal"
         )
-        store.setWorkspaceStatesForTesting([
+        store.setWorkspaceStateSnapshot([
             "11111111-2222-4333-8444-555555555555": MacWorkspaceState(
                 macDeviceID: "11111111-2222-4333-8444-555555555555",
                 workspaces: [foreground],
@@ -54,7 +54,7 @@ import Testing
             terminalID: "foreground-terminal"
         )
         initial.remoteWorkspaceID = "mac-local-workspace"
-        store.setWorkspaceStatesForTesting([
+        store.setWorkspaceStateSnapshot([
             "11111111-2222-4333-8444-555555555555": MacWorkspaceState(
                 macDeviceID: "11111111-2222-4333-8444-555555555555",
                 workspaces: [initial],
@@ -68,7 +68,7 @@ import Testing
 
         var current = initial
         current.id = "reconciled-row-id"
-        store.setWorkspaceStatesForTesting([
+        store.setWorkspaceStateSnapshot([
             "11111111-2222-4333-8444-555555555555": MacWorkspaceState(
                 macDeviceID: "11111111-2222-4333-8444-555555555555",
                 workspaces: [current],

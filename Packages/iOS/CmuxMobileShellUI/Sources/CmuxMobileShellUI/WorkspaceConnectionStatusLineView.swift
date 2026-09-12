@@ -38,6 +38,8 @@ struct WorkspaceConnectionStatusLineView: View {
                 "mobile.workspaces.statusLine.notConnected",
                 defaultValue: "Not Connected"
             )
+        case let .activeTransport(path):
+            return path
         }
     }
 }

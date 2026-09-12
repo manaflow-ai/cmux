@@ -17,13 +17,13 @@ struct MacComputerListSection: Equatable, Identifiable {
 
     /// Group per-Computer snapshots by their configured connection method,
     /// preserving the input (last-seen-newest-first) order within each
-    /// section. Only non-empty sections are returned, Iroh first.
+    /// section. Only non-empty sections are returned, Auto first.
     static func sections(from snapshots: [MacComputerSnapshot]) -> [MacComputerListSection] {
         var byMethod: [MobileConnectionMethod: [MacComputerSnapshot]] = [:]
         for snapshot in snapshots {
             byMethod[snapshot.connectionMethod ?? .automatic, default: []].append(snapshot)
         }
-        return [MobileConnectionMethod.automatic, .tailscale, .direct].compactMap { method in
+        return [MobileConnectionMethod.automatic, .lan, .tailscale, .iroh, .direct].compactMap { method in
             byMethod[method].map { MacComputerListSection(method: method, computers: $0) }
         }
     }
@@ -34,9 +34,13 @@ extension MobileConnectionMethod {
     var mobileConnectionMethodName: String {
         switch self {
         case .automatic:
-            L10n.string("mobile.connections.method.iroh", defaultValue: "Iroh")
+            L10n.string("mobile.connections.method.auto", defaultValue: "Auto")
+        case .lan:
+            L10n.string("mobile.connections.method.lan", defaultValue: "LAN")
         case .tailscale:
             L10n.string("mobile.connections.method.tailscale", defaultValue: "Tailscale")
+        case .iroh:
+            L10n.string("mobile.connections.method.iroh", defaultValue: "iroh")
         case .direct:
             L10n.string("mobile.connections.method.direct", defaultValue: "Direct")
         }
@@ -48,6 +52,8 @@ extension MobileConnectionMethod {
         switch self {
         case .automatic: .iroh
         case .tailscale: .tailscale
+        case .lan: .lan
+        case .iroh: .iroh
         case .direct: nil
         }
     }
@@ -58,6 +64,8 @@ extension CmxAttachTransportKind {
     /// route diagnostics.
     var mobileConnectionMethodName: String {
         switch self {
+        case .lan:
+            L10n.string("mobile.connections.method.lan", defaultValue: "LAN")
         case .iroh:
             L10n.string("mobile.connections.method.iroh", defaultValue: "Iroh")
         case .tailscale:

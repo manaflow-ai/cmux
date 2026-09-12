@@ -1434,7 +1434,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         rawValue: String?,
         stackUserID: String? = nil,
         teamID: String? = nil
-    ) throws {
+    ) async throws {
         try ensureReady()
         let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
         try exec("""
@@ -1461,7 +1461,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         rawJSON: String?,
         stackUserID: String? = nil,
         teamID: String? = nil
-    ) throws {
+    ) async throws {
         try ensureReady()
         let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
         try exec("""

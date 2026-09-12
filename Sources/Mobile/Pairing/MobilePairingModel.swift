@@ -6,9 +6,9 @@ import Observation
 
 /// Drives the in-app iOS pairing window. Gates pairing on the Mac being signed
 /// in (authorization is a Stack same-account check), then turns on the pairing
-/// host and mints a Tailscale pairing code. Automatic Iroh discovery needs no
-/// QR. The displayed Tailscale code never expires and is never regenerated on
-/// a timer; Refresh Code re-mints on demand.
+/// host and mints a transport-aware pairing code. Automatic Iroh discovery
+/// needs no QR. The displayed code never expires and is never regenerated on a
+/// timer; Refresh Code re-mints on demand.
 ///
 /// Reads auth state from the app's shared ``CmuxAuthRuntime/AuthCoordinator``
 /// (via `AppDelegate`); sign-in routes through the shared ``HostAccountFlow``
@@ -45,6 +45,8 @@ final class MobilePairingModel {
         let attachURL: String
         /// Reachable Tailscale `host:port` routes represented by the code.
         let tailscaleLines: [String]
+        /// Reachable LAN `host:port` routes represented by the code.
+        let lanLines: [String]
         /// The best route for manual phone entry, behind the "Copy IP" and
         /// "Copy Port" buttons. `nil` when no phone-dialable route exists.
         let manualEntry: CmxManualPairingEntry?
@@ -63,6 +65,7 @@ final class MobilePairingModel {
             Ready(
                 attachURL: attachURL,
                 tailscaleLines: MobilePairingModel.tailscaleLines(routes),
+                lanLines: MobilePairingModel.lanLines(routes),
                 manualEntry: CmxManualPairingEntry.best(in: routes),
                 reachableViaIroh: MobilePairingModel.hasIrohRoute(routes)
             )
@@ -73,12 +76,20 @@ final class MobilePairingModel {
         let disclosureMode: CmxPairingRouteDisclosureMode
 
         static func make(routes: [CmxAttachRoute]) -> PairingRoutePlan? {
-            guard routes.contains(
-                where: MobilePairingModel.isPhoneReachableTailscaleRoute
-            ) else { return nil }
-            return PairingRoutePlan(
-                disclosureMode: .legacyPrivateNetworkCompatibility
-            )
+            if routes.contains(where: MobilePairingModel.isPhoneReachableTailscaleRoute) {
+                return PairingRoutePlan(
+                    disclosureMode: .legacyPrivateNetworkCompatibility
+                )
+            }
+            // A current iOS client can bootstrap LAN Only from an identity-only
+            // Iroh code: the authenticated broker then supplies the LAN hint to
+            // the encrypted session. Older clients never see a new `.lan` route
+            // kind in their compatibility QR.
+            guard routes.contains(where: { $0.kind == .iroh }),
+                  routes.contains(where: { $0.kind == .lan }) else {
+                return nil
+            }
+            return PairingRoutePlan(disclosureMode: .irohIdentityOnly)
         }
     }
 
@@ -205,6 +216,11 @@ final class MobilePairingModel {
                 terminalID: nil,
                 ttl: ticketTTL,
                 routeDisclosureMode: routePlan.disclosureMode,
+                // This QR is displayed for a physical phone. Selecting the
+                // target makes mixed Iroh/LAN/Tailscale snapshots use the
+                // lossless physical-device grammar instead of the legacy
+                // Tailscale-only URL, so a later pinned mode has every route.
+                target: .physicalDevice,
                 pairingURLScheme: selectedIOSAppTarget.pairingURLScheme
             )
             guard generation == refreshGeneration else { return }
@@ -221,6 +237,7 @@ final class MobilePairingModel {
                 Ready(
                     attachURL: attachURL,
                     tailscaleLines: Self.tailscaleLines(status.routes),
+                    lanLines: Self.lanLines(status.routes),
                     manualEntry: CmxManualPairingEntry.best(in: status.routes),
                     reachableViaIroh: Self.hasIrohRoute(status.routes)
                 )
@@ -396,8 +413,10 @@ final class MobilePairingModel {
         routes.contains { $0.kind == .iroh }
     }
 
-    /// Whether `route` can serve a physical iPhone: a Tailscale route that does
-    /// not point back at this Mac.
+    /// Whether `route` can serve the legacy compatibility QR: a Tailscale route
+    /// that does not point back at this Mac. LAN routes remain visible in the
+    /// modern status/UI payloads, but the legacy grammar cannot be decoded by
+    /// older iOS clients that predate the `.lan` route kind.
     private nonisolated static func isPhoneReachableTailscaleRoute(
         _ route: CmxAttachRoute
     ) -> Bool {
@@ -407,6 +426,16 @@ final class MobilePairingModel {
     private nonisolated static func tailscaleLines(_ routes: [CmxAttachRoute]) -> [String] {
         routes.compactMap { route in
             guard route.kind == .tailscale,
+                  case let .hostPort(host, port) = route.endpoint else {
+                return nil
+            }
+            return "\(host):\(port)"
+        }
+    }
+
+    private nonisolated static func lanLines(_ routes: [CmxAttachRoute]) -> [String] {
+        routes.compactMap { route in
+            guard route.kind == .lan,
                   case let .hostPort(host, port) = route.endpoint else {
                 return nil
             }

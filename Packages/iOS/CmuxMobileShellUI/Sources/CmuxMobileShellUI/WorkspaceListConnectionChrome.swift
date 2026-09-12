@@ -8,6 +8,8 @@ enum WorkspaceConnectionStatusLine: Equatable {
     case reconnecting
     /// No live connection and no attempt currently in flight ("Not Connected").
     case notConnected
+    /// A healthy foreground session's concrete transport path.
+    case activeTransport(String)
 }
 
 /// Which single connection surface the workspace list presents.
@@ -33,10 +35,16 @@ enum WorkspaceListConnectionChrome: Equatable {
         tailscalePairingRequired: Bool = false,
         isInitialConnectionLoading: Bool = false,
         initialConnectionTimedOut: Bool = false,
-        hasLiveTransportPath: Bool = false
+        hasLiveTransportPath: Bool = false,
+        activeTransportPath: String? = nil
     ) {
         if hasStore && connectionRequiresReauth {
             self = .recoveryBanner
+        } else if connectionStatus == .connected,
+                  !isRecoveringConnection,
+                  let activeTransportPath,
+                  !activeTransportPath.isEmpty {
+            self = .statusLine(.activeTransport(activeTransportPath))
         } else if hasStore && tailscalePairingRequired && !hasLiveTransportPath {
             // Keep the workspace content visible while directing the user to
             // the scanner from the existing reconnect action. Tailscale setup
@@ -70,5 +78,12 @@ enum WorkspaceListConnectionChrome: Equatable {
     /// healthy-connection affordance: while reauth, restore, or degraded chrome
     /// is on screen, an update suggestion would compete with recovery (and
     /// could describe a Mac we are no longer talking to).
-    var showsMacUpdateHintIndicator: Bool { self == .none }
+    var showsMacUpdateHintIndicator: Bool {
+        switch self {
+        case .none, .statusLine(.activeTransport):
+            return true
+        default:
+            return false
+        }
+    }
 }

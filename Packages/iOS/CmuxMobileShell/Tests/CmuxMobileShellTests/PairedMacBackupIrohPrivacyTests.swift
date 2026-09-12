@@ -82,6 +82,38 @@ private let irohBackupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_00
         #expect(!json.contains(publicAddress))
         #expect(!json.contains("production"))
     }
+
+    @Test func pairedMacCloudBackupRoundTripDropsLANHostPortRoutes() throws {
+        let lanRoute = try CmxAttachRoute(
+            id: "lan",
+            kind: .lan,
+            endpoint: .hostPort(host: "192.168.1.42", port: 58_465)
+        )
+        let encodedRoute = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(lanRoute)
+        )
+        let rawRecord: [String: Any] = [
+            "macDeviceID": "mac-a",
+            "displayName": "A",
+            "routes": [encodedRoute],
+            "createdAt": 1.0,
+            "lastSeenAt": 2.0,
+            "isActive": true,
+        ]
+        let rawData = try JSONSerialization.data(withJSONObject: rawRecord)
+
+        // Restored records are decoded and then encoded again by the backup
+        // sync path. Neither side may reintroduce device-local LAN coordinates.
+        let restored = try JSONDecoder().decode(
+            PairedMacBackupRecord.self,
+            from: rawData
+        )
+        #expect(restored.routes.isEmpty)
+        let reencoded = try JSONEncoder().encode(restored)
+        let json = try #require(String(data: reencoded, encoding: .utf8))
+        #expect(!json.contains("192.168.1.42"))
+    }
+
     @Test func deleteUploadHasNoRecordBody() throws {
         let body = PairedMacBackupRequestBody(ops: [PairedMacBackupOpWire(
             op: .delete(macDeviceID: "mac-a"),

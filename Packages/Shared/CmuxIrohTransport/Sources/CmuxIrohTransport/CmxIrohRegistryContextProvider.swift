@@ -162,6 +162,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     public func context(
         for request: CmxByteTransportRequest
     ) async throws -> CmxIrohClientContext {
+        try request.validateTransportMode()
         let route = request.route
         guard route.kind == .iroh,
               request.authorizationMode == .transportAdmission,
@@ -207,7 +208,8 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
                     routeHints: routeHints,
                     directOnly: request.irohDirectOnlyDialCandidates,
                     pairGrantToken: cached.pairGrant.grant,
-                    at: clock
+                    at: clock,
+                    transportMode: request.transportMode
                 )
             }
         }
@@ -331,7 +333,8 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
                 routeHints: routeHints,
                 directOnly: request.irohDirectOnlyDialCandidates,
                 pairGrantToken: cached.pairGrant.grant,
-                at: clock
+                at: clock,
+                transportMode: request.transportMode
             )
         }
         if let offlinePolicy {
@@ -349,7 +352,8 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             routeHints: routeHints,
             directOnly: request.irohDirectOnlyDialCandidates,
             pairGrantToken: pairGrant.grant,
-            at: clock
+            at: clock,
+            transportMode: request.transportMode
         )
     }
 
@@ -566,14 +570,16 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         routeHints: [CmxIrohPathHint],
         directOnly: [CmxIrohDirectDialCandidate]? = nil,
         pairGrantToken: String,
-        at clock: Date
+        at clock: Date,
+        transportMode: CmxTransportMode
     ) async throws -> CmxIrohClientContext {
-        if let directOnly {
+        if transportMode == .direct, let directOnly {
             return try directOnlyContext(
                 candidates: directOnly,
                 targetBinding: targetBinding,
                 pairGrantToken: pairGrantToken,
-                at: clock
+                at: clock,
+                transportMode: transportMode
             )
         }
         let targetIdentity = targetBinding.endpointID
@@ -605,8 +611,15 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         guard let dialPlan = endpointAddress.irohDialPlan(
             at: clock,
             managedRelayURLs: allowedRouteRelayURLs,
-            activeNetworkProfiles: profiles
+            activeNetworkProfiles: profiles,
+            transportMode: transportMode
         ) else {
+            if transportMode.isPinned {
+                throw CmxTransportModeError.noRoute(
+                    mode: transportMode,
+                    macDisplayName: nil
+                )
+            }
             throw CmxIrohRegistryContextError.dialPlanUnavailable
         }
         let fallbackAuthorization: CmxIrohPrivateFallbackAuthorization?
@@ -622,7 +635,8 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         return CmxIrohClientContext(
             dialPlan: dialPlan,
             credential: try .pairGrant(pairGrantToken),
-            privateFallbackAuthorization: fallbackAuthorization
+            privateFallbackAuthorization: fallbackAuthorization,
+            transportMode: transportMode
         )
     }
 
@@ -648,7 +662,8 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         candidates: [CmxIrohDirectDialCandidate],
         targetBinding: CmxIrohBrokerBinding,
         pairGrantToken: String,
-        at clock: Date
+        at clock: Date,
+        transportMode: CmxTransportMode
     ) throws -> CmxIrohClientContext {
         let peerAlias = DiagnosticCorrelation().handle(for: targetBinding.deviceID)
         guard !candidates.isEmpty else {
@@ -659,6 +674,12 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
                 b: 0,
                 c: 0
             ))
+            if transportMode.isPinned {
+                throw CmxTransportModeError.noRoute(
+                    mode: transportMode,
+                    macDisplayName: nil
+                )
+            }
             throw CmxIrohRegistryContextError.dialPlanUnavailable
         }
         let directPorts = freshDirectPorts(targetBinding: targetBinding, at: clock)
@@ -700,6 +721,12 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
                 b: candidates.count,
                 c: 0
             ))
+            if transportMode.isPinned {
+                throw CmxTransportModeError.noRoute(
+                    mode: transportMode,
+                    macDisplayName: nil
+                )
+            }
             throw CmxIrohRegistryContextError.dialPlanUnavailable
         }
         diagnostics?.record(DiagnosticEvent(
@@ -712,7 +739,8 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         return CmxIrohClientContext(
             dialPlan: dialPlan,
             credential: try .pairGrant(pairGrantToken),
-            privateFallbackAuthorization: nil
+            privateFallbackAuthorization: nil,
+            transportMode: transportMode
         )
     }
 
@@ -856,6 +884,18 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         for request: CmxByteTransportRequest,
         basedOn context: CmxIrohClientContext
     ) async throws -> CmxIrohClientContext {
+        // An explicit iroh-only policy means Iroh-native direct/relay paths,
+        // never provider-attributed LAN/Tailscale hints.  In particular, do
+        // not let the late LAN discovery phase reintroduce a private path after
+        // the initial policy filtering.
+        // A pinned mode is a hard route-class boundary. LAN Only deliberately
+        // reaches this provider so the encrypted Iroh session can use only
+        // broker-authorized LAN hints; every other pinned mode returns the
+        // already-filtered context unchanged.
+        guard request.transportMode == .automatic
+                || request.transportMode == .lan else {
+            return context
+        }
         guard request.route.kind == .iroh,
               request.authorizationMode == .transportAdmission,
               let expectedDeviceID = request.expectedPeerDeviceID,
@@ -909,7 +949,8 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         ).irohDialPlan(
             at: clock,
             managedRelayURLs: allowedRouteRelayURLs,
-            activeNetworkProfiles: profiles
+            activeNetworkProfiles: profiles,
+            transportMode: request.transportMode
         ), dialPlan.publicPaths == context.dialPlan.publicPaths else {
             return context
         }
@@ -926,7 +967,8 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         return CmxIrohClientContext(
             dialPlan: dialPlan,
             credential: context.credential,
-            privateFallbackAuthorization: authorization
+            privateFallbackAuthorization: authorization,
+            transportMode: request.transportMode
         )
     }
 

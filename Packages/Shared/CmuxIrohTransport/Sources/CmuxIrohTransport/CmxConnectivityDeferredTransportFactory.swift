@@ -27,6 +27,7 @@ public struct CmxConnectivityDeferredTransportFactory:
     ) throws -> any CmxByteTransport {
         let route = request.route
         try validatePeerRoute(route)
+        try request.validateTransportMode()
         guard request.authorizationMode == .transportAdmission,
               request.expectedPeerDeviceID?.isEmpty == false else {
             throw CmxIrohByteTransportError.missingPeerIntent

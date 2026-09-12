@@ -172,8 +172,31 @@ import Testing
             .init(key: "session", value: "9"),
         ])
         let closeSummary = englishPresentation.summary(close)
-        #expect(closeSummary.contains("Session"))
-        #expect(closeSummary.contains("9"))
+        #expect(!closeSummary.contains("Session"))
+        #expect(!closeSummary.contains("9"))
+    }
+
+    @Test func labelsTransportMigrationFieldsAndRedactsOnlySessionCorrelation() {
+        let event = DiagnosticEvent(
+            code: .transportPathMigration,
+            tNanos: 1,
+            surface: 7,
+            a: DiagnosticPathKind.lan.rawValue,
+            b: DiagnosticPathKind.direct.rawValue,
+            c: 42
+        )
+        let described = englishPresentation.describe(event)
+        #expect(described.fields.contains(DiagnosticEventPresentation.Field(key: "peer", value: "7")))
+        #expect(described.fields.contains(DiagnosticEventPresentation.Field(key: "from_path", value: "LAN")))
+        #expect(described.fields.contains(DiagnosticEventPresentation.Field(key: "to_path", value: "Direct")))
+        #expect(described.fields.contains(DiagnosticEventPresentation.Field(key: "session", value: "42")))
+
+        let summary = englishPresentation.summary(described)
+        #expect(summary.contains("Peer"))
+        #expect(summary.contains("From path"))
+        #expect(summary.contains("To path"))
+        #expect(!summary.contains("Session"))
+        #expect(!summary.contains("42"))
     }
 
     @Test func describesLifecycleAndReachability() {
@@ -269,6 +292,9 @@ import Testing
             .transportDialSessionLinked: "Transport dial linked to session",
             .transportDialCancelled: "Transport dial cancelled",
             .transportCloseReason: "Remote close reason",
+            .transportModeSelected: "Transport mode selected",
+            .transportDialPath: "Negotiated transport path",
+            .transportPathMigration: "Transport path migrated",
             .simulatorStreamLifecycle: "Simulator stream state changed",
             .simulatorFrameLifecycle: "Simulator frame pipeline changed",
             .simulatorInputLifecycle: "Simulator input state changed",

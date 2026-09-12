@@ -145,6 +145,8 @@ struct CmxIrohDirectTransportGateTests {
             switch await connection.observedSelectedPath() {
             case .direct, .privateNetwork:
                 return true
+            case .unknown:
+                return false
             case .relay:
                 return false
             case .unavailable:

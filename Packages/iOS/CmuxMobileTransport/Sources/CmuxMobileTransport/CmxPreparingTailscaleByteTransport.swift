@@ -16,7 +16,7 @@ nonisolated private let tailscalePreparationLog = Logger(
 /// its deadline) is owned entirely by the route authority; this transport
 /// makes exactly one `prepare` call and maps its failure to the transport
 /// error the pairing classifier turns into actionable Tailscale guidance.
-actor CmxPreparingTailscaleByteTransport: CmxByteTransport {
+actor CmxPreparingTailscaleByteTransport: CmxByteTransport, CmxByteTransportPathObserving {
     private let request: CmxByteTransportRequest
     private let tailscaleRouteAuthority: any CmxTailscaleRouteAuthorizing
     private let maximumReceiveLength: Int
@@ -76,6 +76,44 @@ actor CmxPreparingTailscaleByteTransport: CmxByteTransport {
         if let transport {
             await transport.close()
         }
+    }
+
+    func currentTransportPath() async -> CmxTransportPath {
+        guard let transport,
+              let observing = transport as? any CmxByteTransportPathObserving else {
+            return .tailscale(address: routeHost(request.route))
+        }
+        return await observing.currentTransportPath()
+    }
+
+    func transportPathChanges() async -> AsyncStream<CmxTransportPath> {
+        guard !isClosed else {
+            return unavailablePathStream()
+        }
+        do {
+            // Await preparation instead of returning a synthetic finished
+            // stream. A subscriber that arrives during tunnel setup must stay
+            // attached until the concrete transport can report migrations.
+            let transport = try await preparedTransport()
+            guard let observing = transport as? any CmxByteTransportPathObserving else {
+                return unavailablePathStream()
+            }
+            return await observing.transportPathChanges()
+        } catch {
+            return unavailablePathStream()
+        }
+    }
+
+    private func unavailablePathStream() -> AsyncStream<CmxTransportPath> {
+        AsyncStream { continuation in
+            continuation.yield(.unavailable)
+            continuation.finish()
+        }
+    }
+
+    private func routeHost(_ route: CmxAttachRoute) -> String {
+        guard case let .hostPort(host, _) = route.endpoint else { return "" }
+        return host
     }
 
     private func preparedTransport() async throws -> any CmxByteTransport {

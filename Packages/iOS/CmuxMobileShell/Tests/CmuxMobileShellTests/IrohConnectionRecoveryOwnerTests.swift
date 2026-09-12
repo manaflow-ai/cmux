@@ -330,6 +330,9 @@ extension ReconnectRouteSelectionTests {
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
         #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil {
+            fixture.store.macConnectionStatus == .connected
+        })
         let client = try #require(fixture.store.remoteClient)
         let generation = fixture.store.connectionGeneration
 
@@ -369,6 +372,9 @@ extension ReconnectRouteSelectionTests {
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
         #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil {
+            fixture.store.lastSuccessfulTerminalSubscription != nil
+        })
         let foregroundKey = fixture.store.foregroundMacKey
         var staleState = try #require(fixture.store.workspacesByMac[foregroundKey])
         staleState.status = .unavailable

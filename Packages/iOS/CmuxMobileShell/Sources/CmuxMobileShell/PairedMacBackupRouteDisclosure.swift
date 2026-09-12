@@ -13,6 +13,11 @@ struct PairedMacBackupRouteDisclosure {
 
     func cloudPrivacySafe() -> [CmxAttachRoute] {
         routes.compactMap { route in
+            guard route.kind != .lan else {
+                // LAN host/port coordinates are device-local and must stay out
+                // of restored cloud-backup records as well as fresh uploads.
+                return nil
+            }
             guard case let .peer(identity, pathHints) = route.endpoint else {
                 return route
             }

@@ -54,7 +54,7 @@ import Testing
         #expect(store.displayPairedMacs.first?.customName == "Old custom")
         #expect(store.displayPairedMacs.first?.customColor == "palette:3")
         #expect(store.displayPairedMacs.first?.customIcon == "laptopcomputer")
-        store.setWorkspaceStatesForTesting([
+        store.setWorkspaceStateSnapshot([
             "mac-old": MacWorkspaceState(
                 macDeviceID: "mac-old",
                 workspaces: [
@@ -505,6 +505,44 @@ import Testing
         #expect(store.pairedMacAliasIDs(for: "mac-a", instanceTag: "nightly") == ["mac-a"])
     }
 
+    @Test
+    func explicitTransportModesKeepSameIrohEndpointRowsSeparate() throws {
+        let identity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "c", count: 64)
+        )
+        let route = try CmxAttachRoute(
+            id: "shared-iroh",
+            kind: .iroh,
+            endpoint: .peer(identity: identity, pathHints: [])
+        )
+        let lan = try Self.pairedMac(
+            id: "mac-lan",
+            displayName: "Shared Mac",
+            host: "unused",
+            lastSeenAt: Date(timeIntervalSince1970: 10),
+            isActive: false,
+            routes: [route],
+            connectionMethodRawValue: MobileConnectionMethod.lan.rawValue
+        )
+        let iroh = try Self.pairedMac(
+            id: "mac-iroh",
+            displayName: "Shared Mac",
+            host: "unused",
+            lastSeenAt: Date(timeIntervalSince1970: 20),
+            isActive: false,
+            routes: [route],
+            connectionMethodRawValue: MobileConnectionMethod.iroh.rawValue
+        )
+
+        let coalesced = MobileShellComposite.coalescePairedMacsByIrohEndpointAuthority(
+            [lan, iroh],
+            supportedKinds: [.iroh],
+            preferNonLoopback: true
+        )
+
+        #expect(Set(coalesced.map(\.macDeviceID)) == ["mac-lan", "mac-iroh"])
+    }
+
     @Test func scopedActionsDoNothingWithoutSignedInScope() async throws {
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
@@ -551,7 +589,8 @@ import Testing
         customName: String? = nil,
         customColor: String? = nil,
         customIcon: String? = nil,
-        routes: [CmxAttachRoute]? = nil
+        routes: [CmxAttachRoute]? = nil,
+        connectionMethodRawValue: String? = nil
     ) throws -> MobilePairedMac {
         MobilePairedMac(
             macDeviceID: id,
@@ -565,7 +604,8 @@ import Testing
             customName: customName,
             customColor: customColor,
             customIcon: customIcon,
-            instanceTag: instanceTag
+            instanceTag: instanceTag,
+            connectionMethodRawValue: connectionMethodRawValue
         )
     }
 }

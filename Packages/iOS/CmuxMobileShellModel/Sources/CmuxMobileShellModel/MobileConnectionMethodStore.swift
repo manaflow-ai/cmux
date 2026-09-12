@@ -15,9 +15,34 @@ public enum MobileConnectionMethod: String, CaseIterable, Sendable {
     /// Computer (LAN, WireGuard, or any other reachable network). No other
     /// method is ever used as a fallback while this method is selected.
     case direct
+    /// Require a directly advertised route on the Mac's local network.
+    case lan
+    /// Require the authenticated Iroh transport (direct or relay).
+    case iroh
 }
 
 extension MobileConnectionMethod {
+    /// The shared, extensible policy used by every dial boundary.
+    public var transportMode: CmxTransportMode {
+        switch self {
+        case .automatic: .automatic
+        case .tailscale: .tailscale
+        case .direct: .direct
+        case .lan: .lan
+        case .iroh: .iroh
+        }
+    }
+
+    /// Source-compatible aliases for settings and tests.
+    /// The automatic connection method.
+    public static var auto: Self { .automatic }
+    /// The LAN-only connection method.
+    public static var lanOnly: Self { .lan }
+    /// The Tailscale-only connection method.
+    public static var tailscaleOnly: Self { .tailscale }
+    /// The Iroh-only connection method.
+    public static var irohOnly: Self { .iroh }
+
     /// Exhaustive mapping into the diagnostics payload enum, so a future third
     /// method becomes a compile error here instead of silently misreporting.
     var diagnosticMethod: DiagnosticConnectionMethod {
@@ -25,6 +50,8 @@ extension MobileConnectionMethod {
         case .automatic: .automatic
         case .tailscale: .tailscale
         case .direct: .direct
+        case .lan: .lan
+        case .iroh: .iroh
         }
     }
 }

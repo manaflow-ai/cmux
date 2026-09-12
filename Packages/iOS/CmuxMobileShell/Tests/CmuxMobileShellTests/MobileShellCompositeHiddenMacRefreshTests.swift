@@ -200,7 +200,7 @@ import Testing
             teamIDProvider: { "team-a" }
         )
         await store.loadPairedMacs()
-        store.setWorkspaceStatesForTesting([
+        store.setWorkspaceStateSnapshot([
             "mac-a": MacWorkspaceState(
                 macDeviceID: "mac-a",
                 workspaces: [
@@ -390,7 +390,7 @@ import Testing
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-a" }
         )
-        store.setWorkspaceStatesForTesting(
+        store.setWorkspaceStateSnapshot(
             [:],
             foregroundMacDeviceID: "mac-live"
         )
@@ -435,7 +435,7 @@ import Testing
             teamIDProvider: { "team-a" }
         )
         store.activeRoute = route
-        store.setWorkspaceStatesForTesting([:], foregroundMacDeviceID: nil)
+        store.setWorkspaceStateSnapshot([:], foregroundMacDeviceID: nil)
 
         #expect(await store.secondaryAggregationCandidateMacIDs().isEmpty)
     }
@@ -462,7 +462,7 @@ import Testing
             teamIDProvider: { "team-a" }
         )
         await store.loadPairedMacs()
-        store.setWorkspaceStatesForTesting([
+        store.setWorkspaceStateSnapshot([
             "mac-b": MacWorkspaceState(
                 macDeviceID: "mac-b",
                 workspaces: [
@@ -511,7 +511,7 @@ import Testing
             teamIDProvider: { "team-a" }
         )
         await store.loadPairedMacs()
-        store.setWorkspaceStatesForTesting([
+        store.setWorkspaceStateSnapshot([
             "mac-a": MacWorkspaceState(
                 macDeviceID: "mac-a",
                 workspaces: [
@@ -572,7 +572,7 @@ import Testing
             teamIDProvider: { "team-a" }
         )
         await store.loadPairedMacs()
-        store.setWorkspaceStatesForTesting([
+        store.setWorkspaceStateSnapshot([
             "mac-a": MacWorkspaceState(
                 macDeviceID: "mac-a",
                 workspaces: [

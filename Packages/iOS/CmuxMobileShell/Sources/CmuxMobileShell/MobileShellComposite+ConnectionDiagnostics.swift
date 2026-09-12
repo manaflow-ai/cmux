@@ -7,13 +7,20 @@ extension MobileShellComposite {
     /// The closure captures only the structured ring, and receives no raw route
     /// or error values from the RPC layer.
     func transportConnectDiagnosticObserver(
-        peerID: String?
+        peerID: String?,
+        transportMode: CmxTransportMode = .automatic
     ) -> (@Sendable (MobileRPCTransportConnectEvent) -> Void)? {
         guard let diagnosticLog else { return nil }
         let peerAlias = DiagnosticCorrelation().handle(for: peerID)
         return { event in
             switch event {
             case let .attempt(attemptID, transport):
+                diagnosticLog.record(DiagnosticEvent(
+                    .transportModeSelected,
+                    surface: peerAlias,
+                    a: transportMode.diagnosticMode.rawValue,
+                    c: attemptID
+                ))
                 diagnosticLog.record(DiagnosticEvent(
                     .transportDialStarted,
                     surface: peerAlias,
@@ -45,6 +52,15 @@ extension MobileShellComposite {
                     b: failure.rawValue,
                     c: attemptID
                 ))
+                diagnosticLog.record(DiagnosticEvent(
+                    .transportDialPath,
+                    surface: peerAlias,
+                    // A failed dial never negotiated a concrete path. The
+                    // attempted route class belongs on `transportDialFailed`;
+                    // path attribution is reserved for success/observation.
+                    a: DiagnosticPathKind.unknown.rawValue,
+                    c: attemptID
+                ))
             case let .cancelled(attemptID, _, reason, elapsedMilliseconds):
                 diagnosticLog.record(DiagnosticEvent(
                     .transportDialCancelled,
@@ -53,11 +69,35 @@ extension MobileShellComposite {
                     a: reason.rawValue,
                     c: attemptID
                 ))
+                diagnosticLog.record(DiagnosticEvent(
+                    .transportDialPath,
+                    surface: peerAlias,
+                    a: DiagnosticPathKind.unknown.rawValue,
+                    c: attemptID
+                ))
             }
         }
     }
 
-    static func diagnosticFailureKind(
+    /// Builds the separate path-attribution sink used by ``MobileCoreRPCSession``.
+    /// Keeping it outside ``MobileRPCTransportConnectEvent`` preserves source
+    /// compatibility for clients that exhaustively switch lifecycle events.
+    func transportPathDiagnosticObserver(
+        peerID: String?
+    ) -> (@Sendable (_ attemptID: Int, _ path: DiagnosticPathKind) -> Void)? {
+        guard let diagnosticLog else { return nil }
+        let peerAlias = DiagnosticCorrelation().handle(for: peerID)
+        return { attemptID, path in
+            diagnosticLog.record(DiagnosticEvent(
+                .transportDialPath,
+                surface: peerAlias,
+                a: path.rawValue,
+                c: attemptID
+            ))
+        }
+    }
+
+    func diagnosticFailureKind(
         for error: (any Error)?
     ) -> DiagnosticFailureKind {
         guard let error else { return .connectionClosed }
@@ -72,7 +112,7 @@ extension MobileShellComposite {
     /// must report equivalent staleness evidence itself. Auth, admission,
     /// policy, and cancellation failures stay out: refetching discovery cannot
     /// repair those.
-    static func routeFailureIndicatesStaleDiscovery(
+    func routeFailureIndicatesStaleDiscovery(
         _ failure: DiagnosticFailureKind
     ) -> Bool {
         switch failure {
