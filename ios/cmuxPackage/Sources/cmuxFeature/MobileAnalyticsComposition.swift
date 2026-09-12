@@ -150,8 +150,11 @@ public struct MobileAnalyticsComposition {
         if let bundleIdentifier = Bundle.main.bundleIdentifier {
             properties["bundle_identifier"] = .string(bundleIdentifier)
             let normalized = bundleIdentifier.lowercased()
+            // All development bundle identifiers use the `dev.` namespace;
+            // beta and test bundles may omit the word `debug` entirely.
             let channel = normalized.contains("nightly") ? "nightly"
-                : normalized.contains("debug") ? "dev" : "production"
+                : normalized.hasPrefix("dev.") || normalized.contains("debug") || normalized.contains(".beta") || normalized.contains(".test") ? "dev"
+                : "production"
             properties["client_channel"] = .string(channel)
         }
         if let version = info?["CFBundleShortVersionString"] as? String {
