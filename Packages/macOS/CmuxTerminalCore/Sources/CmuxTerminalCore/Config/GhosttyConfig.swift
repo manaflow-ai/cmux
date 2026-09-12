@@ -722,7 +722,7 @@ public struct GhosttyConfig {
                         unfocusedSplitFill = color
                     }
                 case "split-divider-color":
-                    if let color = NSColor(hex: value) {
+                    if let color = parseGhosttyColor(value) {
                         splitDividerColor = color
                     }
                 case "sidebar-background":
