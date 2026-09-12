@@ -133,4 +133,8 @@ describe("VM Dashboard v2 controller", () => {
   test("rejects an unapproved worker origin before creating a socket", () => {
     expect(() => new V2DashboardController({ origin: "https://example.com", environment: "production", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => {} })).toThrow("approved Cloudflare Worker");
   });
+
+  test("accepts the development account's deployed Worker origin", () => {
+    expect(() => new V2DashboardController({ origin: "https://cmux-iroh-v2-development.debussy.workers.dev", environment: "development", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => {} })).not.toThrow();
+  });
 });

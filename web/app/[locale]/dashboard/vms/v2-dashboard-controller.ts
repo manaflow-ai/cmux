@@ -50,7 +50,7 @@ type Frame = { readonly schemaId?: string; readonly requestId?: string; readonly
 const REQUEST_TIMEOUT_MS = 10_000;
 // Only the three managed Workers may receive browser Stack tokens. A generic
 // workers.dev suffix would also trust another account's Worker.
-const ORIGIN_ALLOWED = /^https:\/\/cmux-iroh-v2(?:-development|-staging)?\.cmux-presence-worker\.workers\.dev$/u;
+const ORIGIN_ALLOWED = /^https:\/\/cmux-iroh-v2(?:-development|-staging)?\.(?:cmux-presence-worker|debussy)\.workers\.dev$/u;
 
 export class V2DashboardController {
   private readonly options: DashboardOptions;

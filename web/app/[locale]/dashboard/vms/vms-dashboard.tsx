@@ -13,8 +13,10 @@ import { V2DashboardController, type DashboardDirectory, type DashboardWorkspace
 const PROJECT_ID = process.env.NEXT_PUBLIC_STACK_PROJECT_ID ?? "";
 const DEFAULT_ENVIRONMENT = process.env.NEXT_PUBLIC_IROH_V2_ENVIRONMENT ??
   (process.env.NODE_ENV === "production" ? "production" : "development");
+const DEFAULT_WORKERS_SUBDOMAIN = process.env.NEXT_PUBLIC_IROH_V2_WORKERS_SUBDOMAIN ??
+  (DEFAULT_ENVIRONMENT === "development" ? "debussy" : "cmux-presence-worker");
 const DEFAULT_ORIGIN = process.env.NEXT_PUBLIC_IROH_V2_ORIGIN ??
-  `https://cmux-iroh-v2${DEFAULT_ENVIRONMENT === "production" ? "" : `-${DEFAULT_ENVIRONMENT}`}.cmux-presence-worker.workers.dev`;
+  `https://cmux-iroh-v2${DEFAULT_ENVIRONMENT === "production" ? "" : `-${DEFAULT_ENVIRONMENT}`}.${DEFAULT_WORKERS_SUBDOMAIN}.workers.dev`;
 
 type Props = { readonly userId: string; readonly userEmail: string };
 type DashboardVm = { readonly id: string; readonly displayName: string | null; readonly status: string };
