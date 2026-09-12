@@ -2822,7 +2822,7 @@ export function getVmStats(input: {
   readonly billingTeamId?: string | null;
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
-}) {
+}): VmWorkflowProgram<VMStats> {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
@@ -2838,6 +2838,7 @@ export function getVmStats(input: {
       );
     }
     return yield* providers.getStats(vm.provider, input.providerVmId).pipe(
+      Effect.mapError((error): VmWorkflowError => error),
       Effect.catchAll((error) => {
         if (!isProviderNotFoundError(error)) return Effect.fail(error);
         return Effect.gen(function* () {
