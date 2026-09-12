@@ -283,27 +283,30 @@ final class CmuxTuiSurfaceProviderRegistry {
         // A fleet page fetched before the delete must not re-register the
         // machine on top of this teardown.
         refreshGeneration &+= 1
-        Task { await unregisterMachine(rawID) }
+        unregisterMachine(rawID)
     }
 
     /// Both an explicit delete and fleet reconciliation use the same owned
     /// teardown. Discovery must not await cleanup of an unrelated machine.
-    private func unregisterMachine(_ rawID: String) async {
+    private func unregisterMachine(_ rawID: String) {
         // Callers may hand over a canonicalized (lowercased) id while the
         // registry keys everything by the control plane's own `summary.id`;
         // resolve to the registered key so no table is left behind.
         let id = registeredMachineID(matching: rawID)
-        await portAccess.remove(machineID: id)
-        await providers[id]?.stop()
-        providers[id] = nil
+        let provider = providers.removeValue(forKey: id)
         catalog?.unregister(machine: .cloud(id))
         // Teardowns for one machine run in order: a repeated delete waits for
         // the earlier pass instead of racing it (cancellation would not stop
         // a pass already inside the managers), so a refresh that re-lists the
         // machine awaits the whole chain through the newest task.
         let previousTeardown = machineTeardowns[id]
-        machineTeardowns[id] = Task { [links, portForwards] in
+        machineTeardowns[id] = Task { [links, portForwards, portAccess] in
             await previousTeardown?.value
+            if let provider {
+                await provider.stop()
+            } else {
+                await portAccess.remove(machineID: id)
+            }
             await portForwards?.close(machineID: id)
             await links.disconnect(machineID: id)
         }
@@ -345,7 +348,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             .union(catalog.pendingRestoredMachineIDs)
             .subtracting(seen)
         for id in staleIDs {
-            await unregisterMachine(id)
+            unregisterMachine(id)
         }
         await links.retainAddresses(machineIDs: seen)
         guard !isRetired, generation == refreshGeneration else { return nil }

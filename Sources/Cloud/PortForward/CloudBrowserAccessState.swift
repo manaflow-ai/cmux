@@ -9,6 +9,7 @@ final class CloudBrowserAccessState {
     var model: CloudPortAccessModel?
     private(set) var remoteURL: URL?
     private(set) var navigationURL: URL?
+    private(set) var hasCommittedNavigation = false
     private(set) var loaded = false
     private(set) var error: String?
     var showsPorts = true
@@ -26,6 +27,7 @@ final class CloudBrowserAccessState {
         self.model = model
         remoteURL = url
         navigationURL = nil
+        hasCommittedNavigation = false
         loaded = false
         error = nil
     }
@@ -38,27 +40,42 @@ final class CloudBrowserAccessState {
         }
         guard navigationURL != url else { return nil }
         navigationURL = url
+        hasCommittedNavigation = false
         error = nil
         loaded = false
         return url
     }
 
+    func didStart(url: URL?) {
+        guard let url, owns(url), navigationURL != nil else { return }
+        hasCommittedNavigation = false
+        loaded = false
+        error = nil
+    }
+
+    func didCommit(url: URL?) {
+        guard let url, owns(url), navigationURL != nil else { return }
+        hasCommittedNavigation = true
+    }
+
     func didFinish(url: URL?) {
-        guard let url, navigationURL != nil, url.scheme != "about", error == nil else { return }
+        guard let url, navigationURL != nil, hasCommittedNavigation, url.scheme != "about", error == nil else { return }
         loaded = true
         error = nil
     }
 
     func didFail(url: URL?, message: String) {
-        guard let url, owns(url) else { return }
+        guard let url, let expected = navigationURL, url.absoluteString == expected.absoluteString else { return }
         loaded = false
         error = message
     }
 
     func retry() {
         navigationURL = nil
+        hasCommittedNavigation = false
         loaded = false
         error = nil
+        hasCommittedNavigation = false
         model?.retry()
     }
 

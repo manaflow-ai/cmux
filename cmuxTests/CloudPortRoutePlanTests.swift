@@ -56,6 +56,7 @@ struct CloudPortRoutePlanTests {
         let url = page.nextURL()
         #expect(url?.absoluteString == "http://10.0.0.7:3000/path")
         #expect(!page.showsPage, "Native loading UI remains until WebKit finishes")
+        page.didCommit(url: url)
         page.didFinish(url: url)
         #expect(page.showsPage)
         model.acceptTunnelState(.off)

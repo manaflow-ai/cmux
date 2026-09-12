@@ -3126,6 +3126,7 @@ final class BrowserPanel: Panel, ObservableObject {
                     targetURL: Self.remoteProxyDisplayURL(for: self.navigationDelegate?.lastAttemptedURL)
                         ?? self.navigationDelegate?.lastAttemptedURL
                 )
+                self.cloudAccess.didStart(url: self.navigationDelegate?.lastAttemptedURL)
                 self.isMainFrameProvisionalNavigationActive = true
                 self.refreshBackgroundAppearance()
                 self.applyMuteState(to: webView, reason: "navigationStart")
@@ -3142,6 +3143,7 @@ final class BrowserPanel: Panel, ObservableObject {
                     instanceID: boundWebViewInstanceID,
                     navigationID: navigation.map { ObjectIdentifier($0) }
                 )
+                self.cloudAccess.didCommit(url: webView.url)
                 // An about:blank placeholder leaves the restore-stall detector armed.
                 if !Self.isAboutBlankURL(webView.url) {
                     self.hasCommittedDocumentSinceWebViewReplacement = true
