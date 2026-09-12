@@ -72,6 +72,8 @@ struct PanelContentView: View {
                     onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
                     onTriggerFlash: onTriggerFlash
                 )
+            } else {
+                TerminalPanelUnavailableView(appearance: appearance)
             }
         case .browser:
             if let browserPanel = panel as? BrowserPanel {
@@ -229,6 +231,14 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .cloudVPNSetup:
+            if let vpnPanel = panel as? CloudVPNSetupPanel {
+                CloudVPNSetupPanelView(
+                    appearance: appearance,
+                    onRequestPanelFocus: onRequestPanelFocus,
+                    model: vpnPanel.model
+                )
+            }
         }
     }
 
@@ -246,13 +256,15 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn, .cloudVPNSetup:
             return true
         case .terminal, .browser:
             return false
         }
     }
 }
+
+
 
 private struct CloudVMLoadingPanelView: View {
     @ObservedObject var panel: CloudVMLoadingPanel
@@ -271,8 +283,7 @@ private struct CloudVMLoadingPanelView: View {
                         .foregroundStyle(.primary)
                     CloudVMLoadingStatusView(elapsedSeconds: elapsedSeconds)
                 case .failed(let message, let failedElapsedSeconds):
-                    CmuxSystemSymbolImage(systemName: "exclamationmark.triangle.fill", pointSize: 18)
-                        .foregroundStyle(.orange)
+                    CmuxSystemSymbolImage(systemName: "exclamationmark.triangle.fill", pointSize: 18, tint: .orange)
                     Text(String(localized: "panel.cloudVM.loading.failed.headline", defaultValue: "Base unavailable"))
                         .cmuxFont(size: 14, weight: .semibold)
                         .foregroundStyle(.primary)
@@ -379,8 +390,7 @@ private struct CloudVMLoadingStatusRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            CmuxSystemSymbolImage(systemName: icon, pointSize: 12)
-                .foregroundStyle(isActive ? .secondary : .tertiary)
+            CmuxSystemSymbolImage(systemName: icon, pointSize: 12, tint: isActive ? Color.secondary : Color(nsColor: .tertiaryLabelColor))
                 .frame(width: 14)
             Text(text)
                 .cmuxFont(size: 12)
@@ -398,15 +408,14 @@ struct PanelFilePathHeader<TrailingContent: View>: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            CmuxSystemSymbolImage(systemName: iconSystemName, pointSize: 16)
-                .foregroundStyle(.secondary)
+            CmuxSystemSymbolImage(systemName: iconSystemName, pointSize: 16, tint: .secondary)
                 .frame(width: 16)
             Text(filePath)
                 .cmuxFont(size: 11, design: .monospaced)
                 .foregroundStyle(Color(nsColor: foregroundColor).opacity(0.68))
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .textSelection(.enabled)
+                .copyOnlyTextSelection(for: filePath)
             Spacer(minLength: 8)
             trailingContent()
         }
@@ -438,7 +447,7 @@ struct PanelHeaderIconGlyph: View {
     let systemName: String
 
     var body: some View {
-        CmuxSystemSymbolImage(systemName: systemName, pointSize: 13)
+        CmuxSystemSymbolImage(systemName: systemName, pointSize: 13, tint: .secondary)
             .frame(width: 20, height: 20, alignment: .center)
             .contentShape(Rectangle())
     }

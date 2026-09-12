@@ -12,7 +12,7 @@ workspace = true
 
 [features]
 default = ["wireguard-transport"]
-iroh-transport = ["dep:iroh", "dep:socket2"]
+iroh-transport = ["dep:iroh"]
 # Dial `ws://` routes through an in-process WireGuard tunnel (cmux-wg) when
 # the target sits inside the tunnel's routes.
 wireguard-transport = ["dep:cmux-wg"]
@@ -40,7 +40,6 @@ libc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
-socket2 = { workspace = true, optional = true }
 snow.workspace = true
 subtle.workspace = true
 tokio.workspace = true

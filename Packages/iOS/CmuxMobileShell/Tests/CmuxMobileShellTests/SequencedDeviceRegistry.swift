@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileShell
 import CmuxMobileShellModel
 
 /// Fixture-only registry that lets stale-load tests control response order.

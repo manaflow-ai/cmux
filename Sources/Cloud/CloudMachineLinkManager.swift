@@ -7,7 +7,7 @@ import Foundation
 /// or the account signs out.
 ///
 /// The private route comes from the machine list. For a device this machine
-/// has not seen, the control plane creates one invitation and approves it.
+/// has not seen, the control plane proves the machine's trusted listener first.
 /// Later links use only the saved device key and private route.
 actor CloudMachineLinkManager {
     struct LinkStatus: Sendable, Equatable {
@@ -38,6 +38,7 @@ actor CloudMachineLinkManager {
         }
     }
 
+    nonisolated let operations: CloudOperationRecorder?
     private let paths: CloudTuiClientPaths
     private let clientURL: URL?
     /// The app's in-process WireGuard hub; nil in tests that never touch the network.
@@ -47,22 +48,17 @@ actor CloudMachineLinkManager {
     /// Private routes come from the signed-in machine list. An enrolled client
     /// reconnects with this local fact and does not call the attach endpoint.
     private var privateRoutes: [String: String] = [:]
+    private var privateAddressCandidates: [String: [String]] = [:]
     private var links: [String: CloudMachineLink] = [:]
     private var connecting: [String: Task<CloudMachineLink.Connected, Error>] = [:]
     private var lastFailure: [String: (at: Date, error: String)] = [:]
     /// A failed link is not retried for this long, so a polling sidebar does not hammer
     /// a machine whose route is broken.
     private let retryBackoff: TimeInterval = 15
-    /// How long a link may take to report its socket when this Mac is already
-    /// enrolled: the daemon accepts the session immediately, so anything slower
-    /// than this is a broken route rather than a slow one.
+    /// How long a link may take to report its socket: the daemon accepts a
+    /// carrier or enrolled session immediately, so anything slower than this is
+    /// a broken route rather than a slow one.
     private let connectTimeout: Duration = .seconds(60)
-    /// The budget for a *first* link to a machine, which must also cover
-    /// enrollment. Enrollment cannot be done up front — the control plane can
-    /// only approve an invitation the client has already claimed. The one
-    /// approval request waits for that claim inside the VM, so the connection
-    /// and approval still share one larger first-use window.
-    private let enrollingConnectTimeout: Duration = .seconds(240)
     /// This Mac's resolved Ghostty default colors ("#rrggbb"), pushed to each machine as
     /// its cmux-tui session defaults (`set-default-colors`) so remote panes render with
     /// the local theme. Injected so tests need no Ghostty runtime.
@@ -78,6 +74,7 @@ actor CloudMachineLinkManager {
         paths: CloudTuiClientPaths = CloudTuiClientPaths(),
         clientURL: URL? = CloudTuiClientPaths.clientURL(),
         hub: CloudWireGuardHub? = nil,
+        operations: CloudOperationRecorder? = nil,
         hostThemeColors: @escaping @Sendable () async -> (foreground: String, background: String)? = {
             await MainActor.run {
                 let app = GhosttyApp.shared
@@ -85,6 +82,7 @@ actor CloudMachineLinkManager {
             }
         }
     ) {
+        self.operations = operations
         self.paths = paths
         self.clientURL = clientURL
         self.hub = hub
@@ -103,12 +101,24 @@ actor CloudMachineLinkManager {
     var hasClient: Bool { clientURL != nil }
 
     func setPrivateAddress(_ address: String?, for machineID: String) {
-        guard let address = address?.trimmingCharacters(in: .whitespacesAndNewlines), !address.isEmpty else {
+        setPrivateAddresses(address.map { [$0] } ?? [], for: machineID)
+    }
+
+    func setPrivateAddresses(_ addresses: [String], for machineID: String) {
+        var seen = Set<String>()
+        let addresses = addresses.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+        privateAddressCandidates[machineID] = addresses
+        guard let address = addresses.first else {
             privateRoutes[machineID] = nil
             return
         }
         let host = address.contains(":") ? "[\(address)]" : address
         privateRoutes[machineID] = "ws://\(host):1337/v1/link"
+    }
+
+    func privateAddresses(for machineID: String) -> [String] {
+        privateAddressCandidates[machineID] ?? []
     }
 
     func privateRoute(for machineID: String) -> String? {
@@ -117,6 +127,16 @@ actor CloudMachineLinkManager {
 
     /// The link for `machineID`, connecting (and enrolling) if needed.
     func connected(machineID: String) async throws -> CloudMachineLink.Connected {
+        if let context = CloudOperationContext.current {
+            return try await context.withPhase(.connect) { try await self.connectMeasured(machineID: machineID) }
+        }
+        if let operations {
+            return try await operations.perform(.connect, foreground: false) { try await self.connectMeasured(machineID: machineID) }
+        }
+        return try await connectMeasured(machineID: machineID)
+    }
+
+    private func connectMeasured(machineID: String) async throws -> CloudMachineLink.Connected {
         if let link = links[machineID], await link.isConnected, let connected = await link.connected {
             return connected
         }
@@ -127,7 +147,7 @@ actor CloudMachineLinkManager {
             throw ManagerError.retryLater(failure.error)
         }
         guard let clientURL else { throw ManagerError.clientMissing }
-        guard let privateRoute = privateRoutes[machineID] else {
+        guard privateRoutes[machineID] != nil else {
             throw ManagerError.privateRouteRequired(machineID)
         }
         #if DEBUG
@@ -139,12 +159,17 @@ actor CloudMachineLinkManager {
             let capabilities = Self.clientCapabilities(clientURL: clientURL)
             let knownFingerprint = paths.deviceFingerprint(for: machineID)
             var session = "cmux"
-            var invitation: VMCmuxRemoteEndpoint.Invitation?
-            var client: VMClient?
-            // First use is a control-plane enrollment. Later connections use
-            // only the stored device identity and the private route.
-            if knownFingerprint == nil {
-                client = await MainActor.run { VMClient.shared }
+            // The machine's daemon serves a trusted listener inside the private
+            // network, so a link needs no enrollment: the first use asks the
+            // control plane once (it also brings an older daemon to the trusted
+            // build), later uses dial `--carrier` from the stored marker with no
+            // control-plane call. A real stored fingerprint is a machine this Mac
+            // enrolled with before trusted listeners; it keeps its stored key.
+            let carrier: Bool
+            if let knownFingerprint {
+                carrier = knownFingerprint == CloudTuiClientPaths.carrierDeviceMarker
+            } else {
+                let client = await MainActor.run { VMClient.shared }
                 guard let client else {
                     throw VMClientError.malformedResponse("Cloud VM client is not available (not signed in).")
                 }
@@ -154,55 +179,46 @@ actor CloudMachineLinkManager {
                     clientCapabilities: capabilities
                 )
                 session = endpoint.session
-                invitation = endpoint.invitation
-            }
-            var approval: Task<Void, Error>?
-            if let invitation, let client {
-                approval = Task {
-                    try await self.approveEnrollment(
-                        machineID: machineID,
-                        invitationID: invitation.invitationId,
-                        client: client
-                    )
+                guard endpoint.trustedCarrier else {
+                    throw ManagerError.retryLater(String(
+                        localized: "cloud.link.trustedListenerPending",
+                        defaultValue: "The Cloud machine is still preparing remote access. Try again shortly."
+                    ))
                 }
+                carrier = true
             }
-            defer { approval?.cancel() }
             guard capabilities.contains(CloudTuiCommandLine.wireGuardHubCapability) else {
                 throw ManagerError.wireGuardHubUnsupported
             }
-            guard Self.usesWireGuardHub(route: privateRoute, clientCapabilities: capabilities, enrolledRoutes: []) else {
-                throw ManagerError.privateRouteRequired(privateRoute)
-            }
             guard let hub else { throw ManagerError.wireGuardHubMissing }
-            let claim = try await hub.acquire()
-            guard Self.usesWireGuardHub(
-                route: privateRoute,
-                clientCapabilities: capabilities,
-                enrolledRoutes: claim.ready.routes
-            ) else {
-                await hub.release(claim.lease)
-                throw ManagerError.privateRouteRequired(privateRoute)
-            }
+            let claim = try await CloudOperationContext.phase(.tunnel) { try await hub.acquire() }
             let releaseLease: @Sendable () async -> Void = { await hub.release(claim.lease) }
+            let reachableRoute: String
+            do {
+                reachableRoute = try await CloudOperationContext.phase(.route) { try await self.resolvedPrivateRoute(machineID: machineID, through: claim.ready) }
+            } catch {
+                await releaseLease()
+                throw error
+            }
             #if DEBUG
             cmuxDebugLog("cloud.link.wireguardHub machine=\(machineID) socket=\(claim.ready.socketPath)")
             #endif
             let connect = Task {
                 try await link.connect(
-                    route: privateRoute,
+                    route: reachableRoute,
                     session: session,
-                    invitationURI: invitation?.uri,
-                    // Enrollment rides this same window (see enrollingConnectTimeout).
-                    timeout: invitation == nil ? connectTimeout : enrollingConnectTimeout,
+                    carrier: carrier,
+                    timeout: connectTimeout,
                     wireguardHubSocket: claim.ready.socketPath,
                     releaseHubLease: releaseLease
                 )
             }
             do {
-                if let approval {
-                    try await approval.value
+                let connected = try await connect.value
+                if carrier, knownFingerprint == nil {
+                    paths.saveDeviceFingerprint(CloudTuiClientPaths.carrierDeviceMarker, for: machineID)
                 }
-                return try await connect.value
+                return connected
             } catch {
                 connect.cancel()
                 await link.disconnect()
@@ -239,8 +255,9 @@ actor CloudMachineLinkManager {
     var connectedMachineCount: Int {
         get async {
             var machineIDs = Set(connecting.keys)
-            for link in links.values where await link.isConnected {
-                machineIDs.insert(await link.machineID)
+            for link in links.values {
+                guard await link.isConnected else { continue }
+                machineIDs.insert(link.machineID)
             }
             return machineIDs.count
         }
@@ -280,12 +297,11 @@ actor CloudMachineLinkManager {
         lastFailure.removeAll()
     }
 
-    /// Drops links for machines that no longer exist.
-    func retain(machineIDs: Set<String>) async {
-        for id in links.keys where !machineIDs.contains(id) {
-            await disconnect(machineID: id)
-        }
+    /// Drops stale routing facts immediately. The registry owns and awaits
+    /// each removed machine's asynchronous link/forward teardown separately.
+    func retainAddresses(machineIDs: Set<String>) {
         privateRoutes = privateRoutes.filter { machineIDs.contains($0.key) }
+        privateAddressCandidates = privateAddressCandidates.filter { machineIDs.contains($0.key) }
     }
 
     /// Re-sends this Mac's theme to every connected machine (a Ghostty config reload
@@ -334,6 +350,10 @@ actor CloudMachineLinkManager {
             cmuxDebugLog("cloud.link.theme machine=\(machineID) fg=\(colors.foreground) bg=\(colors.background)")
             #endif
         } catch {
+            if let operations {
+                let context = await operations.begin(.environment, foreground: false)
+                await operations.finish(context, error: error)
+            }
             #if DEBUG
             cmuxDebugLog("cloud.link.themeFailed machine=\(machineID) error=\(CloudMachineLink.errorText(error))")
             #endif
@@ -342,18 +362,6 @@ actor CloudMachineLinkManager {
 
     private func store(link: CloudMachineLink, for machineID: String) {
         links[machineID] = link
-    }
-
-    /// The control plane minted the invitation for this signed-in user. One request
-    /// waits for its claim inside the VM, approves it, and returns the device identity.
-    private func approveEnrollment(machineID: String, invitationID: String, client: VMClient) async throws {
-        let approval = try await client.approveCmuxRemoteEnrollment(id: machineID, invitationId: invitationID)
-        guard approval.state == "approved" else {
-            throw ManagerError.retryLater("The Cloud machine did not approve this Mac.")
-        }
-        if let fingerprint = approval.deviceFingerprint, !fingerprint.isEmpty {
-            paths.saveDeviceFingerprint(fingerprint, for: machineID)
-        }
     }
 
     /// `remote-probe --json` → `capabilities`; the control plane picks the machine host by

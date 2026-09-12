@@ -48,7 +48,9 @@ verify_probe() {
     echo "error: installed binary does not probe as cmux-tui: $probe" >&2
     exit 1
   }
-  for capability in "${REQUIRED_CAPABILITIES[@]}"; do
+  # Bash 3.2 treats an empty array as unset under nounset. Expand no arguments
+  # when there are no requirements, while preserving each supplied capability.
+  for capability in ${REQUIRED_CAPABILITIES[@]+"${REQUIRED_CAPABILITIES[@]}"}; do
     if ! python3 - "$capability" "$probe" <<'PY'
 import json
 import sys

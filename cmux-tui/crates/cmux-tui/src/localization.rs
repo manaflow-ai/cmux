@@ -1483,12 +1483,15 @@ ROUTES:
   relay+ws:// | relay+wss:// | relay+https:// | relay+do://
 
 IDENTITY AND SESSION:
-  --invite-file PATH|-  --daemon FINGERPRINT
+  --invite-file PATH|-  --daemon FINGERPRINT  --carrier
   --device-name NAME  --session NAME
   --state-dir PATH  --local-socket PATH  --headless [--json]
 
   --invite-file avoids exposing the single-use invitation in process arguments.
   Regular files must be owner-only; - reads one line from stdin.
+  --carrier dials ws routes with carrier authentication (no enrollment, no
+    invitation); only a daemon whose listener is trusted accepts it, such as a
+    cmux Cloud machine reached over the owner's private network.
 
 TRANSPORT:
   --lanes auto|single|isolated  --connect-timeout-seconds N
@@ -2159,12 +2162,15 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
   relay+ws:// | relay+wss:// | relay+https:// | relay+do://
 
 ID とセッション:
-  --invite-file パス|-  --daemon フィンガープリント
+  --invite-file パス|-  --daemon フィンガープリント  --carrier
   --device-name 名前  --session 名前
   --state-dir パス  --local-socket パス  --headless [--json]
 
   --invite-file は一回限りの招待をプロセス引数に公開しません。
   通常ファイルは所有者だけが読める必要があります。- は標準入力から 1 行読みます。
+  --carrier は ws ルートをキャリア認証で接続します（登録や招待は不要）。
+    信頼済みリスナーを持つデーモンだけが受け入れます（例: 所有者のプライベート
+    ネットワーク経由で到達する cmux Cloud マシン）。
 
 トランスポート:
   --lanes auto|single|isolated  --connect-timeout-seconds 秒数

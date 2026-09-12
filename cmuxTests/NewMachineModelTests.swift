@@ -29,6 +29,22 @@ struct NewMachineModelTests {
         return (model, recorder)
     }
 
+    /// One snapshot serves every kind, so the sheet never asks: whatever the
+    /// backend lists under `limits.imageKinds`, every create is the devbox
+    /// with a screen (#12244).
+    @Test func theSheetHasNoKindInputAndAlwaysCreatesTheDevboxWithAScreen() {
+        let (model, recorder) = makeModel()
+        #expect(NewMachineModel.machineKind == .desktop)
+        model.create()
+        #expect(recorder.value.first?.kind == .desktop)
+        #expect(recorder.value.first?.arguments == ["vm", "new", "--desktop", "--size", "8192", "--focus", "false"])
+        let workspaceID = UUID()
+        let (base, baseRecorder) = makeModel(mode: .base(workspaceID: workspaceID))
+        base.create()
+        #expect(baseRecorder.value.first?.kind == .desktop)
+        #expect(baseRecorder.value.first?.arguments == ["vm", "base", "open", "--workspace", workspaceID.uuidString, "--desktop", "--focus", "false"])
+    }
+
     @Test func defaultSizeIsTheSmallestSupportedBaseImage() {
         let (model, _) = makeModel()
         #expect(model.memoryOptions == [4096, 8192, 16384, 24576, 32768, 65536])
@@ -39,8 +55,10 @@ struct NewMachineModelTests {
     @Test func sizeLabelsDescribeMemoryAndDisk() {
         #expect(MachineSizeOption(memoryMb: 4096)?.title == "4 GB RAM")
         #expect(MachineSizeOption(memoryMb: 4096)?.detail == "16 GB disk included")
+        #expect(MachineSizeOption(memoryMb: 4096)?.diskTitle == "16 GB")
         #expect(MachineSizeOption(memoryMb: 8192)?.title == "8 GB RAM")
         #expect(MachineSizeOption(memoryMb: 8192)?.detail == "32 GB disk included")
+        #expect(MachineSizeOption(memoryMb: 8192)?.menuTitle == "8 GB RAM · 32 GB disk")
         #expect(MachineSizeOption(memoryMb: 16384)?.title == "16 GB RAM")
         #expect(MachineSizeOption(memoryMb: 16384)?.detail == "64 GB disk included")
         #expect(MachineSizeOption(memoryMb: 24576)?.title == "24 GB RAM")
@@ -51,9 +69,9 @@ struct NewMachineModelTests {
         #expect(MachineSizeOption(memoryMb: 65536)?.detail == "128 GB disk included")
     }
 
-    @Test func serverOptionsAreUsedInPickerOrder() {
+    @Test func serverOptionsAreSortedAndDeduplicated() {
         let plan = MachinePlanSnapshot(activeCount: 0, maxActiveVms: 50, planId: "pro")
-        let (model, _) = makeModel(plan: plan, memoryOptionsMb: [8192, 16384])
+        let (model, _) = makeModel(plan: plan, memoryOptionsMb: [16384, 8192, 8192])
         #expect(model.memoryOptions == [8192, 16384])
         #expect(model.memoryMb == 8192)
     }
@@ -63,24 +81,28 @@ struct NewMachineModelTests {
         #expect(model.memoryOptions == [])
         #expect(model.memoryMb == 20480)
         #expect(!model.supportsSize)
-        #expect(model.cliArguments == ["vm", "new", "--base", "--focus", "false"])
+        #expect(model.cliArguments == ["vm", "new", "--desktop", "--focus", "false"])
     }
 
-    @Test func selectedSizeTravelsAsBaseSizeFlagOnly() {
+    /// #12239: the sheet's defaults create a machine with a VNC screen; only
+    /// the size is user input here, and it travels as `--size`.
+    @Test func defaultCreateIsADesktopMachineAtTheSelectedSize() {
         let (model, recorder) = makeModel()
         model.memoryMb = 65536
         model.create()
         let request = recorder.value.first
-        #expect(request?.kind == .base)
+        #expect(request?.kind == .desktop)
         #expect(request?.name == nil)
-        #expect(request?.arguments == ["vm", "new", "--base", "--size", "65536", "--focus", "false"])
+        #expect(request?.arguments == ["vm", "new", "--desktop", "--size", "65536", "--focus", "false"])
     }
 
-    @Test func baseSetupHasNoSizeFlag() {
+    @Test func baseSetupHasNoSizeFlagAndDefaultsToADesktop() {
         let workspaceID = UUID()
-        let (model, _) = makeModel(mode: .base(workspaceID: workspaceID))
+        let (model, recorder) = makeModel(mode: .base(workspaceID: workspaceID))
         #expect(!model.supportsSize)
-        #expect(model.cliArguments == ["vm", "base", "open", "--workspace", workspaceID.uuidString, "--base", "--focus", "false"])
+        #expect(model.cliArguments == ["vm", "base", "open", "--workspace", workspaceID.uuidString, "--desktop", "--focus", "false"])
+        model.create()
+        #expect(recorder.value.first?.kind == .desktop)
     }
 
     @Test func planTextsMirrorTheMeterAndFreeWindow() {

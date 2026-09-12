@@ -3846,6 +3846,61 @@ fn batch_terminal_close_rolls_back_every_tab_on_mid_transaction_failure() {
 }
 
 #[test]
+fn startup_repairs_legacy_terminal_close_dangling_resource_rows() {
+    let root = temp_root("terminal-close-dangling-resource");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "seed-terminal-close-dangling");
+        let mutation = WorkspaceMutation::new("legacy-host-only-close", "legacy-client").unwrap();
+        registry.close_terminal(&mutation, None, Some(0), TERMINAL_ONE, None).unwrap();
+        let topology = registry.resource_topology_snapshot().unwrap();
+        assert_eq!(topology.revision, 1);
+        let live_terminals: i64 = registry
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM resource_terminals WHERE deleted_revision IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(live_terminals, 1);
+    }
+
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    let topology = reopened.resource_topology_snapshot().unwrap();
+    assert_eq!(topology.revision, 2);
+    let events = reopened.resource_events_after(1).unwrap();
+    assert_eq!(events.batches.len(), 1);
+    assert_eq!(events.batches[0].revision, 2);
+    assert_eq!(events.batches[0].changes[0]["resource"], "terminal");
+    let live_terminals: i64 = reopened
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM resource_terminals WHERE deleted_revision IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(live_terminals, 0, "dangling terminal remained live: {topology:?}");
+    let public_id = terminal_resource(TERMINAL_ONE);
+    let (resource_deleted, identity_deleted): (Option<i64>, Option<i64>) = reopened
+        .connection
+        .query_row(
+            "SELECT rt.deleted_revision, ri.deleted_revision
+             FROM resource_terminals rt
+             JOIN resource_identities ri ON ri.public_id = rt.public_id
+             WHERE rt.public_id = ?1",
+            [public_id.as_str()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert!(resource_deleted.is_some());
+    assert_eq!(identity_deleted, resource_deleted);
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn terminal_close_tombstones_before_kill_and_retries_safely() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
     seed_workspace(&mut registry, "one");

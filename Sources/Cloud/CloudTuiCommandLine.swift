@@ -6,21 +6,25 @@ import Foundation
 /// `--socket`/`--json`/`--jsonl` as global options, and `attach --terminal <id>` as the
 /// single-terminal renderer (`spec/cli.md` §"attach").
 struct CloudTuiCommandLine: Sendable {
-    /// `remote connect <route> --device-name … --state-dir … --headless --json [--invite-file …]`:
+    /// `remote connect <route> --device-name … --state-dir … --headless --json [--carrier]`:
     /// a headless link whose stdout carries `connection-snapshot` JSON lines with the
     /// local mux socket path (`remote_cli.rs` `connect_with_flags`).
+    /// `--carrier` dials with carrier authentication: the machine's daemon serves a
+    /// trusted listener reachable only inside the owner's private network, so there is
+    /// no device enrollment and no invitation. Without it the client presents its
+    /// stored device key (a machine this Mac enrolled with before trusted listeners).
     /// `--wireguard-hub <socket>` makes the client dial the route through the app's
     /// in-process WireGuard hub (``CloudWireGuardHub``) instead of the OS network stack;
     /// it is added only for routes inside the private Cloud VM network.
-    static func linkArguments(route: String, deviceName: String, stateDir: String, inviteFilePath: String?, wireguardHubSocket: String? = nil) -> [String] {
+    static func linkArguments(route: String, deviceName: String, stateDir: String, carrier: Bool = false, wireguardHubSocket: String? = nil) -> [String] {
         var arguments = [
             "remote", "connect", route,
             "--device-name", deviceName,
             "--state-dir", stateDir,
             "--headless", "--json", "--exit-with-parent",
         ]
-        if let inviteFilePath, !inviteFilePath.isEmpty {
-            arguments += ["--invite-file", inviteFilePath]
+        if carrier {
+            arguments.append("--carrier")
         }
         if let wireguardHubSocket, !wireguardHubSocket.isEmpty {
             arguments += ["--wireguard-hub", wireguardHubSocket]
@@ -56,13 +60,23 @@ struct CloudTuiCommandLine: Sendable {
     /// `workspace <ws_id> run -- <argv…>`: a new terminal in that cmux-tui workspace
     /// running the exact argv. Result: `MutationResult<CreatedTerminalPath>`
     /// (`spec/resource-operations-v2.json` → `workspace.run`).
-    static func runArguments(socketPath: String, workspaceID: String, command: [String]) -> [String] {
-        ["--socket", socketPath, "--json", "workspace", workspaceID, "run", "--"] + command
+    static func runArguments(socketPath: String, workspaceID: String, command: [String], onExit: String? = nil) -> [String] {
+        var arguments = ["--socket", socketPath, "--json", "workspace", workspaceID, "run"]
+        // `--on-exit keep` retains the tab and the final screen after the process exits
+        // (spec `workspace.run`): what a sender needs when the process's last lines ARE
+        // the result (`CloudEnvDelivery`). The default (`close`) detaches every view.
+        if let onExit, !onExit.isEmpty { arguments += ["--on-exit", onExit] }
+        return arguments + ["--"] + command
     }
 
-    /// `workspace create --name <name>`: a workspace with one terminal.
-    static func createWorkspaceArguments(socketPath: String, name: String) -> [String] {
-        ["--socket", socketPath, "--json", "workspace", "create", "--name", name]
+    /// `workspace create [--name <name>]`: the daemon owns auto-naming.
+    static func createWorkspaceArguments(socketPath: String, name: String? = nil, empty: Bool = false) -> [String] {
+        var arguments = ["--socket", socketPath, "--json", "workspace", "create"]
+        if let name, !name.isEmpty {
+            arguments += ["--name", name]
+        }
+        if empty { arguments.append("--empty") }
+        return arguments
     }
 
     /// `terminal <term_id> close`: end that remote terminal (spec `terminal.close`).
@@ -125,10 +139,31 @@ struct CloudTuiCommandLine: Sendable {
         return arguments
     }
 
+    /// `notification ack --client <id> <notification-id>…` (spec `notification.ack`):
+    /// records this Mac's reads on the machine. The idempotency key is minted once
+    /// per batch by the sync and reused on every retry, so a retried ack replays the
+    /// committed result instead of a second revision.
+    static func notificationAckArguments(
+        socketPath: String,
+        clientID: String,
+        notificationIDs: [String],
+        idempotencyKey: String
+    ) -> [String] {
+        ["--socket", socketPath, "--json", "--idempotency-key", idempotencyKey,
+         "notification", "ack", "--client", clientID] + notificationIDs
+    }
+
     /// `terminal <term_id> write --text <text>` (spec `terminal.input.write`): the bytes
     /// land on the PTY as typed; no newline is added, send `keys enter` for that.
     static func writeArguments(socketPath: String, terminalID: String, text: String) -> [String] {
         ["--socket", socketPath, "--json", "terminal", terminalID, "write", "--text", text]
+    }
+
+    /// `terminal <term_id> write` reads the UTF-8 receiver wire from stdin.
+    /// Keeping payloads out of argv prevents local process inspection from
+    /// exposing file or environment secrets before they enter the link.
+    static func writeBytesArguments(socketPath: String, terminalID: String) -> [String] {
+        ["--socket", socketPath, "--json", "terminal", terminalID, "write"]
     }
 
     /// `terminal <term_id> keys <key>…` (spec `terminal.input.keys`): named keys such as
@@ -150,6 +185,33 @@ struct CloudTuiCommandLine: Sendable {
         var arguments = ["--socket", socketPath, "--json", "terminal", terminalID, "screen", "wait", "--pattern", pattern]
         if let timeoutMs, timeoutMs > 0 {
             arguments += ["--timeout-ms", String(timeoutMs)]
+        }
+        return arguments
+    }
+
+    /// `terminal <term_id> process wait [--timeout-ms <n>]` (spec `terminal.wait_exit`): blocks
+    /// until the terminal's process exits or the timeout elapses —
+    /// `{state: "exited", outcome: {kind: exit|signal|unknown, …}, exited_at}` or `{state: "pending", …}`.
+    /// The complement of `screen wait`: an exit is a fact, a prompt regex is a guess.
+    static func processWaitArguments(socketPath: String, terminalID: String, timeoutMs: Int?) -> [String] {
+        var arguments = ["--socket", socketPath, "--json", "terminal", terminalID, "process", "wait"]
+        if let timeoutMs, timeoutMs > 0 {
+            arguments += ["--timeout-ms", String(timeoutMs)]
+        }
+        return arguments
+    }
+
+    /// `terminal <term_id> output read [--after <offset>] [--max-bytes <n>]` (spec
+    /// `terminal.output_read`): the terminal's retained OUTPUT as text — the whole build log,
+    /// not the 24 rows currently on screen — with `{text, start_offset, next_offset, complete}`;
+    /// `next_offset` fed back as `after` reads only what arrived since.
+    static func outputReadArguments(socketPath: String, terminalID: String, after: Int?, maxBytes: Int?) -> [String] {
+        var arguments = ["--socket", socketPath, "--json", "terminal", terminalID, "output", "read"]
+        if let after, after >= 0 {
+            arguments += ["--after", String(after)]
+        }
+        if let maxBytes, maxBytes > 0 {
+            arguments += ["--max-bytes", String(maxBytes)]
         }
         return arguments
     }

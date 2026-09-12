@@ -8,7 +8,8 @@ extension Workspace {
         filePaths: [String],
         focus: Bool? = nil,
         targetIndex: Int? = nil,
-        reuseExisting: Bool = false
+        reuseExisting: Bool = false,
+        duplicateWhenFocused: Bool = false
     ) -> [any Panel] {
         guard !isRetiredFromOwningTabManager else { return [] }
         let shouldFocusNewTabs = focus ?? (bonsplitController.focusedPaneId == paneId)
@@ -43,7 +44,8 @@ extension Workspace {
                     panel = openOrFocusMarkdownSurface(
                         inPane: paneId,
                         filePath: filePath,
-                        focus: shouldFocusNewTabs
+                        focus: shouldFocusNewTabs,
+                        duplicateWhenFocused: duplicateWhenFocused
                     )
                 } else {
                     panel = newMarkdownSurface(
@@ -57,7 +59,8 @@ extension Workspace {
                 panel = openOrFocusFilePreviewSurface(
                     inPane: paneId,
                     filePath: filePath,
-                    focus: shouldFocusNewTabs
+                    focus: shouldFocusNewTabs,
+                    duplicateWhenFocused: duplicateWhenFocused
                 )
             } else {
                 panel = newFilePreviewSurface(
@@ -85,7 +88,8 @@ extension Workspace {
         filePaths: [String],
         focus: Bool? = nil,
         targetIndex: Int? = nil,
-        reuseExisting: Bool = false
+        reuseExisting: Bool = false,
+        duplicateWhenFocused: Bool = false
     ) -> [FilePreviewPanel] {
         guard !isRetiredFromOwningTabManager else { return [] }
         let shouldFocusNewTabs = focus ?? (bonsplitController.focusedPaneId == paneId)
@@ -98,7 +102,8 @@ extension Workspace {
                 panel = openOrFocusFilePreviewSurface(
                     inPane: paneId,
                     filePath: filePath,
-                    focus: shouldFocusNewTabs
+                    focus: shouldFocusNewTabs,
+                    duplicateWhenFocused: duplicateWhenFocused
                 )
             } else {
                 panel = newFilePreviewSurface(

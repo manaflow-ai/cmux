@@ -15,17 +15,10 @@ export {
   VM_DISK_MB_MAX,
   VM_DISK_MB_STEP,
   VM_MEMORY_MB_PER_VCPU,
-  PLAN_SHARED_VCPU,
-  PLAN_SHARED_MEMORY_MB,
-  PLAN_SHARED_DISK_MB,
-  PLAN_SHARED_RESOURCE_CAPACITY,
   DEFAULT_VM_RESOURCE_RESERVATION,
   VM_RESOURCE_RESERVATION_METADATA_KEY,
   VM_RESOURCE_FORK_PENDING_METADATA_KEY,
   vmResourceForkPendingFromMetadata,
-  sharedResourceCapacityForMaxActiveVms,
-  firstExceededSharedResource,
-  sharedResourceUsage,
   vmResourceReservationForCreate,
   vmResourceReservationFromMetadata,
   vmResourceResizePendingFromMetadata,
@@ -164,8 +157,7 @@ function resolveBillingContext(
  * 4/16, 8/32, 16/64, 24/96, 32/128, and 64/128 (memory/disk in GB). vCPUs
  * follow memory (vcpusForMemoryMb). The server owns this list so clients show
  * valid sizes. BusyBox's 128 MiB image is a bootstrap image, not a coding VM.
- * The paid plan's 5 vCPU, 20 GB RAM, and 200 GB disk entitlement is a shared
- * pool enforced by the repository, not a per-VM size profile.
+ * Every selected size belongs to one machine, independently of other VMs.
  */
 export const VM_MEMORY_OPTIONS_MB: readonly number[] = [4096, 8192, 16384, 24576, 32768, 65536];
 
@@ -394,15 +386,9 @@ function activeVmLimitForPlan(
     };
   }
 
-  // Paid plans get the advertised allowance. A plan-specific override wins
-  // over the paid-wide one; both exist only as operator brakes for an
-  // incident, never as the place the product number lives.
-  const specific = env[`CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`];
-  if (specific?.trim()) {
-    return { limit: positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`), brake: true };
-  }
-  const paid = env.CMUX_VM_PAID_MAX_ACTIVE_VMS;
-  if (paid?.trim()) return { limit: positiveInteger(paid, "CMUX_VM_PAID_MAX_ACTIVE_VMS"), brake: true };
+  // Paid allowance is product policy. Legacy deployment overrides must not
+  // silently reduce it or prevent Team seats from scaling. The existing create
+  // kill switch remains the explicit control for a provisioning incident.
   return { limit: PAID_MAX_ACTIVE_VMS_DEFAULT, brake: false };
 }
 

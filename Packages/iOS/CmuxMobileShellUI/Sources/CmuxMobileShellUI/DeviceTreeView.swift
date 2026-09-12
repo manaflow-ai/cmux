@@ -74,8 +74,9 @@ struct DeviceTreeView: View {
                                 mutatingComputerIDs: store.computerVisibilityMutationIDs,
                                 setCaffeine: setCaffeine,
                                 caffeineMutatingComputerIDs: store.caffeineMutatingPairingIDs,
+                                gateWarningPairingIDs: store.macVersionUpdateRequiredPairingIDs,
                                 hide: hideComputer,
-                                unhide: unhideComputer,
+                                unhide: unhideComputer
                             )
                         } header: {
                             Text(section.title)
@@ -87,8 +88,9 @@ struct DeviceTreeView: View {
                                 visibleComputers: [],
                                 hiddenComputers: store.hiddenComputers,
                                 mutatingComputerIDs: store.computerVisibilityMutationIDs,
+                                gateWarningPairingIDs: store.macVersionUpdateRequiredPairingIDs,
                                 hide: hideComputer,
-                                unhide: unhideComputer,
+                                unhide: unhideComputer
                             )
                         } header: {
                             Text(L10n.string(

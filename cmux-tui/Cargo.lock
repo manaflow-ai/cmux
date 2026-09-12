@@ -712,7 +712,6 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "snow",
- "socket2 0.5.10",
  "subtle",
  "tempfile",
  "tokio",
@@ -4901,16 +4900,6 @@ dependencies = [
  "rustc_version",
  "sha2 0.10.9",
  "subtle",
-]
-
-[[package]]
-name = "socket2"
-version = "0.5.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e22376abed350d73dd1cd119b57ffccad95b4e585a7cda43e286245ce23c0678"
-dependencies = [
- "libc",
- "windows-sys 0.52.0",
 ]
 
 [[package]]

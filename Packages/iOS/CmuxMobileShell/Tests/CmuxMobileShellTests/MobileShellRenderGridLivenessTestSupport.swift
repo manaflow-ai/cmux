@@ -326,6 +326,11 @@ actor LivenessHostRouter {
         replayTexts.append(contentsOf: texts)
     }
 
+    /// Replace the pending screen snapshot as the host terminal changes offline.
+    func replaceReplayText(_ text: String) {
+        replayTexts = [text]
+    }
+
     func enqueueReplayPayload(text: String?, sequence: UInt64?) {
         replayPayloads.append((text: text, sequence: sequence, renderGrid: nil))
     }
@@ -823,7 +828,7 @@ struct LivenessTransportFactory: CmxByteTransportFactory {
     }
 }
 
-actor LivenessTransport: CmxByteTransport {
+actor LivenessTransport: CmxByteTransport, CmxByteTransportLivenessObserving {
     private let router: LivenessHostRouter
     private let closeGate: LivenessTransportCloseGate?
     private var pendingFrames: [Data] = []
@@ -915,6 +920,10 @@ actor LivenessTransport: CmxByteTransport {
     }
 
     func isClosedForTesting() -> Bool {
+        isClosed
+    }
+
+    func isTransportClosed() async -> Bool {
         isClosed
     }
 

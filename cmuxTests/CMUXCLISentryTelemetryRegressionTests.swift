@@ -459,7 +459,7 @@ private final class CMUXCLISentryTelemetryBundleToken {}
             stdinText: input,
             environmentOverrides: environmentOverrides
         ) { line in
-            if line.hasPrefix("notify_target_async ") {
+            if line.hasPrefix("notify_target_async ") || AgentHookTestNotificationPipeline.candidatePresentation(line) != nil {
                 return "ERROR: \(message)"
             }
             guard let request = try? JSONSerialization.jsonObject(

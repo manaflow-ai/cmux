@@ -13,6 +13,8 @@ extension MobileMacCompatPolicy {
         public let stableMinVersion: MobileMacAppVersion
         /// The minimum nightly-channel build; `nil` leaves nightly unconstrained.
         public let nightly: NightlyRequirement?
+        /// Requirements keyed by ``MobileBuildType.token``.
+        public let buildKinds: [String: Requirement]
 
         /// Creates one tier of the policy.
         ///
@@ -25,12 +27,14 @@ extension MobileMacCompatPolicy {
             minIOSVersion: MobileMacAppVersion,
             maxIOSVersion: MobileMacAppVersion? = nil,
             stableMinVersion: MobileMacAppVersion,
-            nightly: NightlyRequirement?
+            nightly: NightlyRequirement?,
+            buildKinds: [String: Requirement] = [:]
         ) {
             self.minIOSVersion = minIOSVersion
             self.maxIOSVersion = maxIOSVersion
             self.stableMinVersion = stableMinVersion
             self.nightly = nightly
+            self.buildKinds = buildKinds
         }
     }
 }

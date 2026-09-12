@@ -72,7 +72,7 @@ struct DockEmptyView: View {
                 Text(agentPrompt)
                     .cmuxFont(size: 12)
                     .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
+                    .copyOnlyTextSelection(for: agentPrompt)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(width: 320, height: 180)

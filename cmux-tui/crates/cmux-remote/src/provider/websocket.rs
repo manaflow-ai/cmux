@@ -250,6 +250,7 @@ fn ensure_size(actual: usize, maximum: usize) -> Result<(), LinkError> {
 pub struct DirectWebSocketProvider {
     maximum: usize,
     dialer: Arc<dyn Dialer>,
+    carrier_auth: bool,
 }
 
 impl DirectWebSocketProvider {
@@ -261,7 +262,21 @@ impl DirectWebSocketProvider {
     /// Dial over a caller-supplied carrier, such as an in-process WireGuard
     /// tunnel. The route, TLS, and upgrade are unchanged.
     pub fn with_dialer(maximum: usize, dialer: Arc<dyn Dialer>) -> Self {
-        Self { maximum, dialer }
+        Self { maximum, dialer, carrier_auth: false }
+    }
+
+    /// Offer carrier authentication on `ws`/`wss` routes: the daemon behind the
+    /// route is expected to serve a trusted-network listener (a cmux Cloud
+    /// machine reached over the owner's private network), so the client dials
+    /// without an enrollment or invitation. A daemon whose listener is not
+    /// trusted rejects the handshake; nothing is weakened on the client side.
+    pub fn with_carrier_auth(mut self, carrier_auth: bool) -> Self {
+        self.carrier_auth = carrier_auth;
+        self
+    }
+
+    pub fn carrier_auth(&self) -> bool {
+        self.carrier_auth
     }
 
     pub fn dialer(&self) -> &Arc<dyn Dialer> {
@@ -280,7 +295,11 @@ impl TransportProvider for DirectWebSocketProvider {
     }
 
     fn supported_client_auth(&self) -> SupportedClientAuthModes {
-        SupportedClientAuthModes::DeviceOnly
+        if self.carrier_auth {
+            SupportedClientAuthModes::DeviceOrCarrier
+        } else {
+            SupportedClientAuthModes::DeviceOnly
+        }
     }
 
     async fn connect(&self, request: ConnectRequest) -> Result<Arc<dyn LinkGroup>, ProviderError> {

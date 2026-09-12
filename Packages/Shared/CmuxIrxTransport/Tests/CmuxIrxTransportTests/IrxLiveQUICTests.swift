@@ -332,6 +332,21 @@ struct IrxLiveQUICTests {
         #expect(await !first.connection.isClosed)
         #expect(journal.counterSnapshot()["pong"] ?? 0 >= 1)
 
+        // Foreground recovery must not replace a healthy session merely
+        // because it is older than the historical 15-second threshold.
+        await engine.foregroundKick(staleAfter: .seconds(15))
+        var retained = false
+        for _ in 0..<20 {
+            try await Task.sleep(for: .milliseconds(50))
+            if let current = await engine.currentSession(),
+               current.admit.session == first.admit.session
+            {
+                retained = true
+                break
+            }
+        }
+        #expect(retained, "foreground recovery replaced a healthy session")
+
         // Host closes (e.g. shutdown): the engine must redial by itself and
         // reach ready again without any external trigger.
         await first.connection.close(code: .hostShutdown, origin: .remote)

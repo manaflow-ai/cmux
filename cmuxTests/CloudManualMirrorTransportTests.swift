@@ -13,6 +13,19 @@ import Testing
 /// it never invokes the ratatui renderer or inspects source text.
 @Suite
 struct CloudManualMirrorTransportTests {
+    @Test("Restored Cloud terminal failures render a copyable error")
+    func restoredTerminalFailurePresentation() {
+        let presentation = Workspace.cloudMaterializationFailurePresentation(
+            detail: "The Cloud terminal endpoint was unavailable.",
+            reference: "operation=op trace=trace"
+        )
+
+        #expect(presentation.title == "Cloud terminal could not start")
+        #expect(presentation.detail == "The Cloud terminal endpoint was unavailable.")
+        #expect(!presentation.showsProgress)
+        #expect(!presentation.showsReconnectButton)
+        #expect(presentation.copyableError.contains("operation=op trace=trace"))
+    }
     private let commands = CloudTuiManualIOCommand()
     private let parser = CloudTuiLegacySnapshotParser()
 
@@ -43,6 +56,97 @@ struct CloudManualMirrorTransportTests {
             "replay": Data("resized screen".utf8).base64EncodedString(),
         ])))
         #expect(resized == .resized(surfaceID: 17, columns: 140, rows: 48, bytes: Data("resized screen".utf8)))
+    }
+
+    @Test
+    func attachFramesCarryTheSparseColorSidecarAsLocalOscBytes() throws {
+        let decoder = CloudTuiManualIOFrameDecoder()
+        let snapshot = try #require(decoder.decode(try Self.line([
+            "event": "vt-state",
+            "surface": 17,
+            "cols": 99,
+            "rows": 35,
+            "data": Data("screen".utf8).base64EncodedString(),
+            "colors": [
+                "fg": "#EEEEEE",
+                "bg": NSNull(),
+                "cursor": "#ffee00",
+                "cursor_style": "bar",
+                "cursor_blink": true,
+                // Index 300 and a non-hex value are dropped; nothing else is.
+                "palette": ["1": "#112233", "300": "#000000", "9": "red", "15": "#ABCDEF"],
+            ],
+        ])))
+        guard case let .snapshot(surfaceID, _, _, bytes, colors) = snapshot else {
+            Issue.record("expected a snapshot frame, got \(snapshot)")
+            return
+        }
+        #expect(surfaceID == 17)
+        #expect(bytes == Data("screen".utf8))
+        let expected = CloudTuiRemoteColors(
+            foreground: "#eeeeee",
+            cursor: "#ffee00",
+            palette: [1: "#112233", 15: "#abcdef"]
+        )
+        #expect(colors == expected)
+        #expect(
+            String(decoding: expected.oscBytes, as: UTF8.self)
+                == "\u{1B}]10;rgb:ee/ee/ee\u{1B}\\\u{1B}]12;rgb:ff/ee/00\u{1B}\\\u{1B}]4;1;rgb:11/22/33\u{1B}\\\u{1B}]4;15;rgb:ab/cd/ef\u{1B}\\"
+        )
+
+        // A frame without a sidecar still decodes, with no colors to apply.
+        let plain = try #require(decoder.decode(try Self.line([
+            "event": "output",
+            "surface": 17,
+            "data": Data("x".utf8).base64EncodedString(),
+        ])))
+        #expect(plain == .output(surfaceID: 17, bytes: Data("x".utf8)))
+
+        // The daemon flattens the colors object into `colors-changed`.
+        let changed = try #require(decoder.decode(try Self.line([
+            "event": "colors-changed",
+            "surface": 17,
+            "fg": "#010203",
+            "palette": ["4": "#445566"],
+        ])))
+        #expect(changed == .colorsChanged(
+            surfaceID: 17,
+            colors: CloudTuiRemoteColors(foreground: "#010203", palette: [4: "#445566"])
+        ))
+        #expect(CloudTuiRemoteColors(palette: [:]).isEmpty)
+    }
+
+    /// The sidecar is a full sparse replacement: an entry the remote PTY
+    /// reset is absent from the next snapshot, and the pane must send its own
+    /// libghostty the matching reset or the stale remote color outlives it.
+    @Test
+    func sidecarDeltaResetsEntriesTheRemoteDropped() {
+        let first = CloudTuiRemoteColors(
+            foreground: "#eeeeee",
+            background: "#101010",
+            cursor: "#ffee00",
+            palette: [1: "#112233", 15: "#abcdef"]
+        )
+        // fg unchanged, bg reset, cursor changed; 1 changed, 15 reset, 9 added.
+        let second = CloudTuiRemoteColors(
+            foreground: "#eeeeee",
+            cursor: "#00ff00",
+            palette: [1: "#445566", 9: "#777777"]
+        )
+        #expect(
+            String(decoding: second.oscDelta(from: first), as: UTF8.self)
+                == "\u{1B}]111\u{1B}\\\u{1B}]12;rgb:00/ff/00\u{1B}\\"
+                + "\u{1B}]4;1;rgb:44/55/66\u{1B}\\\u{1B}]4;9;rgb:77/77/77\u{1B}\\\u{1B}]104;15\u{1B}\\"
+        )
+        // An empty sidecar after an authored one resets everything it had set.
+        #expect(
+            String(decoding: CloudTuiRemoteColors().oscDelta(from: second), as: UTF8.self)
+                == "\u{1B}]110\u{1B}\\\u{1B}]112\u{1B}\\\u{1B}]104;1\u{1B}\\\u{1B}]104;9\u{1B}\\"
+        )
+        // Nothing changed, nothing sent.
+        #expect(second.oscDelta(from: second).isEmpty)
+        // From nothing, the delta is the plain set.
+        #expect(second.oscDelta(from: CloudTuiRemoteColors()) == second.oscBytes)
     }
 
     @Test
@@ -202,6 +306,29 @@ struct CloudManualMirrorTransportTests {
             parser.resolvedSurface(
                 from: try Self.line(["surface": 1.5])
             ) == .malformed
+        )
+    }
+
+    @Test
+    func resolverReportsAnExitedTerminalInsteadOfAnEmptyPlacement() throws {
+        // A cloud pane owns no process: the only signal that the remote shell
+        // ended (`exit`, Ctrl+D) is the resolver's lifecycle. It shares
+        // `surface:null` with a live terminal that has no view, so a pane must
+        // not be kept alive for the exited one.
+        #expect(
+            parser.resolvedSurface(
+                from: try Self.line(["surface": NSNull(), "lifecycle": "exited"])
+            ) == .exited
+        )
+        #expect(
+            parser.resolvedSurface(
+                from: try Self.line(["surface": NSNull(), "lifecycle": "running"])
+            ) == .noPlacement
+        )
+        #expect(
+            parser.resolvedSurface(
+                from: try Self.line(["surface": 12, "lifecycle": "running"])
+            ) == .surface(12)
         )
     }
 
@@ -536,7 +663,7 @@ struct CloudManualMirrorTransportTests {
 
 /// One command a fixture read from the session, reduced to the fields the
 /// handshake tests assert on.
-private struct CloudManualMirrorFixtureCommand: Sendable {
+struct CloudManualMirrorFixtureCommand: Sendable {
     let cmd: String
     let id: UInt64
     let surface: UInt64?
@@ -558,7 +685,7 @@ private struct CloudManualMirrorFixtureCommand: Sendable {
 /// daemon's responses, so handshake ordering is observable as behavior rather
 /// than as source text.
 // @unchecked Sendable: every mutable field is guarded by `lock`.
-private final class CloudManualMirrorSocketFixture: @unchecked Sendable {
+final class CloudManualMirrorSocketFixture: @unchecked Sendable {
     let socketPath: String
     private let listenerFD: Int32
     private let lock = NSLock()

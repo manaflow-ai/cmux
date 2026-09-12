@@ -4,8 +4,32 @@ public import CmuxIrohTransport
 import CmuxIrxTransport
 public import CmuxMobileRPC
 import CmuxMobileShellModel
+import CmuxMobilePairedMac
 import CmuxMobileTransport
 public import Foundation
+
+/// A control lane is single-consumer per admitted session, while separate Mac
+/// sessions must remain independently claimable. The owner token lets a
+/// closing RPC client release only the claims it created.
+struct MobileIrxControlLaneClaims {
+    private var ownerBySession: [String: UUID] = [:]
+
+    mutating func claim(sessionID: String, ownerID: UUID) -> Bool {
+        if let existingOwner = ownerBySession[sessionID], existingOwner != ownerID {
+            return false
+        }
+        ownerBySession[sessionID] = ownerID
+        return true
+    }
+
+    mutating func release(ownerID: UUID) {
+        ownerBySession = ownerBySession.filter { $0.value != ownerID }
+    }
+
+    mutating func removeAll() {
+        ownerBySession.removeAll()
+    }
+}
 
 /// iOS composition root for the irx transport (the from-scratch iroh rebuild
 /// in `CmuxIrxTransport`). DEBUG-only, default-off: when `cmux.irx.enabled`
@@ -457,30 +481,46 @@ public actor MobileIrxRuntimeComposition {
     /// Mirrors the lease into the @Observable UI state (Computers rows read
     /// it to badge seeded Macs).
     private func projectDeviceListForUI(_ snapshot: IrxDeviceListSnapshot) async {
-        let fresh = snapshot.isFresh(now: .now)
-        var byEndpoint: [String: MobileMacListAuthState.Entry] = [:]
-        var byDevice: [String: MobileMacListAuthState.Entry] = [:]
-        for (endpointIDHex, entry) in snapshot.entries {
-            let projected = MobileMacListAuthState.Entry(
-                status: entry.status,
-                revoked: entry.revoked,
-                isFresh: fresh,
-                appVersion: entry.appVersion,
-                minimumSupportedVersion: snapshot.minimumSupportedMacVersion
-            )
-            byEndpoint[endpointIDHex] = projected
-            if let deviceID = entry.deviceID {
-                byDevice[deviceID] = projected
-            }
-        }
+        let entries = Self.macListAuthEntries(from: snapshot)
         await MainActor.run {
             MobileMacListAuthState.shared.replace(
-                entriesByEndpointID: byEndpoint,
-                entriesByDeviceID: byDevice,
+                entriesByIdentity: entries,
                 minimumSupportedMacVersion: snapshot.minimumSupportedMacVersion
             )
         }
         publishSettingsUpdate()
+    }
+
+    /// Preserves each advertised app, endpoint, binding, and generation all the
+    /// way to the state read by the Computers screen.
+    nonisolated static func macListAuthEntries(
+        from snapshot: IrxDeviceListSnapshot
+    ) -> [MobileMacListAuthState.Identity: MobileMacListAuthState.Entry] {
+        let fresh = snapshot.isFresh(now: .now)
+        var entries: [MobileMacListAuthState.Identity: MobileMacListAuthState.Entry] = [:]
+        for (endpointIDHex, entry) in snapshot.entries {
+            let pairingID = entry.deviceID.map {
+                MobilePairedMac.pairingID(
+                    macDeviceID: $0,
+                    instanceTag: entry.tag ?? (entry.releaseTrack == "nightly" ? "nightly" : "default")
+                )
+            }
+            let identity = MobileMacListAuthState.Identity(
+                pairingID: pairingID,
+                endpointIDHex: endpointIDHex,
+                bindingID: entry.bindingID,
+                identityGeneration: entry.identityGeneration
+            )
+            entries[identity] = MobileMacListAuthState.Entry(
+                status: entry.status,
+                revoked: entry.revoked,
+                isFresh: fresh,
+                appVersion: entry.appVersion,
+                minimumSupportedVersion: snapshot.minimumSupportedMacVersion,
+                releaseTrack: entry.releaseTrack
+            )
+        }
+        return entries
     }
 
     /// UI/programmatic lookup: the peer's list-auth stance right now.
@@ -1369,6 +1409,29 @@ public actor MobileIrxRuntimeComposition {
                 "surface": surfaceID.uuidString.lowercased(),
                 "cursor": cursor.map(String.init) ?? "-",
             ]
+        )
+        return MobileIrohTerminalLane(stream: lane.bidirectional())
+    }
+
+    /// Opens a terminal input-only lane. Render-grid output remains on the
+    /// ordered event stream, while keystrokes use an independent QUIC stream
+    /// whose writes do not wait for an RPC response.
+    public func openTerminalInputLane(
+        for request: CmxByteTransportRequest,
+        surfaceID: UUID
+    ) async throws -> MobileIrohTerminalLane {
+        let peerHex = try peerTarget(for: request)
+        let session = try await engine(forPeer: peerHex)
+            .ensureSession(trigger: "terminal-input-lane")
+        let lane = try await session.connection.openLane(
+            IrxLaneDescriptor(
+                lane: .terminalInput,
+                resource: "terminal:\(surfaceID.uuidString.lowercased())"
+            )
+        )
+        Self.journal.record(
+            "client-terminal-input", "lane-opened",
+            ["surface": surfaceID.uuidString.lowercased()]
         )
         return MobileIrohTerminalLane(stream: lane.bidirectional())
     }

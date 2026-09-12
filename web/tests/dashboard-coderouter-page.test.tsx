@@ -1,6 +1,20 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import enMessages from "../messages/en.json";
+import {
+  TEST_STACK_PROJECT_ID,
+  nextHeadersMock,
+} from "./helpers/dashboard-session-mock";
+
+const previousStackProjectId = process.env.NEXT_PUBLIC_STACK_PROJECT_ID;
+process.env.NEXT_PUBLIC_STACK_PROJECT_ID = TEST_STACK_PROJECT_ID;
+afterAll(() => {
+  if (previousStackProjectId === undefined) {
+    delete process.env.NEXT_PUBLIC_STACK_PROJECT_ID;
+  } else {
+    process.env.NEXT_PUBLIC_STACK_PROJECT_ID = previousStackProjectId;
+  }
+});
 
 const authorizationFailure = new Error("Stack authorization deadline exceeded");
 const pendingAuthorization = new Promise<never>(() => {});
@@ -41,19 +55,21 @@ mock.module("next/server", () => ({
   },
 }));
 
-mock.module("next/headers", () => ({
-  headers: async () => {
-    return new Headers(
-      scopedTeamId
-        ? {
-          cookie: `cmux_coderouter_organization=${
-            encodeURIComponent(JSON.stringify(["user-1", scopedTeamId]))
-          }`,
-        }
-        : undefined,
-    );
-  },
-}));
+mock.module("next/headers", () =>
+  nextHeadersMock({
+    refreshToken: () => "refresh-1",
+    headers: () =>
+      new Headers(
+        scopedTeamId
+          ? {
+            cookie: `cmux_coderouter_organization=${
+              encodeURIComponent(JSON.stringify(["user-1", scopedTeamId]))
+            }`,
+          }
+          : undefined,
+      ),
+  }),
+);
 
 mock.module("next/cache", () => ({
   cacheLife: () => undefined,
@@ -63,6 +79,7 @@ mock.module("next/navigation", () => ({
   redirect: (target: string) => {
     throw new Error(`unexpected redirect to ${target}`);
   },
+  unstable_rethrow: () => undefined,
 }));
 
 mock.module("@/i18n/navigation", () => ({
@@ -113,6 +130,7 @@ mock.module("../services/vms/auth", () => ({
     authorizationCalls += 1;
     return { id: "user-1", selectedTeamId };
   },
+  verifyBrowserSessionRequest: async () => ({ id: "user-1", isAnonymous: false }),
   SubrouterAuthorizationUnavailableError:
     TestSubrouterAuthorizationUnavailableError,
   isSubrouterAuthorizationError: (error: unknown) =>
@@ -223,17 +241,34 @@ mock.module("../services/coderouter/teamMachines", () => ({
   normalizeVmId: (value: string) => value,
 }));
 
-mock.module("../app/[locale]/dashboard/components/ai-account-forms", () => ({
-  AddAiAccountForms: () => null,
-  DeleteAiAccountButton: () => null,
+mock.module("../app/[locale]/dashboard/components/coderouter-accounts", () => ({
+  CoderouterAccountsSection: ({
+    shared,
+    claude,
+    native,
+    canManage,
+  }: {
+    shared: { kind: string };
+    claude: { kind: string };
+    native: { kind: string };
+    canManage: boolean;
+  }) => (
+    <div
+      data-testid="coderouter-accounts"
+      data-shared={shared.kind}
+      data-claude={claude.kind}
+      data-native={native.kind}
+      data-can-manage={String(canManage)}
+    />
+  ),
 }));
 
 mock.module("../services/coderouter/claudeUpstream", () => ({
   listClaudeAccounts: async () => [],
 }));
 
-mock.module("../app/[locale]/dashboard/components/claude-upstream-forms", () => ({
-  ClaudeUpstreamSection: () => null,
+mock.module("../services/coderouter/repository", () => ({
+  listAccounts: async () => [],
 }));
 
 const { default: CoderouterOverviewPage, CoderouterOverviewContent } = await import(
@@ -262,7 +297,7 @@ describe("coderouter dashboard", () => {
     }];
   });
 
-  test("keeps the page header hidden until the private page content is ready", () => {
+  test("paints the page header and a section skeleton before the private content", () => {
     authorizationPending = true;
 
     const html = renderToStaticMarkup(
@@ -272,7 +307,9 @@ describe("coderouter dashboard", () => {
       />,
     );
 
-    expect(html).not.toContain('data-testid="coderouter-page-header"');
+    expect(html).toContain('data-testid="coderouter-page-header"');
+    expect(html).toContain('data-testid="dashboard-section-skeleton"');
+    expect(html).not.toContain('data-testid="coderouter-accounts"');
   });
 
   test("renders recovery UI when Stack authorization is unavailable", async () => {
@@ -281,12 +318,12 @@ describe("coderouter dashboard", () => {
     });
     const html = renderToStaticMarkup(page);
 
-    expect(html).toContain("Accounts could not load");
-    expect(html).toContain('data-testid="coderouter-page-header"');
+    expect(html).toContain("coderouter could not load");
     expect(html).toContain(
       "The account service could not be reached. Try again shortly.",
     );
     expect(html).not.toContain("unexpected redirect");
+    expect(html).not.toContain('data-testid="coderouter-accounts"');
   });
 
   test("keeps a legacy-mapped team off hosted accounts until migration finishes", async () => {
@@ -299,10 +336,9 @@ describe("coderouter dashboard", () => {
     const html = renderToStaticMarkup(page);
 
     expect(hostedExchangeCalls).toBe(0);
-    expect(html).toContain("Accounts temporarily unavailable");
-    expect(html).toContain(
-      "Shared accounts are temporarily unavailable. Try again shortly.",
-    );
+    expect(html).toContain('data-shared="migrationPending"');
+    expect(html).toContain('data-claude="ok"');
+    expect(html).toContain('data-native="ok"');
   });
 
   test("renders recovery UI when the bounded Stack session refresh fails", async () => {
@@ -314,7 +350,7 @@ describe("coderouter dashboard", () => {
     });
     const html = renderToStaticMarkup(page);
 
-    expect(html).toContain("Accounts could not load");
+    expect(html).toContain("coderouter could not load");
     expect(html).toContain(
       "The account service could not be reached. Try again shortly.",
     );
@@ -330,7 +366,7 @@ describe("coderouter dashboard", () => {
     });
     const html = renderToStaticMarkup(page);
 
-    expect(html).toContain("AI account management isn&#x27;t available yet");
+    expect(html).toContain('data-shared="notConfigured"');
     expect(hostedExchangeCalls).toBe(0);
   });
 
@@ -347,8 +383,28 @@ describe("coderouter dashboard", () => {
     expect(html).toContain("30-day usage");
     expect(html).toContain("1.3K");
     expect(html).toContain("$4.25");
+    // Every token was priced, so no coverage caveat and no coverage card.
+    expect(html).not.toContain("Pricing coverage");
+    expect(html).not.toContain("without a list price");
     expect(html).toContain("No prompts, outputs, account labels, or member identities");
     expect(html).not.toContain("stack-user");
+  });
+
+  test("renders one combined accounts section without a page-level team switcher", async () => {
+    authorizationAvailable = true;
+    authorizedTeams = [
+      { teamId: "team-1", teamName: "Team One", use: true, manageAccounts: true },
+      { teamId: "team-2", teamName: "Team Two", use: true, manageAccounts: false },
+    ];
+
+    const page = await CoderouterOverviewContent({ locale: "en", team: "team-2" });
+    const html = renderToStaticMarkup(page);
+
+    expect(html.match(/data-testid="coderouter-accounts"/g)).toHaveLength(1);
+    expect(html).toContain('data-shared="ok"');
+    expect(html).toContain('data-can-manage="false"');
+    expect(html).not.toContain("?team=");
+    expect(html).not.toContain("Team One");
   });
 
   test("renders the Machines card for owned machines only", async () => {

@@ -20,9 +20,9 @@ enum VMMachineKind: String, CaseIterable, Sendable, Equatable {
     /// name, everything else is a shell box.
     ///
     /// Only VNC markers count. `devbox` used to imply a desktop because one
-    /// provider's devbox image bundled xfce + noVNC; the shared devbox image
-    /// every remaining provider boots is shell-only, so matching it here
-    /// published a Desktop surface for machines with no screen.
+    /// provider's devbox image bundled xfce + noVNC; historical devbox images
+    /// could also be shell-only, so matching it here published a Desktop
+    /// surface for machines with no screen. Current images report their kind.
     static func inferred(fromImage image: String) -> VMMachineKind {
         let lowered = image.lowercased()
         return lowered.contains("xfce") || lowered.contains("vnc") ? .desktop : .base
@@ -37,6 +37,20 @@ enum VMMachineKind: String, CaseIterable, Sendable, Equatable {
         return inferred(fromImage: (image as? String) ?? "")
     }
 
+    /// The product default: every create path that does not ask for a kind
+    /// (the New Machine sheet, bare `cmux vm new`, `vm base open` / `vm base
+    /// reset`) gets the devbox with a screen. Base remains for historical machines.
+    static let defaultKind: VMMachineKind = .desktop
+
+    /// The `cmux vm new` / `vm base open` / `vm base reset` flag that requests
+    /// this kind. Always sent, so the create never depends on a server default.
+    var cliFlag: String {
+        switch self {
+        case .desktop: return "--desktop"
+        case .base: return "--base"
+        }
+    }
+
     var hasDesktop: Bool { self == .desktop }
 
     var displayName: String {
@@ -48,21 +62,7 @@ enum VMMachineKind: String, CaseIterable, Sendable, Equatable {
         }
     }
 
-    /// One line on what the kind gives you, for the New Machine sheet.
-    var summary: String {
-        switch self {
-        case .desktop:
-            return String(
-                localized: "machines.new.kind.desktop.summary",
-                defaultValue: "Terminal plus a screen you can watch and control. Best for browsers and GUI apps."
-            )
-        case .base:
-            return String(
-                localized: "machines.new.kind.base.summary",
-                defaultValue: "Terminal only. Boots faster and uses less memory."
-            )
-        }
-    }
+
 }
 
 /// Which image the backend will provision for a kind, as `GET /api/vm`

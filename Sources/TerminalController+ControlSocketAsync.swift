@@ -1,4 +1,5 @@
 import CmuxControlSocket
+import CmuxBrowser
 import Foundation
 
 /// Async socket-dispatch helpers kept separate from the legacy synchronous
@@ -52,7 +53,7 @@ extension TerminalController {
                 request = parsed
             }
 
-            let relayAuthorization = authorizeRemoteRelayRequest(request)
+            let relayAuthorization = await authorizeRemoteRelayRequestAsync(request)
             if let errorResponse = relayAuthorization.errorResponse {
                 return errorResponse
             }
@@ -65,6 +66,16 @@ extension TerminalController {
             ) {
                 return focusError
             }
+            if let workspaceParamError = v2UnsupportedWorkspaceAliasError(
+                method: authorizedRequest.method,
+                params: authorizedRequest.params.mapValues(\.foundationObject)
+            ) {
+                return v2Result(
+                    id: authorizedRequest.id?.foundationObject,
+                    workspaceParamError
+                )
+            }
+
             let policy = Self.executionPolicy(forV2Method: authorizedRequest.method)
             return await CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
                 await withSocketCommandPolicyAsync(
@@ -72,6 +83,31 @@ extension TerminalController {
                     isV2: true,
                     params: authorizedRequest.params
                 ) {
+                    // Native browser keys stay on the asynchronous MainActor
+                    // path: WebKit/AppKit require main-actor delivery, while
+                    // the socket worker remains suspendable during readiness.
+                    // Opaque keys intentionally continue through the legacy
+                    // compatibility worker handler.
+                    if let action = self.browserKeyboardAction(for: authorizedRequest.method),
+                       let rawKey = authorizedRequest.params["key"]?.foundationObject as? String,
+                       let event = BrowserKeyboardEvent(rawKey: rawKey),
+                       event.nativeKey != nil {
+                        return await self.v2BrowserKeyboardNativeResponse(
+                            request: authorizedRequest,
+                            event: event,
+                            action: action
+                        )
+                    }
+                    if authorizedRequest.method == "surface.sync_codex_native_title" {
+                        return await self.v2MainAsync {
+                            self.v2Result(
+                                id: authorizedRequest.id?.foundationObject,
+                                self.v2SurfaceSyncCodexNativeTitle(
+                                    params: authorizedRequest.params.mapValues(\.foundationObject)
+                                )
+                            )
+                        }
+                    }
                     if policy.runsOnSocketWorker {
                         // Terminal rename performs an awaited cloud-link mutation. Keep the
                         // actual socket connection task asynchronous instead of parking a
@@ -156,6 +192,12 @@ extension TerminalController {
             return Self.v2Encoder.response(id: request.id, result)
         }
 
+        if request.method == "agent.restore.admit" {
+            return await agentRestoreAdmissionResponse(request)
+        }
+        if request.method == "agent.restore.release" {
+            return await agentRestoreAdmissionReleaseResponse(request)
+        }
         if ControlCommandExecutionPolicy.servesFromPublishedReadSnapshot(method: request.method),
            let snapshotResult = socketReadSnapshotStore.response(
                 method: request.method,
@@ -550,7 +592,7 @@ extension TerminalController {
         return "ERROR: rate_limited retry_after_ms=\(retryAfterMilliseconds)"
     }
 
-    private nonisolated static func controlCallResult(
+    nonisolated static func controlCallResult(
         fromEncodedResponse response: String
     ) -> ControlCallResult? {
         guard let data = response.data(using: .utf8),

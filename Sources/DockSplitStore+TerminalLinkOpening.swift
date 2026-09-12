@@ -1,3 +1,4 @@
+import AppKit
 import CmuxPanes
 import Foundation
 
@@ -12,6 +13,13 @@ extension DockSplitStore: TerminalLinkOpenContainer {
 
     func terminalLinkIsRemoteTerminal(_ sourcePanelId: UUID) -> Bool {
         detachedSurfaceTransfersByPanelId[sourcePanelId]?.isRemoteTerminal == true
+    }
+
+    func cloudTerminalLinkTarget(url: URL, sourcePanelId: UUID) -> CloudTerminalLinkTarget? {
+        guard let resource = SurfaceCatalog.shared.resource(forPanel: sourcePanelId),
+              let address = SurfaceCatalog.shared.machineInfo(for: resource.machine)?.privateAddress,
+              let target = CmuxTuiSurfaceProvider.cloudTerminalLinkTarget(url: url, resource: resource, privateAddress: address) else { return nil }
+        return target
     }
 
     func deferTerminalFileLinkOpen(
@@ -30,20 +38,32 @@ extension DockSplitStore: TerminalLinkOpenContainer {
             from: sourcePane,
             in: bonsplitController
         ) {
-            return newSurface(
+            noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
+            guard let panelId = newSurface(
                 kind: .browser,
                 inPane: targetPane,
                 url: url,
-                focus: true
-            ) != nil
+                focus: false
+            ) else { return false }
+            focusPanelFromDockInteraction(
+                panelId,
+                window: NSApp.keyWindow ?? NSApp.mainWindow
+            )
+            return true
         }
-        return newSplit(
+        noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
+        guard let panelId = newSplit(
             kind: .browser,
             orientation: .horizontal,
             insertFirst: false,
             sourcePanelId: sourcePanelId,
             url: url,
-            focus: true
-        ) != nil
+            focus: false
+        ) else { return false }
+        focusPanelFromDockInteraction(
+            panelId,
+            window: NSApp.keyWindow ?? NSApp.mainWindow
+        )
+        return true
     }
 }

@@ -757,6 +757,23 @@ public final class MobileIrohRuntimeComposition:
         return MobileIrohTerminalLane(stream: stream)
     }
 
+    /// Opens a terminal input-only lane. Render-grid output remains on the
+    /// ordered event stream, while keystrokes use an independent QUIC stream
+    /// whose writes do not wait for an RPC response.
+    public func openTerminalInputLane(
+        for request: CmxByteTransportRequest,
+        surfaceID: UUID,
+        priority: Int32 = 0
+    ) async throws -> MobileIrohTerminalLane {
+        let resourceID = try CmxIrohResourceID("terminal:\(surfaceID.uuidString.lowercased())")
+        let stream = try await openBidirectionalLane(
+            for: request,
+            lane: .terminalInput(resourceID: resourceID),
+            priority: priority
+        )
+        return MobileIrohTerminalLane(stream: stream)
+    }
+
     /// Opens a simulator-stream v2 lane for one Mac simulator panel. The
     /// phone-to-Mac half carries start/ack/input messages, so it rides above
     /// terminal typing (tiny messages, interaction-critical); the Mac sets
@@ -1791,7 +1808,7 @@ public final class MobileIrohRuntimeComposition:
                       trustRoot: relayPolicyTrustRoot,
                       now: now()
                   ) else {
-                return []
+                return Set<String>()
             }
             return Set(cachedPolicy.relays.map(\.url))
         }
@@ -1818,7 +1835,7 @@ public final class MobileIrohRuntimeComposition:
                 && $0.endpointID == endpointID
                 && $0.identityGeneration == identity.generation
         } ?? false
-        let cachedManagedRelayURLs = await cachedManagedRelayURLsTask
+        let cachedManagedRelayURLs = await cachedManagedRelayURLsTask.value
         let cachedRelay: CmxIrohRelayTokenResponse?
         if let cachedBinding, bindingMatches {
             lastKnownBindingID = cachedBinding.bindingID

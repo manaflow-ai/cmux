@@ -1,19 +1,19 @@
 import {
   jsonResponse,
   resolveVmRouteAccountScope,
-  vmResourceErrorResponse,
   withAuthedVmApiRoute,
 } from "../../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../../services/telemetry";
-import { approveVmCmuxRemoteEnrollment, runVmWorkflow } from "../../../../../../services/vms/workflows";
+import { runVmRoute } from "../../../../../../services/vms/routeWorkflow";
+import { approveVmCmuxRemoteEnrollment } from "../../../../../../services/vms/workflows";
 import { parseLenientObjectBody } from "../../../../../../services/vms/routeInput";
 
 /**
- * Approves the cmux-tui device enrollment that a prior `attach-endpoint`
- * (`transport: "cmux-remote"`) invited. The control plane is the daemon owner: it
- * minted the invitation for this authenticated user, so approving the pending claim
- * is the honest encoding of "the web tier already authenticated this device". One
- * request waits for the claim inside the VM and then approves it.
+ * Compatibility endpoint. Cloud machines serve a trusted-carrier listener
+ * (reachable only inside the owner's private network), so there is no device
+ * enrollment to approve: the provider answers `approved` without touching the
+ * machine. Older Mac builds call this once after their first connect; the
+ * route stays until every published build has stopped calling it.
  */
 export async function POST(
   request: Request,
@@ -38,22 +38,18 @@ export async function POST(
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
-      try {
-        const result = await runVmWorkflow(approveVmCmuxRemoteEnrollment({
-          userId: user.id,
-          billingTeamId: account.entitlements.billingTeamId,
-          teamIds: user.teamIds,
-          providerVmId: id,
-          invitationId,
-          callerPlanId: account.entitlements.planId,
-        }));
-        setSpanAttributes(span, { "cmux.vm.cmux_remote.approval_state": result.state });
-        return jsonResponse(result);
-      } catch (err) {
-        const response = vmResourceErrorResponse(err, id);
-        if (response) return response;
-        throw err;
-      }
+      const run = await runVmRoute(approveVmCmuxRemoteEnrollment({
+        userId: user.id,
+        billingTeamId: account.entitlements.billingTeamId,
+        teamIds: user.teamIds,
+        providerVmId: id,
+        invitationId,
+        callerPlanId: account.entitlements.planId,
+      }), { request });
+      if (!run.ok) return run.response;
+      const result = run.value;
+      setSpanAttributes(span, { "cmux.vm.cmux_remote.approval_state": result.state });
+      return jsonResponse(result);
     },
   );
 }

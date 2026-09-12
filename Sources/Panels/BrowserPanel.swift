@@ -1983,6 +1983,9 @@ final class BrowserPanel: Panel, ObservableObject {
     let id: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .browser
+    let cloudAccess = CloudBrowserAccessState()
+
+    func showCloudAddress(_ url: URL) { currentURL = url }
 
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
@@ -2233,6 +2236,10 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Semantic in-panel focus target used by split switching and transient overlays.
     private(set) var preferredFocusIntent: BrowserPanelFocusIntent = .webView
+
+    /// Invalidates a queued WebView responder reassertion when this panel is no
+    /// longer the active focus owner.
+    private var webViewFocusRequestGeneration: UInt64 = 0
 
     /// Incremented whenever async browser find focus ownership changes.
     @Published private(set) var searchFocusRequestGeneration: UInt64 = 0
@@ -3119,6 +3126,7 @@ final class BrowserPanel: Panel, ObservableObject {
                     targetURL: Self.remoteProxyDisplayURL(for: self.navigationDelegate?.lastAttemptedURL)
                         ?? self.navigationDelegate?.lastAttemptedURL
                 )
+                self.cloudAccess.didStart(url: self.navigationDelegate?.lastAttemptedURL)
                 self.isMainFrameProvisionalNavigationActive = true
                 self.refreshBackgroundAppearance()
                 self.applyMuteState(to: webView, reason: "navigationStart")
@@ -3135,6 +3143,7 @@ final class BrowserPanel: Panel, ObservableObject {
                     instanceID: boundWebViewInstanceID,
                     navigationID: navigation.map { ObjectIdentifier($0) }
                 )
+                self.cloudAccess.didCommit(url: webView.url)
                 // An about:blank placeholder leaves the restore-stall detector armed.
                 if !Self.isAboutBlankURL(webView.url) {
                     self.hasCommittedDocumentSinceWebViewReplacement = true
@@ -3156,6 +3165,9 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didFinish = { [weak self] webView in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                if self.navigationDelegate?.activeErrorPageDisplayURL == nil {
+                    self.cloudAccess.didFinish(url: webView.url)
+                }
                 self.isMainFrameProvisionalNavigationActive = false
                 self.publishCommittedURL(from: webView)
                 self.applyMuteState(to: webView, reason: "navigationFinish")
@@ -3172,6 +3184,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didFailNavigation = { [weak self] failedWebView, failedURL, failureMessage, failedNavigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(failedWebView, instanceID: boundWebViewInstanceID) else { return }
+                self.cloudAccess.didFail(url: URL(string: failedURL), message: failureMessage)
                 self.automationNavigationCoordinator.didFail(
                     instanceID: boundWebViewInstanceID,
                     navigationID: failedNavigation.map { ObjectIdentifier($0) },
@@ -4912,6 +4925,9 @@ final class BrowserPanel: Panel, ObservableObject {
 
     @discardableResult
     func requestExplicitWebViewFocus() -> Bool {
+        webViewFocusRequestGeneration &+= 1
+        let requestGeneration = webViewFocusRequestGeneration
+
         // Programmatic WebView focus should win over stale omnibar focus state, especially
         // after workspace switches where the blank-page omnibar auto-focus can re-trigger.
         endSuppressWebViewFocusForAddressBar()
@@ -4945,6 +4961,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         DispatchQueue.main.async { [weak self, weak window, weak webView] in
             guard let self, let window, let webView else { return }
+            guard self.webViewFocusRequestGeneration == requestGeneration else { return }
             guard webView.window === window else { return }
             let didBecomeFirstResponder: Bool
             if !Self.responderChainContains(window.firstResponder, target: webView) {
@@ -4968,6 +4985,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func unfocus() {
+        webViewFocusRequestGeneration &+= 1
         clearBrowserFocusMode(reason: "panelUnfocus")
         invalidateSearchFocusRequests(reason: "panelUnfocus")
         guard let window = webView.window else { return }
@@ -4980,6 +4998,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func close() {
+        cloudAccess.leave()
         cancelHiddenWebViewDiscard()
         isClosingWebViewLifecycle = true
         trustedLocalFileURL = nil
@@ -5409,6 +5428,17 @@ final class BrowserPanel: Panel, ObservableObject {
         recordTypedNavigation: Bool = false,
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
+        if cloudAccess.model != nil && cloudAccess.owns(url) {
+            if cloudAccess.model?.isReady != true { return nil }
+        } else if let provider = SurfaceCatalog.shared.machines.values.first(where: {
+            $0.privateAddress?.trimmingCharacters(in: CharacterSet(charactersIn: "[]")) == url.host?.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        }).flatMap({ SurfaceCatalog.shared.provider(for: $0.id) as? CmuxTuiSurfaceProvider }),
+                  ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+            provider.configureBrowser(self, url: url)
+            return nil
+        } else {
+            cloudAccess.leave()
+        }
         let request = URLRequest(url: url)
         let policy = BrowserURLAllowlistPolicy(defaults: .standard)
         (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
@@ -7540,6 +7570,10 @@ extension BrowserPanel {
 #endif
             return nil
         }
+        // A pending WebView reassertion must not win after an accepted
+        // address-bar request. An unavailable address bar leaves the WebView
+        // retry intact so callers can fall back without dropping focus.
+        webViewFocusRequestGeneration &+= 1
         clearBrowserFocusMode(reason: "requestAddressBarFocus")
         setOmnibarVisible(true)
         preferredFocusIntent = .addressBar
@@ -9892,7 +9926,7 @@ enum BrowserDataImporter {
                     String(
                         format: String(
                             localized: "browser.import.warning.noHistoryDatabase",
-                            defaultValue: "No history database found for %@."
+                            defaultValue: "No browsing history was found for %@."
                         ),
                         browser.displayName
                     )

@@ -43,6 +43,8 @@ struct CMUXMobileRootView: View {
     /// previews and package hosts keep the store's compiled-in fallback.
     @Environment(MobileMacCompatCenter.self) private var macCompatCenter:
         MobileMacCompatCenter?
+    @Environment(MobileWhatsNewCenter.self) private var whatsNewCenter:
+        MobileWhatsNewCenter?
     /// Set when the one-shot remote policy refresh has been started. The
     /// cached/baked policy is installed synchronously; the network refresh
     /// continues independently of auth restore and stored-Mac reconnect.
@@ -596,7 +598,7 @@ struct CMUXMobileRootView: View {
             connectionErrorGuidance: store.connectionErrorGuidance,
             versionWarning: store.pairingVersionWarning,
             connectPairingCode: {
-                await store.connectPairingInput()
+                await store.connectPairingInput(allowPreview: false)
             },
             acceptVersionWarning: {
                 let result = await store.acceptPairingVersionWarning()
@@ -604,9 +606,10 @@ struct CMUXMobileRootView: View {
                 if result == .connected {
                     dismissAddDeviceSheet()
                 }
+                return result
             },
             connectManualHost: { name, host, port in
-                await store.connectManualHost(name: name, host: host, port: port)
+                await store.connectManualHostResult(name: name, host: host, port: port)
             },
             cancelPairing: cancelPairing,
             cancel: dismissAddDeviceSheet
@@ -675,6 +678,7 @@ struct CMUXMobileRootView: View {
         MobileSettingsView(
             connectedHostName: store.connectedHostName,
             startPairingScanner: pairingScannerAction,
+            startTailscalePairing: showPairingScanner,
             // Swaps the root sheet's content from Settings to Computers in
             // place; the presentation state machine allows this transition.
             showComputers: showComputers,
@@ -1121,10 +1125,12 @@ struct CMUXMobileRootView: View {
             return
         }
         store.applyMacCompatibilityPolicy(macCompatCenter.policy)
+        whatsNewCenter?.applyMacCompatibilityPolicy(macCompatCenter.policy)
         Task { @MainActor in
             await macCompatCenter.refresh()
             guard !Task.isCancelled else { return }
             store.applyMacCompatibilityPolicy(macCompatCenter.policy)
+            whatsNewCenter?.applyMacCompatibilityPolicy(macCompatCenter.policy)
             store.revalidateActiveMacCompatibilityPolicy()
         }
     }

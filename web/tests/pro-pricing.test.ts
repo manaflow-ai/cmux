@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 
 import enMessages from "../messages/en.json";
 import jaMessages from "../messages/ja.json";
@@ -11,14 +12,8 @@ import {
   proBillingInterval,
 } from "../services/billing/plans";
 import {
-  PLAN_SHARED_DISK_MB,
-  PLAN_SHARED_MEMORY_MB,
-  PLAN_SHARED_VCPU,
   PLAN_MACHINE_MEMORY_MB,
   PAID_MAX_ACTIVE_VMS_DEFAULT,
-  firstExceededSharedResource,
-  sharedResourceUsage,
-  sharedResourceCapacityForMaxActiveVms,
   vmResourceReservationForCreate,
   VM_DISK_MB_DEFAULT,
 } from "../services/vms/entitlements";
@@ -98,101 +93,22 @@ describe("pricing plans", () => {
   });
 });
 
-describe("pricing copy matches the plan policy", () => {
-  // The public pricing copy states both the shared pool and the selectable
-  // machine default. Pin each number to the policy constants so copy and
-  // enforcement cannot drift independently.
-  const sharedVcpus = PLAN_SHARED_VCPU;
-  const sharedMemoryGb = PLAN_SHARED_MEMORY_MB / 1024;
-  const sharedDiskGb = PLAN_SHARED_DISK_MB / 1024;
+describe("VM defaults and pricing copy", () => {
   const memoryGb = PLAN_MACHINE_MEMORY_MB / 1024;
   const startingDiskGb = VM_DISK_MB_DEFAULT / 1024;
-
-  test("the default machine and shared Cloud VM capacity match the plan", () => {
-    expect(sharedVcpus).toBe(5);
-    expect(sharedMemoryGb).toBe(20);
-    expect(sharedDiskGb).toBe(200);
+  test("VM creation defaults are separate from advertised shared plan resources", () => {
+    expect(PAID_MAX_ACTIVE_VMS_DEFAULT).toBe(50);
     expect(memoryGb).toBe(8);
     expect(startingDiskGb).toBe(32);
-    expect(PAID_MAX_ACTIVE_VMS_DEFAULT).toBe(50);
-  });
-
-  test("new Cloud VM disks start at 32 GB", () => {
-    expect(startingDiskGb).toBe(32);
-  });
-
-  test("the shared pool scales by paid seat and sums every resource claim", () => {
-    expect(sharedResourceCapacityForMaxActiveVms(PAID_MAX_ACTIVE_VMS_DEFAULT)).toEqual({
-      vcpus: PLAN_SHARED_VCPU,
-      memoryMb: PLAN_SHARED_MEMORY_MB,
-      diskMb: PLAN_SHARED_DISK_MB,
-    });
-    expect(sharedResourceCapacityForMaxActiveVms(PAID_MAX_ACTIVE_VMS_DEFAULT * 2)).toEqual({
-      vcpus: PLAN_SHARED_VCPU * 2,
-      memoryMb: PLAN_SHARED_MEMORY_MB * 2,
-      diskMb: PLAN_SHARED_DISK_MB * 2,
-    });
-    expect(firstExceededSharedResource({
-      used: {
-        vcpus: PLAN_SHARED_VCPU - 1,
-        memoryMb: PLAN_SHARED_MEMORY_MB - 1,
-        diskMb: PLAN_SHARED_DISK_MB - 1,
-      },
-      requested: { vcpus: 1, memoryMb: 1, diskMb: 2 },
-      capacity: {
-        vcpus: PLAN_SHARED_VCPU,
-        memoryMb: PLAN_SHARED_MEMORY_MB,
-        diskMb: PLAN_SHARED_DISK_MB,
-      },
-    })).toEqual({
-      resource: "diskMb",
-      used: PLAN_SHARED_DISK_MB - 1,
-      requested: 2,
-      limit: PLAN_SHARED_DISK_MB,
-    });
-    expect(sharedResourceUsage("vcpus", PLAN_SHARED_VCPU, 1)).toBe(PLAN_SHARED_VCPU + 1);
-    expect(sharedResourceUsage("memoryMb", PLAN_SHARED_MEMORY_MB, 1)).toBe(PLAN_SHARED_MEMORY_MB + 1);
-    expect(sharedResourceUsage("diskMb", PLAN_SHARED_DISK_MB - 1, 2)).toBe(PLAN_SHARED_DISK_MB + 1);
-    expect(firstExceededSharedResource({
-      used: {
-        vcpus: PLAN_SHARED_VCPU - 1,
-        memoryMb: PLAN_SHARED_MEMORY_MB - 1,
-        diskMb: VM_DISK_MB_DEFAULT,
-      },
-      requested: {
-        vcpus: 1,
-        memoryMb: 1,
-        diskMb: VM_DISK_MB_DEFAULT,
-      },
-      capacity: {
-        vcpus: PLAN_SHARED_VCPU,
-        memoryMb: PLAN_SHARED_MEMORY_MB,
-        diskMb: PLAN_SHARED_DISK_MB,
-      },
-    })).toBeNull();
-    expect(firstExceededSharedResource({
-      used: { vcpus: PLAN_SHARED_VCPU - 1, memoryMb: 0, diskMb: 0 },
-      requested: { vcpus: 2, memoryMb: 1, diskMb: 1 },
-      capacity: {
-        vcpus: PLAN_SHARED_VCPU,
-        memoryMb: PLAN_SHARED_MEMORY_MB,
-        diskMb: PLAN_SHARED_DISK_MB,
-      },
-    })).toEqual({
-      resource: "vcpus",
-      used: PLAN_SHARED_VCPU - 1,
-      requested: 2,
-      limit: PLAN_SHARED_VCPU,
-    });
   });
 
   test("a size-less plan reservation follows requested memory", () => {
     expect(vmResourceReservationForCreate({
-      memoryMb: PLAN_SHARED_MEMORY_MB,
+      memoryMb: 32768,
       env: {},
     })).toEqual({
-      vcpus: PLAN_SHARED_VCPU,
-      memoryMb: PLAN_SHARED_MEMORY_MB,
+      vcpus: 8,
+      memoryMb: 32768,
       diskMb: VM_DISK_MB_DEFAULT,
     });
   });
@@ -216,104 +132,60 @@ describe("pricing copy matches the plan policy", () => {
     })).toEqual({ vcpus: 1, memoryMb: 4096, diskMb: 65536 });
   });
 
-  for (const [
-    locale,
-    messages,
-    sharedPhrase,
-    stalePerVmPhrase,
-    capacityLabel,
-    faqSharedPhrase,
-    faqPerUserPhrase,
-    startingDiskPhrase,
-  ] of [
-    [
-      "en",
-      enMessages,
-      "all sharing a total pool of",
-      "each with",
-      "Resources shared across Cloud VMs",
-      "Pro includes up to 50 machines sharing a total pool of 5 vCPU, 20 GB of RAM, and 200 GB of disk",
-      "same shared pool for each user",
-      "New VM disks start at 32 GB",
-    ],
-    [
-      "ja",
-      jaMessages,
-      "すべての VM で合計",
-      "各 5 vCPU",
-      "Cloud VM 間で共有するリソース",
-      "Pro では最大 50 台のマシンで合計 5 vCPU、20 GB の RAM、200 GB のディスクを共有",
-      "Team では、ユーザーごとに最大 50 台のマシンと同じ共有プール",
-      "新しい VM のディスクは 32 GB で開始",
-    ],
+  // These are the advertised plan limits, not the default shape of one VM.
+  // Keep cards, comparison rows, FAQs, and native strings on the same policy.
+  for (const [locale, messages, label, shared] of [
+    ["en", enMessages, "Resources shared across all Cloud VMs", "shared across all"],
+    ["ja", jaMessages, "すべての Cloud VM で共有するリソース", "共有"],
   ] as const) {
-    test(`${locale} pricing copy states the current prices and shared capacity`, () => {
-      const pricing = messages.pricing;
-      const proFeatures = pricing.pro.features.join("\n");
-      expect(proFeatures).toContain(`${PAID_MAX_ACTIVE_VMS_DEFAULT} `);
-      expect(proFeatures).toContain(`${sharedVcpus} vCPU`);
-      expect(proFeatures).toContain(`${sharedMemoryGb} GB`);
-      expect(proFeatures).toContain(`${sharedDiskGb} GB`);
-      expect(proFeatures).toContain(sharedPhrase);
-      expect(proFeatures).toContain(`${memoryGb} GB`);
-      expect(proFeatures).toContain(`${startingDiskGb} GB`);
-      expect(proFeatures).not.toContain(stalePerVmPhrase);
-
-      const vmRow = pricing.compare.rows.find((row) =>
-        row.label.includes("Cloud VM") && row.pro === String(PAID_MAX_ACTIVE_VMS_DEFAULT),
-      );
-      expect(vmRow).toBeDefined();
-      const capacityRow = pricing.compare.rows.find((row) => row.label === capacityLabel);
-      expect(capacityRow?.pro).toContain(`${sharedVcpus} vCPU`);
-      expect(capacityRow?.pro).toContain(`${sharedMemoryGb} GB`);
-      expect(capacityRow?.pro).toContain(`${sharedDiskGb} GB`);
-      expect(capacityRow?.pro).toContain(`${memoryGb} GB`);
-      expect(capacityRow?.pro).toContain(`${startingDiskGb} GB`);
-      expect(capacityRow?.team).toContain(`${sharedVcpus} vCPU`);
-      expect(capacityRow?.team).toContain(`${sharedMemoryGb} GB`);
-      expect(capacityRow?.team).toContain(`${sharedDiskGb} GB`);
-      expect(capacityRow?.team).toContain(`${memoryGb} GB`);
-      expect(capacityRow?.team).toContain(`${startingDiskGb} GB`);
-      const teamCapacity = capacityRow?.team ?? "";
-      expect(locale === "en" ? teamCapacity.toLowerCase() : teamCapacity).toContain(
-        locale === "en" ? "per user" : "ユーザーごとに",
-      );
-
-      const faq = pricing.faq.items.map((item) => item.a).join("\n");
-      expect(faq).toContain(`$${PRO_PRICING_USD.month.billedAmount}/`);
-      expect(faq).toContain(`$${PRO_PRICING_USD.year.monthlyEquivalent}/`);
-      expect(faq).toContain(`$${TEAM_PRICING_USD.month.billedAmount}/`);
-      expect(faq).toContain(`$${TEAM_PRICING_USD.year.monthlyEquivalent}/`);
-      for (const stale of ["$30/", "$24/", "$35/", "$28/"]) {
-        expect(faq).not.toContain(stale);
+    test(`${locale} pricing advertises 24 GB RAM and 6 vCPUs shared across up to 50 VMs`, () => {
+      const features = messages.pricing.pro.features.join("\n");
+      expect(features).toContain("50 ");
+      const row = messages.pricing.compare.rows.find(row => row.label === label);
+      expect(row).toBeDefined();
+      const faq = messages.pricing.faq.items.map(item => item.a).join("\n");
+      for (const copy of [features, row!.pro, row!.team, faq]) {
+        expect(copy).toContain("24 GB RAM");
+        expect(copy).toContain("6 vCPU");
+        expect(copy).toContain(shared);
       }
-      expect(faq.toLowerCase()).not.toContain("unlimited active");
-      expect(faq).not.toContain("無制限に利用");
-      expect(faq).not.toContain(stalePerVmPhrase);
-      expect(faq).toContain(faqSharedPhrase);
-      expect(faq).toContain(faqPerUserPhrase);
-      expect(faq).toContain(startingDiskPhrase);
-      if (locale === "en") {
-        expect(faq).toContain("Team includes up to 50 machines per user");
-      } else {
-        expect(faq).toContain("Team では、ユーザーごとに最大 50 台のマシン");
-      }
+      const pricing = JSON.stringify(messages.pricing);
+      expect(pricing).not.toMatch(/(?:8|32|64|256) GB|5 vCPU|each with its own resources|Each machine has its own|各マシンに専用のリソース|各マシンには独立した/);
     });
   }
 
-  test("fallback locales inherit the shared English VM policy", async () => {
+  test("fallback locales inherit the shared resource wording", async () => {
     for (const locale of locales) {
       if (locale === "en" || locale === "ja") continue;
       const messages = await loadMessages(locale) as unknown as typeof enMessages;
-      const pricing = messages.pricing;
-      const proFeatures = pricing.pro.features.join("\n");
-      expect(proFeatures).toContain("all sharing a total pool of 5 vCPU, 20 GB RAM, and 200 GB disk");
-      expect(proFeatures).not.toContain("each with 5 vCPU");
-      const capacityRow = pricing.compare.rows.find((row) => row.label === "Resources shared across Cloud VMs");
-      expect(capacityRow?.pro).toBe("5 vCPU, 20 GB RAM, 200 GB disk total; default VM size 8 GB RAM and 32 GB disk, with sizes from 4 to 64 GB RAM available as capacity allows");
-      expect(capacityRow?.team).toBe("Per user: 5 vCPU, 20 GB RAM, and 200 GB disk total; default VM size 8 GB RAM and 32 GB disk, with sizes from 4 to 64 GB RAM available as capacity allows");
-      const faq = pricing.faq.items.map((item) => item.a).join("\n");
-      expect(faq).toContain("Pro includes up to 50 machines sharing a total pool of 5 vCPU, 20 GB of RAM, and 200 GB of disk");
+      expect(messages.pricing.pro.features.join("\n")).toContain("24 GB RAM and 6 vCPUs shared across all VMs");
+      expect(messages.pricing.compare.rows.find(row => row.label === "Resources shared across all Cloud VMs")).toBeDefined();
+    }
+  });
+
+  test("native pricing translations preserve the shared plan quantities", () => {
+    const catalog = JSON.parse(readFileSync(new URL("../../Resources/Localizable.xcstrings", import.meta.url), "utf8"));
+    const sharedTerms: Record<string, string> = {
+      en: "shared across all",
+      de: "gemeinsam",
+      fr: "partagés",
+      ar: "مشتركة",
+      es: "compartid",
+      "zh-Hans": "共享",
+      "zh-Hant": "共用",
+      ko: "공유",
+      ja: "共有",
+    };
+    for (const key of ["pricing.native.pro.feature.hours", "pricing.native.team.feature.compute", "pricing.native.sizes.body"]) {
+      const localizations = catalog.strings[key].localizations as Record<string, { stringUnit: { value: string } }>;
+      for (const [locale, { stringUnit: { value } }] of Object.entries(localizations)) {
+        // Units and word order are localized; plan quantities stay the same.
+        for (const quantity of [24, 6, 50]) {
+          expect(value).toMatch(new RegExp(`(?:^|\\D)${quantity}(?:\\D|$)`));
+        }
+        expect(value).toContain(sharedTerms[locale] ?? sharedTerms.en);
+        expect(value).not.toMatch(/(?:^|\D)(?:8|32|64|256)(?:\D|$)|each with its own resources/);
+      }
     }
   });
 });

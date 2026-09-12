@@ -24,6 +24,22 @@ extension ShortcutAction {
         }
     }
 
+    /// Returns this action's factory default using a host-owned resolver.
+    ///
+    /// Chords are package-owned and therefore do not consult the resolver.
+    /// A resolver may return ``ShortcutDefaultResolver.Result/stroke(_:)`` with
+    /// `nil` to explicitly make an action unbound for the host. When it returns
+    /// ``ShortcutDefaultResolver.Result/useBuiltIn``, this method falls back to
+    /// the package table.
+    public func defaultShortcut(using resolver: ShortcutDefaultResolver) -> StoredShortcut? {
+        switch self {
+        case .diffViewerScrollToTop, .diffViewerNextFile, .diffViewerPreviousFile:
+            return defaultShortcut
+        default:
+            return defaultStroke(using: resolver).map { StoredShortcut(first: $0) }
+        }
+    }
+
     /// The factory-default ``ShortcutStroke`` for this action.
     ///
     /// Mirrors the table in
@@ -32,7 +48,24 @@ extension ShortcutAction {
     /// next to unbound rows, and so the Reset action in the Settings
     /// UI can restore a row by writing the default stroke through
     /// the JSON store.
+    ///
+    /// The package-owned default table. Hosts with dynamic defaults should use
+    /// ``defaultStroke(using:)`` and pass their resolver explicitly.
     public var defaultStroke: ShortcutStroke? {
+        return builtInDefaultStroke
+    }
+
+    /// Returns this action's stroke after applying a host-owned resolver.
+    public func defaultStroke(using resolver: ShortcutDefaultResolver) -> ShortcutStroke? {
+        switch resolver.result(for: self) {
+        case .useBuiltIn:
+            return builtInDefaultStroke
+        case .stroke(let stroke):
+            return stroke
+        }
+    }
+
+    private var builtInDefaultStroke: ShortcutStroke? {
         switch self {
         case .openSettings: return ShortcutStroke(key: ",", command: true)
         case .reloadConfiguration: return ShortcutStroke(key: ",", command: true, shift: true)

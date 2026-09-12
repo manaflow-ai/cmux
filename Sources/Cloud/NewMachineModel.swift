@@ -22,6 +22,7 @@ struct MachineSizeOption: Equatable, Sendable {
         self.diskMb = diskMb
     }
 
+    /// The localized RAM value shown as the selected picker title.
     var title: String {
         String(
             format: String(localized: "machines.new.size.option", defaultValue: "%d GB RAM"),
@@ -29,9 +30,27 @@ struct MachineSizeOption: Equatable, Sendable {
         )
     }
 
+    /// The localized disk value shown below the selected picker title.
     var detail: String {
         String(
             format: String(localized: "machines.new.size.detail", defaultValue: "%d GB disk included"),
+            diskMb / 1024
+        )
+    }
+
+    /// The localized disk value shown in the resource summary.
+    var diskTitle: String {
+        String(
+            format: String(localized: "machines.new.size.gb", defaultValue: "%d GB"),
+            diskMb / 1024
+        )
+    }
+
+    /// The localized, compact row title shown in the size menu.
+    var menuTitle: String {
+        String(
+            format: String(localized: "machines.new.size.menu", defaultValue: "%1$d GB RAM · %2$d GB disk"),
+            memoryMb / 1024,
             diskMb / 1024
         )
     }
@@ -49,7 +68,7 @@ struct MachineSizeOption: Equatable, Sendable {
 final class NewMachineModel {
     /// Which create flow the sheet fronts.
     enum Mode: Equatable {
-        /// `cmux vm new`: a fresh machine with its own persistent home.
+        /// `cmux vm new`: a fresh Freestyle machine with an ephemeral home.
         case newMachine
         /// `cmux vm base open --workspace <id>`: the persistent Base slot's
         /// first provisioning. Base has no size choice (the backend sizes it)
@@ -82,8 +101,7 @@ final class NewMachineModel {
     static let legacyPlanMachineMemoryMb = 20480
     /// Mirrors `maxMemoryMbForPlan`: development and paid plans may use the
     /// largest supported base image unless an operator sets a lower ceiling.
-    /// The pricing page separately describes the 5 vCPU / 20 GB RAM / 200 GB
-    /// disk pool shared across a paid plan's Cloud VMs.
+    /// Each machine has its own resources within the paid machine allowance.
     static func maxMemoryMb(planId: String?) -> Int {
         _ = planId
         return memoryOptionsMb.max() ?? planMachineMemoryMb
@@ -116,7 +134,7 @@ final class NewMachineModel {
     ) {
         self.mode = mode
         self.plan = plan
-        let serverOptions = memoryOptionsMb.filter { MachineSizeOption(memoryMb: $0) != nil }
+        let serverOptions = Set(memoryOptionsMb.filter { MachineSizeOption(memoryMb: $0) != nil }).sorted()
         // An empty list means an older control plane did not advertise the
         // ladder. Preserve its 20 GiB default and omit --size entirely.
         self.availableMemoryOptionsMb = serverOptions
@@ -125,6 +143,13 @@ final class NewMachineModel {
             ? Self.legacyPlanMachineMemoryMb
             : Self.defaultMemoryMb(planId: plan?.planId, options: serverOptions)
     }
+
+    /// The one machine cmux Cloud provisions: the devbox with the shell
+    /// tooling, the coding agents and a VNC screen. One snapshot ladder serves
+    /// every kind the backend knows, so the kind is not something the sheet
+    /// asks about; the request carries it so the machine is recorded (and its
+    /// Displays row shown) as what it is.
+    static let machineKind: VMMachineKind = VMMachineKind.defaultKind
 
     static func defaultMemoryMb(planId: String?, options: [Int] = memoryOptionsMb) -> Int {
         let allowed = options.filter { $0 <= maxMemoryMb(planId: planId) }.sorted()
@@ -183,16 +208,17 @@ final class NewMachineModel {
         return String(format: format, mb)
     }
 
-    /// The exact CLI invocation the create runs. Freestyle's base snapshot is
-    /// selected by the requested size; no kind, name, or image is user input.
+    /// The exact CLI invocation the create runs. Only the size is user input:
+    /// the machine kind travels as ``machineKind``'s flag and the backend maps
+    /// kind and size to the snapshot, so no name or image id leaves the sheet.
     /// `--focus false` is what makes the sheet's create a background one: the
     /// machine still opens (its own workspace, the Base placeholder) but the
-    /// CLI never selects that workspace or moves keyboard focus out of the
-    /// one the person is working in when it lands.
+    /// CLI never selects that workspace or moves keyboard focus out of the one
+    /// the person is working in when it lands.
     var cliArguments: [String] {
         switch mode {
         case .newMachine:
-            var arguments = ["vm", "new", "--base"]
+            var arguments = ["vm", "new", Self.machineKind.cliFlag]
             if supportsSize { arguments += ["--size", String(memoryMb)] }
             arguments += ["--focus", "false"]
             return arguments
@@ -200,7 +226,7 @@ final class NewMachineModel {
             return [
                 "vm", "base", "open",
                 "--workspace", workspaceID.uuidString,
-                "--base",
+                Self.machineKind.cliFlag,
                 "--focus", "false",
             ]
         }
@@ -210,7 +236,7 @@ final class NewMachineModel {
     var createRequest: MachineCreateRequest {
         MachineCreateRequest(
             mode: mode,
-            kind: .base,
+            kind: Self.machineKind,
             name: nil,
             arguments: cliArguments
         )

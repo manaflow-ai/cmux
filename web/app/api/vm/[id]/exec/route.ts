@@ -1,12 +1,12 @@
 import {
   jsonResponse,
   resolveVmRouteAccountScope,
-  vmResourceErrorResponse,
   vmErrorResponse,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
-import { execVm, runVmWorkflow } from "../../../../../services/vms/workflows";
+import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
+import { execVm } from "../../../../../services/vms/workflows";
 
 
 // Exec accepts client timeouts up to 15 minutes (MAX_EXEC_TIMEOUT_MS below).
@@ -55,6 +55,19 @@ export async function POST(
           details: { field: "command" },
         });
       }
+      const commandBytes = Buffer.byteLength(command, "utf8");
+      const MAX_PROVIDER_COMMAND_BYTES = 64 * 1024;
+      if (commandBytes > MAX_PROVIDER_COMMAND_BYTES) {
+        return vmErrorResponse({
+          error: "vm_command_too_large",
+          status: 413,
+          message: `Cloud VM commands must be 64 KiB or smaller. This command is ${commandBytes} bytes.`,
+          action: "Split the command into smaller requests or upload a script and execute the script path.",
+          phase: "exec",
+          retryable: false,
+          details: { commandBytes, maxCommandBytes: MAX_PROVIDER_COMMAND_BYTES },
+        });
+      }
       // Clamp the timeout so a client can't tie up provider quota on a runaway exec. Upper
       // bound matches the provider defaults (15 min on Freestyle); negative / non-number
       // values fall back to 30s.
@@ -69,26 +82,23 @@ export async function POST(
       if (!account.ok) return account.response;
       setSpanAttributes(span, {
         "cmux.vm.id": id,
-        "cmux.command_length": command.length,
+        "cmux.command_length": commandBytes,
         "cmux.timeout_ms": timeoutMs,
       });
-      try {
-        const result = await runVmWorkflow(execVm({
-          userId: user.id,
-          billingTeamId: account.entitlements.billingTeamId,
-          callerPlanId: account.entitlements.planId,
-          teamIds: user.teamIds,
-          providerVmId: id,
-          command,
-          timeoutMs,
-        }));
-        setSpanAttributes(span, { "cmux.exec.exit_code": result.exitCode });
-        return jsonResponse(result);
-      } catch (err) {
-        const response = vmResourceErrorResponse(err, id);
-        if (response) return response;
-        throw err;
-      }
+      const run = await runVmRoute(execVm({
+        userId: user.id,
+        billingTeamId: account.entitlements.billingTeamId,
+        maxActiveVms: account.entitlements.maxActiveVms,
+        callerPlanId: account.entitlements.planId,
+        teamIds: user.teamIds,
+        providerVmId: id,
+        command,
+        timeoutMs,
+      }), { request });
+      if (!run.ok) return run.response;
+      const result = run.value;
+      setSpanAttributes(span, { "cmux.exec.exit_code": result.exitCode });
+      return jsonResponse(result);
     },
   );
 }

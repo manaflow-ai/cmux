@@ -340,6 +340,30 @@ struct WorkspaceRemoteConfigurationValueTests {
         #expect(a.hasSamePersistentPTYIdentity(as: b))
     }
 
+    @Test("persistent PTY lookup keys cover exact and managed wildcard owners")
+    func persistentPTYLookupKeys() {
+        let ownerID = UUID()
+        let preserved = makeConfiguration(
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "slot",
+            ownerWorkspaceID: ownerID
+        )
+        #expect(preserved.persistentPTYIdentityLookupKeys.count == 1)
+        #expect(preserved.persistentPTYIdentityLookupKeys.first?.hasSuffix(ownerID.uuidString.lowercased()) == true)
+
+        let managed = makeConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+            managedCloudVMID: "vm-base",
+            skipDaemonBootstrap: true,
+            ownerWorkspaceID: ownerID
+        )
+        #expect(managed.persistentPTYIdentityLookupKeys.count == 2)
+        #expect(managed.persistentPTYIdentityLookupKeys.last?.hasSuffix("\u{1e}*") == true)
+    }
+
     @Test("sessionSnapshot persists restorable transports with a non-empty destination")
     func sessionSnapshotGating() {
         #expect(makeConfiguration(transport: .websocket).sessionSnapshot() == nil)

@@ -54,6 +54,8 @@ use crate::remote_runtime::{
 use crate::session::{RemoteSession, Session};
 
 const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(90);
+const WIREGUARD_HUB_START_TIMEOUT: Duration = Duration::from_secs(10);
+const WIREGUARD_HUB_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const ENROLLMENT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const MAX_RPC_STDIN_LINE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_CLIENT_RELAY_ROUTES: usize = 4;
@@ -214,6 +216,9 @@ struct ConnectFlags {
     iroh_path: IrohPathMode,
     wireguard_config: Option<PathBuf>,
     wireguard_hub: Option<PathBuf>,
+    /// Dial `ws`/`wss` routes with carrier authentication: no enrollment, no
+    /// invitation. Only a daemon serving a trusted-network listener accepts it.
+    carrier: bool,
     /// Internal app ownership fence. The helper exits when its direct parent exits,
     /// including an abort or forced app replacement that cannot run Swift cleanup.
     exit_with_parent: bool,
@@ -274,6 +279,7 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
                 InvitationArg::File(value("--invite-file")?.into()),
             )?,
             "--daemon" => flags.daemon = Some(value("--daemon")?),
+            "--carrier" => flags.carrier = true,
             "--lanes" => {
                 flags.lanes = value("--lanes")?.parse().map_err(|_: String| {
                     anyhow!(
@@ -677,6 +683,7 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         relay_routes,
         flags.iroh_path,
         direct_dialer,
+        flags.carrier,
     )?);
     let explicit_route = flags.route.take();
     let explicit_route_for_refresh = explicit_route.clone();
@@ -1728,7 +1735,11 @@ fn run_wg(args: &[String]) -> anyhow::Result<()> {
     let flags = parse_wg_hub_flags(&args[1..])?;
     let owner = flags.exit_with_parent.then(current_parent_process_id);
     let async_runtime = tokio_runtime()?;
-    let net = start_wireguard(&async_runtime, &flags.config)?;
+    let net =
+        start_wireguard_with_timeout(&async_runtime, &flags.config, WIREGUARD_HUB_START_TIMEOUT)?;
+    async_runtime.block_on(net.wait_for_handshake(WIREGUARD_HUB_HANDSHAKE_TIMEOUT)).map_err(
+        |error| anyhow!(catalog().remote_client.wireguard_start_failed(&error.to_string())),
+    )?;
     let hub = async_runtime
         .block_on(cmux_remote::wireguard_hub::serve_wireguard_hub(net, flags.socket))
         .map_err(|error| {
@@ -1799,6 +1810,25 @@ fn start_wireguard(
     runtime: &tokio::runtime::Runtime,
     path: &Path,
 ) -> anyhow::Result<Arc<cmux_wg::WgNet>> {
+    start_wireguard_with_timeout_inner(runtime, path, None)
+}
+
+/// Starts a hub tunnel with a deadline around endpoint resolution and UDP setup.
+/// A DNS/network stall must produce a child error so the app can retry, rather
+/// than leaving the Unix socket absent until the app-side readiness timeout.
+fn start_wireguard_with_timeout(
+    runtime: &tokio::runtime::Runtime,
+    path: &Path,
+    timeout: Duration,
+) -> anyhow::Result<Arc<cmux_wg::WgNet>> {
+    start_wireguard_with_timeout_inner(runtime, path, Some(timeout))
+}
+
+fn start_wireguard_with_timeout_inner(
+    runtime: &tokio::runtime::Runtime,
+    path: &Path,
+    timeout: Option<Duration>,
+) -> anyhow::Result<Arc<cmux_wg::WgNet>> {
     let text = cmux_remote::secret_file::read_owner_only_string(path, MAX_WIREGUARD_CONFIG_BYTES)
         .map_err(|error| {
         anyhow!(
@@ -1810,9 +1840,24 @@ fn start_wireguard(
     let config = cmux_wg::WgConfig::parse_wg_quick(&text).map_err(|error| {
         anyhow!(catalog().remote_client.wireguard_config_invalid(&error.to_string()))
     })?;
-    let net = runtime.block_on(cmux_wg::WgNet::start_with_new_socket(config)).map_err(|error| {
-        anyhow!(catalog().remote_client.wireguard_start_failed(&error.to_string()))
-    })?;
+    let net = match timeout {
+        // The timeout future must be built inside the runtime: `tokio::time::timeout`
+        // registers its sleep with the current reactor at construction, and there is
+        // none on this thread, so building it as `block_on`'s argument panics.
+        Some(timeout) => runtime
+            .block_on(async {
+                tokio::time::timeout(timeout, cmux_wg::WgNet::start_with_new_socket(config)).await
+            })
+            .map_err(|_| anyhow!("WireGuard startup timed out after {timeout:?}"))?
+            .map_err(|error| {
+                anyhow!(catalog().remote_client.wireguard_start_failed(&error.to_string()))
+            })?,
+        None => {
+            runtime.block_on(cmux_wg::WgNet::start_with_new_socket(config)).map_err(|error| {
+                anyhow!(catalog().remote_client.wireguard_start_failed(&error.to_string()))
+            })?
+        }
+    };
     Ok(Arc::new(net))
 }
 
@@ -2291,6 +2336,7 @@ fn run_remote_sidecar(args: &[String]) -> anyhow::Result<()> {
             admin_socket: None,
             direct_websocket: None,
             allow_insecure_non_loopback: false,
+            trusted_carrier_websocket: false,
             workspace_http: None,
             relays: Vec::new(),
             iroh: false,
@@ -2871,6 +2917,7 @@ mod tests {
                 BTreeMap::new(),
                 IrohPathMode::Auto,
                 None,
+                false,
             )
             .unwrap(),
         )
@@ -3105,6 +3152,29 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn wireguard_hub_start_deadline_is_built_inside_the_runtime() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // `wg hub` runs on a plain thread and hands its runtime to the starter.
+        // The deadline future used to be built as `block_on`'s argument, where no
+        // reactor exists, and every hub start panicked with "there is no reactor
+        // running". A literal endpoint keeps DNS out of the test; the start may
+        // still fail, and any `Result` is the pass condition.
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("hub.conf");
+        fs::write(
+            &config,
+            "[Interface]\nPrivateKey = yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=\nAddress = 100.64.0.1/32\nMTU = 1200\n\n[Peer]\nPublicKey = xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=\nAllowedIPs = 10.0.0.0/24\nEndpoint = 127.0.0.1:1\n",
+        )
+        .unwrap();
+        fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
+        let runtime = tokio_runtime().unwrap();
+        let started = start_wireguard_with_timeout(&runtime, &config, Duration::from_secs(5));
+        drop(started);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn invitation_file_requires_owner_only_permissions() {
         use std::os::unix::fs::PermissionsExt;
 
@@ -3133,6 +3203,41 @@ mod tests {
         let error = read_invitation_uri(&fifo).unwrap_err().to_string();
         assert!(started.elapsed() < Duration::from_secs(1));
         assert!(error.contains("regular file"));
+    }
+
+    #[test]
+    fn carrier_flag_is_off_by_default_and_needs_no_value() {
+        let default = parse_connect_flags(&["ws://10.0.0.5:1337/v1/link".into()]).unwrap();
+        assert!(!default.carrier);
+        let carrier =
+            parse_connect_flags(&["ws://10.0.0.5:1337/v1/link".into(), "--carrier".into()])
+                .unwrap();
+        assert!(carrier.carrier);
+        assert_eq!(carrier.route.as_deref(), Some("ws://10.0.0.5:1337/v1/link"));
+        let registry = client_provider_registry(
+            SshProviderConfig::default(),
+            BTreeMap::new(),
+            IrohPathMode::Auto,
+            None,
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            registry.supported_client_auth("ws").unwrap(),
+            SupportedClientAuthModes::DeviceOrCarrier
+        );
+        let registry = client_provider_registry(
+            SshProviderConfig::default(),
+            BTreeMap::new(),
+            IrohPathMode::Auto,
+            None,
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            registry.supported_client_auth("ws").unwrap(),
+            SupportedClientAuthModes::DeviceOnly
+        );
     }
 
     #[test]
@@ -4459,6 +4564,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,

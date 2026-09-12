@@ -38,20 +38,14 @@ struct CmxConnectivityPeerSessionTests {
         let peerID = try CmxConnectivityPeerID(request: request)
         let log = DiagnosticLog(capacity: 32, role: .mobileClient)
         let admitted = TestConnectivitySession(continuityID: 17)
-        let builder = GatedConnectivitySessionBuilder(session: admitted)
+        let builder = SequencedConnectivitySessionBuilder(sessions: [admitted])
         let peer = CmxConnectivityPeerSession(
             peerID: peerID,
             buildSession: { request in try await builder.build(request) },
             diagnosticLog: log
         )
 
-        // The gated builder parks every dial until released. Awaiting the
-        // dial before releasing the gate deadlocked this test (and the
-        // package CI job) permanently.
-        let dial = Task { try await peer.connectedSession(for: request) }
-        try await Self.waitUntil { await builder.callCount() == 1 }
-        await builder.release()
-        _ = try await dial.value
+        _ = try await peer.connectedSession(for: request)
         await peer.releaseControl(ownerID: UUID())
         await peer.invalidate()
         #expect(await waitForDiagnosticProcessedCount(log, atLeast: 3))
@@ -857,6 +851,8 @@ private actor TestConnectivitySession: CmxConnectivitySession {
     private var closes = 0
     private var closeFailure = DiagnosticFailureKind.connectionClosed
     private var closureWaiters: [CheckedContinuation<Void, Never>] = []
+    private var cancellableClosureWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var cancelledClosureObservationIDs = Set<UUID>()
     private var closeAttributionWaiter: CheckedContinuation<Void, Never>?
     private var closeAttributionWaiting = false
     private var isClosedGatePending: Bool
@@ -914,6 +910,36 @@ private actor TestConnectivitySession: CmxConnectivitySession {
         if closed { return }
         await withCheckedContinuation { continuation in
             closureWaiters.append(continuation)
+        }
+    }
+
+    func makeClosureObservationID() async -> UUID? {
+        guard !closed else { return nil }
+        return UUID()
+    }
+
+    func waitForClosure(observationID: UUID) async {
+        if closed || cancelledClosureObservationIDs.remove(observationID) != nil {
+            return
+        }
+        await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { continuation in
+                if closed || cancelledClosureObservationIDs.remove(observationID) != nil {
+                    continuation.resume()
+                } else {
+                    cancellableClosureWaiters[observationID] = continuation
+                }
+            }
+        }, onCancel: {
+            Task { await self.cancelClosureObservation(observationID: observationID) }
+        })
+    }
+
+    func cancelClosureObservation(observationID: UUID) {
+        if let continuation = cancellableClosureWaiters.removeValue(forKey: observationID) {
+            continuation.resume()
+        } else {
+            cancelledClosureObservationIDs.insert(observationID)
         }
     }
 
@@ -1048,6 +1074,12 @@ private actor TestConnectivitySession: CmxConnectivitySession {
         let waiters = closureWaiters
         closureWaiters.removeAll()
         for waiter in waiters {
+            waiter.resume()
+        }
+        let cancellableWaiters = cancellableClosureWaiters
+        cancellableClosureWaiters.removeAll()
+        cancelledClosureObservationIDs.removeAll()
+        for waiter in cancellableWaiters.values {
             waiter.resume()
         }
     }

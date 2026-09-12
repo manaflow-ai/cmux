@@ -42,6 +42,28 @@ per-signature cooldown, caps failure captures per hour, and escalates a
 sustained no-success failure streak into one error-severity
 `transport-outage` event. Environment (reachability, app lifecycle phase,
 seconds since last success, consecutive-failure count) rides on every capture.
+Only a user-usable outcome (`pairOk`, `rpcReady`, or `recoverySucceeded`)
+resets that streak. Discovery, endpoint startup, socket connection,
+authentication, and admission remain progress breadcrumbs because any of them
+can succeed repeatedly while a later phase keeps the phone unusable.
+
+## iOS Axiom outcomes
+
+The iOS composition root also sends important fixed-enum events through a
+dedicated `AnalyticsEmitter` to `/api/observability/mobile-network`. This is
+separate from the PostHog product emitter. The authenticated route rejects
+unknown properties, stamps the authoritative Stack user ID, and emits one
+always-sampled `cmux.mobile.network.outcome` OpenTelemetry span per accepted
+event. The existing server exporter writes those spans to Axiom. No Axiom
+credential ships in the app.
+
+Use `cmux.mobile.phase`, `cmux.mobile.outcome`, `cmux.mobile.failure`,
+`cmux.mobile.transport`, `cmux.mobile.user_usable`, and
+`cmux.mobile.duration_ms` for breakdowns. `cmux.user_id` identifies accounts
+with repeated failure outcomes. Latency monitors should group p95 duration by
+phase, transport, app version, and OS version. Sentry remains the immediate
+client-side outage alert when the cmux backend itself is unreachable and
+therefore cannot accept an Axiom upload.
 
 ## Wiring
 

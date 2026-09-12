@@ -105,6 +105,10 @@ actor CloudWireGuardHub {
     private let processHandle = CloudWireGuardHubProcessHandle()
     private var state: State = .stopped
     private var leases: Set<Lease> = []
+    /// Keeps one hub claim for the signed-in account while its machine fleet is non-empty.
+    /// Without this claim, a transient first-start failure drops the last demand and leaves
+    /// every machine waiting for the next catalog poll to try again.
+    private var prewarmLease: Lease?
     private var pinnedByExternalClient = false
     /// Bumped on every intentional stop so a stale exit callback cannot restart a hub
     /// that was stopped on purpose.
@@ -137,7 +141,7 @@ actor CloudWireGuardHub {
             socketURL: manager.stateDir.appendingPathComponent("hub-\(getpid()).sock", isDirectory: false),
             spawner: CloudWireGuardHubProcessSpawner(),
             waitUntilReady: { socketPath in
-                try await CloudWireGuardHubSocketReadiness.wait(socketPath: socketPath, timeout: .seconds(20))
+                try await CloudWireGuardHubSocketReadiness.wait(socketPath: socketPath, timeout: .seconds(45))
             },
             sleep: { duration in try await ContinuousClock().sleep(for: duration) },
             restartBackoff: Configuration.defaultRestartBackoff,
@@ -175,6 +179,43 @@ actor CloudWireGuardHub {
         }
     }
 
+    /// Starts the shared hub before individual machine links race to acquire it.
+    /// The claim remains held until the fleet is empty or account access ends, so an
+    /// unexpected child exit is eligible for the actor's bounded restart policy.
+    func prewarm() async throws -> Ready {
+        if prewarmLease != nil {
+            restartTask?.cancel()
+            restartTask = nil
+            return try await ensureRunning()
+        }
+
+        var lastError: Error?
+        let retryDelays = Array(configuration.restartBackoff.prefix(3))
+        for attempt in 0...retryDelays.count {
+            do {
+                let claim = try await acquire()
+                prewarmLease = claim.lease
+                return claim.ready
+            } catch {
+                lastError = error
+                guard attempt < retryDelays.count else { break }
+                do {
+                    try await configuration.sleep(retryDelays[attempt])
+                } catch {
+                    throw CancellationError()
+                }
+            }
+        }
+        throw lastError ?? HubError.notReady("hub startup failed without a reported error")
+    }
+
+    /// Releases the account-level prewarm claim after the fleet becomes empty.
+    func releasePrewarm() {
+        guard let prewarmLease else { return }
+        self.prewarmLease = nil
+        release(prewarmLease)
+    }
+
     /// Ends one link's claim; the hub stops ``Configuration/idleGrace`` after the last one.
     func release(_ lease: Lease) {
         leases.remove(lease)
@@ -200,6 +241,7 @@ actor CloudWireGuardHub {
         restartTask = nil
         restartAttempts = 0
         leases.removeAll()
+        prewarmLease = nil
         pinnedByExternalClient = false
         if case .starting(_, let task) = state { task.cancel() }
         state = .stopped
@@ -311,9 +353,14 @@ actor CloudWireGuardHub {
         case .success:
             break
         case .failure(let error):
+            let output = process.outputTail.trimmingCharacters(in: .whitespacesAndNewlines)
             process.terminate()
-            if let hubError = error as? HubError { throw hubError }
-            throw HubError.notReady(CloudMachineLink.errorText(error))
+            let detail = CloudMachineLink.errorText(error)
+            if let hubError = error as? HubError {
+                let hubDetail = hubError.errorDescription ?? detail
+                throw HubError.notReady(output.isEmpty ? hubDetail : "\(hubDetail); hub output: \(output)")
+            }
+            throw HubError.notReady(output.isEmpty ? detail : "\(detail); hub output: \(output)")
         }
         guard process.isRunning else {
             throw HubError.exitedDuringStart(status: process.exitStatus ?? -1, output: process.outputTail)

@@ -232,8 +232,11 @@ extension MobileHostAuthorizationTests {
         }
         await waitForMobileHostConnectionCount(1)
         try await persistentTransport.enqueue(Self.mobileHostStatusFrame(id: "persistent"))
-        _ = await persistentTransport.waitForSentBufferCount(1)
-        try await Task.sleep(nanoseconds: 25_000_000)
+        let sentAfterFirstStatus = await persistentTransport.waitForSentBufferCount(1).count
+        // Exercise a subsequent request without a wall-clock sleep. If the
+        // transport closes before replying, the waiter records a test failure.
+        try await persistentTransport.enqueue(Self.mobileHostStatusFrame(id: "persistent-again"))
+        _ = await persistentTransport.waitForSentBufferCount(sentAfterFirstStatus + 1)
 
         #expect(await persistentTransport.observedCloseCount() == 0)
         #expect(registry.count == 1)
@@ -881,6 +884,11 @@ private actor ScriptedMobileHostByteTransport: CmxByteTransport {
 
     func close() async {
         closeCount += 1
+        let pendingSentWaiters = sentWaiters
+        sentWaiters.removeAll()
+        for waiter in pendingSentWaiters {
+            waiter.continuation.resume(returning: sent)
+        }
         let ready = closeWaiters.filter { closeCount >= $0.count }
         closeWaiters.removeAll { closeCount >= $0.count }
         for waiter in ready {
@@ -909,12 +917,16 @@ private actor ScriptedMobileHostByteTransport: CmxByteTransport {
     }
 
     func waitForSentBufferCount(_ count: Int) async -> [Data] {
-        if sent.count >= count {
-            return sent
+        let buffers: [Data]
+        if sent.count >= count || closeCount > 0 {
+            buffers = sent
+        } else {
+            buffers = await withCheckedContinuation { continuation in
+                sentWaiters.append((count, continuation))
+            }
         }
-        return await withCheckedContinuation { continuation in
-            sentWaiters.append((count, continuation))
-        }
+        #expect(buffers.count >= count, "Transport closed before the expected response was sent")
+        return buffers
     }
 
     func observedCloseCount() -> Int { closeCount }
