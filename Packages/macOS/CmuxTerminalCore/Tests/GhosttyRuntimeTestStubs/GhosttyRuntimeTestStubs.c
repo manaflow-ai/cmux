@@ -1,5 +1,8 @@
 #include "include/GhosttyRuntimeTestStubs.h"
 
+#if defined(__APPLE__)
+#include <dlfcn.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,6 +19,21 @@ typedef struct {
     bool has_foreground;
     uint32_t diagnostics_count;
 } GhosttyRuntimeTestConfig;
+
+#if defined(__APPLE__)
+typedef int (*GhosttyInitFunction)(uintptr_t argc, char **argv);
+
+__attribute__((constructor))
+static void initialize_linked_ghostty_runtime(void) {
+    GhosttyInitFunction initialize =
+        (GhosttyInitFunction)dlsym(RTLD_DEFAULT, "ghostty_init");
+    if (initialize == NULL) return;
+
+    static char process_name[] = "CmuxTerminalCoreTests";
+    static char *arguments[] = {process_name, NULL};
+    if (initialize(1, arguments) != 0) abort();
+}
+#endif
 
 GHOSTTY_RUNTIME_TEST_STUB_WEAK int ghostty_init(uintptr_t argc, char **argv) {
     (void)argc;
