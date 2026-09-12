@@ -10491,23 +10491,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     )
                 }
             }
-            if shouldTemporarilyDisallowFullScreenTiling {
-                let clearFullScreenTilingOptOut: () -> Void = { [weak window] in
-                    guard let window else { return }
-                    window.collectionBehavior.remove(.fullScreenDisallowsTiling)
-                    if window.collectionBehavior.contains(.fullScreenDisallowsTiling) {
-                        var behavior = window.collectionBehavior
-                        behavior.remove(.fullScreenDisallowsTiling)
-                        window.collectionBehavior = behavior
-                    }
-                }
-                RunLoop.main.perform {
-                    clearFullScreenTilingOptOut()
-                }
-                DispatchQueue.main.async {
-                    clearFullScreenTilingOptOut()
-                }
-            }
         }
         if tabManager.tabs.isEmpty {
             Task { @MainActor [weak tabManager] in
