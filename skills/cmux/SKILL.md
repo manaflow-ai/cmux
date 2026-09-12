@@ -61,3 +61,7 @@ Terminal rendering (font, cursor style, theme, scrollback, `background-opacity`,
 | [../cmux-settings/SKILL.md](../cmux-settings/SKILL.md) | Safe cmux.json settings edits and validation |
 | [../cmux-browser/SKILL.md](../cmux-browser/SKILL.md) | Browser automation on surface-backed webviews |
 | [../cmux-markdown/SKILL.md](../cmux-markdown/SKILL.md) | Markdown viewer panel with live file watching |
+
+## GPT-6 Astra agent guidance
+
+Use `gpt-6-astra` for OpenAI-backed agent work in this repository. Start with reasoning effort `low` for routine tasks and increase it when the task needs deeper analysis. Preserve the current effort when it is already `medium`, `high`, `xhigh`, or `max`; `none` is unsupported. For tool-calling integrations, use the Responses API and remove unsupported sampling and log probability parameters.
