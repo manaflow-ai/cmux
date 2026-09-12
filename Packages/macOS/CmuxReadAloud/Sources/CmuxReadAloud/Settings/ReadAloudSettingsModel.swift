@@ -30,7 +30,7 @@ public final class ReadAloudSettingsModel {
 
     var hasUnsavedConfiguration: Bool {
         selectedModel != savedConfiguration.model
-            || voiceID != savedConfiguration.voiceID
+            || voiceID.trimmingCharacters(in: .whitespacesAndNewlines) != savedConfiguration.voiceID
             || speed != savedConfiguration.speed
     }
 

@@ -11,6 +11,7 @@ public final class PCMReadAloudPlayer {
     private let node = AVAudioPlayerNode()
     private let format = AVAudioFormat(standardFormatWithSampleRate: 32_000, channels: 1)
     private var graphConnected = false
+    private var nodeAttached = false
     private var generation: UUID?
     private var incompleteSample: UInt8?
     private var scheduledBuffers: Set<UUID> = []
@@ -124,8 +125,11 @@ public final class PCMReadAloudPlayer {
     }
 
     private func startEngine(format: AVAudioFormat) throws {
-        if !graphConnected {
+        if !nodeAttached {
             engine.attach(node)
+            nodeAttached = true
+        }
+        if !graphConnected {
             engine.connect(node, to: engine.mainMixerNode, format: format)
             graphConnected = true
         }
