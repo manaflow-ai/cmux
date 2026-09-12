@@ -3029,4 +3029,17 @@
       "ja": "Command syntax is intentionally identical in this locale."
     }
   }
+,
+  "cli.localContainer.socketPath": {
+    "source": "CMUX_SOCKET_PATH=%@",
+    "class": "technical invariant"
+  },
+  "cli.localContainer.capability": {
+    "source": "CMUX_SOCKET_CAPABILITY=%@",
+    "class": "technical invariant"
+  },
+  "cli.localContainer.protocol": {
+    "source": "CMUX_SOCKET_CAPABILITY_PROTOCOL=%@",
+    "class": "technical invariant"
+  }
 }

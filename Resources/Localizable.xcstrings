@@ -509928,7 +509928,184 @@
           }
         }
       }
-    }
+    },
+     "cli.localContainer.usage": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Usage: cmux local-container lease [--json]\n\nMint a same-user capability for a local container whose process ancestry\ncannot be observed by cmux. The result includes the live socket path and\nthe capability used in a _cmux_capability_v1 command envelope."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "使用法: cmux local-container lease [--json]\n\nローカルコンテナ用に同一ユーザーの機能を発行します。\nプロセスの祖先を cmux が観測できない場合に使用します。\n結果にはライブソケットパスと機能が含まれます。"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Verwendung: cmux local-container lease [--json]\n\nStellt eine Berechtigung für einen lokalen Container aus.\ncmux kann dessen Prozessherkunft nicht beobachten.\nDas Ergebnis enthält Socket-Pfad und Berechtigung."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Utilisation : cmux local-container lease [--json]\n\nÉmet une capacité pour un conteneur local.\ncmux ne peut pas observer son ascendance de processus.\nLe résultat contient le chemin du socket et la capacité."
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "الاستخدام: cmux local-container lease [--json]\n\nإصدار قدرة لحاوية محلية.\nلا يستطيع cmux مراقبة تسلسل عملياتها.\nتتضمن النتيجة مسار المقبس والقدرة."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Uso: cmux local-container lease [--json]\n\nEmite una capacidad para un contenedor local.\ncmux no puede observar su árbol de procesos.\nEl resultado incluye la ruta del socket y la capacidad."
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "用法：cmux local-container lease [--json]\n\n為本機容器簽發能力。\ncmux 無法觀察其處理程序祖先。\n結果包含插槽路徑和能力。"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "用法：cmux local-container lease [--json]\n\n为本地容器签发能力。\ncmux 无法观察其进程祖先。\n结果包含套接字路径和能力。"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "사용법: cmux local-container lease [--json]\n\n로컬 컨테이너에 대한 기능을 발급합니다.\ncmux가 프로세스 조상을 관찰할 수 없을 때 사용합니다.\n결과에 소켓 경로와 기능이 포함됩니다."
+            }
+          }
+        }
+      },
+      "cli.localContainer.unknownSubcommand": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Unknown local-container subcommand: %@\n\n%@"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "알 수 없는 local-container 하위 명령: %@\n\n%@"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Unbekannter local-container-Unterbefehl: %@\n\n%@"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Sous-commande local-container inconnue : %@\n\n%@"
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "أمر local-container الفرعي غير معروف: %@\n\n%@"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Subcomando de local-container desconocido: %@\n\n%@"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "未知的 local-container 子命令：%@\n\n%@"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "未知的 local-container 子命令：%@\n\n%@"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "알 수 없는 local-container 하위 명령: %@\n\n%@"
+            }
+          }
+        }
+      },
+      "cli.localContainer.invalidLease": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "The cmux socket did not return a usable local-container lease"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux ソケットが使用可能な local-container リースを返しませんでした"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Der cmux-Socket hat keine verwendbare local-container-Lease zurückgegeben"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Le socket cmux n’a pas renvoyé de lease local-container utilisable"
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "لم يُرجع مقبس cmux عقدة local-container صالحة للاستخدام"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "El socket de cmux no devolvió una concesión de local-container utilizable"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux 插槽未傳回可用的 local-container 租約"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux 套接字未返回可用的 local-container 租约"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux 소켓이 사용 가능한 local-container lease를 반환하지 않았습니다"
+            }
+          }
+        }
+      }
   },
   "version": "1.0"
 }
