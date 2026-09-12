@@ -655,6 +655,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                 }
             },
             createWorkspace: {},
+            canCreateWorkspace: false,
             createWorkspaceInGroup: reorderEnabled ? { _ in } : nil,
             createWorkspaceGroup: reorderEnabled ? {} : nil,
             macSelection: $macSelection,
@@ -737,7 +738,6 @@ public struct WorkspaceListLayoutPreviewView: View {
             setWorkspaceSortMode: nil,
             workspaceComputerPriority: fixtureComputerPriority,
             setWorkspaceComputerPriority: nil,
-            canCreateWorkspace: false,
             filterState: filterState,
             searchText: searchText
         )
