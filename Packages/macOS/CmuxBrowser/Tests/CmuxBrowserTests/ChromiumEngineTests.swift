@@ -283,6 +283,36 @@ struct ChromiumEngineTests {
         }
     }
 
+    @Test("CDP history-edge no-ops advance the navigation revision")
+    func cdpHistoryEdgeNoOpAdvancesNavigationRevision() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-chromium-no-op-navigation-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let environment = ChromiumBrowserRuntimeEnvironment(
+            fileManager: .default,
+            runtimeDownloadSession: URLSession(configuration: .ephemeral),
+            loopbackCDPSession: URLSession(configuration: .ephemeral),
+            applicationSupportURLProvider: { root },
+            bundleIdentifierProvider: { "com.example.cmux" },
+            executableOverrideProvider: { nil },
+            startupDeadline: {}
+        )
+        let session = ChromiumBrowserSession(profileID: UUID(), environment: environment)
+        let history = try ChromiumNavigationHistory(.object([
+            "currentIndex": .number(0),
+            "entries": .array([
+                .object(["id": .number(1), "url": .string("https://example.test")]),
+            ]),
+        ]))
+
+        await session.completeNoOpNavigation(history)
+
+        #expect(await session.currentNavigationRevision() == 1)
+        #expect(await session.isLoading == false)
+        #expect(await session.canGoBack == false)
+        #expect(await session.canGoForward == false)
+    }
+
     @Test("CDP navigation waits accept a server redirect only after a navigation event")
     func cdpRedirectCompletionRequiresNavigationEvent() {
         #expect(!ChromiumNavigationCompletionPredicate.accepts(
