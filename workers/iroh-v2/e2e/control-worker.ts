@@ -14,6 +14,13 @@ class InMemoryWorkspaceProductStore implements WorkspaceProductStore {
     return this.values.get(`${teamId}/${vmId}`) ?? null;
   }
 
+  async list(teamId: string) {
+    return [...this.values].flatMap(([key, state]) => {
+      if (!key.startsWith(`${teamId}/`)) return [];
+      return [{ vmId: key.slice(teamId.length + 1), generation: state.generation, revision: state.revision }];
+    });
+  }
+
   async put(input: { teamId: string; vmId: string; generation: string; revision: number; snapshot: WorkspaceSnapshot }) {
     const key = `${input.teamId}/${input.vmId}`;
     const current = this.values.get(key);

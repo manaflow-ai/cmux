@@ -192,6 +192,10 @@ export class TeamBroker {
         if (!current) throw new OperationError("resync_required", 409, true);
         return { response: { schemaId: "workspace.snapshot.result.v1", requestId: request.requestId, vmId: request.vmId, ...current } };
       }
+      case "workspace.list.v1": {
+        if (!this.dependencies.workspace) throw new OperationError("upstream_unavailable", 503, true, 2000);
+        return { response: { schemaId: "workspace.list.result.v1", requestId: request.requestId, workspaces: [...await this.dependencies.workspace.list(authority.teamId)] } };
+      }
       case "session.goodbye.v1": return { ...this.completed(request.requestId, this.dependencies.store.readRevision()), close: true };
       default: throw new OperationError("unsupported_method", 400);
     }
@@ -276,6 +280,11 @@ export class TeamBroker {
         const current = await this.dependencies.workspace.get(session.identity.teamId, request.vmId);
         if (!current) throw new OperationError("resync_required", 409, true);
         return { response: { schemaId: "workspace.snapshot.result.v1", requestId: request.requestId, vmId: request.vmId, ...current } };
+      }
+      case "workspace.list.v1": {
+        if (!this.dependencies.workspace) throw new OperationError("upstream_unavailable", 503, true, 2000);
+        this.requiredDevice(session);
+        return { response: { schemaId: "workspace.list.result.v1", requestId: request.requestId, workspaces: [...await this.dependencies.workspace.list(session.identity.teamId)] } };
       }
       case "session.ack.v1": throw new OperationError("unsupported_method", 400); // Socket adapter owns its delivery ledger.
     }

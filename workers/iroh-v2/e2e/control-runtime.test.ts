@@ -166,6 +166,18 @@ test("workspace snapshots persist through the product path and reject revision g
   expect(fetched.body.revision).toBe(0);
   expect(fetched.body.snapshot).toEqual(snapshot);
 
+  const list = { schemaId: "workspace.list.v1", requestId: "workspace-list" };
+  const listSetup = await setupFor(list.requestId, list);
+  const listed = await json("https://iroh.test/v2/requests", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `IrohTicket ${ticket}`, "x-cmux-v2-setup": setupHeader(listSetup) },
+    body: JSON.stringify(list),
+  });
+  expect(listed.response.status).toBe(200);
+  expect(listed.body.schemaId).toBe("workspace.list.result.v1");
+  expect(listed.body.workspaces).toHaveLength(1);
+  expect(listed.body.workspaces[0].vmId).toBe("control-device");
+
   const gap = { ...put, requestId: "workspace-gap", revision: 2 };
   const gapSetup = await setupFor(gap.requestId, gap);
   const rejected = await json("https://iroh.test/v2/requests", {

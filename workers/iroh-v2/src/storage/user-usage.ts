@@ -30,6 +30,7 @@ export const USAGE_POLICIES = {
   "preferences.update": perMinute(300, 100),
   "workspace.snapshot": perMinute(600, 200),
   "workspace.get": perMinute(600, 200),
+  "workspace.list": perMinute(300, 100),
   "input.rejected": perMinute(6000, 1000),
 } as const satisfies Record<string, Policy>;
 

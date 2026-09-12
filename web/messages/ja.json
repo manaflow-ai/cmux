@@ -533,6 +533,17 @@
       "revoked": "Revoked",
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
+      "vmsTitle": "Cloud VMs",
+      "vmsDescription": "Cloud VMs available to this team.",
+      "vmsEmpty": "No Cloud VMs are available for this team.",
+      "unnamedVm": "Unnamed VM",
+      "workspacesTitle": "Connected Workspaces",
+      "workspacesDescription": "Workspace and terminal state for this team, updated in real time.",
+      "workspacesEmpty": "No synced workspaces are available for this team.",
+      "vmLabel": "VM {id}",
+      "revisionLabel": "revision {revision}",
+      "focused": "focused",
+      "noTerminals": "No terminals",
       "saveRelaySettings": "Save relay settings"
     }
   },

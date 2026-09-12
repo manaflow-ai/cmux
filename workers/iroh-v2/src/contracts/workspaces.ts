@@ -36,3 +36,8 @@ export const WorkspaceGetRequestSchema = z.strictObject({
   requestId: identifier,
   vmId: identifier,
 });
+
+export const WorkspaceListRequestSchema = z.strictObject({
+  schemaId: z.literal("workspace.list.v1"),
+  requestId: identifier,
+});

@@ -28,6 +28,7 @@
 //   let v2SocketSetup = try? JSONDecoder().decode(V2SocketSetup.self, from: jsonData)
 //   let v2TicketRequest = try? JSONDecoder().decode(V2TicketRequest.self, from: jsonData)
 //   let v2WorkspaceGetRequest = try? JSONDecoder().decode(V2WorkspaceGetRequest.self, from: jsonData)
+//   let v2WorkspaceListRequest = try? JSONDecoder().decode(V2WorkspaceListRequest.self, from: jsonData)
 //   let v2WorkspaceSnapshotRequest = try? JSONDecoder().decode(V2WorkspaceSnapshotRequest.self, from: jsonData)
 //   let v2ChallengeResponse = try? JSONDecoder().decode(V2ChallengeResponse.self, from: jsonData)
 //   let v2ChangedResponse = try? JSONDecoder().decode(V2ChangedResponse.self, from: jsonData)
@@ -44,6 +45,7 @@
 //   let v2RevokedResponse = try? JSONDecoder().decode(V2RevokedResponse.self, from: jsonData)
 //   let v2TicketResponse = try? JSONDecoder().decode(V2TicketResponse.self, from: jsonData)
 //   let v2WorkspaceChangedResponse = try? JSONDecoder().decode(V2WorkspaceChangedResponse.self, from: jsonData)
+//   let v2WorkspaceListResponse = try? JSONDecoder().decode(V2WorkspaceListResponse.self, from: jsonData)
 //   let v2WorkspaceSnapshotResponse = try? JSONDecoder().decode(V2WorkspaceSnapshotResponse.self, from: jsonData)
 //   let v2Platform = try? JSONDecoder().decode(V2Platform.self, from: jsonData)
 
@@ -643,6 +645,32 @@ public struct V2WorkspaceGetRequest: Codable, Equatable, Sendable {
 
 public enum V2WorkspaceGetRequestSchemaID: String, Codable, Equatable, Sendable {
     case workspaceGetV1 = "workspace.get.v1"
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - V2WorkspaceListRequest
+public struct V2WorkspaceListRequest: Codable, Equatable, Sendable {
+    public let requestID: String
+    public let schemaID: V2WorkspaceListRequestSchemaID
+
+    public enum CodingKeys: String, CodingKey {
+        case requestID = "requestId"
+        case schemaID = "schemaId"
+    }
+
+    public init(requestID: String, schemaID: V2WorkspaceListRequestSchemaID) {
+        self.requestID = requestID
+        self.schemaID = schemaID
+    }
+}
+
+public enum V2WorkspaceListRequestSchemaID: String, Codable, Equatable, Sendable {
+    case workspaceListV1 = "workspace.list.v1"
 }
 
 //
@@ -1509,6 +1537,63 @@ public struct V2WorkspaceChangedResponse: Codable, Equatable, Sendable {
 
 public enum V2WorkspaceChangedResponseSchemaID: String, Codable, Equatable, Sendable {
     case workspaceChangedV1 = "workspace.changed.v1"
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - V2WorkspaceListResponse
+public struct V2WorkspaceListResponse: Codable, Equatable, Sendable {
+    public let deliveryReceipt: V2DeliveryReceipt?
+    public let requestID: String
+    public let schemaID: V2WorkspaceListResponseSchemaID
+    public let workspaces: [V2WorkspaceListResponseWorkspace]
+
+    public enum CodingKeys: String, CodingKey {
+        case deliveryReceipt = "deliveryReceipt"
+        case requestID = "requestId"
+        case schemaID = "schemaId"
+        case workspaces = "workspaces"
+    }
+
+    public init(deliveryReceipt: V2DeliveryReceipt? = nil, requestID: String, schemaID: V2WorkspaceListResponseSchemaID, workspaces: [V2WorkspaceListResponseWorkspace]) {
+        self.deliveryReceipt = deliveryReceipt
+        self.requestID = requestID
+        self.schemaID = schemaID
+        self.workspaces = workspaces
+    }
+}
+
+public enum V2WorkspaceListResponseSchemaID: String, Codable, Equatable, Sendable {
+    case workspaceListResultV1 = "workspace.list.result.v1"
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - V2WorkspaceListResponseWorkspace
+public struct V2WorkspaceListResponseWorkspace: Codable, Equatable, Sendable {
+    public let generation: String
+    public let revision: Int
+    public let vmID: String
+
+    public enum CodingKeys: String, CodingKey {
+        case generation = "generation"
+        case revision = "revision"
+        case vmID = "vmId"
+    }
+
+    public init(generation: String, revision: Int, vmID: String) {
+        self.generation = generation
+        self.revision = revision
+        self.vmID = vmID
+    }
 }
 
 //
