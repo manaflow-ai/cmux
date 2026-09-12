@@ -456,10 +456,7 @@ extension MobileHostAuthorizationTests {
         ))
     }
 
-    /// A subscriber whose transport accepted a frame but never completes the
-    /// write (TCP zero-window peer) is torn down by the bounded event-send
-    /// stall deadline instead of pinning the connection's queue, tasks, and
-    /// socket forever.
+    /// A stalled event write does not end the connection or interrupt framing.
     @Test func testEventSendStallDoesNotCloseConnection() async throws {
         let transport = StalledSendMobileHostByteTransport()
         let recorder = MobileHostConnectionCloseRecorder()
@@ -467,7 +464,6 @@ extension MobileHostAuthorizationTests {
         let session = MobileHostConnection(
             id: connectionID,
             transport: transport,
-            eventSendStallTimeoutNanoseconds: 5_000_000,
             authorizeRequest: { _ in nil },
             onAuthorizedRequest: { _ in },
             handleRequest: { _ in .ok([:]) },
@@ -481,8 +477,8 @@ extension MobileHostAuthorizationTests {
             payload: ["surface_id": "surface-stall-8842", "full": true]
         )
         await transport.waitUntilSendStalled()
-        // Wait beyond the configured deadline to prove it cannot terminate
-        // an established session merely because this write has not completed.
+        // Exercise an unresolved send across suspension before verifying
+        // that the connection has not been closed on the application's behalf.
         try await Task.sleep(for: .milliseconds(30))
         #expect(await recorder.recordedIDs().isEmpty)
         #expect(await transport.observedCloseCount() == 0)
@@ -514,7 +510,6 @@ extension MobileHostAuthorizationTests {
             isFullRenderGridFrame: false, frame: frame
         )
         #expect(!overflow.admitted)
-        #expect(!overflow.shouldClose)
         #expect(overflow.renderGridResyncSurfaceIDs == ["s1"])
         #expect(queue.count == 0)
         // While poisoned, deltas stay refused even though there is room.
@@ -552,7 +547,6 @@ extension MobileHostAuthorizationTests {
             isFullRenderGridFrame: false, frame: frame
         )
         #expect(overflow.admitted)
-        #expect(!overflow.shouldClose)
         #expect(queue.count == 2)
         #expect(queue.dequeue()?.frame == frame)
         #expect(queue.dequeue()?.frame == frame)

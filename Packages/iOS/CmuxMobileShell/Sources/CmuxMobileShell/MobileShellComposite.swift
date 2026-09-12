@@ -1243,7 +1243,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var renderGridLivenessProbeTask: Task<Void, Never>?
     private var renderGridLivenessProbeID: UUID?
     private var renderGridLivenessConsecutiveProbeFailures = 0
-    private var renderGridLivenessLaneRepairAttempts = 0
     var lastTerminalEventAt: Date?
     @ObservationIgnored var terminalInputAckResubscribeRetryTask: Task<Void, Never>?
     @ObservationIgnored var terminalInputAckResubscribeRetryTaskID: UUID?
@@ -11949,8 +11948,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Applies an availability failure only to the connection that produced it.
-    /// A blocked transport write is definitive and enters the single recovery
-    /// owner; an ordinary response timeout remains scoped to that one RPC.
+    /// Request deadlines remain scoped to their operation. A transport failure
+    /// enters recovery only after checking the native connection state.
     func handleMacAvailabilityFailureIfCurrent(
         after error: any Error,
         expectedClient: MobileCoreRPCClient,
@@ -13915,7 +13914,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mobileShellLog.info("terminal event stream ended before subscribe ack, marking unavailable")
             MobileDebugLog.anchormux("sync.stream_ended before subscribe ack; failed start")
             diagnosticLog?.record(DiagnosticEvent(.error))
-            recoverDeadConnection(
+            recoverClosedControlSession(
                 trigger: .subscriptionStartFailed,
                 expectedClient: client
             )
@@ -13988,7 +13987,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         renderGridLivenessProbeTask = nil
         renderGridLivenessProbeID = nil
         renderGridLivenessConsecutiveProbeFailures = 0
-        renderGridLivenessLaneRepairAttempts = 0
     }
 
     /// Single ownership point for the liveness clock the watchdog reads.
@@ -14003,7 +14001,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func recordTerminalEventStreamLiveness() {
         lastTerminalEventAt = runtime?.now() ?? Date()
         renderGridLivenessConsecutiveProbeFailures = 0
-        renderGridLivenessLaneRepairAttempts = 0
     }
 
     #if DEBUG
@@ -14130,19 +14127,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // stream stalled. Keep the shared Iroh session, whose other
                 // lanes may still carry terminal input and keepalives, and
                 // restart only the event listener.
-                self.renderGridLivenessLaneRepairAttempts += 1
-                let laneRepairAttempts = self.renderGridLivenessLaneRepairAttempts
-                let escalate = laneRepairAttempts >= 2
-                if escalate {
-                    self.renderGridLivenessLaneRepairAttempts = 0
-                }
                 MobileDebugLog.anchormux(
-                    "sync.liveness event_lane_repair transport_alive attempts=\(laneRepairAttempts) escalate=\(escalate) silentMs=\(silentMs)"
+                    "sync.liveness event_lane_repair transport_alive silentMs=\(silentMs)"
                 )
                 self.resyncTerminalOutput(
-                    reason: escalate ? "liveness_event_lane_escalated" : "liveness_event_lane",
+                    reason: "liveness_event_lane",
                     restartEventStream: true,
-                    recoversConnectionOnSubscriptionFailure: escalate
+                    recoversConnectionOnSubscriptionFailure: false
                 )
                 return
             }
@@ -14154,9 +14145,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             self.diagnosticLog?.record(DiagnosticEvent(.livenessResubscribe, ms: UInt32(clamping: silentMs)))
             mobileShellLog.info("render-grid stream silent for \(silentMs, privacy: .public)ms and subscription probe failed, re-subscribing")
-            // The bounded probe proved this exact client dead. Hand the session
-            // to the single recovery owner instead of rebuilding another listener
-            // on the same stale shell.
+            // Confirm native closure before handing the session to recovery.
             self.recoverDeadConnection(trigger: .liveness, expectedClient: client)
         }
     }

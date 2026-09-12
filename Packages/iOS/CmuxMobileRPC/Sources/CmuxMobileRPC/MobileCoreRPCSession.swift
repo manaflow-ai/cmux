@@ -1047,21 +1047,19 @@ actor MobileCoreRPCSession {
                 return
             }
             buffer.append(chunk)
-            let frames: [Data]
             do {
-                frames = try MobileSyncFrameCodec.decodeFrames(
-                    from: &buffer,
-                    maximumDecodedFrameCount: Self.maximumDecodedFrameCountPerRead
-                )
+                while !Task.isCancelled, installedConnectionID == connectionID {
+                    let frames = try MobileSyncFrameCodec.decodeFrames(
+                        from: &buffer,
+                        maximumDecodedFrameCount: Self.maximumDecodedFrameCountPerRead
+                    )
+                    for frame in frames { dispatch(frame: frame) }
+                    guard frames.count == Self.maximumDecodedFrameCountPerRead else { break }
+                    await Task.yield()
+                }
             } catch {
-                await tearDownIfInstalled(
-                    connectionID: connectionID,
-                    error: .invalidResponse
-                )
+                await tearDownIfInstalled(connectionID: connectionID, error: .invalidResponse)
                 return
-            }
-            for frame in frames {
-                dispatch(frame: frame)
             }
         }
     }
@@ -1235,7 +1233,10 @@ actor MobileCoreRPCSession {
     /// the wedged transport installed (their timeout cannot recycle a write
     /// owned by another request ID).
     private func startQueuedDemandRecovery(requestID: String) {
-        guard !queuedWriteIDs.isEmpty else { return }
+        // Native connection observation owns Iroh's lifetime. Queued demand
+        // has its own request deadline and cannot condemn an unfinished frame.
+        guard !(transport is any CmxByteTransportLivenessObserving),
+              !queuedWriteIDs.isEmpty else { return }
         Task { [self, taskTimeout, cancelledWriteCompletionGraceNanoseconds] in
             let waitTask = Task<Void, any Error> {
                 await self.awaitCancelledWriteResolution()
@@ -1266,6 +1267,10 @@ actor MobileCoreRPCSession {
     private func waitForCancelledActiveWriteResolution(
         deadlineUptimeNanoseconds: UInt64
     ) async throws {
+        // Preserve serialization until the native write completes or fails.
+        // Cancelling writeAll can leave a frame prefix on the control stream.
+        // Later requests may queue and expire without cancelling that write.
+        if transport is any CmxByteTransportLivenessObserving { return }
         while let write = activeWrite,
               write.cancelledRequestResolutionTask != nil {
             try Task.checkCancellation()
@@ -1367,7 +1372,12 @@ actor MobileCoreRPCSession {
     }
 
     private func recycleTransportIfActiveWrite(requestID: String) async -> Bool {
-        guard activeWrite?.requestID == requestID else { return false }
+        guard let write = activeWrite, write.requestID == requestID else { return false }
+        if let observing = transport as? any CmxByteTransportLivenessObserving {
+            guard await observing.isTransportClosed() else { return false }
+            guard activeWrite?.connectionID == write.connectionID,
+                  activeWrite?.requestID == requestID else { return false }
+        }
         activeWrite?.task.cancel()
         activeWrite?.cancelledRequestResolutionTask?.cancel()
         activeWrite = nil

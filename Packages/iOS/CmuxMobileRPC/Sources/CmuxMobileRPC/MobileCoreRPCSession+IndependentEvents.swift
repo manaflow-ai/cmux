@@ -96,11 +96,15 @@ extension MobileCoreRPCSession {
                     throw MobileSyncFrameCodecError.frameTooLarge(buffer.count + chunk.count)
                 }
                 buffer.append(chunk)
-                let frames = try MobileSyncFrameCodec.decodeFrames(
-                    from: &buffer,
-                    maximumDecodedFrameCount: Self.maximumDecodedFrameCountPerRead
-                )
-                for frame in frames { dispatch(frame: frame) }
+                while !Task.isCancelled, independentEventReader?.id == id {
+                    let frames = try MobileSyncFrameCodec.decodeFrames(
+                        from: &buffer,
+                        maximumDecodedFrameCount: Self.maximumDecodedFrameCountPerRead
+                    )
+                    for frame in frames { dispatch(frame: frame) }
+                    guard frames.count == Self.maximumDecodedFrameCountPerRead else { break }
+                    await Task.yield()
+                }
             }
         } catch {
             // The host falls back to control delivery after optional-lane failure.

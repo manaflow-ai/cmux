@@ -103,6 +103,18 @@ struct IrxLiveQUICTests {
         let payload = Data("still usable".utf8)
         try await control.writer.write(payload)
         #expect(try await hostControl.reader.readRaw() == payload)
+        // A malformed descriptor on an optional event lane must also leave
+        // the connection usable and allow the next valid event lane through.
+        await irx.raiseRemoteStreamCredit(bi: 0, uni: 2)
+        let acceptingEvent = Task { try await irx.acceptUniLane() }
+        let malformed = try await host.underlying.openUni()
+        try await malformed.writeAll(buf: IrxFrameCodec.encode(IrxPing(seq: 1, pong: false)))
+        try await malformed.finish()
+        let events = try await host.openUniLane(IrxLaneDescriptor(lane: .events))
+        let acceptedEvent = try await acceptingEvent.value
+        #expect(acceptedEvent?.0.lane == .events)
+        #expect(await !irx.isClosed)
+        await events.finish()
         await irx.close(code: .userRequested, origin: .local)
         await host.close(code: .userRequested, origin: .local)
         try? await client.close()

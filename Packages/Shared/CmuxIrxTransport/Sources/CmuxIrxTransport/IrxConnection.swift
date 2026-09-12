@@ -139,8 +139,7 @@ public actor IrxConnection {
     nonisolated public let remoteEndpointIDHex: String
     private let connection: Connection
     /// Instant of the most recent keepalive pong; nil before the first pong.
-    /// Foreground staleness checks read this to decide zombie-vs-live after
-    /// a suspension (a QUIC connection can be long dead without isClosed).
+    /// Diagnostic only; pong age never determines connection lifetime.
     public private(set) var lastPongAt: ContinuousClock.Instant?
     private let journal: IrxJournal
     private var closedFlag = false
@@ -172,10 +171,8 @@ public actor IrxConnection {
         isClosed
     }
 
-    /// Returns whether the connection has demonstrated liveness recently.
-    /// This catches suspended-app zombie sessions whose native closed flag has
-    /// not flipped, while allowing a healthy long-lived session to survive a
-    /// foreground event.
+    /// Returns whether an application pong was observed recently, for diagnostics.
+    /// A false result is not evidence that the QUIC connection has closed.
     public func hasRecentKeepalive(within age: Duration) -> Bool {
         guard let lastPongAt else { return false }
         return ContinuousClock.now - lastPongAt <= age
@@ -258,42 +255,50 @@ public actor IrxConnection {
         return writer
     }
 
-    /// Accepts the next bidirectional lane (server side, post-admission).
-    /// Returns nil once the connection is closed.
+    /// Accepts the next bidirectional lane. A malformed descriptor retires
+    /// only that stream; native connection termination ends acceptance.
     public func acceptLane() async -> IrxLaneStream? {
-        while true {
+        while !Task.isCancelled {
             do {
                 let stream = try await connection.acceptBi()
                 let reader = IrxStreamReader(stream.recv())
                 let writer = IrxStreamWriter(stream.send())
-                guard
-                    let descriptor = try await reader.readControlFrame(
-                        IrxLaneDescriptor.self)
-                else {
-                    await writer.finish()
-                    continue
+                do {
+                    if let descriptor = try await reader.readControlFrame(IrxLaneDescriptor.self) {
+                        return IrxLaneStream(descriptor: descriptor, writer: writer, reader: reader)
+                    }
+                } catch {
+                    // Stream framing failure does not change native connection state.
                 }
-                return IrxLaneStream(descriptor: descriptor, writer: writer, reader: reader)
+                await writer.reset(errorCode: 2)
+                await reader.stop(errorCode: 2)
             } catch {
-                closedFlag = true
                 return nil
             }
         }
+        return nil
     }
 
-    /// Accepts the next unidirectional lane (client side: the events lane).
+    /// Accepts the next usable server event lane without treating a malformed
+    /// descriptor or stream EOF as complete-connection closure.
     public func acceptUniLane() async throws -> (IrxLaneDescriptor, IrxStreamReader)? {
-        do {
-            let stream = try await connection.acceptUni()
-            let reader = IrxStreamReader(stream)
-            guard
-                let descriptor = try await reader.readControlFrame(IrxLaneDescriptor.self)
-            else { return nil }
-            return (descriptor, reader)
-        } catch {
-            closedFlag = true
-            return nil
+        while !Task.isCancelled {
+            do {
+                let stream = try await connection.acceptUni()
+                let reader = IrxStreamReader(stream)
+                do {
+                    if let descriptor = try await reader.readControlFrame(IrxLaneDescriptor.self) {
+                        return (descriptor, reader)
+                    }
+                } catch {
+                    // A later event stream may repair this optional feature.
+                }
+                await reader.stop(errorCode: 2)
+            } catch {
+                return nil
+            }
         }
+        return nil
     }
 
     /// The selected QUIC path right now, for relay attribution evidence.
@@ -305,13 +310,9 @@ public actor IrxConnection {
         return "\(selected.isRelay ? "relay" : "direct"):\(selected.remoteAddr)"
     }
 
-    /// Continuous client-side keepalive on a dedicated lane: one tiny ping
-    /// every interval, pong deadline enforced per ping, every exchange
-    /// journaled with RTT and the selected path (the soak's relay-attribution
-    /// evidence). A single miss re-pings immediately (journaled as a `miss`,
-    /// not a death: one transient stall must never sever a healthy session);
-    /// `IrxProtocol.keepaliveStrikeLimit` consecutive misses close with
-    /// `keepalive-timeout` and report death so the engine redials at once.
+    /// Samples application round-trip latency on an optional lane.
+    /// A missed pong retires only this diagnostic lane. Native Iroh keepalives
+    /// and connection closure observation own dead-peer detection.
     public func startClientKeepalive(
         interval: Duration = IrxProtocol.keepaliveInterval,
         deadline: Duration = IrxProtocol.keepaliveDeadline,
@@ -320,11 +321,8 @@ public actor IrxConnection {
         guard keepaliveTask == nil else { return }
         let lane = try await openLane(IrxLaneDescriptor(lane: .keepalive))
         keepaliveTask = Task { [journal] in
-            var strikes = 0
             while !Task.isCancelled {
-                if strikes == 0 {
-                    try? await Task.sleep(for: interval)
-                }
+                try? await Task.sleep(for: interval)
                 guard !Task.isCancelled else { return }
                 let seq = await self.nextPingSeq()
                 let sentAt = DispatchTime.now()
@@ -357,27 +355,19 @@ public actor IrxConnection {
                         ]
                     )
                     await self.notePong()
-                    strikes = 0
                 } catch {
                     guard !Task.isCancelled else { return }
-                    strikes += 1
-                    if strikes < IrxProtocol.keepaliveStrikeLimit {
-                        journal.record(
-                            "keepalive", "miss",
-                            [
-                                "seq": String(seq),
-                                "strike": String(strikes),
-                                "path": self.selectedPathDescription(),
-                            ]
-                        )
-                        continue
-                    }
                     journal.record(
-                        "keepalive", "timeout",
+                        "keepalive", "miss",
                         ["seq": String(seq), "path": self.selectedPathDescription()]
                     )
-                    await self.close(code: .keepaliveTimeout, origin: .transport)
-                    await onDeath()
+                    await lane.close()
+                    // A stopped stream or slow application pong cannot close
+                    // the other streams. The native termination watcher is
+                    // still running even after this diagnostic loop ends.
+                    if await self.isConnectionClosed() {
+                        await onDeath()
+                    }
                     return
                 }
             }

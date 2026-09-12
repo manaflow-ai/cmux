@@ -148,12 +148,43 @@ extension MobileShellComposite {
         }
     }
 
-    /// A definitive event-stream failure bypasses same-client resubscription.
-    /// Once the exact session is proven dead, rebuilding its listener only hides
-    /// the failure behind the transport's reconnect behavior and leaves the
-    /// shell owner stale. Instead, transition the one lifecycle owner to a fresh
-    /// authenticated stored-Mac dial.
+    /// Checks native connection state before promoting a feature failure to
+    /// recovery. Transports without native observation retain their existing
+    /// error-driven recovery; Iroh owns its own dead-peer detection.
     func recoverDeadConnection(
+        trigger: RecoveryTrigger,
+        expectedClient: MobileCoreRPCClient
+    ) {
+        guard remoteClient === expectedClient, connectionState == .connected else { return }
+        if trigger == .eventStreamEnded {
+            // The RPC listener ends only after its required control session
+            // has torn down. Detach it synchronously so another producer
+            // cannot reopen the retired RPC client while recovery starts.
+            recoverClosedControlSession(trigger: trigger, expectedClient: expectedClient)
+            return
+        }
+        Task { @MainActor [weak self] in
+            let closed = await expectedClient.isTransportClosed()
+            guard let self,
+                  self.remoteClient === expectedClient,
+                  self.connectionState == .connected else { return }
+            if closed == false {
+                // A failed subscription or request is feature-level evidence.
+                // Native Iroh closure is observed independently by the RPC session.
+                if trigger == .subscriptionStartFailed || trigger == .eventStreamEnded {
+                    self.resyncTerminalOutput(
+                        reason: "event_subscription_repair",
+                        restartEventStream: true,
+                        recoversConnectionOnSubscriptionFailure: false
+                    )
+                }
+                return
+            }
+            self.recoverClosedControlSession(trigger: trigger, expectedClient: expectedClient)
+        }
+    }
+
+    func recoverClosedControlSession(
         trigger: RecoveryTrigger,
         expectedClient: MobileCoreRPCClient
     ) {
@@ -233,7 +264,6 @@ extension MobileShellComposite {
             // cannot safely invent a redial route and must remain unavailable.
             switch trigger {
             case .liveness, .networkChange:
-                markMacConnectionReconnecting()
                 resyncTerminalOutput(reason: trigger.description, restartEventStream: true)
             case .manual, .presencePush, .foreground, .eventStreamEnded,
                  .subscriptionStartFailed, .transportWriteTimedOut, .automaticBackoffExpired,
@@ -285,6 +315,18 @@ extension MobileShellComposite {
                                 restartEventStream: true
                             )
                         }
+                        self.applyConnectionRecoveryOwnerState()
+                        return
+                    }
+                    let transportClosed = await expectedClient.isTransportClosed()
+                    guard !Task.isCancelled,
+                          self.connectionRecoveryOwner.isCurrent(attempt),
+                          self.remoteClient === expectedClient,
+                          self.connectionGeneration == attempt.sourceConnectionGeneration else { return }
+                    if transportClosed == false {
+                        // A slow application response after a path change or
+                        // resume does not invalidate the native connection.
+                        _ = self.completeConnectionRecovery(attempt)
                         self.applyConnectionRecoveryOwnerState()
                         return
                     }
