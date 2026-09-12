@@ -230,6 +230,36 @@ public struct MobileAuthComposition {
     /// agent's localhost server.
     nonisolated static let apiBaseURLInfoPlistKey = "CMUXApiBaseURL"
 
+    /// Cloud machines live independently of the paired Mac. A development
+    /// build may still use a loopback API origin for Mac pairing, but Cloud
+    /// requests must move to the shared remote control plane in that case.
+    nonisolated static let developmentCloudAPIBaseURL = "https://cmux-staging.vercel.app"
+    nonisolated static let productionCloudAPIBaseURL = "https://cmux.com"
+
+    nonisolated static func cloudAPIBaseURL(
+        authEnvironment: CMUXAuthEnvironment,
+        configuredBaseURL: String
+    ) -> String {
+        if authEnvironment == .production {
+            return productionCloudAPIBaseURL
+        }
+
+        let trimmed = configuredBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed),
+              let host = url.host?.lowercased(),
+              !Self.isLoopbackCloudHost(host) else {
+            return developmentCloudAPIBaseURL
+        }
+        return trimmed
+    }
+
+    private nonisolated static func isLoopbackCloudHost(_ host: String) -> Bool {
+        host == "localhost"
+            || host == "127.0.0.1"
+            || host == "::1"
+            || host == "[::1]"
+    }
+
     /// Merge the Info.plist-baked auth environment into the `LocalConfig.plist`
     /// override table. An explicit LocalConfig entry wins over the bake
     /// (mirroring presence resolution, where the local override table beats the

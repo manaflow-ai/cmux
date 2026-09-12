@@ -27,7 +27,10 @@ struct MobileCloudComposition {
 
     @MainActor
     func makeController() -> CloudSessionController? {
-        let baseURL = auth.config.apiBaseURL
+        let baseURL = MobileAuthComposition.cloudAPIBaseURL(
+            authEnvironment: auth.authEnvironment,
+            configuredBaseURL: auth.config.apiBaseURL
+        )
         guard !baseURL.isEmpty, let appNamespace = auth.appNamespace else { return nil }
         let coordinator = auth.coordinator
         let service = CloudVMService(
