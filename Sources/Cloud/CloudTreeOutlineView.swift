@@ -217,7 +217,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: hasStats))
             case .localMachine:
                 return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
-            case .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup, .workspace, .localWorkspace, .terminal, .display, .browser, .port, .placeholder:
+            case .pendingMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup, .workspace, .localWorkspace, .terminal, .display, .browser, .port, .placeholder:
                 return GlobalFontMagnification.scaledSize(style.rowHeight)
             }
         }
@@ -297,7 +297,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
             case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup:
                 toggle(node)
-            case .workspace(let machine, let workspace, _):
+            case .workspace(let machine, let workspace, _, _, _):
                 // Open-or-focus (D13). Already showing in a pane -> focus that pane.
                 // Otherwise the remote workspace opens as its OWN local workspace —
                 // remote and local workspaces never intermingle. D9: open never
@@ -315,7 +315,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 nodeActions.selectLocalWorkspace(row.workspaceID)
             case .terminal(let row):
                 nodeActions.project(row.resource.id, .split, true)
-            case .display(let resource), .port(let resource):
+            case .display(let resource, _, _):
+                nodeActions.project(resource.id, .split, true)
+            case .port(let resource, _, _):
                 nodeActions.project(resource.id, .split, true)
             case .browser(let row):
                 nodeActions.project(row.resource.id, .split, true)
@@ -440,7 +442,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(machine, nil) },
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ] + groupMenuItems(.workspaces)
-            case .workspace(let machine, let workspace, _):
+            case .workspace(let machine, let workspace, _, _, _):
                 let group = node.dragGroup ?? SurfaceResourceGroup(title: workspace.name, resources: [])
                 return [
                     // One open verb, same as double-click: the remote workspace gets
@@ -472,7 +474,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return items
             case .browser(let row):
                 return resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
-            case .display(let resource), .port(let resource):
+            case .display(let resource, _, _):
+                nodeActions.project(resource.id, .split, true)
+            case .port(let resource, _, _):
                 return resourceMenuItems(resource, isLocal: false)
             case .browsersGroup:
                 return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }] + groupMenuItems(.browsers)
