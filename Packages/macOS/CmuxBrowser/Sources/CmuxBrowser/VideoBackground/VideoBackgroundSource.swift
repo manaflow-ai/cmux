@@ -71,8 +71,13 @@ public enum VideoBackgroundSource: Equatable, Sendable {
             fileURL = URL(string: text)
         } else if text.hasPrefix("/") || text.hasPrefix("~") {
             fileURL = URL(fileURLWithPath: (text as NSString).expandingTildeInPath)
-        } else {
+        } else if text.contains("://") {
             fileURL = nil
+        } else {
+            fileURL = URL(
+                fileURLWithPath: text,
+                relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            )
         }
         guard let fileURL, fileURL.isFileURL,
               localVideoExtensions.contains(fileURL.pathExtension.lowercased()) else {

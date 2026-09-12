@@ -1041,7 +1041,19 @@ extension CMUXCLI {
         guard values.count <= VideoBackgroundSettings.maximumQueueLength else {
             throw CLIError(message: "video-background accepts at most \(VideoBackgroundSettings.maximumQueueLength) sources")
         }
-        return values
+        return values.map(normalizedVideoBackgroundSource)
+    }
+
+    private func normalizedVideoBackgroundSource(_ value: String) -> String {
+        let localVideoExtensions: Set<String> = ["mp4", "m4v", "mov"]
+        guard !value.hasPrefix("/"), !value.hasPrefix("~"), !value.contains("://"),
+              localVideoExtensions.contains(URL(fileURLWithPath: value).pathExtension.lowercased()) else {
+            return value
+        }
+        return URL(
+            fileURLWithPath: value,
+            relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        ).standardizedFileURL.path
     }
 
     private func effectiveVideoBackgroundQueue(
@@ -1169,7 +1181,7 @@ extension CMUXCLI {
                 "action": action,
                 "enabled": snapshot.enabled ?? VideoBackgroundSettings.defaultEnabled,
                 "source": snapshot.source ?? "",
-                "queue": snapshot.queue ?? [],
+                "queue": effectiveVideoBackgroundQueue(from: snapshot),
                 "muted": snapshot.muted ?? VideoBackgroundSettings.defaultMuted,
                 "volume": snapshotVolume(snapshot),
                 "quality": VideoBackgroundSettings().normalizedQuality(snapshot.quality),
