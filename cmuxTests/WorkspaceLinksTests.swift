@@ -1,3 +1,4 @@
+import CmuxArtifacts
 import CmuxTerminalCore
 import Foundation
 import Testing
@@ -7,6 +8,101 @@ import Testing
 #elseif canImport(cmux)
     @testable import cmux
 #endif
+
+private actor WorkspaceArtifactsRepositoryFixture: ArtifactStoring {
+    private let listedRecords: [ArtifactRecord]
+    private let blockFirstUpsert: Bool
+    private var storedRecords: [String: ArtifactRecord] = [:]
+    private var firstUpsertStarted = false
+    private var releaseFirstUpsertContinuation: CheckedContinuation<Void, Never>?
+
+    init(listedRecords: [ArtifactRecord] = [], blockFirstUpsert: Bool = false) {
+        self.listedRecords = listedRecords
+        self.blockFirstUpsert = blockFirstUpsert
+    }
+
+    func record(id: UUID) async throws -> ArtifactRecord? {
+        storedRecords.values.first { $0.id == id }
+    }
+
+    func list(scope: ArtifactScope) async throws -> [ArtifactRecord] {
+        listedRecords
+    }
+
+    func search(_ query: ArtifactSearchQuery) async throws -> [ArtifactSearchResult] {
+        try ArtifactSearchEngine().results(records: Array(storedRecords.values), query: query)
+    }
+
+    func ingest(_ request: ArtifactIngestRequest, capturedAt: Date) async throws -> ArtifactRecord {
+        throw ArtifactStoreError.unsupportedKind("test fixture")
+    }
+
+    func upsert(_ record: ArtifactRecord) async throws {
+        if blockFirstUpsert && !firstUpsertStarted {
+            firstUpsertStarted = true
+            await withCheckedContinuation { continuation in
+                releaseFirstUpsertContinuation = continuation
+            }
+        }
+        storedRecords[record.identityKey] = record
+    }
+
+    func replace(records: [ArtifactRecord], scope: ArtifactScope) async throws {
+        storedRecords = Dictionary(uniqueKeysWithValues: records.map { ($0.identityKey, $0) })
+    }
+
+    func remove(id: UUID) async throws {
+        storedRecords = storedRecords.filter { $0.value.id != id }
+    }
+
+    func updateRetentionLimit(_ limit: Int) async throws {}
+
+    func clear(scope: ArtifactScope) async throws {
+        storedRecords.removeAll()
+    }
+
+    func importLegacyLinks(
+        _ links: [ArtifactLegacyLink],
+        ownership: ArtifactOwnership
+    ) async throws -> [ArtifactRecord] {
+        []
+    }
+
+    func changes() async -> AsyncStream<ArtifactRepositoryChange> {
+        AsyncStream { continuation in
+            continuation.finish()
+        }
+    }
+
+    func materializedURL(for record: ArtifactRecord) async throws -> URL? {
+        nil
+    }
+
+    func waitForFirstUpsertStarted() async -> Bool {
+        for _ in 0..<5_000 {
+            if firstUpsertStarted { return true }
+            await Task.yield()
+        }
+        return firstUpsertStarted
+    }
+
+    func releaseFirstUpsert() {
+        releaseFirstUpsertContinuation?.resume()
+        releaseFirstUpsertContinuation = nil
+    }
+
+    func waitForStoredCount(_ expected: Int) async -> Bool {
+        for _ in 0..<5_000 {
+            if storedRecords.count >= expected { return true }
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+        return storedRecords.count >= expected
+    }
+
+    func storedCount() -> Int {
+        storedRecords.count
+    }
+}
 
 @Suite
 struct WorkspaceLinksTests {
@@ -131,6 +227,104 @@ struct WorkspaceLinksTests {
         let decoded = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: data)
         #expect(decoded.links == nil)
         #expect(decoded.restoredLinks.isEmpty)
+    }
+
+    @MainActor
+    @Test
+    func refreshPrefersNewerLiveObservationOverHigherCountRepositoryRow() async throws {
+        let workspaceID = UUID()
+        let ownership = ArtifactOwnership(workspaceID: workspaceID.uuidString)
+        let identity = ArtifactIdentity()
+        let identityKey = identity.key(
+            kind: .url,
+            value: "https://example.com/recent",
+            ownership: ownership
+        )
+        let persisted = ArtifactRecord(
+            id: UUID(),
+            kind: .url,
+            identityKey: identityKey,
+            ownership: ownership,
+            source: .terminalURL,
+            createdAt: Date(timeIntervalSince1970: 10),
+            lastSeenAt: Date(timeIntervalSince1970: 10),
+            occurrenceCount: 8,
+            representation: .url("https://example.com/recent")
+        )
+        let live = ArtifactRecord(
+            id: UUID(),
+            kind: .url,
+            identityKey: identityKey,
+            ownership: ownership,
+            source: .terminalOSC8,
+            createdAt: Date(timeIntervalSince1970: 20),
+            lastSeenAt: Date(timeIntervalSince1970: 20),
+            occurrenceCount: 1,
+            representation: .url("https://example.com/recent")
+        )
+        let repository = WorkspaceArtifactsRepositoryFixture(listedRecords: [persisted])
+        let state = WorkspaceArtifactsState(
+            repository: repository,
+            workspaceID: workspaceID,
+            retentionLimit: 10
+        )
+
+        state.restoreArtifacts([live], retentionLimit: 10)
+        await state.refreshFromRepository()
+
+        #expect(state.artifact(for: live.id)?.lastSeenAt == live.lastSeenAt)
+        #expect(state.artifact(for: persisted.id) == nil)
+    }
+
+    @MainActor
+    @Test
+    func persistenceOverflowRecoversWithLatestSnapshot() async throws {
+        let repository = WorkspaceArtifactsRepositoryFixture(blockFirstUpsert: true)
+        let workspaceID = UUID()
+        let state = WorkspaceArtifactsState(
+            repository: repository,
+            workspaceID: workspaceID,
+            retentionLimit: 500
+        )
+        let configuration = WorkspaceLinksIngestConfiguration(ignoreHosts: [], retentionLimit: 500)
+
+        state.ingest(
+            url: "https://example.com/0",
+            origin: .detected,
+            sourcePanelId: nil,
+            sourceSurfaceTitle: nil,
+            configuration: configuration,
+            now: Date(timeIntervalSince1970: 0)
+        )
+        let firstUpsertStarted = await repository.waitForFirstUpsertStarted()
+        #expect(firstUpsertStarted)
+
+        for index in 1..<400 {
+            state.ingest(
+                url: "https://example.com/\(index)",
+                origin: .detected,
+                sourcePanelId: nil,
+                sourceSurfaceTitle: nil,
+                configuration: configuration,
+                now: Date(timeIntervalSince1970: TimeInterval(index))
+            )
+        }
+
+        await repository.releaseFirstUpsert()
+        let recovered = await repository.waitForStoredCount(400)
+        #expect(recovered)
+        #expect(await repository.storedCount() == 400)
+    }
+
+    @Test
+    func artifactsOpenIsFocusIntent() {
+        #expect(
+            TerminalController.commandHasFocusIntent(
+                commandKey: "artifacts.open",
+                isV2: true,
+                params: [:]
+            )
+        )
     }
 
     @MainActor
