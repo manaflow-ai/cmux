@@ -276354,6 +276354,40 @@
         }
       }
     },
+    "rightSidebar.beads.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beads"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beads"
+          }
+        }
+      }
+    },
+    "rightSidebar.beads.emptyHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch here with: cmux right-sidebar set beads"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux right-sidebar set beads で切り替えできます"
+          }
+        }
+      }
+    },
     "rightSidebar.close.accessibilityLabel": {
       "extractionState": "manual",
       "localizations": {
@@ -276586,6 +276620,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "사용자 정의 사이드바를 찾을 수 없습니다"
+          }
+        }
+      }
+    },
+    "rightSidebar.mode.beads": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beads"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beads"
           }
         }
       }
