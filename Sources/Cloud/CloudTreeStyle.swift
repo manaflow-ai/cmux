@@ -75,8 +75,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     let showsGroupCounts: Bool
     /// The daemon-tab count badge on pool terminal rows.
     let showsViewBadges: Bool
-    /// The CPU/Mem/Disk reading: a line under the machine in two-line layout,
-    /// the dim inline fact after the name in single-line layout.
+    /// The CPU/Mem/Disk line under a machine (two-line layout only).
     let showsMachineStats: Bool
     let machineVerticalPadding: CGFloat
 
@@ -84,16 +83,13 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     var machineNameLineHeight: CGFloat { machineNameSize + 3.5 }
     var machineSubtitleLineHeight: CGFloat { detailSize + 3.5 }
 
-    /// `hasUsage` adds the coderouter spend line under the stats in the
-    /// two-line layout; single-line rows carry it inline at a fixed height.
-    func machineRowHeight(hasStats: Bool, hasUsage: Bool = false) -> CGFloat {
+    func machineRowHeight(hasStats: Bool) -> CGFloat {
         switch machineRowLayout {
         case .singleLine:
             return rowHeight + (machineBand ? 7 : 2)
         case .twoLine:
             let lines = machineNameLineHeight + CloudTreeRowGrid.machineLineSpacing + machineSubtitleLineHeight
                 + (hasStats && showsMachineStats ? CloudTreeRowGrid.machineLineSpacing + CloudTreeRowGrid.machineStatsLineHeight : 0)
-                + (hasUsage ? CloudTreeRowGrid.machineLineSpacing + CloudTreeRowGrid.machineStatsLineHeight : 0)
             return machineVerticalPadding * 2 + lines
         }
     }
@@ -111,7 +107,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
         indentPerLevel: 12,
         machineNameSize: 13, titleSize: 13, detailSize: 11, groupLabelSize: 11.5,
         iconSize: 11, iconSlot: 16, iconGap: 7,
-        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: true,
+        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: false,
         machineVerticalPadding: 3
     )
 
@@ -125,7 +121,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
         indentPerLevel: 13,
         machineNameSize: 12.5, titleSize: 12, detailSize: 10.5, groupLabelSize: 11,
         iconSize: 10.5, iconSlot: 22, iconGap: 7,
-        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: true,
+        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: false,
         machineVerticalPadding: 3
     )
 
@@ -139,7 +135,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
         indentPerLevel: 12,
         machineNameSize: 12, titleSize: 11.5, detailSize: 10, groupLabelSize: 9,
         iconSize: 10, iconSlot: 15, iconGap: 6,
-        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: true,
+        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: false,
         machineVerticalPadding: 3
     )
 
@@ -153,7 +149,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
         indentPerLevel: 9,
         machineNameSize: 11, titleSize: 10.5, detailSize: 9.5, groupLabelSize: 8.5,
         iconSize: 8.5, iconSlot: 11, iconGap: 5,
-        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: true,
+        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: false,
         machineVerticalPadding: 2
     )
 
@@ -201,5 +197,32 @@ enum CloudTreeStyleStore {
             UserDefaults.standard.set(newValue.id, forKey: defaultsKey)
             NotificationCenter.default.post(name: didChangeNotification, object: nil)
         }
+    }
+}
+
+enum CloudTreeGroupPreferences {
+    enum Group: String, CaseIterable, Codable, Sendable { case workspaces, terminals, browsers, displays, ports, agents }
+    static let orderKey = "cloudTree.groups.order"
+    static let hiddenKey = "cloudTree.groups.hidden"
+    static let didChangeNotification = Notification.Name("cmux.cloudTree.groupsDidChange")
+    static func ordered(defaults: UserDefaults = .standard) -> [Group] {
+        let stored = (defaults.stringArray(forKey: orderKey) ?? []).compactMap(Group.init(rawValue:))
+        return stored + Group.allCases.filter { !stored.contains($0) }
+    }
+    static func hidden(defaults: UserDefaults = .standard) -> Set<Group> {
+        Set((defaults.stringArray(forKey: hiddenKey) ?? []).compactMap(Group.init(rawValue:)))
+    }
+    static func isVisible(_ group: Group, defaults: UserDefaults = .standard) -> Bool { !hidden(defaults: defaults).contains(group) }
+    @discardableResult static func setVisible(_ visible: Bool, group: Group, defaults: UserDefaults = .standard) -> Bool {
+        var values = hidden(defaults: defaults)
+        if visible { values.remove(group) } else { values.insert(group) }
+        guard values.count < Group.allCases.count else { return false }
+        defaults.set(values.map(\.rawValue).sorted(), forKey: hiddenKey)
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
+        return true
+    }
+    static func setOrder(_ groups: [Group], defaults: UserDefaults = .standard) {
+        defaults.set((groups + Group.allCases.filter { !groups.contains($0) }).map(\.rawValue), forKey: orderKey)
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
 }

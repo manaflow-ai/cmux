@@ -9,6 +9,11 @@ extension CodingUserInfoKey {
     static let cmuxWorkspaceColorDefaults = CodingUserInfoKey(rawValue: "cmuxWorkspaceColorDefaults")!
 }
 
+struct CmuxConfigCloudTreeDefinition: Codable, Sendable, Hashable {
+    var groups: [String]?
+    var hidden: [String]?
+}
+
 struct CmuxConfigFile: Codable, Sendable {
     var actions: [String: CmuxConfigActionDefinition]
     var ui: CmuxConfigUIDefinition?
@@ -19,9 +24,10 @@ struct CmuxConfigFile: Codable, Sendable {
     var commands: [CmuxCommandDefinition]
     var vault: CmuxVaultConfigDefinition?
     var workspaceGroups: CmuxConfigWorkspaceGroupsDefinition?
+    var cloudTree: CmuxConfigCloudTreeDefinition?
 
     private enum CodingKeys: String, CodingKey {
-        case actions, ui, notifications, agentChat, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups
+        case actions, ui, notifications, agentChat, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups, cloudTree
     }
 
     init(
@@ -33,7 +39,8 @@ struct CmuxConfigFile: Codable, Sendable {
         surfaceTabBarButtons: [CmuxSurfaceTabBarButton]? = nil,
         commands: [CmuxCommandDefinition] = [],
         vault: CmuxVaultConfigDefinition? = nil,
-        workspaceGroups: CmuxConfigWorkspaceGroupsDefinition? = nil
+        workspaceGroups: CmuxConfigWorkspaceGroupsDefinition? = nil,
+        cloudTree: CmuxConfigCloudTreeDefinition? = nil
     ) {
         self.actions = actions
         self.ui = ui
@@ -44,6 +51,7 @@ struct CmuxConfigFile: Codable, Sendable {
         self.commands = commands
         self.vault = vault
         self.workspaceGroups = workspaceGroups
+        self.cloudTree = cloudTree
     }
 
     init(from decoder: Decoder) throws {
@@ -96,6 +104,7 @@ struct CmuxConfigFile: Codable, Sendable {
             CmuxConfigWorkspaceGroupsDefinition.self,
             forKey: .workspaceGroups
         )
+        cloudTree = try container.decodeIfPresent(CmuxConfigCloudTreeDefinition.self, forKey: .cloudTree)
     }
 
     private static func normalizedActions(
@@ -1963,6 +1972,18 @@ final class CmuxConfigStore: ObservableObject {
         let globalParseResult = parseConfig(at: globalConfigPath)
         let localConfig = localParseResult?.config
         let globalConfig = globalParseResult.config
+        let cloudTreeConfig = localConfig?.cloudTree ?? globalConfig?.cloudTree
+        if let cloudTreeConfig {
+            if let groups = cloudTreeConfig.groups {
+                CloudTreeGroupPreferences.setOrder(groups.compactMap(CloudTreeGroupPreferences.Group.init(rawValue:)))
+            }
+            if let hidden = cloudTreeConfig.hidden {
+                let hiddenSet = Set(hidden.compactMap(CloudTreeGroupPreferences.Group.init(rawValue:)))
+                for group in CloudTreeGroupPreferences.Group.allCases {
+                    _ = CloudTreeGroupPreferences.setVisible(!hiddenSet.contains(group), group: group)
+                }
+            }
+        }
         let localHookPaths = resolvedLocalNotificationHookPaths(fallbackLocalPath: localPath)
         let localHookParseResults = localHookPaths.map { path in
             (path: path, result: parseConfig(at: path))

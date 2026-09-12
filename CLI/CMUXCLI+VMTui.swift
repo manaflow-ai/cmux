@@ -15,6 +15,21 @@ import Foundation
 /// app socket. After the first enrollment the device key and private route are
 /// local facts. Later attaches make no connection or approval request.
 extension CMUXCLI {
+    func runVMTreeConfigCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
+        if rest.contains("--help") || rest.contains("-h") {
+            print("Usage: cmux vm tree-config [--show <group>] [--hide <group>] [--order <a,b,c>]\nGroups: workspaces, terminals, browsers, displays, ports, agents")
+            return
+        }
+        var params: [String: Any] = [:]
+        if let raw = rest.first(where: { $0.hasPrefix("--order=") }) {
+            params["groups"] = String(raw.dropFirst("--order=".count)).split(separator: ",").map(String.init)
+        }
+        let hidden = rest.filter { $0.hasPrefix("--hide=") }.map { String($0.dropFirst("--hide=".count)) }
+        let shown = rest.filter { $0.hasPrefix("--show=") }.map { String($0.dropFirst("--show=".count)) }
+        if !hidden.isEmpty || !shown.isEmpty { params["hidden"] = hidden; params["show"] = shown }
+        let response = try client.sendV2(method: "debug.cloudtree.config", params: params, responseTimeout: 30)
+        if jsonOutput { print(jsonString(response)) } else { print("Cloud tree configuration updated.") }
+    }
     struct VMTuiConnectConfig: Codable {
         let vmId: String
         let route: String

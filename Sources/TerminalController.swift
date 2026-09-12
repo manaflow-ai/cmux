@@ -1826,6 +1826,22 @@ class TerminalController {
                 "styles": CloudTreeStyle.presets.map(\.id),
                 "selected": selected,
             ])
+        case "debug.cloudtree.config":
+            let groups = (request.params["groups"] as? [String])?.compactMap(CloudTreeGroupPreferences.Group.init(rawValue:))
+            if let groups { CloudTreeGroupPreferences.setOrder(groups) }
+            if let hidden = request.params["hidden"] as? [String] ?? (request.params["show"] as? [String]).map { _ in [] } {
+                var hiddenSet = Set(hidden.compactMap(CloudTreeGroupPreferences.Group.init(rawValue:)))
+                if let shown = request.params["show"] as? [String] {
+                    hiddenSet.subtract(shown.compactMap(CloudTreeGroupPreferences.Group.init(rawValue:)))
+                }
+                for group in CloudTreeGroupPreferences.Group.allCases {
+                    _ = CloudTreeGroupPreferences.setVisible(!hiddenSet.contains(group), group: group)
+                }
+            }
+            return v2Ok(id: request.id, result: [
+                "groups": CloudTreeGroupPreferences.ordered().map(\.rawValue),
+                "hidden": CloudTreeGroupPreferences.hidden().map(\.rawValue).sorted(),
+            ])
         case "debug.window.screenshot":
             let label = (request.params["label"] as? String) ?? ""
             let response = captureScreenshot(label)
