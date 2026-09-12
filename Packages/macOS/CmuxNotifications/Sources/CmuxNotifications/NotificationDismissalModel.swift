@@ -46,6 +46,7 @@ public final class NotificationDismissalModel: NotificationDismissing {
         return context
     }
 
+    /// Dismisses notifications for the focused surface and the resumed workspace.
     public func dismissFocusedPanelNotificationIfActive(
         workspaceId: UUID,
         context: NotificationDismissalContext
