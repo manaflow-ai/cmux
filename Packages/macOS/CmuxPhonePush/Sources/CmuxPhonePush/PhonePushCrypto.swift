@@ -99,13 +99,13 @@ public enum PhonePushCrypto {
             outputByteCount: 32
         )
         let sealed = try ChaChaPoly.seal(plaintext, using: key, authenticating: aad(tuple: tuple, keyID: keyID))
+        let combinedCiphertext = sealed.ciphertext + Data(sealed.tag)
         return PhonePushEncryptedPayload(
             installationID: installationID,
             keyID: keyID,
             ephemeralPublicKey: ephemeral.publicKey.rawRepresentation.base64EncodedString(),
             nonce: sealed.nonce.withUnsafeBytes { Data($0).base64EncodedString() },
-            ciphertext: sealed.ciphertext + sealed.tag
-                .withUnsafeBytes { Data($0) }.base64EncodedString()
+            ciphertext: combinedCiphertext.base64EncodedString()
         )
     }
 
