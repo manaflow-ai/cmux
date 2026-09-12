@@ -96,6 +96,17 @@ final class CloudTerminalOverlayCoordinator {
         lastDestination = next
     }
 
+    /// A retired session cannot clear a replacement session's presentation.
+    func unbindSession(_ expectedSession: CloudTuiManualMirrorSession) {
+        guard session === expectedSession else { return }
+        session = nil
+        overlay?.removeFromSuperview()
+        overlay = nil
+        renderDemand?.release()
+        renderDemand = nil
+        onRenderedFrame = nil
+    }
+
     func renderedFrameArrived() {
         onRenderedFrame?()
     }

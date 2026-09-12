@@ -70,6 +70,27 @@ struct CloudManualMirrorPresentationTests {
     }
 
     @Test @MainActor
+    func retiringAnOldSessionCannotRemoveItsReplacementsCard() {
+        let old = CloudTuiManualMirrorSession(
+            machineID: "machine", terminalID: "term_old", remoteSurfaceID: 17, onNeedsReconnect: {}
+        )
+        let replacement = CloudTuiManualMirrorSession(
+            machineID: "machine", terminalID: "term_new", remoteSurfaceID: 18, onNeedsReconnect: {}
+        )
+        defer { old.stop(); replacement.stop() }
+        let owner = CloudTerminalOverlayCoordinator()
+        let anchor = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        owner.session = replacement
+        owner.apply(replacement.connectionPresentation, in: anchor, frame: anchor.bounds) {}
+        owner.unbindSession(old)
+        #expect(owner.session === replacement)
+        #expect(owner.overlay?.superview === anchor)
+        owner.unbindSession(replacement)
+        #expect(owner.session == nil)
+        #expect(anchor.subviews.isEmpty)
+    }
+
+    @Test @MainActor
     func oneCardMovesBetweenAnchorAndPortalAndUsesTheLatestRecovery() throws {
         let owner = CloudTerminalOverlayCoordinator()
         let anchor = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))

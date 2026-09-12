@@ -124,12 +124,13 @@ final class CloudTuiManualMirrorSession {
     /// before inserting the panel, so a runtime-ready signal cannot be missed;
     /// assigning them here also makes rebinding after restore safe.
     func bind(surface: TerminalSurface) {
-        if let previous = self.surface, previous !== surface {
+        if let previous = self.surface, previous !== surface,
+           previous.hostedView.cloudTerminalOverlay.session === self {
             previous.onManualSizeApplied = nil
             previous.onRuntimeReady = nil
             previous.onManualWindowAttached = nil
             previous.onManualVisibilityChanged = nil
-            previous.hostedView.cloudTerminalOverlay.session = nil
+            previous.hostedView.cloudTerminalOverlay.unbindSession(self)
         }
         self.surface = surface
         surface.hostedView.cloudTerminalOverlay.session = self
@@ -438,7 +439,8 @@ final class CloudTuiManualMirrorSession {
         connection?.close()
         connection = nil
         pendingRequests.removeAll(keepingCapacity: false)
-        if let surface {
+        if let surface, surface.hostedView.cloudTerminalOverlay.session === self {
+            surface.hostedView.cloudTerminalOverlay.unbindSession(self)
             surface.onManualSizeApplied = nil
             surface.onRuntimeReady = nil
             surface.onManualWindowAttached = nil
