@@ -62,7 +62,6 @@ extension WorkspaceListView {
             content
         }
         else {
-        #endif
             // The toolbar-visibility flip (off while a workspace is pushed on
             // the compact stack, back on at exit) must stay inside the toolbar
             // content builder. Branching the whole subtree on it changes the
@@ -113,6 +112,7 @@ extension WorkspaceListView {
                         }
                     }
                 }
+        }
         #else
             content
                 .toolbar {
@@ -128,9 +128,6 @@ extension WorkspaceListView {
                         }
                     }
                 }
-        #endif
-        #if os(iOS)
-        }
         #endif
     }
 }
