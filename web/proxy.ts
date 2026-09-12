@@ -70,6 +70,15 @@ export default function middleware(incomingRequest: NextRequest) {
   response = handleLegalAndDocsRoutes(request, pathname);
   if (response) return response;
 
+  // next-intl's default-locale canonicalization can redirect an unprefixed
+  // dashboard request back to itself after the dashboard auth gate has run.
+  // Rewrite this route directly so `/dashboard/...` remains the public URL.
+  if (dashboardReturnPath && isUnprefixedDashboardPath(pathname)) {
+    const localized = request.nextUrl.clone();
+    localized.pathname = `/${routing.defaultLocale}${pathname}`;
+    return dashboardResponse(request, NextResponse.rewrite(localized), dashboardReturnPath);
+  }
+
   response = intlMiddleware(request);
   // `localePrefix: "as-needed"` can return a redirect to the same unprefixed
   // dashboard URL after rewriting it to the default locale. That becomes an
@@ -105,6 +114,14 @@ export default function middleware(incomingRequest: NextRequest) {
   return dashboardReturnPath
     ? dashboardResponse(request, response, dashboardReturnPath)
     : response;
+}
+
+function isUnprefixedDashboardPath(pathname: string): boolean {
+  const [, first] = pathname.split("/");
+  return pathname.startsWith("/dashboard/") ||
+    pathname === "/dashboard" ||
+    !first ||
+    !localeSet.has(first);
 }
 
 function sameRedirectURL(location: string | null, requestURL: string): boolean {
