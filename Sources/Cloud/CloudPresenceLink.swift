@@ -68,8 +68,8 @@ final class CloudPresenceLink {
             do {
                 try await connection.start()
             } catch {
-                guard !Task.isCancelled else { return }
                 connection.close()
+                guard !Task.isCancelled else { return }
                 self.transition(to: .disconnected)
                 return
             }
