@@ -145,9 +145,9 @@ export function NotFoundTerminal({ command, welcome, lastLogin, dragLabel }: Ter
           onPointerCancel={onPointerEnd}
         >
           <div className="absolute left-3 top-1/2 flex -translate-y-1/2 gap-[14px]" aria-hidden="true">
-            <span className="h-[18px] w-[18px] rounded-full bg-[#ff5f57]" />
-            <span className="h-[18px] w-[18px] rounded-full bg-[#febc2e]" />
-            <span className="h-[18px] w-[18px] rounded-full bg-[#28c840]" />
+            <span className="h-[18px] w-[18px] rounded-full bg-[#ec6765]" />
+            <span className="h-[18px] w-[18px] rounded-full bg-[#f2ca44]" />
+            <span className="h-[18px] w-[18px] rounded-full bg-[#65c466]" />
           </div>
           <span className="absolute left-0 top-0 h-0.5 w-[217px] bg-[#3478f7]" aria-hidden="true" />
           <div className="absolute inset-y-0 left-[109px] flex w-[109px] items-center gap-2 border-x border-[#353631] pl-2 pr-2 text-sm text-[#d8d8d7]" aria-hidden="true">
