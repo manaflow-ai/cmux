@@ -47,6 +47,17 @@ import Testing
         #expect(registry.topologyGeneration > registeredGeneration)
     }
 
+    @Test func teardownWithoutRuntimeContextDoesNotEndViewLifetime() throws {
+        let surface = makeSurface()
+        let nativeView = try #require(
+            surface.surfaceView as? FakeTerminalSurfaceNativeView
+        )
+
+        surface.teardownSurface()
+
+        #expect(nativeView.endedRuntimeLifetimeIds.isEmpty)
+    }
+
     @Test func cancellingEventWaitReturnsWithoutWaitingForDeadline() async {
         let recorder = TeardownOrderRecorder()
         let wait = Task {

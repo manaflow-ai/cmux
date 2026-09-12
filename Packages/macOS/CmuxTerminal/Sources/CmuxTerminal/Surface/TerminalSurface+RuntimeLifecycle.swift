@@ -10,6 +10,16 @@ internal import CMUXDebugLog
 // MARK: - Headless bootstrap windows and runtime surface lifecycle
 extension TerminalSurface {
     @MainActor
+    private func endAttachedViewRuntimeLifetime() {
+        guard let runtimeLifetimeId = surfaceCallbackContext?
+            .takeUnretainedValue().runtimeLifetimeId else { return }
+        let view = attachedView ?? surfaceView
+        view.runtimeSurfaceDidEnd(
+            runtimeLifetimeId: runtimeLifetimeId
+        )
+    }
+
+    @MainActor
     func scheduleHeadlessRuntimeStartIfNeeded(
         reason: String,
         source: RuntimeSurfaceCreationSource = .normal
@@ -163,6 +173,7 @@ extension TerminalSurface {
         let registeredOwnerId = registry.runtimeSurfaceOwnerId(surface)
         guard registeredOwnerId == id,
               GhosttySurfaceRuntimeProbe.surfacePointerAppearsLive(surface) else {
+            endAttachedViewRuntimeLifetime()
             let callbackContext = surfaceCallbackContext
             invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: false)
             surfaceCallbackContext = nil
@@ -301,6 +312,8 @@ extension TerminalSurface {
         backgroundSurfaceStartSource = .normal
         cancelAgentCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
+        endAttachedViewRuntimeLifetime()
+
         let callbackContext = surfaceCallbackContext
         let surfaceToFree = surface
         let retiredRemoteOutputLane = retireRemoteOutputLane()
@@ -395,6 +408,7 @@ extension TerminalSurface {
         backgroundSurfaceStartSource = .normal
         cancelAgentCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
+        endAttachedViewRuntimeLifetime()
         let callbackContext = surfaceCallbackContext
         let surfaceToFree = surface
         let retiredRemoteOutputLane = retireRemoteOutputLane()
@@ -563,6 +577,13 @@ extension TerminalSurface {
         // the surface can freeze visually until focus/visibility changes. Avoid forcing refresh when the attachment
         // itself is unchanged.
         if attachedView === view && surface != nil {
+            if let callbackContext = surfaceCallbackContext?.takeUnretainedValue() {
+                let runtimeGeneration = view.prepareForRuntimeSurfaceCreation(
+                    runtimeLifetimeId: callbackContext.runtimeLifetimeId,
+                    surfaceId: id
+                )
+                callbackContext.installPointerIngressGeneration(runtimeGeneration)
+            }
             releaseHeadlessStartupWindowIfNeeded(for: view)
             flushPendingManualSizeReportIfAttached()
             if isViewInWindow {
@@ -777,6 +798,11 @@ extension TerminalSurface {
         let runtimeInitialInput = runtimeSurfaceCreation.runtimeInitialInput
 
         if surface == nil {
+            let failedRuntimeLifetimeId = surfaceCallbackContext?
+                .takeUnretainedValue().runtimeLifetimeId
+            view.runtimeSurfaceDidEnd(
+                runtimeLifetimeId: failedRuntimeLifetimeId
+            )
             invalidateRuntimeClipboardRequests(in: surfaceCallbackContext, completingNativeRequests: false)
             surfaceCallbackContext?.release()
             surfaceCallbackContext = nil

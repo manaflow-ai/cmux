@@ -32,7 +32,7 @@ extension TerminalSurface {
             nsview: Unmanaged.passUnretained(view as NSView).toOpaque()
         ))
         let rendererRealization = rendererRealization
-        let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(
+        let callbackContextValue = GhosttySurfaceCallbackContext(
             surfaceHost: view,
             surfaceController: self,
             terminalLifecycleID: terminalLifecycleId,
@@ -42,12 +42,18 @@ extension TerminalSurface {
                     rendererRealization.scheduleRendererPresentationRepair(surfaceID: surfaceID)
                 }
             }
-        ))
+        )
+        let callbackContext = Unmanaged.passRetained(callbackContextValue)
         surfaceConfig.userdata = callbackContext.toOpaque()
         surfaceConfig.renderer_event_cb = terminalRendererEventCallback
         invalidateRuntimeClipboardRequests(in: surfaceCallbackContext, completingNativeRequests: surface != nil)
         surfaceCallbackContext?.release()
         surfaceCallbackContext = callbackContext
+        let runtimeGeneration = view.prepareForRuntimeSurfaceCreation(
+            runtimeLifetimeId: callbackContextValue.runtimeLifetimeId,
+            surfaceId: id
+        )
+        callbackContextValue.installPointerIngressGeneration(runtimeGeneration)
         surfaceConfig.scale_factor = scaleFactors.layer
         surfaceConfig.context = surfaceContext
         surfaceConfig.io_mode = ioMode.ghosttyMode

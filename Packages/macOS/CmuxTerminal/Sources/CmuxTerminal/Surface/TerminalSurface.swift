@@ -714,6 +714,15 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         let callbackContext = surfaceCallbackContext
+        if let runtimeLifetimeId = callbackContext?
+            .takeUnretainedValue().runtimeLifetimeId {
+            let pointerLifetimeEndRequest =
+                TerminalSurfacePointerLifetimeEndRequest(
+                    view: attachedView ?? surfaceView,
+                    runtimeLifetimeId: runtimeLifetimeId
+                )
+            Task { @MainActor in pointerLifetimeEndRequest.end() }
+        }
         surfaceCallbackContext = nil
         let manualIOContext = manualIOContext
         self.manualIOContext = nil

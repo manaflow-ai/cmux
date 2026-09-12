@@ -1,0 +1,30 @@
+internal import GhosttyKit
+
+extension ghostty_action_mouse_shape_e {
+    /// Whether the running OS has the public cursor used by the AppKit projection.
+    var isSupportedTerminalPointerShape: Bool {
+        switch self {
+        case GHOSTTY_MOUSE_SHAPE_DEFAULT, GHOSTTY_MOUSE_SHAPE_CONTEXT_MENU,
+             GHOSTTY_MOUSE_SHAPE_POINTER, GHOSTTY_MOUSE_SHAPE_CELL,
+             GHOSTTY_MOUSE_SHAPE_CROSSHAIR, GHOSTTY_MOUSE_SHAPE_TEXT,
+             GHOSTTY_MOUSE_SHAPE_VERTICAL_TEXT, GHOSTTY_MOUSE_SHAPE_ALIAS,
+             GHOSTTY_MOUSE_SHAPE_COPY, GHOSTTY_MOUSE_SHAPE_MOVE,
+             GHOSTTY_MOUSE_SHAPE_ALL_SCROLL, GHOSTTY_MOUSE_SHAPE_GRAB,
+             GHOSTTY_MOUSE_SHAPE_GRABBING, GHOSTTY_MOUSE_SHAPE_NO_DROP,
+             GHOSTTY_MOUSE_SHAPE_NOT_ALLOWED, GHOSTTY_MOUSE_SHAPE_COL_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_EW_RESIZE, GHOSTTY_MOUSE_SHAPE_ROW_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_NS_RESIZE, GHOSTTY_MOUSE_SHAPE_N_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_E_RESIZE, GHOSTTY_MOUSE_SHAPE_S_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_W_RESIZE:
+            return true
+        case GHOSTTY_MOUSE_SHAPE_NE_RESIZE, GHOSTTY_MOUSE_SHAPE_NESW_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_NW_RESIZE, GHOSTTY_MOUSE_SHAPE_NWSE_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_SE_RESIZE, GHOSTTY_MOUSE_SHAPE_SW_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_ZOOM_IN, GHOSTTY_MOUSE_SHAPE_ZOOM_OUT:
+            if #available(macOS 15.0, *) { return true }
+            return false
+        default:
+            return false
+        }
+    }
+}
