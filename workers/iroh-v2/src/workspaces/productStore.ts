@@ -73,7 +73,16 @@ export class PostgresWorkspaceProductStore implements WorkspaceProductStore {
             revision = EXCLUDED.revision, snapshot = EXCLUDED.snapshot, updated_at = now()`;
         return { state: input, changed: true };
       });
-      return state;
+      return state.changed
+        ? {
+          ...state,
+          state: {
+            generation: input.generation,
+            revision: input.revision,
+            snapshot: input.snapshot,
+          },
+        }
+        : state;
     } catch (error) {
       if (error instanceof OperationError) throw error;
       throw new OperationError("storage_unavailable", 503, true, 2000);
