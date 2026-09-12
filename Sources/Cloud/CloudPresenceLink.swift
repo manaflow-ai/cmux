@@ -26,6 +26,7 @@ final class CloudPresenceLink {
     private(set) var serverSupportsPresence = false
 
     private let commandBuilder = CloudTuiManualIOCommand()
+    private let clientName: String
     private var connection: CloudTuiManualIOConnection?
     private var connectTask: Task<Void, Never>?
     private var eventTask: Task<Void, Never>?
@@ -50,6 +51,7 @@ final class CloudPresenceLink {
     ) {
         self.machineID = machineID
         self.socketPath = socketPath
+        self.clientName = clientName
         self.onEntry = onEntry
         self.onPhaseChange = onPhaseChange
         startConnection()
@@ -181,7 +183,7 @@ final class CloudPresenceLink {
             selfClientID = clientID
             connection.send(commandBuilder.subscribePresence(requestID: takeRequestID()))
             transition(to: .ready)
-        case .snapshot, .output, .resized, .detached:
+        case .snapshot, .output, .resized, .colorsChanged, .detached:
             return
         case .overflow:
             transition(to: .disconnected)
