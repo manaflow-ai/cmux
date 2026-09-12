@@ -701,11 +701,11 @@ struct CloudTreeRowHoverButtons: View {
                 nodeActions.newTerminal(.local, nil)
             }
         case .terminalsPool(let machine, _):
-        case .agentsGroup:
-            EmptyView()
             plus(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) {
                 nodeActions.newTerminal(machine, nil)
             }
+        case .agentsGroup:
+            EmptyView()
         case .displaysPool(let machine, _):
             // The daemon cannot create displays yet (T10); until then "+" shows
             // the machine's one desktop, reusing a pane that already does.
