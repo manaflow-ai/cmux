@@ -417,6 +417,7 @@ mod unix {
     use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::os::unix::process::CommandExt;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
     use std::process::{Command, Stdio};
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
     use std::sync::mpsc::{
@@ -3144,28 +3145,101 @@ mod unix {
         queued_bytes: Mutex<usize>,
         available: Condvar,
         max_bytes: usize,
+        parser_alive: AtomicBool,
     }
 
     impl ParserBudget {
         fn new(max_bytes: usize) -> Self {
-            Self { queued_bytes: Mutex::new(0), available: Condvar::new(), max_bytes }
+            Self {
+                queued_bytes: Mutex::new(0),
+                available: Condvar::new(),
+                max_bytes,
+                parser_alive: AtomicBool::new(true),
+            }
         }
 
-        fn reserve(&self, bytes: usize) {
+        fn reserve(&self, bytes: usize) -> bool {
             debug_assert!(bytes <= self.max_bytes);
             let queued = self.queued_bytes.lock().unwrap();
             let mut queued = self
                 .available
-                .wait_while(queued, |queued| queued.saturating_add(bytes) > self.max_bytes)
+                .wait_while(queued, |queued| {
+                    self.parser_alive.load(Ordering::Acquire)
+                        && queued.saturating_add(bytes) > self.max_bytes
+                })
                 .unwrap();
+            if !self.parser_alive.load(Ordering::Acquire) {
+                return false;
+            }
             *queued += bytes;
+            true
         }
 
         fn release(&self, bytes: usize) {
-            let mut queued = self.queued_bytes.lock().unwrap();
-            *queued =
-                queued.checked_sub(bytes).expect("parser budget released more bytes than reserved");
+            let mut queued =
+                self.queued_bytes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if *queued >= bytes {
+                *queued -= bytes;
+            } else if self.parser_alive.load(Ordering::Acquire) {
+                panic!("parser budget released more bytes than reserved");
+            } else {
+                // parser_stopped discards reservations owned by a failed
+                // worker. A queued send can still report failure after that
+                // reset, and its cleanup must remain panic-safe.
+                *queued = 0;
+            }
             self.available.notify_all();
+        }
+
+        fn parser_stopped(&self) {
+            self.parser_alive.store(false, Ordering::Release);
+            let mut queued =
+                self.queued_bytes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            *queued = 0;
+            self.available.notify_all();
+        }
+
+        fn reservation(&self, bytes: usize) -> ParserBudgetReservation<'_> {
+            ParserBudgetReservation { budget: self, bytes, active: true }
+        }
+    }
+
+    struct ParserBudgetReservation<'a> {
+        budget: &'a ParserBudget,
+        bytes: usize,
+        active: bool,
+    }
+
+    impl ParserBudgetReservation<'_> {
+        fn into_accounted_bytes(mut self) -> usize {
+            self.active = false;
+            self.bytes
+        }
+    }
+
+    impl Drop for ParserBudgetReservation<'_> {
+        fn drop(&mut self) {
+            if self.active {
+                self.budget.release(self.bytes);
+            }
+        }
+    }
+
+    struct ParserReaderGuard {
+        host: Arc<HostShared>,
+    }
+
+    impl ParserReaderGuard {
+        fn new(host: Arc<HostShared>) -> Self {
+            Self { host }
+        }
+    }
+
+    impl Drop for ParserReaderGuard {
+        fn drop(&mut self) {
+            if thread::panicking() {
+                self.host.parser_failed();
+            }
         }
     }
 
@@ -3175,8 +3249,9 @@ mod unix {
         smart: &SmartStreamState,
         bytes: Vec<u8>,
         source_cursor: u64,
-        accounted_bytes: usize,
+        reservation: ParserBudgetReservation<'_>,
     ) -> bool {
+        let accounted_bytes = reservation.into_accounted_bytes();
         if parser_commands
             .send(ParserCommand::Output { bytes, source_cursor, accounted_bytes })
             .is_ok()
@@ -3476,7 +3551,11 @@ mod unix {
 
     impl HostShared {
         fn mark_launch_owner_stream_ready(&self) {
-            let _gate = self.launch_owner_stream_gate.0.lock().unwrap();
+            let _gate = self
+                .launch_owner_stream_gate
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if !self.launch_owner_stream_ready.swap(true, Ordering::AcqRel) {
                 self.launch_owner_stream_gate.1.notify_all();
             }
@@ -3487,15 +3566,50 @@ mod unix {
             if self.launch_owner_stream_ready.load(Ordering::Acquire) {
                 return;
             }
-            let mut gate = self.launch_owner_stream_gate.0.lock().unwrap();
+            let mut gate = self
+                .launch_owner_stream_gate
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             while !self.launch_owner_stream_ready.load(Ordering::Acquire) {
-                gate = self.launch_owner_stream_gate.1.wait(gate).unwrap();
+                gate = self
+                    .launch_owner_stream_gate
+                    .1
+                    .wait(gate)
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
             }
         }
 
         fn note_parser_progress(&self) {
             let mut generation = self.parser_progress.0.lock().unwrap();
             *generation = generation.wrapping_add(1);
+            self.parser_progress.1.notify_all();
+        }
+
+        fn parser_failed(self: &Arc<Self>) {
+            // A parser panic invalidates the authoritative snapshot. Fail the
+            // host closed instead of leaving the PTY reader or clients waiting
+            // on a worker that can no longer make progress.
+            self.dead.store(true, Ordering::Release);
+            self.mark_launch_owner_stream_ready();
+            {
+                let taps = self.taps.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                for tap in taps.values() {
+                    tap.close();
+                }
+            }
+            {
+                let taps =
+                    self.smart.taps.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                for tap in taps.values() {
+                    tap.close();
+                }
+            }
+            self.request_forced_pty_drain();
+            self.request_termination();
+            // The progress mutex may be poisoned by the same failure. The
+            // dead predicate is already authoritative, so a lock-free notify
+            // is enough to wake snapshot waiters without panicking again.
             self.parser_progress.1.notify_all();
         }
 
@@ -4231,11 +4345,12 @@ mod unix {
         }
 
         fn child_exited(&self) -> bool {
-            self.child_exit.0.lock().unwrap().is_some()
+            self.child_exit.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_some()
         }
 
         fn wait_for_child_exit(&self, timeout: Duration) -> bool {
-            let exited = self.child_exit.0.lock().unwrap();
+            let exited =
+                self.child_exit.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if exited.is_some() {
                 return true;
             }
@@ -4243,7 +4358,7 @@ mod unix {
                 .child_exit
                 .1
                 .wait_timeout_while(exited, timeout, |value| value.is_none())
-                .unwrap();
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             exited.is_some()
         }
 
@@ -4251,14 +4366,14 @@ mod unix {
             if self.child_waitable.load(Ordering::Acquire) {
                 return true;
             }
-            let state = self.child_exit.0.lock().unwrap();
+            let state = self.child_exit.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let (_state, _) = self
                 .child_exit
                 .1
                 .wait_timeout_while(state, timeout, |_| {
                     !self.child_waitable.load(Ordering::Acquire)
                 })
-                .unwrap();
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             self.child_waitable.load(Ordering::Acquire)
         }
 
@@ -4269,12 +4384,12 @@ mod unix {
             // The child-exit mutex is only a rendezvous guard here; the PTY
             // reader notifies the same condition variable after publishing
             // its final bytes and setting pty_drained.
-            let state = self.child_exit.0.lock().unwrap();
+            let state = self.child_exit.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let (_state, _) = self
                 .child_exit
                 .1
                 .wait_timeout_while(state, timeout, |_| !self.pty_drained.load(Ordering::Acquire))
-                .unwrap();
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             self.pty_drained.load(Ordering::Acquire)
         }
 
@@ -4283,7 +4398,8 @@ mod unix {
             // holding this mutex. Otherwise a notifier can run after a waiter
             // checks the atomic but before Condvar::wait arms, losing the only
             // wake that allows the terminal exit to be published.
-            let _state = self.child_exit.0.lock().unwrap();
+            let _state =
+                self.child_exit.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             predicate.store(true, Ordering::Release);
             self.child_exit.1.notify_all();
         }
@@ -4302,7 +4418,8 @@ mod unix {
             // before reaping. While we hold it, `!child_reaped` means the
             // original PID/PGID is still kernel-reserved and cannot have been
             // reused between validation and killpg.
-            let _signal = self.child_signal_lock.lock().unwrap();
+            let _signal =
+                self.child_signal_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let child_reserved = !self.child_reaped.load(Ordering::Acquire);
             if child_reserved
                 && let Some(pid) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok())
@@ -4313,7 +4430,11 @@ mod unix {
             // a foreground job or retained descendant may own a different
             // group by the time explicit Terminate escalates.
             if child_reserved
-                && let Some(foreground) = self.master.lock().unwrap().process_group_leader()
+                && let Some(foreground) = self
+                    .master
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .process_group_leader()
             {
                 groups.push(foreground);
             }
@@ -4335,7 +4456,11 @@ mod unix {
             self.force_pty_drain.store(true, Ordering::Release);
             // Wake the otherwise blocking poll in the sole PTY reader. The
             // byte has no protocol meaning; it only makes the wake fd ready.
-            let _ = self.pty_drain_waker.lock().unwrap().write_all(&[1]);
+            let _ = self
+                .pty_drain_waker
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .write_all(&[1]);
         }
 
         fn request_termination(self: &Arc<Self>) {
@@ -4343,7 +4468,10 @@ mod unix {
                 // Serialize the ownership transition with WNOWAIT's final
                 // reap decision so an explicit Terminate cannot lose the
                 // original reserved PID/PGID in between.
-                let _signal = self.child_signal_lock.lock().unwrap();
+                let _signal = self
+                    .child_signal_lock
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 self.termination_started.swap(true, Ordering::AcqRel)
             };
             if already_started {
@@ -4450,12 +4578,15 @@ mod unix {
                 },
             )?;
             if let Some(exit) = exit {
-                let _source_order = self.source_order_lock.lock().unwrap();
+                let _source_order = self
+                    .source_order_lock
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 // Snapshot capture keeps `term` held from the dead check
                 // through smart subscription. Publish Exit under that same
                 // lock so an attach either joins before Exit or observes dead.
                 {
-                    let _term = self.term.lock().unwrap();
+                    let _term = self.term.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                     self.dead.store(true, Ordering::Release);
                     let payload = encode_terminal_exit(&exit);
                     let cursor = self.smart.publish(Frame::new(MessageKind::Exit, payload.clone()));
@@ -4469,7 +4600,10 @@ mod unix {
 
         fn terminate_and_wait(&self) {
             {
-                let _signal = self.child_signal_lock.lock().unwrap();
+                let _signal = self
+                    .child_signal_lock
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 self.termination_started.store(true, Ordering::Release);
             }
             // ProcessSignaller only targets the direct child. Start with a
@@ -4477,7 +4611,8 @@ mod unix {
             // can clean up too, then escalate after a strict bound.
             self.signal_terminal_process_groups(libc::SIGHUP);
             if !self.child_waitable.load(Ordering::Acquire) {
-                let _ = self.killer.lock().unwrap().kill();
+                let _ =
+                    self.killer.lock().unwrap_or_else(std::sync::PoisonError::into_inner).kill();
             }
             let _ = self.wait_for_child_waitable(HOST_TERMINATE_GRACE);
             let _ = self.wait_for_pty_drain(HOST_PTY_DRAIN_GRACE);
@@ -4515,7 +4650,9 @@ mod unix {
         if !pty_drained.load(Ordering::Acquire) {
             return Ok(None);
         }
-        let Some(exit) = child_exited.lock().unwrap().clone() else {
+        let Some(exit) =
+            child_exited.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+        else {
             return Ok(None);
         };
         if exit_published.load(Ordering::Acquire) {
@@ -5085,119 +5222,126 @@ mod unix {
 
         let parser_host = shared.clone();
         thread::Builder::new().name("terminal-host-parser".into()).spawn(move || {
-            let mut last_colors = initial_colors;
-            let mut last_pwd = None;
-            // Ghostty can answer terminal queries without producing a parser
-            // frame. Flush those answers after every parser command, not only
-            // after PTY output, so lifecycle operations (for example resize
-            // during a Pi reload) cannot leave replies queued in memory and
-            // deliver them to a later TUI write.
-            let flush_pending_responses = || {
-                let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
-                if !responses.is_empty() {
-                    let mut writer = parser_host.writer.lock().unwrap();
-                    let _ = writer.write_all(&responses);
-                    let _ = writer.flush();
-                }
-            };
-            while let Ok(command) = parser_command_receiver.recv() {
-                match command {
-                    ParserCommand::Output { bytes, source_cursor, accounted_bytes } => {
-                        let title = {
-                            let mut term = parser_host.term.lock().unwrap();
-                            let cursor_activity = term
-                                .cursor_activity()
-                                .expect("valid host terminals expose cursor activity");
-                            let normalized = term.vt_write_with_normalized(&bytes).into_owned();
-                            let title = title_changed
-                                .swap(false, Ordering::AcqRel)
-                                .then(|| term.title().unwrap_or_default());
-                            let pwd = term.pwd();
-                            let colors = term.color_overrides();
-                            let cursor_changed = term
-                                .cursor_activity()
-                                .expect("valid host terminals expose cursor activity")
-                                != cursor_activity;
-                            let colors = if colors != last_colors || cursor_changed {
-                                let encoded = encode_terminal_color_overrides(&colors);
-                                last_colors = colors;
-                                Some(encoded)
-                            } else {
-                                None
-                            };
-                            let pwd = changed_pwd_frame(&mut last_pwd, pwd);
-                            parser_host.broadcast_frames(output_transition_frames(
-                                normalized, colors, pwd,
-                            ));
-                            // The parser lock is also the snapshot lock. Mark
-                            // this source cursor before releasing it so a
-                            // snapshot cannot include output that its boundary
-                            // still describes as unapplied.
-                            parser_host.smart.mark_applied(source_cursor);
-                            title
-                        };
-                        parser_host.note_parser_progress();
-                        parser_host.stream_progress.notify();
-                        parser_host.parser_budget.release(accounted_bytes);
-                        if let Some(title) = title {
-                            parser_host.broadcast(MessageKind::Title, title.into_bytes());
-                        }
-                        if bell.swap(false, Ordering::AcqRel) {
-                            parser_host.broadcast(MessageKind::Bell, Vec::new());
-                        }
-                        flush_pending_responses();
+            let parser_result = catch_unwind(AssertUnwindSafe(|| {
+                let mut last_colors = initial_colors;
+                let mut last_pwd = None;
+                // Ghostty can answer terminal queries without producing a parser
+                // frame. Flush those answers after every parser command, not only
+                // after PTY output, so lifecycle operations (for example resize
+                // during a Pi reload) cannot leave replies queued in memory and
+                // deliver them to a later TUI write.
+                let flush_pending_responses = || {
+                    let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
+                    if !responses.is_empty() {
+                        let mut writer = parser_host.writer.lock().unwrap();
+                        let _ = writer.write_all(&responses);
+                        let _ = writer.flush();
                     }
-                    ParserCommand::Resize {
-                        cols,
-                        rows,
-                        cell_pixels,
-                        source_cursor,
-                        acknowledge_with_replay,
-                        targeted_ack,
-                        response,
-                    } => {
-                        let result = parser_host.apply_parser_resize(
+                };
+                while let Ok(command) = parser_command_receiver.recv() {
+                    match command {
+                        ParserCommand::Output { bytes, source_cursor, accounted_bytes } => {
+                            let title = {
+                                let mut term = parser_host.term.lock().unwrap();
+                                let cursor_activity = term
+                                    .cursor_activity()
+                                    .expect("valid host terminals expose cursor activity");
+                                let normalized = term.vt_write_with_normalized(&bytes).into_owned();
+                                let title = title_changed
+                                    .swap(false, Ordering::AcqRel)
+                                    .then(|| term.title().unwrap_or_default());
+                                let pwd = term.pwd();
+                                let colors = term.color_overrides();
+                                let cursor_changed = term
+                                    .cursor_activity()
+                                    .expect("valid host terminals expose cursor activity")
+                                    != cursor_activity;
+                                let colors = if colors != last_colors || cursor_changed {
+                                    let encoded = encode_terminal_color_overrides(&colors);
+                                    last_colors = colors;
+                                    Some(encoded)
+                                } else {
+                                    None
+                                };
+                                let pwd = changed_pwd_frame(&mut last_pwd, pwd);
+                                parser_host.broadcast_frames(output_transition_frames(
+                                    normalized, colors, pwd,
+                                ));
+                                // The parser lock is also the snapshot lock. Mark
+                                // this source cursor before releasing it so a
+                                // snapshot cannot include output that its boundary
+                                // still describes as unapplied.
+                                parser_host.smart.mark_applied(source_cursor);
+                                title
+                            };
+                            parser_host.note_parser_progress();
+                            parser_host.stream_progress.notify();
+                            parser_host.parser_budget.release(accounted_bytes);
+                            if let Some(title) = title {
+                                parser_host.broadcast(MessageKind::Title, title.into_bytes());
+                            }
+                            if bell.swap(false, Ordering::AcqRel) {
+                                parser_host.broadcast(MessageKind::Bell, Vec::new());
+                            }
+                            flush_pending_responses();
+                        }
+                        ParserCommand::Resize {
                             cols,
                             rows,
+                            cell_pixels,
                             source_cursor,
                             acknowledge_with_replay,
                             targeted_ack,
-                            cell_pixels,
-                        );
-                        flush_pending_responses();
-                        let _ = response.send(result);
-                    }
-                    ParserCommand::SetDefaults { colors, source_cursor, response } => {
-                        let colors = *colors;
-                        last_colors = parser_host.apply_parser_defaults(colors, source_cursor);
-                        flush_pending_responses();
-                        let _ = response.send(());
-                    }
-                    ParserCommand::ClearHistory { fallback_key, response } => {
-                        let result = parser_host
-                            .apply_parser_clear_history(fallback_key.as_ref())
-                            .map_err(|error| error.to_string());
-                        if matches!(result, Ok(ParserClearHistoryResult::Cleared(_))) {
-                            parser_host.note_parser_progress();
-                            parser_host.stream_progress.notify();
+                            response,
+                        } => {
+                            let result = parser_host.apply_parser_resize(
+                                cols,
+                                rows,
+                                source_cursor,
+                                acknowledge_with_replay,
+                                targeted_ack,
+                                cell_pixels,
+                            );
+                            flush_pending_responses();
+                            let _ = response.send(result);
                         }
-                        flush_pending_responses();
-                        let _ = response.send(result);
-                    }
-                    ParserCommand::Drain => {
-                        // FIFO reception proves every source byte published by
-                        // the PTY reader has reached the authoritative parser.
-                        parser_host.mark_pty_drained();
-                        parser_host.publish_exit_if_drained();
-                        flush_pending_responses();
-                        break;
+                        ParserCommand::SetDefaults { colors, source_cursor, response } => {
+                            let colors = *colors;
+                            last_colors = parser_host.apply_parser_defaults(colors, source_cursor);
+                            flush_pending_responses();
+                            let _ = response.send(());
+                        }
+                        ParserCommand::ClearHistory { fallback_key, response } => {
+                            let result = parser_host
+                                .apply_parser_clear_history(fallback_key.as_ref())
+                                .map_err(|error| error.to_string());
+                            if matches!(result, Ok(ParserClearHistoryResult::Cleared(_))) {
+                                parser_host.note_parser_progress();
+                                parser_host.stream_progress.notify();
+                            }
+                            flush_pending_responses();
+                            let _ = response.send(result);
+                        }
+                        ParserCommand::Drain => {
+                            // FIFO reception proves every source byte published by
+                            // the PTY reader has reached the authoritative parser.
+                            parser_host.mark_pty_drained();
+                            parser_host.publish_exit_if_drained();
+                            flush_pending_responses();
+                            break;
+                        }
                     }
                 }
+            }));
+            parser_host.parser_budget.parser_stopped();
+            if parser_result.is_err() {
+                parser_host.parser_failed();
             }
         })?;
 
         let reader_host = shared.clone();
         thread::Builder::new().name("terminal-host-pty".into()).spawn(move || {
+            let _reader_guard = ParserReaderGuard::new(reader_host.clone());
             reader_host.wait_for_launch_owner_stream_ready();
             let mut buffer = [0u8; 64 * 1024];
             let mut forced_at = None;
@@ -5223,7 +5367,10 @@ mod unix {
                 };
                 let bytes = buffer[..count].to_vec();
                 let _source_order = reader_host.source_order_lock.lock().unwrap();
-                reader_host.parser_budget.reserve(count);
+                if !reader_host.parser_budget.reserve(count) {
+                    break;
+                }
+                let reservation = reader_host.parser_budget.reservation(count);
                 // Publication deliberately precedes parser enqueue. The
                 // bounded queue limits memory while letting a fast renderer
                 // consume source bytes independently of parser throughput.
@@ -5235,7 +5382,7 @@ mod unix {
                     &reader_host.smart,
                     bytes,
                     source_cursor,
-                    count,
+                    reservation,
                 ) {
                     break;
                 }
@@ -8829,6 +8976,7 @@ mod unix {
             let failed = state.publish(Frame::new(MessageKind::Output, vec![1, 2, 3]));
             let budget = ParserBudget::new(3);
             budget.reserve(3);
+            let reservation = budget.reservation(3);
             let (parser_sender, parser_receiver) = sync_channel(1);
             drop(parser_receiver);
 
@@ -8838,7 +8986,7 @@ mod unix {
                 &state,
                 vec![1, 2, 3],
                 failed,
-                3,
+                reservation,
             ));
 
             assert_eq!(*budget.queued_bytes.lock().unwrap(), 0);
@@ -8871,6 +9019,78 @@ mod unix {
             observed.recv_timeout(Duration::from_secs(1)).unwrap();
             waiter.join().unwrap();
             assert_eq!(*budget.queued_bytes.lock().unwrap(), 0);
+        }
+
+        #[test]
+        fn parser_budget_waiter_exits_when_parser_stops() {
+            let budget = Arc::new(ParserBudget::new(4));
+            budget.reserve(4);
+            let (started, started_rx) = sync_channel(0);
+            let (finished, finished_rx) = sync_channel(0);
+            let waiter = {
+                let budget = budget.clone();
+                thread::spawn(move || {
+                    started.send(()).unwrap();
+                    budget.reserve(1);
+                    finished.send(()).unwrap();
+                })
+            };
+
+            started_rx.recv().unwrap();
+            assert!(
+                finished_rx.recv_timeout(Duration::from_millis(30)).is_err(),
+                "a saturated parser budget admitted a chunk before shutdown"
+            );
+            budget.parser_stopped();
+            finished_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("parser shutdown must release a saturated waiter");
+            waiter.join().unwrap();
+            assert_eq!(
+                *budget.queued_bytes.lock().unwrap(),
+                0,
+                "parser shutdown must discard reservations owned by the failed worker"
+            );
+        }
+
+        fn poison_mutex<T: Send>(mutex: &Mutex<T>) {
+            let _ = thread::scope(|scope| {
+                scope
+                    .spawn(|| {
+                        let _guard = mutex.lock().unwrap();
+                        panic!("poison test lock");
+                    })
+                    .join()
+            });
+        }
+
+        #[test]
+        fn parser_failure_cleanup_recovers_poisoned_shutdown_locks() {
+            let host = test_host_shared();
+            host.launch_owner_stream_ready.store(false, Ordering::Release);
+            poison_mutex(&host.launch_owner_stream_gate.0);
+            poison_mutex(&host.pty_drain_waker);
+            poison_mutex(&host.child_signal_lock);
+            poison_mutex(&host.child_exit.0);
+
+            let waiter_host = host.clone();
+            let waiter = thread::spawn(move || waiter_host.wait_for_launch_owner_stream_ready());
+            host.parser_failed();
+            waiter.join().unwrap();
+
+            let state = host.child_exit.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let (_state, _) = host
+                .child_exit
+                .1
+                .wait_timeout_while(state, Duration::from_secs(1), |_| {
+                    !host.group_escalation_complete.load(Ordering::Acquire)
+                })
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+            assert!(host.dead.load(Ordering::Acquire));
+            assert!(host.force_pty_drain.load(Ordering::Acquire));
+            assert!(host.termination_started.load(Ordering::Acquire));
+            assert!(host.group_escalation_complete.load(Ordering::Acquire));
         }
 
         #[test]
