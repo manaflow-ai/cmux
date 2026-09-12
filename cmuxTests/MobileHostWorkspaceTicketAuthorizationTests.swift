@@ -243,8 +243,9 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         let attachURL = try #require(payload["attach_url"] as? String)
         #expect(attachURL.contains("?v=1&payload="))
         let decoded = try compactTicket(from: attachURL)
+        let expectedEndpoint = try irohRoute(withPathHint: false).endpoint
         #expect(decoded.routes.map(\.kind) == [.iroh])
-        #expect(decoded.routes.first?.endpoint == try irohRoute(withPathHint: false).endpoint)
+        #expect(decoded.routes.first?.endpoint == expectedEndpoint)
         #expect(decoded.authToken == nil)
     }
 
