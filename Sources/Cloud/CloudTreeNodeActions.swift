@@ -229,18 +229,6 @@ struct CloudTreeNodeActions {
         return (workspace, terminal, opened)
     }
 
-    /// The house destructive-confirm shape (`NSAlert`, warning style, verb first).
-    @MainActor
-    private static func confirmDestructive(title: String, message: String, verb: String) -> Bool {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: verb)
-        alert.addButton(withTitle: String(localized: "cloudTree.confirm.cancel", defaultValue: "Cancel"))
-        return alert.runModal() == .alertFirstButtonReturn
-    }
-
     /// A one-field rename prompt. Returns the trimmed name, or nil on cancel/empty.
     @MainActor
     private static func promptForName(title: String, current: String) -> String? {
