@@ -28,6 +28,8 @@ export const USAGE_POLICIES = {
   "device.revoke": perMinute(120, 50),
   "permission.update": perMinute(120, 50),
   "preferences.update": perMinute(300, 100),
+  "workspace.snapshot": perMinute(600, 200),
+  "workspace.get": perMinute(600, 200),
   "input.rejected": perMinute(6000, 1000),
 } as const satisfies Record<string, Policy>;
 

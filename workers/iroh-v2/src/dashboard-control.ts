@@ -125,6 +125,20 @@ export class DashboardControl {
     }
   }
 
+  async broadcastWorkspace(teamId: string, change: { vmId: string; generation: string; revision: number }): Promise<void> {
+    const sockets = this.ctx.getWebSockets("dashboard");
+    for (let start = 0; start < sockets.length; start += 16) {
+      await Promise.allSettled(
+        sockets.slice(start, start + 16).map(ws => this.services.enqueue(ws, 0, async () => {
+          const attachment = this.load(ws);
+          if (attachment.closed || attachment.claims.expiresAt <= Math.floor(Date.now() / 1000)) return;
+          await this.send(ws, { schemaId: "workspace.changed.v1", teamId, ...change });
+        }).catch(() => this.close(ws, "slow_consumer")),
+        ),
+      );
+    }
+  }
+
   isLive(ws: WebSocket, candidates: Set<string>): string | null {
     const value = this.load(ws);
     return ws.readyState !== WebSocket.CLOSED && candidates.has(value.sessionId) ? value.sessionId : null;

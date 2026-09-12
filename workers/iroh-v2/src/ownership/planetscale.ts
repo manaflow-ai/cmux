@@ -11,12 +11,13 @@ export interface EndpointOwnership {
   reserve(device: DeviceDescriptor, now: number): Promise<void>;
 }
 
-/** No directory read or credential renewal traverses this adapter. */
+/** No directory read or credential renewal traverses this adapter. The URL is
+ * normally the generated Hyperdrive URL for the isolated IROH database. */
 export class PlanetScaleOwnership implements EndpointOwnership {
   constructor(private readonly databaseURL: string, private readonly environment: string, private readonly projectId: string) {
     const url = new URL(databaseURL);
     if (url.protocol !== "postgresql:" && url.protocol !== "postgres:") throw new Error("PlanetScale ownership requires PostgreSQL");
-    if (!url.hostname.endsWith(".psdb.cloud")) throw new Error("Ownership database must be the configured PlanetScale service");
+    if (!url.hostname) throw new Error("PlanetScale ownership requires a database host");
   }
 
   async reserve(device: DeviceDescriptor, now: number): Promise<void> {
@@ -26,7 +27,7 @@ export class PlanetScaleOwnership implements EndpointOwnership {
     const userScopeHash = await hash(canonicalJSON({ environment: identity.environment, projectId: identity.projectId, userId: identity.userId }));
     const connection = postgres(this.databaseURL, {
       max: 1, prepare: false, connect_timeout: 5, idle_timeout: 1,
-      ssl: { rejectUnauthorized: true }, connection: { statement_timeout: 5000 },
+      connection: { statement_timeout: 5000 },
     });
     const db = drizzle(connection);
     try {
