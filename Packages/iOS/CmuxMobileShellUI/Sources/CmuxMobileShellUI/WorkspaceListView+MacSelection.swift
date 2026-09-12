@@ -14,7 +14,7 @@ enum WorkspaceMacSelection: Hashable {
 }
 
 extension WorkspaceListView {
-    var isStoreFreeWorkspacePreview: Bool {
+    private var isStoreFreeWorkspacePreview: Bool {
         #if canImport(UIKit) && DEBUG
         store == nil && UITestConfig.workspaceListLayoutPreviewEnabled
         #else
