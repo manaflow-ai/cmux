@@ -5,8 +5,6 @@ import { isStackConfigured } from "@/app/lib/stack";
 import { redirect } from "next/navigation";
 import { VmsDashboard } from "./vms-dashboard";
 
-export const instant = true;
-
 export default async function VmsDashboardPage({
   params,
 }: { readonly params: Promise<{ locale: string }> }) {
