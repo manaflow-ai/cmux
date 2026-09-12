@@ -11,6 +11,7 @@ final class CloudTreeCellView: NSTableCellView {
 
     private let displayHost = CloudTreePassthroughHostingView(rootView: AnyView(EmptyView()))
     private var buttonsHost: NSHostingView<AnyView>?
+    private var buttonsLeadingConstraint: NSLayoutConstraint?
     private var buttonsTopConstraint: NSLayoutConstraint?
     private var buttonsCenterConstraint: NSLayoutConstraint?
     private var trackingArea: NSTrackingArea?
@@ -33,8 +34,13 @@ final class CloudTreeCellView: NSTableCellView {
             ),
             displayHost.topAnchor.constraint(equalTo: topAnchor),
             displayHost.bottomAnchor.constraint(equalTo: bottomAnchor),
-            displayHost.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
         ])
+        let trailing = displayHost.trailingAnchor.constraint(equalTo: trailingAnchor)
+        // Hover controls own the last few points on machine rows. Keeping this
+        // just below required lets their stronger constraint win while making
+        // every other row fill the cell's actual visible width.
+        trailing.priority = NSLayoutConstraint.Priority(rawValue: NSLayoutConstraint.Priority.required.rawValue - 1)
+        trailing.isActive = true
     }
 
     @available(*, unavailable)
@@ -48,10 +54,19 @@ final class CloudTreeCellView: NSTableCellView {
         nodeActions: CloudTreeNodeActions,
         style: CloudTreeStyle = CloudTreeStyleStore.current
     ) {
+        #if DEBUG
+        if case .terminal(let row) = node.kind, row.hasUnreadNotification {
+            cmuxDebugLog("cloudTree.cell.configure unread terminal=\(row.resource.id.key.suffix(4)) node=\(node.id.suffix(12))")
+        }
+        #endif
         displayHost.rootView = AnyView(
             CloudTreeRowContentView(kind: node.kind, style: style)
                 .frame(maxWidth: .infinity, alignment: .leading)
         )
+        // An in-place row reload reuses this cell; the new content can be wider
+        // than the last fitting size, so ask AppKit to re-measure the host.
+        displayHost.invalidateIntrinsicContentSize()
+        needsLayout = true
         if CloudTreeRowHoverButtons.hasButtons(for: node.kind) {
             let buttons = buttonsHost ?? makeButtonsHost()
             buttons.rootView = AnyView(CloudTreeRowHoverButtons(kind: node.kind, machineActions: machineActions, nodeActions: nodeActions))
@@ -63,6 +78,7 @@ final class CloudTreeCellView: NSTableCellView {
                 isPersistentAccessory = false
             }
             buttons.alphaValue = isPersistentAccessory || hovered ? 1 : 0
+            buttonsLeadingConstraint?.isActive = true
             // Two-line machine cards pin the buttons to the name line; every
             // other row centers them vertically.
             let pinToNameLine = node.isMachineRow && style.machineRowLayout == .twoLine
@@ -71,6 +87,7 @@ final class CloudTreeCellView: NSTableCellView {
             buttonsCenterConstraint?.isActive = !pinToNameLine
         } else {
             buttonsHost?.isHidden = true
+            buttonsLeadingConstraint?.isActive = false
         }
         if case .machine(let machine, _) = node.kind {
             toolTip = [machine.displayName, machine.activityLabel, machine.image].joined(separator: "\n")
@@ -96,8 +113,11 @@ final class CloudTreeCellView: NSTableCellView {
         NSLayoutConstraint.activate([
             host.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -CloudTreeRowGrid.trailingPadding),
             top,
-            displayHost.trailingAnchor.constraint(lessThanOrEqualTo: host.leadingAnchor, constant: -CloudTreeRowGrid.trailingGap),
         ])
+        buttonsLeadingConstraint = displayHost.trailingAnchor.constraint(
+            lessThanOrEqualTo: host.leadingAnchor,
+            constant: -CloudTreeRowGrid.trailingGap
+        )
         buttonsTopConstraint = top
         buttonsCenterConstraint = center
         buttonsHost = host

@@ -90,14 +90,25 @@ actor CloudMachineLink {
         let session: String
     }
 
+    /// The first thing the link process tells us: a socket line, stdout closing
+    /// without one, or the connect deadline passing.
+    private enum LinkFirstLine: Sendable {
+        case socket(String)
+        case ended
+        case timedOut
+    }
+
     enum LinkError: Error, LocalizedError {
         case clientMissing
         case spawnFailed(String)
         case exited(status: Int32, output: String)
         case timedOut
+        case inputTooLarge
 
         var errorDescription: String? {
             switch self {
+            case .inputTooLarge:
+                return String(localized: "cloud.link.inputTooLarge", defaultValue: "The machine input chunk is too large. Split it into smaller chunks and retry.")
             case .clientMissing:
                 return "No cmux-tui client is bundled with this build (Contents/Resources/bin/cmux-tui) and CMUX_TUI_CLIENT is unset."
             case .spawnFailed(let detail):
@@ -151,7 +162,6 @@ actor CloudMachineLink {
     private var eventsRecoveryTask: Task<Void, Never>?
     private var eventsStabilityTask: Task<Void, Never>?
     private var eventsRecoveryPhase: EventsRecoveryPhase = .healthy
-    private var inviteFileURL: URL?
     private var stderrTail: [String] = []
     /// Releases this link's claim on the app's WireGuard hub; runs once when the link ends.
     private var releaseHubLease: (@Sendable () async -> Void)?
@@ -180,13 +190,15 @@ actor CloudMachineLink {
 
     /// Spawns the headless client against `route` and waits for its local socket.
     ///
-    /// `wireguardHubSocket` routes the client through the app's WireGuard hub for a
-    /// machine on the private network; `releaseHubLease` is called exactly once when the
-    /// link ends (disconnect, exit, or a failed connect), so the hub can idle out.
+    /// `carrier` dials the machine's trusted listener with no enrollment; false presents
+    /// the stored device key instead. `wireguardHubSocket` routes the client through the
+    /// app's WireGuard hub for a machine on the private network; `releaseHubLease` is
+    /// called exactly once when the link ends (disconnect, exit, or a failed connect), so
+    /// the hub can idle out.
     func connect(
         route: String,
         session: String,
-        invitationURI: String?,
+        carrier: Bool = false,
         timeout: Duration = .seconds(60),
         wireguardHubSocket: String? = nil,
         releaseHubLease: (@Sendable () async -> Void)? = nil
@@ -199,22 +211,13 @@ actor CloudMachineLink {
         eventsCursor = nil
         resetEventsRecovery()
         try paths.ensureStateDir()
-        var inviteFilePath: String?
-        if let invitationURI, !invitationURI.isEmpty {
-            let url = FileManager.default.temporaryDirectory
-                .appendingPathComponent("cmux-cloud-link-invite-\(UUID().uuidString.lowercased())")
-            try (invitationURI + "\n").data(using: .utf8)!.write(to: url, options: .atomic)
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-            inviteFileURL = url
-            inviteFilePath = url.path
-        }
         let process = Process()
         process.executableURL = clientURL
         process.arguments = CloudTuiCommandLine.linkArguments(
             route: route,
             deviceName: CloudTuiClientPaths.deviceName(),
             stateDir: paths.stateDir.path,
-            inviteFilePath: inviteFilePath,
+            carrier: carrier,
             wireguardHubSocket: wireguardHubSocket
         )
         var environment = ProcessInfo.processInfo.environment
@@ -238,7 +241,6 @@ actor CloudMachineLink {
         } catch {
             state = .error
             lastError = Self.errorText(error)
-            removeInviteFile()
             await releaseHubLeaseOnce()
             throw LinkError.spawnFailed(error.localizedDescription)
         }
@@ -261,17 +263,28 @@ actor CloudMachineLink {
         }
         let socketPath: String
         do {
-            socketPath = try await withThrowingTaskGroup(of: String?.self) { group in
-                group.addTask { await firstSocket.result }
+            socketPath = try await withThrowingTaskGroup(of: LinkFirstLine.self) { group in
+                group.addTask { (await firstSocket.result).map(LinkFirstLine.socket) ?? .ended }
                 group.addTask {
                     try await Task.sleep(for: timeout)
-                    return nil
+                    return .timedOut
                 }
                 defer { group.cancelAll() }
-                guard let first = try await group.next(), let socket = first else {
+                switch try await group.next() {
+                case .socket(let socket)?:
+                    return socket
+                case .ended?:
+                    // stdout closed before a socket line: the client exited (an older
+                    // client rejecting a flag, a refused dial). Report that exit and its
+                    // stderr, not the deadline it never reached.
+                    await Self.terminateAndWait(process, exit: processExit)
+                    throw LinkError.exited(
+                        status: process.terminationStatus,
+                        output: stderrTail.joined(separator: "\n")
+                    )
+                case .timedOut?, nil:
                     throw LinkError.timedOut
                 }
-                return socket
             }
             guard process.isRunning else {
                 throw LinkError.exited(status: process.terminationStatus, output: stderrTail.joined(separator: "\n"))
@@ -279,7 +292,6 @@ actor CloudMachineLink {
         } catch {
             state = .error
             lastError = Self.errorText(error)
-            removeInviteFile()
             await Self.terminateAndWait(process, exit: processExit)
             if self.process === process {
                 self.process = nil
@@ -306,7 +318,6 @@ actor CloudMachineLink {
         eventsRecoveryPhase = .healthy
         state = .unavailable
         connected = nil
-        removeInviteFile()
         changesContinuation.finish()
         if let eventsProcess, let eventsProcessExit {
             await Self.terminateAndWait(eventsProcess, exit: eventsProcessExit)
@@ -416,11 +427,28 @@ actor CloudMachineLink {
     }
 
     /// Runs one cmux-tui command against the link's socket and returns its stdout.
-    func run(arguments: [String], timeout: Duration = .seconds(30)) async throws -> Data {
+    func run(arguments: [String], input: Data? = nil, timeout: Duration = .seconds(30)) async throws -> Data {
+        try await CloudOperationContext.phase(.process) {
+            try await self.runMeasured(arguments: arguments, input: input, timeout: timeout)
+        }
+    }
+
+    private func runMeasured(arguments: [String], input: Data?, timeout: Duration) async throws -> Data {
         let process = Process()
         process.executableURL = clientURL
         process.arguments = arguments
-        process.standardInput = FileHandle.nullDevice
+        // Secret delivery writes at most 1 KiB per command. Prefill a bounded pipe
+        // before launch (below Darwin's 4 KiB pipe capacity), then close the writer;
+        // this needs no blocking writer task and cancellation cannot strand one.
+        let stdin = input.map { _ in Pipe() }
+        if let input, let stdin {
+            guard input.count <= 1_024 else { throw LinkError.inputTooLarge }
+            try stdin.fileHandleForWriting.write(contentsOf: input)
+            try stdin.fileHandleForWriting.close()
+            process.standardInput = stdin
+        } else {
+            process.standardInput = FileHandle.nullDevice
+        }
         let stdout = Pipe()
         let stderr = Pipe()
         process.standardOutput = stdout
@@ -522,7 +550,6 @@ actor CloudMachineLink {
         }
         eventsProcess = process
         eventsProcessExit = exit
-        let continuation = changesContinuation
         let lines = CloudLinkPipe.lines(from: stdout.fileHandleForReading)
         eventsReaderTask = Task.detached { [weak self] in
             var receivedStreamEnd = false
@@ -715,7 +742,6 @@ actor CloudMachineLink {
         process = nil
         processExit = nil
         connected = nil
-        removeInviteFile()
         if state != .unavailable {
             state = status == 0 ? .unavailable : .error
             lastError = status == 0 ? nil : LinkError.exited(status: status, output: stderrTail.joined(separator: "\n")).errorDescription
@@ -807,12 +833,6 @@ actor CloudMachineLink {
         return try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
     }
 
-    private func removeInviteFile() {
-        if let inviteFileURL {
-            try? FileManager.default.removeItem(at: inviteFileURL)
-            self.inviteFileURL = nil
-        }
-    }
 }
 
 private enum CloudLinkCommandOutcome: Sendable, Equatable {
@@ -889,18 +909,40 @@ enum CloudLinkPipe {
     }
 
     private final class LineBuffer {
+        private static let maxLineBytes = 4 * 1_024 * 1_024
         private var pending = Data()
+        private var dropping = false
 
         func append(_ data: Data) -> [String] {
-            pending.append(data)
-            let split = CloudLinkPipe.splitLines(pending)
-            pending = split.rest
-            return split.lines
+            var lines: [String] = []
+            var start = data.startIndex
+            while start < data.endIndex {
+                let newline = data[start...].firstIndex(of: 0x0A)
+                let end = newline ?? data.endIndex
+                if !dropping {
+                    if pending.count + data.distance(from: start, to: end) > Self.maxLineBytes {
+                        pending.removeAll(keepingCapacity: false)
+                        dropping = true
+                    } else {
+                        pending.append(contentsOf: data[start..<end])
+                    }
+                }
+                guard let newline else { break }
+                if !dropping {
+                    var line = String(decoding: pending, as: UTF8.self)
+                    if line.hasSuffix("\r") { line.removeLast() }
+                    lines.append(line)
+                }
+                pending.removeAll(keepingCapacity: true)
+                dropping = false
+                start = data.index(after: newline)
+            }
+            return lines
         }
 
         func flush() -> String? {
-            defer { pending = Data() }
-            guard !pending.isEmpty else { return nil }
+            defer { pending = Data(); dropping = false }
+            guard !dropping, !pending.isEmpty else { return nil }
             var line = String(decoding: pending, as: UTF8.self)
             if line.hasSuffix("\r") { line.removeLast() }
             return line
