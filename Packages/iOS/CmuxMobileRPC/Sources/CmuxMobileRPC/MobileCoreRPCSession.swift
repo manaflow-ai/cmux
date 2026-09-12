@@ -30,9 +30,6 @@ actor MobileCoreRPCSession {
     static let defaultAbandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000
     static let defaultLateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000
     static let defaultCancelledWriteCompletionGraceNanoseconds: UInt64 = 250_000_000
-    static let maximumReceiveBufferByteCount =
-        MobileSyncFrameCodec.defaultMaximumFrameByteCount
-        + MobileSyncFrameCodec.headerByteCount
     static let maximumDecodedFrameCountPerRead = 256
 
     struct EventSubscription {
@@ -1039,13 +1036,8 @@ actor MobileCoreRPCSession {
                   installedConnectionID == connectionID else {
                 return
             }
-            guard chunk.count <= Self.maximumReceiveBufferByteCount - buffer.count else {
-                await tearDownIfInstalled(
-                    connectionID: connectionID,
-                    error: .invalidResponse
-                )
-                return
-            }
+            // Enforce size per decoded frame. A chunk can finish one valid
+            // maximum-size frame and also contain bytes from the next frame.
             buffer.append(chunk)
             do {
                 while !Task.isCancelled, installedConnectionID == connectionID {

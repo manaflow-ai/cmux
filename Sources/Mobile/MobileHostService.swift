@@ -2038,7 +2038,6 @@ extension MobileHostService {
 #endif
 
 actor MobileHostConnection {
-    private static let maximumReceiveBufferByteCount = MobileSyncFrameCodec.defaultMaximumFrameByteCount + MobileSyncFrameCodec.headerByteCount
     private static let defaultFirstFrameTimeoutNanoseconds: UInt64 = 15 * 1_000_000_000
     fileprivate static let defaultIdleTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
     private struct EventSubscription: Sendable {
@@ -2281,23 +2280,8 @@ actor MobileHostConnection {
         if !data.isEmpty {
             idleTimeoutTask?.cancel()
             idleTimeoutTask = nil
-            guard receiveBuffer.count + data.count <= Self.maximumReceiveBufferByteCount else {
-                _ = await sendResponse(
-                    MobileHostRPCEnvelope.error(
-                        id: nil,
-                        code: "frame_decode_error",
-                        message: "Invalid frame"
-                    )
-                )
-                await close(
-                    reason: "receive buffer exceeded frame limit",
-                    exit: CmxIrohAdmittedConnectionExit(
-                        lifecycle: .controlReadFailed,
-                        failure: .protocolViolation
-                    )
-                )
-                return
-            }
+            // Message limits belong to individual frames. A receive chunk may
+            // contain the tail of a maximum-size frame followed by another.
             receiveBuffer.append(data)
             do {
                 let batchLimit = responseWorkQuota.maximumConcurrentRequestCount
