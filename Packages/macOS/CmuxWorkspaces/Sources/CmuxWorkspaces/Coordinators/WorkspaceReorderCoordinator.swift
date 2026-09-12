@@ -101,6 +101,46 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         }
     }
 
+    // MARK: - Move to bottom
+
+    /// Moves one workspace to the bottom of its pin tier.
+    public func moveTabToBottom(_ tabId: UUID) {
+        moveTabsToBottom([tabId])
+    }
+
+    /// Moves the given workspaces to the bottom of their pin tiers, preserving
+    /// their relative order (group members trail behind their anchors).
+    public func moveTabsToBottom(_ tabIds: Set<UUID>) {
+        guard !tabIds.isEmpty else { return }
+        let selectedTabs = model.tabs.filter { tabIds.contains($0.id) }
+        guard !selectedTabs.isEmpty else { return }
+        let previousOrder = model.tabs.map(\.id)
+
+        if !model.workspaceGroups.isEmpty {
+            let topLevelIds = model.sidebarTopLevelWorkspaceIdsIncludingEmptyGroups()
+            let selectedTopLevelIds = model.topLevelWorkspaceIds(for: selectedTabs)
+            let selectedTopLevelIdSet = Set(selectedTopLevelIds)
+            let pinnedTopLevelIds = model.sidebarTopLevelPinnedWorkspaceIdsIncludingEmptyGroups()
+            let desiredTopLevelIds =
+                topLevelIds.filter { pinnedTopLevelIds.contains($0) && !selectedTopLevelIdSet.contains($0) } +
+                selectedTopLevelIds.filter { pinnedTopLevelIds.contains($0) } +
+                topLevelIds.filter { !pinnedTopLevelIds.contains($0) && !selectedTopLevelIdSet.contains($0) } +
+                selectedTopLevelIds.filter { !pinnedTopLevelIds.contains($0) }
+            model.normalizeWorkspaceGroupRunsPreservingOrder(desiredTopLevelIds)
+            model.syncWorkspaceGroupsOrderToAnchorOrder(preferredTopLevelIds: desiredTopLevelIds)
+        } else {
+            let remainingTabs = model.tabs.filter { !tabIds.contains($0.id) }
+            let selectedPinned = selectedTabs.filter { $0.isPinned }
+            let selectedUnpinned = selectedTabs.filter { !$0.isPinned }
+            let remainingPinned = remainingTabs.filter { $0.isPinned }
+            let remainingUnpinned = remainingTabs.filter { !$0.isPinned }
+            model.tabs = remainingPinned + selectedPinned + remainingUnpinned + selectedUnpinned
+        }
+        if model.tabs.map(\.id) != previousOrder {
+            host?.workspaceOrderDidChange(movedWorkspaceIds: selectedTabs.map(\.id))
+        }
+    }
+
     // MARK: - Single reorder
 
     /// Reorders one workspace to the clamped target index; drag operations
