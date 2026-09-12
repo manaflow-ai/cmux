@@ -115,6 +115,7 @@ struct MobileIrohConnectionCheckSection: View {
         lines.append(contentsOf: report.stages.map {
             "\(stageTitle($0.kind)): \(stageStatus($0.status))"
         })
+        lines.append(contentsOf: brokerFailureReportLines(report))
         if report.recommendation != .none {
             lines.append(
                 "\(L10n.string("mobile.iroh.check.report.action", defaultValue: "Suggested Action")): \(recommendation(report.recommendation))"
@@ -123,6 +124,38 @@ struct MobileIrohConnectionCheckSection: View {
         // Relay origins stay out of this report: the diagnostics privacy copy
         // promises reports exclude relay URLs. Share IT Allowlist carries them.
         return lines.joined(separator: "\n")
+    }
+
+    private func brokerFailureReportLines(
+        _ report: CmxIrohConnectionCheckReport
+    ) -> [String] {
+        guard let failure = report.brokerFailure else { return [] }
+        let unknown = L10n.string(
+            "mobile.iroh.check.diagnostics.unknown",
+            defaultValue: "Unknown"
+        )
+        var lines = [
+            String(
+                format: L10n.string(
+                    "mobile.iroh.check.report.brokerFailure",
+                    defaultValue: "Broker response: HTTP %1$d (%2$@)"
+                ),
+                failure.statusCode,
+                failure.code ?? unknown
+            ),
+        ]
+        if let requestID = failure.requestID {
+            lines.append(
+                String(
+                    format: L10n.string(
+                        "mobile.iroh.check.report.requestID",
+                        defaultValue: "Support request ID: %@"
+                    ),
+                    requestID
+                )
+            )
+        }
+        return lines
     }
 
     private func selectedPath(_ path: CmxIrohSelectedTransportPath) -> String {

@@ -1,6 +1,7 @@
 // Read and update account-scoped Iroh relay selection metadata.
 // Custom relay secrets stay in the native client's Keychain and are rejected here.
 
+import { randomUUID } from "node:crypto";
 import { runWithCloudDbQueryTags } from "../../../../db/queryTags";
 import { checkRateLimit } from "@vercel/firewall";
 
@@ -65,6 +66,7 @@ const productionDeps: RelayPreferenceDeps = {
 async function authenticatedAccount(
   request: Request,
   deps: RelayPreferenceDeps,
+  requestId: string,
 ): Promise<AuthedUser | Response> {
   let user: AuthedUser | null;
   try {
@@ -76,6 +78,7 @@ async function authenticatedAccount(
   await runRelayEffect(enforceRelayRateLimit({
     request,
     accountId: user.id,
+    requestId,
     ruleId: deps.rateLimitRuleId(),
     check: deps.checkRateLimit,
     isVercel: deps.isVercel(),
@@ -88,8 +91,9 @@ export async function handleGetRelayPreference(
   request: Request,
   deps: RelayPreferenceDeps,
 ): Promise<Response> {
+  const requestId = randomUUID();
   try {
-    const user = await authenticatedAccount(request, deps);
+    const user = await authenticatedAccount(request, deps, requestId);
     if (user instanceof Response) return user;
     const record = await deps.getPreference(user.id);
     return jsonResponse({
@@ -97,7 +101,7 @@ export async function handleGetRelayPreference(
       preferenceRevision: record.revision,
     });
   } catch (error) {
-    return relayErrorResponse(error);
+    return relayErrorResponse(error, { requestId });
   }
 }
 
@@ -105,8 +109,9 @@ export async function handlePutRelayPreference(
   request: Request,
   deps: RelayPreferenceDeps,
 ): Promise<Response> {
+  const requestId = randomUUID();
   try {
-    const user = await authenticatedAccount(request, deps);
+    const user = await authenticatedAccount(request, deps, requestId);
     if (user instanceof Response) return user;
     const body = await readBoundedJsonObject(request, MAX_BODY_BYTES);
     if (!body.ok) {
@@ -129,7 +134,7 @@ export async function handlePutRelayPreference(
       preferenceRevision: record.revision,
     });
   } catch (error) {
-    return relayErrorResponse(error);
+    return relayErrorResponse(error, { requestId });
   }
 }
 

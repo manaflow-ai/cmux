@@ -166,6 +166,8 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
     public let policyExpiresAt: Date?
     public let staleRelayIDs: Set<String>
     public let failureDescription: String?
+    /// Bounded broker response metadata for the most recent policy failure.
+    public let brokerFailure: CmxIrohBrokerFailure?
     /// Debug-only path constraint, or `nil` when the current app cannot control it.
     public let debugTransportVerificationMode: CmxIrohTransportVerificationMode?
 
@@ -188,6 +190,7 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
         policyExpiresAt: Date? = nil,
         staleRelayIDs: Set<String> = [],
         failureDescription: String? = nil,
+        brokerFailure: CmxIrohBrokerFailure? = nil,
         debugTransportVerificationMode: CmxIrohTransportVerificationMode? = nil
     ) {
         self.runtimeStatus = runtimeStatus
@@ -203,6 +206,7 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
         self.policyExpiresAt = policyExpiresAt
         self.staleRelayIDs = staleRelayIDs
         self.failureDescription = failureDescription
+        self.brokerFailure = brokerFailure
         self.debugTransportVerificationMode = debugTransportVerificationMode
     }
 
