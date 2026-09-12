@@ -85,6 +85,10 @@ public final class GhosttySurfaceCallbackContext {
     /// Runs after the renderer finishes a draw attempt, before platform delivery.
     private let rendererDrawFrameDidEndHandler: @Sendable (UUID) -> Void
 
+    /// Lock-free gate so ordinary steady-state draws do not hop to the main
+    /// actor unless a presentation probe is actually waiting for a result.
+    private let rendererDrawFrameObservationArmed = AtomicBooleanGate(false)
+
     /// Lock-free so the unarmed renderer callback path neither allocates nor locks.
     private let rendererPresentationRepairArmed = AtomicBooleanGate(false)
 
@@ -182,7 +186,21 @@ public final class GhosttySurfaceCallbackContext {
 
     /// Delivers the renderer draw-end signal to the owning surface.
     public func rendererDrawFrameDidEnd() {
+        guard rendererDrawFrameObservationArmed.compareExchange(
+            expected: true,
+            desired: false
+        ) else { return }
         rendererDrawFrameDidEndHandler(surfaceId)
+    }
+
+    /// Arms one draw-end observation for the current presentation probe.
+    public func armRendererDrawFrameObservation() {
+        rendererDrawFrameObservationArmed.storeRelease(true)
+    }
+
+    /// Cancels the draw-end observation when the probe is presented, failed, or hidden.
+    public func cancelRendererDrawFrameObservation() {
+        rendererDrawFrameObservationArmed.storeRelease(false)
     }
 
     /// Binds this callback context to the native surface that owns its userdata.

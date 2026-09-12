@@ -152,7 +152,9 @@ extension TerminalSurface {
             if renderHealth != .shellExited {
                 renderHealth = .notStarted
             }
-            surfaceCallbackContext?.takeUnretainedValue().cancelRendererPresentationRepair()
+            let callbackContext = surfaceCallbackContext?.takeUnretainedValue()
+            callbackContext?.cancelRendererPresentationRepair()
+            callbackContext?.cancelRendererDrawFrameObservation()
         }
         // This is the single presentation transition for both a renderer that
         // was reclaimed and one that was born hidden and never got a drawable.
@@ -196,7 +198,9 @@ extension TerminalSurface {
         rendererPresentationState.inFlightToken = nil
         rendererPresentationState.recoveryAttempted = false
         renderHealth = .notStarted
-        surfaceCallbackContext?.takeUnretainedValue().cancelRendererPresentationRepair()
+        let callbackContext = surfaceCallbackContext?.takeUnretainedValue()
+        callbackContext?.cancelRendererPresentationRepair()
+        callbackContext?.cancelRendererDrawFrameObservation()
         guard surface != nil else { return }
         if rendererPortalVisible, rendererWindowVisible, presentationReady {
             rendererPresentationPhase = .presented
@@ -255,7 +259,9 @@ extension TerminalSurface {
             rendererPresentationPhase = .released
             rendererPresentationState.inFlightToken = nil
             renderHealth = .notStarted
-            surfaceCallbackContext?.takeUnretainedValue().cancelRendererPresentationRepair()
+            let callbackContext = surfaceCallbackContext?.takeUnretainedValue()
+            callbackContext?.cancelRendererPresentationRepair()
+            callbackContext?.cancelRendererDrawFrameObservation()
             return true
         }
         return false
@@ -358,11 +364,13 @@ extension TerminalSurface {
         let token = rendererPresentationState.token
         rendererPresentationState.inFlightToken = token
         rendererPresentationState.baselineFrameSequence = surfaceView.renderedFrameSequence
+        surfaceCallbackContext?.takeUnretainedValue().armRendererDrawFrameObservation()
         guard ghostty_surface_request_render_with_token(
             surface,
             token
         ) else {
             rendererPresentationState.inFlightToken = nil
+            surfaceCallbackContext?.takeUnretainedValue().cancelRendererDrawFrameObservation()
             markRendererNotRendering(reason: "probeRejected.\(reason)")
             recoverRendererPresentationIfNeeded(reason: "probeRejected.\(reason)")
             return
@@ -386,7 +394,9 @@ extension TerminalSurface {
         rendererPresentationState.recoveryAttempted = false
         rendererPresentationPhase = .presented
         renderHealth = .rendering
-        surfaceCallbackContext?.takeUnretainedValue().cancelRendererPresentationRepair()
+        let callbackContext = surfaceCallbackContext?.takeUnretainedValue()
+        callbackContext?.cancelRendererPresentationRepair()
+        callbackContext?.cancelRendererDrawFrameObservation()
 #if DEBUG
         logDebugEvent(
             "surface.render.presented surface=\(id.uuidString.prefix(8)) token=\(token)"
@@ -402,6 +412,7 @@ extension TerminalSurface {
     ) {
         guard rendererPresentationState.inFlightToken == token else { return }
         rendererPresentationState.inFlightToken = nil
+        surfaceCallbackContext?.takeUnretainedValue().cancelRendererDrawFrameObservation()
         guard rendererPortalVisible else {
             renderHealth = .notStarted
             return
@@ -447,7 +458,7 @@ extension TerminalSurface {
             return
         }
         rendererPresentationState.recoveryAttempted = true
-        _ = surfaceView.forceRefreshSurface()
+        forceRefresh(reason: "renderer.recover.\(reason)")
         renderHealth = .awaitingFrame
         requestRendererPresentationProbe(reason: "recovery.\(reason)")
     }
