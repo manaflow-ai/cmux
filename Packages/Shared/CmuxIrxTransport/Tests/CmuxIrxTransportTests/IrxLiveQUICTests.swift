@@ -365,6 +365,50 @@ struct IrxLiveQUICTests {
         try? await client.close()
     }
 
+    @Test("lifecycle close during admission stays a retryable transport failure")
+    func lifecycleCloseDuringAdmissionStaysTransportFailure() async throws {
+        let journal = IrxLiveTestSupport.journal()
+        let server = try await IrxLiveTestSupport.bindLoopback(
+            seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 1)
+        let client = try await IrxLiveTestSupport.bindLoopback(
+            seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 0)
+        let serverTask = Task { () throws -> IrxConnection? in
+            guard let incoming = await server.acceptNext() else { return nil }
+            let accepting = try await incoming.accept()
+            let connection = try await accepting.connect()
+            let irx = IrxConnection(
+                connection: connection, role: .acceptor, journal: journal)
+            guard let control = await irx.acceptLane() else { return nil }
+            _ = try await control.reader.readControlFrame(IrxHello.self)
+            await irx.close(code: .hostShutdown, origin: .local)
+            return irx
+        }
+
+        let connection = try await client.connect(
+            addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol.alpnData)
+        let irx = IrxConnection(connection: connection, role: .dialer, journal: journal)
+        do {
+            _ = try await IrxAdmission.performClient(
+                connection: irx, grantJWS: "good-grant", journal: journal)
+            Issue.record("admission unexpectedly succeeded")
+        } catch let denial as IrxAdmissionDenied {
+            Issue.record("lifecycle close was parked as \(denial.code.rawValue)")
+        } catch let error as IrxConnectionError {
+            guard case let .closed(termination) = error else {
+                Issue.record("unexpected connection error: \(error)")
+                return
+            }
+            #expect(termination?.code == IrxCloseCode.hostShutdown.rawValue)
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+
+        _ = try await serverTask.value
+        await irx.close(code: .userRequested, origin: .local)
+        try? await server.close()
+        try? await client.close()
+    }
+
     @Test("keepalive ping/pong flows and death triggers the engine's instant redial")
     func keepaliveAndAutoRedial() async throws {
         let journal = IrxLiveTestSupport.journal()
