@@ -4738,6 +4738,10 @@ mod unix {
         }
     }
 
+    fn input_request_is_supported(selected_version: u16, request_id: u64) -> bool {
+        request_id == 0 || selected_version >= PROTOCOL_VERSION
+    }
+
     fn persist_and_claim_host_exit_after_drain(
         child_exited: &Mutex<Option<TerminalExit>>,
         pty_drained: &AtomicBool,
@@ -5768,6 +5772,7 @@ mod unix {
                     }
                     MessageKind::Input => {
                         if !granted_rights.contains(CapabilityRights::INPUT)
+                            || !input_request_is_supported(selected_version, frame.request_id)
                             || !command_host.write_input(
                                 &frame.payload,
                                 frame.request_id,
@@ -7421,6 +7426,13 @@ mod unix {
                     std::io::ErrorKind::WouldBlock
                 );
             }
+        }
+
+        #[test]
+        fn host_command_path_rejects_receipted_input_on_older_protocols() {
+            assert!(!input_request_is_supported(PROTOCOL_VERSION - 1, 1));
+            assert!(input_request_is_supported(PROTOCOL_VERSION - 1, 0));
+            assert!(input_request_is_supported(PROTOCOL_VERSION, 1));
         }
 
         #[test]
