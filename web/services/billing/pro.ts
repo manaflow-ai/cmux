@@ -25,6 +25,7 @@ import {
   withFreshAccountMetadataUser,
 } from
   "../account/metadataMutation";
+import { DEVELOPMENT_STACK_PROJECT_ID } from "../auth/stackProject";
 
 export const PRO_PLAN_ID = "pro";
 export const TEAM_PLAN_ID = "team";
@@ -34,8 +35,7 @@ export const TEAM_PLAN_ID = "team";
 // Existing operator grants may still use `cmuxVmPlan: "founders"`.
 export const FOUNDERS_PLAN_ID = "founders";
 export const FREE_PLAN_ID = "free";
-/** Stack project used by the local cmux development server. */
-export const DEVELOPMENT_STACK_PROJECT_ID = "454ecd03-1db2-4050-845e-4ce5b0cd9895";
+export { DEVELOPMENT_STACK_PROJECT_ID } from "../auth/stackProject";
 
 /**
  * Local development accounts are Pro by default. This is intentionally tied
