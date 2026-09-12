@@ -136,6 +136,13 @@ public struct AgentRestorePlanner: Sendable {
         case .resumeAgent:
             guard let checkpointID = normalized(request.checkpointID) else { return nil }
             let launch = request.launchCommand
+            // A non-empty prepared argv is already the caller's authoritative,
+            // typed restore plan. Use it before launcher or built-in synthesis
+            // when the captured argv is empty, so a rejected capture cannot be
+            // replaced by a guessed command for the provider kind.
+            if (launch?.arguments.isEmpty ?? true), let preparedArguments {
+                return (preparedArguments, false)
+            }
             switch AgentResumeArgv().launcherResolution(
                 launcher: launch?.launcher,
                 sessionId: checkpointID,

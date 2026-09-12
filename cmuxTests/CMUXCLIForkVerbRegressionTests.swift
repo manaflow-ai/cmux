@@ -362,6 +362,72 @@ struct CMUXCLIForkVerbRegressionTests {
     }
 
     @Test
+    func cliForkVerbPreservesLaunchEnvironmentWhenPreparedForkArgumentsSupplyArgv() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-fork-verb-env-\(UUID().uuidString)", isDirectory: true)
+        let executable = root.appendingPathComponent("fork-agent", isDirectory: false)
+        let marker = root.appendingPathComponent("fork-agent-output", isDirectory: false)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+        try """
+        #!/bin/sh
+        {
+          printf 'value=%s\\n' "$CODEX_HOME"
+          for argument in "$@"; do printf 'arg=%s\\n' "$argument"; done
+        } > "$FORK_TEST_MARKER"
+        """.write(to: executable, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+
+        let surfaceID = UUID().uuidString.lowercased()
+        let checkpointID = "fork-environment-checkpoint"
+        let responseData = try JSONSerialization.data(withJSONObject: [
+            "ok": true,
+            "result": [
+                "restore_record": [
+                    "mode": "resumeAgent",
+                    "kind": "custom-agent",
+                    "checkpoint_id": checkpointID,
+                    "source": "session-snapshot",
+                    "working_directory": root.path,
+                    "launch_command": [
+                        "arguments": [],
+                        "executable_path": executable.path,
+                        "working_directory": root.path,
+                        "environment": ["CODEX_HOME": "structured fork value"],
+                    ],
+                    "fork_arguments": NSNull(),
+                    "prepared_fork_arguments": [executable.path, "--fork", checkpointID],
+                ],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-fork-verb-env-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: String(decoding: responseData, as: UTF8.self)
+        )
+        defer { responder.stop() }
+
+        let home = try isolatedCLIHome()
+        defer { try? fileManager.removeItem(at: home) }
+        var environment = isolatedCLIEnvironment(socketPath: socketPath, home: home)
+        environment["FORK_TEST_MARKER"] = marker.path
+        environment["PATH"] = "/usr/bin:/bin"
+        environment.removeValue(forKey: "CODEX_HOME")
+
+        let result = try runCLI(
+            arguments: ["fork", "--surface", surfaceID, "custom-agent", checkpointID],
+            environment: environment
+        )
+        #expect(result.status == 0, Comment(rawValue: result.description))
+        let output = try String(contentsOf: marker, encoding: .utf8)
+        #expect(output.contains("value=structured fork value"))
+        #expect(output.contains("arg=--fork"))
+        #expect(output.contains("arg=\(checkpointID)"))
+        #expect(responder.receivedRequests.last?.contains("surface.resume.get") == true)
+    }
+
+    @Test
     func cliForkVerbReportsMissingForkSupport() throws {
         let fileManager = FileManager.default
         let surfaceID = UUID().uuidString.lowercased()

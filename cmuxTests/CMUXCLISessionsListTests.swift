@@ -209,4 +209,88 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(session["session_home"] as? String == codexHome.path)
     }
 
+    /// A capture that stored no argv has to say why in `sessions --json`, or the
+    /// only self-service answer for an empty `launch_arguments` is guesswork.
+    @Test func testSessionsListReportsWhyALaunchCaptureWasRejected() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sessions-list-\(UUID().uuidString)", isDirectory: true)
+        let stateDir = root.appendingPathComponent("state", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let rejectedSessionId = "019efab1-1f2c-7a41-9f3e-6d1c0a2b4e77"
+        let capturedSessionId = "019efab2-24d8-7c05-b1a6-3f9e77c1d208"
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                rejectedSessionId: [
+                    "sessionId": rejectedSessionId,
+                    "workspaceId": "workspace-rejected",
+                    "surfaceId": "surface-rejected",
+                    "cwd": "/tmp/cmux/rejected",
+                    "startedAt": 1_782_254_900.0,
+                    "updatedAt": 1_782_255_000.0,
+                    "launchCommand": [
+                        "launcher": "codex",
+                        "executablePath": "/usr/local/bin/codex",
+                        "arguments": [],
+                        "capturedAt": 1_782_254_900.0,
+                        "source": "rejected",
+                        "rejectionReason": "sanitizerRejectedArgv",
+                    ],
+                ],
+                capturedSessionId: [
+                    "sessionId": capturedSessionId,
+                    "workspaceId": "workspace-captured",
+                    "surfaceId": "surface-captured",
+                    "cwd": "/tmp/cmux/captured",
+                    "startedAt": 1_782_254_910.0,
+                    "updatedAt": 1_782_255_010.0,
+                    "launchCommand": [
+                        "launcher": "codex",
+                        "executablePath": "/usr/local/bin/codex",
+                        "arguments": ["/usr/local/bin/codex", "--yolo"],
+                        "capturedAt": 1_782_254_910.0,
+                        "source": "process",
+                    ],
+                ],
+            ]
+        ]
+        let data = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
+        environment["CODEX_HOME"] = codexHome.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["sessions", "list", "--agent", "codex", "--all", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let outputData = try #require(result.stdout.data(using: .utf8))
+        let object = try #require(JSONSerialization.jsonObject(with: outputData) as? [String: Any])
+        let sessions = try #require(object["sessions"] as? [[String: Any]])
+
+        let rejected = try #require(sessions.first { $0["session_id"] as? String == rejectedSessionId })
+        #expect(rejected["launch_arguments"] as? [String] == [])
+        #expect(rejected["launch_rejection_reason"] as? String == "sanitizerRejectedArgv")
+
+        // A capture that produced a usable argv has no ground to report.
+        let captured = try #require(sessions.first { $0["session_id"] as? String == capturedSessionId })
+        #expect(captured["launch_arguments"] as? [String] == ["/usr/local/bin/codex", "--yolo"])
+        #expect(captured["launch_rejection_reason"] is NSNull)
+    }
+
 }
