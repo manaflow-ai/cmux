@@ -1000,6 +1000,15 @@ final class MobileHostIrxRuntime {
                         journal: journal
                     )
                 }
+            case .terminalInput:
+                let resource = lane.descriptor.resource ?? ""
+                Task {
+                    await MobileHostIrxTerminalLaneServer.serveInputOnly(
+                        resourceID: resource,
+                        stream: lane.bidirectional(),
+                        journal: journal
+                    )
+                }
             case .artifact:
                 guard let resource = try? CmxIrohResourceID(lane.descriptor.resource ?? "")
                 else {
