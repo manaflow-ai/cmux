@@ -5,6 +5,9 @@ import { OperationError } from "./errors";
 import { PlanetScaleOwnership } from "./ownership/planetscale";
 import { RELAY_TOKEN_AUDIENCE, RELAY_TOKEN_ISSUER, RelayIssuer } from "./relay";
 export type Environment = Cloudflare.Env & {
+  /** Hyperdrive is the production database path; direct URLs remain for local fixtures only. */
+  HYPERDRIVE_CONNECTED_WORKSPACES?: { readonly connectionString: string };
+  PLANETSCALE_DATABASE_URL?: string;
   DASHBOARD_ALLOWED_ORIGINS?: string;
   AXIOM_TOKEN?: string; AXIOM_DATASET?: string; AXIOM_INGEST_URL?: string;
   SENTRY_DSN?: string; SENTRY_ENVIRONMENT?: string;
@@ -37,7 +40,11 @@ function createRuntime(env: Environment) {
     return {
       ...scope, keys, currentKeyId, currentKey, allowedOrigins,
       stack: new StackAuthority({ ...scope, apiURL: env.STACK_API_URL, publishableKey: env.STACK_PUBLISHABLE_KEY, serverKey: env.STACK_SERVER_KEY }),
-      ownership: new PlanetScaleOwnership(env.PLANETSCALE_DATABASE_URL, scope.environment, scope.projectId),
+      ownership: new PlanetScaleOwnership(
+        env.HYPERDRIVE_CONNECTED_WORKSPACES?.connectionString ?? env.PLANETSCALE_DATABASE_URL ?? "",
+        scope.environment,
+        scope.projectId,
+      ),
       relays: new RelayIssuer({
         ...scope, relayURLs, issuer: RELAY_TOKEN_ISSUER, audience: RELAY_TOKEN_AUDIENCE,
         keyId: env.RELAY_KEY_ID, privateKeyPem: env.RELAY_SIGNING_KEY,

@@ -32,7 +32,7 @@ esac
 name="cmux-iroh-v2-dev-${slug}"
 workers_subdomain="${CMUX_IROH_V2_WORKERS_SUBDOMAIN:-cmux-presence-worker}"
 required=(STACK_PROJECT_ID STACK_PUBLISHABLE_KEY STACK_SERVER_KEY API_TICKET_KEYS
-  API_TICKET_CURRENT_KEY_ID RELAY_SIGNING_KEY RELAY_KEY_ID RELAY_URLS PLANETSCALE_DATABASE_URL)
+  API_TICKET_CURRENT_KEY_ID RELAY_SIGNING_KEY RELAY_KEY_ID RELAY_URLS)
 for key in "${required[@]}"; do
   value="$(read_value "$key")"
   [[ -n "$value" ]] || { echo "error: missing $key in environment or .dev.vars" >&2; exit 1; }
