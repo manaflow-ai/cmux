@@ -956,6 +956,18 @@ struct ParsedTerminalProbe {
     pending_input: Vec<u8>,
 }
 
+#[cfg(unix)]
+fn write_terminal_probe_queries(stdout: &mut impl Write, query_window_pixels: bool) {
+    if query_window_pixels {
+        let _ = write!(stdout, "\x1b[14t");
+    }
+    let _ = write!(stdout, "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c");
+    let _ = stdout.flush();
+}
+
+#[cfg(not(unix))]
+fn write_terminal_probe_queries(_stdout: &mut impl Write, _query_window_pixels: bool) {}
+
 /// Probe terminal capabilities in one exchange and return any user input read
 /// alongside the replies. The final DA1 request acts as an ordering marker:
 /// any preceding Kitty reply advertises support, while its absence does not
@@ -967,11 +979,7 @@ pub fn probe_terminal(known_cell_pixels: Option<(u16, u16)>) -> StartupTerminalP
         ioctl_pixels.is_none() && terminal_size.is_some_and(|(cols, rows)| cols > 0 && rows > 0);
 
     let mut stdout = std::io::stdout();
-    if query_window_pixels {
-        let _ = write!(stdout, "\x1b[14t");
-    }
-    let _ = write!(stdout, "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c");
-    let _ = stdout.flush();
+    write_terminal_probe_queries(&mut stdout, query_window_pixels);
 
     let bytes = read_stdin_until(TERMINAL_PROBE_TIMEOUT, terminal_probe_complete);
     let parsed = parse_terminal_probe(&bytes);
@@ -1275,6 +1283,16 @@ mod tests {
     #[test]
     fn missing_initial_metrics_use_synthetic_fallback() {
         assert_eq!(resolve_cell_pixels(None, None), FALLBACK_CELL_PIXELS);
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn terminal_probe_does_not_write_queries_without_a_reply_reader() {
+        let mut output = Vec::new();
+
+        write_terminal_probe_queries(&mut output, true);
+
+        assert!(output.is_empty(), "unread terminal queries were written: {output:?}");
     }
 
     #[test]
