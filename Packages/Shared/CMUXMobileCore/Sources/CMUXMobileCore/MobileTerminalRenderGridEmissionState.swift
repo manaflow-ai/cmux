@@ -1,15 +1,18 @@
 /// Cached producer state used to choose the next render-grid event payload.
 ///
-/// A producer stores this compact state instead of the full previous
-/// ``MobileTerminalRenderGridFrame`` so the hot render path can diff row
-/// signatures without retaining complete viewport snapshots.
+/// A producer stores this state instead of the full previous
+/// ``MobileTerminalRenderGridFrame``. The rendered-content snapshot is computed
+/// once at the frame boundary and reused by both delta comparison and revision
+/// tracking, so the hot render path never rebuilds the same signatures twice.
 public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
     /// Producer lifetime that owns the revision sequence.
     public let renderEpoch: String
-    /// Capture revision of the frame that produced this state. Deltas diffed
-    /// against this state name it as ``MobileTerminalRenderGridFrame/deltaBaseRenderRevision``
-    /// so a consumer can prove it delivered exactly this frame before patching.
+    /// Rendered-content revision of the frame that produced this state.
     public let renderRevision: UInt64
+    /// Exact emission identity of the frame that produced this state. Deltas
+    /// name it as ``MobileTerminalRenderGridFrame/deltaBaseEmissionRevision``
+    /// so a consumer can prove it delivered exactly this frame before patching.
+    public let emissionRevision: UInt64
     /// Number of columns in the frame that produced this state.
     public let columns: Int
     /// Number of rows in the frame that produced this state.
@@ -24,12 +27,40 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
     public let terminalConfigTheme: TerminalTheme?
     /// Per-row text/style signatures from ``MobileTerminalRenderGridFrame/rowSignatures()``.
     public let rowSignatures: [String]
+    /// Canonical visual-content identity for stable polling revision tracking.
+    /// Legacy callers may leave this `nil`; producers created by
+    /// ``MobileTerminalRenderGridFrame/emissionState`` always populate it.
+    public let content: MobileTerminalRenderGridContent?
     /// Grid anchor of the frame that produced this state.
     public let anchor: MobileTerminalRenderGridFrame.Anchor
     /// Retained history rows above the producer's active area at capture time.
     public let historyRows: UInt64?
     /// Monotonic identity of the producer's absolute row space at capture time.
     public let rowSpaceRevision: UInt64?
+
+    /// Returns this state with the producer identity assigned to its source frame.
+    public func withIdentity(
+        renderEpoch: String,
+        renderRevision: UInt64,
+        emissionRevision: UInt64
+    ) -> Self {
+        Self(
+            renderEpoch: renderEpoch,
+            renderRevision: renderRevision,
+            emissionRevision: emissionRevision,
+            columns: columns,
+            rows: rows,
+            stateSeq: stateSeq,
+            activeScreen: activeScreen,
+            terminalTheme: terminalTheme,
+            terminalConfigTheme: terminalConfigTheme,
+            rowSignatures: rowSignatures,
+            anchor: anchor,
+            historyRows: historyRows,
+            rowSpaceRevision: rowSpaceRevision,
+            content: content
+        )
+    }
 
     /// Creates cached render-grid emission state.
     ///
@@ -45,6 +76,7 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
     public init(
         renderEpoch: String = "",
         renderRevision: UInt64 = 0,
+        emissionRevision: UInt64 = 0,
         columns: Int,
         rows: Int,
         stateSeq: UInt64,
@@ -54,13 +86,15 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
         rowSignatures: [String],
         anchor: MobileTerminalRenderGridFrame.Anchor = .viewport,
         historyRows: UInt64? = nil,
-        rowSpaceRevision: UInt64? = nil
+        rowSpaceRevision: UInt64? = nil,
+        content: MobileTerminalRenderGridContent? = nil
     ) {
         precondition(columns >= 0, "columns must be non-negative")
         precondition(rows >= 0, "rows must be non-negative")
         precondition(rowSignatures.count == rows, "rowSignatures count must match rows")
         self.renderEpoch = renderEpoch
         self.renderRevision = renderRevision
+        self.emissionRevision = emissionRevision
         self.columns = columns
         self.rows = rows
         self.stateSeq = stateSeq
@@ -68,6 +102,7 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
         self.terminalTheme = terminalTheme
         self.terminalConfigTheme = terminalConfigTheme
         self.rowSignatures = rowSignatures
+        self.content = content
         self.anchor = anchor
         self.historyRows = historyRows
         self.rowSpaceRevision = rowSpaceRevision

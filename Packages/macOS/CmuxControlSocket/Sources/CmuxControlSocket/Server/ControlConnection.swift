@@ -1,4 +1,5 @@
 public import Darwin
+public import Foundation
 
 /// An accepted, configured control-socket client connection, delivered to the
 /// host through ``SocketControlServer/connections``.
@@ -6,6 +7,12 @@ public import Darwin
 /// Ownership of the descriptor transfers to the consumer, which must
 /// eventually `close(2)` it (the legacy `clientAccepted` contract).
 public struct ControlConnection: Sendable {
+    /// Stable identity for this accepted socket lifetime. Host command state
+    /// that must be isolated per client (for example terminal viewport
+    /// overrides) is keyed by this value and is discarded when the handler
+    /// returns.
+    public let id: UUID
+
     /// The accepted client socket descriptor.
     public let socket: Int32
 
@@ -27,12 +34,14 @@ public struct ControlConnection: Sendable {
     ///   - authorizationGeneration: Access-policy generation at accept time.
     ///   - authorizationRevocationSignal: Signal revoked with the generation.
     public init(
+        id: UUID = UUID(),
         socket: Int32,
         peerProcessID: pid_t?,
         authorizationGeneration: UInt64,
         authorizationRevocationSignal: SocketAuthorizationRevocationSignal =
             SocketAuthorizationRevocationSignal()
     ) {
+        self.id = id
         self.socket = socket
         self.peerProcessID = peerProcessID
         self.authorizationGeneration = authorizationGeneration

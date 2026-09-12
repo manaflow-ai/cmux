@@ -18,14 +18,18 @@ extension TerminalController {
         surfaceID: UUID,
         seq: UInt64,
         scrollbackLines: Int = TerminalController.mobileReplayScrollbackLineBudget,
-        anchor: MobileTerminalRenderGridFrame.Anchor = .viewport
+        anchor: MobileTerminalRenderGridFrame.Anchor = .viewport,
+        adoptReplayBaseline: Bool = true,
+        recordProducerIdentity: Bool = true
     ) -> MobileTerminalRenderGridFrame? {
         mobileTerminalRenderGridFrame(
             surface: terminalPanel.surface,
             surfaceID: surfaceID,
             seq: seq,
             scrollbackLines: scrollbackLines,
-            anchor: anchor
+            anchor: anchor,
+            adoptReplayBaseline: adoptReplayBaseline,
+            recordProducerIdentity: recordProducerIdentity
         )
     }
 
@@ -34,24 +38,54 @@ extension TerminalController {
         surfaceID: UUID,
         seq: UInt64,
         scrollbackLines: Int,
-        anchor: MobileTerminalRenderGridFrame.Anchor
+        anchor: MobileTerminalRenderGridFrame.Anchor,
+        adoptReplayBaseline: Bool = true,
+        recordProducerIdentity: Bool = true
     ) -> MobileTerminalRenderGridFrame? {
         guard surfaceID == surface.id else { return nil }
-        let renderCapture = MobileTerminalByteTee.shared.nextRenderCaptureIdentity(surfaceID: surfaceID)
-        guard let frame = surface.mobileRenderGridFrame(
+        let renderCapture = MobileTerminalByteTee.shared.currentRenderCaptureIdentity(
+            surfaceID: surfaceID,
+            anchor: anchor
+        )
+        guard var frame = surface.mobileRenderGridFrame(
             stateSeq: seq,
             renderEpoch: renderCapture.epoch,
             renderRevision: renderCapture.revision,
             scrollbackLines: scrollbackLines,
             anchor: anchor
         )?.frame else { return nil }
-        // The phone applies the decorated frame, so rebase the producer cache
-        // with that same theme/config state. Rebasing the raw snapshot first
-        // makes the next event look like a theme change and promotes every
-        // keystroke to another verified full replay.
-        let decorated = MobileTerminalRenderObserver.shared.decorateReplayFrame(frame)
-        MobileTerminalRenderObserver.shared.adoptReplayBaseline(decorated, surfaceID: surfaceID)
-        return decorated
+        // The phone applies the decorated frame, so record its identity and
+        // adopt its baseline with that same theme/config state. Using the raw
+        // snapshot would turn the next event into another full theme replay.
+        frame = MobileTerminalRenderObserver.shared.decorateReplayFrame(
+            frame,
+            advanceThemeRevision: recordProducerIdentity
+        )
+        let identity: (
+            epoch: String,
+            revision: UInt64,
+            emissionRevision: UInt64
+        )
+        if recordProducerIdentity {
+            identity = MobileTerminalByteTee.shared.recordRenderGridFrame(
+                surfaceID: surfaceID,
+                anchor: anchor,
+                fullFrame: frame
+            )
+        } else {
+            identity = MobileTerminalByteTee.shared.observeRenderGridContent(
+                surfaceID: surfaceID,
+                anchor: anchor,
+                fullFrame: frame
+            )
+        }
+        frame.renderEpoch = identity.epoch
+        frame.renderRevision = identity.revision
+        frame.emissionRevision = identity.emissionRevision
+        if adoptReplayBaseline {
+            MobileTerminalRenderObserver.shared.adoptReplayBaseline(frame, surfaceID: surfaceID)
+        }
+        return frame
     }
 
     /// Captures a render grid from the canonical socket-bound runtime surface.
@@ -60,14 +94,18 @@ extension TerminalController {
         surfaceID: UUID,
         seq: UInt64,
         scrollbackLines: Int = TerminalController.mobileReplayScrollbackLineBudget,
-        anchor: MobileTerminalRenderGridFrame.Anchor = .viewport
+        anchor: MobileTerminalRenderGridFrame.Anchor = .viewport,
+        adoptReplayBaseline: Bool = true,
+        recordProducerIdentity: Bool = true
     ) -> MobileTerminalRenderGridFrame? {
         mobileTerminalRenderGridFrame(
             surface: terminalTarget.surface,
             surfaceID: surfaceID,
             seq: seq,
             scrollbackLines: scrollbackLines,
-            anchor: anchor
+            anchor: anchor,
+            adoptReplayBaseline: adoptReplayBaseline,
+            recordProducerIdentity: recordProducerIdentity
         )
     }
 
@@ -75,7 +113,9 @@ extension TerminalController {
         workspaceID: UUID,
         terminalPanel: TerminalPanel,
         surfaceID: UUID,
-        params: [String: Any]
+        params: [String: Any],
+        adoptReplayBaseline: Bool = true,
+        recordProducerIdentity: Bool = true
     ) -> [String: Any] {
         var payload: [String: Any] = [
             "workspace_id": workspaceID.uuidString,
@@ -88,7 +128,9 @@ extension TerminalController {
             terminalPanel: terminalPanel,
             surfaceID: surfaceID,
             seq: stateSeq,
-            scrollbackLines: scrollbackRows
+            scrollbackLines: scrollbackRows,
+            adoptReplayBaseline: adoptReplayBaseline,
+            recordProducerIdentity: recordProducerIdentity
         ),
             renderGrid.activeScreen == .primary,
             let renderGridObject = try? renderGrid.jsonObject() else {
@@ -106,7 +148,9 @@ extension TerminalController {
         workspaceID: UUID,
         terminalTarget: ControlTerminalSocketTarget,
         surfaceID: UUID,
-        params: [String: Any]
+        params: [String: Any],
+        adoptReplayBaseline: Bool = true,
+        recordProducerIdentity: Bool = true
     ) -> [String: Any] {
         var payload: [String: Any] = [
             "workspace_id": workspaceID.uuidString,
@@ -119,7 +163,9 @@ extension TerminalController {
             terminalTarget: terminalTarget,
             surfaceID: surfaceID,
             seq: stateSeq,
-            scrollbackLines: scrollbackRows
+            scrollbackLines: scrollbackRows,
+            adoptReplayBaseline: adoptReplayBaseline,
+            recordProducerIdentity: recordProducerIdentity
         ), renderGrid.activeScreen == .primary,
               let renderGridObject = try? renderGrid.jsonObject() else {
             return payload

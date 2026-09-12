@@ -997,6 +997,7 @@
 		D96970000000000000000006 /* CMUXCLI+Sudo.swift in Sources */ = {isa = PBXBuildFile; fileRef = D96971000000000000000001 /* CMUXCLI+Sudo.swift */; };
 		A10020000000000000000007 /* CMUXCLI+SurfaceSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10020000000000000000008 /* CMUXCLI+SurfaceSelection.swift */; };
 		C2538001A1B2C3D4E5F60719 /* CMUXCLI+TerminalCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2538002A1B2C3D4E5F60719 /* CMUXCLI+TerminalCreation.swift */; };
+		C11303000000000000000002 /* CMUXCLI+TerminalViewport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11303000000000000000001 /* CMUXCLI+TerminalViewport.swift */; };
 		B900002EA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900002CA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift */; };
 		B900002FA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */; };
 		B9000048A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000049A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift */; };
@@ -1939,6 +1940,7 @@
 		DE71CE000000000000000006 /* MobileHostNetworkPathRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */; };
 		A1B2C3D4E5F60718293A4C03 /* MobileHostOrderedInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4C04 /* MobileHostOrderedInputTests.swift */; };
 		A1B2C3D4E5F60718293A4C01 /* MobileHostOrderedRequestQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4C02 /* MobileHostOrderedRequestQueue.swift */; };
+		C1A071000000000000000004 /* MobileHostRenderCaptureRevisionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A071000000000000000014 /* MobileHostRenderCaptureRevisionTests.swift */; };
 		4E673EDE464BF3AB80E94C1D /* MobileHostRPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47BDC06F004C02A52B05E4A0 /* MobileHostRPC.swift */; };
 		C7A50B000000000000000014 /* MobileHostService+Capabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000013 /* MobileHostService+Capabilities.swift */; };
 		C0DE00000000000000000C8D /* MobileHostService+TicketAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C8C /* MobileHostService+TicketAuthorization.swift */; };
@@ -2976,6 +2978,7 @@
 		A28B087F000000000000000B /* TerminalController+DiffViewerTrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28B087F000000000000000C /* TerminalController+DiffViewerTrust.swift */; };
 		8777C0018777C0018777C001 /* TerminalController+DockControlTopology.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8777C0028777C0028777C002 /* TerminalController+DockControlTopology.swift */; };
 		8672D0038672D0038672D003 /* TerminalController+FeedAcknowledgment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672D0048672D0048672D004 /* TerminalController+FeedAcknowledgment.swift */; };
+		C11303000000000000000004 /* TerminalController+LocalTerminalViewport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11303000000000000000003 /* TerminalController+LocalTerminalViewport.swift */; };
 		A7C0F0020000000000000002 /* TerminalController+MobileAttachTicket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C0F0020000000000000001 /* TerminalController+MobileAttachTicket.swift */; };
 		F2100000000000000000000E /* TerminalController+MobileBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1100000000000000000000E /* TerminalController+MobileBrowser.swift */; };
 		ACA7C4A7000000000000000D /* TerminalController+MobileChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000E /* TerminalController+MobileChat.swift */; };
@@ -3006,6 +3009,7 @@
 		A79840030000000000000002 /* TerminalController+SocketConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79840030000000000000001 /* TerminalController+SocketConfiguration.swift */; };
 		C79470020000000000000001 /* TerminalController+SocketListenerRearm.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79470020000000000000002 /* TerminalController+SocketListenerRearm.swift */; };
 		C0DE00000000000000000F01 /* TerminalController+SSHSessionAttachContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000F02 /* TerminalController+SSHSessionAttachContext.swift */; };
+		C11304000000000000000004 /* TerminalController+SurfaceReadText.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11304000000000000000003 /* TerminalController+SurfaceReadText.swift */; };
 		6DE491C790A24971B4418B3B /* TerminalController+SurfaceResumeBindings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4D77F29235F487C9276ED6A /* TerminalController+SurfaceResumeBindings.swift */; };
 		A10020000000000000000005 /* TerminalController+SurfaceSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10020000000000000000006 /* TerminalController+SurfaceSelection.swift */; };
 		DC6E1A6F7452404AA8DE3F5E /* TerminalController+VaultCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78E042D748CB4949BE375319 /* TerminalController+VaultCommands.swift */; };
@@ -4598,6 +4602,7 @@
 		D96971000000000000000001 /* CMUXCLI+Sudo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Sudo.swift"; sourceTree = "<group>"; };
 		A10020000000000000000008 /* CMUXCLI+SurfaceSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SurfaceSelection.swift"; sourceTree = "<group>"; };
 		C2538002A1B2C3D4E5F60719 /* CMUXCLI+TerminalCreation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TerminalCreation.swift"; sourceTree = "<group>"; };
+		C11303000000000000000001 /* CMUXCLI+TerminalViewport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TerminalViewport.swift"; sourceTree = "<group>"; };
 		B900002CA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Themes.swift"; sourceTree = "<group>"; };
 		B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ThemeSupport.swift"; sourceTree = "<group>"; };
 		B9000049A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TmuxCompatHUDSupport.swift"; sourceTree = "<group>"; };
@@ -5458,6 +5463,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostNetworkPathRefreshTests.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4C04 /* MobileHostOrderedInputTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostOrderedInputTests.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4C02 /* MobileHostOrderedRequestQueue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostOrderedRequestQueue.swift; sourceTree = "<group>"; };
+		C1A071000000000000000014 /* MobileHostRenderCaptureRevisionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostRenderCaptureRevisionTests.swift; sourceTree = "<group>"; };
 		47BDC06F004C02A52B05E4A0 /* MobileHostRPC.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostRPC.swift; sourceTree = "<group>"; };
 		C7A50B000000000000000013 /* MobileHostService+Capabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MobileHostService+Capabilities.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C8C /* MobileHostService+TicketAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MobileHostService+TicketAuthorization.swift"; sourceTree = "<group>"; };
@@ -6483,6 +6489,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		A28B087F000000000000000C /* TerminalController+DiffViewerTrust.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+DiffViewerTrust.swift"; sourceTree = "<group>"; };
 		8777C0028777C0028777C002 /* TerminalController+DockControlTopology.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+DockControlTopology.swift"; sourceTree = "<group>"; };
 		8672D0048672D0048672D004 /* TerminalController+FeedAcknowledgment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+FeedAcknowledgment.swift"; sourceTree = "<group>"; };
+		C11303000000000000000003 /* TerminalController+LocalTerminalViewport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+LocalTerminalViewport.swift"; sourceTree = "<group>"; };
 		A7C0F0020000000000000001 /* TerminalController+MobileAttachTicket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileAttachTicket.swift"; sourceTree = "<group>"; };
 		F1100000000000000000000E /* TerminalController+MobileBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileBrowser.swift"; sourceTree = "<group>"; };
 		ACA7C4A7000000000000000E /* TerminalController+MobileChat.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileChat.swift"; sourceTree = "<group>"; };
@@ -6513,6 +6520,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		A79840030000000000000001 /* TerminalController+SocketConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+SocketConfiguration.swift"; sourceTree = "<group>"; };
 		C79470020000000000000002 /* TerminalController+SocketListenerRearm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+SocketListenerRearm.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000F02 /* TerminalController+SSHSessionAttachContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+SSHSessionAttachContext.swift"; sourceTree = "<group>"; };
+		C11304000000000000000003 /* TerminalController+SurfaceReadText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+SurfaceReadText.swift"; sourceTree = "<group>"; };
 		A4D77F29235F487C9276ED6A /* TerminalController+SurfaceResumeBindings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+SurfaceResumeBindings.swift"; sourceTree = "<group>"; };
 		A10020000000000000000006 /* TerminalController+SurfaceSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+SurfaceSelection.swift"; sourceTree = "<group>"; };
 		78E042D748CB4949BE375319 /* TerminalController+VaultCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+VaultCommands.swift"; sourceTree = "<group>"; };
@@ -8550,6 +8558,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D7AB00000000000000B000 /* TerminalController+MobileNotificationSync.swift */,
 				D1F0A0040000000000000002 /* TerminalController+MobilePhonePushSettings.swift */,
 				D7AB00000000000000B010 /* TerminalController+MobileScrollPrefetch.swift */,
+				C11303000000000000000003 /* TerminalController+LocalTerminalViewport.swift */,
+				C11304000000000000000003 /* TerminalController+SurfaceReadText.swift */,
 				D1B800000000000000000016 /* TerminalController+MobileDirectoryList.swift */,
 				D1A700000000000000000005 /* TerminalController+MobileDirectorySearch.swift */,
 				C0DE00000000000000000C81 /* TerminalController+ControlBrowserPanelContext.swift */,
@@ -9693,6 +9703,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				5257257034CA4729B1211168 /* CMUXCLI+AutoNamingHooks.swift */,
 				5257257034CA4729B1211169 /* CMUXCLI+AutoNamingSummarizers.swift */,
 				8056A0000000000000000001 /* CMUXCLI+BrowserViewport.swift */,
+				C11303000000000000000001 /* CMUXCLI+TerminalViewport.swift */,
 				C72280000000000000000001 /* CMUXCLI+ClaudeHookWorkspaceRouting.swift */,
 				79390008AA11BB22CC33DD08 /* CMUXCLI+ClaudeHookDeliveryTarget.swift */,
 				B9000069A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift */,
@@ -10628,6 +10639,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C1A071000000000000000011 /* MobileHostIrohAdmissionTests.swift */,
 				C1A071000000000000000012 /* MobileHostConnectionEventLaneTests.swift */,
 				C1A071000000000000000013 /* MobileHostConnectionLifecycleTests.swift */,
+				C1A071000000000000000014 /* MobileHostRenderCaptureRevisionTests.swift */,
 				A1B2C3D4E5F60718293A4C04 /* MobileHostOrderedInputTests.swift */,
 				F33200000000000000000001 /* MobileSimulatorReaderAttachmentTests.swift */,
 				C0DE73840000000000000002 /* MobileHostWorkspaceTicketAuthorizationTests.swift */,
@@ -13142,6 +13154,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A28B087F000000000000000B /* TerminalController+DiffViewerTrust.swift in Sources */,
 				8777C0018777C0018777C001 /* TerminalController+DockControlTopology.swift in Sources */,
 				8672D0038672D0038672D003 /* TerminalController+FeedAcknowledgment.swift in Sources */,
+				C11303000000000000000004 /* TerminalController+LocalTerminalViewport.swift in Sources */,
 				A7C0F0020000000000000002 /* TerminalController+MobileAttachTicket.swift in Sources */,
 				F2100000000000000000000E /* TerminalController+MobileBrowser.swift in Sources */,
 				ACA7C4A7000000000000000D /* TerminalController+MobileChat.swift in Sources */,
@@ -13172,6 +13185,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A79840030000000000000002 /* TerminalController+SocketConfiguration.swift in Sources */,
 				C79470020000000000000001 /* TerminalController+SocketListenerRearm.swift in Sources */,
 				C0DE00000000000000000F01 /* TerminalController+SSHSessionAttachContext.swift in Sources */,
+				C11304000000000000000004 /* TerminalController+SurfaceReadText.swift in Sources */,
 				6DE491C790A24971B4418B3B /* TerminalController+SurfaceResumeBindings.swift in Sources */,
 				A10020000000000000000005 /* TerminalController+SurfaceSelection.swift in Sources */,
 				DC6E1A6F7452404AA8DE3F5E /* TerminalController+VaultCommands.swift in Sources */,
@@ -13695,6 +13709,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D96970000000000000000006 /* CMUXCLI+Sudo.swift in Sources */,
 				A10020000000000000000007 /* CMUXCLI+SurfaceSelection.swift in Sources */,
 				C2538001A1B2C3D4E5F60719 /* CMUXCLI+TerminalCreation.swift in Sources */,
+				C11303000000000000000002 /* CMUXCLI+TerminalViewport.swift in Sources */,
 				B900002EA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift in Sources */,
 				B900002FA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift in Sources */,
 				B9000048A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift in Sources */,
@@ -14340,6 +14355,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C1B1810000000000000005 /* MobileHostIrxSettingsMappingTests.swift in Sources */,
 				DE71CE000000000000000006 /* MobileHostNetworkPathRefreshTests.swift in Sources */,
 				A1B2C3D4E5F60718293A4C03 /* MobileHostOrderedInputTests.swift in Sources */,
+				C1A071000000000000000004 /* MobileHostRenderCaptureRevisionTests.swift in Sources */,
 				C0DE10510000000000000001 /* MobileHostServiceSettingsTests.swift in Sources */,
 				4C1A7E10B2D34F56A8C90013 /* MobileHostStatusVerificationLimiterTests.swift in Sources */,
 				7A1B2C3D4E5F60718293A4B6 /* MobileHostTerminalThemeTests.swift in Sources */,

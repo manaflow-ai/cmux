@@ -2,14 +2,12 @@ import CMUXMobileCore
 import CmuxTerminal
 import Foundation
 import os
-
 /// Pushes terminal render events only while a mobile client is actively subscribed.
 /// Ghostty notification demand is tied to subscriptions so the desktop terminal
 /// path is untouched when no iPhone/iPad is attached.
 @MainActor
 final class MobileTerminalRenderObserver {
     static let shared = MobileTerminalRenderObserver()
-
     private var releaseFrameDemand: (() -> Void)?
     private var releaseTickDemand: (() -> Void)?
     private var observers: [NSObjectProtocol] = []
@@ -31,9 +29,7 @@ final class MobileTerminalRenderObserver {
         [weak self] surfaceIDs in
         self?.enqueueCoalescedThemeUpdates(surfaceIDs)
     }
-
     private init() {}
-
     func start() {
         guard observers.isEmpty else { return }
         observers.append(NotificationCenter.default.addObserver(
@@ -275,7 +271,6 @@ final class MobileTerminalRenderObserver {
         forceIncludeTheme: Bool
     ) {
         let stateSeq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceID) ?? 0
-        let renderCapture = MobileTerminalByteTee.shared.nextRenderCaptureIdentity(surfaceID: surfaceID)
         guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
               surface.surface != nil else {
             clearRenderGridCache(surfaceID: surfaceID)
@@ -312,7 +307,6 @@ final class MobileTerminalRenderObserver {
                 surfaceID: surfaceID,
                 anchor: anchor,
                 stateSeq: stateSeq,
-                renderCapture: renderCapture,
                 includeTheme: includeTheme,
                 forceIncludeTheme: forceIncludeTheme || didReplaceRuntimeSurface,
                 sharedTheme: &sharedTheme
@@ -360,7 +354,6 @@ final class MobileTerminalRenderObserver {
         surfaceID: UUID,
         anchor: MobileTerminalRenderGridFrame.Anchor,
         stateSeq: UInt64,
-        renderCapture: (epoch: String, revision: UInt64),
         includeTheme: Bool,
         forceIncludeTheme: Bool,
         sharedTheme: inout (config: TerminalTheme?, theme: TerminalTheme, revision: UInt64)?
@@ -374,6 +367,7 @@ final class MobileTerminalRenderObserver {
         let fullScrollbackTarget = 0
         var scrollbackLines = 0
         var allowScrollbackRequest = true
+        let renderCapture = MobileTerminalByteTee.shared.currentRenderCaptureIdentity(surfaceID: surfaceID, anchor: anchor)
         while true {
             guard let snapshot = surface.mobileRenderGridFrame(
                     stateSeq: stateSeq,
@@ -432,8 +426,9 @@ final class MobileTerminalRenderObserver {
             ) else { return nil }
             switch emission {
             case .emit(let frame, let state):
-                renderGridStatesBySurfaceID[surfaceID, default: [:]][anchor] = state
-                return frame
+                let identity = MobileTerminalByteTee.shared.recordRenderGridFrame(surfaceID: surfaceID, anchor: anchor, fullFrame: themedFrame, content: state.content)
+                renderGridStatesBySurfaceID[surfaceID, default: [:]][anchor] = state.withIdentity(renderEpoch: identity.epoch, renderRevision: identity.revision, emissionRevision: identity.emissionRevision)
+                return frame.withIdentity(renderEpoch: identity.epoch, renderRevision: identity.revision, emissionRevision: identity.emissionRevision)
             case .needsScrollback(let rows):
                 // Re-export once with the requested history rows; the retry
                 // recomputes from the fresh capture and must emit with
@@ -473,7 +468,7 @@ final class MobileTerminalRenderObserver {
         terminalConfigThemesBySurfaceID[surfaceID] = frame.terminalConfigTheme
     }
 
-    func decorateReplayFrame(_ frame: MobileTerminalRenderGridFrame) -> MobileTerminalRenderGridFrame {
+    func decorateReplayFrame(_ frame: MobileTerminalRenderGridFrame, advanceThemeRevision: Bool = true) -> MobileTerminalRenderGridFrame {
         if !hasLoadedTerminalTheme { refreshTerminalTheme() }
         var themedFrame = frame
         themedFrame.terminalTheme = (frame.terminalTheme ?? cachedTerminalTheme)
@@ -483,7 +478,9 @@ final class MobileTerminalRenderObserver {
             cached: nil,
             fallbackBoldColor: cachedTerminalTheme.boldColor
         )
-        themedFrame.terminalThemeRevision = nextTerminalThemeRevision()
+        if advanceThemeRevision {
+            themedFrame.terminalThemeRevision = nextTerminalThemeRevision()
+        }
         return themedFrame
     }
 

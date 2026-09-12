@@ -50,7 +50,8 @@ public final class TerminalViewportReportScheduler {
         columns: Int,
         rows: Int,
         renderEpoch: String?,
-        renderRevisionFloor: UInt64?
+        renderRevisionFloor: UInt64?,
+        renderEmissionRevisionFloor: UInt64?
     )
 
     private let send: @MainActor (Report) async -> EffectiveGrid?

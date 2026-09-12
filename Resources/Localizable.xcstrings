@@ -517933,6 +517933,653 @@
           }
         }
       }
+    },
+    "socket.remoteRelay.viewport.workspaceRequired": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay viewport methods require an explicit workspace_id selector"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay-Viewport-Methoden erfordern einen expliziten workspace_id-Selektor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les méthodes de fenêtre d’affichage du relais nécessitent un sélecteur workspace_id explicite"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتطلب طرق إطار العرض المرحّلة محدد workspace_id صريحًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los métodos de ventana de visualización del relé requieren un selector workspace_id explícito"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轉送檢視區方法需要明確的 workspace_id 選擇器"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中继视口方法需要明确的 workspace_id 选择器"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "릴레이 뷰포트 메서드에는 명시적인 workspace_id 선택자가 필요합니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレーのビューポートメソッドには明示的な workspace_id セレクターが必要です"
+          }
+        }
+      }
+    },
+    "socket.remoteRelay.viewport.surfaceRequired": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay viewport methods require an explicit surface_id selector"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay-Viewport-Methoden erfordern einen expliziten surface_id-Selektor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les méthodes de fenêtre d’affichage du relais nécessitent un sélecteur surface_id explicite"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتطلب طرق إطار العرض المرحّلة محدد surface_id صريحًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los métodos de ventana de visualización del relé requieren un selector surface_id explícito"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轉送檢視區方法需要明確的 surface_id 選擇器"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中继视口方法需要明确的 surface_id 选择器"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "릴레이 뷰포트 메서드에는 명시적인 surface_id 선택자가 필요합니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレーのビューポートメソッドには明示的な surface_id セレクターが必要です"
+          }
+        }
+      }
+    },
+    "cli.terminal.viewport.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set or reset a per-connection terminal render viewport. The PTY and Mac pane are not resized; the override is cleared when this socket disconnects."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続ごとのターミナル表示ビューポートを設定またはリセットします。PTYとMacのペインはサイズ変更されず、このソケットが切断されると上書きが解除されます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legt den Darstellungsbereich des Terminals für eine einzelne Verbindung fest oder setzt ihn zurück. Die Größe von PTY und Mac-Bereich bleibt unverändert; die Überschreibung wird beim Trennen dieser Socket-Verbindung entfernt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Définit ou réinitialise la zone d’affichage du terminal pour une connexion. La taille du PTY et du volet Mac reste inchangée ; la déconnexion de ce socket supprime ce réglage."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يضبط مساحة عرض الطرفية الخاصة بكل اتصال أو يعيد تعيينها. لا يتغير حجم PTY أو جزء Mac؛ يُلغى هذا التجاوز عند قطع اتصال هذا المقبس."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Establece o restablece el área de visualización del terminal para cada conexión. El tamaño del PTY y del panel del Mac no cambia; la configuración se elimina cuando se desconecta este socket."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定或重設每個連線專用的終端機顯示區域。PTY 與 Mac 窗格不會調整大小；此通訊端中斷連線時會清除此覆寫設定。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置或重置每个连接专用的终端显示区域。PTY 和 Mac 窗格的大小保持不变；此套接字断开连接时会清除此覆盖设置。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결별 터미널 표시 영역을 설정하거나 초기화합니다. PTY와 Mac 패널의 크기는 변경되지 않으며, 이 소켓의 연결이 끊기면 재정의가 해제됩니다."
+          }
+        }
+      }
+    },
+    "cli.terminal.viewport.commandLine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal viewport <columns> <rows> [--surface <id>] | reset"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal viewport <columns> <rows> [--surface <id>] | reset"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal viewport <columns> <rows> [--surface <id>] | reset"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal viewport <columns> <rows> [--surface <id>] | reset"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal viewport <columns> <rows> [--surface <id>] | reset"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal viewport <columns> <rows> [--surface <id>] | reset"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal viewport <columns> <rows> [--surface <id>] | reset"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal viewport <columns> <rows> [--surface <id>] | reset"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal viewport <columns> <rows> [--surface <id>] | reset"
+          }
+        }
+      }
+    },
+    "cli.terminal.viewport.resetUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal viewport reset does not accept dimensions or additional arguments"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal viewport reset には寸法や追加の引数を指定できません"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Befehl terminal viewport reset akzeptiert keine Abmessungen oder zusätzlichen Argumente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La commande terminal viewport reset n’accepte ni dimensions ni arguments supplémentaires"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يقبل الأمر terminal viewport reset أبعادًا أو وسيطات إضافية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El comando terminal viewport reset no acepta dimensiones ni argumentos adicionales"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal viewport reset 不接受尺寸或其他引數"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal viewport reset 不接受尺寸或其他参数"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "명령어 terminal viewport reset에는 크기나 추가 인수를 지정할 수 없습니다"
+          }
+        }
+      }
+    },
+    "cli.terminal.viewport.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux terminal viewport <columns> <rows> [--surface <id>] | reset\n       cmux terminal viewport --width <pixels> --height <pixels> [--surface <id>] [--pixels]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux terminal viewport <columns> <rows> [--surface <id>] | reset\n       cmux terminal viewport --width <pixels> --height <pixels> [--surface <id>] [--pixels]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux terminal viewport <columns> <rows> [--surface <id>] | reset\n       cmux terminal viewport --width <pixels> --height <pixels> [--surface <id>] [--pixels]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux terminal viewport <columns> <rows> [--surface <id>] | reset\n       cmux terminal viewport --width <pixels> --height <pixels> [--surface <id>] [--pixels]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux terminal viewport <columns> <rows> [--surface <id>] | reset\n       cmux terminal viewport --width <pixels> --height <pixels> [--surface <id>] [--pixels]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux terminal viewport <columns> <rows> [--surface <id>] | reset\n       cmux terminal viewport --width <pixels> --height <pixels> [--surface <id>] [--pixels]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法： cmux terminal viewport <columns> <rows> [--surface <id>] | reset\n       cmux terminal viewport --width <pixels> --height <pixels> [--surface <id>] [--pixels]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法： cmux terminal viewport <columns> <rows> [--surface <id>] | reset\n       cmux terminal viewport --width <pixels> --height <pixels> [--surface <id>] [--pixels]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux terminal viewport <columns> <rows> [--surface <id>] | reset\n       cmux terminal viewport --width <pixels> --height <pixels> [--surface <id>] [--pixels]"
+          }
+        }
+      }
+    },
+    "socket.terminal.viewport.invalidDimensions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provide positive columns and rows, or positive width and height in pixels."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正の列数と行数、または正のピクセル幅と高さを指定してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geben Sie positive Spalten- und Zeilenzahlen oder eine positive Breite und Höhe in Pixeln an."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez un nombre positif de colonnes et de lignes, ou une largeur et une hauteur positives en pixels."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدّد عددًا موجبًا للأعمدة والصفوف، أو عرضًا وارتفاعًا موجبين بالبكسل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica un número positivo de columnas y filas, o un ancho y un alto positivos en píxeles."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請提供正的欄數和列數，或以像素為單位的正寬度和高度。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请提供正的列数和行数，或以像素为单位的正宽度和高度。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "양수인 열과 행의 수 또는 픽셀 단위의 양수 너비와 높이를 지정하세요."
+          }
+        }
+      }
+    },
+    "socket.terminal.readText.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to read terminal text"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルテキストの読み取りに失敗しました"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminaltext konnte nicht gelesen werden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de lire le texte du terminal"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّرت قراءة نص الطرفية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo leer el texto del terminal"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法讀取終端機文字"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取终端文本"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 텍스트를 읽지 못했습니다"
+          }
+        }
+      }
+    },
+    "socket.terminal.readText.invalidLines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lines must be greater than 0"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lines は 0 より大きい値である必要があります"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lines muss größer als 0 sein"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lines doit être supérieur à 0"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون قيمة lines أكبر من 0"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lines debe ser mayor que 0"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lines 必須大於 0"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lines 必须大于 0"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lines는 0보다 커야 합니다"
+          }
+        }
+      }
+    },
+    "socket.terminal.viewport.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal surface not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルサーフェスが見つかりません"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalfläche nicht gefunden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface du terminal introuvable"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على سطح الطرفية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró la superficie del terminal"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到終端機顯示介面"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到终端显示界面"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 표면을 찾을 수 없습니다"
+          }
+        }
+      }
+    },
+    "socket.terminal.viewport.unknownMethod": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown terminal viewport method"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なターミナルビューポートメソッドです"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannte Methode für den Terminal-Darstellungsbereich"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Méthode de zone d’affichage du terminal inconnue"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طريقة غير معروفة لمساحة عرض الطرفية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Método de área de visualización del terminal desconocido"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的終端機顯示區域方法"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的终端显示区域方法"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 터미널 표시 영역 메서드"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

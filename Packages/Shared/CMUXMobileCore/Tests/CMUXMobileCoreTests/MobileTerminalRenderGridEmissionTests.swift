@@ -56,6 +56,32 @@ import Testing
     #expect(emission.state == next.emissionState)
 }
 
+@Test func renderGridEmissionKeepsCursorOnlyUpdatesWhenStateSequenceIsUnchanged() throws {
+    let previous = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 48,
+        columns: 8,
+        rows: 2,
+        cursor: .init(row: 0, column: 1),
+        rowSpans: [.init(row: 0, column: 0, text: "same")]
+    ).emissionState
+    let next = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 48,
+        columns: 8,
+        rows: 2,
+        cursor: .init(row: 1, column: 3),
+        rowSpans: [.init(row: 0, column: 0, text: "same")]
+    )
+
+    let emission = try #require(try next.renderGridEmission(comparedTo: previous).emitted)
+
+    #expect(!emission.frame.full)
+    #expect(emission.frame.rowSpans.isEmpty)
+    #expect(emission.frame.cursor?.row == 1)
+    #expect(emission.frame.cursor?.column == 3)
+}
+
 @Test func renderGridEmissionKeepsChangedOriginModeSnapshotFull() throws {
     let previous = try MobileTerminalRenderGridFrame(
         surfaceID: "terminal-a",

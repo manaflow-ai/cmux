@@ -8,7 +8,6 @@ import CmuxMobileSupport
 import CmuxMobileTerminal
 import SwiftUI
 import UIKit
-
 /// Mounts a `GhosttySurfaceHostView`, routes terminal output, and bridges the SwiftUI
 /// composer into the host-owned bottom dock. Primary-screen output uses the
 /// phone's natural height; alternate-screen replay can pin to the Mac's grid.
@@ -485,6 +484,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         self.verifiedReplayState.acknowledgeViewport(
                             renderEpoch: renderEpoch,
                             renderRevisionFloor: renderRevisionFloor,
+                            renderEmissionRevisionFloor: effectiveGrid.renderEmissionRevisionFloor,
                             reportID: report.id,
                             negotiationGeneration: generation,
                             reportedColumns: report.columns,
@@ -1134,14 +1134,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 )
                 surfaceView.reassertViewportCapacityReport()
                 _ = await surfaceView.freezeVerifiedReplayPresentation(
-                    transactionID: frame.renderRevision
+                    transactionID: frame.emissionRevision > 0 ? frame.emissionRevision : frame.renderRevision
                 )
                 guard !Task.isCancelled else { return false }
                 requestVerifiedReplayReset(transactionID: nil, chunk: chunk, store: store)
                 return false
             case .keepFrozenAndRequestReplay:
                 _ = await surfaceView.freezeVerifiedReplayPresentation(
-                    transactionID: frame.renderRevision
+                    transactionID: frame.emissionRevision > 0 ? frame.emissionRevision : frame.renderRevision
                 )
                 guard !Task.isCancelled else { return false }
                 requestVerifiedReplayReset(transactionID: nil, chunk: chunk, store: store)

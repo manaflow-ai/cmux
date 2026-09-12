@@ -42,7 +42,8 @@ private final class SchedulerProbe {
                     columns: 40,
                     rows: $0,
                     renderEpoch: nil,
-                    renderRevisionFloor: nil
+                    renderRevisionFloor: nil,
+                    renderEmissionRevisionFloor: nil
                 )
             }
         )

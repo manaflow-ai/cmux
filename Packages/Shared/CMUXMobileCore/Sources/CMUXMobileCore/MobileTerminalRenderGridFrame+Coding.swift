@@ -5,6 +5,7 @@ extension MobileTerminalRenderGridFrame {
         case stateSeq = "state_seq"
         case renderEpoch = "render_epoch"
         case renderRevision = "render_revision"
+        case emissionRevision = "emission_revision"
         case columns
         case rows
         case cursor
@@ -27,6 +28,7 @@ extension MobileTerminalRenderGridFrame {
         case historyRows = "history_rows"
         case deltaBaseHistoryRows = "delta_base_history_rows"
         case deltaBaseRenderRevision = "delta_base_render_revision"
+        case deltaBaseEmissionRevision = "delta_base_emission_revision"
         case rowSpaceRevision = "row_space_revision"
     }
 }
