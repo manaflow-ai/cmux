@@ -55,8 +55,18 @@ public final class NotificationDismissalModel: NotificationDismissing {
         let shouldSuppressFlash = suppressFocusFlash
         suppressFocusFlash = false
         guard !shouldSuppressFlash else { return }
-        guard let surfaceId = host?.focusedSurfaceId(in: workspaceId) else { return }
-        dismissPanelNotificationOnFocus(workspaceId: workspaceId, panelId: surfaceId, context: context)
+        guard let host else { return }
+        if let surfaceId = host.focusedSurfaceId(in: workspaceId) {
+            dismissPanelNotificationOnFocus(workspaceId: workspaceId, panelId: surfaceId, context: context)
+        }
+        guard host.storeHasUnreadNotification(workspaceId: workspaceId, surfaceId: nil) ||
+            host.storeHasPendingNotification(workspaceId: workspaceId, surfaceId: nil) else {
+            return
+        }
+        // Workspace-level notifications have no surface to follow. They become
+        // visible when the workspace is resumed, so dismiss them independently
+        // of the focused-surface pass.
+        _ = dismissNotification(workspaceId: workspaceId, surfaceId: nil, context: context)
     }
 
     public func dismissPanelNotificationOnFocus(
