@@ -2941,6 +2941,9 @@ final class BrowserPanel: Panel, ObservableObject {
         // Enable JavaScript
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         WebSurfaceSelectionReader.installTracking(in: configuration.userContentController)
+        // Buttons on cloud pane placeholder pages (Try Again, open through cmux.sh).
+        // The bridge accepts only main-frame `about:` documents with a live pane token.
+        SurfaceBrowserPlaceholderBridge.install(in: configuration.userContentController)
         configuration.userContentController.addUserScript(
             WKUserScript(
                 source: BrowserFileSystemAccessBridge.scriptSource,

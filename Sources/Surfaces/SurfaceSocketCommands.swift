@@ -289,6 +289,23 @@ extension TerminalController {
                 workspaceID = preferred
             }
             let destination = Self.surfaceDestination(resolvedParams, workspaceID: workspaceID)
+            if Self.surfaceBool(params["proxy"]) == true {
+                // `--proxy`: the public cmux.sh publication, signed in as this account.
+                // Same path as the sidebar's "Open Proxy URL" and the failure page's
+                // "Open through cmux.sh instead".
+                guard let cloudID = resource.machine.cloudMachineID else {
+                    throw SurfaceCatalogError.unsupported(SurfaceCatalog.portPreviewUnavailableMessage(machineID: resource.machine.rawValue))
+                }
+                let proxyURL = try await CloudPortProxy.url(vmID: cloudID, port: port)
+                let pane = try await SurfacePaneFactory.makeAuthenticatedBrowserPane(url: proxyURL, at: destination, focus: focus)
+                return [
+                    "workspace_id": pane.workspaceID.uuidString,
+                    "surface_id": pane.panelID.uuidString,
+                    "url": proxyURL.absoluteString,
+                    "open_url": proxyURL.absoluteString,
+                    "proxy": true,
+                ] as [String: Any]
+            }
             let opened = try await catalog.openCloudPort(
                 machine: resource.machine,
                 port: port,

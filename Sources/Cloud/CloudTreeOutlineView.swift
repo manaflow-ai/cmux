@@ -770,6 +770,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 // The link that works from any app on this Mac is the loopback
                 // forward; the private address needs `cmux vpn up`.
                 items.append(item(String(localized: "cloudTree.menu.copyLink", defaultValue: "Copy Link")) { [nodeActions] in nodeActions.copyPortLink(resource.id) })
+                // The public route: a personal `cmux.sh` publication that signs in
+                // through cmux. Works from any device, needs no hub or VPN.
+                items.append(item(String(localized: "cloudTree.menu.copyProxyURL", defaultValue: "Copy Proxy URL (cmux.sh)")) { [nodeActions] in nodeActions.copyProxyURL(resource.id) })
+                items.append(item(String(localized: "cloudTree.menu.openProxyURL", defaultValue: "Open Proxy URL (cmux.sh)")) { [nodeActions] in nodeActions.openProxyURL(resource.id) })
                 if let portURL {
                     items.append(item(String(localized: "cloudTree.menu.copyPrivateURL", defaultValue: "Copy Private Address URL")) { [nodeActions] in nodeActions.copyToPasteboard(portURL) })
                     items.append(item(String(localized: "machines.menu.privateNetwork", defaultValue: "Private Network Access…")) { [machineActions, window = outlineView?.window] in machineActions.setupVPN(window) })

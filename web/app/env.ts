@@ -276,6 +276,13 @@ export const env = createEnv({
     // pushed to Freestyle as the account-wide forward-auth target. It is never
     // derived from a request; protected publications fail closed without it.
     CMUX_VM_PUBLICATION_AUTH_ORIGIN: publicationAuthOrigin.optional(),
+    // The URL Freestyle's edge calls for forward auth, when it differs from the browser
+    // origin: a dev stack is reachable by browsers only over Tailscale, so its edge
+    // callback goes through a public tunnel while sign-in stays on the app's origin.
+    CMUX_VM_PUBLICATION_FORWARD_AUTH_URL: z.string().url().refine(
+      (value) => value.startsWith("https://"),
+      "CMUX_VM_PUBLICATION_FORWARD_AUTH_URL must be an https:// URL",
+    ).optional(),
     // Zone generated Cloud VM publication hostnames are minted under
     // (<random>.<zone>). The CMUX Freestyle account must own it: verify the
     // zone, CNAME `*` to the Freestyle edge, delegate `_acme-challenge`, and
@@ -471,6 +478,9 @@ export const env = createEnv({
     ),
     CMUX_VM_PUBLICATION_AUTH_ORIGIN: trimEnv(
       process.env.CMUX_VM_PUBLICATION_AUTH_ORIGIN,
+    ),
+    CMUX_VM_PUBLICATION_FORWARD_AUTH_URL: trimEnv(
+      process.env.CMUX_VM_PUBLICATION_FORWARD_AUTH_URL,
     ),
     CMUX_VM_PUBLICATION_GENERATED_DOMAIN: trimEnv(
       process.env.CMUX_VM_PUBLICATION_GENERATED_DOMAIN,

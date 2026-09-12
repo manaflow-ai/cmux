@@ -41,6 +41,50 @@ enum SurfacePaneFactory {
         try create(typeRaw: "browser", url: url.absoluteString, initialCommand: nil, workingDirectory: nil, at: destination, focus: focus)
     }
 
+    /// A browser pane at `url`, signed in as the cmux account: the pane gets its own
+    /// isolated website data store holding the account's cmux session cookies, so a page
+    /// that bounces through cmux for sign-in (a `cmux.sh` port publication) loads without a
+    /// login form. Falls back to a plain pane when there is no session to hand off (signed
+    /// out, exchange failed); the page then shows its own sign-in.
+    static func makeAuthenticatedBrowserPane(url: URL, at destination: SurfaceDestination, focus: Bool) async throws -> (workspaceID: UUID, panelID: UUID) {
+        var request = URLRequest(url: url)
+        var websiteDataStore: WKWebsiteDataStore?
+        if let auth = AppDelegate.shared?.auth,
+           case .navigation(let navigation) = await auth.browserAppSession.request(externalDestinationURL: url) {
+            request = navigation.request
+            websiteDataStore = navigation.websiteDataStore
+        }
+        guard let workspace = workspace(id: destination.workspaceID) else { throw FactoryError.workspaceNotFound(destination.workspaceID) }
+        let panel: BrowserPanel?
+        switch destination {
+        case .tab(_, let paneID, _):
+            guard let uuid = UUID(uuidString: paneID) else { throw FactoryError.paneNotFound(paneID) }
+            panel = workspace.newBrowserSurface(inPane: PaneID(id: uuid), initialRequest: request, focus: focus, allowsExternalBrowserFallback: false, websiteDataStore: websiteDataStore)
+        case .workspace(_, .tab):
+            guard let focused = workspace.focusedPanelId, let pane = workspace.paneId(forPanelId: focused) else {
+                throw FactoryError.paneNotFound("focused")
+            }
+            panel = workspace.newBrowserSurface(inPane: pane, initialRequest: request, focus: focus, allowsExternalBrowserFallback: false, websiteDataStore: websiteDataStore)
+        case .split(_, let paneID, let direction):
+            let anchor = try anchorSurface(paneID: paneID, in: workspace)
+            let vertical = direction == .up || direction == .down
+            panel = workspace.newBrowserSplit(
+                from: anchor,
+                orientation: vertical ? .vertical : .horizontal,
+                insertFirst: direction == .left || direction == .up,
+                initialRequest: request,
+                focus: focus,
+                allowsExternalBrowserFallback: false,
+                websiteDataStore: websiteDataStore
+            )
+        case .workspace(_, .split):
+            guard let focused = workspace.focusedPanelId else { throw FactoryError.paneNotFound("focused") }
+            panel = workspace.newBrowserSplit(from: focused, orientation: .horizontal, initialRequest: request, focus: focus, allowsExternalBrowserFallback: false, websiteDataStore: websiteDataStore)
+        }
+        guard let panel else { throw FactoryError.creationFailed("browser pane for \(url.host ?? url.absoluteString)") }
+        return (workspace.id, panel.id)
+    }
+
     /// The URL a browser pane opens with when its real URL is still being resolved; the
     /// caller fills the pane with ``SurfaceBrowserPlaceholder`` content and navigates later.
     static let blankURL = URL(string: "about:blank")!
@@ -263,9 +307,76 @@ enum SurfacePaneFactory {
     }
 }
 
+/// A button on a ``SurfaceBrowserPlaceholder`` page. The page posts it back through
+/// ``SurfaceBrowserPlaceholderBridge`` with the pane's one-time token.
+enum SurfaceBrowserPlaceholderAction: String, CaseIterable, Sendable {
+    /// Re-run the open from the top (the tunnel gate, then navigation).
+    case retry
+    /// Give up on the private route and open the port's public `cmux.sh` URL instead.
+    case openProxy
+}
+
+/// Routes button presses on placeholder pages back to the provider that owns the pane.
+///
+/// One handler serves every browser webview (`BrowserPanel.configureWebViewConfiguration`
+/// installs it), so a message is honored only when it comes from a main-frame `about:`
+/// document (what `loadHTMLString(_:baseURL: nil)` produces; no web origin can post as
+/// one) and names a token that a live pane registered. Tokens are single-use secrets:
+/// unregistered on success, and useless once the pane is gone.
+@MainActor
+final class SurfaceBrowserPlaceholderBridge: NSObject, WKScriptMessageHandler {
+    static let name = "cmuxSurfacePlaceholder"
+    static let shared = SurfaceBrowserPlaceholderBridge()
+
+    private var handlers: [String: @MainActor (SurfaceBrowserPlaceholderAction) -> Void] = [:]
+
+    static func install(in userContentController: WKUserContentController) {
+        userContentController.removeScriptMessageHandler(forName: name)
+        userContentController.add(shared, name: name)
+    }
+
+    /// Registers a pane's action handler and returns the token its pages embed.
+    func register(_ handler: @escaping @MainActor (SurfaceBrowserPlaceholderAction) -> Void) -> String {
+        let token = UUID().uuidString
+        handlers[token] = handler
+        return token
+    }
+
+    func unregister(_ token: String) {
+        handlers[token] = nil
+    }
+
+    var registeredTokenCount: Int { handlers.count }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == Self.name,
+              let parsed = Self.parse(body: message.body, isMainFrame: message.frameInfo.isMainFrame, frameURL: message.frameInfo.request.url),
+              let handler = handlers[parsed.token] else { return }
+        handler(parsed.action)
+    }
+
+    /// Pure validation of one message, so the acceptance rules are testable without WebKit.
+    nonisolated static func parse(body: Any, isMainFrame: Bool, frameURL: URL?) -> (token: String, action: SurfaceBrowserPlaceholderAction)? {
+        guard isMainFrame else { return nil }
+        if let frameURL, let scheme = frameURL.scheme?.lowercased(), scheme != "about" { return nil }
+        guard let dictionary = body as? [String: Any],
+              let token = dictionary["token"] as? String, !token.isEmpty,
+              let rawAction = dictionary["action"] as? String,
+              let action = SurfaceBrowserPlaceholderAction(rawValue: rawAction) else { return nil }
+        return (token, action)
+    }
+}
+
 /// The local pages an optimistic browser pane shows while its endpoint resolves (and if
 /// that fails). Pure: strings in, HTML out, every dynamic value escaped.
 enum SurfaceBrowserPlaceholder {
+    /// One button on a placeholder page.
+    struct Button: Equatable {
+        let action: SurfaceBrowserPlaceholderAction
+        let title: String
+        let primary: Bool
+    }
+
     /// "Connecting to <label>…" on the desktop's dark background, so the pane reads as
     /// the desktop's own loading state rather than a blank tab.
     static func connecting(_ label: String) -> String {
@@ -279,11 +390,26 @@ enum SurfaceBrowserPlaceholder {
     /// "Couldn't open <label>" with the typed error and an appropriate next step.
     /// Unsupported providers deliberately omit the retry instruction: the pane is
     /// truthful about a permanent capability gap instead of inviting a retry loop.
-    static func failed(_ label: String, error: String, retryable: Bool = true) -> String {
+    /// With a `token`, a retryable failure gets a Try Again button (and the `cmux.sh`
+    /// alternative when `proxyAvailable`) instead of the close-and-reopen instruction.
+    static func failed(
+        _ label: String,
+        error: String,
+        retryable: Bool = true,
+        token: String? = nil,
+        proxyAvailable: Bool = false
+    ) -> String {
         let title = String(
             format: String(localized: "cloudTree.pane.failed", defaultValue: "Couldn’t open %@"),
             label
         )
+        if retryable, let token {
+            var buttons = [Button(action: .retry, title: String(localized: "cloudTree.pane.tryAgain", defaultValue: "Try Again"), primary: true)]
+            if proxyAvailable {
+                buttons.append(Button(action: .openProxy, title: String(localized: "cloudTree.pane.openProxy", defaultValue: "Open through cmux.sh instead"), primary: false))
+            }
+            return page(title: title, detail: error, spinner: false, token: token, buttons: buttons)
+        }
         let hint = retryable
             ? String(
                 localized: "cloudTree.pane.retryHint",
@@ -312,10 +438,15 @@ enum SurfaceBrowserPlaceholder {
         return out
     }
 
-    private static func page(title: String, detail: String?, spinner: Bool) -> String {
+    private static func page(title: String, detail: String?, spinner: Bool, token: String? = nil, buttons: [Button] = []) -> String {
         let detailHTML = detail.map { text in
             text.split(separator: "\n", omittingEmptySubsequences: false)
-                .map { "<p>\(escape(String($0)))</p>" }
+                .map { line -> String in
+                    if line.isEmpty { return "<p class=\"gap\"></p>" }
+                    // Numbered instructions read as a list: left-aligned, indented.
+                    let isStep = line.first?.isNumber == true && line.dropFirst().hasPrefix(".")
+                    return "<p\(isStep ? " class=\"step\"" : "")>\(escape(String(line)))</p>"
+                }
                 .joined()
         } ?? ""
         let spinnerHTML = spinner ? "<div class=\"spinner\" role=\"progressbar\"></div>" : ""
@@ -328,6 +459,40 @@ enum SurfaceBrowserPlaceholder {
                      animation: spin 0.9s linear infinite; }
           @keyframes spin { to { transform: rotate(360deg); } }
         """ : ""
+        // Buttons post {token, action} to the bridge; the token is the pane's secret,
+        // embedded once as a JS string literal (UUID text, nothing to escape).
+        let buttonsHTML: String
+        let buttonsCSS: String
+        if let token, !buttons.isEmpty {
+            let items = buttons.map { button in
+                "<button type=\"button\" class=\"\(button.primary ? "primary" : "")\" data-action=\"\(button.action.rawValue)\">\(escape(button.title))</button>"
+            }.joined()
+            buttonsHTML = """
+            <div class="actions">\(items)</div>
+            <script>
+              (() => {
+                const token = "\(token)";
+                for (const button of document.querySelectorAll("button[data-action]")) {
+                  button.addEventListener("click", () => {
+                    window.webkit.messageHandlers["\(SurfaceBrowserPlaceholderBridge.name)"].postMessage({ token, action: button.dataset.action });
+                  });
+                }
+              })();
+            </script>
+            """
+            buttonsCSS = """
+
+              .actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 1.2em; }
+              button { font: inherit; padding: 6px 14px; border-radius: 6px; cursor: pointer;
+                       border: 1px solid rgba(216,222,233,0.35); background: transparent; color: #d8dee9; }
+              button:hover { background: rgba(216,222,233,0.12); }
+              button.primary { background: #5e81ac; border-color: #5e81ac; color: white; }
+              button.primary:hover { background: #81a1c1; }
+            """
+        } else {
+            buttonsHTML = ""
+            buttonsCSS = ""
+        }
         return """
         <!doctype html>
         <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -338,9 +503,11 @@ enum SurfaceBrowserPlaceholder {
                  font: 14px -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; }
           main { text-align: center; max-width: 36em; padding: 0 1.5em; }
           h1 { font-size: 15px; font-weight: 500; margin: 0 0 0.6em; }
-          p { margin: 0.3em 0; opacity: 0.8; word-break: break-word; }\(spinnerCSS)
+          p { margin: 0.3em 0; opacity: 0.8; word-break: break-word; }
+          p.gap { height: 0.4em; }
+          p.step { text-align: left; padding-left: 1.5em; text-indent: -1.5em; opacity: 0.9; }\(spinnerCSS)\(buttonsCSS)
         </style></head>
-        <body><main>\(spinnerHTML)<h1>\(escape(title))</h1>\(detailHTML)</main></body></html>
+        <body><main>\(spinnerHTML)<h1>\(escape(title))</h1>\(detailHTML)\(buttonsHTML)</main></body></html>
         """
     }
 }
