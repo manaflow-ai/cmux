@@ -206,14 +206,11 @@ export default async function AppPricingPage({
                 }
               >
                 {snapshot.isPro ? (
-                  <div className="space-y-2">
-                    <DisabledButton>{pricing.currentPlan}</DisabledButton>
-                    {snapshot.billingManagement === "stripe" && !appStorePaymentGated ? (
-                      <SecondaryLink href="/api/billing/portal">
-                        {pricing.manageBilling}
-                      </SecondaryLink>
-                    ) : null}
-                  </div>
+                  snapshot.billingManagement === "stripe" && !appStorePaymentGated ? (
+                    <SecondaryLink href="/api/billing/portal">
+                      {pricing.manageBilling}
+                    </SecondaryLink>
+                  ) : null
                 ) : appStorePaymentGated ? (
                   <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
                 ) : canManageBilling ? (
