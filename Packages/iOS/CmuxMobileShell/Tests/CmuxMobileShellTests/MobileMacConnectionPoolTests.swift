@@ -5531,7 +5531,7 @@ import Testing
         shell.connections[storedOwnerKey] = connection
         shell.secondaryMacSubscriptions[storedOwnerKey] = subscription
 
-        shell.adoptForegroundMacIdentityForTesting(
+        shell.adoptForegroundMacIdentity(
             "mac-a",
             previousKey: oldAuthenticatedKey
         )

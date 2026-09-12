@@ -8246,12 +8246,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func pooledRouteForTesting(macDeviceID: String) -> CmxAttachRoute? {
         connections[macDeviceID]?.route
     }
-    func adoptForegroundMacIdentityForTesting(
-        _ macDeviceID: String,
-        previousKey: MacPairingKey? = nil
-    ) {
-        adoptForegroundMacIdentity(macDeviceID, previousKey: previousKey)
-    }
     func refreshRoutesFromRegistryForTesting(
         for mac: MobilePairedMac,
         scope: MobileShellScopeSnapshot
@@ -8284,6 +8278,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         _ previousKey: MacPairingKey,
         retainingConnection: MacConnection? = nil
     ) {
+        guard previousKey != foregroundMacKey else { return }
         let retainedKey = retainingConnection?.ownerKey ?? previousKey
         if let retainingConnection,
            retainedKey != previousKey,
@@ -8312,7 +8307,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// connected Mac as "not connected" (foregroundMacDeviceID never matched) and
     /// secondary aggregation, which excludes `foregroundMacDeviceID`, can open a
     /// DUPLICATE read-only connection to the very Mac that is already foreground.
-    private func adoptForegroundMacIdentity(
+    func adoptForegroundMacIdentity(
         _ macDeviceID: String,
         previousKey: MacPairingKey? = nil
     ) {
