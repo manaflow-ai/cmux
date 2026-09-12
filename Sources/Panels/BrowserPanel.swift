@@ -2016,6 +2016,9 @@ final class BrowserPanel: Panel, ObservableObject {
     let id: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .browser
+    let cloudAccess = CloudBrowserAccessState()
+
+    func showCloudAddress(_ url: URL) { currentURL = url }
 
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
@@ -3257,6 +3260,7 @@ final class BrowserPanel: Panel, ObservableObject {
                     targetURL: Self.remoteProxyDisplayURL(for: self.navigationDelegate?.lastAttemptedURL)
                         ?? self.navigationDelegate?.lastAttemptedURL
                 )
+                self.cloudAccess.didStart(url: self.navigationDelegate?.lastAttemptedURL)
                 self.isMainFrameProvisionalNavigationActive = true
                 self.refreshBackgroundAppearance()
                 self.applyMuteState(to: webView, reason: "navigationStart")
@@ -3273,6 +3277,7 @@ final class BrowserPanel: Panel, ObservableObject {
                     instanceID: boundWebViewInstanceID,
                     navigationID: navigation.map { ObjectIdentifier($0) }
                 )
+                self.cloudAccess.didCommit(url: webView.url)
                 // An about:blank placeholder leaves the restore-stall detector armed.
                 if !Self.isAboutBlankURL(webView.url) {
                     self.hasCommittedDocumentSinceWebViewReplacement = true
@@ -3294,6 +3299,9 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didFinish = { [weak self] webView in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                if self.navigationDelegate?.activeErrorPageDisplayURL == nil {
+                    self.cloudAccess.didFinish(url: webView.url)
+                }
                 self.isMainFrameProvisionalNavigationActive = false
                 self.publishCommittedURL(from: webView)
                 self.applyMuteState(to: webView, reason: "navigationFinish")
@@ -3310,6 +3318,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didFailNavigation = { [weak self] failedWebView, failedURL, failureMessage, failedNavigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(failedWebView, instanceID: boundWebViewInstanceID) else { return }
+                self.cloudAccess.didFail(url: URL(string: failedURL), message: failureMessage)
                 self.automationNavigationCoordinator.didFail(
                     instanceID: boundWebViewInstanceID,
                     navigationID: failedNavigation.map { ObjectIdentifier($0) },
@@ -5243,6 +5252,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func close() {
+        cloudAccess.leave()
         cancelHiddenWebViewDiscard()
         chromiumMemoryDiscardRestoreTask?.cancel()
         chromiumMemoryDiscardRestoreTask = nil
@@ -5687,6 +5697,17 @@ final class BrowserPanel: Panel, ObservableObject {
         recordTypedNavigation: Bool = false,
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
+        if cloudAccess.model != nil && cloudAccess.owns(url) {
+            if cloudAccess.model?.isReady != true { return nil }
+        } else if let provider = SurfaceCatalog.shared.machines.values.first(where: {
+            $0.privateAddress?.trimmingCharacters(in: CharacterSet(charactersIn: "[]")) == url.host?.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        }).flatMap({ SurfaceCatalog.shared.provider(for: $0.id) as? CmuxTuiSurfaceProvider }),
+                  ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+            provider.configureBrowser(self, url: url)
+            return nil
+        } else {
+            cloudAccess.leave()
+        }
         let request = URLRequest(url: url)
         let policy = BrowserURLAllowlistPolicy(defaults: .standard)
         (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
