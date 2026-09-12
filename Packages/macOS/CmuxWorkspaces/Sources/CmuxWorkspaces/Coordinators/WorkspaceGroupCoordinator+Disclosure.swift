@@ -41,17 +41,19 @@ extension WorkspaceGroupCoordinator {
             let hiddenMemberIds = Set(model.tabs.compactMap { tab -> UUID? in
                 guard let groupId = tab.groupId,
                       let group = targetGroupsById[groupId],
-                      group.anchorWorkspaceId != tab.id else { return nil }
+                      let liveAnchorWorkspaceId = group.liveAnchorWorkspaceId,
+                      liveAnchorWorkspaceId != tab.id else { return nil }
                 return tab.id
             })
 
             var focusedWorkspaceId: UUID?
             if let selectedTabId = model.selectedTabId,
                let selectedGroupId = model.tabs.first(where: { $0.id == selectedTabId })?.groupId,
-               let selectedGroup = targetGroupsById[selectedGroupId] {
-                if selectedGroup.anchorWorkspaceId == selectedTabId {
+               let selectedGroup = targetGroupsById[selectedGroupId],
+               let liveAnchorWorkspaceId = selectedGroup.liveAnchorWorkspaceId {
+                if liveAnchorWorkspaceId == selectedTabId {
                     focusedWorkspaceId = selectedTabId
-                } else if let anchor = model.tabs.first(where: { $0.id == selectedGroup.anchorWorkspaceId }) {
+                } else if let anchor = model.tabs.first(where: { $0.id == liveAnchorWorkspaceId }) {
                     host.selectWorkspace(anchor)
                     focusedWorkspaceId = anchor.id
                 }
