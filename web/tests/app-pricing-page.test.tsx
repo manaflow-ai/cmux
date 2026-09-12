@@ -58,8 +58,7 @@ mock.module("../db/client", () => ({
   cloudDb: () => withAccountMutationLeaseSupport({
     select: () => ({
       from: (table: unknown) => ({
-        where: () => ({
-          then: (resolve: (rows: unknown[]) => unknown) => resolve(table === stripeSubscriptions ? stripeSubscriptionRows : []),
+        where: () => Object.assign(Promise.resolve(table === stripeSubscriptions ? stripeSubscriptionRows : []), {
           limit: async () => (table === stripeSubscriptions ? stripeSubscriptionRows : []),
         }),
       }),
