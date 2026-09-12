@@ -660,7 +660,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                   let sourceIndex = context.nodes.firstIndex(where: { $0.id == id }),
                   context.nodes[sourceIndex].canOrganize else { return nil }
             let proposedNode = item as? CloudTreeNode
-            let proposedIndex = proposedNode.flatMap { context.nodes.firstIndex(where: { $0.id == $0.id }) }
             let targetIndex: Int
             if let proposedNode,
                let siblingIndex = context.nodes.firstIndex(where: { $0.id == proposedNode.id }),
