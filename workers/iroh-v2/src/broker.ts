@@ -344,8 +344,13 @@ export class TeamBroker {
   }
 
   private relayURLs(): string[] {
-    const preference = this.dependencies.store.getRelayPreferences().relayURLs;
-    return preference.length ? preference : this.dependencies.relays.configuration.relayURLs;
+    const configured = this.dependencies.relays.configuration.relayURLs;
+    const configuredSet = new Set(configured);
+    // Team preferences can outlive a relay rollout. Only advertise relays that
+    // are currently configured for this worker; falling back to the complete
+    // configured set keeps an old preference from producing unusable tickets.
+    const preference = this.dependencies.store.getRelayPreferences().relayURLs.filter(url => configuredSet.has(url));
+    return preference.length ? preference : configured;
   }
 
   private completed(requestId: string, revision: number): BrokerResult {
