@@ -7548,7 +7548,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func cloudTerminalReconnectOverlayPresentation(forSurfaceId surfaceId: UUID) -> CloudTerminalReconnectOverlayPolicy.Presentation? {
-        CloudTerminalReconnectOverlayPolicy.presentation(
+        if let resource = cloudProjectedResource(forPanel: surfaceId),
+           let machineID = resource.id.machine.cloudMachineID,
+           let session = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID)?.manualMirrorSessions[surfaceId] {
+            return session.connectionPresentation
+        }
+        return CloudTerminalReconnectOverlayPolicy.presentation(
             isManagedCloudWorkspace: isManagedCloudVMWorkspace,
             isRemoteTerminalSurface: isRemoteTerminalSurface(surfaceId) || remoteDisconnectPlaceholderPanelIds.contains(surfaceId),
             connectionState: remoteConnectionState,
