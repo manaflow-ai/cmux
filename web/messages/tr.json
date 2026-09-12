@@ -22,6 +22,19 @@
       "title": "cmux Pro gerekli",
       "message": "Cloud VM'ler için cmux Pro planı gerekir.",
       "action": "Cloud VM oluşturmak için {upgradeUrl} adresinden cmux Pro'ya yükseltin."
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "{memory} GiB makineler cmux {plan} gerektirir. Planınız en fazla {max} GiB destekler.",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "Kaynak makinenin RAM boyutu doğrulanamadı.",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "Bu makine boyutu kullanılamıyor. En fazla {max} GiB seçin.",
+      "action": "cmux vm new --size {max}g"
     }
   },
   "billingRecovery": {

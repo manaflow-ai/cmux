@@ -55,6 +55,7 @@ import {
   withAuthedVmApiRoute,
   vmActiveLimitExceededResponse,
   vmMemoryRequiresPlanResponse,
+  vmMemoryUnavailableResponse,
   resolveVmProvisioningAccountScope,
   runAfterResponse,
   type VmWorkflowErrorOverrides,
@@ -234,7 +235,7 @@ export async function POST(request: Request): Promise<Response> {
       if (!scope.ok) return scope.response;
       const { user, entitlements } = scope;
 
-      const memory = resolveCreateMemory(span, entitlements.planId, candidate.memoryMb as number | undefined);
+      const memory = await resolveCreateMemory(span, entitlements.planId, candidate.memoryMb as number | undefined, request);
       if (!memory.ok) return memory.response;
       const memoryMb = memory.memoryMb;
 
@@ -622,11 +623,12 @@ async function resolveCreateAccount(input: {
  * the person chose it, and it is what Max sells. Coercing it to 8 GB would
  * silently hand them a smaller machine, so it is refused with the upgrade.
  */
-function resolveCreateMemory(
+async function resolveCreateMemory(
   span: Span,
   planId: string,
   requestedMemoryMb: number | undefined,
-): { readonly ok: true; readonly memoryMb: number } | { readonly ok: false; readonly response: Response } {
+  request: Request,
+): Promise<{ readonly ok: true; readonly memoryMb: number } | { readonly ok: false; readonly response: Response }> {
   const maxMemoryMb = maxMemoryMbForPlan(planId, process.env);
   const memoryOptionsMb = memoryOptionsMbForPlan(planId, process.env);
   const planMemoryMb = defaultMemoryMbForPlan(planId, process.env);
@@ -636,11 +638,7 @@ function resolveCreateMemory(
     locked.memoryOptionsMb.includes(requestedMemoryMb)
   ) {
     const upgradePlanId = upgradePlanForMemory(requestedMemoryMb, planId);
-    if (!upgradePlanId) return { ok: false, response: vmErrorResponse({
-      error: "vm_memory_unavailable", status: 409,
-      message: "This machine size is currently unavailable.",
-      action: `Choose a size up to ${maxMemoryMb / 1024} GiB and retry.`,
-    }) };
+    if (!upgradePlanId) return { ok: false, response: await vmMemoryUnavailableResponse(maxMemoryMb, vmRequestLocale(request)) };
     setSpanAttributes(span, {
       "cmux.vm.memory_mb": requestedMemoryMb,
       "cmux.vm.max_memory_mb": maxMemoryMb,
@@ -649,12 +647,12 @@ function resolveCreateMemory(
     });
     return {
       ok: false,
-      response: vmMemoryRequiresPlanResponse({
+      response: await vmMemoryRequiresPlanResponse({
         memoryMb: requestedMemoryMb,
         maxMemoryMb,
         planId,
         upgradePlanId,
-      }),
+      }, vmRequestLocale(request)),
     };
   }
   const memoryMb =

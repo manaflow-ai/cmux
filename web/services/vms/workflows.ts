@@ -82,6 +82,7 @@ import {
   vmFreeAccessWindowDays,
 } from "./entitlements";
 import { getGoVmUsage, GO_INCLUDED_VM_HOURS } from "./goUsage";
+import { GO_PAUSE_INTENT_KEY, pauseGoVm } from "./goPause";
 import { networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
 import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
@@ -484,7 +485,7 @@ function requestedCreateMemory(input: { memoryMb?: number; imageSize?: { memoryM
 
 const GO_VM_RESERVATION = { vcpus: 2, memoryMb: 4096, diskMb: 16384 } as const;
 function requireGoShape(planId: string | null | undefined, shape: VmResourceReservation | null) {
-  return planId === "go" && (!shape || shape.vcpus > 2 || shape.memoryMb > 4096 || shape.diskMb > 16384)
+  return planId === "go" && (!shape || shape.vcpus !== GO_VM_RESERVATION.vcpus || shape.memoryMb !== GO_VM_RESERVATION.memoryMb || shape.diskMb !== GO_VM_RESERVATION.diskMb)
     ? Effect.fail(new VmGoShapeError()) : Effect.void;
 }
 
@@ -1588,6 +1589,11 @@ function requireForkMemoryPlan(source: CloudVmRow, providers: VmProviderGatewayS
   });
 }
 
+function nativeForkOperation(providers: VmProviderGatewayShape, provider: ProviderId, modelPlane?: VmModelPlaneProvisioner) {
+  if (modelPlane || !(providers.capabilities?.(provider).fork ?? vmCapabilitiesFor(provider).fork)) return undefined;
+  return providers.fork;
+}
+
 export function forkVm(input: {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
@@ -1631,7 +1637,7 @@ export function forkVm(input: {
     // A native fork has no way to accept the new row's edge rules. Use the
     // snapshot/create path for a model-plane machine so it receives its own
     // VM-bound credential instead of inheriting an unrouteable alias.
-    const nativeFork = !input.modelPlane && source.provider === "freestyle" && providers.fork !== undefined;
+    const nativeFork = nativeForkOperation(providers, source.provider, input.modelPlane);
     // The provider owns cloning the source. Record its initial shape and
     // reconcile the copied machine independently after the fork completes.
     const sourceHasReservation = hasVmResourceReservationMetadata(source.providerMetadata);
@@ -1712,7 +1718,7 @@ export function forkVm(input: {
       const handle = yield* measureVmEffect(
         input.timing,
         "provider_create",
-        providers.fork(source.provider, source.providerVmId ?? input.providerVmId),
+        nativeFork(source.provider, source.providerVmId ?? input.providerVmId),
       ).pipe(
         Effect.tapError((err) =>
           Effect.all([
@@ -2482,23 +2488,7 @@ function preflightResumeIfSuspended(
         catch: (cause) => new VmBillingError({ operation: "go_runtime", cause }),
       });
       if (usage && usage.remainingSeconds <= 0) {
-        // Stop a still-running provider machine at the boundary. This makes
-        // the cap effective even when a provider-side action bypassed cmux.
-        if (vm.status === "running" && providers.pause) {
-          yield* setRuntimeBudget(providers, vm, providerVmId, 0);
-          yield* providers.pause(vm.provider, providerVmId);
-          yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "paused" });
-          yield* repo.recordUsageEvent({
-            userId: vm.userId,
-            billingTeamId: vm.billingTeamId,
-            billingPlanId: vm.billingPlanId,
-            vmId: vm.id,
-            eventType: "vm.paused",
-            provider: vm.provider,
-            imageId: vm.imageId,
-            metadata: { source: "go_hours_limit" },
-          }).pipe(Effect.catchAll(() => Effect.void));
-        }
+        yield* pauseGoVm(repo, providers, vm, providerVmId, usage.usedSeconds);
         return yield* Effect.fail(new VmUsageLimitExceededError({ includedHours: GO_INCLUDED_VM_HOURS, usedHours: GO_INCLUDED_VM_HOURS }));
       }
     }
@@ -3530,6 +3520,12 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
 function requireAccessibleUserVm(input: ExistingVmAccessInput) {
   return Effect.gen(function* () {
     let vm = yield* requireUserVm(input);
+    if (vm.providerMetadata[GO_PAUSE_INTENT_KEY] != null) {
+      const repo = yield* VmRepository;
+      const providers = yield* VmProviderGateway;
+      yield* pauseGoVm(repo, providers, vm, input.providerVmId);
+      vm = { ...vm, status: "paused", providerMetadata: { ...vm.providerMetadata, [GO_PAUSE_INTENT_KEY]: null } };
+    }
     if (input.callerPlanId === "go") {
       yield* requireGoShape("go", hasVmResourceReservationMetadata(vm.providerMetadata) ? vmResourceReservationFromMetadata(vm.providerMetadata) : null);
     }

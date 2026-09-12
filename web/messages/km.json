@@ -22,6 +22,19 @@
       "title": "ត្រូវការ cmux Pro",
       "message": "Cloud VM តម្រូវឱ្យមានគម្រោង cmux Pro។",
       "action": "ដំឡើងកំណែទៅ cmux Pro នៅ {upgradeUrl} ដើម្បីបង្កើត Cloud VM។"
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "ម៉ាស៊ីន {memory} GiB ត្រូវការ cmux {plan}។ គម្រោងរបស់អ្នកគាំទ្ររហូតដល់ {max} GiB។",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "មិនអាចផ្ទៀងផ្ទាត់ទំហំ RAM របស់ម៉ាស៊ីនប្រភពបានទេ។",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "ទំហំម៉ាស៊ីននេះមិនអាចប្រើបានទេ។ សូមជ្រើសរើសរហូតដល់ {max} GiB។",
+      "action": "cmux vm new --size {max}g"
     }
   },
   "billingRecovery": {

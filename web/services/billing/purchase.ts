@@ -1,4 +1,4 @@
-import { personalPlanIdForSubscription } from "./subscriptionPlan";
+import { requirePersonalPlanIdForSubscription } from "./subscriptionPlan";
 export { personalPlanIdForSubscription } from "./subscriptionPlan";
 import { findIdentitySnapshotUserIdsByEmail } from "../auth/identitySnapshot";
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
@@ -478,7 +478,7 @@ export async function recordCheckoutCompletion(
           deferProMetadataUntilVerification:
             input.deferProMetadataUntilVerification,
           sendRecoveryMagicLink: input.sendRecoveryMagicLink,
-          plan: personalPlanIdForSubscription(subscription, input.session.metadata),
+          plan: requirePersonalPlanIdForSubscription(subscription, input.session.metadata),
         },
         result: { scope: "user", stackUserId, subscriptionId: subscription.id },
       };
@@ -953,7 +953,7 @@ export async function recordProCheckoutCompletionByEmail(
     }
   }
 
-  const personalPlan = personalPlanIdForSubscription(subscription, session.metadata);
+  const personalPlan = requirePersonalPlanIdForSubscription(subscription, session.metadata);
   const rewrittenSession = {
     ...session,
     client_reference_id: existingUser.id,
@@ -2025,7 +2025,7 @@ export async function applySubscriptionUpdate(
         freshUser,
         isActive,
         mutationLease,
-        personalPlanIdForSubscription(subscription),
+        requirePersonalPlanIdForSubscription(subscription),
       );
       if (!isActive) {
         await removeUserFromTestflightOnLapse(
@@ -2631,12 +2631,12 @@ async function updateExistingUserStripeSubscription(
  * The personal plan a user-scoped subscription sells, read from its Price so
  * a Billing Portal switch between Pro and Max re-labels the row on the next
  * `customer.subscription.updated`. Checkout metadata is the fallback for a
- * payload without a lookup key; anything else is Pro, the original plan.
+ * payload without a lookup key; unrecognized plans are rejected before persistence or entitlement sync.
  */
 
 function stripeSubscriptionValues(input: StripeSubscriptionValuesInput) {
   const { subscription } = input;
-  const plan = input.scope === "team" ? TEAM_PLAN_ID : personalPlanIdForSubscription(subscription);
+  const plan = input.scope === "team" ? TEAM_PLAN_ID : requirePersonalPlanIdForSubscription(subscription);
   return {
     id: subscription.id,
     customerId: input.customerId,

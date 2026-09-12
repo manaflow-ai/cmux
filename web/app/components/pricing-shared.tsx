@@ -108,17 +108,19 @@ export function PricingCategorySection({
   description,
   children,
   columns = "three",
+  showHeading = true,
 }: {
   title: string;
   id?: string;
   description: string;
   children: ReactNode;
   columns?: "two" | "three" | "four";
+  showHeading?: boolean;
 }) {
   const headingID = id ?? `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-pricing-category`;
   return (
-    <section className="mt-12 first:mt-8" aria-labelledby={headingID}>
-      <div className="mb-4 max-w-2xl">
+    <section className={showHeading ? "mt-12 first:mt-8" : ""} aria-labelledby={headingID}>
+      <div className={showHeading ? "mb-4 max-w-2xl" : "sr-only"}>
         <h2 id={headingID} className="text-lg font-medium tracking-tight">
           {title}
         </h2>
@@ -224,13 +226,12 @@ export function PricingCompareTable({
   actions?: Partial<Record<PlanColumn, ReactNode>>;
   stickyTopClassName?: string;
 }) {
-  // Five plan columns: the label column takes 2/7 and each plan 1/7, matching
-  // the <colgroup> widths below so the sticky header lines up with the table.
-  const gridTemplateColumns = "minmax(12rem,2fr) repeat(6,minmax(7.5rem,1fr))";
+  // The header and table use identical tracks at every supported width.
+  const gridTemplateColumns = "25% repeat(6,12.5%)";
 
   return (
-    <div className="max-md:overflow-x-auto">
-      <div className="max-md:min-w-[50rem]">
+    <div className="max-lg:overflow-x-auto">
+      <div className="min-w-[60rem]">
         <div
           className={`sticky ${stickyTopClassName} z-20 grid border-b border-border py-3 text-[15px] [background:var(--pricing-sticky-bg,var(--background))]`}
           style={{ gridTemplateColumns }}

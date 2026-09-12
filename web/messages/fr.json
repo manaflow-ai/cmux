@@ -22,6 +22,19 @@
       "title": "cmux Pro requis",
       "message": "Les Cloud VM nécessitent un abonnement cmux Pro.",
       "action": "Passez à cmux Pro sur {upgradeUrl} pour créer des Cloud VM."
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "Les machines de {memory} Gio nécessitent cmux {plan}. Votre forfait prend en charge jusqu’à {max} Gio.",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "La taille de RAM de la machine source n’a pas pu être vérifiée.",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "Cette taille de machine n’est pas disponible. Choisissez jusqu’à {max} Gio.",
+      "action": "cmux vm new --size {max}g"
     }
   },
   "billingRecovery": {

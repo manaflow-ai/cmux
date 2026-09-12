@@ -52,6 +52,7 @@ import {
 import {
   PricingCheckoutButton,
   PricingIntervalProvider,
+  PricingIntervalSelector,
   PricingIntervalValue,
 } from "../../components/pricing-interval-selector";
 import { PricingAudienceSelector } from "../../components/pricing-audience-selector";
@@ -198,8 +199,18 @@ export default async function PricingPage({
             individualLabel={t("audience.individual")}
             teamLabel={t("audience.team")}
             ariaLabel={t("audience.label")}
+            billingControl={
+              <PricingIntervalSelector inline
+                billingPeriodLabel={t("billingPeriod")}
+                monthlyLabel={t("monthly")}
+                annualLabel={t("annual")}
+                savingsLabel={t("saveAnnual", { discount: PRO_PRICING_USD.year.discountPercent })}
+                surface="public_pricing"
+              />
+            }
             individual={
 <PricingCategorySection
+            showHeading={false}
             id="individual-pricing-category"
             title={t("categories.individual.title")}
             description={t("categories.individual.description")}
@@ -326,6 +337,7 @@ export default async function PricingPage({
             }
             team={
 <PricingCategorySection
+            showHeading={false}
             id="team-enterprise-pricing-category"
             title={t("categories.business.title")}
             description={t("categories.business.description")}
@@ -401,7 +413,7 @@ export default async function PricingPage({
               }}
               prices={{
                 free: t("free.price"),
-                go: `$10 ${t("perMonth")}`,
+                go: `$${GO_PRICING_USD.month.billedAmount} ${t("perMonth")}`,
                 pro: (
                   <PricingIntervalValue
                     monthly={`$${PRO_PRICING_USD.month.billedAmount} ${t("perMonth")}`}

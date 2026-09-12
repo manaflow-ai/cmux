@@ -1,6 +1,65 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "socket.cloudVM.billingCheckout.invalidPlan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose Go, Pro, or Max: cmux billing checkout --plan <go|pro|max>"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wählen Sie Go, Pro oder Max: cmux billing checkout --plan <go|pro|max>"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez Go, Pro ou Max : cmux billing checkout --plan <go|pro|max>"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige Go, Pro o Max: cmux billing checkout --plan <go|pro|max>"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر Go أو Pro أو Max: cmux billing checkout --plan <go|pro|max>"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择 Go、Pro 或 Max：cmux billing checkout --plan <go|pro|max>"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇 Go、Pro 或 Max：cmux billing checkout --plan <go|pro|max>"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go, Pro 또는 Max 선택: cmux billing checkout --plan <go|pro|max>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go、Pro、Max を選択してください: cmux billing checkout --plan <go|pro|max>"
+          }
+        }
+      }
+    },
     "pricing.native.plan.go": {
       "extractionState": "manual",
       "localizations": {
@@ -184,25 +243,25 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 active Cloud VM, 2 vCPU, 4 GB RAM, 16 GB disk"
+            "value": "1 active Cloud VM, 2 vCPU, 4 GiB RAM, 16 GiB disk"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アクティブな Cloud VM 1 台、2 vCPU、4 GB RAM、16 GB ディスク"
+            "value": "アクティブな Cloud VM 1 台、2 vCPU、4 GiB RAM、16 GiB ディスク"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 台活跃云端虚拟机，2 个 vCPU、4 GB 内存、16 GB 磁盘"
+            "value": "1 台活跃云端虚拟机，2 个 vCPU、4 GiB 内存、16 GiB 磁盘"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 aktive Cloud-VM, 2 vCPU, 4 GB RAM, 16 GB Speicher"
+            "value": "1 aktive Cloud-VM, 2 vCPU, 4 GiB RAM, 16 GiB Speicher"
           }
         },
         "fr": {
@@ -214,25 +273,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "آلة Cloud VM نشطة واحدة، و2 vCPU، و4 GB RAM، و16 GB قرص"
+            "value": "آلة Cloud VM نشطة واحدة، و2 vCPU، و4 GiB RAM، و16 GiB قرص"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 VM cloud activa, 2 vCPU, 4 GB de RAM y 16 GB de disco"
+            "value": "1 VM cloud activa, 2 vCPU, 4 GiB de RAM y 16 GiB de disco"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 台使用中的 Cloud VM、2 個 vCPU、4 GB RAM、16 GB 磁碟"
+            "value": "1 台使用中的 Cloud VM、2 個 vCPU、4 GiB RAM、16 GiB 磁碟"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "활성 Cloud VM 1개, 2 vCPU, 4GB RAM, 16GB 디스크"
+            "value": "활성 Cloud VM 1개, 2 vCPU, 4 GiB RAM, 16 GiB 디스크"
           }
         }
       }
@@ -656,55 +715,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB and 64 GB machines need cmux Max. Run `cmux billing checkout --plan max` to upgrade, then retry. Or create a smaller machine with `cmux vm new --size 24g`."
+            "value": "Larger machines need cmux Max. Upgrade at %@, or choose a smaller machine."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "32-GB- und 64-GB-Maschinen erfordern cmux Max. Führen Sie `cmux billing checkout --plan max` zum Upgrade aus und versuchen Sie es erneut."
+            "value": "Größere Maschinen benötigen cmux Max. Upgraden Sie unter %@ oder wählen Sie eine kleinere Maschine."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les machines de 32 et 64 Go nécessitent cmux Max. Exécutez `cmux billing checkout --plan max` pour passer à Max, puis réessayez."
+            "value": "Les grandes machines nécessitent cmux Max. Passez à Max sur %@ ou choisissez une machine plus petite."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las máquinas de 32 y 64 GB requieren cmux Max. Ejecuta `cmux billing checkout --plan max` para actualizar y vuelve a intentarlo."
+            "value": "Las máquinas más grandes requieren cmux Max. Actualiza en %@ o elige una máquina más pequeña."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تتطلب أجهزة 32 و64 GB اشتراك cmux Max. شغّل `cmux billing checkout --plan max` للترقية ثم أعد المحاولة."
+            "value": "تتطلب الأجهزة الأكبر اشتراك cmux Max. قم بالترقية عبر %@ أو اختر جهازًا أصغر."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB 和 64 GB 的机器需要 cmux Max。运行 `cmux billing checkout --plan max` 升级后重试。"
+            "value": "更大的机器需要 cmux Max。请在 %@ 升级，或选择较小的机器。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB 和 64 GB 的機器需要 cmux Max。執行 `cmux billing checkout --plan max` 升級後再試。"
+            "value": "較大的機器需要 cmux Max。請在 %@ 升級，或選擇較小的機器。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "32GB 및 64GB 머신에는 cmux Max가 필요합니다. `cmux billing checkout --plan max`을 실행하여 업그레이드한 후 다시 시도하세요."
+            "value": "더 큰 머신에는 cmux Max가 필요합니다. %@에서 업그레이드하거나 더 작은 머신을 선택하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB と 64 GB のマシンには cmux Max が必要です。`cmux billing checkout --plan max` を実行してアップグレード後に再試行してください。"
+            "value": "より大きなマシンには cmux Max が必要です。%@ でアップグレードするか、小さいマシンを選択してください。"
           }
         }
       }
@@ -892,55 +951,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud VMs with 32 GB or 64 GB RAM"
+            "value": "Up to 64 GB RAM per machine"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud-VMs mit 32 GB oder 64 GB Arbeitsspeicher"
+            "value": "Bis zu 64 GB Arbeitsspeicher pro Maschine"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "VM cloud avec 32 ou 64 Go de RAM"
+            "value": "Jusqu’à 64 Go de RAM par machine"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "VM cloud con 32 o 64 GB de RAM"
+            "value": "Hasta 64 GB de RAM por máquina"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أجهزة Cloud VM بذاكرة RAM بسعة 32 أو 64 GB"
+            "value": "حتى 64 GB من RAM لكل جهاز"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "配备 32 GB 或 64 GB 内存的云端虚拟机"
+            "value": "每台机器最高 64 GB 内存"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "配備 32 GB 或 64 GB 記憶體的雲端 VM"
+            "value": "每台機器最高 64 GB 記憶體"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "32GB 또는 64GB RAM의 Cloud VM"
+            "value": "머신당 최대 64GB RAM"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB または 64 GB RAM の Cloud VM"
+            "value": "マシンごとに最大 64 GB RAM"
           }
         }
       }

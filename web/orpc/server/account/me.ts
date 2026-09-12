@@ -26,7 +26,7 @@ export const accountMeProcedure = os
     operationId: "account.me",
     summary: "Get the authenticated account and plan",
     description:
-      "Returns the signed-in user's id, primary email, and resolved billing plan (free, go, pro, or max).",
+      "Returns the signed-in user's id, primary email, resolved plan family (free or pro), and exact personal subscription plan (free, go, pro, or max).",
     tags: ["Account"],
     successStatus: 200,
   })

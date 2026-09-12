@@ -22,6 +22,19 @@
       "title": "Richiesto cmux Pro",
       "message": "Le Cloud VM richiedono un piano cmux Pro.",
       "action": "Passa a cmux Pro su {upgradeUrl} per creare Cloud VM."
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "Le macchine da {memory} GiB richiedono cmux {plan}. Il tuo piano supporta fino a {max} GiB.",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "Impossibile verificare la RAM della macchina di origine.",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "Questa dimensione non è disponibile. Scegli fino a {max} GiB.",
+      "action": "cmux vm new --size {max}g"
     }
   },
   "billingRecovery": {

@@ -22,6 +22,7 @@ import {
   isVmBillingTeamResolutionError,
   isVmProGateBlocked,
   resolveVmEntitlements,
+  upgradePlanForMemory,
   type VmEntitlements,
 } from "./entitlements";
 import {
@@ -55,6 +56,7 @@ import {
 import {
   vmRequestLocale,
   vmRequiresProCopy,
+  vmMemoryErrorCopy,
   vmUnsupportedCopy,
   vmUnsupportedOperationKey,
 } from "./vmErrorMessages";
@@ -474,22 +476,30 @@ export async function vmRequiresProResponse(locale: Locale = "en"): Promise<Resp
  * carries the same `upgradeRequired`/`upgradeUrl` fields as `vm_requires_pro`
  * plus the plan that unlocks the size, and it is never silently coerced.
  */
-export function vmMemoryRequiresPlanResponse(input: {
+export async function vmMemoryUnavailableResponse(maxMemoryMb: number, locale: Locale): Promise<Response> {
+  const copy = await vmMemoryErrorCopy("memoryUnavailable", locale, { max: maxMemoryMb / 1024 });
+  return vmErrorResponse({ error: "vm_memory_unavailable", status: 409, message: copy.message, action: copy.action, phase: "billing" });
+}
+
+export async function vmMemoryRequiresPlanResponse(input: {
   readonly memoryMb: number;
   readonly maxMemoryMb: number;
   readonly planId: string;
   readonly upgradePlanId: string;
-}): Response {
+}, locale: Locale = "en"): Promise<Response> {
   const memoryGb = Math.round(input.memoryMb / 1024);
   const maxGb = Math.round(input.maxMemoryMb / 1024);
   const upgradeName = input.upgradePlanId.charAt(0).toUpperCase() + input.upgradePlanId.slice(1);
   const upgradeUrl = `https://cmux.com/api/billing/checkout?plan=${encodeURIComponent(input.upgradePlanId)}&cmux_source=vm_memory_limit`;
+  const copy = await vmMemoryErrorCopy("memoryPlan", locale, {
+    memory: memoryGb, max: maxGb, plan: upgradeName, planId: input.upgradePlanId, upgradeUrl,
+  });
   return vmErrorResponse({
     error: "vm_memory_requires_plan",
     status: 402,
-    message: `${memoryGb} GB machines need cmux ${upgradeName}. Your plan starts machines up to ${maxGb} GB.`,
-    action: `Run \`cmux billing checkout --plan ${input.upgradePlanId}\` to upgrade, then retry. Or use \`cmux vm new --size ${maxGb}g\`. Checkout: ${upgradeUrl}`,
-    displayTitle: `cmux ${upgradeName} required`,
+    message: copy.message,
+    action: copy.action,
+    displayTitle: copy.title,
     phase: "billing",
     retryable: false,
     details: { requestedMemoryMb: input.memoryMb, maxMemoryMb: input.maxMemoryMb, upgradePlanId: input.upgradePlanId },
@@ -700,16 +710,15 @@ export function goLimitResponse(kind: "saved" | "active" | "hours"): Response {
 }
 
 export const vmWorkflowErrorResponders = {
-  VmMemoryPlanError: (error) => error.memoryMb === null
-    ? vmErrorResponse({
-        error: "vm_memory_size_unknown",
-        status: 409,
-        message: "The source machine's RAM size could not be verified.",
-        action: "Create a new machine with `cmux vm new --size 24g`, or retry after the source machine is available.",
-        phase: "billing",
-        retryable: false,
-      })
-    : vmMemoryRequiresPlanResponse({ ...error, memoryMb: error.memoryMb, upgradePlanId: "max" }),
+  VmMemoryPlanError: async (error, context) => {
+    if (error.memoryMb === null) {
+      const copy = await vmMemoryErrorCopy("memoryUnknown", context.locale);
+      return vmErrorResponse({ error: "vm_memory_size_unknown", status: 409, ...copy, phase: "billing", retryable: false });
+    }
+    const upgradePlanId = upgradePlanForMemory(error.memoryMb, error.planId);
+    if (!upgradePlanId) return vmMemoryUnavailableResponse(error.maxMemoryMb, context.locale);
+    return vmMemoryRequiresPlanResponse({ ...error, memoryMb: error.memoryMb, upgradePlanId }, context.locale);
+  },
   VmOperationUnsupportedError: (error, context) => vmUnsupportedOperationResponse(error, context.locale),
   VmProviderOperationError: (error, context) => {
     // A driver may report "unsupported" from inside a provider call; that is

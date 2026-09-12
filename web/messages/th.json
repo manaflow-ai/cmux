@@ -22,6 +22,19 @@
       "title": "ต้องใช้ cmux Pro",
       "message": "Cloud VM ต้องใช้แผน cmux Pro",
       "action": "อัปเกรดเป็น cmux Pro ที่ {upgradeUrl} เพื่อสร้าง Cloud VM"
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "เครื่องขนาด {memory} GiB ต้องใช้ cmux {plan} แผนของคุณรองรับสูงสุด {max} GiB",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "ไม่สามารถตรวจสอบขนาด RAM ของเครื่องต้นทางได้",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "ขนาดเครื่องนี้ไม่พร้อมใช้งาน โปรดเลือกขนาดไม่เกิน {max} GiB",
+      "action": "cmux vm new --size {max}g"
     }
   },
   "billingRecovery": {

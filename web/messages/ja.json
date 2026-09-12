@@ -162,6 +162,19 @@
       "title": "cmux Pro が必要です",
       "message": "Cloud VM を利用するには cmux Pro プランが必要です。",
       "action": "{upgradeUrl} で cmux Pro にアップグレードすると Cloud VM を作成できます。"
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "{memory} GiB のマシンには cmux {plan} が必要です。現在のプランの上限は {max} GiB です。",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "元のマシンの RAM 容量を確認できませんでした。",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "このマシンサイズは現在利用できません。{max} GiB 以下を選択してください。",
+      "action": "cmux vm new --size {max}g"
     }
   },
   "ios": {
@@ -843,7 +856,7 @@
       "featuresLead": "集中作業向けの小さな Cloud VM:",
       "features": [
         "アクティブな Cloud VM 1 台",
-        "2 vCPU、4 GB RAM、16 GB ディスク",
+        "2 vCPU、4 GiB RAM、16 GiB ディスク",
         "実行中の VM を含めて合計 2 台の VM を保存",
         "毎月 40 VM 時間を含み、上限で VM は一時停止します"
       ]
@@ -871,7 +884,7 @@
       "cta": "Max を入手",
       "featuresLead": "Pro のすべてに加えて:",
       "features": [
-        "32 GB または 64 GB RAM の Cloud VM",
+        "マシンごとに最大 64 GB RAM",
         "Pro のすべて: 50 台の Cloud VM、無制限のワークスペース、iOS アプリ"
       ]
     },

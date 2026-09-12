@@ -80,12 +80,14 @@ export function PricingIntervalSelector({
   annualLabel,
   savingsLabel,
   surface,
+  inline = false,
 }: {
   billingPeriodLabel: string;
   monthlyLabel: string;
   annualLabel: string;
   savingsLabel: string;
   surface: PricingSurface;
+  inline?: boolean;
 }) {
   const { interval, setInterval } = usePricingInterval();
   const capturedView = useRef(false);
@@ -135,7 +137,7 @@ export function PricingIntervalSelector({
   return (
     <div
       ref={captureView}
-      className="mx-auto mt-6 flex w-fit border border-border p-1 text-sm"
+      className={inline ? "flex w-fit shrink-0 border border-border p-1 text-xs sm:text-sm" : "mx-auto mt-6 flex w-fit border border-border p-1 text-sm"}
       role="radiogroup"
       aria-label={billingPeriodLabel}
       onKeyDown={handleKeyDown}
@@ -154,7 +156,7 @@ export function PricingIntervalSelector({
       >
         {annualLabel}
         <span
-          className="ml-1.5 text-xs font-medium"
+          className={inline ? "ml-1.5 hidden text-xs font-medium sm:inline" : "ml-1.5 text-xs font-medium"}
           style={{
             // Selected pill is bg-foreground/text-background; the label must
             // match that text, not the accent, to stay readable on the pill.

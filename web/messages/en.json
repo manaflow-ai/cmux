@@ -162,6 +162,19 @@
       "title": "cmux Pro required",
       "message": "Cloud VMs require a cmux Pro plan.",
       "action": "Upgrade to cmux Pro at {upgradeUrl} to create Cloud VMs."
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "{memory} GiB machines need cmux {plan}. Your plan supports up to {max} GiB.",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "The source machine’s RAM size could not be verified.",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "This machine size is currently unavailable. Choose a size up to {max} GiB.",
+      "action": "cmux vm new --size {max}g"
     }
   },
   "ios": {
@@ -843,7 +856,7 @@
       "featuresLead": "A small Cloud VM for focused work:",
       "features": [
         "1 active Cloud VM",
-        "2 vCPU, 4 GB RAM, and 16 GB disk",
+        "2 vCPU, 4 GiB RAM, and 16 GiB disk",
         "2 saved VMs in total, including the running VM",
         "40 included VM-hours each month; VMs pause at the limit"
       ]
@@ -871,7 +884,7 @@
       "cta": "Get Max",
       "featuresLead": "Everything in Pro, plus:",
       "features": [
-        "Cloud VMs with 32 GB or 64 GB RAM",
+        "Up to 64 GB RAM per machine",
         "Everything in Pro: 50 Cloud VMs, unlimited workspaces, the iOS app"
       ]
     },

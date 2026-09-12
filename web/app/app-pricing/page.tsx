@@ -182,7 +182,14 @@ export default async function AppPricingPage({
 
           <PricingIntervalProvider initialInterval={interval}>
             <h1 className="text-2xl font-medium tracking-tight">{pricing.title}</h1>
-            <PricingIntervalSelector
+
+
+          <PricingAudienceSelector
+            individualLabel={pricing.audience.individual}
+            teamLabel={pricing.audience.team}
+            ariaLabel={pricing.audience.label}
+            surface="app_pricing"
+            billingControl={<PricingIntervalSelector inline
               billingPeriodLabel={pricing.billingPeriod}
               monthlyLabel={pricing.monthly}
               annualLabel={pricing.annual}
@@ -190,15 +197,10 @@ export default async function AppPricingPage({
                 discount: PRO_PRICING_USD.year.discountPercent,
               })}
               surface="app_pricing"
-            />
-
-          <PricingAudienceSelector
-            individualLabel={pricing.audience.individual}
-            teamLabel={pricing.audience.team}
-            ariaLabel={pricing.audience.label}
-            surface="app_pricing"
+            />}
             individual={
 <PricingCategorySection
+            showHeading={false}
             id="individual-pricing-category"
               title={pricing.categories.individual.title}
               description={pricing.categories.individual.description}
@@ -329,6 +331,7 @@ export default async function AppPricingPage({
             }
             team={
 <PricingCategorySection
+            showHeading={false}
             id="team-enterprise-pricing-category"
               title={pricing.categories.business.title}
               description={pricing.categories.business.description}
@@ -403,7 +406,7 @@ export default async function AppPricingPage({
               }}
               prices={{
                 free: pricing.free.price,
-                go: `$10 ${pricing.perMonth}`,
+                go: `$${GO_PRICING_USD.month.billedAmount} ${pricing.perMonth}`,
                 pro: (
                   <PricingIntervalValue
                     monthly={`$${PRO_PRICING_USD.month.billedAmount} ${pricing.perMonth}`}

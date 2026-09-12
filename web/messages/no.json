@@ -22,6 +22,19 @@
       "title": "cmux Pro kreves",
       "message": "Cloud VM-er krever en cmux Pro-plan.",
       "action": "Oppgrader til cmux Pro på {upgradeUrl} for å opprette Cloud VM-er."
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "Maskiner med {memory} GiB krever cmux {plan}. Abonnementet ditt støtter opptil {max} GiB.",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "RAM-størrelsen på kildemaskinen kunne ikke bekreftes.",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "Denne maskinstørrelsen er ikke tilgjengelig. Velg opptil {max} GiB.",
+      "action": "cmux vm new --size {max}g"
     }
   },
   "billingRecovery": {

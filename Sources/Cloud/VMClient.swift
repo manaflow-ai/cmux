@@ -198,10 +198,11 @@ func defaultCloudVMAction(status: Int, errorCode: String) -> String {
             defaultValue: "Upgrade to cmux Pro at https://cmux.com/pricing?cmux_source=mac_vm_requires_pro_error&cmux_client=mac to create Cloud VMs."
         )
     case "vm_memory_requires_plan":
-        return String(
+        let checkout = ProUpgradePresenter.checkoutURL(source: .vmMemoryRequiresPlanError, plan: .max)
+        return String(format: String(
             localized: "cloudVM.error.memoryRequiresPlan.action",
-            defaultValue: "32 GB and 64 GB machines need cmux Max. Run `cmux billing checkout --plan max` to upgrade, then retry. Or create a smaller machine with `cmux vm new --size 24g`."
-        )
+            defaultValue: "Larger machines need cmux Max. Upgrade at %@, or choose a smaller machine."
+        ), checkout.absoluteString)
     case "vm_create_credits_insufficient":
         return "Ask a team admin to upgrade the plan or grant more Cloud VM create credits, then retry."
     default:

@@ -6,12 +6,13 @@ import { posthog } from "../lib/posthog-client";
 type PricingAudience = "individual" | "team";
 const audiences: PricingAudience[] = ["individual", "team"];
 
-export function PricingAudienceSelector({ individualLabel, teamLabel, ariaLabel, individual, team, surface = "public_pricing" }: {
+export function PricingAudienceSelector({ individualLabel, teamLabel, ariaLabel, individual, team, billingControl, surface = "public_pricing" }: {
   individualLabel: string;
   teamLabel: string;
   ariaLabel: string;
   individual: ReactNode;
   team: ReactNode;
+  billingControl: ReactNode;
   surface?: "public_pricing" | "app_pricing";
 }) {
   const [audience, setAudience] = useState<PricingAudience>("individual");
@@ -23,7 +24,8 @@ export function PricingAudienceSelector({ individualLabel, teamLabel, ariaLabel,
   }
   return (
     <>
-      <div className="mx-auto mt-6 flex w-fit rounded-xl border border-border p-1 text-sm" role="tablist" aria-label={ariaLabel}>
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b border-border pb-4" data-testid="pricing-controls">
+      <div className="flex items-center text-xs sm:text-sm" role="tablist" aria-label={ariaLabel}>
         {audiences.map((value, index) => (
           <button key={value} ref={(button) => { buttons.current[index] = button; }}
             type="button" role="tab" id={`${id}-${value}-tab`} aria-controls={`${id}-${value}-panel`}
@@ -36,10 +38,12 @@ export function PricingAudienceSelector({ individualLabel, teamLabel, ariaLabel,
               select(audiences[next]);
               buttons.current[next]?.focus();
             }}
-            className={`rounded-lg px-4 py-2 transition-colors ${audience === value ? "bg-foreground text-background" : "text-muted hover:text-foreground"}`}>
+            className={`border-b-2 px-2 py-2 transition-colors sm:px-4 ${audience === value ? "border-foreground text-foreground" : "border-transparent text-muted hover:text-foreground"}`}>
             {value === "individual" ? individualLabel : teamLabel}
           </button>
         ))}
+      </div>
+        {billingControl}
       </div>
       <div className="mt-6">
         <div role="tabpanel" id={`${id}-individual-panel`} aria-labelledby={`${id}-individual-tab`} hidden={audience !== "individual"}>{individual}</div>

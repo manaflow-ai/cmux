@@ -22,6 +22,19 @@
       "title": "يتطلب cmux Pro",
       "message": "تتطلب أجهزة Cloud VM خطة cmux Pro.",
       "action": "قم بالترقية إلى cmux Pro عبر {upgradeUrl} لإنشاء أجهزة Cloud VM."
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "تتطلب الأجهزة بسعة {memory} GiB اشتراك cmux {plan}. تدعم خطتك حتى {max} GiB.",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "تعذر التحقق من حجم RAM للجهاز المصدر.",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "حجم الجهاز هذا غير متاح حاليًا. اختر حجمًا يصل إلى {max} GiB.",
+      "action": "cmux vm new --size {max}g"
     }
   },
   "billingRecovery": {

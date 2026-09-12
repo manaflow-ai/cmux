@@ -1,9 +1,10 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, or, sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 import { cloudDb } from "../../db/client";
 import { cloudVms } from "../../db/schema";
 import { getGoVmUsage } from "./goUsage";
-import { VmDatabaseError, VmOperationUnsupportedError } from "./errors";
+import { GO_PAUSE_INTENT_KEY, pauseGoVm } from "./goPause";
+import { VmDatabaseError } from "./errors";
 import { VmProviderGateway } from "./providerGateway";
 import { VmRepository } from "./repository";
 
@@ -14,7 +15,7 @@ export function enforceGoRuntimeLimits() {
     const providers = yield* VmProviderGateway;
     const rows = yield* Effect.tryPromise({
       try: () => cloudDb().select().from(cloudVms).where(and(
-        eq(cloudVms.billingPlanId, "go"), eq(cloudVms.status, "running"),
+        eq(cloudVms.billingPlanId, "go"), or(eq(cloudVms.status, "running"), sql`${cloudVms.providerMetadata}->'cmuxGoPauseIntent' is not null and ${cloudVms.providerMetadata}->'cmuxGoPauseIntent' <> 'null'::jsonb`),
       )).orderBy(asc(cloudVms.updatedAt)),
       catch: (cause) => new VmDatabaseError({ operation: "go_runtime_candidates", cause }),
     });
@@ -24,19 +25,9 @@ export function enforceGoRuntimeLimits() {
         try: () => getGoVmUsage(vm.userId),
         catch: (cause) => new VmDatabaseError({ operation: "go_runtime_usage", cause }),
       });
-      // A paid upgrade removes the Go runtime cap.
-      if (!usage || usage.remainingSeconds > 0) return "skipped" as const;
-      if (!providers.pause) return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "pause" }));
-      if (!providers.setRuntimeBudget) return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "runtime limits" }));
-      yield* providers.setRuntimeBudget(vm.provider, vm.providerVmId, 0);
-      yield* providers.pause(vm.provider, vm.providerVmId);
-      // Never mark a machine paused when the provider pause failed. The next
-      // job retries it and the meter continues to count its actual state.
-      yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId: vm.providerVmId, status: "paused" });
-      yield* repo.recordUsageEvent({ userId: vm.userId, billingTeamId: vm.billingTeamId, billingPlanId: "go",
-        vmId: vm.id, eventType: "vm.paused", provider: vm.provider, imageId: vm.imageId,
-        metadata: { source: "go_hours_limit", usedSeconds: usage.usedSeconds, automated: true },
-      }).pipe(Effect.catchAll(() => Effect.void));
+      const pending = vm.providerMetadata[GO_PAUSE_INTENT_KEY] != null;
+      if (!pending && (!usage || usage.remainingSeconds > 0)) return "skipped" as const;
+      yield* pauseGoVm(repo, providers, vm, vm.providerVmId, usage?.usedSeconds);
       return "paused" as const;
     }).pipe(Effect.catchAll((error) => Effect.sync(() => {
       console.error("[VM] Go runtime enforcement failed", { vmId: vm.id, error });

@@ -3017,7 +3017,7 @@
     }
   },
   "cli.billing.global_usage": {
-    "source": "billing checkout --plan <max|pro> [--no-open]",
+    "source": "billing checkout --plan <go|pro|max> [--no-open]",
     "identityLocales": {
       "de": "Command syntax is intentionally identical in this locale.",
       "fr": "Command syntax is intentionally identical in this locale.",

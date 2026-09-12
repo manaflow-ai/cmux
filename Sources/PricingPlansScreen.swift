@@ -578,7 +578,7 @@ private struct NativePricingPlansView: View {
                 action: snapshot.isGo ? { ProUpgradePresenter.presentBillingPortal() } : { ProUpgradePresenter.presentCheckout(source: .nativePricingPreview, plan: .go) },
                 isProminent: snapshot.isGo,
                 features: [
-                    String(localized: "pricing.native.go.feature.vm", defaultValue: "1 active Cloud VM, 2 vCPU, 4 GB RAM, 16 GB disk"),
+                    String(localized: "pricing.native.go.feature.vm", defaultValue: "1 active Cloud VM, 2 vCPU, 4 GiB RAM, 16 GiB disk"),
                     String(localized: "pricing.native.go.feature.saved", defaultValue: "2 saved VMs"),
                     String(localized: "pricing.native.go.feature.hours", defaultValue: "40 included VM-hours each month; pauses at the limit"),
                 ]
@@ -607,7 +607,7 @@ private struct NativePricingPlansView: View {
                 action: snapshot.isMax ? nil : { ProUpgradePresenter.presentCheckout(source: .nativePricingPreview, plan: .max) },
                 isProminent: snapshot.isMax,
                 features: [
-                    String(localized: "pricing.native.max.feature.sizes", defaultValue: "Cloud VMs with 32 GB or 64 GB RAM"),
+                    String(localized: "pricing.native.max.feature.sizes", defaultValue: "Up to 64 GB RAM per machine"),
                     String(localized: "pricing.native.max.feature.pro", defaultValue: "Everything in Pro: 50 Cloud VMs, unlimited workspaces, the iOS app"),
                 ]
             )
