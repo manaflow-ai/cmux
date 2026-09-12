@@ -81,6 +81,9 @@ extension CMUXCLI {
         transcriptPath: String? = nil,
         currentPID: Int? = nil
     ) -> AgentHookLaunchCommandRecord? {
+        guard ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] != "1" else {
+            return nil
+        }
         if current?.isRejectedCapture == true {
             if let preserved = mappedLaunchAfterRejectedCapture(kind: kind, current: current, mapped: mapped) {
                 return kind == "codex"
@@ -137,6 +140,9 @@ extension CMUXCLI {
         currentCwd: String?,
         mapped: ClaudeHookSessionRecord?
     ) -> String? {
+        guard ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] != "1" else {
+            return nil
+        }
         if current?.isRejectedCapture == true {
             if mappedLaunchAfterRejectedCapture(kind: kind, current: current, mapped: mapped) != nil {
                 return mapped?.cwd ?? currentCwd
