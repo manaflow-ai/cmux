@@ -12655,6 +12655,28 @@
         }
       }
     },
+    "mobile.connectionsUpdate.pairing.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable iOS pairing"
+          }
+        }
+      }
+    },
+    "mobile.connectionsUpdate.pairing.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If this iPhone is not paired yet, enable iOS Pairing in cmux on your Mac before connecting."
+          }
+        }
+      }
+    },
     "mobile.settings.diagnostics.clear.failed": {
       "extractionState": "manual",
       "localizations": {
