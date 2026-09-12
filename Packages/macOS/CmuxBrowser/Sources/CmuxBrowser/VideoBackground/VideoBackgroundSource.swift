@@ -77,7 +77,7 @@ public enum VideoBackgroundSource: Equatable, Sendable {
             fileURL = URL(
                 fileURLWithPath: text,
                 relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            )
+            ).standardizedFileURL
         }
         guard let fileURL, fileURL.isFileURL,
               localVideoExtensions.contains(fileURL.pathExtension.lowercased()) else {
