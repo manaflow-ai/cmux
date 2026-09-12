@@ -77,6 +77,21 @@ def test_distribution_helper_resolves_manual_external_override() -> None:
     assert decision.metadata_artifact == "ios-testflight-build-metadata-override"
 
 
+def test_distribution_helper_resolves_automatic_external_upload() -> None:
+    helper = load_distribution_helper()
+
+    decision = helper.resolve_distribution("external", "")
+
+    assert decision.bundle_id == "dev.cmux.app.beta"
+    assert decision.display_name == "cmux BETA"
+    assert decision.profile_type == "beta"
+    assert decision.assign_external_group is True
+    assert decision.assign_internal_group is False
+    assert decision.metadata_artifact == "ios-testflight-build-metadata-external"
+    assert decision.upload_mode == "checked_in_version"
+    assert decision.audience == "external TestFlight testers"
+
+
 def test_workflow_executes_distribution_helper_and_consumes_its_outputs() -> None:
     text = workflow_text()
     upload_job = workflow_job(text, "upload")
@@ -85,6 +100,8 @@ def test_workflow_executes_distribution_helper_and_consumes_its_outputs() -> Non
     assert "python3 ./ios/scripts/resolve_testflight_distribution.py" in upload_job
     assert "IOS_BETA_BUNDLE_ID: ${{ steps.distribution.outputs.bundle_id }}" in upload_job
     assert "name: ${{ steps.distribution.outputs.metadata_artifact }}" in upload_job
+    assert "ARGS+=(--external)" in upload_job
+    assert "steps.distribution.outputs.assign_external_group == '1'" in upload_job
     assert "needs.upload.outputs.assign_internal_group == '1'" in assign_job
     assert "ASSIGN_BUNDLE_ID: ${{ needs.upload.outputs.bundle_id }}" in assign_job
 
@@ -99,6 +116,7 @@ if __name__ == "__main__":
     test_distribution_helper_resolves_automatic_internal_upload()
     test_distribution_helper_resolves_demo_upload()
     test_distribution_helper_resolves_manual_external_override()
+    test_distribution_helper_resolves_automatic_external_upload()
     test_workflow_executes_distribution_helper_and_consumes_its_outputs()
     test_ci_executes_this_testflight_workflow_guard()
     print("all iOS TestFlight Pro distribution tests passed")

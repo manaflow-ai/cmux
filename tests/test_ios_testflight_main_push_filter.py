@@ -29,8 +29,12 @@ IOS_PATHS = (
 )
 IOS_SCHEDULES = (
     "7,27,47 * * * *",
+    "17 * * * *",
     "37 5,17 * * *",
 )
+INTERNAL_SCHEDULE = IOS_SCHEDULES[0]
+EXTERNAL_SCHEDULE = IOS_SCHEDULES[1]
+DEMO_SCHEDULE = IOS_SCHEDULES[2]
 def workflow_text() -> str:
     return WORKFLOW.read_text(encoding="utf-8")
 
@@ -185,9 +189,11 @@ def run_decision_scenario(
     decision_script = literal_block(decision_job, "script", indent=10)
     effective_variant = input_variant
     if event_name == "schedule":
-        if schedule == IOS_SCHEDULES[0]:
+        if schedule == INTERNAL_SCHEDULE:
             effective_variant = "internal"
-        elif schedule == IOS_SCHEDULES[1]:
+        elif schedule == EXTERNAL_SCHEDULE:
+            effective_variant = "external"
+        elif schedule == DEMO_SCHEDULE:
             effective_variant = "demo"
     try:
         produced_artifact_name = resolved_metadata_artifact(
@@ -641,7 +647,7 @@ def test_unchanged_scheduled_head_skips_without_comparing() -> None:
 def test_schedule_decision_routes_demo_cron_to_demo_history() -> None:
     first_run = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[1],
+        schedule=DEMO_SCHEDULE,
         input_variant="",
     )
     produced_artifact = first_run["producedArtifactName"]
@@ -655,7 +661,7 @@ def test_schedule_decision_routes_demo_cron_to_demo_history() -> None:
 
     result = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[1],
+        schedule=DEMO_SCHEDULE,
         input_variant="",
         prior_sha="demo-base-sha",
         prior_artifact=produced_artifact,
@@ -672,7 +678,7 @@ def test_schedule_decision_routes_demo_cron_to_demo_history() -> None:
 def test_schedule_decision_routes_internal_cron_to_internal_history() -> None:
     first_run = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
+        schedule=INTERNAL_SCHEDULE,
         input_variant="",
     )
     produced_artifact = first_run["producedArtifactName"]
@@ -686,7 +692,7 @@ def test_schedule_decision_routes_internal_cron_to_internal_history() -> None:
 
     result = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
+        schedule=INTERNAL_SCHEDULE,
         input_variant="",
         prior_sha="internal-base-sha",
         prior_artifact=produced_artifact,
@@ -697,6 +703,37 @@ def test_schedule_decision_routes_internal_cron_to_internal_history() -> None:
         "should_build": "false",
         "last_uploaded_sha": "internal-base-sha",
         "variant": "internal",
+    }
+
+
+def test_schedule_decision_routes_external_cron_to_external_history() -> None:
+    first_run = run_decision_scenario(
+        event_name="schedule",
+        schedule=EXTERNAL_SCHEDULE,
+        input_variant="",
+    )
+    produced_artifact = first_run["producedArtifactName"]
+    assert isinstance(produced_artifact, str)
+    assert first_run["outputs"] == {
+        "should_build": "true",
+        "last_uploaded_sha": "",
+        "variant": "external",
+    }
+    assert produced_artifact == "ios-testflight-build-metadata-external"
+
+    result = run_decision_scenario(
+        event_name="schedule",
+        schedule=EXTERNAL_SCHEDULE,
+        input_variant="",
+        prior_sha="external-base-sha",
+        prior_artifact=produced_artifact,
+        changed_files=("docs/cli-contract.md",),
+    )
+
+    assert result["outputs"] == {
+        "should_build": "false",
+        "last_uploaded_sha": "external-base-sha",
+        "variant": "external",
     }
 
 
@@ -718,7 +755,7 @@ def test_decision_rejects_unknown_schedule_and_dispatch_variant() -> None:
 def test_demo_history_skips_newer_internal_artifact() -> None:
     result = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[1],
+        schedule=DEMO_SCHEDULE,
         input_variant="",
         prior_uploads=(
             ("newer-internal-sha", "ios-testflight-build-metadata"),
@@ -1167,4 +1204,5 @@ if __name__ == "__main__":
     test_testflight_notes_use_the_same_ios_path_contract()
     test_scheduled_and_manual_runs_use_independent_concurrency_groups()
     test_automatic_lane_stays_on_cmux_internal_identity()
+    test_schedule_decision_routes_external_cron_to_external_history()
     print("all iOS TestFlight scheduling tests passed")
