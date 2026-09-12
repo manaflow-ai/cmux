@@ -61,7 +61,7 @@ extension WorkspaceListView {
         if isStoreFreeWorkspacePreview {
             return WorkspaceMachineSnapshots(
                 workspaces: workspaces,
-                filterMachineIDFor: { _ in nil },
+                filterMachineIDFor: { $0 },
                 macPickerMachineIDs: [],
                 namesByID: [:],
                 buildLabelsByID: [:],
