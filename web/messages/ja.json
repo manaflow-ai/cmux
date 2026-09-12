@@ -5430,5 +5430,17 @@
       "message": "公開ポートのメールアクセス許可",
       "action": "emailと、必要に応じてexpiresAtを送信してください。"
     }
+  },
+  "notFoundPage": {
+    "metaTitle": "ページが見つかりません | cmux",
+    "metaDescription": "指定された cmux ページは見つかりませんでした。",
+    "title": "このページはワークスペースにありません。",
+    "docsAction": "ドキュメントを読む",
+    "supportAction": "サポートに連絡",
+    "terminalCommand": "cmux welcome",
+    "terminalLastLogin": "最終ログイン: Fri Sep 11 14:33:34 on ttys039",
+    "terminalDragLabel": "ターミナルウィンドウをドラッグ",
+    "terminalWelcome": "  ::\n    ::::              cmux\n      ::::::\n        ::::::        the open source terminal\n      ::::::          built for coding agents\n    :::\n  ::\n\n  ショートカット\n\n  ⌘N                  New workspace\n  ⌘T                  New tab\n  ⌘P                  Go to workspace\n  ⌘B                  Toggle Left Sidebar\n  ⌘⌥B                 Toggle Right Sidebar\n  ⌘D                  Split right\n  ⌘⇧D                 Split down\n  ⌘⇧P                 Command palette\n  ⌘⇧R                 Rename workspace\n  ⌘⇧L                 New browser\n  ⌘⇧U                 Jump to latest unread\n  ⌥⌘U                 Toggle unread\n\n  Docs                https://cmux.com/docs\n  Community           https://cmux.com/community\n  Source              https://cmux.com/source\n  Email               founders@manaflow.com\n\n  Run cmux --help for all commands.\n  Run cmux shortcuts to edit shortcuts.\n  Run cmux feedback to report a bug.",
+    "footer": "見つからないページが作業を止めることはありません。"
   }
 }
