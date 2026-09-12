@@ -19,7 +19,7 @@ const DEFAULT_ORIGIN = process.env.NEXT_PUBLIC_IROH_V2_ORIGIN ??
 type Props = { readonly userId: string; readonly userEmail: string };
 type DashboardVm = { readonly id: string; readonly displayName: string | null; readonly status: string };
 
-export function IrohDashboard({ userId, userEmail }: Props) {
+export function VmsDashboard({ userId, userEmail }: Props) {
   const t = useTranslations("dashboard.iroh");
   const stack = useStackApp();
   const user = useUser({ or: "return-null" });
