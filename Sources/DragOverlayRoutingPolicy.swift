@@ -46,12 +46,12 @@ enum FileDropDefaultBehavior: String, CaseIterable, Identifiable {
         case .text:
             return String(
                 localized: "settings.app.fileDrop.defaultBehavior.text.subtitle",
-                defaultValue: "Over terminals and editors, dragging files inserts shell-escaped paths. Hold Shift to open a file preview or split."
+                defaultValue: "Over terminals and editors, dragging files inserts shell-escaped paths. Hold Shift to open a file preview or split. Files dragged from the Files or Find tool always open as a split; hold Shift to insert their path."
             )
         case .preview:
             return String(
                 localized: "settings.app.fileDrop.defaultBehavior.preview.subtitle",
-                defaultValue: "Dragging files opens previews or split panes. Hold Shift over terminals and editors to insert path text."
+                defaultValue: "Dragging files opens previews or split panes. Hold Shift over terminals and editors to insert path text. Files dragged from the Files or Find tool follow the same rule."
             )
         }
     }
@@ -60,6 +60,7 @@ enum FileDropDefaultBehavior: String, CaseIterable, Identifiable {
 enum FileDropTextDestinationKind: Equatable {
     case terminal
     case editor
+    case page
 
     func hintText(for alternateBehavior: FileDropResolvedBehavior) -> String? {
         switch alternateBehavior {
@@ -74,6 +75,11 @@ enum FileDropTextDestinationKind: Equatable {
                 return String(
                     localized: "fileDrop.holdShiftDropIntoEditor",
                     defaultValue: "Hold Shift to drop into editor"
+                )
+            case .page:
+                return String(
+                    localized: "fileDrop.holdShiftDropIntoPage",
+                    defaultValue: "Hold Shift to drop into page"
                 )
             }
         case .preview:
@@ -333,10 +339,23 @@ enum DragOverlayRoutingPolicy {
     ) -> FileDropResolvedBehavior? {
         guard hasFileDropPayload(pasteboardTypes) else { return nil }
         guard canDropAsText else { return .preview }
-        let behavior = defaultBehavior.resolvedBehavior
+        let behavior = baseFileDropBehavior(pasteboardTypes: pasteboardTypes, defaultBehavior: defaultBehavior)
         return modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.shift)
             ? behavior.inverted
             : behavior
+    }
+
+    /// The unmodified drop behavior for a file payload.
+    ///
+    /// Finder drags follow the File Drops setting. Drags that start on a cmux
+    /// file row (the Files and Find sidebar tools, in the sidebar or in a pane)
+    /// carry ``filePreviewTransferType`` and are pane transfers first: they
+    /// open as a preview or split, and Shift is what asks for path text.
+    static func baseFileDropBehavior(
+        pasteboardTypes: [NSPasteboard.PasteboardType]?,
+        defaultBehavior: FileDropDefaultBehavior = FileDropBehaviorSettings.behavior()
+    ) -> FileDropResolvedBehavior {
+        hasFilePreviewTransfer(pasteboardTypes) ? .preview : defaultBehavior.resolvedBehavior
     }
 
     static func shouldRouteFileDropToTextDestination(
@@ -362,7 +381,7 @@ enum DragOverlayRoutingPolicy {
         guard hasFileDropPayload(pasteboardTypes) else { return nil }
         guard canDropAsText else { return nil }
         guard !modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.shift) else { return nil }
-        return defaultBehavior.resolvedBehavior.inverted
+        return baseFileDropBehavior(pasteboardTypes: pasteboardTypes, defaultBehavior: defaultBehavior).inverted
     }
 
     static func shouldCaptureFileDropDestination(

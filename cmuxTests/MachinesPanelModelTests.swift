@@ -149,7 +149,10 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertTrue(RightSidebarMode.allCases.contains(.machines))
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "machines"), .machines)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "vms"), .machines)
-        XCTAssertFalse(RightSidebarMode.machines.canOpenAsPane)
+        XCTAssertTrue(RightSidebarMode.machines.canOpenAsPane, "Cloud opens as a Bonsplit pane like Files, Find, and Vault")
+        XCTAssertEqual(RightSidebarMode.paneModes, [.files, .find, .sessions, .machines])
+        XCTAssertFalse(RightSidebarMode.feed.canOpenAsPane)
+        XCTAssertFalse(RightSidebarMode.dock.canOpenAsPane)
 
         // Availability follows the Cloud VM UI flag, independent of feed/dock.
         XCTAssertTrue(

@@ -1,8 +1,9 @@
 import AppKit
 import WebKit
 
-/// Routes browser-pane file drops by intent only: a file drag over browser page content is
-/// always delivered to the page unless Shift explicitly asks for a cmux preview; delivery
+/// Routes browser-pane file drops by intent only: a Finder file drag over browser page
+/// content is delivered to the page unless Shift explicitly asks for a cmux preview, a
+/// sidebar file-row drag opens as a preview unless Shift asks for the page; delivery
 /// failure refuses the drop instead of reinterpreting it.
 enum BrowserPaneFileDropRouting {
     /// How a file-URL drag over a browser pane should be handled.
@@ -34,7 +35,13 @@ enum BrowserPaneFileDropRouting {
             return .forwardToPage
         }
 
-        return modifierFlags.contains(.shift) ? .previewInWorkspace : .forwardToPage
+        // A drag that started on a cmux file row (Files/Find tool) is a pane transfer
+        // first: it opens as a split next to the page, and Shift hands it to the page.
+        let baseDisposition: Disposition = DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboardTypes)
+            ? .previewInWorkspace
+            : .forwardToPage
+        guard modifierFlags.contains(.shift) else { return baseDisposition }
+        return baseDisposition == .forwardToPage ? .previewInWorkspace : .forwardToPage
     }
 }
 

@@ -76,7 +76,7 @@ final class FinderFileDropRegressionTests: XCTestCase {
                 defaultBehavior: .text
             )
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
                 pasteboardTypes: [
                     .fileURL,
@@ -86,7 +86,7 @@ final class FinderFileDropRegressionTests: XCTestCase {
                 modifierFlags: .command,
                 defaultBehavior: .text
             ),
-            "Internal file-preview drags carry file URLs too, so the default text behavior should insert path text instead of moving/opening the preview tab"
+            "Sidebar file-row drags are pane transfers first: without Shift they open as a split even when the Finder default is path text"
         )
         XCTAssertFalse(
             DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
@@ -719,7 +719,69 @@ final class FinderFileDropRegressionTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, terminalId)
     }
 
-    func testFilePreviewTransferRoutesToTextEvenWhenTargetPasteboardOmitsFileURLType() throws {
+    func testSidebarFileRowDragsOpenAsSplitWithoutShiftAndInsertPathWithShift() {
+        let sidebarTypes: [NSPasteboard.PasteboardType] = [
+            .fileURL,
+            DragOverlayRoutingPolicy.filePreviewTransferType,
+            DragOverlayRoutingPolicy.bonsplitTabTransferType
+        ]
+        for defaultBehavior in FileDropDefaultBehavior.allCases {
+            XCTAssertEqual(
+                DragOverlayRoutingPolicy.resolvedFileDropBehavior(
+                    pasteboardTypes: sidebarTypes,
+                    modifierFlags: [],
+                    defaultBehavior: defaultBehavior
+                ),
+                .preview,
+                "Files/Find rows dragged into a pane open as a split regardless of the Finder default (\(defaultBehavior))"
+            )
+            XCTAssertEqual(
+                DragOverlayRoutingPolicy.resolvedFileDropBehavior(
+                    pasteboardTypes: sidebarTypes,
+                    modifierFlags: .shift,
+                    defaultBehavior: defaultBehavior
+                ),
+                .text,
+                "Shift is the explicit ask for path text on a sidebar file-row drag (\(defaultBehavior))"
+            )
+            XCTAssertEqual(
+                DragOverlayRoutingPolicy.alternateFileDropBehaviorForShiftHint(
+                    pasteboardTypes: sidebarTypes,
+                    modifierFlags: [],
+                    defaultBehavior: defaultBehavior
+                ),
+                .text,
+                "The hint badge offers the path-text alternative while no modifier is held (\(defaultBehavior))"
+            )
+            XCTAssertNil(
+                DragOverlayRoutingPolicy.alternateFileDropBehaviorForShiftHint(
+                    pasteboardTypes: sidebarTypes,
+                    modifierFlags: .shift,
+                    defaultBehavior: defaultBehavior
+                )
+            )
+        }
+        XCTAssertEqual(
+            DragOverlayRoutingPolicy.resolvedFileDropBehavior(
+                pasteboardTypes: [.fileURL],
+                modifierFlags: [],
+                defaultBehavior: .text
+            ),
+            .text,
+            "Finder drags keep following the File Drops setting"
+        )
+        XCTAssertEqual(
+            DragOverlayRoutingPolicy.resolvedFileDropBehavior(
+                pasteboardTypes: sidebarTypes,
+                modifierFlags: [],
+                canDropAsText: false,
+                defaultBehavior: .text
+            ),
+            .preview
+        )
+    }
+
+    func testFilePreviewTransferRoutesToSplitByDefaultWhenTargetPasteboardOmitsFileURLType() throws {
         let filePath = "/tmp/cmux drop/from image pane.png"
         let dragId = UUID()
         _ = FilePreviewDragRegistry.shared.register(
@@ -746,17 +808,28 @@ final class FinderFileDropRegressionTests: XCTestCase {
         ])
         let pasteboard = NSPasteboard(name: .init("cmux-test-file-preview-transfer-drop-\(UUID().uuidString)"))
         pasteboard.clearContents()
+        // Only the private preview payload is advertised: once the Bonsplit
+        // capability type is on the pasteboard, resolution must go through the
+        // live tab-transfer registry and fails closed without a registration.
         pasteboard.setData(transferData, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
-        pasteboard.setData(transferData, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
 
         XCTAssertFalse(DragOverlayRoutingPolicy.hasFileURL(pasteboard.types))
         XCTAssertTrue(DragOverlayRoutingPolicy.hasFileDropPayload(pasteboard.types))
-        XCTAssertTrue(
+        XCTAssertFalse(
             DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
                 pasteboardTypes: pasteboard.types,
                 modifierFlags: [],
                 defaultBehavior: .text
-            )
+            ),
+            "A sidebar file-row transfer opens as a split without Shift"
+        )
+        XCTAssertTrue(
+            DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
+                pasteboardTypes: pasteboard.types,
+                modifierFlags: .shift,
+                defaultBehavior: .text
+            ),
+            "Shift routes the same transfer to the terminal as path text, resolved through the live preview registry"
         )
         XCTAssertEqual(DragOverlayRoutingPolicy.textDropOperation(pasteboardTypes: pasteboard.types), .move)
         XCTAssertEqual(
