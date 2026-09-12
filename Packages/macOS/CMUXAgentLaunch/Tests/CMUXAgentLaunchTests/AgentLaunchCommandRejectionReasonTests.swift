@@ -133,6 +133,46 @@ struct AgentLaunchCommandRejectionReasonTests {
         #expect(command.isRejectedCapture == false)
     }
 
+    @Test(arguments: [
+        AgentLaunchCaptureRejectionReason.nativeProcessDoesNotDescribeKind,
+        AgentLaunchCaptureRejectionReason.argvLooksLikeShellWrapper,
+        AgentLaunchCaptureRejectionReason.argvUnavailable,
+    ])
+    func pidFallbackGroundsKeepEnvironmentFallbackEligible(
+        _ reason: AgentLaunchCaptureRejectionReason
+    ) {
+        let command = AgentLaunchCommand(
+            rejectedOn: reason,
+            launcher: "gemini",
+            environment: ["GEMINI_CLI_HOME": "/tmp/gemini"],
+            source: "environment"
+        )
+
+        #expect(command.rejectionReason == reason)
+        #expect(command.isRejectedCapture == false)
+        #expect(reason.isPositiveCaptureRejection == false)
+    }
+
+    @Test(arguments: [
+        AgentLaunchCaptureRejectionReason.launcherDoesNotDescribeKind,
+        AgentLaunchCaptureRejectionReason.argvDecodeFailed,
+        AgentLaunchCaptureRejectionReason.sanitizerRejectedArgv,
+    ])
+    func explicitCaptureGroundsStillFailClosed(
+        _ reason: AgentLaunchCaptureRejectionReason
+    ) {
+        let command = AgentLaunchCommand(
+            rejectedOn: reason,
+            launcher: "gemini",
+            environment: ["GEMINI_CLI_HOME": "/tmp/gemini"],
+            source: "rejected"
+        )
+
+        #expect(command.rejectionReason == reason)
+        #expect(command.isRejectedCapture)
+        #expect(reason.isPositiveCaptureRejection)
+    }
+
     @Test func decodeFailureHasAStableForwardCompatibleToken() throws {
         let reason = AgentLaunchCaptureRejectionReason.argvDecodeFailed
         let encoded = try JSONEncoder().encode(reason)
