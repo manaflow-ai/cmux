@@ -86,28 +86,11 @@ function Prompt({ command }: { command?: string }) {
 /** Draws the source terminal chrome as one responsive vector viewBox. */
 function TerminalChrome() {
   return (
-    <svg
-      className="pointer-events-none absolute inset-0 h-10 w-full"
-      viewBox="0 0 1708 56"
-      preserveAspectRatio="none"
+    <span
+      className="pointer-events-none absolute inset-0 h-10 w-full bg-no-repeat"
+      style={{ backgroundImage: "url('/not-found-titlebar.svg')", backgroundSize: "100% 100%" }}
       aria-hidden="true"
-    >
-      <path
-        d="M28 0h1652a28 28 0 0 1 28 28v28H0V28A28 28 0 0 1 28 0Z"
-        fill="#272823"
-        stroke="#52534f"
-      />
-      <path d="M0 55.5h1708" stroke="#353631" />
-      <path d="M161 2v54M322 2v54" stroke="#353631" />
-      <rect x="160" y="2" width="161" height="2" fill="#3478f7" />
-      <circle cx="31.5" cy="31.5" r="13" fill="#ec6765" />
-      <circle cx="77.5" cy="31.5" r="13" fill="#f2ca44" />
-      <circle cx="123.5" cy="31.5" r="13" fill="#65c466" />
-      <rect x="173" y="19" width="26" height="20" rx="3" fill="#d8d8d7" />
-      <text x="177" y="34" fill="#272823" fontFamily="Menlo, Monaco, monospace" fontSize="10" fontWeight="700">&gt;_</text>
-      <text x="211" y="38" fill="#d8d8d7" fontFamily="Menlo, Monaco, monospace" fontSize="20" fontWeight="500">~/fun</text>
-      <path d="m291 22 14 14m0-14-14 14" stroke="#92948b" strokeLinecap="round" strokeWidth="2.2" />
-    </svg>
+    />
   );
 }
 
