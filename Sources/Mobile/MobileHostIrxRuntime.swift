@@ -166,6 +166,17 @@ final class MobileHostIrxRuntime {
         }
     }
 
+    /// Stops the IRX host for the shared mobile-host service lifecycle.
+    func stopHost() async {
+        setDesiredActive(false)
+        await deactivate()
+    }
+
+    /// Reconciles the IRX lifecycle with the current managed mobile policy.
+    func applyManagedNetworkingPolicy() async {
+        setDesiredActive(MobileRemoteControlPolicy.isEnabled && Self.isEnabled)
+    }
+
     private func transition(to identity: AuthenticatedSessionIdentity?) async {
         let accountID = identity?.accountID
         let sessionGeneration = identity?.generation
