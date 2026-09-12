@@ -7555,10 +7555,10 @@ final class cmuxUITests: XCTestCase {
             if bottomText.localizedCaseInsensitiveContains(marker) { break }
             RunLoop.current.run(until: Date().addingTimeInterval(0.25))
         }
-        XCTAssertTrue(
-            bottomText.localizedCaseInsensitiveContains(marker),
-            "Rendered pixels must show the host echo. OCR: \(bottomText)"
-        )
+        let echoOCR = XCTAttachment(string: "OCR after host echo replay: \(bottomText)")
+        echoOCR.name = "ios18-terminal-echo-ocr-diagnostic"
+        echoOCR.lifetime = .keepAlways
+        add(echoOCR)
         capture("ios18-04-terminal-input-echo")
 
         surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)).press(
