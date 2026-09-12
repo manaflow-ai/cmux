@@ -140,6 +140,8 @@ final class SurfaceCatalog {
     /// from `CloudVMState` because freshness is local observation metadata, not
     /// part of the daemon document or its cursor.
     private(set) var cloudStateObservations: [SurfaceMachineID: CloudVMStateObservation] = [:]
+    /// Local cloud rename receipts and optimistic projections, kept outside the daemon graph.
+    var cloudWorkspaceRenameReconciliationState = CloudWorkspaceRenameReconciliationState()
     private var providers: [SurfaceMachineID: any SurfaceProvider] = [:]
     /// The process-wide ordering owner for remote rename intents. A remote identity can
     /// have projections in several local windows, so this cannot live in a TabManager.
@@ -319,6 +321,7 @@ final class SurfaceCatalog {
         for record in pending { pendingRestoredProjections[record] = nil }
         cloudStates[machine] = nil
         cloudStateObservations[machine] = nil
+        cloudWorkspaceRenameReconciliationState.remove(machine: machine)
         projections = projections.filter { $0.resource.machine != machine }
         notifyChange()
     }
@@ -453,7 +456,8 @@ final class SurfaceCatalog {
     /// Update machine metadata, optionally validating the provider registration that supplied it.
     func updateMachine(_ info: SurfaceMachineInfo, from source: (any SurfaceProvider)? = nil) {
         guard accepts(writeFor: info.id, from: source) else { return }
-        machines[info.id] = machineInfoPreservingCanonicalCloudState(info)
+        let adjusted = cloudWorkspaceRenameAdjustedInfo(info)
+        machines[info.id] = machineInfoPreservingCanonicalCloudState(adjusted)
         notifyChange()
     }
 

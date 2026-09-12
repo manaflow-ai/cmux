@@ -109,7 +109,8 @@ extension KeyboardShortcutSettings.Action {
              .canvasDistributeVertically,
              .toggleRightSidebar,
              .findInDirectory,
-             .openDiffViewer:
+             .openDiffViewer,
+             .openLinksPanel:
             .mainContainer
         }
     }

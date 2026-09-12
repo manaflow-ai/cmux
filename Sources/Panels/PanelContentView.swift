@@ -200,6 +200,14 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .links:
+            if let linksPanel = panel as? LinksPanel {
+                LinksPanelView(
+                    panel: linksPanel,
+                    isFocused: isFocused,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
         case .notifications:
             if panel is NotificationsPanel {
                 NotificationsPage(
@@ -255,7 +263,7 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn, .cloudVPNSetup:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .links, .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn, .cloudVPNSetup:
             return true
         case .terminal, .browser:
             return false

@@ -40,21 +40,34 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     /// cap can only trim a drain task that has been starved for many
     /// seconds; the newest completions win.
     private static let maximumBufferedLocalConfirmations = 8
-
     let workspaceID: UUID
     let surfaceID: UUID
+    let linkCaptureSettingsGate: TerminalLinkCaptureSettingsGate
     private let clock = ContinuousClock()
     private let notificationHandler: PromptTurnNotificationHandler
+    private let linkForwarder: TerminalCapturedLinkForwarder
     private var detectors: [DetectorBinding]
+    private var linkScanner = TerminalEmittedLinkScanner()
+    private var linkCaptureGeneration: UInt64
+    private var linkScannerNeedsReset = false
     private let forwardQueue = OSAllocatedUnfairLock(initialState: ForwardQueue())
 
     init(
         workspaceID: UUID,
         surfaceID: UUID,
-        agentDefinitions: [CmuxTaskManagerCodingAgentDefinition]
+        agentDefinitions: [CmuxTaskManagerCodingAgentDefinition],
+        linkCaptureSettingsGate: TerminalLinkCaptureSettingsGate,
+        linkCaptureIngress: TerminalLinkCaptureIngress
     ) {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
+        self.linkCaptureSettingsGate = linkCaptureSettingsGate
+        self.linkCaptureGeneration = linkCaptureSettingsGate.captureGeneration()
+        self.linkForwarder = TerminalCapturedLinkForwarder(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            ingress: linkCaptureIngress
+        )
         self.notificationHandler = PromptTurnNotificationHandler(
             workspaceID: workspaceID,
             surfaceID: surfaceID
@@ -84,6 +97,31 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
             detectors[index].detector.consume(bytes)
             forwardDetectorChangeIfNeeded(at: index, now: now)
         }
+    }
+
+    func consumeLinks(_ bytes: UnsafeBufferPointer<UInt8>) {
+        let currentGeneration = linkCaptureSettingsGate.captureGeneration()
+        if linkScannerNeedsReset || currentGeneration != linkCaptureGeneration {
+            linkScanner.reset()
+            linkCaptureGeneration = currentGeneration
+            linkScannerNeedsReset = false
+        }
+        let captured = linkScanner.consume(bytes)
+        guard !captured.isEmpty else { return }
+        let settings = linkCaptureSettingsGate.currentSnapshot()
+        guard settings.enabled else {
+            noteLinkCaptureDisabled()
+            return
+        }
+        linkForwarder.enqueue(captured, settings: settings)
+    }
+
+    func noteLinkCaptureDisabled() {
+        linkScannerNeedsReset = true
+    }
+
+    func prepareForRelease() {
+        linkForwarder.finish()
     }
 
     private func forwardDetectorChangeIfNeeded(
@@ -167,4 +205,5 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
             }
         }
     }
+
 }

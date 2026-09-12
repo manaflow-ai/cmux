@@ -343,6 +343,8 @@ private struct GlobalSearchResultRow: Identifiable, Equatable {
             return "doc.richtext"
         case .title:
             return "rectangle.stack"
+        case .artifact:
+            return "shippingbox"
         }
     }
 }

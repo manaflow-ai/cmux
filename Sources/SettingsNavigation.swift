@@ -139,7 +139,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .customSidebars:
             return "\(title) custom sidebars vibe swift json interpreted renderer in-process remote worker isolated"
         case .betaFeatures:
-            return "\(title) beta experimental unstable feed dock right sidebar"
+            return "\(title) beta experimental unstable feed dock artifacts links urls history right sidebar"
         case .automation:
             return "\(title) socket integrations hooks ports claude cursor gemini kiro naming auto naming workspace tabs"
         case .computerUse:
@@ -458,11 +458,24 @@ enum SettingsSearchIndex {
         setting(.customSidebars, "renderer", String(localized: "settings.customSidebars.renderer", defaultValue: "Renderer"), "renderer in-process in app remote worker isolated process hover focus typing input"),
         setting(.betaFeatures, "feed", String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"), "feed right sidebar agent decisions permissions questions"),
         setting(.betaFeatures, "dock", String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"), "dock right sidebar terminal controls tui"),
+        setting(.betaFeatures, "artifacts", String(localized: "settings.betaFeatures.artifacts", defaultValue: "Artifacts"), "artifacts links urls files html workspace history search drag drop beta unstable"),
         setting(.betaFeatures, "cloudMachines", String(localized: "settings.betaFeatures.cloudMachines", defaultValue: "Cloud Machines"), "cloud machines vm right sidebar beta virtual machine persistent computer"),
         setting(.betaFeatures, "workspace-todo-controls", String(localized: "settings.betaFeatures.workspaceTodoControls", defaultValue: "Workspace Todo Controls"), "workspace todo todos task status checklist add item controls beta"),
         setting(.betaFeatures, "workspace-todos-checklist-style", String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle", defaultValue: "Checklist Style"), "workspace todo todos task status checklist popover inline presentation style beta"),
         setting(.automation, "socket-mode", String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"), "unix socket api access password auth"),
         setting(.automation, "socket-password", String(localized: "settings.automation.socketPassword", defaultValue: "Socket Password"), "socket auth credential"),
+        setting(.app, "artifacts-enabled", String(localized: "settings.app.artifactsEnabled", defaultValue: "Capture Workspace Artifacts"), "artifacts links urls files html terminal history capture"),
+        setting(.app, "artifacts-ignore-hosts", String(localized: "settings.app.artifactsIgnoreHosts", defaultValue: "Ignored Artifact Hosts"), "artifacts links ignore hosts urls localhost wildcard"),
+        setting(.app, "artifacts-include-file-paths", String(localized: "settings.app.artifactsIncludeFilePaths", defaultValue: "Include Terminal File Paths"), "artifacts file urls paths"),
+        setting(.app, "artifacts-retention-limit", String(localized: "settings.app.artifactsRetentionLimit", defaultValue: "Artifact Retention Limit"), "artifacts retention limit count cap history"),
+        setting(.app, "artifacts-fetch-titles", String(localized: "settings.app.artifactsFetchTitles", defaultValue: "Fetch URL Titles"), "artifacts titles fetch public urls safety"),
+        // Search aliases for the shipped links.* paths remain addressable so
+        // existing deep links and configuration diagnostics do not break.
+        setting(.app, "links-enabled", String(localized: "settings.app.artifactsEnabled", defaultValue: "Capture Workspace Artifacts"), "links.enabled artifacts capture legacy"),
+        setting(.app, "links-ignore-hosts", String(localized: "settings.app.artifactsIgnoreHosts", defaultValue: "Ignored Artifact Hosts"), "links.ignoreHosts artifacts hosts legacy"),
+        setting(.app, "links-include-file-paths", String(localized: "settings.app.artifactsIncludeFilePaths", defaultValue: "Include Terminal File Paths"), "links.includeFilePaths artifacts paths legacy"),
+        setting(.app, "links-retention-limit", String(localized: "settings.app.artifactsRetentionLimit", defaultValue: "Artifact Retention Limit"), "links.retentionLimit artifacts retention legacy"),
+        setting(.app, "links-fetch-titles", String(localized: "settings.app.artifactsFetchTitles", defaultValue: "Fetch URL Titles"), "links.fetchTitles artifacts titles legacy"),
         setting(.automation, "claude-code", String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), "agent hooks notifications"),
         setting(.automation, "claude-path", String(localized: "settings.automation.claudeCode.customPath", defaultValue: "Claude Binary Path"), "custom claude executable"),
         setting(
@@ -526,6 +539,7 @@ enum SettingsSearchIndex {
     private static let settingsPathAnchorIDs: [String: String] = [
         "rightSidebar.beta.feed.enabled": settingID(for: .betaFeatures, idSuffix: "feed"),
         "rightSidebar.beta.dock.enabled": settingID(for: .betaFeatures, idSuffix: "dock"),
+        "rightSidebar.beta.artifacts.enabled": settingID(for: .betaFeatures, idSuffix: "artifacts"),
         "app.language": settingID(for: .app, idSuffix: "language"),
         "app.appearance": settingID(for: .app, idSuffix: "appearance"),
         "app.appIcon": settingID(for: .app, idSuffix: "app-icon"),
@@ -572,6 +586,16 @@ enum SettingsSearchIndex {
         "app.commandPaletteSearchesAllSurfaces": settingID(for: .app, idSuffix: "palette-search-all"),
         "canvas.paneGap": settingID(for: .app, idSuffix: "canvas-pane-gap"),
         "canvas.snappingEnabled": settingID(for: .app, idSuffix: "canvas-snapping"),
+        "links.enabled": settingID(for: .app, idSuffix: "links-enabled"),
+        "links.ignoreHosts": settingID(for: .app, idSuffix: "links-ignore-hosts"),
+        "links.includeFilePaths": settingID(for: .app, idSuffix: "links-include-file-paths"),
+        "links.retentionLimit": settingID(for: .app, idSuffix: "links-retention-limit"),
+        "links.fetchTitles": settingID(for: .app, idSuffix: "links-fetch-titles"),
+        "artifacts.enabled": settingID(for: .app, idSuffix: "artifacts-enabled"),
+        "artifacts.ignoreHosts": settingID(for: .app, idSuffix: "artifacts-ignore-hosts"),
+        "artifacts.includeFilePaths": settingID(for: .app, idSuffix: "artifacts-include-file-paths"),
+        "artifacts.retentionLimit": settingID(for: .app, idSuffix: "artifacts-retention-limit"),
+        "artifacts.fetchTitles": settingID(for: .app, idSuffix: "artifacts-fetch-titles"),
         "sidebar.hideAllDetails": settingID(for: .sidebarAppearance, idSuffix: "hide-sidebar-details"),
         "sidebar.wrapWorkspaceTitles": settingID(for: .sidebarAppearance, idSuffix: "wrap-workspace-titles"),
         "sidebar.showWorkspaceDescription": settingID(for: .sidebarAppearance, idSuffix: "show-workspace-description"),

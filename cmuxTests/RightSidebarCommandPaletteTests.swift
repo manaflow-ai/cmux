@@ -14,6 +14,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             let defaults = UserDefaults.standard
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.artifactsEnabledKey)
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
             let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
             let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
@@ -41,13 +42,24 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             // Files/Find/Vault are always present; Machines follows the Cloud
             // Machines beta toggle, which is off by default on every build
             // (cleared above) unless a managed profile forces Cloud off, and
-            // feed/dock stay off.
+            // feed/dock stay off. Artifacts are explicitly disabled above.
             let machinesAvailable = RightSidebarMode.machines.isAvailable()
             XCTAssertFalse(machinesAvailable)
             XCTAssertEqual(contributions.count, 3)
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.machines)])
+        }
+    }
+
+    func testCommandPaletteIncludesArtifactsWhenBetaEnabled() throws {
+        try withSavedBetaFeatureDefaults {
+            UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.artifactsEnabledKey)
+            let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
+            let commandID = ContentView.commandPaletteRightSidebarModeCommandID(.artifacts)
+            let contribution = try XCTUnwrap(contributions.first { $0.commandId == commandID })
+            XCTAssertEqual(contribution.title(CommandPaletteContextSnapshot()), RightSidebarMode.artifacts.label)
+            XCTAssertNil(ContentView.commandPaletteShortcutAction(forCommandID: commandID))
         }
     }
 
@@ -84,10 +96,12 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         let defaults = UserDefaults.standard
         let previousFeed = defaults.object(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
         let previousDock = defaults.object(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+        let previousArtifacts = defaults.object(forKey: RightSidebarBetaFeatureSettings.artifactsEnabledKey)
         let previousCloudMachines = defaults.object(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
         defer {
             restore(previousFeed, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             restore(previousDock, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+            restore(previousArtifacts, forKey: RightSidebarBetaFeatureSettings.artifactsEnabledKey)
             restore(previousCloudMachines, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
         }
         try body()

@@ -1,5 +1,6 @@
 import CoreGraphics
 import CmuxBrowser
+import CmuxArtifacts
 import CmuxCore
 import Foundation
 import Bonsplit
@@ -1741,6 +1742,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var agentSession: SessionAgentSessionPanelSnapshot? = nil
     var project: SessionProjectPanelSnapshot?
     var workspaceTodo: SessionWorkspaceTodoPanelSnapshot? = nil
+    var links: SessionLinksPanelSnapshot? = nil
     var notificationsPanel: SessionNotificationsPanelSnapshot? = nil
 }
 extension SessionPanelSnapshot: WorkspaceSessionRemoteRestorePanelSnapshot {}
@@ -1903,6 +1905,9 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// `true` when the workspace opted out of the status feature (None); absent for the default (feature engaged), so old manifests decode unchanged.
     var taskStatusHidden: Bool? = nil
     var checklist: [SessionChecklistItemSnapshot]? = nil
+    var links: SessionWorkspaceLinksSnapshotCollection? = nil
+    /// Portable artifact projection; absent in pre-Artifacts snapshots.
+    var artifacts: SessionWorkspaceArtifactsSnapshotCollection? = nil
     var dock: SessionSplitContainerSnapshot? = nil // Missing legacy fields continue to seed from dock.json.
 }
 extension SessionWorkspaceSnapshot: WorkspaceSessionRemoteRestoreSnapshot {}

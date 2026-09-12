@@ -491,6 +491,12 @@ export const shortcutCategories: ShortcutCategory[] = [
         description: { en: "Open diff viewer", ja: "差分ビューアを開く" },
       },
       {
+        id: "openLinksPanel",
+        combos: [["⌃", "⌘", "⇧", "L"]],
+        description: { en: "Open Artifacts", ja: "アーティファクトを開く" },
+        note: { en: "Legacy action id retained for existing key bindings", ja: "既存のキーバインドのため従来のアクション ID を保持" },
+      },
+      {
         id: "diffViewerScrollDown",
         combos: [["J"]],
         description: { en: "Scroll viewer down one smooth step", ja: "ビューアを1ステップ下へ滑らかにスクロール" },

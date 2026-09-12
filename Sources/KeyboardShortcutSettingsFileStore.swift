@@ -406,6 +406,15 @@ final class CmuxSettingsFileStore {
         if let markdownSection = root["markdown"] as? [String: Any] {
             parseMarkdownSection(markdownSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let linksSection = root["links"] as? [String: Any] {
+            parseLinksSection(linksSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
+        if let artifactsSection = root["artifacts"] as? [String: Any] {
+            // `parseLinksSection` writes both canonical artifacts.* and legacy
+            // links.* UserDefaults keys, keeping one mutation path during the
+            // settings migration.
+            parseLinksSection(artifactsSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let fileEditorSection = root["fileEditor"] as? [String: Any] {
             parseFileEditorSection(fileEditorSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -1667,7 +1676,6 @@ final class CmuxSettingsFileStore {
                     change.defaultsKey == RendererRealizationSettings.maxWarmRenderersKey {
                     rendererRealizationDidChange = true
                 }
-
                 if change.defaultsKey == AppCatalogSection().language.userDefaultsKey {
                     let rawValue = userDefaults.string(forKey: change.defaultsKey) ?? ""
                     languageSettingsStore?.applyLanguageOverride(AppLanguage(rawValue: rawValue) ?? .system)

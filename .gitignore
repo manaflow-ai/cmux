@@ -67,6 +67,8 @@ tmp-*/
 
 # Local dogfood scratch (screenshots, recordings) — never commit
 artifacts/
+!Sources/Artifacts/
+!Sources/Artifacts/*.swift
 !Packages/Shared/CmuxAgentChat/Sources/CmuxAgentChat/Artifacts/
 !Packages/Shared/CmuxAgentChat/Sources/CmuxAgentChat/Artifacts/*.swift
 !Packages/iOS/CmuxAgentChatUI/Sources/CmuxAgentChatUI/Artifacts/

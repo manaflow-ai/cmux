@@ -38,6 +38,10 @@ public struct SettingCatalog: SettingCatalogSection {
     public let browser = BrowserCatalogSection()
     /// Settings for the built-in markdown viewer (the `markdown.*` keys).
     public let markdown = MarkdownCatalogSection()
+    /// Settings for terminal-emitted workspace link capture (the `links.*` keys).
+    public let links = LinksCatalogSection()
+    /// Canonical Artifacts settings; `links` is retained as a migration alias.
+    public let artifacts = ArtifactsCatalogSection()
     /// Settings for the freeform canvas workspace layout (the `canvas.*` keys).
     public let canvas = CanvasCatalogSection()
     /// Settings for the built-in plain-text file editor (the `fileEditor.*` keys).

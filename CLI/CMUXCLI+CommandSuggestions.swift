@@ -57,6 +57,7 @@ extension CMUXCLI {
         "__tmux-compat",
         "agent",
         "agent-hibernation",
+        "artifacts",
         "ai-accounts",
         "automation",
         "auth",

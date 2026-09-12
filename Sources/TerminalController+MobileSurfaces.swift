@@ -28,6 +28,8 @@ extension TerminalController {
             return .extensionBrowser
         case .workspaceTodo:
             return .todo
+        case .links:
+            return MobileSurfaceKind(rawValue: "links")
         case .notifications:
             // Notifications use the open-vocabulary fallback until the phone
             // provides a native renderer for this panel kind.

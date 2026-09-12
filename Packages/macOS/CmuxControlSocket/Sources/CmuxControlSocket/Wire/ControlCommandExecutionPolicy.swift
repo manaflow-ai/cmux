@@ -101,6 +101,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // Releases only the tokenized claim owned by a failed restore exec.
         "agent.restore.release",
         "browser.download.wait",
+        // Artifact catalog reads await the repository actor and must not hold
+        // the main actor while filtering a global result set.
+        "artifacts.list",
+        "artifacts.search",
+        "artifacts.add",
         "browser.profiles.list",
         "browser.profiles.create",
         "browser.profiles.rename",

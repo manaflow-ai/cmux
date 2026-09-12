@@ -24,6 +24,8 @@ extension ContentView {
             return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
         case .workspaceTodo:
             return String(localized: "commandPalette.kind.workspaceTodo", defaultValue: "Todos")
+        case .links:
+            return String(localized: "artifactsPane.title", defaultValue: "Artifacts")
         case .notifications:
             return String(localized: "notifications.title", defaultValue: "Notifications")
         case .cloudVMLoading:
@@ -59,6 +61,8 @@ extension ContentView {
             return ["sidebar", "extensions", "extensionkit", "browser"]
         case .workspaceTodo:
             return ["todo", "todos", "checklist", "task", "status"]
+        case .links:
+            return ["artifacts", "links", "urls", "files", "history"]
         case .notifications:
             return ["notifications", "alerts", "feed"]
         case .cloudVMLoading:

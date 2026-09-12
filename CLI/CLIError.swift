@@ -1,5 +1,8 @@
 import Foundation
 
+/// CLI failure carrying the exit status and any structured v2 socket error
+/// details. Shared by the `cmux` executable and the app-host unit tests that
+/// compile individual CLI sources.
 struct CLIError: Error, CustomStringConvertible {
     enum SocketFailureKind: Equatable {
         case pathMissing

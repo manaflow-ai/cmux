@@ -800,6 +800,17 @@ enum CommandPaletteSettingsToggleCommands {
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "rightSidebarArtifacts",
+                settingsKey: "betaFeatures.artifacts",
+                title: {
+                    String(localized: "settings.betaFeatures.artifacts", defaultValue: "Artifacts")
+                },
+                sectionTitle: beta,
+                keywords: ["betaFeatures.artifacts", "artifacts", "links", "urls", "files", "html", "right", "sidebar", "beta"],
+                defaultValue: RightSidebarBetaFeatureSettings.defaultArtifactsEnabled,
+                defaultsKey: RightSidebarBetaFeatureSettings.artifactsEnabledKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "claudeCodeIntegration",
                 settingsKey: "automation.claudeCodeIntegration",
                 title: {

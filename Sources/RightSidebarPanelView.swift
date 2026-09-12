@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
+import CmuxBrowser
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxSettings
@@ -22,6 +23,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     case files
     case find
     case sessions
+    case artifacts
     case feed
     case dock
     case machines
@@ -32,6 +34,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
         case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
+        case .artifacts: return String(localized: "rightSidebar.mode.artifacts", defaultValue: "Artifacts")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
         case .machines: return String(localized: "rightSidebar.mode.machines", defaultValue: "Cloud")
@@ -45,6 +48,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .files: return "folder"
         case .find: return "magnifyingglass"
         case .sessions: return "books.vertical"
+        case .artifacts: return "shippingbox"
         case .feed: return "dot.radiowaves.left.and.right"
         case .dock: return "dock.rectangle"
         case .machines: return "cloud"
@@ -57,6 +61,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .files: return .switchRightSidebarToFiles
         case .find: return .switchRightSidebarToFind
         case .sessions: return .switchRightSidebarToSessions
+        case .artifacts: return nil
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
         case .machines: return .switchRightSidebarToMachines
@@ -66,7 +71,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
 }
 
 extension RightSidebarMode {
-    static let paneModes: [RightSidebarMode] = [.files, .find, .sessions]
+    static let paneModes: [RightSidebarMode] = [.files, .find, .sessions, .artifacts]
 
     var canOpenAsPane: Bool {
         Self.paneModes.contains(self)
@@ -85,7 +90,7 @@ enum FileExplorerRootSyncPolicy {
         switch mode {
         case .files, .find:
             return true
-        case .sessions, .feed, .dock, .machines, .customSidebar:
+        case .sessions, .artifacts, .feed, .dock, .machines, .customSidebar:
             return false
         }
     }
@@ -151,6 +156,8 @@ struct RightSidebarPanelView: View {
     private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
     private var dockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
+    @AppStorage(RightSidebarBetaFeatureSettings.artifactsEnabledKey)
+    private var artifactsEnabled = RightSidebarBetaFeatureSettings.defaultArtifactsEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
     private var cloudMachinesBetaEnabled = RightSidebarBetaFeatureSettings.defaultCloudMachinesEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
@@ -172,7 +179,8 @@ struct RightSidebarPanelView: View {
         return RightSidebarMode.availableModes(
             feedEnabled: feedEnabled,
             dockEnabled: dockEnabled,
-            machinesEnabled: CloudMachinesFeature.isEnabled
+            machinesEnabled: CloudMachinesFeature.isEnabled,
+            artifactsEnabled: artifactsEnabled && CmuxFeatureFlags.shared.isArtifactsUIEnabled
         )
     }
 
@@ -267,6 +275,7 @@ struct RightSidebarPanelView: View {
         }
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
+        .onChange(of: artifactsEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: cloudMachinesBetaEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onReceive(NotificationCenter.default.publisher(for: RightSidebarTabPreferences.didChangeNotification)) { _ in
             refreshModeAvailabilityAndFocusIfNeeded()
@@ -508,6 +517,8 @@ struct RightSidebarPanelView: View {
                     .onAppear {
                         sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
                     }
+            case .artifacts:
+                artifactsPanel
             case .feed:
                 FeedPanelView(
                     chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor
@@ -579,6 +590,27 @@ struct RightSidebarPanelView: View {
 
     private var sessionIndexDirectory: String? {
         sessionIndexStore.currentDirectory
+    }
+
+    @ViewBuilder
+    private var artifactsPanel: some View {
+        if let workspace = tabManager.tabs.first(where: { $0.id == workspaceId })
+            ?? tabManager.selectedWorkspace {
+            ArtifactsPaneContent(
+                workspace: workspace,
+                artifactsState: workspace.artifactsState,
+                titleFetcher: LinkTitleFetcher(pageMetadataFetcher: BrowserPageMetadataService()),
+                isFocused: fileExplorerState.rightSidebarOwnsInputFocus
+            )
+        } else {
+            Text(String(
+                localized: "artifactsPane.workspaceUnavailable",
+                defaultValue: "This workspace is no longer available."
+            ))
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 
     /// Renders this window's own Dock (created lazily on first show); no

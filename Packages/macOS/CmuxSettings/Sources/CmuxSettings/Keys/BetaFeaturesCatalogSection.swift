@@ -6,6 +6,11 @@ import Foundation
 /// pattern `<feature-domain>.beta.<flag-name>` so the cmux.json view
 /// groups them sensibly.
 public struct BetaFeaturesCatalogSection: SettingCatalogSection {
+#if DEBUG
+    private static let artifactsDefaultEnabled = true
+#else
+    private static let artifactsDefaultEnabled = false
+#endif
     /// Right-sidebar Feed: an experimental mode that surfaces inline agent
     /// decisions (permission prompts, questions) in the right-sidebar mode
     /// switcher. Defaults off; while off, the Feed mode is hidden from the
@@ -23,6 +28,16 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         id: "rightSidebar.beta.dock.enabled",
         defaultValue: false,
         userDefaultsKey: "rightSidebar.beta.dock.enabled"
+    )
+
+    /// Right-sidebar Artifacts: the experimental historical artifact catalog
+    /// (URLs, files, HTML, and other workspace-owned records). Defaults off;
+    /// while off, the Artifacts mode is hidden and the persisted mode falls
+    /// back to Files until the user opts in here.
+    public let rightSidebarArtifacts = DefaultsKey<Bool>(
+        id: "rightSidebar.beta.artifacts.enabled",
+        defaultValue: Self.artifactsDefaultEnabled,
+        userDefaultsKey: "rightSidebar.beta.artifacts.enabled"
     )
 
     /// Extensions: the experimental ExtensionKit sidebar-extension surface

@@ -326,6 +326,16 @@
 			<key>UTTypeIdentifier</key>
 			<string>com.cmux.filepreview.transfer</string>
 		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>cmux Artifact</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.cmux.artifact</string>
+		</dict>
 	</array>
 	<key>UTImportedTypeDeclarations</key>
 	<array>
@@ -385,6 +395,16 @@
 			<string>com.cmux.filepreview.transfer</string>
 			<key>UTTypeDescription</key>
 			<string>cmux File Preview Transfer</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.cmux.artifact</string>
+			<key>UTTypeDescription</key>
+			<string>cmux Artifact</string>
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.data</string>

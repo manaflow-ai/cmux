@@ -24,7 +24,7 @@ enum SettingsSearchAliasIndex {
         case .customSidebars:
             return localized("settings.search.alias.section.customSidebars", defaultValue: "custom sidebars vibe code swift json interpreted renderer in-process remote worker isolated")
         case .betaFeatures:
-            return localized("settings.search.alias.section.betaFeatures", defaultValue: "beta experimental unstable preview feed dock right sidebar")
+            return localized("settings.search.alias.section.betaFeatures", defaultValue: "beta experimental unstable preview feed dock artifacts links urls history right sidebar")
         case .automation:
             return localized("settings.search.alias.section.automation", defaultValue: "api cli control socket mcp agents hooks ports")
         case .computerUse:
@@ -107,6 +107,16 @@ enum SettingsSearchAliasIndex {
         "app:canvas-pane-gap": localized("settings.search.alias.setting.app.canvas-pane-gap", defaultValue: "canvas.paneGap canvas pane gap spacing freeform layout panes snapping tidy distribute align"),
         "app:canvas-snapping": localized("settings.search.alias.setting.app.canvas-snapping", defaultValue: "canvas.snappingEnabled canvas snap snapping enabled edges drag resize align panes freeform layout"),
         "terminal:adaptive-default-theme": localized("settings.search.alias.setting.terminal.adaptive-default-theme", defaultValue: "terminal.adaptiveDefaultTheme adaptive default theme appearance light dark palette Ghostty managed colors empty untouched config preserve settings"),
+        "app:links-enabled": localized("settings.search.alias.setting.app.links-enabled", defaultValue: "links.enabled links urls url history capture terminal emitted"),
+        "app:links-ignore-hosts": localized("settings.search.alias.setting.app.links-ignore-hosts", defaultValue: "links.ignoreHosts links urls ignored hosts localhost wildcard filter"),
+        "app:links-include-file-paths": localized("settings.search.alias.setting.app.links-include-file-paths", defaultValue: "links.includeFilePaths file urls file paths links history"),
+        "app:links-retention-limit": localized("settings.search.alias.setting.app.links-retention-limit", defaultValue: "links.retentionLimit retention limit cap count url history"),
+        "app:links-fetch-titles": localized("settings.search.alias.setting.app.links-fetch-titles", defaultValue: "links.fetchTitles link titles fetch network urls history"),
+        "app:artifacts-enabled": localized("settings.search.alias.setting.app.artifacts-enabled", defaultValue: "artifacts.enabled links urls files html workspace capture history"),
+        "app:artifacts-ignore-hosts": localized("settings.search.alias.setting.app.artifacts-ignore-hosts", defaultValue: "artifacts.ignoreHosts links urls ignored hosts localhost wildcard filter"),
+        "app:artifacts-include-file-paths": localized("settings.search.alias.setting.app.artifacts-include-file-paths", defaultValue: "artifacts.includeFilePaths file paths urls workspace artifacts"),
+        "app:artifacts-retention-limit": localized("settings.search.alias.setting.app.artifacts-retention-limit", defaultValue: "artifacts.retentionLimit retention limit cap files urls history"),
+        "app:artifacts-fetch-titles": localized("settings.search.alias.setting.app.artifacts-fetch-titles", defaultValue: "artifacts.fetchTitles title fetch public urls safety"),
         "terminal:scrollbar": localized("settings.search.alias.setting.terminal.scrollbar", defaultValue: "terminal.showScrollBar scrollback scrollbar scroll bar right edge alternate screen tui"),
         "terminal:session-content-width": localized("settings.search.alias.setting.terminal.session-content-width", defaultValue: "terminal.sessionContentMaxWidth terminal agent chat max width readable line length points pt narrow wide"),
         "terminal:session-content-alignment": localized("settings.search.alias.setting.terminal.session-content-alignment", defaultValue: "terminal.sessionContentAlignment terminal agent chat left center right alignment position"),
@@ -145,6 +155,7 @@ enum SettingsSearchAliasIndex {
         "sidebarAppearance:right-max-width": localized("settings.search.alias.setting.sidebarAppearance.right-max-width", defaultValue: "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),
         "betaFeatures:feed": localized("settings.search.alias.setting.betaFeatures.feed", defaultValue: "feed right sidebar agent decisions permissions questions approval beta unstable"),
         "betaFeatures:dock": localized("settings.search.alias.setting.betaFeatures.dock", defaultValue: "dock right sidebar terminal controls tui beta unstable"),
+        "betaFeatures:artifacts": localized("settings.search.alias.setting.betaFeatures.artifacts", defaultValue: "rightSidebar.beta.artifacts.enabled artifacts links urls files html workspace history search drag drop beta unstable"),
         "mobile:iOSPairingHost": localized("settings.search.alias.setting.mobile.iOSPairingHost", defaultValue: "ios iphone ipad mobile pairing local network permission sync"),
         "mobile:iOSPairingPort": localized("settings.search.alias.setting.mobile.iOSPairingPort", defaultValue: "mobile ios iphone pairing port tcp listener firewall conflict bind"),
         "mobile:iOSPairingDisplayName": localized("settings.search.alias.setting.mobile.iOSPairingDisplayName", defaultValue: "mobile ios iphone pairing display name mac hostname device label"),

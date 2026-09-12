@@ -329,6 +329,7 @@ class TerminalController {
         "browser.focus",
         "browser.focus_mode.set",
         "browser.tab.switch",
+        "artifacts.open",
         "notification.open",
         "notification.jump_to_unread",
         "debug.command_palette.toggle", "debug.pro_welcome_checklist.show",
@@ -1265,6 +1266,14 @@ class TerminalController {
                     return response
                 }
             }
+            if request.method == "artifacts.add" {
+                return v2AsyncResultCall(
+                    id: request.id,
+                    timeoutSeconds: 15
+                ) {
+                    await self.v2ArtifactsAdd(params: parsedRequest.params)
+                }
+            }
             if request.method == "surface.read_selection" {
                 return v2AsyncResultCall(
                     id: request.id,
@@ -1668,6 +1677,14 @@ class TerminalController {
             return v2Ok(id: request.id, result: ["completed": true])
         case "browser.download.wait":
             return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
+        case "artifacts.list", "artifacts.search":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 10) {
+                await self.v2ArtifactsRead(method: request.method, params: request.params)
+            }
+        case "artifacts.add":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 15) {
+                await self.v2ArtifactsAdd(params: request.params)
+            }
         case "browser.navigate", "browser.back", "browser.forward", "browser.reload",
              "browser.design_mode.set", "browser.design_mode.status",
              "browser.snapshot", "browser.eval", "browser.wait", "browser.screenshot",
@@ -2499,6 +2516,9 @@ class TerminalController {
         case "ping":
             return "PONG"
 
+        case "artifacts":
+            return v2MainSync { self.openArtifactsV1Command(args) }
+
         case "auth":
             return "OK: Authentication not required"
 
@@ -2824,6 +2844,8 @@ class TerminalController {
             switch method {
         case "system.ping":
             return v2Ok(id: id, result: ["pong": true])
+        case "artifacts.open":
+            return v2Result(id: id, v2ArtifactsOpen(params: params))
         case "system.capabilities":
             return v2Ok(id: id, result: v2CapabilitiesWithBrowserDesignMode())
         case "automation.list":
@@ -3075,11 +3097,18 @@ class TerminalController {
             "automation.disable",
             "automation.logs",
             "automation.reload",
+            "artifacts.list",
+            "artifacts.search",
+            "artifacts.open",
+            "artifacts.add",
             "vault.sessions",
             "vault.search",
             "vault.checkpoints",
             "vault.checkpoint",
             "vault.fork",
+            "artifacts.list",
+            "artifacts.search",
+            "artifacts.open",
             "caffeine.status",
             "caffeine.set",
             "comments.list",

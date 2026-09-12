@@ -10,6 +10,8 @@ extension RightSidebarMode {
             return .find
         case "vault", "sessions":
             return .sessions
+        case "artifacts", "artifact":
+            return .artifacts
         case "feed":
             return .feed
         case "dock":
@@ -27,16 +29,23 @@ extension RightSidebarMode {
         availableModes(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
-            machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults)
+            machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults),
+            artifactsEnabled: RightSidebarBetaFeatureSettings.isArtifactsEnabled(defaults: defaults)
         )
     }
 
-    static func availableModes(feedEnabled: Bool, dockEnabled: Bool, machinesEnabled: Bool) -> [RightSidebarMode] {
+    static func availableModes(
+        feedEnabled: Bool,
+        dockEnabled: Bool,
+        machinesEnabled: Bool,
+        artifactsEnabled: Bool = false
+    ) -> [RightSidebarMode] {
         allCases.filter {
             $0.isAvailable(
                 feedEnabled: feedEnabled,
                 dockEnabled: dockEnabled,
-                machinesEnabled: machinesEnabled
+                machinesEnabled: machinesEnabled,
+                artifactsEnabled: artifactsEnabled
             )
         }
     }
@@ -45,7 +54,8 @@ extension RightSidebarMode {
         isAvailable(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
-            machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults)
+            machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults),
+            artifactsEnabled: RightSidebarBetaFeatureSettings.isArtifactsEnabled(defaults: defaults)
         )
     }
 
@@ -75,10 +85,17 @@ extension RightSidebarMode {
         return index + 1
     }
 
-    func isAvailable(feedEnabled: Bool, dockEnabled: Bool, machinesEnabled: Bool) -> Bool {
+    func isAvailable(
+        feedEnabled: Bool,
+        dockEnabled: Bool,
+        machinesEnabled: Bool,
+        artifactsEnabled: Bool = false
+    ) -> Bool {
         switch self {
         case .files, .find, .sessions:
             return true
+        case .artifacts:
+            return artifactsEnabled
         case .feed:
             return feedEnabled
         case .dock:
