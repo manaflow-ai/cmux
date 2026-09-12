@@ -1612,6 +1612,7 @@ jobs:
           python3 tests/test_codex_wrapper_resume_hooks.py
           python3 tests/test_claude_wrapper_hooks.py
           python3 tests/test_codex_wrapper_computer_use_mcp.py
+          python3 tests/test_cmux_cua_skill_reconciliation.py
           python3 tests/test_cmux_cua_mcp_smoke.py
           python3 tests/test_cmux_cua_build_cache_safety.py
           python3 tests/test_cmux_cua_helper_identity.py

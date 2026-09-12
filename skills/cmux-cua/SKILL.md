@@ -60,6 +60,9 @@ or permissions are not a reason to begin setup automatically.
   app-created and manually-created symlinks with identical verified targets
   cannot be distinguished retroactively; recognized app-bundle links are
   treated as cmux-managed, while unknown and dangling links are preserved.
+  With explicit installation enabled, an existing verified link in the other
+  agent root is retargeted to the same current bundle; a missing projection is
+  never created there and user-owned paths remain unchanged.
 - While Computer Use is enabled, the helper daemon starts quietly at cmux
   startup with its internal permission gate disabled. Starting cmux or an agent
   never requests access or shows onboarding.

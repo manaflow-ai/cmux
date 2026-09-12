@@ -447,6 +447,9 @@ def run_wrapper(
     preexisting_legacy_codex_link: bool = False,
     preexisting_cmux_link: bool = False,
     preexisting_valid_cmux_link: bool = False,
+    preexisting_other_provider_valid_cmux_link: bool = False,
+    preexisting_other_provider_unrelated_link: bool = False,
+    preexisting_other_provider_skill_mirror: bool = False,
     preexisting_codex_home_cmux_link: bool = False,
     preexisting_unrelated_link: bool = False,
     preexisting_skill_directory: bool = False,
@@ -567,6 +570,10 @@ exit 1
             env["FAKE_CODEX_ARGS_LOG"] = str(args_log)
             env["FAKE_MCP_TRACE_LOG"] = str(mcp_trace_log)
             env["FAKE_MCP_HANDSHAKE"] = "1" if mcp_handshake else "0"
+            # Keep the fixture hermetic: a cmux-launched test process may
+            # carry a real Codex override, which would bypass the fake
+            # executable and make the deliberate preload probe run in Node.
+            env.pop("CMUX_CUSTOM_CODEX_PATH", None)
             env["NODE_OPTIONS"] = "--require=/tmp/cmux-mcp-preload-should-not-load.js"
             env["BUN_OPTIONS"] = "--preload=/tmp/cmux-mcp-preload-should-not-load.js"
             env.pop("CMUX_CODEX_HOOKS_DISABLED", None)
@@ -625,6 +632,46 @@ exit 1
                 old_destination = old_root / "cmux-cua"
                 old_destination.symlink_to(
                     "/Applications/cmux DEV old.app/Contents/Resources/cmux-cua"
+                )
+            if preexisting_other_provider_valid_cmux_link or preexisting_other_provider_skill_mirror:
+                other_old_skill = (
+                    sandbox_home
+                    / "Library"
+                    / "Developer"
+                    / "Xcode"
+                    / "DerivedData"
+                    / "cmux-other-fixture"
+                    / "Build"
+                    / "Products"
+                    / "Debug"
+                    / "cmux DEV other.app"
+                    / "Contents"
+                    / "Resources"
+                    / "cmux-cua"
+                )
+                other_old_skill.mkdir(parents=True)
+                (other_old_skill / "SKILL.md").write_text(
+                    "---\nname: cmux-cua\ndescription: Other old cmux skill.\n---\n\nOther old bundle.\n",
+                    encoding="utf-8",
+                )
+                write_helper_info(
+                    other_old_skill.parents[1] / "Info.plist",
+                    "com.cmuxterm.app.debug.other-fixture",
+                )
+                other_destination = sandbox_home / ".claude" / "skills" / "cmux-cua"
+                if preexisting_other_provider_skill_mirror:
+                    project_skills = tmp / "project-skills"
+                    project_skills.mkdir()
+                    other_destination.parent.parent.mkdir()
+                    other_destination.parent.symlink_to(project_skills)
+                else:
+                    other_destination.parent.mkdir(parents=True, exist_ok=True)
+                other_destination.symlink_to(other_old_skill)
+            if preexisting_other_provider_unrelated_link:
+                other_destination = sandbox_home / ".claude" / "skills" / "cmux-cua"
+                other_destination.parent.mkdir(parents=True, exist_ok=True)
+                other_destination.symlink_to(
+                    "/nonexistent/user-owned-other.app/Contents/Resources/cmux-cua"
                 )
             if preexisting_legacy_link:
                 skills_root.mkdir(parents=True, exist_ok=True)
@@ -741,6 +788,7 @@ exit 1
             legacy_skill = installed_skill.parent / "cmux-computer-use"
             legacy_codex_skill = installed_skill.parent / "codex-cua"
             codex_home_skill = codex_home / "skills" / "cmux-cua"
+            other_provider_skill = sandbox_home / ".claude" / "skills" / "cmux-cua"
             skill_probe: dict[str, object] = {
                 "bundled_skill": str(bundled_skill.resolve()),
                 "exists": installed_skill.exists(),
@@ -759,6 +807,13 @@ exit 1
                 "legacy_codex_present": legacy_codex_skill.exists() or legacy_codex_skill.is_symlink(),
                 "codex_home_exists": codex_home_skill.exists() or codex_home_skill.is_symlink(),
                 "codex_home_is_symlink": codex_home_skill.is_symlink(),
+                "other_provider_root_is_symlink": other_provider_skill.parent.is_symlink(),
+                "other_provider_is_symlink": other_provider_skill.is_symlink(),
+                "other_provider_target": (
+                    os.readlink(other_provider_skill)
+                    if other_provider_skill.is_symlink()
+                    else None
+                ),
                 "project_content": (
                     (project_skill / "SKILL.md").read_text(encoding="utf-8")
                     if (project_skill / "SKILL.md").is_file()
@@ -1174,6 +1229,62 @@ def test_codex_collision_keeps_project_skill_and_one_picker_row(failures: list[s
     )
 
 
+def test_codex_explicit_install_retargets_other_agent_root(failures: list[str]) -> None:
+    code, _args, stderr, skill = run_wrapper(
+        ["hello"],
+        install_global_skill=True,
+        preexisting_valid_cmux_link=True,
+        preexisting_other_provider_valid_cmux_link=True,
+    )
+    expect(code == 0, f"cross-root migration wrapper exited {code}: {stderr}", failures)
+    expect(
+        skill["other_provider_is_symlink"] is True
+        and skill["target"] == skill["bundled_skill"]
+        and skill["other_provider_target"] == skill["bundled_skill"],
+        f"explicit install must retarget only the verified cmux link in the other agent root, got {skill}",
+        failures,
+    )
+
+
+def test_codex_explicit_install_preserves_other_user_path(failures: list[str]) -> None:
+    code, _args, stderr, skill = run_wrapper(
+        ["hello"],
+        install_global_skill=True,
+        preexisting_other_provider_unrelated_link=True,
+    )
+    expect(code == 0, f"cross-root ownership wrapper exited {code}: {stderr}", failures)
+    expect(
+        skill["other_provider_is_symlink"] is True
+        and skill["other_provider_target"] == "/nonexistent/user-owned-other.app/Contents/Resources/cmux-cua",
+        f"explicit install must preserve an unrelated symlink in the other root, got {skill}",
+        failures,
+    )
+
+
+def test_codex_preserves_other_root_without_explicit_install(failures: list[str]) -> None:
+    code, _, stderr, skill = run_wrapper(
+        ["hello"], preexisting_other_provider_valid_cmux_link=True,
+    )
+    expect(code == 0, f"default cross-root wrapper exited {code}: {stderr}", failures)
+    expect(
+        str(skill["other_provider_target"]).endswith("cmux DEV other.app/Contents/Resources/cmux-cua")
+        and skill["exists"] is False,
+        f"ordinary launch must not refresh another agent's installation, got {skill}", failures,
+    )
+
+
+def test_codex_preserves_other_root_project_mirror(failures: list[str]) -> None:
+    code, _, stderr, skill = run_wrapper(
+        ["hello"], install_global_skill=True, preexisting_other_provider_skill_mirror=True,
+    )
+    expect(code == 0, f"project mirror wrapper exited {code}: {stderr}", failures)
+    expect(
+        skill["other_provider_root_is_symlink"] is True
+        and str(skill["other_provider_target"]).endswith("cmux DEV other.app/Contents/Resources/cmux-cua"),
+        f"migration must not rewrite a project through a global root mirror, got {skill}", failures,
+    )
+
+
 def test_codex_explicit_global_opt_in_still_installs_without_collision(
     failures: list[str],
 ) -> None:
@@ -1573,6 +1684,10 @@ def main() -> int:
     test_codex_home_ancestor_is_not_project_collision(failures)
     test_codex_preserves_unverified_codex_home_link(failures)
     test_codex_collision_keeps_project_skill_and_one_picker_row(failures)
+    test_codex_explicit_install_retargets_other_agent_root(failures)
+    test_codex_explicit_install_preserves_other_user_path(failures)
+    test_codex_preserves_other_root_without_explicit_install(failures)
+    test_codex_preserves_other_root_project_mirror(failures)
     test_codex_explicit_global_opt_in_still_installs_without_collision(failures)
     test_codex_explicit_global_opt_in_does_not_override_project_skill(failures)
     test_codex_managed_global_link_does_not_shadow_project(failures)

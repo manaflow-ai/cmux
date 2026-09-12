@@ -33,6 +33,9 @@ to retain these links; they are user-global and may also appear outside cmux.
 With the flag unset or `=0`, a cmux agent launch removes only verified
 app-managed links. A same-name project or user-owned skill takes precedence:
 the wrapper does not create a competing global link or hide the existing skill.
+When explicit installation is enabled, an existing verified cmux link in the
+other agent root is retargeted to this same bundle as part of migration; a
+missing link is never created there, and user-owned paths are left unchanged.
 
 Migration of `cmux-cua`, `cmux-computer-use`, and `codex-cua` links requires an
 existing cmux bundle with a verified bundle ID, known install/build root, and

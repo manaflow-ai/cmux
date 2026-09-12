@@ -46,6 +46,7 @@ def run_wrapper(
     disabled: bool = False,
     preexisting_link_target: Path | None = None,
     preexisting_valid_cmux_link: bool = False,
+    preexisting_other_provider_valid_cmux_link: bool = False,
     preexisting_directory: bool = False,
     preexisting_legacy_link_target: Path | None = None,
     project_skill_collision: bool = False,
@@ -162,6 +163,15 @@ exit 1
         with (old_skill.parents[1] / "Info.plist").open("wb") as stream:
             plistlib.dump({"CFBundleIdentifier": "com.cmuxterm.app.debug.fixture"}, stream)
         destination.symlink_to(old_skill)
+    if preexisting_other_provider_valid_cmux_link:
+        old_skill = home / "Applications" / "cmux NIGHTLY.app" / "Contents" / "Resources" / "cmux-cua"
+        old_skill.mkdir(parents=True)
+        (old_skill / "SKILL.md").write_text(SKILL_MD, encoding="utf-8")
+        with (old_skill.parents[1] / "Info.plist").open("wb") as stream:
+            plistlib.dump({"CFBundleIdentifier": "com.cmuxterm.app.nightly"}, stream)
+        other_destination = home / ".agents" / "skills" / "cmux-cua"
+        other_destination.parent.mkdir(parents=True, exist_ok=True)
+        other_destination.symlink_to(old_skill)
     if preexisting_directory:
         destination.mkdir(parents=True, exist_ok=True)
         (destination / "SKILL.md").write_text("user-owned\n", encoding="utf-8")
@@ -563,6 +573,20 @@ def test_claude_leaves_user_owned_skill_directories_alone(failures: list[str]) -
     )
 
 
+def test_claude_explicit_install_retargets_both_agent_roots(failures: list[str]) -> None:
+    result, link, source, _ = run_wrapper(
+        ["hello"], install_global_skill=True,
+        preexisting_valid_cmux_link=True, preexisting_other_provider_valid_cmux_link=True,
+    )
+    expect(result.returncode == 0, f"cross-root Claude launch failed: {result.stderr}", failures)
+    other = link.parents[2] / ".agents" / "skills" / "cmux-cua"
+    expect(
+        link.is_symlink() and other.is_symlink()
+        and link.resolve() == source.resolve() and other.resolve() == source.resolve(),
+        "Claude explicit install must converge both verified app links on its bundle", failures,
+    )
+
+
 def test_disabled_computer_use_skips_skill_loading(failures: list[str]) -> None:
     result, link, _, args = run_wrapper(
         ["hello"],
@@ -619,6 +643,7 @@ def main() -> int:
     test_claude_global_skill_can_be_disabled_explicitly(failures)
     test_claude_leaves_user_owned_skill_links_alone(failures)
     test_claude_leaves_user_owned_skill_directories_alone(failures)
+    test_claude_explicit_install_retargets_both_agent_roots(failures)
     test_disabled_computer_use_skips_skill_loading(failures)
     test_strict_mcp_config_skips_all_computer_use_sideloading(failures)
     if failures:

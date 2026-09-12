@@ -300,7 +300,80 @@ cmux_cua_skill_remove_legacy_links() {
     fi
 }
 
+cmux_cua_skill_home_lock_path() {
+    local home="$1"
+    local canonical_home digest uid
+    canonical_home="$(cd "$home" 2>/dev/null && pwd -P)" || return 1
+    digest="$(printf '%s' "$canonical_home" | /usr/bin/cksum | /usr/bin/awk '{print $1}')"
+    uid="$(/usr/bin/id -u)"
+    [[ -n "$digest" && -n "$uid" ]] || return 1
+    printf '/tmp/cmux-cua-skill-reconcile-%s-%s.lock' "$uid" "$digest"
+}
+
+cmux_cua_skill_retarget_managed_link() {
+    local link="$1"
+    local source_dir="$2"
+    [[ "$source_dir" = /* && -f "$source_dir/SKILL.md" ]] || return 1
+    local skills_root="${link%/*}"
+    # User-provided root mirrors can point into a checkout. Only migrate a
+    # direct global installation; never edit a project through a parent link.
+    [[ ! -L "$skills_root" && ! -L "${skills_root%/*}" ]] || return 1
+    cmux_cua_skill_link_is_managed "$link" || return 1
+    # The link target was validated before mutation. ln -sfn operates on the
+    # link itself and never follows it into a user-owned directory.
+    /bin/ln -sfn "$source_dir" "$link" 2>/dev/null || return 1
+    return 0
+}
+
 cmux_cua_skill_reconcile() {
+    local policy="${BASH_SOURCE[0]}"
+    local home="${HOME:-}"
+    [[ "$home" = /* && "$policy" = /* ]] || return 1
+    policy="$(cmux_cua_skill_canonical_document "$policy")" || return 1
+    local lock_path
+    lock_path="$(cmux_cua_skill_home_lock_path "$home")" || return 1
+
+    # Hold an advisory lock in a Perl process and exec the locked reconciler so
+    # the kernel releases the lock with the child even if the wrapper is killed.
+    /usr/bin/perl -MFcntl=:DEFAULT,:flock -e '
+        my ($lock_path, @command) = @ARGV;
+        sysopen(my $fh, $lock_path, O_CREAT | O_RDWR | O_NOFOLLOW | O_NONBLOCK, 0600)
+            or exit 1;
+        my @identity = stat($fh);
+        exit 1 unless @identity && (($identity[2] & 0170000) == 0100000)
+            && $identity[4] == $< && $identity[3] == 1
+            && (($identity[2] & 077) == 0);
+        my @path_identity = lstat($lock_path);
+        exit 1 unless @path_identity && $path_identity[0] == $identity[0]
+            && $path_identity[1] == $identity[1];
+        # The regression harness first proves that this process is contending
+        # on the kernel lock, then emits its marker before the blocking flock.
+        # Normal wrappers never set the test-only variable.
+        if ($ENV{CMUX_CUA_TEST_LOCK_READY}) {
+            my $contended = !flock($fh, LOCK_EX | LOCK_NB);
+            exit 1 unless $contended;
+            $| = 1;
+            print STDOUT "ready\n" or exit 1;
+        }
+        my $locked = eval {
+            local $SIG{ALRM} = sub { die "lock timeout\n" };
+            alarm 10;
+            my $result = flock($fh, LOCK_EX);
+            alarm 0;
+            $result;
+        };
+        alarm 0;
+        exit 1 unless $locked;
+        @path_identity = lstat($lock_path);
+        exit 1 unless @path_identity && $path_identity[0] == $identity[0]
+            && $path_identity[1] == $identity[1];
+        fcntl($fh, F_SETFD, 0) or exit 1;
+        exec @command;
+        exit 1;
+    ' "$lock_path" /bin/bash -c '. "$1"; shift; cmux_cua_skill_reconcile_locked "$@"' _ "$policy" "$@"
+}
+
+cmux_cua_skill_reconcile_locked() {
     local provider="$1"
     local source_dir="$2"
     local cwd="$3"
@@ -316,6 +389,22 @@ cmux_cua_skill_reconcile() {
         project_collision=1
     fi
     cmux_cua_skill_remove_legacy_links "$home" "$provider"
+
+    # A user can have one app-managed projection in each agent's global root
+    # from older cmux builds. When they explicitly keep global discovery, bring
+    # an existing projection in the other root to this bundle too. Do not create
+    # a missing projection there, and never touch a user-owned directory or
+    # unrelated symlink; this is migration of verified cmux links only.
+    local other_provider_root other_provider_link
+    if [[ "$provider" == codex ]]; then
+        other_provider_root="$home/.claude/skills"
+    else
+        other_provider_root="$home/.agents/skills"
+    fi
+    other_provider_link="$other_provider_root/cmux-cua"
+    if [[ "$install_requested" == 1 ]]; then
+        cmux_cua_skill_retarget_managed_link "$other_provider_link" "$source_dir" || true
+    fi
 
     local skills_root destination state legacy_root legacy_state
     if [[ "$provider" == codex ]]; then
