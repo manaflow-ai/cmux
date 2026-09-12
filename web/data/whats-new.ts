@@ -80,13 +80,13 @@ export interface WhatsNewList {
 }
 
 export const whatsNewList: WhatsNewList = {
-  // Binary catalog ids the app may show. "connections.v1" ships in the iOS
+  // Binary catalog ids the app may show. "connections.1.0.5" ships in the iOS
   // binary catalog, so only binaries that carry the page can render it; the
   // list needs no extra version gating for binary pages. Remove an id here
   // to hide its page remotely. With no `entryChannels` override, every id
   // keeps its compiled-in audience — team lanes only — so none of this
-  // renders on the official App Store app. To show connections.v1 there:
-  // entryChannels: { "connections.v1": ["dev", "beta", "internal", "prod"] }.
-  visibleEntryIds: ["connections.v1"],
+  // renders on the official App Store app. To show connections.1.0.5 there:
+  // entryChannels: { "connections.1.0.5": ["dev", "beta", "internal", "prod"] }.
+  visibleEntryIds: ["connections.1.0.5"],
   announcements: [],
 };
