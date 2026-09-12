@@ -242,6 +242,7 @@ describe("localized pricing page", () => {
     expect(html).toContain('href="/api/billing/portal"');
     expect(html).toContain("Manage billing");
     expect(html).toContain("Current plan");
+    expect(html.match(/<button[^>]*>Current plan<\/button>/g)).toHaveLength(1);
   });
 
   test("renders the annual price and sends annual checkout intent", async () => {

@@ -301,6 +301,7 @@ describe("app pricing page", () => {
     expect(html).toContain('href="/api/billing/portal"');
     expect(html).toContain("Manage billing");
     expect(html).toContain("Current plan");
+    expect(html.match(/<button[^>]*>Current plan<\/button>/g)).toBeNull();
   });
 
   for (const [name, params, message] of [
