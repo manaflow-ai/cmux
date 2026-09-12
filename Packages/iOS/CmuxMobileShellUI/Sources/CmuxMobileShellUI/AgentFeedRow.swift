@@ -189,8 +189,9 @@ struct AgentFeedRow: View, Equatable {
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// The reply affordance under a finished turn: accent-tinted so it reads
-    /// as the row's obvious action, opening the composer sheet.
+    /// The reply affordance under a finished turn follows message-feed
+    /// conventions: a compact curved-arrow action with a large tap target,
+    /// rather than a filled primary-action pill.
     private var replyButton: some View {
         Button {
             actions.beginCompose(model.item, .terminalReply)
@@ -206,21 +207,14 @@ struct AgentFeedRow: View, Equatable {
                         .font(.footnote)
                 }
                 Text(replyButtonTitle)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.subheadline.weight(.medium))
             }
             .foregroundStyle(model.item.userReply == nil ? Color.accentColor : Color.secondary)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(model.item.userReply == nil
-                        ? Color.accentColor.opacity(0.12)
-                        : Color.secondary.opacity(0.12))
-            )
+            .frame(minHeight: 44, alignment: .leading)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.borderless)
         .disabled(isReplyPending || model.item.userReply != nil)
-        .padding(.top, 2)
+        .contentShape(Rectangle())
         .accessibilityIdentifier("MobileAgentFeedReplyButton")
     }
 
