@@ -8335,24 +8335,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
     }
 
-    func resolvedTerminalStartupWorkingDirectory(
-        requestedWorkingDirectory: String?,
-        sourcePanelId: UUID?
-    ) -> String? {
-        if let requested = TerminalWorkingDirectoryResolver.normalized(requestedWorkingDirectory) {
-            return requested
-        }
-        if let sourcePanelId,
-           let rescued = resumedAgentPaneWorkingDirectoryRescue(panelId: sourcePanelId) {
-            return rescued
-        }
-        return TerminalWorkingDirectoryResolver.firstAvailable([
-            sourcePanelId.flatMap { panelDirectories[$0] },
-            sourcePanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
-            currentDirectory,
-        ])
-    }
-
     /// The foreground-process cwd read consulted by
     /// ``resumedAgentPaneWorkingDirectoryRescue(panelId:)``. Nil selects the
     /// libproc-backed default, which requires a live foreground process on the
