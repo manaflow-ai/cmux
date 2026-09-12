@@ -31,6 +31,9 @@ enum CloudVMPanelAuthState: Equatable {
 struct MachinesPanelView: View {
     @StateObject private var viewModel = MachinesPanelViewModel()
     @State private var expansionStore = CloudTreeExpansionStore()
+    /// The explicit Cloud VPN's state (`cmux vpn up`), shown as a banner while
+    /// it is starting, waiting for the extension approval, up, or failed.
+    @State private var tunnelStatus = CloudTunnelStatusModel()
     /// The tree's visual preset; the debug gallery's "Use" buttons write this,
     /// and @AppStorage re-renders the live panel the moment it changes.
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
@@ -69,12 +72,45 @@ struct MachinesPanelView: View {
         .onDisappear {
             viewModel.stopPolling()
         }
+        .task {
+            await tunnelStatus.observe(AppDelegate.shared?.cloudTunnelCoordinator)
+        }
         .accessibilityIdentifier("CloudMachinesPanel")
     }
 
     @ViewBuilder
     private var authenticatedContent: some View {
         controlBar
+        if tunnelStatus.status?.state != .up {
+            Button {
+                AppDelegate.shared?.openCloudVPNSetupWorkspace(preferredTabManager: tabManager)
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "network")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(tunnelStatus.status?.state == .up
+                            ? String(localized: "cloud.vpn.setup.title", defaultValue: "Cloud VPN")
+                            : String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…"))
+                            .cmuxFont(size: 12, weight: .medium)
+                        Text(String(localized: "cloud.vpn.setup.entry.subtitle", defaultValue: "Optional private IP access for other apps"))
+                            .cmuxFont(size: 11)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right").font(.system(size: 10))
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("CloudVPNSetupEntryButton")
+        }
+        if let banner = tunnelStatus.banner, banner.showsInMachinesPanel {
+            MachinesTunnelBanner(banner: banner, backgroundColor: chromeBackgroundColor) {
+                SystemExtensionSettingsLink.open()
+            }
+        }
 
         if let plan = viewModel.plan, !plan.isPaidPlan, let text = plan.freeAccessBannerText {
             MachinesFreeAccessBanner(
