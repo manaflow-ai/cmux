@@ -76,7 +76,7 @@ export default function middleware(incomingRequest: NextRequest) {
   if (dashboardReturnPath && isUnprefixedDashboardPath(pathname)) {
     const localized = request.nextUrl.clone();
     localized.pathname = `/${routing.defaultLocale}${pathname}`;
-    return dashboardResponse(request, NextResponse.rewrite(localized), dashboardReturnPath);
+    return dashboardResponse(request, dashboardRewrite(localized, request), dashboardReturnPath);
   }
 
   response = intlMiddleware(request);
@@ -93,7 +93,7 @@ export default function middleware(incomingRequest: NextRequest) {
     const locale = preferredAppRouteLocale(request);
     const localized = request.nextUrl.clone();
     localized.pathname = `/${locale}${pathname}`;
-    response = NextResponse.rewrite(localized);
+    response = dashboardRewrite(localized, request);
   }
   if (featureWorkflowDocRequest) {
     setFeatureWorkflowDocLinkHeader(
@@ -122,6 +122,12 @@ function isUnprefixedDashboardPath(pathname: string): boolean {
     pathname === "/dashboard" ||
     !first ||
     !localeSet.has(first);
+}
+
+function dashboardRewrite(url: URL, request: NextRequest): NextResponse {
+  return NextResponse.rewrite(url, {
+    request: { headers: new Headers(request.headers) },
+  });
 }
 
 function sameRedirectURL(location: string | null, requestURL: string): boolean {
