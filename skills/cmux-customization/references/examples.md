@@ -154,6 +154,7 @@ Agent buttons alongside the default terminal and browser buttons.
       "buttons": [
         "cmux.newTerminal",
         "cmux.newBrowser",
+        "cmux.openFile",
         { "action": "codex-new-tab", "title": "Codex" },
         { "action": "claude-new-tab", "title": "Claude" }
       ]

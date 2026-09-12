@@ -19,6 +19,7 @@ extension ShortcutAction {
         case .saveLayoutTemplate:
             return String(localized: "shortcut.saveLayoutTemplate.label", defaultValue: "Save Layout as Template…")
         case .openFolder: return "Open Folder"
+        case .openFile: return "Open File"
         case .reopenPreviousSession: return "Restore Previous App Launch"
         case .goToWorkspace: return "Go to Workspace…"
         case .commandPalette: return "Command Palette…"

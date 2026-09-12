@@ -7389,6 +7389,15 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.openFile",
+                title: constant(String(localized: "command.openFile.title", defaultValue: "Open File…")),
+                subtitle: constant(String(localized: "command.openFile.subtitle", defaultValue: "Surface")),
+                keywords: ["open", "file", "document", "choose", "import", "surface"],
+                when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.openFolderInVSCodeInline",
                 title: constant(
                     String(
@@ -8626,6 +8635,21 @@ struct ContentView: View {
                     _ = tabManager.acquireOptionalWorkspaceIfActive {
                         tabManager.addWorkspaceIfActive(workingDirectory: url.path)
                     }
+                }
+            }
+        }
+        registry.register(commandId: "palette.openFile") {
+            // Defer so the command palette dismisses before the modal panel appears.
+            DispatchQueue.main.async {
+                guard let appDelegate = AppDelegate.shared else {
+                    NSSound.beep()
+                    return
+                }
+                let didOpen = appDelegate.showOpenFilePanel(
+                    preferredWindow: appDelegate.mainWindow(for: windowId)
+                )
+                if !didOpen {
+                    NSSound.beep()
                 }
             }
         }

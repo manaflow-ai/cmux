@@ -72,6 +72,30 @@ final class CmuxConfigContextMenuTests: XCTestCase {
         )
     }
 
+    func testOpenFileBuiltInActionMetadataAndAliases() throws {
+        let action = try XCTUnwrap(CmuxSurfaceTabBarBuiltInAction(configID: "open-file"))
+        XCTAssertEqual(action, .openFile)
+        XCTAssertEqual(action.configID, "cmux.openFile")
+        XCTAssertTrue(action.resolvedConfigMetadata.title.localizedCaseInsensitiveContains("open file"))
+        XCTAssertTrue(action.resolvedConfigMetadata.keywords.contains("file"))
+    }
+
+    func testOpenFileSurfaceTabBarButtonDecodesAsBuiltIn() throws {
+        let config = try decode("""
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": ["cmux.openFile"]
+            }
+          }
+        }
+        """)
+        let button = try XCTUnwrap(config.surfaceTabBarButtons?.first)
+        XCTAssertEqual(button.action, .actionReference(CmuxSurfaceTabBarBuiltInAction.openFile.configID))
+        let resolved = try button.resolved(actions: [:], codingPath: [])
+        XCTAssertEqual(resolved.action, .builtIn(.openFile))
+    }
+
     func testDecodeNewWorkspaceContextMenuPreservesOrder() throws {
         let json = """
         {

@@ -473,6 +473,18 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(shortcut.control)
     }
 
+    func testOpenFileShortcutDefaultsToCommandO() {
+        let action = KeyboardShortcutSettings.Action.openFile
+        XCTAssertEqual(action.label, String(localized: "shortcut.openFile.label", defaultValue: "Open File"))
+        XCTAssertEqual(action.defaultsKey, "shortcut.openFile")
+        let shortcut = action.defaultShortcut
+        XCTAssertEqual(shortcut.key, "o")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertFalse(shortcut.shift)
+        XCTAssertFalse(shortcut.option)
+        XCTAssertFalse(shortcut.control)
+    }
+
     func testRightSidebarAndFindShortcutDefaultsMatchSettingsSurface() {
         XCTAssertEqual(
             KeyboardShortcutSettings.Action.focusRightSidebar.label,
