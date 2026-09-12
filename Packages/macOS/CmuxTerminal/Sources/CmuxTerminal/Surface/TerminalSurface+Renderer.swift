@@ -452,7 +452,8 @@ extension TerminalSurface {
 
     @MainActor
     private func recoverRendererPresentationIfNeeded(reason: String) {
-        guard !rendererPresentationState.recoveryAttempted,
+        guard renderHealth != .shellExited,
+              !rendererPresentationState.recoveryAttempted,
               rendererPortalVisible,
               rendererPresentationPhase == .presented,
               liveSurfaceForGhosttyAccess(reason: "renderer.recover.\(reason)") != nil else {
