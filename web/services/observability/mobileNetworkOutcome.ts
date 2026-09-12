@@ -30,7 +30,7 @@ const transports = new Set(["unknown", "iroh", "tailscale", "websocket", "debugL
 
 const allowedPropertyKeys = new Set([
   "phase", "outcome", "duration_ms", "runtime_role", "user_usable",
-  "failure", "transport", "platform", "app_version", "build_number",
+  "failure", "transport", "platform", "client_channel", "app_version", "build_number",
   "bundle_identifier", "os_version", "device_model",
 ]);
 
@@ -44,6 +44,7 @@ export type MobileNetworkOutcome = {
   readonly failure?: string;
   readonly transport?: string;
   readonly platform?: "ios";
+  readonly clientChannel?: "dev" | "nightly" | "production" | "unknown";
   readonly appVersion?: string;
   readonly buildNumber?: string;
   readonly bundleIdentifier?: string;
@@ -67,7 +68,7 @@ export function parseMobileNetworkOutcome(candidate: unknown): MobileNetworkOutc
 }
 
 type CoreObservation = Pick<MobileNetworkOutcome, "phase" | "outcome" | "durationMs" | "userUsable" | "failure" | "transport">;
-type Metadata = Pick<MobileNetworkOutcome, "platform" | "appVersion" | "buildNumber" | "bundleIdentifier" | "osVersion" | "deviceModel">;
+type Metadata = Pick<MobileNetworkOutcome, "platform" | "clientChannel" | "appVersion" | "buildNumber" | "bundleIdentifier" | "osVersion" | "deviceModel">;
 
 function validTimestamp(value: unknown): value is string {
   return typeof value === "string"
@@ -100,14 +101,16 @@ function parseCore(properties: Record<string, unknown>): CoreObservation | null 
 
 function parseMetadata(properties: Record<string, unknown>): Metadata | null {
   const platform = optionalExact(properties.platform, "ios");
+  const clientChannel = optionalSetValue(properties.client_channel, new Set(["dev", "nightly", "production", "unknown"]));
   const appVersion = optionalMachineString(properties.app_version);
   const buildNumber = optionalMachineString(properties.build_number);
   const bundleIdentifier = optionalMachineString(properties.bundle_identifier);
   const osVersion = optionalMachineString(properties.os_version);
   const deviceModel = optionalMachineString(properties.device_model, true);
-  if ([platform, appVersion, buildNumber, bundleIdentifier, osVersion, deviceModel].includes(false)) return null;
+  if ([platform, clientChannel, appVersion, buildNumber, bundleIdentifier, osVersion, deviceModel].includes(false)) return null;
   return {
     ...(platform === "ios" ? { platform } : {}),
+    ...(typeof clientChannel === "string" ? { clientChannel } : {}),
     ...(typeof appVersion === "string" ? { appVersion } : {}),
     ...(typeof buildNumber === "string" ? { buildNumber } : {}),
     ...(typeof bundleIdentifier === "string" ? { bundleIdentifier } : {}),
@@ -136,6 +139,7 @@ export async function emitMobileNetworkOutcomes(
       "cmux.mobile.failure": observation.failure,
       "cmux.mobile.transport": observation.transport,
       "cmux.mobile.platform": observation.platform,
+      "cmux.client.channel": observation.clientChannel,
       "cmux.mobile.app_version": observation.appVersion,
       "cmux.mobile.build_number": observation.buildNumber,
       "cmux.mobile.bundle_identifier": observation.bundleIdentifier,

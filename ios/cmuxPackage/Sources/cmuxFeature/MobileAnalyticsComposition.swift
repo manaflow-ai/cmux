@@ -149,6 +149,10 @@ public struct MobileAnalyticsComposition {
         ]
         if let bundleIdentifier = Bundle.main.bundleIdentifier {
             properties["bundle_identifier"] = .string(bundleIdentifier)
+            let normalized = bundleIdentifier.lowercased()
+            let channel = normalized.contains("nightly") ? "nightly"
+                : normalized.contains("debug") ? "dev" : "production"
+            properties["client_channel"] = .string(channel)
         }
         if let version = info?["CFBundleShortVersionString"] as? String {
             properties["app_version"] = .string(version)
