@@ -72,6 +72,23 @@ private final class OwlFreshRuntimeExecutor: @unchecked Sendable {
         enqueue(Job(operation: operation))
     }
 
+    /// Synchronous fire-and-forget is reserved for deinitialization, where an
+    /// escaping callback must stay retained until its queued teardown runs.
+    func submitAndWait(_ operation: @escaping @Sendable () -> Void) {
+        if isWorkerThread() {
+            operation()
+            return
+        }
+        let completion = DispatchSemaphore(value: 0)
+        guard enqueue(Job {
+            operation()
+            completion.signal()
+        }) else {
+            return
+        }
+        completion.wait()
+    }
+
     func stop() {
         if Thread.current === workerThread {
             lock.lock()
@@ -269,7 +286,7 @@ final class OwlFreshRuntime: @unchecked Sendable {
         if let session {
             self.session = nil
             let sessionBox = SessionBox(session)
-            _ = executor.submit {
+            executor.submitAndWait {
                 owl_shim_session_destroy(sessionBox.pointer)
             }
         }
