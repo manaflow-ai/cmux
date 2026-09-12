@@ -7561,12 +7561,12 @@ final class cmuxUITests: XCTestCase {
         add(echoOCR)
         capture("ios18-04-terminal-input-echo")
 
-        surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)).press(
-            forDuration: 0.05,
-            thenDragTo: surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.70)),
-            withVelocity: .slow,
-            thenHoldForDuration: 0.5
-        )
+        if app.buttons["terminal.inputAccessory.hideKeyboard"].exists {
+            app.buttons["terminal.inputAccessory.hideKeyboard"].tap()
+            _ = waitForKeyboardDismissal(in: app)
+        }
+        surface.swipeUp(velocity: .slow)
+        surface.swipeUp(velocity: .slow)
         _ = waitForDock(in: app, describe: "drag moves the primary terminal into scrollback") {
             guard let offset = Int($0["scrollOffset"] ?? "") else { return false }
             return $0["scrollAtBottom"] == "0" && offset != bottomOffset
