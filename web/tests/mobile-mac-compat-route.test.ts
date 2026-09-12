@@ -100,6 +100,14 @@ describe("mobile-mac-compat route", () => {
       minBaseVersion: "0.64.22",
       minBuild: "3345650013202",
     });
+    expect(mobileMacCompatList.entries[0].buildKinds?.beta.nightly).toEqual({
+      minBaseVersion: "0.64.22",
+      minBuild: "3345650013202",
+    });
+    expect(mobileMacCompatList.entries[1].buildKinds?.beta.nightly).toEqual({
+      minBaseVersion: "0.64.22",
+      minBuild: "3345650013202",
+    });
     expect(mobileMacCompatList.entries[1].buildKinds?.internal.nightly).toEqual({
       minBaseVersion: "0.64.22",
       minBuild: "3345650013202",
