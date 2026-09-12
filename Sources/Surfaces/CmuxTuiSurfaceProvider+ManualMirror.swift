@@ -370,6 +370,12 @@ extension CmuxTuiSurfaceProvider {
     /// fail with "cmux-tui did not report the new terminal". The compatibility
     /// tree does carry the mapping (`terminal_resource_id` beside `surface`),
     /// so the fallback is the path that actually resolves.
+    ///
+    /// `terminal_not_found` is the same mismatch seen from the other side:
+    /// about one `term_…` id in 64 happens to have the UUIDv4 shape, so the
+    /// daemon accepts it as a host id and misses in a space where it can never
+    /// exist. The terminal is alive and in the tree; only the resolver cannot
+    /// see it.
     nonisolated static func isExplicitUnsupportedResolverError(_ error: Error) -> Bool {
         guard case let CloudMachineLink.LinkError.exited(_, output) = error else { return false }
         let lines = output.split(whereSeparator: \.isNewline)
@@ -383,7 +389,9 @@ extension CmuxTuiSurfaceProvider {
             }
             let detailError = (object["details"] as? [String: Any])?["error"] as? String
             if object["message"] as? String == "invalid_terminal_id"
-                || detailError == "invalid_terminal_id" {
+                || detailError == "invalid_terminal_id"
+                || object["message"] as? String == "terminal_not_found"
+                || detailError == "terminal_not_found" {
                 return true
             }
         }

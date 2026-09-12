@@ -442,6 +442,26 @@ struct CloudManualMirrorTransportTests {
         )
     }
 
+    /// One public `term_…` id in about 64 happens to have the UUIDv4 shape
+    /// (`4` at hex 13, `8`–`b` at hex 17). The daemon then accepts it as a
+    /// host id, looks it up in a space where it can never exist, and answers
+    /// `terminal_not_found` instead of `invalid_terminal_id`. The terminal is
+    /// alive and mapped in the compatibility tree, so that answer must also
+    /// send the resolver to the tree; failing closed surfaced as "cmux-tui did
+    /// not report the new terminal" for `term_c18e42dc7ea84d37b89004384b81d3ba`
+    /// on 2026-09-08.
+    @Test
+    func hostIdSpaceMissFallsBackToTheCompatibilityTree() {
+        let daemonAnswer = """
+        {"code":"raw.command_failed","details":{"error":"terminal_not_found","id":1,"ok":false},"message":"terminal_not_found","retryable":false}
+        """
+        #expect(
+            CmuxTuiSurfaceProvider.isExplicitUnsupportedResolverError(
+                CloudMachineLink.LinkError.exited(status: 1, output: daemonAnswer)
+            )
+        )
+    }
+
     @Test
     func legacyTreeResolverRejectsNonIntegralSurfaceValuesAndScansManyIDsOnce() throws {
         let tree: [String: Any] = [
