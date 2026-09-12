@@ -542,6 +542,7 @@ extension CmuxSettingsFileStore {
         "fileEditor.currentLineHighlight",
         "fileEditor.tabWidth",
         "fileExplorer.doubleClickAction",
+        "fileExplorer.colorByFileType",
         "shortcuts.bindings",
     ]
 }

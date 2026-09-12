@@ -88,20 +88,28 @@ final class FileExplorerCellView: NSTableCellView {
         iconHeightConstraint.constant = style.iconSize
         iconToTextConstraint.constant = style.iconToTextSpacing
 
+        // nil unless fileExplorer.colorByFileType is on and the name is one the
+        // table recognises, in which case both the icon and the label take the
+        // matching ANSI slot from the terminal palette.
+        let typeColor = FileExplorerFileTypeColor.color(
+            forName: node.name,
+            isDirectory: node.isDirectory
+        )
+
         if style == .finder {
             // Native Finder icon pixels miss 3:1 in light mode; use their masks with the dynamic palette tint.
             if node.isDirectory {
                 iconView.apply(CmuxResolvedIconRequest(
                     source: .image(NSWorkspace.shared.icon(for: .folder)),
                     size: NSSize(width: style.iconSize, height: style.iconSize),
-                    tintColor: style.folderIconTint
+                    tintColor: typeColor ?? style.folderIconTint
                 ))
             } else {
                 let pathExtension = (node.name as NSString).pathExtension
                 iconView.apply(CmuxResolvedIconRequest(
                     source: .image(NSWorkspace.shared.icon(for: UTType(filenameExtension: pathExtension) ?? .data)),
                     size: NSSize(width: style.iconSize, height: style.iconSize),
-                    tintColor: style.fileIconTint
+                    tintColor: typeColor ?? style.fileIconTint
                 ))
             }
         } else {
@@ -109,14 +117,14 @@ final class FileExplorerCellView: NSTableCellView {
                 iconView.apply(CmuxResolvedIconRequest(
                     source: .systemSymbol(name: "folder.fill", accessibilityDescription: nil),
                     size: NSSize(width: style.iconSize, height: style.iconSize),
-                    tintColor: style.folderIconTint,
+                    tintColor: typeColor ?? style.folderIconTint,
                     symbolWeight: style.iconWeight
                 ))
             } else {
                 iconView.apply(CmuxResolvedIconRequest(
                     source: .systemSymbol(name: "doc", accessibilityDescription: nil),
                     size: NSSize(width: style.iconSize, height: style.iconSize),
-                    tintColor: style.fileIconTint,
+                    tintColor: typeColor ?? style.fileIconTint,
                     symbolWeight: style.iconWeight
                 ))
             }
@@ -143,7 +151,7 @@ final class FileExplorerCellView: NSTableCellView {
             nameLabel.textColor = style.gitColor(for: gitStatus)
             nameLabel.toolTip = node.path
         } else {
-            nameLabel.textColor = .labelColor
+            nameLabel.textColor = typeColor ?? .labelColor
             nameLabel.toolTip = node.path
         }
     }
