@@ -132,10 +132,10 @@ export function NotFoundTerminal({ command, welcome, lastLogin, dragLabel }: Ter
       className={`relative mx-auto w-full max-w-[72rem] ${dragging ? "z-[10000] select-none" : "z-10"}`}
       style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}
     >
-      <div className="overflow-hidden rounded-[22px] border border-[#52534f] bg-[#272823] shadow-[0_28px_70px_-30px_rgba(0,0,0,0.9)]">
+      <div className="overflow-hidden rounded-b-[22px] border border-[#52534f] bg-[#272823] shadow-[0_28px_70px_-30px_rgba(0,0,0,0.9)]">
         <button
           type="button"
-          className="relative block h-10 w-full touch-none cursor-grab select-none border-0 border-b border-[#353631] bg-[#272823] p-0 text-left active:cursor-grabbing"
+          className="relative block h-10 w-full touch-none cursor-grab select-none border-0 border-b border-[#353631] bg-[#090909] p-0 text-left active:cursor-grabbing"
           aria-label={dragLabel}
           aria-roledescription="draggable window"
           onKeyDown={onKeyDown}
@@ -144,17 +144,7 @@ export function NotFoundTerminal({ command, welcome, lastLogin, dragLabel }: Ter
           onPointerUp={onPointerEnd}
           onPointerCancel={onPointerEnd}
         >
-          <div className="absolute left-3 top-[calc(50%+3px)] flex -translate-y-1/2 gap-[12px]" aria-hidden="true">
-            <span className="h-[19px] w-[19px] rounded-full bg-[#ec6765]" />
-            <span className="h-[19px] w-[19px] rounded-full bg-[#f2ca44]" />
-            <span className="h-[19px] w-[19px] rounded-full bg-[#65c466]" />
-          </div>
-          <span className="absolute left-[109px] top-[0.25px] h-0.5 w-[109px] bg-[#3478f7]" aria-hidden="true" />
-          <div className="absolute inset-y-px left-[109px] flex w-[109px] items-center gap-2 border-x border-[#353631] pl-2 pr-2 text-sm text-[#d8d8d7]" aria-hidden="true">
-            <span className="flex h-[18px] w-[18px] items-center justify-center rounded-[3px] bg-[#d8d8d7] font-mono text-[7px] font-bold tracking-[-0.12em] text-[#272823]">&gt;_</span>
-            <span className="min-w-0 flex-1 truncate font-medium">~/fun</span>
-            <span className="text-[15px] font-light leading-none text-[#92948b]">×</span>
-          </div>
+          <span className="pointer-events-none absolute inset-x-0 top-0 h-10 w-full bg-no-repeat" style={{ backgroundImage: "url('/not-found-titlebar.png')", backgroundSize: "100% 100%" }} aria-hidden="true" />
         </button>
         <div className="relative min-h-[45rem] overflow-hidden bg-[#272823] px-0 text-[11.3px] leading-[14px] text-[#fdfff2]" style={{ fontFamily: 'Menlo, Monaco, "Courier New", monospace' }}>
           <div className="absolute inset-0 whitespace-pre px-0 py-0">
