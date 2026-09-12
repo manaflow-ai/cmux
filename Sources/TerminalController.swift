@@ -1721,7 +1721,7 @@ class TerminalController {
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
                 await self.v2MobileAttachTicketCreate(params: request.params)
             }
-        case "mobile.panel.artifact.stat", "mobile.panel.artifact.fetch", "mobile.panel.artifact.thumbnail":
+        case "mobile.panel.artifact.stat", "mobile.panel.artifact.thumbnail":
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
                 await self.v2MobilePanelArtifactDispatch(
                     method: request.method,
