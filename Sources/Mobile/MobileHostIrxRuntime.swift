@@ -199,7 +199,7 @@ final class MobileHostIrxRuntime {
     /// Stops the IRX host for the shared mobile-host service lifecycle.
     func stopHost() async {
         setDesiredActive(false)
-        await deactivate()
+        await desiredActivityTask?.value
     }
 
     /// Reconciles the IRX lifecycle with the current managed mobile policy.
@@ -1050,6 +1050,12 @@ final class MobileHostIrxRuntime {
                     )
                 }
             case .terminalInput:
+                guard terminalLaneCount < 4 else {
+                    await lane.writer.reset(errorCode: 3)
+                    await lane.reader.stop(errorCode: 3)
+                    continue
+                }
+                terminalLaneCount += 1
                 let resource = lane.descriptor.resource ?? ""
                 Task {
                     await MobileHostIrxTerminalLaneServer.serveInputOnly(
