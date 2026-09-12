@@ -125,7 +125,9 @@ struct MacComputerDetailView: View {
     }
     var body: some View {
         Form {
-            if let listAuthEntry, listAuthEntry.isOutdated {
+            if MobileMacListAuthState.shared.hasSnapshot,
+               let listAuthEntry,
+               listAuthEntry.isOutdated {
                 MacComputerCompatibilitySection(entry: listAuthEntry)
             }
             connectionMethodSection

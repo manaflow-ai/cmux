@@ -633,6 +633,12 @@ import Testing
                 privateAddress: "fd98:deb9:4c94::8"
             ) == "https://[fd98:deb9:4c94::8]:8443/path"
         )
+        #expect(
+            CmuxTuiSurfaceProvider.privateBrowserURL(
+                "http://0.0.0.0:3000/path",
+                privateAddress: "10.16.4.9"
+            ) == "http://10.16.4.9:3000/path"
+        )
         #expect(CmuxTuiSurfaceProvider.privateBrowserURL("https://cmux.com", privateAddress: "10.0.0.2") == nil)
         #expect(
             CmuxTuiSurfaceProvider.privateDesktopURL(privateAddress: "10.16.4.9")
