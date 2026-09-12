@@ -71,6 +71,14 @@ struct VideoBackgroundSourceTests {
         #expect(VideoBackgroundSource.parse("/tmp/notes.txt") == nil)
     }
 
+    @Test func parsesRelativeLocalVideoFiles() {
+        let expectedURL = URL(
+            fileURLWithPath: "relative/loop.mp4",
+            relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        ).standardizedFileURL
+        #expect(VideoBackgroundSource.parse("relative/loop.mp4") == .localFile(url: expectedURL))
+    }
+
     @Test func rejectsNonYouTubeAndMalformedInput() {
         #expect(VideoBackgroundSource.parse("") == nil)
         #expect(VideoBackgroundSource.parse("   ") == nil)
