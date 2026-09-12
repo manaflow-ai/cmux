@@ -57,7 +57,7 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
                 buildKinds: [
                     MobileBuildType.dev.token: Requirement(stableMinVersion: devMin),
                     MobileBuildType.beta.token: Requirement(stableMinVersion: legacyStableMin),
-                    MobileBuildType.internal.token: Requirement(stableMinVersion: legacyStableMin),
+                    MobileBuildType.internal.token: Requirement(stableMinVersion: legacyStableMin, nightly: nightly),
                     MobileBuildType.demo.token: Requirement(stableMinVersion: legacyStableMin),
                     MobileBuildType.prod.token: Requirement(stableMinVersion: stableMin, nightly: nightly),
                 ]
@@ -70,7 +70,7 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
                 buildKinds: [
                     MobileBuildType.dev.token: Requirement(stableMinVersion: devMin),
                     MobileBuildType.beta.token: Requirement(stableMinVersion: irohStableMin),
-                    MobileBuildType.internal.token: Requirement(stableMinVersion: stableMin),
+                    MobileBuildType.internal.token: Requirement(stableMinVersion: stableMin, nightly: nightly),
                     MobileBuildType.demo.token: Requirement(stableMinVersion: irohStableMin),
                     MobileBuildType.prod.token: Requirement(stableMinVersion: stableMin, nightly: nightly),
                 ]
@@ -82,7 +82,7 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
                 buildKinds: [
                     MobileBuildType.dev.token: Requirement(stableMinVersion: devMin),
                     MobileBuildType.beta.token: Requirement(stableMinVersion: stableMin, nightly: nightly),
-                    MobileBuildType.internal.token: Requirement(stableMinVersion: stableMin),
+                    MobileBuildType.internal.token: Requirement(stableMinVersion: stableMin, nightly: nightly),
                     MobileBuildType.demo.token: Requirement(stableMinVersion: stableMin),
                     MobileBuildType.prod.token: Requirement(stableMinVersion: stableMin, nightly: nightly),
                 ]
