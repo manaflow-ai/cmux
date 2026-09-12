@@ -7524,11 +7524,17 @@ final class cmuxUITests: XCTestCase {
         receipt.lifetime = .keepAlways
         add(receipt)
 
-        let echo = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            self.terminalRows(in: app).contains("echo: " + marker)
-        }, object: app)
-        XCTAssertEqual(XCTWaiter.wait(for: [echo], timeout: 15), .completed,
-                       "Host echo must return through replay into Ghostty")
+        // Ask the mock host to expose the echoed bytes on the next authoritative
+        // replay, then use the user-visible reconnect action to fetch that replay.
+        let replayLines = history + ["echo: " + marker]
+        let nextSubscription = await server.prepareTerminalReconnect(lines: replayLines)
+        tapCompactToolbarTitleMenu(app.buttons["MobileWorkspaceTitleMenu"], in: app)
+        tapMenuItem(app.buttons["MobileWorkspaceTitleReconnectMenuItem"], in: app)
+        XCTAssertTrue(
+            await server.waitForRequest(method: "mobile.events.subscribe", minimumCount: nextSubscription, timeout: 15),
+            "Reconnect must resubscribe before asserting the host echo"
+        )
+        assertTerminalRow(history.count, label: "echo: " + marker, in: app)
         capture("ios18-03-terminal-input-echo-keyboard")
         app.buttons["terminal.inputAccessory.hideKeyboard"].tap()
         XCTAssertTrue(waitForKeyboardDismissal(in: app))
