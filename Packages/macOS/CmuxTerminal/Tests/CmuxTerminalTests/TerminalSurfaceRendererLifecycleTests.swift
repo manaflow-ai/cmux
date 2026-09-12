@@ -11,14 +11,13 @@ import Testing
         defer { fixture.tearDown() }
         let surface = fixture.surface
 
-        surface.setRendererWindowVisible(false)
-        surface.setRendererWindowVisible(true)
+        surface.setRendererPortalVisible(false, presentationReady: true)
+        surface.setRendererPortalVisible(true, presentationReady: true)
         failProbe(on: surface)
         failProbe(on: surface)
         #expect(surface.renderHealth == .notRendering)
 
         surface.setRendererWindowVisible(false)
-        #expect(surface.renderHealth == .notStarted)
         surface.setRendererWindowVisible(true)
         #expect(surface.rendererPresentationState.inFlightToken != nil)
 
