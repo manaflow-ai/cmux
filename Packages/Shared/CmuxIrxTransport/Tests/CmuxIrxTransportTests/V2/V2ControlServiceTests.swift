@@ -77,6 +77,24 @@ import Testing
         await service.stop()
     }
 
+    @Test func workspaceSnapshotsUseTheExistingControlSocket() async throws {
+        let backend = V2TestBackend(now: now)
+        let service = try service(backend: backend)
+        await service.start()
+        _ = try await ready(service)
+        let snapshot = V2WorkspaceSnapshotRequestSnapshot(
+            terminals: [PurpleTerminal(agent: "codex", cwd: "/work", id: "term", title: "Shell", workspaceID: "ws")],
+            workspaces: [PurpleWorkspace(focused: true, id: "ws", index: 0, name: "Workspace")]
+        )
+        let response = try await service.publishWorkspaceSnapshot(snapshot, generation: "0", revision: 0)
+        #expect(response.vmID == "device")
+        #expect(response.snapshot.terminals.first?.title == "Shell")
+        let fetched = try await service.refreshWorkspace(vmID: "device")
+        #expect(fetched.schemaID == .workspaceSnapshotResultV1)
+        #expect(await backend.sockets.count == 1)
+        await service.stop()
+    }
+
     @Test func rateLimitPreservesCredentialsAndOnlyBlocksItsOperation() async throws {
         let backend = V2TestBackend(now: now)
         let service = try service(backend: backend)

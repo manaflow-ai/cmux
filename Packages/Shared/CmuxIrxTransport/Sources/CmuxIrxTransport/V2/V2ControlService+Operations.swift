@@ -1,6 +1,43 @@
 import Foundation
 
 extension V2ControlService {
+    /// Publishes this device's complete cmux workspace state through the
+    /// existing control socket. The server commits it to the product database
+    /// before returning the authoritative snapshot.
+    public func publishWorkspaceSnapshot(
+        _ snapshot: V2WorkspaceSnapshotRequestSnapshot,
+        generation: String,
+        revision: Int
+    ) async throws -> V2WorkspaceSnapshotResponse {
+        guard let run = runID else { throw V2ControlFailure.stopped }
+        guard revision >= 0, generation == String(descriptor.identityGeneration) else { throw V2ControlFailure.scopeMismatch }
+        let request = V2WorkspaceSnapshotRequest(
+            generation: generation, requestID: UUID().uuidString.lowercased(), revision: revision,
+            schemaID: .workspaceSnapshotV1, snapshot: snapshot, vmID: descriptor.identity.deviceID
+        )
+        let response = try await perform(
+            request, requestID: request.requestID, schemaID: request.schemaID.rawValue,
+            response: V2WorkspaceSnapshotResponse.self, run: run
+        )
+        try assertCurrent(run)
+        publishWorkspace(response)
+        return response
+    }
+
+    /// Reads one VM's latest workspace state through the existing control
+    /// socket. This uses the same connection as IROH control traffic.
+    public func refreshWorkspace(vmID: String) async throws -> V2WorkspaceSnapshotResponse {
+        guard let run = runID else { throw V2ControlFailure.stopped }
+        let request = V2WorkspaceGetRequest(requestID: UUID().uuidString.lowercased(), schemaID: .workspaceGetV1, vmID: vmID)
+        let response = try await perform(
+            request, requestID: request.requestID, schemaID: request.schemaID.rawValue,
+            response: V2WorkspaceSnapshotResponse.self, run: run
+        )
+        try assertCurrent(run)
+        publishWorkspace(response)
+        return response
+    }
+
     /// Refreshes one API ticket in place; concurrent callers share the same operation.
     /// - Parameter forceAuthRefresh: Requests a new Stack token after an authentication rejection.
     /// - Returns: The replacement one-hour API credential.
