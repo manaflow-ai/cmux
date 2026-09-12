@@ -249,10 +249,23 @@ public struct IrohSubstrate: Sendable {
         let peer: IrohPeerConnection
         do {
             peer = try await startPeer(role: .acceptor) {
+                try Task.checkCancellation()
                 let accepting = try await incoming.accept()
+                // IrohLib's FFI future does not observe Swift task
+                // cancellation while the native handshake is pending. If
+                // cancellation wins while `accept()` is in flight, this
+                // check drops the consumed `Accepting` immediately instead
+                // of starting a handshake that no lifecycle owner can keep.
+                try Task.checkCancellation()
                 return try await accepting.connect()
             }
         } catch {
+            // If accept() failed before consuming the incoming, refuse it so
+            // a canceled or malformed handshake cannot sit in the endpoint's
+            // queue until native timeout. If it was already consumed, the
+            // best-effort call is harmless and the Accepting value's drop
+            // releases the native handshake.
+            try? await incoming.refuse()
             if TransportDebugLog.enabled {
                 TransportDebugLog.core.error(
                     """
