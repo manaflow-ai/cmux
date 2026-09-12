@@ -648,6 +648,7 @@ cmux rpc <method> [json-params]        # call any v2 method directly, e.g. cmux 
 | `vm.terminal_close` | `vm terminal close` |
 | `vm.terminal_write`, `vm.terminal_read`, `vm.terminal_wait` | `vm terminal send`, `vm terminal read`, `vm terminal wait` |
 | `vm.cloud_prompt`, `vm.cloud_agent_open` | `vm prompt`, `vm prompt --open` |
+| `vm.diagnostics` | `cmux rpc vm.diagnostics '{"show":true}'` (optional `show` opens the Cloud Diagnostics window and returns the current report) |
 | `vm.publication_list`, `vm.publication_create`, `vm.publication_verify`, `vm.publication_update`, `vm.publication_delete` | `cloud domains list`, `publish`, `access`, `rm`; `vm.publication_verify` is the app-side publication retry path |
 | `vm.domain_list`, `vm.domain_verify` | `cloud domains zones`, `cloud domains verify` |
 | `surface.catalog`, `surface.project`, `surface.new_terminal` | `vm tree` / `surface ls`, `surface open` / `vm open`, `surface new-terminal` / `vm agent` |
