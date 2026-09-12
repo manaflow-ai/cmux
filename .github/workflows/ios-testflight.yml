@@ -1,12 +1,15 @@
-name: iOS TestFlight (CMUX INTERNAL)
+name: iOS TestFlight (CMUX INTERNAL + EXTERNAL)
 
 on:
-  # Poll main every 20 minutes and batch merges into one upload. The decide job
-  # skips scheduled runs when main is unchanged or the changes do not affect iOS.
+  # Poll main and batch merges into each app's upload lane. The decide job skips
+  # scheduled runs when main is unchanged or the changes do not affect iOS.
+  # Internal and external beta apps have independent App Store Connect histories.
   # Manual dispatch remains available for intentional rebuilds.
   schedule:
     # Check current main for a cmux INTERNAL upload every 20 minutes.
     - cron: "7,27,47 * * * *"
+    # Check current main for a cmux BETA external upload every hour.
+    - cron: "17 * * * *"
     # Twice-daily (every 12 hours) cmux DEMO upload of current main.
     - cron: "37 5,17 * * *"
   workflow_dispatch:
@@ -22,13 +25,16 @@ on:
       variant:
         description: >-
           Upload variant. internal (default) ships dev.cmux.app.internal /
-          "cmux INTERNAL"; demo ships dev.cmux.app.demo / "cmux DEMO" with the
-          DEMO-badged app icon and assigns to the cmux DEMO TestFlight group.
+          "cmux INTERNAL"; external ships dev.cmux.app.beta / "cmux BETA" to
+          external testers; demo ships dev.cmux.app.demo / "cmux DEMO" with
+          the DEMO-badged app icon and assigns to the cmux DEMO TestFlight
+          group.
         required: false
         default: internal
         type: choice
         options:
           - internal
+          - external
           - demo
 
 concurrency:
@@ -65,26 +71,31 @@ jobs:
             // downstream job reads needs.decide.outputs.variant instead of
             // re-deriving it from event fields.
             const internalCron = '7,27,47 * * * *';
+            const externalCron = '17 * * * *';
             const demoCron = '37 5,17 * * *';
             const requestedVariant = context.payload?.inputs?.variant;
             const schedule = context.payload?.schedule;
             let variant;
             if (context.eventName === 'schedule' && schedule === internalCron) {
               variant = 'internal';
+            } else if (context.eventName === 'schedule' && schedule === externalCron) {
+              variant = 'external';
             } else if (context.eventName === 'schedule' && schedule === demoCron) {
               variant = 'demo';
             } else if (
               context.eventName === 'workflow_dispatch' &&
-              ['internal', 'demo'].includes(requestedVariant)
+              ['internal', 'external', 'demo'].includes(requestedVariant)
             ) {
               variant = requestedVariant;
             } else {
               core.setFailed('unsupported TestFlight event, schedule, or variant');
               return;
             }
-            const canonicalArtifactName = variant === 'demo'
-              ? 'ios-testflight-build-metadata-demo'
-              : 'ios-testflight-build-metadata';
+            const canonicalArtifactName = {
+              internal: 'ios-testflight-build-metadata',
+              external: 'ios-testflight-build-metadata-external',
+              demo: 'ios-testflight-build-metadata-demo',
+            }[variant];
 
             // Per-SHA workflow concurrency preserves every push, but it also lets
             // several runs reach App Store Connect at once. Build numbers must be
@@ -175,11 +186,12 @@ jobs:
               }
             }
 
-            // Resolve the most recent successful canonical upload as the base for
-            // this build's "What to Test" commit range. Metadata artifacts are
-            // written only after the upload succeeds, and the repository artifact
-            // response includes the originating run's branch and head SHA. Looking
-            // them up directly keeps skipped schedule runs out of this history scan.
+            // Resolve the most recent successful upload for this lane as the base
+            // for this build's "What to Test" commit range. Metadata artifacts
+            // are written only after the upload succeeds, and the repository
+            // artifact response includes the originating run's branch and head
+            // SHA. Looking them up directly keeps skipped schedule runs out of
+            // this history scan.
             //
             // Manual marketing-version-override uploads are deliberately excluded
             // from this canonical lane. They ship the current main SHA under an
@@ -187,8 +199,8 @@ jobs:
             // they must not become the notes base for the next canonical main
             // upload. Override runs upload a dedicated
             // ios-testflight-build-metadata-override artifact instead of the
-            // canonical ios-testflight-build-metadata artifact, and we skip only
-            // those runs here.
+            // canonical artifact for the selected lane, and we skip only those
+            // runs here.
             //
             // Backward compatibility: before this patch there was no
             // marketing_version_override dispatch path in this workflow at all, so
@@ -556,6 +568,7 @@ jobs:
           # Optional manual one-off override that reuses an older approved beta
           # marketing version so external testers can install it immediately.
           INPUT_MARKETING_VERSION_OVERRIDE: ${{ github.event.inputs.marketing_version_override }}
+          INPUT_VARIANT: ${{ needs.decide.outputs.variant }}
         run: |
           set -euo pipefail
           if [ "$IOS_TESTFLIGHT_UPLOAD_MODE" = "marketing_version_override" ]; then
@@ -574,15 +587,18 @@ jobs:
               --marketing-version "$INPUT_MARKETING_VERSION_OVERRIDE" \
               --skip-notes
           else
-            # Reuse the checked-in CMUX_IOS_BETA_MARKETING_VERSION for automatic betas.
-            # Main-push builds use:
-            # - "cmux INTERNAL" display name
-            # - dev.cmux.app.internal bundle ID (separate app, can coexist with external)
-            # - assigned to internal TestFlight group for dogfooding within the team
+            # Reuse the checked-in CMUX_IOS_BETA_MARKETING_VERSION for automatic
+            # betas. Internal and external variants select their bundle,
+            # display name, audience, and App Store Connect eligibility through
+            # the resolver above; their metadata artifacts keep notes and skip
+            # history independent.
             # --notes-from-range: auto-generate audience-appropriate "What to
             # Test" notes from the commits since the previous beta (skipped if we
             # have no base SHA yet).
             ARGS=(--lane beta --signing manual)
+            if [ "$INPUT_VARIANT" = "external" ]; then
+              ARGS+=(--external)
+            fi
             if [ -n "${LAST_UPLOADED_SHA:-}" ]; then
               ARGS+=(--notes-from-range "$LAST_UPLOADED_SHA")
             fi
@@ -614,8 +630,12 @@ jobs:
             echo
             echo "- lane: \`beta\` (bundle id \`${UPLOAD_BUNDLE_ID}\`, ${UPLOAD_AUDIENCE})"
             echo "- signing: manual (CI-imported iOS distribution cert + beta profile)"
-            if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
-              echo "- marketing version override: \`${INPUT_MARKETING_VERSION_OVERRIDE}\`"
+            if [ "$UPLOAD_AUDIENCE" = "external TestFlight testers" ]; then
+              if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
+                echo "- marketing version override: \`${INPUT_MARKETING_VERSION_OVERRIDE}\`"
+              else
+                echo "- marketing version: checked-in beta marketing version"
+              fi
               echo "- external groups: Founder's Edition and cmux Pro"
             else
               echo "- marketing version: checked-in beta marketing version"
@@ -651,14 +671,15 @@ jobs:
         # inside the IPA; without this artifact, a TestFlight crash whose
         # symbols ASC cannot serve is permanently unsymbolicatable (build
         # 20260730090940). Keyed by variant + CFBundleVersion so a crash
-        # report's build number finds the right bundle. The override path is
-        # excluded like the canonical metadata artifact: it archives on a fleet
-        # Mac via cloud-testflight.sh, not under CMUX_IOS_UPLOAD_DIR.
+        # report's build number finds the right bundle. Override builds archive
+        # on a fleet Mac via cloud-testflight.sh, so they remain excluded; the
+        # scheduled external lane archives under CMUX_IOS_UPLOAD_DIR and is
+        # persisted here like the internal and demo lanes.
         # Gated on the UPLOAD step's outcome, not whole-job success(): once the
         # IPA reached TestFlight its symbols must be persisted even if a later
         # step (summary/metadata artifact) failed, or a shipped build becomes
         # unsymbolicatable again.
-        if: ${{ !cancelled() && steps.upload.outcome == 'success' && steps.distribution.outputs.assign_internal_group == '1' }}
+        if: ${{ !cancelled() && steps.upload.outcome == 'success' && (steps.distribution.outputs.assign_internal_group == '1' || (steps.distribution.outputs.assign_external_group == '1' && steps.distribution.outputs.upload_mode == 'checked_in_version')) }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ios-dsyms-${{ needs.decide.outputs.variant }}-${{ steps.upload.outputs.final_build_number }}
@@ -674,7 +695,7 @@ jobs:
         # build shows raw addresses. No --include-sources: the archive builds
         # on a fleet Mac, so its DWARF source paths do not exist on this
         # runner.
-        if: ${{ !cancelled() && steps.upload.outcome == 'success' && steps.distribution.outputs.assign_internal_group == '1' }}
+        if: ${{ !cancelled() && steps.upload.outcome == 'success' && (steps.distribution.outputs.assign_internal_group == '1' || (steps.distribution.outputs.assign_external_group == '1' && steps.distribution.outputs.upload_mode == 'checked_in_version')) }}
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: manaflow
@@ -692,9 +713,10 @@ jobs:
         run: |
           security delete-keychain ios-testflight.keychain >/dev/null 2>&1 || true
 
-  # Normal and demo runs assign their internal group after upload. A manual
-  # external marketing-version override assigns Founder's Edition and Pro
-  # inline in cloud-testflight.sh, so it must skip this internal-app lookup.
+  # Internal and demo runs assign their internal group after upload. External
+  # runs, including the scheduled external lane and a manual marketing-version
+  # override, assign Founder's Edition and Pro inline in upload-testflight.sh,
+  # so they skip this internal-app lookup.
   assign-internal-group:
     name: Assign build to internal TestFlight group
     needs: [decide, upload]
