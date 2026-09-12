@@ -271,7 +271,7 @@ export default async function PricingPage({
                     {t("manageBilling")}
                   </SecondaryLink>
                 </div>
-              ) : canManageBilling || isMax ? (
+              ) : (canManageBilling && !isGo) || isMax ? (
                 <SecondaryLink href="/api/billing/portal">
                   {t("manageBilling")}
                 </SecondaryLink>
@@ -280,7 +280,7 @@ export default async function PricingPage({
                   {t("pro.cta")}
                 </ProCtaLink>
               )}
-              <p className="mt-3 text-xs text-muted">{t("priceMonthlyNote", { amount: PRO_PRICING_USD.month.billedAmount })}</p>
+              <p className="mt-3 text-xs text-muted"><a href={proCheckoutHrefs.month} className="underline underline-offset-2">{t("priceMonthlyNote", { amount: PRO_PRICING_USD.month.billedAmount })}</a></p>
               <p className="mt-5 text-sm font-medium">{t("pro.featuresLead")}</p>
               <FeatureList items={proFeatures} />
             </PlanCard>
@@ -354,7 +354,7 @@ export default async function PricingPage({
               >
                 {t("team.cta")}
               </PricingCheckoutButton>
-              <p className="mt-3 text-xs text-muted">{t("priceMonthlyPerUserNote", { amount: TEAM_PRICING_USD.month.billedAmount })}</p>
+              <p className="mt-3 text-xs text-muted"><a href={teamCheckoutHrefs.month} className="underline underline-offset-2">{t("priceMonthlyPerUserNote", { amount: TEAM_PRICING_USD.month.billedAmount })}</a></p>
               <p className="mt-5 text-sm font-medium">{t("team.featuresLead")}</p>
               <FeatureList items={teamFeatures} />
             </PlanCard>
@@ -393,6 +393,7 @@ export default async function PricingPage({
               rows={compareRows}
               names={{
                 free: t("free.name"),
+                go: t("go.name"),
                 pro: t("pro.name"),
                 max: t("max.name"),
                 team: t("team.name"),
@@ -400,6 +401,7 @@ export default async function PricingPage({
               }}
               prices={{
                 free: t("free.price"),
+                go: `$10 ${t("perMonth")}`,
                 pro: (
                   <PricingIntervalValue
                     monthly={`$${PRO_PRICING_USD.month.billedAmount} ${t("perMonth")}`}
@@ -424,7 +426,7 @@ export default async function PricingPage({
                 pro: (
                   isProCurrent ? (
                     <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
-                  ) : canManageBilling || isMax ? (
+                  ) : (canManageBilling && !isGo) || isMax ? (
                     <SecondaryLink href="/api/billing/portal" size="compact">
                       {t("manageBilling")}
                     </SecondaryLink>

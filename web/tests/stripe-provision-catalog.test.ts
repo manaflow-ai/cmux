@@ -116,7 +116,7 @@ describe("Stripe catalog provisioning", () => {
     const portalArgs = portalCreate!.args.join("\n");
     expect(portalArgs).toContain("metadata[purpose]=personal_plan_switch");
     expect(portalArgs).toContain("features[subscription_update][default_allowed_updates][]=price");
-    expect(portalArgs).toContain("features[subscription_update][products][2][prices][]=price_go_month_10");
+    expect(portalArgs).not.toContain("features[subscription_update][products][2]");
     expect(portalArgs).toContain("features[subscription_update][products][0][product]=prod_pro");
     expect(portalArgs).toContain("features[subscription_update][products][0][prices][]=price_pro_month_50");
     expect(portalArgs).toContain("features[subscription_update][products][1][product]=prod_max");

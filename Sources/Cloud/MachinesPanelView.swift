@@ -453,6 +453,7 @@ struct MachinesPanelView: View {
             memoryOptionsMb: viewModel.memoryOptionsMb,
             lockedMemoryOptionsMb: viewModel.lockedMemoryOptionsMb,
             memoryUpgradePlanId: viewModel.memoryUpgradePlanId,
+            memoryUpgradePlansByMb: viewModel.memoryUpgradePlansByMb,
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
             coordinator: viewModel.createCoordinator
         )

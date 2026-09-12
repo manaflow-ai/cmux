@@ -1,3 +1,4 @@
+import { PricingAudienceSelector } from "../components/pricing-audience-selector";
 import type { ReactNode } from "react";
 import { headers } from "next/headers";
 import { NextRequest } from "next/server";
@@ -191,7 +192,13 @@ export default async function AppPricingPage({
               surface="app_pricing"
             />
 
-          <PricingCategorySection
+          <PricingAudienceSelector
+            individualLabel={pricing.audience.individual}
+            teamLabel={pricing.audience.team}
+            ariaLabel={pricing.audience.label}
+            surface="app_pricing"
+            individual={
+<PricingCategorySection
             id="individual-pricing-category"
               title={pricing.categories.individual.title}
               description={pricing.categories.individual.description}
@@ -319,8 +326,9 @@ export default async function AppPricingPage({
               </PlanCard>
 
             </PricingCategorySection>
-
-          <PricingCategorySection
+            }
+            team={
+<PricingCategorySection
             id="team-enterprise-pricing-category"
               title={pricing.categories.business.title}
               description={pricing.categories.business.description}
@@ -375,6 +383,8 @@ export default async function AppPricingPage({
                 <FeatureList items={pricing.enterprise.features} />
               </PlanCard>
             </PricingCategorySection>
+            }
+          />
 
           <section className="mt-16">
             <h2 className="mb-5 text-lg font-medium tracking-tight">
@@ -385,6 +395,7 @@ export default async function AppPricingPage({
               stickyTopClassName="top-0"
               names={{
                 free: pricing.free.name,
+                go: pricing.go.name,
                 pro: pricing.pro.name,
                 max: pricing.max.name,
                 team: pricing.team.name,
@@ -392,6 +403,7 @@ export default async function AppPricingPage({
               }}
               prices={{
                 free: pricing.free.price,
+                go: `$10 ${pricing.perMonth}`,
                 pro: (
                   <PricingIntervalValue
                     monthly={`$${PRO_PRICING_USD.month.billedAmount} ${pricing.perMonth}`}

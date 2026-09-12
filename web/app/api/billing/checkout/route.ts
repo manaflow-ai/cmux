@@ -227,7 +227,7 @@ async function stripePersonalCheckout(
     if (stripeBillingStatus.hasRecurringSubscription || isStripePortalRecoverable(stripeBillingStatus)) {
       const portalURL = new URL("/api/billing/portal", requestOrigin(request));
       if (
-        stripeBillingStatus.hasActiveSubscription &&
+        plan !== GO_PLAN_ID && stripeBillingStatus.hasActiveSubscription &&
         stripeBillingStatus.activePlanId !== plan
       ) {
         portalURL.searchParams.set("flow", "switch_plan");

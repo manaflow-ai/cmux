@@ -181,6 +181,13 @@ export const MAX_PLAN_MAX_MEMORY_MB = Math.max(...VM_MEMORY_OPTIONS_MB);
 export const MEMORY_UPGRADE_PLAN_ID = MAX_PLAN_ID;
 export const GO_MEMORY_UPGRADE_PLAN_ID = PRO_PLAN_ID;
 
+export function upgradePlanForMemory(memoryMb: number, currentPlanId: string, env: Record<string, string | undefined> = process.env): string | null {
+  const current = normalizedPlanId(currentPlanId);
+  if (current === MAX_PLAN_ID) return null;
+  if (current === GO_PLAN_ID && memoryMb <= maxMemoryMbForPlan(PRO_PLAN_ID, env)) return PRO_PLAN_ID;
+  return memoryMb <= maxMemoryMbForPlan(MAX_PLAN_ID, env) ? MAX_PLAN_ID : null;
+}
+
 /** Largest machine a plan may create. Env-overridable per plan. */
 export function maxMemoryMbForPlan(
   planId: string | null | undefined,

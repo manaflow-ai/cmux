@@ -110,6 +110,7 @@ final class NewMachineModel {
     /// The server's `limits.lockedMemoryOptionsMb` wins whenever it is sent;
     /// this mirror only covers a control plane that predates that field.
     nonisolated static func maxMemoryMb(planId: String?) -> Int {
+        if normalizedPlanId(planId) == "go" { return 4096 }
         if normalizedPlanId(planId) == maxPlanId {
             return memoryOptionsMb.max() ?? standardPlanMaxMemoryMb
         }
@@ -149,6 +150,8 @@ final class NewMachineModel {
     private(set) var lockedMemoryOptionsMb: [Int]
     /// The plan that sells the locked sizes; nil when nothing is locked.
     private(set) var memoryUpgradePlanId: String?
+    private(set) var memoryUpgradePlansByMb: [String: String]?
+    var selectedUpgradePlanId = "max"
     var showsMaxUpgrade = false
     var refreshPlan: (@MainActor () async -> Void)?
     private var storedMemoryMb: Int
@@ -170,14 +173,22 @@ final class NewMachineModel {
 
     private let submit: Submit
 
+    func upgradePlan(for memoryMb: Int) -> String? {
+        if let memoryUpgradePlansByMb { return memoryUpgradePlansByMb[String(memoryMb)] }
+        guard memoryUpgradePlanId != nil else { return nil }
+        if Self.normalizedPlanId(plan?.planId) == "go", memoryMb <= Self.standardPlanMaxMemoryMb { return "pro" }
+        return Self.maxPlanId
+    }
+
     func selectSize(_ memoryMb: Int) {
         if lockedMemoryOptionsMb.contains(memoryMb) {
-            guard memoryUpgradePlanId == Self.maxPlanId else { return }
+            guard let target = upgradePlan(for: memoryMb) else { return }
+            selectedUpgradePlanId = target
             showsMaxUpgrade = true
             PostHogAnalytics.shared.capture("cmux_vm_size_upgrade_prompted", properties: [
                 "requested_memory_mb": memoryMb,
                 "plan": plan?.planId ?? "unknown",
-                "target_plan": Self.maxPlanId,
+                "target_plan": target,
                 "source": "mac_new_machine_sheet",
                 "client": "mac"
             ])
@@ -194,12 +205,14 @@ final class NewMachineModel {
             memoryOptionsMb: limits.memoryOptionsMb,
             lockedMemoryOptionsMb: limits.lockedMemoryOptionsMb,
             memoryUpgradePlanId: limits.memoryUpgradePlanId,
+            memoryUpgradePlansByMb: limits.memoryUpgradePlansByMb,
             submit: submit
         )
         plan = updated.plan
         availableMemoryOptionsMb = updated.availableMemoryOptionsMb
         lockedMemoryOptionsMb = updated.lockedMemoryOptionsMb
         memoryUpgradePlanId = updated.memoryUpgradePlanId
+        memoryUpgradePlansByMb = updated.memoryUpgradePlansByMb
         if !availableMemoryOptionsMb.contains(storedMemoryMb) { storedMemoryMb = updated.memoryMb }
     }
 
@@ -214,8 +227,10 @@ final class NewMachineModel {
         memoryOptionsMb: [Int] = [],
         lockedMemoryOptionsMb: [Int]? = nil,
         memoryUpgradePlanId: String? = nil,
+        memoryUpgradePlansByMb: [String: String]? = nil,
         submit: @escaping Submit
     ) {
+        self.memoryUpgradePlansByMb = memoryUpgradePlansByMb
         self.mode = mode
         self.plan = plan
         let serverOptions = Set(memoryOptionsMb.filter { MachineSizeOption(memoryMb: $0) != nil }).sorted()
@@ -293,7 +308,8 @@ final class NewMachineModel {
 
     /// "32 GB RAM · 128 GB disk · Requires Max" for a locked row.
     func lockedSizeMenuTitle(_ size: MachineSizeOption) -> String {
-        guard let memoryUpgradePlanName else { return size.menuTitle }
+        guard let target = upgradePlan(for: size.memoryMb) else { return size.menuTitle }
+        let memoryUpgradePlanName = Self.planDisplayName(target)
         let format = String(localized: "machines.new.size.locked.row", defaultValue: "%1$@ · Requires %2$@")
         return String(format: format, size.menuTitle, memoryUpgradePlanName)
     }
@@ -302,7 +318,7 @@ final class NewMachineModel {
     /// or no plan sells the locked sizes.
     var lockedSizesNoteText: String? {
         guard supportsSize, !lockedMemoryOptions.isEmpty, let memoryUpgradePlanName else { return nil }
-        let sizes = lockedMemoryOptions.map { Self.memoryLabel(mb: $0) }
+        let sizes = lockedMemoryOptions.filter { upgradePlan(for: $0) == memoryUpgradePlanId }.map { Self.memoryLabel(mb: $0) }
         let joined = ListFormatter.localizedString(byJoining: sizes)
         let format = String(localized: "machines.new.size.locked.note", defaultValue: "%1$@ machines need cmux %2$@.")
         return String(format: format, joined, memoryUpgradePlanName)

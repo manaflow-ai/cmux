@@ -3028,5 +3028,44 @@
       "ko": "Command syntax is intentionally identical in this locale.",
       "ja": "Command syntax is intentionally identical in this locale."
     }
+  },
+  "machines.new.plan.name.max": {
+    "source": "Max",
+    "class": "brand"
+  },
+  "pricing.native.plan.max": {
+    "source": "Max",
+    "class": "brand"
+  },
+  "machines.new.plan.name.pro": {
+    "source": "Pro",
+    "class": "brand"
+  },
+  "pricing.native.plan.go": {
+    "source": "Go",
+    "class": "brand"
+  },
+  "pricing.native.max.price": {
+    "source": "$200",
+    "class": "format"
+  },
+  "pricing.native.go.price": {
+    "source": "$10",
+    "class": "format"
+  },
+  "cloud.ports.title": {
+    "source": "Ports",
+    "identityLocales": {
+      "de": "Standard technical UI term with the same spelling in this language.",
+      "fr": "Standard technical UI term with the same spelling in this language."
+    }
+  },
+  "cloud.ports.status": {
+    "source": "Status",
+    "identityLocales": {
+      "de": "Standard technical UI term with the same spelling in this language.",
+      "da": "Standard technical UI term with the same spelling in this language.",
+      "nb": "Standard technical UI term with the same spelling in this language."
+    }
   }
 }

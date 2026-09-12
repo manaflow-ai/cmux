@@ -8,6 +8,7 @@ export type PricingFeatureVisibility = {
 export type CompareRow = {
   label: string;
   free: string;
+  go: string;
   pro: string;
   max: string;
   team: string;
@@ -22,7 +23,7 @@ export type FaqItem = {
   vault?: boolean;
 };
 
-type PlanColumn = "free" | "pro" | "max" | "team" | "enterprise";
+type PlanColumn = "free" | "go" | "pro" | "max" | "team" | "enterprise";
 export type PricingActionSize = "default" | "compact";
 
 export function visibleProFeatures({
@@ -225,7 +226,7 @@ export function PricingCompareTable({
 }) {
   // Five plan columns: the label column takes 2/7 and each plan 1/7, matching
   // the <colgroup> widths below so the sticky header lines up with the table.
-  const gridTemplateColumns = "minmax(12rem,2fr) repeat(5,minmax(7.5rem,1fr))";
+  const gridTemplateColumns = "minmax(12rem,2fr) repeat(6,minmax(7.5rem,1fr))";
 
   return (
     <div className="max-md:overflow-x-auto">
@@ -236,6 +237,7 @@ export function PricingCompareTable({
         >
           <div className="pr-4" />
           <ColumnHead name={names.free} price={prices.free} action={actions?.free} />
+          <ColumnHead name={names.go} price={prices.go} action={actions?.go} />
           <ColumnHead name={names.pro} price={prices.pro} action={actions?.pro} />
           <ColumnHead name={names.max} price={prices.max} action={actions?.max} />
           <ColumnHead name={names.team} price={prices.team} action={actions?.team} />
@@ -247,12 +249,13 @@ export function PricingCompareTable({
         </div>
         <table className="w-full table-fixed border-separate border-spacing-0 text-[15px]">
           <colgroup>
-            <col className="w-[28.572%]" />
-            <col className="w-[14.286%]" />
-            <col className="w-[14.286%]" />
-            <col className="w-[14.286%]" />
-            <col className="w-[14.286%]" />
-            <col className="w-[14.286%]" />
+            <col className="w-[25%]" />
+            <col className="w-[12.5%]" />
+            <col className="w-[12.5%]" />
+            <col className="w-[12.5%]" />
+            <col className="w-[12.5%]" />
+            <col className="w-[12.5%]" />
+            <col className="w-[12.5%]" />
           </colgroup>
           <tbody>
           {rows.map((row, i) => (
@@ -264,6 +267,7 @@ export function PricingCompareTable({
                 {row.label}
               </th>
               <CompareCell value={row.free} />
+              <CompareCell value={row.go} />
               <CompareCell value={row.pro} />
               <CompareCell value={row.max} />
               <CompareCell value={row.team} />

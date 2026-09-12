@@ -29,6 +29,7 @@ import {
   isPaidVmPlan,
   isVmBillingTeamResolutionError,
   maxMemoryMbForPlan,
+  upgradePlanForMemory,
   resolveVmEntitlements,
   type VmEntitlements,
   vmFreeAccessWindowDays,
@@ -160,6 +161,7 @@ export async function GET(request: Request): Promise<Response> {
       const limits = listEntitlements
         ? {
           maxActiveVms: listEntitlements.maxActiveVms,
+          activeVmCount: entries.filter((vm) => vm.status === "running" || vm.status === "provisioning").length,
           planId: listEntitlements.planId,
           freeAccessWindowDays,
           ...(listEntitlements.planId === "go" ? {
@@ -183,6 +185,11 @@ export async function GET(request: Request): Promise<Response> {
           // instead of hiding that larger machines exist.
           lockedMemoryOptionsMb: lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).memoryOptionsMb,
           memoryUpgradePlanId: lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).upgradePlanId,
+          memoryUpgradePlansByMb: Object.fromEntries(lockedMemoryOptionsMbForPlan(listEntitlements.planId).memoryOptionsMb
+            .flatMap((mb) => {
+              const plan = upgradePlanForMemory(mb, listEntitlements.planId);
+              return plan ? [[String(mb), plan]] : [];
+            })),
           // Kinds a client may request (and the image each resolves to) for the
           // default provider, so a "new machine" dialog offers only kinds that work.
           imageKinds: listVmImageKinds(defaultProviderId(), process.env, {
@@ -626,14 +633,19 @@ function resolveCreateMemory(
   const locked = lockedMemoryOptionsMbForPlan(planId, process.env);
   if (
     requestedMemoryMb !== undefined &&
-    locked.upgradePlanId &&
     locked.memoryOptionsMb.includes(requestedMemoryMb)
   ) {
+    const upgradePlanId = upgradePlanForMemory(requestedMemoryMb, planId);
+    if (!upgradePlanId) return { ok: false, response: vmErrorResponse({
+      error: "vm_memory_unavailable", status: 409,
+      message: "This machine size is currently unavailable.",
+      action: `Choose a size up to ${maxMemoryMb / 1024} GiB and retry.`,
+    }) };
     setSpanAttributes(span, {
       "cmux.vm.memory_mb": requestedMemoryMb,
       "cmux.vm.max_memory_mb": maxMemoryMb,
       "cmux.vm.memory_requested_mb": requestedMemoryMb,
-      "cmux.vm.memory_requires_plan": locked.upgradePlanId,
+      "cmux.vm.memory_requires_plan": upgradePlanId,
     });
     return {
       ok: false,
@@ -641,7 +653,7 @@ function resolveCreateMemory(
         memoryMb: requestedMemoryMb,
         maxMemoryMb,
         planId,
-        upgradePlanId: locked.upgradePlanId,
+        upgradePlanId,
       }),
     };
   }

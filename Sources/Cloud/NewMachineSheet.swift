@@ -25,15 +25,16 @@ struct NewMachineSheet: View {
         .frame(width: 500)
         .accessibilityIdentifier("NewMachineSheet")
         .confirmationDialog(
-            String(localized: "machines.new.max.title", defaultValue: "Upgrade to cmux Max"),
+            String(format: String(localized: "machines.new.size.locked.upgrade", defaultValue: "Upgrade to %@"), NewMachineModel.planDisplayName(model.selectedUpgradePlanId)),
             isPresented: $model.showsMaxUpgrade,
             titleVisibility: .visible
         ) {
             Button(String(localized: "machines.new.max.checkout", defaultValue: "Continue to checkout")) {
-                ProUpgradePresenter.presentCheckout(source: .newMachineSheetMaxUpgrade, plan: .max)
+                ProUpgradePresenter.presentCheckout(source: .newMachineSheetMaxUpgrade, plan: model.selectedUpgradePlanId == "pro" ? .pro : .max)
             }
         } message: {
-            Text(String(localized: "machines.new.max.message", defaultValue: "Max is $200 per month, billed monthly. It unlocks 32 GB and 64 GB machines. Review the price before you confirm payment."))
+            Text(model.selectedUpgradePlanId == "pro" ? String(localized: "pricing.native.pro.price", defaultValue: "$50") : String(localized: "pricing.native.max.price", defaultValue: "$200"))
+            + Text(String(localized: "pricing.native.period.month", defaultValue: "/month"))
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await model.refreshPlan?() }
@@ -87,7 +88,7 @@ struct NewMachineSheet: View {
                             Button { model.selectSize(memoryMb) } label: {
                                 Label(model.lockedSizeMenuTitle(size), systemImage: "lock.fill")
                             }
-                            .disabled(model.memoryUpgradePlanId == nil)
+                            .disabled(model.upgradePlan(for: memoryMb) == nil)
                             .accessibilityIdentifier("NewMachineSheet.size.locked.\(memoryMb)")
                         }
                     }
@@ -108,6 +109,7 @@ struct NewMachineSheet: View {
                         .accessibilityIdentifier("NewMachineSheet.size.lockedNote")
                     Spacer(minLength: 0)
                     Button(upgradeTitle) {
+                        model.selectedUpgradePlanId = model.memoryUpgradePlanId ?? "max"
                         model.showsMaxUpgrade = true
                     }
                     .controlSize(.small)

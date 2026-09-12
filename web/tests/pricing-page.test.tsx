@@ -114,6 +114,7 @@ describe("localized pricing page", () => {
       ),
     ).toEqual({
       label: "Cloud agents on Cloud VMs",
+      go: "true",
       free: "false",
       pro: "true",
       max: "true",
@@ -126,6 +127,7 @@ describe("localized pricing page", () => {
       ),
     ).toEqual({
       label: "Concurrent Cloud VMs",
+      go: "1",
       free: "false",
       pro: "50",
       max: "50",
@@ -248,9 +250,9 @@ describe("localized pricing page", () => {
     expect(proIndex).toBeGreaterThan(-1);
     expect(maxIndex).toBeGreaterThan(proIndex);
     expect(teamIndex).toBeGreaterThan(maxIndex);
-    // Five plan columns in the comparison table.
-    expect(html.match(/<col class="w-\[14\.286%\]"/g)).toHaveLength(5);
-    expect(html).toContain("repeat(5,minmax(7.5rem,1fr))");
+    // Six plan columns include Go.
+    expect(html.match(/<col class="w-\[12\.5%\]"/g)).toHaveLength(6);
+    expect(html).toContain("repeat(6,minmax(7.5rem,1fr))");
   });
 
   test("only advertises Vault when its release flag is enabled", async () => {
@@ -318,7 +320,7 @@ describe("localized pricing page", () => {
       "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_source=pricing_page&amp;interval=year&amp;cmux_placement=pricing_page",
     );
     expect(html).toContain('role="tablist"');
-    expect(html).toContain('<button type="button" role="tab" aria-selected="true"');
+    expect(html).toMatch(/<button[^>]*role="tab"[^>]*aria-selected="true"/);
     expect(html).not.toContain('href="?interval=');
     expect(html).toContain("mx-auto mt-6 flex w-fit");
   });
@@ -362,7 +364,7 @@ describe("localized pricing page", () => {
     expect(html).toContain(
       "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_source=pricing_page&amp;interval=month&amp;cmux_placement=pricing_page",
     );
-    expect(html).toContain('<button type="button" role="tab" aria-selected="true"');
+    expect(html).toMatch(/<button[^>]*role="tab"[^>]*aria-selected="true"/);
   });
 
   test("shows individual plans first and includes the team audience view", async () => {

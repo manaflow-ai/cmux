@@ -134,7 +134,7 @@ export function verifiedAppPricingRelayScheme(requestURL: URL): string | null {
   const signature = requestURL.searchParams.get(CHECKOUT_RELAY_SIGNATURE_PARAM);
   const secret = appPricingRelaySecret();
   if (
-    (plan !== "go" && plan !== "pro" && plan !== "team") ||
+    (plan !== "go" && plan !== "pro" && plan !== "max" && plan !== "team") ||
     (interval !== "month" && interval !== "year") ||
     !expires ||
     !signature ||

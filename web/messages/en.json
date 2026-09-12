@@ -844,7 +844,7 @@
       "features": [
         "1 active Cloud VM",
         "2 vCPU, 4 GB RAM, and 16 GB disk",
-        "2 saved VMs; pause when you are done",
+        "2 saved VMs in total, including the running VM",
         "40 included VM-hours each month; VMs pause at the limit"
       ]
     },
@@ -907,7 +907,8 @@
           "pro": "true",
           "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "true"
         },
         {
           "label": "Local CLI agents with your own keys",
@@ -915,7 +916,8 @@
           "pro": "true",
           "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "true"
         },
         {
           "label": "Vertical tabs, splits, notifications, socket API",
@@ -923,7 +925,8 @@
           "pro": "true",
           "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "true"
         },
         {
           "label": "Session history",
@@ -932,7 +935,8 @@
           "max": "Unlimited",
           "team": "Unlimited",
           "enterprise": "Unlimited",
-          "vault": true
+          "vault": true,
+          "go": "Local"
         },
         {
           "label": "cmux Vault: cloud session backup",
@@ -941,7 +945,8 @@
           "max": "true",
           "team": "true",
           "enterprise": "true",
-          "vault": true
+          "vault": true,
+          "go": "false"
         },
         {
           "label": "Search across all your sessions",
@@ -950,7 +955,8 @@
           "max": "true",
           "team": "true",
           "enterprise": "true",
-          "vault": true
+          "vault": true,
+          "go": "false"
         },
         {
           "label": "Cloud agents on Cloud VMs",
@@ -958,7 +964,8 @@
           "pro": "true",
           "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "true"
         },
         {
           "label": "Concurrent Cloud VMs",
@@ -966,7 +973,8 @@
           "pro": "50",
           "max": "50",
           "team": "50 per user",
-          "enterprise": "Custom"
+          "enterprise": "Custom",
+          "go": "1"
         },
         {
           "label": "Shared Cloud VM pool",
@@ -974,7 +982,8 @@
           "pro": "4 vCPUs, 16 GB RAM, and 200 GB disk shared across all VMs",
           "max": "64 GB RAM and 16 vCPUs per VM",
           "team": "4 vCPUs, 16 GB RAM, and 200 GB disk per user, shared across their VMs",
-          "enterprise": "Custom"
+          "enterprise": "Custom",
+          "go": "2 vCPU, 4 GiB RAM, 16 GiB disk"
         },
         {
           "label": "Largest Cloud VM",
@@ -982,7 +991,8 @@
           "pro": "24 GB RAM",
           "max": "64 GB RAM",
           "team": "24 GB RAM",
-          "enterprise": "Custom"
+          "enterprise": "Custom",
+          "go": "4 GiB RAM"
         },
         {
           "label": "Workspaces",
@@ -990,7 +1000,8 @@
           "pro": "Unlimited",
           "max": "Unlimited",
           "team": "Unlimited",
-          "enterprise": "Unlimited"
+          "enterprise": "Unlimited",
+          "go": "Unlimited"
         },
         {
           "label": "iOS app",
@@ -998,7 +1009,8 @@
           "pro": "true",
           "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "Networking to reach your Mac",
@@ -1007,7 +1019,8 @@
           "max": "Hosted",
           "team": "Hosted",
           "enterprise": "Self-hosted",
-          "hostedNetworking": true
+          "hostedNetworking": true,
+          "go": "Bring your own"
         },
         {
           "label": "SSO and SAML sign-in",
@@ -1015,7 +1028,8 @@
           "pro": "false",
           "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "Self-hosted and air-gapped execution",
@@ -1023,7 +1037,8 @@
           "pro": "false",
           "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "Audit logs: sessions, network, browser",
@@ -1031,7 +1046,8 @@
           "pro": "false",
           "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "Volume pricing",
@@ -1039,7 +1055,8 @@
           "pro": "false",
           "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "SOC 2 and an SLA",
@@ -1047,7 +1064,8 @@
           "pro": "false",
           "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "Support",
@@ -1055,7 +1073,8 @@
           "pro": "Email",
           "max": "Email",
           "team": "Priority",
-          "enterprise": "Dedicated"
+          "enterprise": "Dedicated",
+          "go": "Community"
         }
       ]
     },

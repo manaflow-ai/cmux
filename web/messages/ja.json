@@ -844,7 +844,7 @@
       "features": [
         "アクティブな Cloud VM 1 台",
         "2 vCPU、4 GB RAM、16 GB ディスク",
-        "保存 VM 2 台。作業後は一時停止できます",
+        "実行中の VM を含めて合計 2 台の VM を保存",
         "毎月 40 VM 時間を含み、上限で VM は一時停止します"
       ]
     },
@@ -907,7 +907,8 @@
           "pro": "true",
           "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "true"
         },
         {
           "label": "自分のキーで使うローカル CLI エージェント",
@@ -915,7 +916,8 @@
           "pro": "true",
           "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "true"
         },
         {
           "label": "縦型タブ、分割、通知、ソケット API",
@@ -923,7 +925,8 @@
           "pro": "true",
           "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "true"
         },
         {
           "label": "セッション履歴",
@@ -932,7 +935,8 @@
           "max": "無制限",
           "team": "無制限",
           "enterprise": "無制限",
-          "vault": true
+          "vault": true,
+          "go": "ローカル"
         },
         {
           "label": "cmux Vault: クラウドセッションバックアップ",
@@ -941,7 +945,8 @@
           "max": "true",
           "team": "true",
           "enterprise": "true",
-          "vault": true
+          "vault": true,
+          "go": "false"
         },
         {
           "label": "すべてのセッションを横断検索",
@@ -950,7 +955,8 @@
           "max": "true",
           "team": "true",
           "enterprise": "true",
-          "vault": true
+          "vault": true,
+          "go": "false"
         },
         {
           "label": "Cloud VM 上のクラウドエージェント",
@@ -958,7 +964,8 @@
           "pro": "true",
           "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "true"
         },
         {
           "label": "同時 Cloud VM 数",
@@ -966,7 +973,8 @@
           "pro": "50",
           "max": "50",
           "team": "ユーザーごとに 50",
-          "enterprise": "カスタム"
+          "enterprise": "カスタム",
+          "go": "1"
         },
         {
           "label": "共有 Cloud VM プール",
@@ -974,7 +982,8 @@
           "pro": "4 vCPU、16 GB RAM、200 GB ディスクをすべての VM で共有",
           "max": "各 VM に 64 GB RAM と 16 vCPU",
           "team": "ユーザーあたり 4 vCPU、16 GB RAM、200 GB ディスクを、そのユーザーの VM で共有",
-          "enterprise": "カスタム"
+          "enterprise": "カスタム",
+          "go": "2 vCPU、4 GiB RAM、16 GiB ディスク"
         },
         {
           "label": "最大の Cloud VM",
@@ -982,7 +991,8 @@
           "pro": "24 GB RAM",
           "max": "64 GB RAM",
           "team": "24 GB RAM",
-          "enterprise": "カスタム"
+          "enterprise": "カスタム",
+          "go": "4 GiB RAM"
         },
         {
           "label": "ワークスペース",
@@ -990,7 +1000,8 @@
           "pro": "無制限",
           "max": "無制限",
           "team": "無制限",
-          "enterprise": "無制限"
+          "enterprise": "無制限",
+          "go": "無制限"
         },
         {
           "label": "iOS アプリ",
@@ -998,7 +1009,8 @@
           "pro": "true",
           "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "Mac に接続するネットワーク",
@@ -1007,7 +1019,8 @@
           "max": "ホスト型",
           "team": "ホスト型",
           "enterprise": "セルフホスト",
-          "hostedNetworking": true
+          "hostedNetworking": true,
+          "go": "持ち込み"
         },
         {
           "label": "SSO と SAML サインイン",
@@ -1015,7 +1028,8 @@
           "pro": "false",
           "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "セルフホストとエアギャップ実行",
@@ -1023,7 +1037,8 @@
           "pro": "false",
           "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "監査ログ: セッション、ネットワーク、ブラウザ",
@@ -1031,7 +1046,8 @@
           "pro": "false",
           "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "ボリューム価格",
@@ -1039,7 +1055,8 @@
           "pro": "false",
           "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "SOC 2 と SLA",
@@ -1047,7 +1064,8 @@
           "pro": "false",
           "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "サポート",
@@ -1055,7 +1073,8 @@
           "pro": "メール",
           "max": "メール",
           "team": "優先",
-          "enterprise": "専任"
+          "enterprise": "専任",
+          "go": "コミュニティ"
         }
       ]
     },

@@ -27,6 +27,8 @@ export function enforceGoRuntimeLimits() {
       // A paid upgrade removes the Go runtime cap.
       if (!usage || usage.remainingSeconds > 0) return "skipped" as const;
       if (!providers.pause) return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "pause" }));
+      if (!providers.setRuntimeBudget) return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "runtime limits" }));
+      yield* providers.setRuntimeBudget(vm.provider, vm.providerVmId, 0);
       yield* providers.pause(vm.provider, vm.providerVmId);
       // Never mark a machine paused when the provider pause failed. The next
       // job retries it and the meter continues to count its actual state.

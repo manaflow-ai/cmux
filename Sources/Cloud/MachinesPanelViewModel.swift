@@ -121,7 +121,7 @@ struct MachinePlanSnapshot: Equatable {
 
     static func isPaidPlanID(_ planId: String) -> Bool {
         switch planId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "pro", "max", "team", "founders":
+        case "go", "pro", "max", "team", "founders":
             return true
         default:
             return false
@@ -345,7 +345,7 @@ enum MachineSnapshotBuilder {
         let isPaidPlan = MachinePlanSnapshot.isPaidPlanID(limits.planId)
         let expiresAt = isPaidPlan ? nil : earliestFreeAccessExpiry(limits: limits, machines: machines)
         return MachinePlanSnapshot(
-            activeCount: activeCount,
+            activeCount: limits.activeVmCount ?? activeCount,
             maxActiveVms: limits.maxActiveVms,
             planId: limits.planId,
             freeAccessWindowDays: limits.freeAccessWindowDays,
@@ -457,6 +457,7 @@ final class MachinesPanelViewModel: ObservableObject {
     var memoryOptionsMb: [Int] { lastLimits?.memoryOptionsMb ?? [] }
     var lockedMemoryOptionsMb: [Int]? { lastLimits?.lockedMemoryOptionsMb }
     var memoryUpgradePlanId: String? { lastLimits?.memoryUpgradePlanId }
+    var memoryUpgradePlansByMb: [String: String]? { lastLimits?.memoryUpgradePlansByMb }
     private var authSignOutObserver: NSObjectProtocol?
     private var treeChangeObserver: NSObjectProtocol?
     private var createChangeObserver: NSObjectProtocol?

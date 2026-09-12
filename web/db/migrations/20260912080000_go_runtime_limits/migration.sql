@@ -13,7 +13,7 @@ CREATE UNIQUE INDEX cloud_vm_runtime_open_vm_unique ON cloud_vm_runtime_interval
 -- reset a paid meter. Existing running machines start metering at rollout.
 CREATE FUNCTION cmux_record_vm_runtime() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF NEW.status = 'running' THEN
+  IF NEW.status IN ('provisioning', 'running') THEN
     INSERT INTO cloud_vm_runtime_intervals(vm_id, user_id, started_at)
       VALUES (NEW.id, NEW.user_id, clock_timestamp())
       ON CONFLICT (vm_id) WHERE ended_at IS NULL DO NOTHING;
@@ -27,7 +27,7 @@ $$;
 CREATE TRIGGER cmux_vm_runtime AFTER INSERT OR UPDATE OF status ON cloud_vms
   FOR EACH ROW EXECUTE FUNCTION cmux_record_vm_runtime();
 INSERT INTO cloud_vm_runtime_intervals(vm_id, user_id)
-  SELECT id, user_id FROM cloud_vms WHERE status = 'running';
+  SELECT id, user_id FROM cloud_vms WHERE status IN ('provisioning', 'running');
 
 -- Account-wide limits also cover Base, fork, restore, and concurrent creates
 -- in different teams. Paused machines retain disk and count as saved VMs.

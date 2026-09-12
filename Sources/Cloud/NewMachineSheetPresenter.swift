@@ -69,6 +69,7 @@ final class NewMachineSheetPresenter {
         memoryOptionsMb: [Int],
         lockedMemoryOptionsMb: [Int]? = nil,
         memoryUpgradePlanId: String? = nil,
+        memoryUpgradePlansByMb: [String: String]? = nil,
         preferredWindow: NSWindow?,
         coordinator: MachineCreateCoordinator? = nil
     ) {
@@ -85,6 +86,7 @@ final class NewMachineSheetPresenter {
             memoryOptionsMb: memoryOptionsMb,
             lockedMemoryOptionsMb: lockedMemoryOptionsMb,
             memoryUpgradePlanId: memoryUpgradePlanId,
+            memoryUpgradePlansByMb: memoryUpgradePlansByMb,
             submit: { request in
                 coordinator.start(request, cancellableLaunch: { arguments, progress, completion in
                     var cancellation: CloudVMActionLauncher.CancellationHandle?
@@ -122,6 +124,7 @@ final class NewMachineSheetPresenter {
                 memoryOptionsMb: page?.limits?.memoryOptionsMb ?? [],
                 lockedMemoryOptionsMb: page?.limits?.lockedMemoryOptionsMb,
                 memoryUpgradePlanId: page?.limits?.memoryUpgradePlanId,
+                memoryUpgradePlansByMb: page?.limits?.memoryUpgradePlansByMb,
                 preferredWindow: preferredWindow
             )
         }

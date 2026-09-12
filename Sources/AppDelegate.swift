@@ -2538,12 +2538,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             coordinator?.authenticatedSessionIdentity
         })
         self.cloudOperations = cloudOperations
-        VMClient.bootstrap(auth: auth.coordinator)
+        VMClient.bootstrap(auth: auth.coordinator, operations: cloudOperations)
         TerminalController.shared.cloudTunnel = cloudTunnel
         RemotesClient.bootstrap(auth: auth.coordinator)
         AIAccountsClient.bootstrap(auth: auth.coordinator)
         CoderouterClient.bootstrap(auth: auth.coordinator)
-        MachineUsageClient.bootstrap(auth: auth.coordinator)
+        MachineUsageClient.bootstrap(auth: auth.coordinator, operations: cloudOperations)
         PhonePushClient.shared.configure(auth: auth.coordinator)
         MobileHostService.shared.configure(auth: auth.coordinator)
         caffeineController.onStateChange = { [weak self] enabled in
@@ -8898,6 +8898,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     memoryOptionsMb: page?.limits?.memoryOptionsMb ?? [],
                     lockedMemoryOptionsMb: page?.limits?.lockedMemoryOptionsMb,
                     memoryUpgradePlanId: page?.limits?.memoryUpgradePlanId,
+                memoryUpgradePlansByMb: page?.limits?.memoryUpgradePlansByMb,
                     submit: { [weak self] request in
                         guard let self else { return false }
                         return MachineCreateCoordinator.shared.start(request, cancellableLaunch: { [weak self] arguments, progress, completion in
