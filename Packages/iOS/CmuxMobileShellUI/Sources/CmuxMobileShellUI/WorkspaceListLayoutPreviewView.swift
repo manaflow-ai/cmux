@@ -734,9 +734,10 @@ public struct WorkspaceListLayoutPreviewView: View {
                 model.groups[index].isCollapsed = isCollapsed
             } : nil,
             workspaceSortMode: fixtureSortMode,
-            setWorkspaceSortMode: { fixtureSortMode = $0 },
+            setWorkspaceSortMode: nil,
             workspaceComputerPriority: fixtureComputerPriority,
-            setWorkspaceComputerPriority: { fixtureComputerPriority = $0 },
+            setWorkspaceComputerPriority: nil,
+            canCreateWorkspace: false,
             filterState: filterState,
             searchText: searchText
         )
