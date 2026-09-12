@@ -24,6 +24,11 @@ struct CloudTunnelBanner: Equatable, Sendable {
     /// Only the approval wait sends the user somewhere.
     var opensSystemSettings: Bool { kind == .awaitingApproval }
 
+    /// The Machines panel uses its setup row as the persistent connected state.
+    /// Keep transient states visible so approval and failure guidance remains
+    /// discoverable, while avoiding a permanent connected banner.
+    var showsInMachinesPanel: Bool { kind != .connected }
+
     init?(status: CloudTunnelStatus) {
         guard status.backend.isNetworkExtension else { return nil }
         switch status.state {
