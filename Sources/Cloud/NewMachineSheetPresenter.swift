@@ -61,11 +61,14 @@ final class NewMachineSheetPresenter {
     /// command palette) goes through: paywall check, model, sheet. Create
     /// launches `cmux vm new …` through the shared coordinator; the Machines
     /// panel shows the pending row and the outcome, whichever window it is in.
-    /// `plan` and `memoryOptionsMb` come from whatever fleet page the caller
-    /// already holds.
+    /// `plan`, `memoryOptionsMb`, `lockedMemoryOptionsMb` and
+    /// `memoryUpgradePlanId` come from whatever fleet page the caller already
+    /// holds (`VMPlanLimits`).
     func presentNewMachine(
         plan: MachinePlanSnapshot?,
         memoryOptionsMb: [Int],
+        lockedMemoryOptionsMb: [Int]? = nil,
+        memoryUpgradePlanId: String? = nil,
         preferredWindow: NSWindow?,
         coordinator: MachineCreateCoordinator? = nil
     ) {
@@ -80,6 +83,8 @@ final class NewMachineSheetPresenter {
             mode: .newMachine,
             plan: plan,
             memoryOptionsMb: memoryOptionsMb,
+            lockedMemoryOptionsMb: lockedMemoryOptionsMb,
+            memoryUpgradePlanId: memoryUpgradePlanId,
             submit: { request in
                 coordinator.start(request, cancellableLaunch: { arguments, progress, completion in
                     var cancellation: CloudVMActionLauncher.CancellationHandle?
@@ -95,6 +100,10 @@ final class NewMachineSheetPresenter {
                 })
             }
         )
+        model.refreshPlan = { [weak model] in
+            guard let client = VMClient.shared, let page = try? await client.listPage() else { return }
+            model?.applyPage(page)
+        }
         present(model: model, preferredWindow: preferredWindow)
     }
 
@@ -111,6 +120,8 @@ final class NewMachineSheetPresenter {
             presentNewMachine(
                 plan: MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits),
                 memoryOptionsMb: page?.limits?.memoryOptionsMb ?? [],
+                lockedMemoryOptionsMb: page?.limits?.lockedMemoryOptionsMb,
+                memoryUpgradePlanId: page?.limits?.memoryUpgradePlanId,
                 preferredWindow: preferredWindow
             )
         }

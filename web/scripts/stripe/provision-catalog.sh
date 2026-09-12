@@ -233,6 +233,7 @@ ensure_price() {
       exit 1
     fi
     echo "Found price ${lookup_key}: ${price_id}"
+    remember_price_id "$lookup_key" "$price_id"
     return 0
   fi
 
@@ -247,11 +248,124 @@ ensure_price() {
   )"
   price_id="$(jq -er '.id' <<<"$response")"
   echo "Created price ${lookup_key}: ${price_id}"
+  remember_price_id "$lookup_key" "$price_id"
+}
+
+# Price ids found or created this run, keyed by lookup key (bash 3.2 has no
+# associative arrays, so they live in PRICE_ID_<key> variables).
+remember_price_id() {
+  local lookup_key="$1"
+  local price_id="$2"
+  printf -v "PRICE_ID_$(printf '%s' "$lookup_key" | tr -c 'A-Za-z0-9' '_')" '%s' "$price_id"
+}
+
+price_id_for_lookup_key() {
+  local lookup_key="$1"
+  local variable price_id
+  variable="PRICE_ID_$(printf '%s' "$lookup_key" | tr -c 'A-Za-z0-9' '_')"
+  price_id="${!variable:-}"
+  if [[ -z "$price_id" ]]; then
+    echo "Price ${lookup_key} was not provisioned before the portal step" >&2
+    exit 1
+  fi
+  printf '%s' "$price_id"
+}
+
+# The Billing Portal configuration that lets a personal subscription switch
+# between Pro and Max (web/app/api/billing/portal/route.ts, flow=switch_plan).
+# The account's default configuration stays quantity-only; this one is found
+# by its metadata the way Prices are found by lookup key.
+ensure_personal_plan_switch_portal() {
+  local pro_product_id="$1"
+  local max_product_id="$2"
+  local response starting_after page_ids configuration_id default_profile
+  local -a matching_ids=()
+  local -a page_args=()
+
+  starting_after=""
+  while :; do
+    page_args=(--data-urlencode "active=true" --data-urlencode "limit=100")
+    if [[ -n "$starting_after" ]]; then
+      page_args+=(--data-urlencode "starting_after=${starting_after}")
+    fi
+    response="$(stripe_get "/billing_portal/configurations" "${page_args[@]}")"
+    page_ids="$(
+      jq -r '
+        .data[]
+        | select(.metadata.app == "cmux" and .metadata.purpose == "personal_plan_switch")
+        | .id
+      ' <<<"$response"
+    )"
+    while IFS= read -r configuration_id; do
+      [[ -n "$configuration_id" ]] && matching_ids+=("$configuration_id")
+    done <<<"$page_ids"
+    if [[ "$(jq -r '.has_more // false' <<<"$response")" != "true" ]]; then
+      break
+    fi
+    starting_after="$(jq -er '.data[-1].id | select(type == "string" and length > 0)' <<<"$response")"
+  done
+  if (( ${#matching_ids[@]} > 1 )); then
+    echo "Multiple personal plan switch portal configurations found" >&2
+    exit 1
+  fi
+  configuration_id="${matching_ids[0]:-}"
+
+  local pro_monthly_price_id pro_yearly_price_id max_monthly_price_id
+  pro_monthly_price_id="$(price_id_for_lookup_key "cmux-pro-monthly-50")"
+  pro_yearly_price_id="$(price_id_for_lookup_key "cmux-pro-yearly-480")"
+  max_monthly_price_id="$(price_id_for_lookup_key "cmux-max-monthly-200")"
+  local -a feature_args=(
+    -d "features[subscription_update][enabled]=true"
+    -d "features[subscription_update][default_allowed_updates][]=price"
+    -d "features[subscription_update][proration_behavior]=always_invoice"
+    -d "features[subscription_update][products][0][product]=${pro_product_id}"
+    -d "features[subscription_update][products][0][prices][]=${pro_monthly_price_id}"
+    -d "features[subscription_update][products][0][prices][]=${pro_yearly_price_id}"
+    -d "features[subscription_update][products][0][adjustable_quantity][enabled]=false"
+    -d "features[subscription_update][products][1][product]=${max_product_id}"
+    -d "features[subscription_update][products][1][prices][]=${max_monthly_price_id}"
+    -d "features[subscription_update][products][1][adjustable_quantity][enabled]=false"
+    -d "features[subscription_cancel][enabled]=true"
+    -d "features[subscription_cancel][mode]=at_period_end"
+    -d "features[invoice_history][enabled]=true"
+    -d "features[payment_method_update][enabled]=true"
+  )
+
+  if [[ -n "$configuration_id" ]]; then
+    stripe_post "/billing_portal/configurations/${configuration_id}" "${feature_args[@]}" >/dev/null
+    echo "Updated personal plan switch portal configuration: ${configuration_id}"
+    return 0
+  fi
+
+  # Reuse the account's default business profile so the switch flow shows the
+  # same headline and policy links as the plain portal.
+  response="$(stripe_get "/billing_portal/configurations" --data-urlencode "is_default=true" --data-urlencode "limit=1")"
+  default_profile="$(jq -c '.data[0].business_profile // {}' <<<"$response")"
+  local -a profile_args=()
+  local headline privacy terms
+  headline="$(jq -r '.headline // empty' <<<"$default_profile")"
+  privacy="$(jq -r '.privacy_policy_url // empty' <<<"$default_profile")"
+  terms="$(jq -r '.terms_of_service_url // empty' <<<"$default_profile")"
+  [[ -n "$headline" ]] && profile_args+=(--data-urlencode "business_profile[headline]=${headline}")
+  [[ -n "$privacy" ]] && profile_args+=(--data-urlencode "business_profile[privacy_policy_url]=${privacy}")
+  [[ -n "$terms" ]] && profile_args+=(--data-urlencode "business_profile[terms_of_service_url]=${terms}")
+
+  response="$(
+    stripe_post "/billing_portal/configurations" \
+      -d "metadata[app]=cmux" \
+      -d "metadata[purpose]=personal_plan_switch" \
+      "${profile_args[@]}" \
+      "${feature_args[@]}"
+  )"
+  configuration_id="$(jq -er '.id' <<<"$response")"
+  echo "Created personal plan switch portal configuration: ${configuration_id}"
 }
 
 echo "Resolving ${MODE} Stripe catalog…" >&2
 pro_product_id="$(canonical_product "cmux-pro-monthly" "cmux Pro" "pro")"
 echo "Resolved Pro product." >&2
+max_product_id="$(canonical_product "cmux-max-monthly-200" "cmux Max" "max")"
+echo "Resolved Max product." >&2
 team_product_id="$(canonical_product "cmux-team-monthly" "cmux Team" "team")"
 echo "Resolved Team product." >&2
 
@@ -259,6 +373,8 @@ echo "Resolved Team product." >&2
 # immutable, so each price change mints a new lookup key carrying the amount.
 ensure_price "$pro_product_id" "cmux-pro-monthly-50" "5000" "month" "cmux Pro Monthly"
 ensure_price "$pro_product_id" "cmux-pro-yearly-480" "48000" "year" "cmux Pro Yearly"
+# Max is monthly only (no yearly Price on purpose).
+ensure_price "$max_product_id" "cmux-max-monthly-200" "20000" "month" "cmux Max Monthly"
 ensure_price "$team_product_id" "cmux-team-monthly-60" "6000" "month" "cmux Team Monthly"
 ensure_price "$team_product_id" "cmux-team-yearly-576" "57600" "year" "cmux Team Yearly"
 # Grandfathered Prices stay active for the subscriptions already on them
@@ -268,6 +384,8 @@ ensure_price "$pro_product_id" "cmux-pro-yearly" "24000" "year" "cmux Pro Yearly
 ensure_price "$pro_product_id" "cmux-pro-yearly-288" "28800" "year" "cmux Pro Yearly (Legacy \$288)"
 ensure_price "$team_product_id" "cmux-team-monthly" "3500" "month" "cmux Team Monthly (Legacy \$35)"
 ensure_price "$team_product_id" "cmux-team-yearly-336" "33600" "year" "cmux Team Yearly (Legacy \$336)"
+
+ensure_personal_plan_switch_portal "$pro_product_id" "$max_product_id"
 
 if [[ "$MODE" == "live" ]]; then
   webhook_ids=""

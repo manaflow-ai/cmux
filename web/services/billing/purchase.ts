@@ -1,3 +1,5 @@
+import { personalPlanIdForSubscription } from "./subscriptionPlan";
+export { personalPlanIdForSubscription } from "./subscriptionPlan";
 import { findIdentitySnapshotUserIdsByEmail } from "../auth/identitySnapshot";
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type Stripe from "stripe";
@@ -26,12 +28,17 @@ import {
   withFreshAccountMetadataUser,
 } from "../account/metadataMutation";
 import {
+  MAX_PLAN_ID,
+  PERSONAL_PLAN_IDS,
   PRO_PLAN_ID,
+  type PersonalPlanId,
   type ProMetadataJson,
   TEAM_PLAN_ID,
+  isPersonalPlanId,
   syncProPlanMetadata,
   syncTeamPlanMetadata,
 } from "./pro";
+import { MAX_PRICING_USD } from "./plans";
 import { stripe } from "./stripe";
 import { isAscConfigured } from "../asc/client";
 import {
@@ -257,6 +264,8 @@ type UserCheckoutPostCommitSync = {
   stackApp: StackBillingApp | null | undefined;
   deferProMetadataUntilVerification?: boolean;
   sendRecoveryMagicLink?: boolean;
+  /** The personal plan the checkout bought (pro or max), from its Price. */
+  plan: PersonalPlanId;
 };
 
 type CheckoutCompletionLockedResult = {
@@ -469,6 +478,7 @@ export async function recordCheckoutCompletion(
           deferProMetadataUntilVerification:
             input.deferProMetadataUntilVerification,
           sendRecoveryMagicLink: input.sendRecoveryMagicLink,
+          plan: personalPlanIdForSubscription(subscription, input.session.metadata),
         },
         result: { scope: "user", stackUserId, subscriptionId: subscription.id },
       };
@@ -943,13 +953,14 @@ export async function recordProCheckoutCompletionByEmail(
     }
   }
 
+  const personalPlan = personalPlanIdForSubscription(subscription, session.metadata);
   const rewrittenSession = {
     ...session,
     client_reference_id: existingUser.id,
     metadata: {
       ...(session.metadata ?? {}),
       app: "cmux",
-      plan: "pro",
+      plan: personalPlan,
       stackUserId: existingUser.id,
     },
   } as Stripe.Checkout.Session;
@@ -963,7 +974,7 @@ export async function recordProCheckoutCompletionByEmail(
         metadata: {
           ...subscription.metadata,
           app: "cmux",
-          plan: "pro",
+          plan: personalPlan,
           stackUserId: existingUser.id,
         },
       },
@@ -1499,7 +1510,7 @@ async function transferBillingOwnershipClaim(
           eq(stripeSubscriptions.customerId, freshClaim.stripeCustomerId),
           eq(stripeSubscriptions.stackUserId, sourceStackUserId),
           eq(stripeSubscriptions.scope, "user"),
-          eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+          inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
           isNull(stripeSubscriptions.stackTeamId),
         ),
       )
@@ -1520,7 +1531,7 @@ async function transferBillingOwnershipClaim(
         and(
           eq(stripeSubscriptions.stackUserId, targetStackUserId),
           eq(stripeSubscriptions.scope, "user"),
-          eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+          inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
           isNull(stripeSubscriptions.stackTeamId),
         ),
       )
@@ -1559,7 +1570,7 @@ async function transferBillingOwnershipClaim(
           eq(stripeSubscriptions.customerId, freshClaim.stripeCustomerId),
           eq(stripeSubscriptions.stackUserId, sourceStackUserId),
           eq(stripeSubscriptions.scope, "user"),
-          eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+          inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
           isNull(stripeSubscriptions.stackTeamId),
         ),
       );
@@ -1798,7 +1809,7 @@ async function syncUserCheckoutAfterCommit(
         }
         return;
       }
-      await syncProPlanMetadata(user, true, mutationLease);
+      await syncProPlanMetadata(user, true, mutationLease, input.plan);
       if (input.sendRecoveryMagicLink && input.email) {
         await requestPurchaseMagicLink(
           db,
@@ -2008,10 +2019,13 @@ export async function applySubscriptionUpdate(
     stackUserId: lockedResult.stackUserId,
     stackApp: dependencies.stackApp ?? getStackServerApp(),
     sync: async (freshUser, mutationLease) => {
+      // Label the mirror with the plan this subscription's Price sells, so a
+      // Billing Portal switch between Pro and Max lands as `cmuxPlan` change.
       const currentMetadata = await syncProPlanMetadata(
         freshUser,
         isActive,
         mutationLease,
+        personalPlanIdForSubscription(subscription),
       );
       if (!isActive) {
         await removeUserFromTestflightOnLapse(
@@ -2159,7 +2173,7 @@ export async function latestStripeSubscriptionForSession(
     .where(
       and(
         eq(stripeSubscriptions.customerId, customerId),
-        eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+        inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
         eq(stripeSubscriptions.scope, "user"),
         isNull(stripeSubscriptions.stackTeamId),
         sql`${stripeSubscriptions.raw}->'metadata'->>'founders_edition' = 'true'`,
@@ -2226,7 +2240,7 @@ export function isCmuxCheckoutSession(
   ) {
     return true;
   }
-  return Boolean(session.client_reference_id && sessionMetadata?.plan === "pro");
+  return Boolean(session.client_reference_id && isPersonalPlanId(sessionMetadata?.plan));
 }
 
 function isFounderCheckoutMetadata(
@@ -2262,7 +2276,7 @@ export function hasConflictingFounderMetadata(
   if (!isFounder) return false;
   return metadataSources.some(
     (metadata) =>
-      metadata?.plan === PRO_PLAN_ID ||
+      isPersonalPlanId(metadata?.plan) ||
       metadata?.plan === TEAM_PLAN_ID ||
       Boolean(metadata?.stackTeamId),
   );
@@ -2613,9 +2627,16 @@ async function updateExistingUserStripeSubscription(
     );
 }
 
+/**
+ * The personal plan a user-scoped subscription sells, read from its Price so
+ * a Billing Portal switch between Pro and Max re-labels the row on the next
+ * `customer.subscription.updated`. Checkout metadata is the fallback for a
+ * payload without a lookup key; anything else is Pro, the original plan.
+ */
+
 function stripeSubscriptionValues(input: StripeSubscriptionValuesInput) {
   const { subscription } = input;
-  const plan = input.scope === "team" ? TEAM_PLAN_ID : PRO_PLAN_ID;
+  const plan = input.scope === "team" ? TEAM_PLAN_ID : personalPlanIdForSubscription(subscription);
   return {
     id: subscription.id,
     customerId: input.customerId,
@@ -2693,7 +2714,7 @@ async function hasActiveUserProSubscription(
       and(
         eq(stripeSubscriptions.stackUserId, stackUserId),
         eq(stripeSubscriptions.scope, "user"),
-        eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+        inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
         inArray(stripeSubscriptions.status, [...ACTIVE_STRIPE_SUBSCRIPTION_STATUSES]),
         isNull(stripeSubscriptions.stackTeamId),
       ),
@@ -2713,7 +2734,7 @@ async function hasActiveFounderSubscription(
       and(
         eq(stripeSubscriptions.stackUserId, stackUserId),
         eq(stripeSubscriptions.scope, "user"),
-        eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+        inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
         inArray(stripeSubscriptions.status, [...ACTIVE_STRIPE_SUBSCRIPTION_STATUSES]),
         isNull(stripeSubscriptions.stackTeamId),
       ),
