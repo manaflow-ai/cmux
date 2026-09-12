@@ -12,7 +12,7 @@ extension TerminalController {
     func controlWorkspaceFontSizeStrings() -> ControlWorkspaceFontSizeStrings {
         ControlWorkspaceFontSizeStrings(
             invalidParams: String(localized: "socket.workspace.fontSize.invalidParams", defaultValue: "Use increase, decrease, or reset with optional window_id and workspace_id selectors."),
-            unavailable: String(localized: "socket.workspace.fontSize.unavailable", defaultValue: "Workspace font-size coordinator unavailable."),
+            unavailable: String(localized: "socket.workspace.fontSize.unavailable", defaultValue: "Workspace font-size unavailable."),
             notFound: String(localized: "socket.workspace.fontSize.notFound", defaultValue: "Workspace not found in the requested window."),
             rejected: String(localized: "socket.workspace.fontSize.rejected", defaultValue: "Workspace font-size request was not accepted.")
         )
@@ -76,7 +76,10 @@ extension TerminalController {
             return tabManager.tabs.first(where: { $0.id == workspaceId })
         }
         if let surfaceId = routing.surfaceID {
-            return tabManager.tabs.first(where: { $0.panels[surfaceId] != nil })
+            return tabManager.tabs.first(where: {
+                $0.panels[surfaceId] != nil
+                    || $0.remoteTmuxControlPane(surfaceID: surfaceId) != nil
+            })
         }
         if let paneId = routing.paneID,
            let located = v2LocatePane(paneId) {

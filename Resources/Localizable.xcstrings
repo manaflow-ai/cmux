@@ -66,55 +66,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Workspace font-size coordinator unavailable."
+            "value": "Workspace font-size unavailable."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Koordination der Schriftgröße des Arbeitsbereichs ist nicht verfügbar."
+            "value": "Die Schriftgröße des Arbeitsbereichs ist nicht verfügbar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le coordinateur de taille de police de l’espace de travail est indisponible."
+            "value": "La taille de police de l’espace de travail est indisponible."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "منسق حجم الخط لمساحة العمل غير متاح."
+            "value": "حجم خط مساحة العمل غير متاح."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El coordinador del tamaño de fuente del espacio de trabajo no está disponible."
+            "value": "El tamaño de fuente del espacio de trabajo no está disponible."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "工作區字型大小協調器無法使用。"
+            "value": "工作區字型大小無法使用。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "工作区字体大小协调器不可用。"
+            "value": "工作区字体大小不可用。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 글꼴 크기 조정기를 사용할 수 없습니다."
+            "value": "작업 공간 글꼴 크기를 사용할 수 없습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースのフォントサイズ調整機能を利用できません。"
+            "value": "ワークスペースのフォントサイズを利用できません。"
           }
         }
       }

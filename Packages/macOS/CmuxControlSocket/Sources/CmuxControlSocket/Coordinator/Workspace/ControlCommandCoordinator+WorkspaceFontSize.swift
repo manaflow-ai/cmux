@@ -6,10 +6,26 @@ extension ControlCommandCoordinator {
     ]
 
     private static let workspaceFontSizeFallbackStrings = ControlWorkspaceFontSizeStrings(
-        invalidParams: "Invalid workspace font-size parameters",
-        unavailable: "Workspace font-size unavailable",
-        notFound: "Workspace not found",
-        rejected: "Workspace font-size request rejected"
+        invalidParams: String(
+            localized: "socket.workspace.fontSize.invalidParams",
+            defaultValue: "Use increase, decrease, or reset with optional window_id and workspace_id selectors.",
+            bundle: .main
+        ),
+        unavailable: String(
+            localized: "socket.workspace.fontSize.unavailable",
+            defaultValue: "Workspace font-size unavailable.",
+            bundle: .main
+        ),
+        notFound: String(
+            localized: "socket.workspace.fontSize.notFound",
+            defaultValue: "Workspace not found in the requested window.",
+            bundle: .main
+        ),
+        rejected: String(
+            localized: "socket.workspace.fontSize.rejected",
+            defaultValue: "Workspace font-size request was not accepted.",
+            bundle: .main
+        )
     )
 
     /// Handles `workspace.font_size` after validating the complete request

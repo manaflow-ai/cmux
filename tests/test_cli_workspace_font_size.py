@@ -76,7 +76,7 @@ def _fake_socket() -> Iterator[tuple[Path, _FontSizeState]]:
     finally:
         server.shutdown()
         server.server_close()
-        thread.join(timeout=5)
+        thread.join()
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
@@ -87,6 +87,17 @@ def _cli_path() -> str:
     return value
 
 
+def _cli_environment() -> dict[str, str]:
+    env = os.environ.copy()
+    for key in list(env):
+        if key.startswith("CMUX_"):
+            env.pop(key)
+    env["AppleLanguages"] = "(en)"
+    env["LANG"] = "en_US.UTF-8"
+    env["LC_ALL"] = "en_US.UTF-8"
+    return env
+
+
 def _run_cli(
     cli_path: str,
     socket_path: Path,
@@ -94,10 +105,7 @@ def _run_cli(
     workspace: str | None = None,
     global_window: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    for key in list(env):
-        if key.startswith("CMUX_"):
-            env.pop(key)
+    env = _cli_environment()
     env["CMUX_SOCKET_PATH"] = str(socket_path)
     if workspace is None:
         env.pop("CMUX_WORKSPACE_ID", None)
@@ -286,7 +294,7 @@ def test_workspace_font_size_help_describes_scope_and_queueing() -> None:
         capture_output=True,
         text=True,
         check=False,
-        env=os.environ.copy(),
+        env=_cli_environment(),
         timeout=15,
     )
 
@@ -294,6 +302,28 @@ def test_workspace_font_size_help_describes_scope_and_queueing() -> None:
     assert "all terminal panels" in result.stdout
     assert "relative 1pt step" in result.stdout
     assert "does not change focus" in result.stdout
+
+
+def test_workspace_font_size_help_uses_packaged_app_localization() -> None:
+    cli_path = Path(_cli_path())
+    if ".app" not in cli_path.parts:
+        pytest.skip("set CMUX_CLI_BIN to a packaged app CLI to check app localization")
+
+    env = _cli_environment()
+    env["AppleLanguages"] = "(de)"
+    env["LANG"] = "de_DE.UTF-8"
+    env["LC_ALL"] = "de_DE.UTF-8"
+    result = subprocess.run(
+        [str(cli_path), "workspace-font-size", "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=15,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith("Verwendung:")
 
 
 def test_workspace_font_size_invalid_action_with_global_window_has_no_side_effects() -> None:

@@ -1,14 +1,29 @@
 import Foundation
 
 extension CMUXCLI {
-    static let workspaceFontSizeCommandUsage = String(localized: "cli.workspaceFontSize.usage", defaultValue: """
+    private static var workspaceFontSizeLocalizationBundle: Bundle {
+        CLIExecutableLocator.enclosingAppBundle() ?? .main
+    }
+
+    static let workspaceFontSizeCommandUsage = String(
+        localized: "cli.workspaceFontSize.usage",
+        defaultValue: """
     Usage: cmux workspace-font-size <increase|decrease|reset> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]
 
     Request the same font-size action as the GUI for all terminal panels in the
     target workspace. Increase and decrease use a relative 1pt step; reset
     restores the configured size. The command does not change focus. Human
     output confirms that the request was accepted; queued work may defer it.
-    """)
+    """,
+        bundle: workspaceFontSizeLocalizationBundle
+    )
+
+    static var workspaceFontSizeCommandSynopsis: String {
+        guard let firstLine = workspaceFontSizeCommandUsage.components(separatedBy: .newlines).first else {
+            return ""
+        }
+        return firstLine.split(separator: " ", maxSplits: 1).dropFirst().joined(separator: " ")
+    }
 
     private enum WorkspaceFontSizeAction: String {
         case increase
@@ -51,7 +66,8 @@ extension CMUXCLI {
         let payload = try client.sendV2(method: "workspace.font_size", params: params)
         let accepted = String(
             localized: "cli.workspaceFontSize.accepted",
-            defaultValue: "Workspace font size request accepted: \(parsed.action.rawValue). Application may be deferred."
+            defaultValue: "Workspace font size request accepted: \(parsed.action.rawValue). Application may be deferred.",
+            bundle: Self.workspaceFontSizeLocalizationBundle
         )
         printV2Payload(
             payload,
@@ -65,13 +81,15 @@ extension CMUXCLI {
         guard let first = args.first, !first.hasPrefix("-") else {
             throw CLIError(message: String(
                 localized: "cli.workspaceFontSize.error.missingAction",
-                defaultValue: "workspace-font-size requires increase, decrease, or reset"
+                defaultValue: "workspace-font-size requires increase, decrease, or reset",
+                bundle: Self.workspaceFontSizeLocalizationBundle
             ))
         }
         guard let action = WorkspaceFontSizeAction(rawValue: first.lowercased()) else {
             throw CLIError(message: String(
                 localized: "cli.workspaceFontSize.error.invalidAction",
-                defaultValue: "Invalid workspace font-size action '\(first)'; expected increase, decrease, or reset"
+                defaultValue: "Invalid workspace font-size action '\(first)'; expected increase, decrease, or reset",
+                bundle: Self.workspaceFontSizeLocalizationBundle
             ))
         }
 
@@ -114,7 +132,8 @@ extension CMUXCLI {
                 guard index + 1 < args.count, !args[index + 1].hasPrefix("-") else {
                     throw CLIError(message: String(
                         localized: "cli.workspaceFontSize.error.optionValue",
-                        defaultValue: "\(option) requires a workspace or window id, ref, or index"
+                        defaultValue: "\(option) requires a workspace or window id, ref, or index",
+                        bundle: Self.workspaceFontSizeLocalizationBundle
                     ))
                 }
                 value = args[index + 1]
@@ -123,7 +142,8 @@ extension CMUXCLI {
             guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw CLIError(message: String(
                     localized: "cli.workspaceFontSize.error.optionValue",
-                    defaultValue: "\(option) requires a workspace or window id, ref, or index"
+                    defaultValue: "\(option) requires a workspace or window id, ref, or index",
+                    bundle: Self.workspaceFontSizeLocalizationBundle
                 ))
             }
 
@@ -146,14 +166,16 @@ extension CMUXCLI {
     private func unknownWorkspaceFontSizeArgument(_ argument: String) -> CLIError {
         CLIError(message: String(
             localized: "cli.workspaceFontSize.error.unknownArgument",
-            defaultValue: "Unknown workspace-font-size argument: \(argument)"
+            defaultValue: "Unknown workspace-font-size argument: \(argument)",
+            bundle: Self.workspaceFontSizeLocalizationBundle
         ))
     }
 
     private func duplicateWorkspaceFontSizeArgument(_ option: String) -> CLIError {
         CLIError(message: String(
             localized: "cli.workspaceFontSize.error.duplicateArgument",
-            defaultValue: "Duplicate workspace-font-size argument: \(option)"
+            defaultValue: "Duplicate workspace-font-size argument: \(option)",
+            bundle: Self.workspaceFontSizeLocalizationBundle
         ))
     }
 }
