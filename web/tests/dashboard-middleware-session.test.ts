@@ -56,6 +56,23 @@ describe("dashboard session middleware", () => {
     ).toBe("/dashboard/cloud");
   });
 
+  test("does not loop when the default-locale dashboard is rewritten", () => {
+    const response = middleware(
+      new NextRequest("https://cmux.com/dashboard/vms", {
+        headers: {
+          host: "cmux.com",
+          cookie: `__Host-hexclave-refresh-${TEST_STACK_PROJECT_ID}--abc=refresh-1`,
+        },
+      }),
+    );
+
+    expect(response.status).not.toBe(307);
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("x-middleware-rewrite")).toContain(
+      "/en/dashboard/vms",
+    );
+  });
+
   test("ignores the cookie gate outside the dashboard", () => {
     const response = middleware(
       new NextRequest("https://cmux.com/pricing", {
