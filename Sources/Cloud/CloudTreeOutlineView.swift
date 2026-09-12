@@ -426,20 +426,20 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return [
                     item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(machine, nil) },
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
-                ]
+                ] + groupMenuItems(.terminals)
             case .displaysPool(let machine, _):
                 return [
                     item(String(localized: "machines.menu.openDesktop", defaultValue: "Open Desktop")) { [nodeActions] in
                         nodeActions.project(SurfaceResourceID(machine: machine, kind: .display, key: SurfaceResourceID.desktopDisplayKey), .split, true)
                     },
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
-                ]
+                ] + groupMenuItems(.displays)
             case .workspacesGroup(let machine):
                 return [
                     item(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) { [nodeActions] in nodeActions.newWorkspace(machine) },
                     item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(machine, nil) },
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
-                ]
+                ] + groupMenuItems(.workspaces)
             case .workspace(let machine, let workspace, _):
                 let group = node.dragGroup ?? SurfaceResourceGroup(title: workspace.name, resources: [])
                 return [
@@ -474,14 +474,23 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
             case .display(let resource), .port(let resource):
                 return resourceMenuItems(resource, isLocal: false)
-            case .browsersGroup, .portsGroup:
-                return [
-                    item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
-                ]
+            case .browsersGroup:
+                return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }] + groupMenuItems(.browsers)
+            case .portsGroup:
+                return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }] + groupMenuItems(.ports)
             case .placeholder(let machineID, _):
                 guard let machine = machine(id: machineID) else { return [] }
                 return machineMenuItems(machine)
             }
+        }
+
+        private func groupMenuItems(_ group: CloudTreeGroupPreferences.Group) -> [NSMenuItem] {
+            let title = String(localized: "cloudTree.menu.hideGroup", defaultValue: "Hide Group")
+            let menu = item("\(title): \(group.rawValue.capitalized)") {
+                _ = CloudTreeGroupPreferences.setVisible(false, group: group)
+            }
+            menu.state = CloudTreeGroupPreferences.isVisible(group) ? .on : .off
+            return [.separator(), menu]
         }
 
         /// The verbs every surface row shares: open (reusing an open pane), open as a
