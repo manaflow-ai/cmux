@@ -233,9 +233,27 @@ extension CmuxTuiSurfaceProvider {
                 in: materialized.workspaceID,
                 remotePlacement: materialized.remotePlacement
             )
+            AppDelegate.shared?.workspace(containingSurfaceID: projection.panelID)?
+                .clearCloudMaterializationFailure(surfaceID: projection.panelID)
             SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
         } catch {
             materializedPanels.remove(projection.panelID)
+            let detail = CloudMachineLink.errorText(error).isEmpty
+                ? String(localized: "cloud.overlay.materializationFailed.detail", defaultValue: "The secure Cloud terminal endpoint is unavailable.")
+                : CloudMachineLink.errorText(error)
+            var reference: String?
+            if let recorder = links.operations {
+                let context = recorder.begin(.terminal)
+                reference = "operation=\(context.operationID.uuidString.lowercased()) trace=\(context.traceID)"
+                await recorder.finish(context, error: error)
+            }
+            if let workspace = AppDelegate.shared?.workspace(containingSurfaceID: projection.panelID) {
+                workspace.setCloudMaterializationFailure(
+                    surfaceID: projection.panelID,
+                    detail: detail,
+                    reference: reference
+                )
+            }
         }
     }
 
