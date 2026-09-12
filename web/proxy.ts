@@ -71,6 +71,21 @@ export default function middleware(incomingRequest: NextRequest) {
   if (response) return response;
 
   response = intlMiddleware(request);
+  // `localePrefix: "as-needed"` can return a redirect to the same unprefixed
+  // dashboard URL after rewriting it to the default locale. That becomes an
+  // infinite loop on direct dev backends. Keep the request on the localized
+  // route and let the dashboard auth header flow through the rewrite.
+  if (
+    dashboardReturnPath &&
+    response.status >= 300 &&
+    response.status < 400 &&
+    sameRedirectURL(response.headers.get("location"), request.url)
+  ) {
+    const locale = preferredAppRouteLocale(request);
+    const localized = request.nextUrl.clone();
+    localized.pathname = `/${locale}${pathname}`;
+    response = NextResponse.rewrite(localized);
+  }
   if (featureWorkflowDocRequest) {
     setFeatureWorkflowDocLinkHeader(
       response,
@@ -90,6 +105,15 @@ export default function middleware(incomingRequest: NextRequest) {
   return dashboardReturnPath
     ? dashboardResponse(request, response, dashboardReturnPath)
     : response;
+}
+
+function sameRedirectURL(location: string | null, requestURL: string): boolean {
+  if (!location) return false;
+  try {
+    return new URL(location, requestURL).toString() === new URL(requestURL).toString();
+  } catch {
+    return false;
+  }
 }
 
 function handleHostAndMachineRoutes(
