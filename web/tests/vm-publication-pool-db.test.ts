@@ -27,12 +27,40 @@ describe("publication authorization capacity", () => {
       await held;
     });
     await ready;
-    try {
+    const query = (async () => {
       const runtime = await publicationDatabaseRuntime();
-      await runtime.runPromise(Effect.flatMap(Database, db => db.execute(sql`select 1`)));
+      return runtime.runPromise(Effect.flatMap(Database, db => db.execute(sql`select 1`)));
+    })();
+    let queryFailed = false;
+    let queryError: unknown;
+    let queryTimedOut = false;
+    let timeoutID: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        query,
+        new Promise<never>((_, reject) => {
+          timeoutID = setTimeout(() => {
+            queryTimedOut = true;
+            reject(new Error("publication auth query did not complete while the cloud pool was held"));
+          }, 5_000);
+        }),
+      ]);
+    } catch (error) {
+      queryFailed = true;
+      queryError = error;
     } finally {
+      if (timeoutID !== undefined) clearTimeout(timeoutID);
       release();
       await background;
+    }
+    if (queryFailed) {
+      // Drain the query after releasing the held connection so a deliberately
+      // shared pool fails quickly without leaving a rejected promise behind.
+      await query.catch(() => undefined);
+      if (queryTimedOut) {
+        throw new Error("publication auth query blocked behind the cloud pool connection");
+      }
+      throw queryError;
     }
   });
 });
