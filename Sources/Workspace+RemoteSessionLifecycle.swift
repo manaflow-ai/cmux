@@ -213,6 +213,7 @@ extension Workspace {
         if let resource = cloudProjectedResource(forPanel: surfaceId),
            let machineID = resource.id.machine.cloudMachineID,
            let session = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID)?.manualMirrorSessions[surfaceId] {
+            (panels[surfaceId] as? TerminalPanel)?.requestViewReattach()
             return session.retryConnection()
         }
         guard isManagedCloudVMWorkspace,
