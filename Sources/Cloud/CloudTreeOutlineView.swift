@@ -661,9 +661,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                   context.nodes[sourceIndex].canOrganize else { return nil }
             let proposedNode = item as? CloudTreeNode
             let targetIndex: Int
-            if let proposedNode,
-               let siblingIndex = context.nodes.firstIndex(where: { $0.id == proposedNode.id }),
-               proposedNode.id != id {
+            if let proposedNode {
+                guard proposedNode.id != id,
+                      let siblingIndex = context.nodes.firstIndex(where: { $0.id == proposedNode.id }) else { return nil }
                 // For expanded rows AppKit reports the previous sibling as the
                 // item and a child index. Convert that pointer to a gap in the
                 // source sibling collection; never reinterpret it as reparenting.
