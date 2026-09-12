@@ -234,13 +234,10 @@ export default async function PricingPage({
                 ) : null
               }
             >
-              {isProCurrent ? (
-                <div className="space-y-2">
-                  <DisabledButton>{t("currentPlan")}</DisabledButton>
-                  <SecondaryLink href="/api/billing/portal">
-                    {t("manageBilling")}
-                  </SecondaryLink>
-                </div>
+              {isProCurrent && canManageBilling ? (
+                <SecondaryLink href="/api/billing/portal">
+                  {t("manageBilling")}
+                </SecondaryLink>
               ) : canManageBilling || isMax ? (
                 <SecondaryLink href="/api/billing/portal">
                   {t("manageBilling")}

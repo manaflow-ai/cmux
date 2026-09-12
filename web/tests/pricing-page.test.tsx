@@ -282,6 +282,9 @@ describe("localized pricing page", () => {
     expect(html).toContain('href="/api/billing/portal"');
     expect(html).toContain("Manage billing");
     expect(html).toContain("Current plan");
+    // The comparison table keeps its compact current-plan action; the card
+    // itself shows status only in the top-right badge.
+    expect(html.match(/<button[^>]*>Current plan<\/button>/g)).toHaveLength(1);
     // A Pro subscriber can still upgrade: the Max card keeps its checkout
     // link (the server routes an active Pro subscription to the portal).
     expect(html).toContain("/api/billing/checkout?plan=max");

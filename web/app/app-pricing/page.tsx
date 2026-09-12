@@ -473,16 +473,11 @@ function PersonalPlanAction({
 }) {
   switch (state) {
     case "current":
-      return (
-        <div className="space-y-2">
-          <DisabledButton>{pricing.currentPlan}</DisabledButton>
-          {portalVisible ? (
-            <SecondaryLink href="/api/billing/portal">
-              {pricing.manageBilling}
-            </SecondaryLink>
-          ) : null}
-        </div>
-      );
+      return portalVisible ? (
+        <SecondaryLink href="/api/billing/portal">
+          {pricing.manageBilling}
+        </SecondaryLink>
+      ) : null;
     case "unavailable":
       return <DisabledButton>{pricing.billingUnavailable}</DisabledButton>;
     case "manage":

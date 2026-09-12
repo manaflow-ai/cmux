@@ -315,6 +315,7 @@ describe("app pricing page", () => {
     expect(html).toContain('href="/api/billing/portal"');
     expect(html).toContain("Manage billing");
     expect(html).toContain("Current plan");
+    expect(html.match(/<button[^>]*>Current plan<\/button>/g)).toBeNull();
     // A Pro subscriber can still upgrade to Max from the app.
     expect(html).toContain("api/billing/checkout?plan=max");
     expect(html).toContain("Get Max");

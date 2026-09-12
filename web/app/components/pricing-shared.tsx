@@ -96,7 +96,7 @@ export function PlanCard({
           ) : null}
         </div>
       </div>
-      <div className="mt-3">{children}</div>
+      <div className="mt-3 min-h-12">{children}</div>
     </div>
   );
 }
