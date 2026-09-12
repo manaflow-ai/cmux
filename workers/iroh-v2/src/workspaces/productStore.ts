@@ -10,6 +10,7 @@ export interface WorkspaceState {
 
 export interface WorkspaceProductStore {
   get(teamId: string, vmId: string): Promise<WorkspaceState | null>;
+  list(teamId: string): Promise<ReadonlyArray<{ vmId: string; generation: string; revision: number }>>;
   put(input: { teamId: string; vmId: string; generation: string; revision: number; snapshot: WorkspaceSnapshot }): Promise<{ state: WorkspaceState; changed: boolean }>;
 }
 
@@ -26,6 +27,20 @@ export class PostgresWorkspaceProductStore implements WorkspaceProductStore {
         WHERE team_id = ${teamId} AND vm_id = ${vmId}`;
       const row = rows[0];
       return row ? { generation: row.generation, revision: Number(row.revision), snapshot: WorkspaceSnapshotSchema.parse(row.snapshot) } : null;
+    } catch { throw new OperationError("storage_unavailable", 503, true, 2000); }
+    finally { await sql.end({ timeout: 1 }); }
+  }
+
+  async list(teamId: string) {
+    const sql = postgres(this.connectionString, { max: 1, prepare: true, fetch_types: false });
+    try {
+      const rows = await sql<{ vm_id: string; generation: string; revision: number }[]>`
+        SELECT vm_id, generation, revision
+        FROM cmux_workspace_snapshots
+        WHERE team_id = ${teamId}
+        ORDER BY updated_at DESC
+        LIMIT 4096`;
+      return rows.map(row => ({ vmId: row.vm_id, generation: row.generation, revision: Number(row.revision) }));
     } catch { throw new OperationError("storage_unavailable", 503, true, 2000); }
     finally { await sql.end({ timeout: 1 }); }
   }
