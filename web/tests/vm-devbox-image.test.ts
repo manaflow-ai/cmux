@@ -761,7 +761,14 @@ describe("devbox image template", () => {
       };
       expect(spawnSync("bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env }).status).toBe(0);
       const merged = readFileSync(path.join(home, ".codex/config.toml"), "utf8");
-      const parsed = Bun.TOML.parse(merged) as Record<string, unknown>;
+      // Bun supplies the TOML parser at runtime, while this web tsconfig
+      // intentionally omits Bun's ambient types. Keep the test's runtime
+      // dependency explicit without widening the production type environment.
+      const parsed = (
+        globalThis as typeof globalThis & {
+          Bun: { TOML: { parse(value: string): unknown } };
+        }
+      ).Bun.TOML.parse(merged) as Record<string, unknown>;
       expect(parsed.model_provider).toBe("cmux");
       expect(parsed.hooks).toEqual({ state: { "/home/cmux/.codex/hooks.json:Stop:0:0": { trusted_hash: "3f0c" } } });
       expect(parsed.model_providers).toEqual({

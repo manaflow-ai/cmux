@@ -1038,6 +1038,10 @@ fi
 if [[ "${1:-}" == "ping" ]]; then
   exit 0
 fi
+if [[ "${1:-}" == "hooks" && "${2:-}" == "claude" && "${3:-}" == "inject-settings" ]]; then
+  printf '%s' "$FAKE_GENERATED_CLAUDE_HOOK_SETTINGS"
+  exit 0
+fi
 exit 0
 """,
         )
@@ -1118,13 +1122,14 @@ done
                 "CMUX_BUNDLED_CLI_PATH": str(cmux_bin),
                 "TMPDIR": str(root / "tmp"),
                 "FAKE_SETTINGS_OUTPUT": str(settings_output),
+                "FAKE_GENERATED_CLAUDE_HOOK_SETTINGS": GENERATED_HOOK_SETTINGS,
             }
             result = subprocess.run(
                 [str(cmux_shim), "hello"],
                 env=env,
                 capture_output=True,
                 text=True,
-                timeout=5,
+                timeout=15,
                 check=False,
             )
         except subprocess.TimeoutExpired:

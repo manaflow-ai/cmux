@@ -199,6 +199,15 @@ describe("VM Effect workflows", () => {
       getStatus: () => Effect.succeed("running"),
       resume: () => Effect.succeed(testVmHandle({ providerVmId: source.providerVmId! })),
       getStats: (_provider: string, providerVmId: string) => {
+        if (providerVmId === source.providerVmId) {
+          return Effect.succeed({
+            state: "awake" as const,
+            sampledAt: Date.now(),
+            cpus: 16,
+            memoryTotalMb: 16 * 1024,
+            diskTotalMb: 32768,
+          });
+        }
         expect(providerVmId).toBe("provider-vm-legacy-fork-copy");
         return Effect.succeed({
           state: "awake" as const,
@@ -284,6 +293,15 @@ describe("VM Effect workflows", () => {
       getStatus: () => Effect.succeed("running"),
       resume: () => Effect.succeed(testVmHandle({ providerVmId: source.providerVmId! })),
       getStats: (_provider: string, providerVmId: string) => {
+        if (providerVmId === source.providerVmId) {
+          return Effect.succeed({
+            state: "awake" as const,
+            sampledAt: Date.now(),
+            cpus: 1,
+            memoryTotalMb: 4096,
+            diskTotalMb: 16384,
+          });
+        }
         expect(providerVmId).toBe("provider-vm-legacy-fork-invalid-copy");
         return Effect.succeed({
           state: "awake" as const,
@@ -369,6 +387,15 @@ describe("VM Effect workflows", () => {
       getStatus: () => Effect.succeed("running"),
       resume: () => Effect.succeed(testVmHandle({ providerVmId: source.providerVmId! })),
       getStats: (_provider: string, providerVmId: string) => {
+        if (providerVmId === source.providerVmId) {
+          return Effect.succeed({
+            state: "awake" as const,
+            sampledAt: Date.now(),
+            cpus: 1,
+            memoryTotalMb: 4096,
+            diskTotalMb: 16384,
+          });
+        }
         expect(providerVmId).toBe("provider-vm-legacy-fork-one-vcpu-copy");
         return Effect.succeed({
           state: "awake" as const,

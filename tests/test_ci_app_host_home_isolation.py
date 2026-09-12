@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Guard app-host XCTest against persistent console-user configuration."""
 
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
+from typing import Optional
 
 import yaml
 
@@ -107,6 +110,251 @@ def require_no_test_runner_scheme_overrides(scheme: str) -> None:
         raise SystemExit(
             "FAIL: cmux-unit scheme must not override " + ", ".join(overrides)
         )
+
+
+def read_published_environment(path: Path) -> dict[str, str]:
+    published = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        name, separator, value = line.partition("=")
+        if not separator or not name:
+            raise SystemExit("FAIL: app-host preparation published malformed environment")
+        published[name] = value
+    return published
+
+
+def require_config_path_alias_is_accepted() -> None:
+    published: dict[str, str] = {}
+    owns_app_host_scope = False
+    outside_root: Optional[Path] = None
+    with tempfile.TemporaryDirectory(prefix="cmux-config-path-alias-") as temp:
+        temp_root = Path(temp).resolve()
+        bin_dir = temp_root / "bin"
+        runner_temp = temp_root / "runner-temp"
+        github_environment = temp_root / "github-env"
+        bin_dir.mkdir()
+        runner_temp.mkdir()
+        github_environment.touch()
+
+        fake_xcodebuild = bin_dir / "xcodebuild"
+        fake_xcodebuild.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "printf 'cmux DEV [default] reading configuration file path=%s%s\\r\\n' "
+            '"$CMUX_TEST_REPORTED_CONFIG_PATH" "${CMUX_TEST_REPORTED_CONFIG_SUFFIX:-}"\n'
+            'if [ -n "${CMUX_TEST_EXTRA_REPORTED_CONFIG_PATH:-}" ]; then\n'
+            "  printf 'cmux DEV [config] reading configuration file path=%s%s\\r\\n' "
+            '"$CMUX_TEST_EXTRA_REPORTED_CONFIG_PATH" "${CMUX_TEST_REPORTED_CONFIG_SUFFIX:-}"\n'
+            "fi\n"
+            "printf 'cmux DEV message = \"socket.listener.start\"\\r\\n'\n",
+            encoding="utf-8",
+        )
+        fake_xcodebuild.chmod(0o700)
+        fake_python = bin_dir / "python3"
+        fake_python.write_text(
+            "#!/bin/bash\n"
+            "set -euo pipefail\n"
+            "case \"${1##*/}\" in\n"
+            "  xcodebuild_noninteractive.py) shift ;;\n"
+            "  *) exit 2 ;;\n"
+            "esac\n"
+            'status=0\n'
+            '"$@" > "$CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH" 2>&1 '
+            '|| status="$?"\n'
+            'cat "$CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH"\n'
+            'exit "$status"\n',
+            encoding="utf-8",
+        )
+        fake_python.chmod(0o700)
+
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "PATH": f"{bin_dir}:{environment.get('PATH', '/usr/bin:/bin')}",
+                "RUNNER_TEMP": str(runner_temp),
+                "GITHUB_ENV": str(github_environment),
+                "GITHUB_REPOSITORY_ID": "1234567",
+                "GITHUB_RUN_ID": str(int.from_bytes(os.urandom(8), "big")),
+                "GITHUB_RUN_ATTEMPT": "1",
+                "CMUX_APP_HOST_SHARD": "1",
+            }
+        )
+
+        try:
+            preparation = subprocess.run(
+                ["/bin/bash", str(ROOT / "scripts/ci/prepare-app-host-home.sh")],
+                cwd=ROOT,
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if preparation.returncode != 0:
+                raise SystemExit(
+                    "FAIL: could not prepare config-path alias fixture\n"
+                    + preparation.stdout
+                    + preparation.stderr
+                )
+            owns_app_host_scope = True
+            published = read_published_environment(github_environment)
+            environment.update(published)
+
+            published_home = Path(published["CMUX_APP_HOST_HOME"])
+            canonical_home = published_home.resolve(strict=True)
+            if published_home == canonical_home:
+                reported_home = temp_root / "app-host-home-alias"
+                reported_home.symlink_to(canonical_home, target_is_directory=True)
+            else:
+                # macOS publishes /tmp while the validated identity is rooted at
+                # its canonical /private/tmp spelling.
+                reported_home = published_home
+
+            config_suffix = Path(
+                "Library/Application Support/com.mitchellh.ghostty/config.ghostty"
+            )
+            reported_config_path = reported_home / config_suffix
+            canonical_config_path = canonical_home / config_suffix
+            if str(reported_config_path) == str(canonical_config_path) or (
+                reported_config_path.resolve(strict=True)
+                != canonical_config_path.resolve(strict=True)
+            ):
+                raise SystemExit("FAIL: config-path alias fixture is not an alias")
+
+            environment.update(
+                {
+                    "CMUX_APP_HOST_TEST_LOCK_ACTIVE": "1",
+                    "CMUX_CI_APP_HOST_ISOLATION_REQUIRED": "0",
+                    "CMUX_APP_HOST_XCODEBUILD_ATTEMPTS": "1",
+                    "CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS": "5",
+                }
+            )
+
+            def run_validation(
+                config_path: Path,
+                config_suffix: str = "",
+                extra_config_path: Optional[str] = None,
+            ) -> subprocess.CompletedProcess[str]:
+                invocation_environment = environment.copy()
+                invocation_environment["CMUX_TEST_REPORTED_CONFIG_PATH"] = str(
+                    config_path
+                )
+                invocation_environment["CMUX_TEST_REPORTED_CONFIG_SUFFIX"] = config_suffix
+                if extra_config_path is not None:
+                    invocation_environment["CMUX_TEST_EXTRA_REPORTED_CONFIG_PATH"] = (
+                        extra_config_path
+                    )
+                else:
+                    invocation_environment.pop(
+                        "CMUX_TEST_EXTRA_REPORTED_CONFIG_PATH", None
+                    )
+                return subprocess.run(
+                    [
+                        "/bin/bash",
+                        str(ROOT / "scripts/ci/run-app-host-xcodebuild.sh"),
+                        "test",
+                    ],
+                    cwd=ROOT,
+                    env=invocation_environment,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=30,
+                )
+
+            validation = run_validation(
+                reported_config_path,
+                " err=2 (invalid configuration value)",
+            )
+            if validation.returncode != 0:
+                raise SystemExit(
+                    "FAIL: app-host wrapper rejected a canonical config-path alias\n"
+                    + validation.stdout
+                    + validation.stderr
+                )
+
+            # XDG config-file paths may contain spaces. The parser must retain
+            # the complete path while still removing Ghostty's trailing
+            # diagnostic suffix.
+            spaced_config_path = (
+                canonical_home / ".config/ghostty/custom config.ghostty"
+            )
+            spaced_config_path.write_text("# spaced config fixture\n", encoding="utf-8")
+            spaced_validation = run_validation(
+                reported_config_path,
+                " err=2 (invalid configuration value)",
+                str(spaced_config_path),
+            )
+            if spaced_validation.returncode != 0:
+                raise SystemExit(
+                    "FAIL: app-host wrapper rejected an in-home XDG config path with spaces\n"
+                    + spaced_validation.stdout
+                    + spaced_validation.stderr
+                )
+
+            # A path containing an early space must not be truncated before
+            # canonicalization: doing so could turn an outside traversal into
+            # an apparently safe in-home prefix.
+            spaced_prefix = canonical_home / ".config/ghostty/space"
+            spaced_prefix.mkdir()
+            spaced_directory = canonical_home / ".config/ghostty/space dir"
+            spaced_directory.mkdir()
+            outside_root = Path(
+                tempfile.mkdtemp(
+                    prefix="cmux-config-path-alias-outside-", dir="/tmp"
+                )
+            )
+            outside_config_path = outside_root / "outside.ghostty"
+            outside_config_path.write_text("# outside fixture\n", encoding="utf-8")
+            traversal_path = (
+                f"{spaced_directory}/../../../../{outside_root.name}/"
+                f"{outside_config_path.name}"
+            )
+            traversal_validation = run_validation(
+                reported_config_path,
+                " err=2 (invalid configuration value)",
+                traversal_path,
+            )
+            traversal_output = (
+                traversal_validation.stdout + traversal_validation.stderr
+            )
+            if traversal_validation.returncode != 1 or (
+                "FAIL: Ghostty accessed configuration outside the isolated "
+                "app-host home" not in traversal_output
+            ):
+                raise SystemExit(
+                    "FAIL: app-host wrapper accepted an outside traversal in an XDG config path\n"
+                    + traversal_output
+                )
+
+            outside_config_path = temp_root / "outside" / config_suffix
+            outside_config_path.parent.mkdir(parents=True)
+            outside_config_path.write_text("# outside fixture\n", encoding="utf-8")
+            outside_validation = run_validation(outside_config_path)
+            outside_output = outside_validation.stdout + outside_validation.stderr
+            if outside_validation.returncode != 1 or (
+                "FAIL: Ghostty accessed configuration outside the isolated "
+                "app-host home" not in outside_output
+            ):
+                raise SystemExit(
+                    "FAIL: app-host wrapper accepted an existing outside config path\n"
+                    + outside_output
+                )
+        finally:
+            if outside_root is not None:
+                shutil.rmtree(outside_root, ignore_errors=True)
+            if owns_app_host_scope:
+                for name in (
+                    "CMUX_APP_HOST_HOME",
+                    "CMUX_APP_HOST_RECEIPT_DIR",
+                    "CMUX_APP_HOST_CONFIRMATION_FILE",
+                ):
+                    published_path = published.get(name)
+                    if not published_path:
+                        continue
+                    path = Path(published_path)
+                    if path.is_symlink() or path.is_file():
+                        path.unlink()
+                    elif path.is_dir():
+                        shutil.rmtree(path)
 
 
 def require_job(job_name: str) -> dict:
@@ -391,6 +639,7 @@ def main() -> int:
     )
 
     require_no_test_runner_scheme_overrides(UNIT_SCHEME)
+    require_config_path_alias_is_accepted()
 
     for context, needle in {
         "app-host HOME test-runner redirect": (

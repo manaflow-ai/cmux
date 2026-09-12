@@ -164,7 +164,7 @@ struct SurfaceCatalogTests {
     }
 
     @MainActor
-    private final class MaterializeGate {
+    final class MaterializeGate {
         private(set) var entered = false
         private var enteredContinuation: CheckedContinuation<Void, Never>?
         private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
@@ -192,7 +192,7 @@ struct SurfaceCatalogTests {
         }
     }
 
-    private final class FakeProvider: SurfaceProvider {
+    final class FakeProvider: SurfaceProvider {
         let machine: SurfaceMachineID
         var info: SurfaceMachineInfo
         var materialized: [(SurfaceResourceID, SurfaceDestination)] = []

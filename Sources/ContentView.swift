@@ -11915,9 +11915,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 refreshWorkspaceSnapshots()
             }
         }
-        .onDisappear {
-            workspaceSnapshotRefreshCoalescer.cancel()
-        }
+        .onDisappear { workspaceSnapshotRefreshCoalescer.cancel() }
     }
 
     private func legacyWorkspaceScrollArea(
@@ -11965,11 +11963,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
             )
             .overlay(alignment: .top) {
-                // The sidebar top strip remains draggable and handles
-                // double-clicks with the standard titlebar action.
-                WindowDragHandleView()
-                    .frame(height: sidebarTitlebarInteractionHeight)
-                    .background(TitlebarDoubleClickMonitorView())
+                workspaceGroupBulkToggleTitlebarOverlay(renderContext: renderContext)
             }
             .overlay(alignment: .topLeading) {
                 minimalModeSidebarTitlebarControlsOverlay()
@@ -12168,11 +12162,7 @@ struct VerticalTabsSidebar: View, Equatable {
             )
             .overlay(alignment: .top) {
                 if isPresented {
-                    // The sidebar top strip remains draggable and handles
-                    // double-clicks with the standard titlebar action.
-                    WindowDragHandleView()
-                        .frame(height: sidebarTitlebarInteractionHeight)
-                        .background(TitlebarDoubleClickMonitorView())
+                    workspaceGroupBulkToggleTitlebarOverlay(renderContext: renderContext)
                 }
             }
             .overlay(alignment: .topLeading) {
