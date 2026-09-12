@@ -4032,10 +4032,18 @@ final class SocketClient {
         responseTimeout: TimeInterval? = nil,
         deadline: Date? = nil
     ) throws -> [String: Any] {
+        var tracedParams = params
+        if method.hasPrefix("vm.") {
+            for (key, env) in [("cloud_operation_id", "CMUX_CLOUD_OPERATION_ID"),
+                               ("cloud_trace_id", "CMUX_CLOUD_TRACE_ID"),
+                               ("cloud_parent_span_id", "CMUX_CLOUD_PARENT_SPAN_ID")] {
+                if let value = ProcessInfo.processInfo.environment[env] { tracedParams[key] = value }
+            }
+        }
         var request: [String: Any] = [
             "id": UUID().uuidString,
             "method": method,
-            "params": params
+            "params": tracedParams
         ]
         if let ruleID = ProcessInfo.processInfo.environment["CMUX_AUTOMATION_RULE_ID"],
            !ruleID.isEmpty {

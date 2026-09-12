@@ -71,7 +71,11 @@ struct CloudTreeNodeActions {
             onWillMutate(label)
             Task { @MainActor in
                 do {
-                    try await operation(catalog())
+                    if let recorder = AppDelegate.shared?.cloudOperations {
+                        try await recorder.perform(.workspace) { try await operation(catalog()) }
+                    } else {
+                        try await operation(catalog())
+                    }
                 } catch {
                     // Human wording first: the panel now shows this text inline, and a
                     // raw enum dump ("noProvider(cloud(\"m\"))") explains nothing there.
