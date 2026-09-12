@@ -110,7 +110,9 @@ export default function middleware(incomingRequest: NextRequest) {
 function sameRedirectURL(location: string | null, requestURL: string): boolean {
   if (!location) return false;
   try {
-    return new URL(location, requestURL).toString() === new URL(requestURL).toString();
+    const target = new URL(location, requestURL);
+    const current = new URL(requestURL);
+    return target.pathname === current.pathname && target.search === current.search;
   } catch {
     return false;
   }
