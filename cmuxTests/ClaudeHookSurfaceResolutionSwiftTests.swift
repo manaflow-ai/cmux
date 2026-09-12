@@ -880,10 +880,14 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             exitSignal.signal()
         }
 
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        // Foundation can delay the waitUntilExit notification while another
+        // fixture child still owns a pipe, even after this process has exited.
+        // Treat the process state as authoritative at the deadline so a normal
+        // exit is not misreported as a timeout; terminate only a live child.
+        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut && process.isRunning
         if timedOut {
             process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
+            if exitSignal.wait(timeout: .now() + 1) == .timedOut, process.isRunning {
                 kill(process.processIdentifier, SIGKILL)
                 _ = exitSignal.wait(timeout: .now() + 1)
             }

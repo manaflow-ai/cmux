@@ -224,6 +224,30 @@ struct CmuxConfigWorkspaceActionTests {
 
     // MARK: - Executor
 
+    @Test func inlineWorkspaceSyntheticCommandSkipsBlankLabels() throws {
+        let action = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "workspace-action",
+            definition: CmuxConfigActionDefinition(
+                action: .workspace(CmuxWorkspaceDefinition(name: nil), restart: nil),
+                title: "   ",
+                tooltip: "Workspace action"
+            ),
+            sourcePath: nil
+        ))
+        #expect(action.title == "Workspace action")
+
+        let actionCommand = try #require(action.inlineWorkspaceSyntheticCommand)
+        #expect(actionCommand.name == "Workspace action")
+
+        let button = CmuxSurfaceTabBarButton(
+            id: "workspace-button",
+            title: "\t",
+            action: .workspace(CmuxWorkspaceDefinition(name: nil), restart: nil)
+        )
+        let buttonCommand = try #require(button.inlineWorkspaceSyntheticCommand)
+        #expect(buttonCommand.name == "workspace-button")
+    }
+
     @Test func inlineWorkspaceSyntheticCommandCarriesConfirm() throws {
         let action = try #require(CmuxResolvedConfigAction.fromDefinition(
             id: "confirm-me",
@@ -249,8 +273,8 @@ struct CmuxConfigWorkspaceActionTests {
     }
 
     @MainActor
-    @Test func workspaceShellDisclosureListsSetupCommandsAndEnv() {
-        let command = CmuxCommandDefinition(
+    @Test func workspaceShellDisclosureListsSetupCommandsAndEnv() throws {
+        let command = try #require(CmuxCommandDefinition(
             name: "Innocent Name",
             workspace: CmuxWorkspaceDefinition(
                 name: "W",
@@ -271,7 +295,7 @@ struct CmuxConfigWorkspaceActionTests {
                     ]
                 ))
             )
-        )
+        ))
 
         let disclosure = CmuxConfigExecutor.workspaceShellDisclosure(command)
         #expect(disclosure.hasPrefix("Innocent Name"))
@@ -287,10 +311,10 @@ struct CmuxConfigWorkspaceActionTests {
         #expect(disclosure.contains("cwd /tmp/target: rm -rf ./scratch"))
         #expect(disclosure.contains("url: https://example.com"))
 
-        let plain = CmuxCommandDefinition(
+        let plain = try #require(CmuxCommandDefinition(
             name: "Plain",
             workspace: CmuxWorkspaceDefinition(name: "P")
-        )
+        ))
         #expect(CmuxConfigExecutor.workspaceShellDisclosure(plain) == "Plain")
     }
 

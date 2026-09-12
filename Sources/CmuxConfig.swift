@@ -4,9 +4,35 @@ import Combine
 import CryptoKit
 import Foundation
 import CmuxSettings
+import OSLog
+
+
+private func cmuxJSONPath(from codingPath: [any CodingKey]) -> String {
+    var path = ""
+    for key in codingPath {
+        if let index = key.intValue {
+            path += "[\(index)]"
+        } else {
+            if !path.isEmpty { path += "." }
+            path += key.stringValue
+        }
+    }
+    return path
+}
+
+private func cmuxFirstNonBlank(_ values: String?...) -> String? {
+    for value in values {
+        guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            continue
+        }
+        return value
+    }
+    return nil
+}
 
 extension CodingUserInfoKey {
     static let cmuxWorkspaceColorDefaults = CodingUserInfoKey(rawValue: "cmuxWorkspaceColorDefaults")!
+    static let cmuxWorkspaceColorPalette = CodingUserInfoKey(rawValue: "cmuxWorkspaceColorPalette")!
 }
 
 struct CmuxConfigFile: Codable, Sendable {
@@ -17,6 +43,9 @@ struct CmuxConfigFile: Codable, Sendable {
     var newWorkspaceCommand: String?
     var surfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
     var commands: [CmuxCommandDefinition]
+    /// Type-level failures for individual ``commands`` entries. Valid entries
+    /// remain available even when one sibling is malformed.
+    var commandDecodingIssues: [CmuxConfigTypeIssue]
     var vault: CmuxVaultConfigDefinition?
     var workspaceGroups: CmuxConfigWorkspaceGroupsDefinition?
 
@@ -32,6 +61,7 @@ struct CmuxConfigFile: Codable, Sendable {
         newWorkspaceCommand: String? = nil,
         surfaceTabBarButtons: [CmuxSurfaceTabBarButton]? = nil,
         commands: [CmuxCommandDefinition] = [],
+        commandDecodingIssues: [CmuxConfigTypeIssue] = [],
         vault: CmuxVaultConfigDefinition? = nil,
         workspaceGroups: CmuxConfigWorkspaceGroupsDefinition? = nil
     ) {
@@ -42,6 +72,7 @@ struct CmuxConfigFile: Codable, Sendable {
         self.newWorkspaceCommand = newWorkspaceCommand
         self.surfaceTabBarButtons = surfaceTabBarButtons
         self.commands = commands
+        self.commandDecodingIssues = commandDecodingIssues
         self.vault = vault
         self.workspaceGroups = workspaceGroups
     }
@@ -90,7 +121,33 @@ struct CmuxConfigFile: Codable, Sendable {
         } else {
             surfaceTabBarButtons = nil
         }
-        commands = try container.decodeIfPresent([CmuxCommandDefinition].self, forKey: .commands) ?? []
+        var decodedCommands: [CmuxCommandDefinition] = []
+        var commandIssues: [CmuxConfigTypeIssue] = []
+        if container.contains(.commands),
+           !((try? container.decodeNil(forKey: .commands)) ?? false) {
+            var commandContainer = try container.nestedUnkeyedContainer(forKey: .commands)
+            while !commandContainer.isAtEnd {
+                let index = commandContainer.currentIndex
+                do {
+                    let entryDecoder = try commandContainer.superDecoder()
+                    decodedCommands.append(try CmuxCommandDefinition(from: entryDecoder))
+                } catch {
+                    commandIssues.append(
+                        CmuxConfigTypeIssue(
+                            path: "commands[\(index)]",
+                            message: CmuxConfigTypeIssue.decodingMessage(for: error)
+                        )
+                    )
+                    // `superDecoder()` advances the unkeyed container even
+                    // when the entry's own decoder rejects its contents.
+                    if commandContainer.currentIndex == index {
+                        break
+                    }
+                }
+            }
+        }
+        commands = decodedCommands
+        commandDecodingIssues = commandIssues
         vault = try container.decodeIfPresent(CmuxVaultConfigDefinition.self, forKey: .vault)
         workspaceGroups = try container.decodeIfPresent(
             CmuxConfigWorkspaceGroupsDefinition.self,
@@ -1003,7 +1060,7 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
     var inlineWorkspaceSyntheticCommand: CmuxCommandDefinition? {
         guard let inline = action.inlineWorkspace else { return nil }
         return CmuxCommandDefinition(
-            name: title ?? tooltip ?? inline.definition.name ?? id,
+            name: cmuxFirstNonBlank(title, tooltip, inline.definition.name, id) ?? id,
             restart: inline.restart,
             workspace: inline.definition,
             confirm: confirm
@@ -1304,7 +1361,7 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
     var inlineWorkspaceSyntheticCommand: CmuxCommandDefinition? {
         guard let inline = action.inlineWorkspace else { return nil }
         return CmuxCommandDefinition(
-            name: title,
+            name: cmuxFirstNonBlank(title, tooltip, inline.definition.name, id) ?? id,
             restart: inline.restart,
             workspace: inline.definition,
             confirm: confirm
@@ -1344,8 +1401,7 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         sourcePath: String?
     ) -> CmuxResolvedConfigAction? {
         guard let action = definition.action else { return nil }
-        let title = definition.title
-            ?? definition.tooltip
+        let title = cmuxFirstNonBlank(definition.title, definition.tooltip)
             ?? Self.defaultTitle(for: id, action: action)
         return CmuxResolvedConfigAction(
             id: id,
@@ -1403,89 +1459,11 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         case .workspaceCommand(let commandName):
             return commandName
         case .workspace(let definition, _):
-            return definition.name ?? id
+            return cmuxFirstNonBlank(definition.name, id) ?? id
         case .builtIn(let builtIn):
             return builtIn.configID
         case .actionReference(let identifier):
             return identifier
-        }
-    }
-}
-
-struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
-    var name: String
-    var description: String?
-    var keywords: [String]?
-    var restart: CmuxRestartBehavior?
-    var workspace: CmuxWorkspaceDefinition?
-    var command: String?
-    var confirm: Bool?
-
-    var id: String {
-        "cmux.config.command." + (name.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? name)
-    }
-
-    init(
-        name: String,
-        description: String? = nil,
-        keywords: [String]? = nil,
-        restart: CmuxRestartBehavior? = nil,
-        workspace: CmuxWorkspaceDefinition? = nil,
-        command: String? = nil,
-        confirm: Bool? = nil
-    ) {
-        self.name = name
-        self.description = description
-        self.keywords = keywords
-        self.restart = restart
-        self.workspace = workspace
-        self.command = command
-        self.confirm = confirm
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        name = try container.decode(String.self, forKey: .name)
-        description = try container.decodeIfPresent(String.self, forKey: .description)
-        keywords = try container.decodeIfPresent([String].self, forKey: .keywords)
-        restart = try container.decodeIfPresent(CmuxRestartBehavior.self, forKey: .restart)
-        workspace = try container.decodeIfPresent(CmuxWorkspaceDefinition.self, forKey: .workspace)
-        command = try container.decodeIfPresent(String.self, forKey: .command)
-        confirm = try container.decodeIfPresent(Bool.self, forKey: .confirm)
-
-        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "Command name must not be blank"
-                )
-            )
-        }
-        if let cmd = command,
-           cmd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "Command '\(name)' must not define a blank 'command'"
-                )
-            )
-        }
-
-        if workspace != nil && command != nil {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "Command '\(name)' must not define both 'workspace' and 'command'"
-                )
-            )
-        }
-        if workspace == nil && command == nil {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "Command '\(name)' must define either 'workspace' or 'command'"
-                )
-            )
         }
     }
 }
@@ -1502,6 +1480,10 @@ indirect enum CmuxLayoutNode: Codable, Sendable, Hashable {
     }
 
     init(from decoder: Decoder) throws {
+        self = try Self.decode(from: decoder, mode: .strict)
+    }
+
+    static func decode(from decoder: Decoder, mode: CmuxLayoutDecodingMode) throws -> CmuxLayoutNode {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let hasPane = container.contains(.pane)
         let hasDirection = container.contains(.direction)
@@ -1517,10 +1499,23 @@ indirect enum CmuxLayoutNode: Codable, Sendable, Hashable {
 
         if hasPane {
             let pane = try container.decode(CmuxPaneDefinition.self, forKey: .pane)
-            self = .pane(pane)
+            return .pane(pane)
         } else if hasDirection {
-            let splitDef = try CmuxSplitDefinition(from: decoder)
-            self = .split(splitDef)
+            let direction = try container.decode(CmuxSplitDirection.self, forKey: .direction)
+            let split = try container.decodeIfPresent(Double.self, forKey: .split)
+            let children = try Self.decodeChildren(from: container)
+            guard children.count == 2 else {
+                if mode == .legacyFlattenedRoot, children.count == 1 {
+                    // A legacy flattened command occasionally persisted a
+                    // one-child split. It is equivalent to its only child.
+                    return children[0]
+                }
+                throw CmuxSplitDecodingError.invalidChildCount(
+                    children.count,
+                    path: cmuxJSONPath(from: decoder.codingPath)
+                )
+            }
+            return .split(CmuxSplitDefinition(direction: direction, split: split, children: children))
         } else {
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(
@@ -1529,6 +1524,18 @@ indirect enum CmuxLayoutNode: Codable, Sendable, Hashable {
                 )
             )
         }
+    }
+
+    private static func decodeChildren(
+        from container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> [CmuxLayoutNode] {
+        var childContainer = try container.nestedUnkeyedContainer(forKey: .children)
+        var children: [CmuxLayoutNode] = []
+        while !childContainer.isAtEnd {
+            let childDecoder = try childContainer.superDecoder()
+            children.append(try decode(from: childDecoder, mode: .strict))
+        }
+        return children
     }
 
     func encode(to encoder: Encoder) throws {
@@ -1559,11 +1566,9 @@ struct CmuxSplitDefinition: Codable, Sendable, Hashable {
         split = try container.decodeIfPresent(Double.self, forKey: .split)
         children = try container.decode([CmuxLayoutNode].self, forKey: .children)
         if children.count != 2 {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "Split node requires exactly 2 children, got \(children.count)"
-                )
+            throw CmuxSplitDecodingError.invalidChildCount(
+                children.count,
+                path: cmuxJSONPath(from: decoder.codingPath)
             )
         }
     }
@@ -1682,6 +1687,11 @@ struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
 
 @MainActor
 final class CmuxConfigStore: ObservableObject {
+    nonisolated private static let configLogger = Logger(
+        subsystem: "com.cmuxterm.app",
+        category: "CmuxConfig"
+    )
+
     private static let defaultNewWorkspaceContextMenu: [CmuxConfigContextMenuItem] = [
         .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID)),
     ]
@@ -1714,6 +1724,7 @@ final class CmuxConfigStore: ObservableObject {
     private weak var tabManager: TabManager?
     let globalConfigPath: String
     private let fileWatchingEnabled: Bool
+    private let workspaceColorDefaults: UserDefaults
 
     nonisolated static func defaultGlobalConfigPath() -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -1754,6 +1765,7 @@ final class CmuxConfigStore: ObservableObject {
     private struct ParsedConfigCacheEntry {
         let fileSize: UInt64
         let modificationDate: Date?
+        let contentDigest: Data
         let workspaceColorPaletteFingerprint: String
         let config: CmuxConfigFile?
         let issue: CmuxConfigIssue?
@@ -1802,11 +1814,13 @@ final class CmuxConfigStore: ObservableObject {
     init(
         globalConfigPath: String = CmuxConfigStore.defaultGlobalConfigPath(),
         localConfigPath: String? = nil,
-        startFileWatchers: Bool = false
+        startFileWatchers: Bool = false,
+        workspaceColorDefaults: UserDefaults = .standard
     ) {
         self.globalConfigPath = globalConfigPath
         self.localConfigPath = localConfigPath
         self.fileWatchingEnabled = startFileWatchers
+        self.workspaceColorDefaults = workspaceColorDefaults
         self.localConfigSearchDirectory = localConfigPath.map(Self.searchDirectoryForLocalConfigPath(_:))
         NotificationCenter.default.publisher(for: CmuxActionTrust.didChangeNotification)
             .receive(on: DispatchQueue.main)
@@ -2237,14 +2251,7 @@ final class CmuxConfigStore: ObservableObject {
     }
 
     private func sanitizeConfigText(_ text: String) -> String {
-        let dangerous: Set<Unicode.Scalar> = [
-            "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}",
-            "\u{202A}", "\u{202B}", "\u{202C}", "\u{202D}", "\u{202E}",
-            "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}",
-            "\u{FEFF}",
-        ]
-        let filtered = String(text.unicodeScalars.filter { !dangerous.contains($0) })
-        return filtered.trimmingCharacters(in: .whitespacesAndNewlines)
+        CmuxConfigTypeIssue.sanitizeText(text)
     }
 
     private func sanitizeConfigText(_ text: String, fallback: String) -> String {
@@ -2951,21 +2958,26 @@ final class CmuxConfigStore: ObservableObject {
         let attributes = try? fileManager.attributesOfItem(atPath: path)
         let fileSize = (attributes?[.size] as? NSNumber)?.uint64Value ?? 0
         let modificationDate = attributes?[.modificationDate] as? Date
-        let paletteFingerprint = WorkspaceTabColorSettings.paletteCacheFingerprint()
+        let data = fileManager.contents(atPath: path) ?? Data()
+        let contentDigest = Data(SHA256.hash(data: data))
+        let paletteFingerprint = WorkspaceTabColorSettings.paletteCacheFingerprint(
+            defaults: workspaceColorDefaults
+        )
 
         if let cached = parsedConfigCache[path],
            cached.fileSize == fileSize,
            cached.modificationDate == modificationDate,
+           cached.contentDigest == contentDigest,
            cached.workspaceColorPaletteFingerprint == paletteFingerprint {
             return ParsedConfigResult(config: cached.config, issue: cached.issue)
         }
 
-        guard let data = fileManager.contents(atPath: path),
-              !data.isEmpty else {
+        guard !data.isEmpty else {
             let issue = schemaIssue(path: path, message: "cmux.json is empty")
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
+                contentDigest: contentDigest,
                 workspaceColorPaletteFingerprint: paletteFingerprint,
                 config: nil,
                 issue: issue
@@ -2980,6 +2992,7 @@ final class CmuxConfigStore: ObservableObject {
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
+                contentDigest: contentDigest,
                 workspaceColorPaletteFingerprint: paletteFingerprint,
                 config: nil,
                 issue: issue
@@ -2989,20 +3002,35 @@ final class CmuxConfigStore: ObservableObject {
         }
 
         do {
-            let config = try JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
+            let decoded = try CmuxConfigFile.decodeAndValidate(
+                sanitizedData: sanitized,
+                workspaceColorPalette: WorkspaceTabColorSettings.resolvedPaletteMap(
+                    defaults: workspaceColorDefaults
+                )
+            )
+            let issue = decoded.typeIssueMessage.map { typeIssueMessage in
+                schemaIssue(path: path, message: typeIssueMessage)
+            }
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
+                contentDigest: contentDigest,
                 workspaceColorPaletteFingerprint: paletteFingerprint,
-                config: config,
-                issue: nil
+                config: decoded.config,
+                issue: issue
             )
-            return ParsedConfigResult(config: config, issue: nil)
+            if let issue {
+                Self.configLogger.error(
+                    "Configuration issue: \(issue.logMessage, privacy: .private)"
+                )
+            }
+            return ParsedConfigResult(config: decoded.config, issue: issue)
         } catch {
             let issue = schemaIssue(path: path, message: schemaErrorMessage(error))
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
+                contentDigest: contentDigest,
                 workspaceColorPaletteFingerprint: paletteFingerprint,
                 config: nil,
                 issue: issue

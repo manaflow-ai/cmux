@@ -34,6 +34,7 @@ def run_cli(
     args: list[str],
     home: Path,
     cwd: Path | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ)
     env["HOME"] = str(home)
@@ -44,6 +45,8 @@ def run_cli(
     env.pop("CMUX_WORKSPACE_ID", None)
     env.pop("CMUX_SURFACE_ID", None)
     env.pop("CMUX_TAB_ID", None)
+    if extra_env:
+        env.update(extra_env)
     return subprocess.run(
         [cli_path, *args],
         text=True,
@@ -103,6 +106,14 @@ def main() -> int:
               "app": {
                 "appearance": "system",
               },
+              "commands": [
+                {
+                  "name": "Saved layout",
+                  "cwd": "/tmp",
+                  "layout": { "pane": { "surfaces": [{ "type": "terminal" }] } },
+                },
+                { "name": "Run tests", "command": "echo tests" },
+              ],
             }
             """,
             encoding="utf-8",
@@ -118,6 +129,8 @@ def main() -> int:
                 if finding is not None:
                     if payload.get("ok") is not True or finding.get("status") != "ok":
                         failures.append(f"valid JSONC was not ok: {ok_result.stdout}")
+                    if "command entries" not in str(finding.get("message", "")):
+                        failures.append(f"doctor success message overclaimed its scope: {ok_result.stdout}")
                     keys_raw = finding.get("keys", [])
                     keys = keys_raw if isinstance(keys_raw, list) else []
                     if "app" not in keys or "schemaVersion" not in keys:
@@ -162,6 +175,88 @@ def main() -> int:
             if "cmux config doctor found 1 error(s)" not in bad_result.stderr:
                 failures.append(f"invalid JSON stderr was unexpected: {bad_result.stderr}")
 
+        config_path.write_text(
+            '{"commands": [{"name": "missing-definition"}, {"name": "ok", "command": "echo ok"}]}\n',
+            encoding="utf-8",
+        )
+        type_result = run_cli(cli_path, ["--json", "config", "check", "--path", str(config_path)], home)
+        if type_result.returncode == 0:
+            failures.append("type-invalid config returned success")
+        else:
+            payload = parse_json_output(type_result.stdout, "type-invalid config", failures)
+            if payload is not None:
+                finding = first_finding(payload, "type-invalid config", type_result.stdout, failures)
+                if finding is not None:
+                    message = str(finding.get("message", ""))
+                    if finding.get("status") != "error" or "commands[0]" not in message:
+                        failures.append(f"type-invalid config did not report commands entry: {type_result.stdout}")
+
+        config_path.write_text(
+            '{"commands": [{"name": "bad-color", "workspace": {"color": "Definitely Not A Palette Color"}}]}\n',
+            encoding="utf-8",
+        )
+        color_result = run_cli(cli_path, ["--json", "config", "doctor", "--path", str(config_path)], home)
+        if color_result.returncode == 0:
+            failures.append("unknown named workspace color returned success")
+        else:
+            payload = parse_json_output(color_result.stdout, "unknown named workspace color", failures)
+            if payload is not None:
+                finding = first_finding(payload, "unknown named workspace color", color_result.stdout, failures)
+                if finding is not None:
+                    if finding.get("status") != "error":
+                        failures.append(f"unknown named workspace color did not report an error: {color_result.stdout}")
+                    message = str(finding.get("message", ""))
+                    if "Invalid color" not in message or "6-digit hex format (#RRGGBB)" not in message:
+                        failures.append(f"unknown named workspace color guidance was missing: {color_result.stdout}")
+
+        palette_domain = f"com.cmux.tests.config-doctor.{os.getpid()}.{id(home)}"
+        palette_config_path = home / "palette.json"
+        palette_config_path.write_text(
+            '{"commands": [{"name": "custom-color", "workspace": {"color": "Codex Test"}}]}\n',
+            encoding="utf-8",
+        )
+        defaults_write = subprocess.run(
+            [
+                "/usr/bin/defaults",
+                "write",
+                palette_domain,
+                "workspaceTabColor.colors",
+                "-dict",
+                "Codex Test",
+                "#112233",
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if defaults_write.returncode != 0:
+            failures.append(f"could not seed app color defaults: {defaults_write.stderr}")
+        else:
+            try:
+                palette_result = run_cli(
+                    cli_path,
+                    ["--json", "config", "doctor", "--path", str(palette_config_path)],
+                    home,
+                    extra_env={"CMUX_BUNDLE_ID": palette_domain},
+                )
+                if palette_result.returncode != 0:
+                    failures.append(
+                        f"config doctor rejected the app palette domain: {palette_result.stdout} {palette_result.stderr}"
+                    )
+                else:
+                    payload = parse_json_output(palette_result.stdout, "app palette domain", failures)
+                    if payload is not None:
+                        finding = first_finding(payload, "app palette domain", palette_result.stdout, failures)
+                        if finding is not None and finding.get("status") != "ok":
+                            failures.append(f"app palette color was not accepted: {palette_result.stdout}")
+            finally:
+                subprocess.run(
+                    ["/usr/bin/defaults", "delete", palette_domain],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+
         directory_path = home / "config-directory"
         directory_path.mkdir()
         directory_result = run_cli(cli_path, ["--json", "config", "doctor", "--path", str(directory_path)], home)
@@ -188,7 +283,7 @@ def main() -> int:
             print(f"FAIL: {failure}")
         return 1
 
-    print("PASS: cmux config doctor validates JSONC and reports syntax errors")
+    print("PASS: cmux config doctor validates JSONC and command-entry types")
     return 0
 
 

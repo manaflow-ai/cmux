@@ -23,9 +23,14 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        let socketPath = root.appendingPathComponent("cmux.sock").path
+        // Keep the Unix socket outside the long macOS temporary-directory
+        // path. Darwin's socket path limit is shorter than that path plus a
+        // UUID, and Bun reports the resulting truncation collision as
+        // EADDRINUSE even when this test created a fresh directory.
+        let socketPath = "/tmp/cmux-opencode-\(UUID().uuidString).sock"
         let harnessURL = root.appendingPathComponent("harness.js")
         try Self.openCodeFeedEventHarness.write(to: harnessURL, atomically: true, encoding: .utf8)
+        defer { try? fileManager.removeItem(atPath: socketPath) }
         let bunURL = try Self.bunExecutableURL()
 
         let result = runProcess(
