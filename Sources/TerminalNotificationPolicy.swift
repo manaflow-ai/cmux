@@ -831,11 +831,16 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         let source = DispatchSource.makeTimerSource(queue: queue)
         source.schedule(deadline: .now() + .milliseconds(750))
         source.setEventHandler { [self] in
-            if self.processId > 0 {
-                self.signalProcessGroup(SIGKILL)
-            }
+            self.signalProcessGroup(SIGKILL)
             self.killSource?.cancel()
             self.killSource = nil
+            // A leader that exited during the grace period was left unreaped so its pgid
+            // would still be this group's when the SIGKILL above went out. Collect it now
+            // and finish. If it is still running, SIGKILL has just ended it and the exit
+            // source finishes the run instead.
+            if let status = self.reapProcessIfExited() {
+                self.finish(rawStatus: status)
+            }
         }
         killSource = source
         source.resume()
@@ -849,6 +854,11 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
     }
 
     private func processExited() {
+        // The leader exiting is not the group exiting: a descendant that ignores SIGTERM
+        // outlives it. Reaping here would end the run and cancel the escalation timer,
+        // and would also free the pgid, so the SIGKILL that timer owes the group could
+        // land on a reused one. Leave the zombie in place and let the timer finish.
+        if didRequestTermination, killSource != nil { return }
         guard let status = waitForProcessExit() else { return }
         finish(rawStatus: status)
     }
