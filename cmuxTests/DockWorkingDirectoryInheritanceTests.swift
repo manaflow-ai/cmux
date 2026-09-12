@@ -323,6 +323,37 @@ struct DockWorkingDirectoryInheritanceTests {
         }
     }
 
+    @Test("Remote Dock owners never supply their remote workspace root locally")
+    @MainActor
+    func remoteOwnerRootIsExcludedFromLocalResolution() throws {
+        let suiteName = "DockWorkingDirectoryInheritanceTests.remote-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        settings.set(false, for: SettingCatalog().app.workspaceInheritWorkingDirectory)
+
+        let remoteRoot = "/home/remote/cmux-\(UUID().uuidString)"
+        let owner = Workspace(workingDirectory: remoteRoot, settings: settings)
+        owner.isRemoteTmuxMirror = true
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { remoteRoot },
+            settings: settings
+        )
+        store.terminalFontSizeOwningWorkspace = owner
+
+        let resolved = store.resolvedTerminalStartupWorkingDirectory(
+            kind: .terminal,
+            requestedWorkingDirectory: nil,
+            sourcePanelId: nil
+        )
+
+        #expect(resolved != owner.workspaceRootDirectory)
+        #expect(resolved == FileManager.default.homeDirectoryForCurrentUser.path)
+        store.closeAllPanels()
+        owner.teardownAllPanels()
+    }
+
     @MainActor
     private func withDock(
         inheritanceEnabled: Bool,

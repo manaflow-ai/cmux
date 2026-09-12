@@ -159,6 +159,11 @@ jobs:
       - name: Validate Python test harness syntax
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
+      - name: Validate generated cmux configuration reference
+        run: |
+          python3 scripts/generate-config-docs.py --check
+          python3 tests/test_generate_config_docs.py
+
       - name: Test macOS localization catalog tooling
         run: python3 tests/test_localization_catalog.py
 

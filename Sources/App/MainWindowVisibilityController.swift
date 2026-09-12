@@ -124,6 +124,8 @@ final class MainWindowVisibilityController {
 
     private var dependencies: Dependencies
     private let committedClosedWindows = NSHashTable<NSWindow>.weakObjects()
+    private let pendingInitialPresentationWindows = NSHashTable<NSWindow>.weakObjects()
+    private var pendingInitialFocusRequests: [ObjectIdentifier: @MainActor () -> Void] = [:]
     private let workspaceSwitchSignposts = WorkspaceSwitchSignposts()
     var appHiddenWindowRestoreTargets: [NSWindow] = []
     var dismissedWindowRestoreTargets: [NSWindow] = []
@@ -140,6 +142,26 @@ final class MainWindowVisibilityController {
 
     func hasCommittedClose(for window: NSWindow) -> Bool {
         committedClosedWindows.contains(window)
+    }
+
+    func deferInitialPresentation(of window: NSWindow) {
+        pendingInitialPresentationWindows.add(window)
+    }
+
+    func completeInitialPresentation(of window: NSWindow, fallback: @MainActor () -> Void) {
+        let pendingFocus = pendingInitialFocusRequests.removeValue(forKey: ObjectIdentifier(window))
+        pendingInitialPresentationWindows.remove(window)
+        guard !hasCommittedClose(for: window) else { return }
+        if let pendingFocus {
+            pendingFocus()
+        } else {
+            fallback()
+        }
+    }
+
+    func cancelInitialPresentation(of window: NSWindow) {
+        pendingInitialPresentationWindows.remove(window)
+        pendingInitialFocusRequests.removeValue(forKey: ObjectIdentifier(window))
     }
 
     /// Returns whether a hidden window was explicitly retained for a later
@@ -174,6 +196,22 @@ final class MainWindowVisibilityController {
         if respectActivationSuppression, dependencies.isActivationSuppressed() {
             dependencies.setActiveMainWindow(window)
             log("focus.suppressed", reason: reason, windows: [window])
+            return true
+        }
+        if pendingInitialPresentationWindows.contains(window) {
+            pendingInitialFocusRequests[ObjectIdentifier(window)] = { [weak self, weak window] in
+                guard let self, let window else { return }
+                self.focus(
+                    window,
+                    reason: reason,
+                    activation: activation,
+                    activationTiming: activationTiming,
+                    makeKey: makeKey,
+                    deminiaturize: deminiaturize,
+                    unhide: unhide,
+                    respectActivationSuppression: false
+                )
+            }
             return true
         }
 
@@ -230,6 +268,13 @@ final class MainWindowVisibilityController {
             return
         }
         defer { workspaceSwitchSignposts.end(switchInterval) }
+        if pendingInitialPresentationWindows.contains(window) {
+            pendingInitialFocusRequests[ObjectIdentifier(window)] = { [weak self, weak window] in
+                guard let self, let window else { return }
+                self.focusForInWindowCommand(window, reason: reason)
+            }
+            return
+        }
         dependencies.setActiveMainWindow(window)
         guard !dependencies.windowOperations.isKeyWindow(window) else {
             log("focus.inWindow.key", reason: reason, windows: [window])
@@ -511,6 +556,7 @@ final class MainWindowVisibilityController {
         var result: [NSWindow] = []
         for window in windows where
             !hasCommittedClose(for: window) &&
+            !pendingInitialPresentationWindows.contains(window) &&
             !result.contains(where: { $0 === window }) {
             result.append(window)
         }

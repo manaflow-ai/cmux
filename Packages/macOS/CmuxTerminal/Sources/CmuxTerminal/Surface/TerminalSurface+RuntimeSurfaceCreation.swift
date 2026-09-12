@@ -12,14 +12,60 @@ internal import CMUXDebugLog
 // MARK: - Native runtime-surface creation/config assembly
 
 extension TerminalSurface {
+    /// Reports whether any caller-owned input must take precedence over
+    /// declarative shell-startup defaults for the next runtime.
+    ///
+    /// Queued socket input is included because a cold surface flushes it only
+    /// after Ghostty creates the runtime; treating that queue as empty would
+    /// prepend the declarative startup command to the user's input.
+    @MainActor
+    func hasExplicitRuntimeInput(
+        runtimeInitialInput: String?,
+        baseConfigInput: String?
+    ) -> Bool {
+        runtimeInitialInput?.isEmpty == false
+            || initialInput?.isEmpty == false
+            || baseConfigInput?.isEmpty == false
+            || pendingSocketInputBytes > 0
+    }
+
     @MainActor
     func createNativeRuntimeSurface(
         app: ghostty_app_t,
         for view: any TerminalSurfaceNativeViewing,
         scaleFactors: (x: CGFloat, y: CGFloat, layer: CGFloat),
-        agentCommandShims: AgentCommandShimSet?
+        agentCommandShims: AgentCommandShimSet?,
+        source: RuntimeSurfaceCreationSource
     ) -> (createdSurface: ghostty_surface_t?, runtimeInitialInput: String?) {
         let baseConfig = runtimeCreationConfigTemplate()
+        let spawnPolicy = spawnPolicyProvider.currentSpawnPolicy()
+        // Capture startup work before assembling the managed shell
+        // environment.  Shell integration can itself return a replacement
+        // command (notably for fish), so it must not let a declarative
+        // non-login preference leak into explicit, restored, remote, or
+        // manual surfaces.
+        let runtimeInitialInput = nextRuntimeInitialInput
+        let hasExplicitSurfaceCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            || baseConfig.command?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            || tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let hasExplicitSurfaceInput = hasExplicitRuntimeInput(
+            runtimeInitialInput: runtimeInitialInput,
+            baseConfigInput: baseConfig.initialInput
+        )
+        let isRestoreSurface = source == .scheduledRestore
+            || !allowsDeclarativeStartupDefaults
+            || requiresRestoreSpawnPacing
+            || startupRestoreAdmissionPhase != .unrestricted
+        let shellStartupResolution = TerminalShellStartupPolicy().resolve(
+            configuredMode: spawnPolicy.shellStartupMode,
+            hasExplicitCommand: hasExplicitSurfaceCommand,
+            hasExplicitInput: hasExplicitSurfaceInput,
+            hasGhosttyCommand: engine.hasUserGhosttyCommand,
+            isRestoreSurface: isRestoreSurface,
+            isManualSurface: ioMode.usesManualIO
+        )
+        let allowsDeclarativeShellStartup = shellStartupResolution.allowsDeclarativeShellStartup
+        let effectiveShellStartupMode = shellStartupResolution.mode
         var surfaceConfig = ghostty_surface_config_new()
         let magnificationPercent = globalFontMagnificationPercent()
         surfaceConfig.font_size = CmuxSurfaceConfigTemplate.runtimeFontSize(
@@ -140,7 +186,6 @@ extension TerminalSurface {
             setManagedEnvironmentValue("CMUX_PORT_RANGE", String(sessionPortRangeSize))
         }
 
-        let spawnPolicy = spawnPolicyProvider.currentSpawnPolicy()
         for (key, value) in spawnPolicy.socketAuthenticationEnvironment
             where !key.isEmpty && !value.isEmpty {
             setManagedEnvironmentValue(key, value)
@@ -223,10 +268,11 @@ extension TerminalSurface {
             )
 
             if let shell = engine.resolvedUserShell {
-                managedShellCommand = Self.applyManagedShellSpecificStartupEnvironment(
+                managedShellCommand = TerminalShellStartupCoordinator().apply(
                     shell: shell,
                     integrationDir: integrationDir,
                     userGhosttyShellIntegrationMode: engine.userGhosttyShellIntegrationMode,
+                    shellStartupMode: effectiveShellStartupMode,
                     to: &env,
                     protectedKeys: &protectedStartupEnvironmentKeys
                 )
@@ -260,6 +306,20 @@ extension TerminalSurface {
             }
             return baseConfig.workingDirectory
         }()
+        let startupConfiguration = TerminalShellStartupConfiguration(
+            mode: effectiveShellStartupMode,
+            command: allowsDeclarativeShellStartup ? spawnPolicy.shellStartupCommand : nil
+        )
+        let shellModeOverride = TerminalShellStartupPolicy().commandOverride(
+            shell: engine.resolvedUserShell,
+            configuration: startupConfiguration,
+            hasExplicitCommand: hasExplicitSurfaceCommand,
+            hasExplicitInput: hasExplicitSurfaceInput,
+            hasGhosttyCommand: engine.hasUserGhosttyCommand,
+            isRestoreSurface: isRestoreSurface,
+            isManualSurface: ioMode.usesManualIO,
+            hasManagedShellIntegration: managedShellCommand != nil
+        )
         let configuredInitialCommand = hasStartupRestoreAdmissionCommandOverride
             ? startupRestoreAdmissionCommandOverride
             : initialCommand
@@ -267,10 +327,9 @@ extension TerminalSurface {
             initialCommand: configuredInitialCommand,
             surfaceCommand: baseConfig.command,
             hasUserGhosttyCommand: engine.hasUserGhosttyCommand,
-            managedShellCommand: managedShellCommand,
+            managedShellCommand: shellModeOverride ?? managedShellCommand,
             resolvedShell: engine.resolvedUserShell
         )
-        let runtimeInitialInput = nextRuntimeInitialInput
         let resolvedInitialInput: String? = {
             if let runtimeInitialInput, !runtimeInitialInput.isEmpty {
                 return runtimeInitialInput
@@ -281,7 +340,17 @@ extension TerminalSurface {
             if let initialInput, !initialInput.isEmpty {
                 return initialInput
             }
-            return baseConfig.initialInput
+            if let configuredInput = baseConfig.initialInput, !configuredInput.isEmpty {
+                return configuredInput
+            }
+            return TerminalShellStartupPolicy().startupInput(
+                configuration: startupConfiguration,
+                hasExplicitCommand: hasExplicitSurfaceCommand,
+                hasExplicitInput: hasExplicitSurfaceInput,
+                hasGhosttyCommand: engine.hasUserGhosttyCommand,
+                isRestoreSurface: isRestoreSurface,
+                isManualSurface: ioMode.usesManualIO
+            )
         }()
         let createdSurface = withOptionalCString(resolvedCommand) { cCommand in
             surfaceConfig.command = cCommand

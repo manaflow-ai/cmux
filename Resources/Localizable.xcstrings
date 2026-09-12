@@ -325634,6 +325634,64 @@
         }
       }
     },
+    "settings.error.alert.message": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't save setting. Check that the configuration file is writable, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定を保存できませんでした。設定ファイルが書き込み可能か確認して、もう一度お試しください。"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’enregistrer le réglage. Vérifiez que le fichier de configuration est accessible en écriture, puis réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر حفظ الإعداد. تحقق من أن ملف الإعدادات قابل للكتابة ثم حاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo guardar el ajuste. Comprueba que el archivo de configuración permita escritura y vuelve a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法儲存設定。請確認設定檔可寫入，然後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存设置。请确认配置文件可写入，然后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정을 저장할 수 없습니다. 구성 파일에 쓸 수 있는지 확인한 후 다시 시도하세요."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellung konnte nicht gespeichert werden. Prüfen Sie, ob die Konfigurationsdatei beschreibbar ist, und versuchen Sie es erneut."
+          }
+        }
+      }
+    },
     "settings.fontSize.valuePoints": {
       "extractionState": "manual",
       "localizations": {
@@ -360305,6 +360363,124 @@
         }
       }
     },
+    "settings.search.alias.setting.terminal.new-surface-working-directory-path": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.newSurfaceWorkingDirectory path fixed directory cwd folder tilde workspace root"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.newSurfaceWorkingDirectory path fixed directory cwd folder tilde workspace root 固定 パス ディレクトリ フォルダ チルダ ワークスペース ルート"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.newSurfaceWorkingDirectory chemin dossier fixe cwd dossier tilde espace de travail racine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسار terminal.newSurfaceWorkingDirectory مجلد ثابت cwd مجلد تيلدا جذر مساحة العمل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.newSurfaceWorkingDirectory ruta directorio fijo cwd carpeta tilde espacio de trabajo raíz"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.newSurfaceWorkingDirectory 路徑 固定目錄 cwd 資料夾 波浪號 工作區 根目錄"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.newSurfaceWorkingDirectory 路径 固定目录 cwd 文件夹 波浪号 工作区 根目录"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.newSurfaceWorkingDirectory 경로 고정 디렉터리 cwd 폴더 물결표 작업 공간 루트"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.newSurfaceWorkingDirectory Pfad festes Verzeichnis cwd Ordner Tilde Arbeitsbereich Stammverzeichnis"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.new-surface-working-directory-policy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.newSurfaceWorkingDirectory policy working directory cwd current pane workspace root fixed path inherit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.newSurfaceWorkingDirectory policy working directory cwd current pane workspace root fixed path inherit 作業 ディレクトリ 継承"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.newSurfaceWorkingDirectory stratégie répertoire de travail cwd panneau actif espace de travail racine chemin fixe hériter"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سياسة terminal.newSurfaceWorkingDirectory دليل العمل cwd اللوحة النشطة مساحة العمل الجذر مسار ثابت توريث"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.newSurfaceWorkingDirectory política directorio de trabajo cwd panel activo espacio de trabajo raíz ruta fija heredar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.newSurfaceWorkingDirectory 原則 工作目錄 cwd 目前窗格 工作區 根目錄 固定路徑 繼承"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.newSurfaceWorkingDirectory 策略 工作目录 cwd 当前窗格 工作区 根目录 固定路径 继承"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.newSurfaceWorkingDirectory 정책 작업 디렉터리 cwd 현재 창 작업 공간 루트 고정 경로 상속"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.newSurfaceWorkingDirectory Richtlinie Arbeitsverzeichnis cwd aktuelles Pane Arbeitsbereich Stammverzeichnis fester Pfad übernehmen"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.terminal.resume-commands": {
       "extractionState": "manual",
       "localizations": {
@@ -360360,6 +360536,124 @@
           "stringUnit": {
             "state": "translated",
             "value": "surface resume commands 승인 명령 접두사 자동 복구 확인 수동 tmux 최대 절전 모드 고정 프로세스 surface resume commands approvals command prefixes auto restore ask manual tmux hibernation sticky process"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.shell-startup-command": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.shellStartup command shell startup input command activate zsh mise"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.shellStartup command shell startup input command シェル 起動 コマンド 入力"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.shellStartup commande démarrage shell entrée commande activer zsh mise"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أمر terminal.shellStartup بدء الصدفة إدخال الأمر تفعيل zsh mise"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.shellStartup comando inicio del shell entrada comando activar zsh mise"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.shellStartup 指令 Shell 啟動 輸入 指令 啟用 zsh mise"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.shellStartup 命令 Shell 启动 输入 命令 激活 zsh mise"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.shellStartup 명령 셸 시작 입력 명령 활성화 zsh mise"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.shellStartup Befehl Shell-Start Eingabe Befehl aktivieren zsh mise"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.shell-startup-mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.shellStartup mode shell login non-login interactive startup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.shellStartup mode shell login non-login interactive startup シェル 起動 モード"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.shellStartup mode démarrage shell connexion non-connexion interactif démarrage"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وضع terminal.shellStartup بدء الصدفة تسجيل الدخول دون تسجيل تفاعلي بدء"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.shellStartup modo inicio shell inicio de sesión sin inicio de sesión interactivo arranque"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.shellStartup 模式 Shell 啟動 登入 非登入 互動式 啟動"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.shellStartup 模式 Shell 启动 登录 非登录 交互式 启动"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.shellStartup 모드 셸 시작 로그인 비로그인 대화형 시작"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.shellStartup Modus Shell Login Nicht-Login interaktiv Start"
           }
         }
       }
@@ -370609,6 +370903,751 @@
           "stringUnit": {
             "state": "translated",
             "value": "재개 명령 승인이 업데이트되었습니다."
+          }
+        }
+      }
+    },
+    "settings.terminal.newSurfaceWorkingDirectory.path": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Fixed Directory" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "固定ディレクトリ" } },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répertoire fixe"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "دليل ثابت"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Directorio fijo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定目錄"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定目录"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고정 디렉터리"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Festes Verzeichnis"
+          }
+        }
+      }
+    },
+    "settings.terminal.newSurfaceWorkingDirectory.path.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "~/Projects" } },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~/プロジェクト"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~/Projets"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~/مشاريع"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~/Proyectos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~/專案"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~/项目"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~/프로젝트"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~/Projekte"
+          }
+        }
+      }
+    },
+    "settings.terminal.newSurfaceWorkingDirectory.path.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Used only with Fixed Path. Enter an absolute path or one beginning with ~; a missing or non-directory path falls back to the workspace root." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "固定パスの場合のみ使用します。絶対パスまたは ~ で始まるパスを入力してください。存在しないパスやディレクトリでないパスはワークスペースルートにフォールバックします。" } },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisé uniquement avec « Chemin fixe ». Saisissez un chemin absolu ou commençant par ~ ; un chemin absent ou qui ne désigne pas un répertoire revient à la racine de l’espace de travail."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُستخدم فقط مع «مسار ثابت». أدخل مسارًا مطلقًا أو يبدأ بـ ~؛ ويعود المسار المفقود أو غير الصالح كدليل إلى جذر مساحة العمل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo se usa con «Ruta fija». Introduce una ruta absoluta o que empiece por ~; una ruta inexistente o que no sea un directorio vuelve a la raíz del espacio de trabajo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅用於「固定路徑」。請輸入絕對路徑或以 ~ 開頭的路徑；不存在或不是目錄的路徑會退回工作區根目錄。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅用于“固定路径”。请输入绝对路径或以 ~ 开头的路径；不存在或不是目录的路径将回退到工作区根目录。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“고정 경로”에서만 사용됩니다. 절대 경로 또는 ~로 시작하는 경로를 입력하세요. 없는 경로이거나 디렉터리가 아니면 작업 공간 루트로 대체됩니다."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur mit „Fester Pfad“ verwendet. Geben Sie einen absoluten Pfad oder einen mit ~ beginnenden Pfad ein; ein fehlender Pfad oder ein Pfad, der kein Verzeichnis ist, fällt auf das Arbeitsbereichs-Stammverzeichnis zurück."
+          }
+        }
+      }
+    },
+    "settings.terminal.newSurfaceWorkingDirectory.policy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Surface Working Directory" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新しいサーフェスの作業ディレクトリ" } },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répertoire de travail des nouvelles surfaces"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "دليل عمل الأسطح الجديدة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Directorio de trabajo de superficies nuevas"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新表面的工作目錄"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新表面的工作目录"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 표면 작업 디렉터리"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsverzeichnis für neue Oberflächen"
+          }
+        }
+      }
+    },
+    "settings.terminal.newSurfaceWorkingDirectory.policy.fixedPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Fixed Path" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "固定パス" } },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chemin fixe"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسار ثابت"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruta fija"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定路徑"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定路径"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고정 경로"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fester Pfad"
+          }
+        }
+      }
+    },
+    "settings.terminal.newSurfaceWorkingDirectory.policy.inheritActivePane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Inherit Active Pane" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アクティブペインを継承" } },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hériter du panneau actif"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توريث اللوحة النشطة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Heredar el panel activo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "繼承目前窗格"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "继承当前窗格"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 창 상속"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktives Pane übernehmen"
+          }
+        }
+      }
+    },
+    "settings.terminal.newSurfaceWorkingDirectory.policy.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose the default directory for new local panes, tabs, splits, and workspaces. Explicit and restored startup work keeps its own directory." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新しいローカルペイン、タブ、分割、ワークスペースの既定ディレクトリを選択します。明示的な起動処理や復元処理では固有のディレクトリを保持します。" } },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez le répertoire par défaut des nouveaux panneaux, onglets, divisions et espaces de travail locaux. Les démarrages explicites et restaurés conservent leur propre répertoire."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر الدليل الافتراضي للوحات وعلامات التبويب والتقسيمات ومساحات العمل المحلية الجديدة. تحتفظ عمليات البدء الصريحة والمستعادة بدليلها الخاص."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige el directorio predeterminado para nuevos paneles, pestañas, divisiones y espacios de trabajo locales. Los inicios explícitos y restaurados conservan su propio directorio."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇新本機窗格、標籤頁、分割區與工作區的預設目錄。明確指定及還原的啟動會保留自己的目錄。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择新本地窗格、标签页、分屏和工作区的默认目录。显式指定和恢复的启动会保留自己的目录。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 로컬 창, 탭, 분할 및 작업 공간의 기본 디렉터리를 선택합니다. 명시적 시작과 복원된 시작은 자체 디렉터리를 유지합니다."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wählen Sie das Standardverzeichnis für neue lokale Bereiche, Tabs, Teilungen und Arbeitsbereiche. Explizite und wiederhergestellte Starts behalten ihr eigenes Verzeichnis."
+          }
+        }
+      }
+    },
+    "settings.terminal.newSurfaceWorkingDirectory.policy.workspaceRoot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Workspace Root" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースルート" } },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Racine de l’espace de travail"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جذر مساحة العمل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raíz del espacio de trabajo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區根目錄"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区根目录"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 루트"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereichs-Stammverzeichnis"
+          }
+        }
+      }
+    },
+    "settings.terminal.shellStartup.command": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Startup Command" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "起動コマンド" } },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commande de démarrage"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أمر بدء التشغيل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comando de inicio"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟動指令"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启动命令"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시작 명령"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startbefehl"
+          }
+        }
+      }
+    },
+    "settings.terminal.shellStartup.command.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "mise activate zsh" } },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例: mise activate zsh"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exemple : mise activate zsh"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مثال: mise activate zsh"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ejemplo: mise activate zsh"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例如：mise activate zsh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例如：mise activate zsh"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예: mise activate zsh"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beispiel: mise activate zsh"
+          }
+        }
+      }
+    },
+    "settings.terminal.shellStartup.command.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Optional command sent after an ordinary new local shell starts. Explicit commands, remote sessions, and restored surfaces are not changed." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通常の新しいローカルシェルの起動後に送る任意のコマンドです。明示的なコマンド、リモートセッション、復元されたサーフェスは変更しません。" } },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commande facultative envoyée après le démarrage d’un nouveau shell local ordinaire. Les commandes explicites, sessions distantes et surfaces restaurées ne sont pas modifiées."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أمر اختياري يُرسل بعد بدء صدفة محلية عادية جديدة. لا تتغير الأوامر الصريحة أو الجلسات البعيدة أو الأسطح المستعادة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comando opcional que se envía después de iniciar un shell local normal nuevo. No se modifican los comandos explícitos, las sesiones remotas ni las superficies restauradas."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一般新本機 Shell 啟動後要傳送的選用指令。明確指定的指令、遠端工作階段與還原的表面不會變更。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "普通新本地 Shell 启动后发送的可选命令。显式命令、远程会话和恢复的表面不会改变。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일반적인 새 로컬 셸이 시작된 후 보낼 선택적 명령입니다. 명시적 명령, 원격 세션 및 복원된 표면은 변경되지 않습니다."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optionaler Befehl, der nach dem Start einer gewöhnlichen neuen lokalen Shell gesendet wird. Explizite Befehle, Remote-Sitzungen und wiederhergestellte Oberflächen werden nicht geändert."
+          }
+        }
+      }
+    },
+    "settings.terminal.shellStartup.mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Shell Startup Mode" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "シェル起動モード" } },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mode de démarrage du shell"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وضع بدء الصدفة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo de inicio del shell"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell 啟動模式"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell 启动模式"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "셸 시작 모드"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell-Startmodus"
+          }
+        }
+      }
+    },
+    "settings.terminal.shellStartup.mode.login": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Login" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ログイン" } },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الدخول"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con inicio de sesión"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anmeldung"
+          }
+        }
+      }
+    },
+    "settings.terminal.shellStartup.mode.nonLogin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Non-login" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "非ログイン" } },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sans connexion"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "دون تسجيل الدخول"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin inicio de sesión"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非登入"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非登录"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비로그인"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht-Login"
+          }
+        }
+      }
+    },
+    "settings.terminal.shellStartup.mode.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Select whether ordinary new local surfaces start an interactive login or non-login shell." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通常の新しいローカルサーフェスを対話型ログインシェルまたは非ログインシェルとして起動するか選択します。" } },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez si les nouvelles surfaces locales ordinaires démarrent dans un shell interactif avec ou sans connexion."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر ما إذا كانت الأسطح المحلية العادية الجديدة تبدأ بصدفة تفاعلية مع تسجيل الدخول أو بدونه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige si las nuevas superficies locales normales inician un shell interactivo con o sin inicio de sesión."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇一般新本機表面要以互動式登入 Shell 或非登入 Shell 啟動。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择普通新本地表面以交互式登录 Shell 或非登录 Shell 启动。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일반적인 새 로컬 표면을 대화형 로그인 셸 또는 비로그인 셸로 시작할지 선택합니다."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wählen Sie, ob gewöhnliche neue lokale Oberflächen als interaktive Login- oder Nicht-Login-Shell gestartet werden."
           }
         }
       }

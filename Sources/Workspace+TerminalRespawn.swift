@@ -37,7 +37,8 @@ extension Workspace {
         inheritedConfig = respawnConfig
         let requestedWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
             requestedWorkingDirectory: workingDirectory,
-            sourcePanelId: panelId
+            sourcePanelId: panelId,
+            allowsDeclarativeDefaults: false
         )
         let selectedInPane = bonsplitController.selectedTab(inPane: paneId)?.id == tabId
         let paneWasFocused = bonsplitController.focusedPaneId == paneId
@@ -101,7 +102,9 @@ extension Workspace {
             tmuxStartCommand: replacementTmuxStartCommand,
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
-            focusPlacement: focusPlacement
+            focusPlacement: focusPlacement,
+            runtimeSpawnPolicy: .immediate.forRestoredSurface(),
+            declarativeTerminalConfigurationSource: declarativeTerminalConfigurationSource
         )
         replacementPanel.adoptOwnedSessionScrollbackReplayArtifact(effectiveReplayFileURL)
         // Respawn replaces the panel object but keeps the logical tab identity.

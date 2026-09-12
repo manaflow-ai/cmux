@@ -251,7 +251,8 @@ extension Workspace {
             initialTerminalStartupRestoreAgent: canReachLocalForkVerb ? snapshot : nil,
             initialTerminalEnvironment: remoteConfiguration.sshTerminalStartupEnvironment ?? [:],
             inheritWorkingDirectory: false,
-            autoWelcomeIfNeeded: false
+            autoWelcomeIfNeeded: false,
+            initialRuntimeSpawnPolicy: .immediate.withoutDeclarativeDefaults()
         ) else {
             return false
         }
@@ -297,7 +298,10 @@ extension Workspace {
             initialTerminalStartupRestoreAgent: launch.startupRestoreAgent,
             initialTerminalEnvironment: launch.initialTerminalEnvironment,
             inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
-            autoWelcomeIfNeeded: false
+            autoWelcomeIfNeeded: false,
+            initialRuntimeSpawnPolicy: launch.remoteConfiguration == nil
+                ? .immediate
+                : .immediate.withoutDeclarativeDefaults()
         ) else {
             return false
         }

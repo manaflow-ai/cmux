@@ -2,6 +2,7 @@ import AppKit
 
 extension MainWindowVisibilityController {
     func discardClosedWindow(_ window: NSWindow) {
+        cancelInitialPresentation(of: window)
         appHiddenWindowRestoreTargets.removeAll { $0 === window }
         dismissedWindowRestoreTargets.removeAll { $0 === window }
         if pendingApplicationActivationKeyRestoreTarget === window {

@@ -1,4 +1,5 @@
 import CmuxSettings
+import CmuxTerminal
 import CmuxWorkspaces
 import Foundation
 import Testing
@@ -289,7 +290,8 @@ private final class RejectingWorkspaceCreationTabManager: TabManager {
         autoRefreshMetadata: Bool,
         normalizeWorkspaceGroupsAfterInsert: Bool,
         applyCreationTitleAsCustomTitle: Bool,
-        allowTextBoxFocusDefault: Bool
+        allowTextBoxFocusDefault: Bool,
+        initialRuntimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy
     ) -> Workspace? {
         nil
     }

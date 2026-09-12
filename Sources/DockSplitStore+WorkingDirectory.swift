@@ -1,6 +1,57 @@
+import CmuxSettings
+import CmuxWorkspaces
 import Foundation
 
 extension DockSplitStore {
+    static func normalizedBaseDirectory(_ directory: String?) -> String? {
+        let trimmed = directory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    func resolvedTerminalStartupWorkingDirectory(
+        kind: DockSurfaceKind,
+        requestedWorkingDirectory: String?,
+        sourcePanelId: UUID?,
+        allowsDeclarativeDefaults: Bool = true
+    ) -> String {
+        let remoteOwner = terminalFontSizeOwningWorkspace.map {
+            $0.isRemoteWorkspace || $0.isRemoteTmuxMirror
+        } == true
+        let baseDirectory = remoteOwner
+            ? FileManager.default.homeDirectoryForCurrentUser.path
+            : currentBaseDirectory()
+        guard kind == .terminal else { return baseDirectory }
+        if !allowsDeclarativeDefaults {
+            if let requestedDirectory = TerminalWorkingDirectoryResolver.normalized(requestedWorkingDirectory) {
+                return requestedDirectory
+            }
+            if !remoteOwner, let sourcePanelId,
+               let inheritedDirectory = inheritedLocalTerminalWorkingDirectory(for: sourcePanelId),
+               !inheritedDirectory.isEmpty {
+                return inheritedDirectory
+            }
+            return baseDirectory
+        }
+
+        let declarative = declarativeTerminalConfigurationSource.snapshot
+        let policy = declarative.effectiveWorkingDirectoryPolicy()
+        let inheritedDirectory = policy == .inheritActivePane && !remoteOwner
+            ? sourcePanelId.flatMap { inheritedLocalTerminalWorkingDirectory(for: $0) }
+            : nil
+        return WorkspaceCreationWorkingDirectoryPolicy(
+            policy: policy,
+            fixedPath: declarative.workingDirectoryPath,
+            fixedPathIsUsable: declarative.fixedPathIsUsable
+        ).resolve(
+            explicitWorkingDirectory: requestedWorkingDirectory,
+            inheritedWorkingDirectory: inheritedDirectory,
+            defaultWorkingDirectory: baseDirectory,
+            workspaceRootWorkingDirectory: remoteOwner
+                ? nil
+                : terminalFontSizeOwningWorkspace?.workspaceRootDirectory ?? baseDirectory
+        )
+    }
+
     /// Returns a source directory only when it is valid for a new local terminal.
     func inheritedLocalTerminalWorkingDirectory(for sourcePanelId: UUID) -> String? {
         guard detachedSurfaceTransfersByPanelId[sourcePanelId]?.isRemoteTerminal != true else { return nil }

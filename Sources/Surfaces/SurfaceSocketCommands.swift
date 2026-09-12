@@ -27,7 +27,7 @@ extension TerminalController {
         switch method {
         case "surface.catalog":
             let machine = Self.surfaceMachineFilter(params["machine"])
-            if let machine, machine.cloudMachineID != nil, let error = cloudDisabledSocketError(id: id) { return error }
+            if let machine, machine.cloudMachineID != nil, let error = self.cloudDisabledSocketError(id: id) { return error }
             let refresh = Self.surfaceBool(params["refresh"]) ?? false
             return v2VmCall(id: id, timeoutSeconds: 120) {
                 let query = await Self.surfaceCatalogQuery(catalog: .shared)
@@ -39,7 +39,7 @@ extension TerminalController {
             guard let raw = Self.surfaceString(params["resource"]), let resource = SurfaceResourceID(rawValue: raw) else {
                 return v2Error(id: id, code: "invalid_params", message: "surface.project requires `resource` (an id from `cmux surface ls --json`, e.g. vivid-newt/terminal/term_…).")
             }
-            if resource.machine.cloudMachineID != nil, let error = cloudDisabledSocketError(id: id) { return error }
+            if resource.machine.cloudMachineID != nil, let error = self.cloudDisabledSocketError(id: id) { return error }
             let focus = Self.surfaceBool(params["focus"]) ?? true
             let reuse = Self.surfaceBool(params["reuse"]) ?? true
             let remoteTabID = Self.surfaceString(params["remote_tab_id"])
@@ -70,7 +70,7 @@ extension TerminalController {
                 return v2Error(id: id, code: "invalid_params", message: "surface.new_terminal requires `machine` (\"local\" or a cloud machine id).")
             }
             let machine = SurfaceMachineID(rawValue: machineRaw)
-            if machine.cloudMachineID != nil, let error = cloudDisabledSocketError(id: id) { return error }
+            if machine.cloudMachineID != nil, let error = self.cloudDisabledSocketError(id: id) { return error }
             let command = Self.surfaceStringArray(params["command"])
             let cwd = Self.surfaceString(params["cwd"])
             let name = Self.surfaceString(params["name"])

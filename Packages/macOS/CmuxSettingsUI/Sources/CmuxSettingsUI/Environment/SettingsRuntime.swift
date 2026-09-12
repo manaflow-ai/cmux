@@ -20,6 +20,9 @@ public struct SettingsRuntime: @unchecked Sendable {
     public let userDefaultsStore: UserDefaultsSettingsStore
     /// cmux.json-backed settings store.
     public let jsonStore: JSONConfigStore
+    /// Runtime-owned, presence-preserving terminal settings model and the
+    /// immutable snapshot source shared by every creation path.
+    public let declarativeTerminalConfigurationModel: DeclarativeTerminalConfigurationModel
     /// Secret-file-backed settings store.
     public let secretStore: SecretFileStore
     /// Rolling settings error log displayed as alerts.
@@ -63,8 +66,18 @@ public struct SettingsRuntime: @unchecked Sendable {
         self.jsonStore = jsonStore
         self.secretStore = secretStore
         self.errorLog = errorLog
+        self.declarativeTerminalConfigurationModel = DeclarativeTerminalConfigurationModel(
+            jsonStore: jsonStore,
+            userDefaultsStore: userDefaultsStore,
+            catalog: catalog,
+            errorLog: errorLog
+        )
         self.accountFlow = accountFlow
         self.hostActions = hostActions
+        // Keep the shared JSON observer alive for the runtime lifetime, not
+        // only while a Settings card is mounted. Spawn consumers therefore see
+        // dotfiles edits after Settings closes as well.
+        self.declarativeTerminalConfigurationModel.startObserving()
         self.shortcutDefaultResolver = shortcutDefaultResolver
     }
 }

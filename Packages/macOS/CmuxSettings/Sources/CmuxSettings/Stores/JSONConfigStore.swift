@@ -40,12 +40,14 @@ public actor JSONConfigStore {
     public nonisolated let fileURL: URL
 
     private let sanitizer: JSONCSanitizer
+    private let pathResolver: JSONConfigFilePathResolver
     private let watcher: FileWatcher
     private var targetWatcher: FileWatcher?
     private var watchedTargetPath: String?
 
     private var cachedRoot: [String: Any] = [:]
     private var cacheValid = false
+    private var lastCoherentSnapshot: JSONConfigStoreSnapshot?
     // Resolution identity the cache was loaded under. A cmux.json symlink can be
     // retargeted at any time without a watcher event having been processed (or
     // with no subscriber at all, since drains spawn on first subscribe), so
@@ -69,12 +71,13 @@ public actor JSONConfigStore {
     public init(fileURL: URL, sanitizer: JSONCSanitizer = JSONCSanitizer()) {
         self.fileURL = fileURL
         self.sanitizer = sanitizer
+        self.pathResolver = JSONConfigFilePathResolver()
         // The primary watcher observes the configured path, including symlink
         // replacement/retarget events in its parent directory. A secondary
         // target watcher observes edits that land in the resolved target's own
         // directory, which the configured-path watch cannot see.
         self.watcher = FileWatcher(path: fileURL.path)
-        let resolved = Self.resolvedWriteURL(for: fileURL)
+        let resolved = pathResolver.resolvedURL(for: fileURL)
         if resolved.path != fileURL.path {
             self.targetWatcher = FileWatcher(path: resolved.path)
             self.watchedTargetPath = resolved.path
@@ -93,6 +96,19 @@ public actor JSONConfigStore {
         return Value.decodeFromJSON(raw) ?? key.defaultValue
     }
 
+    /// Returns the stored value for the key, or `nil` when the path is absent
+    /// or the value has the wrong JSON shape.
+    ///
+    /// Unlike ``value(for:)``, this preserves the distinction between an
+    /// omitted/invalid entry and an explicitly stored value equal to the key's
+    /// default. That distinction is useful for compatibility fallbacks and
+    /// declarative settings whose effective value is derived from a legacy
+    /// setting until the new key is authored.
+    public func valueIfPresent<Value>(for key: JSONKey<Value>) -> Value? {
+        let root = loadedRoot()
+        return key.path.lookup(in: root).flatMap(Value.decodeFromJSON)
+    }
+
     /// Synchronously returns the current value for `key`, read directly from the
     /// config file without hopping onto the actor.
     ///
@@ -107,6 +123,14 @@ public actor JSONConfigStore {
         let root = (try? readFromDisk()) ?? [:]
         let raw = key.path.lookup(in: root)
         return Value.decodeFromJSON(raw) ?? key.defaultValue
+    }
+
+    /// Synchronously returns the stored value for `key`, or `nil` when the
+    /// path is absent or invalid. This is the presence-preserving counterpart
+    /// to ``snapshotValue(for:)`` for callers that cannot await.
+    public nonisolated func snapshotValueIfPresent<Value>(for key: JSONKey<Value>) -> Value? {
+        let root = (try? readFromDisk()) ?? [:]
+        return key.path.lookup(in: root).flatMap(Value.decodeFromJSON)
     }
 
     /// Writes a value for the key.
@@ -144,31 +168,65 @@ public actor JSONConfigStore {
     ///   of file events coalesce, since we only care that *something*
     ///   changed and re-read the typed value on each consumed signal.
     public nonisolated func values<Value>(for key: JSONKey<Value>) -> AsyncStream<Value> {
-        AsyncStream<Value> { continuation in
+        makeValueStream { store in
+            await store.value(for: key)
+        }
+    }
+
+    /// Returns an `AsyncStream` that preserves whether a JSON value is
+    /// present. The first element and every later element is either the
+    /// decoded value or `nil` for an omitted/invalid entry.
+    ///
+    /// This is intentionally separate from ``values(for:)``: existing callers
+    /// rely on that API's default-value semantics, while compatibility-aware
+    /// consumers need to react when a dotfiles edit removes or invalidates a
+    /// key. Values are deduplicated after decoding, and file-event bursts are
+    /// coalesced exactly like the defaulting stream.
+    public nonisolated func valuesIfPresent<Value>(for key: JSONKey<Value>) -> AsyncStream<Value?> {
+        makeValueStream { store in
+            await store.valueIfPresent(for: key)
+        }
+    }
+
+    /// Returns one coherent JSON revision followed by each later file revision.
+    ///
+    /// Unlike independent key streams, a revision is decoded from one actor
+    /// read of the complete root. Consumers that project several related keys
+    /// can therefore publish one internally consistent snapshot per edit.
+    public nonisolated func snapshots() -> AsyncStream<JSONConfigStoreSnapshot> {
+        makeValueStream { store in
+            await store.coherentSnapshot()
+        }
+    }
+
+    // MARK: - Private
+
+    /// Builds the shared subscription pipeline for both defaulting and
+    /// presence-preserving streams. Registration precedes the initial read so
+    /// writes cannot fall into a notification gap; the bounded signal stream
+    /// coalesces bursts and typed equality suppresses duplicate values.
+    private nonisolated func makeValueStream<Element: Equatable & Sendable>(
+        read: @escaping @Sendable (JSONConfigStore) async -> Element
+    ) -> AsyncStream<Element> {
+        AsyncStream<Element>(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let task = Task { [weak self] in
                 guard let self else {
                     continuation.finish()
                     return
                 }
 
-                let initial = await self.value(for: key)
-                continuation.yield(initial)
-
                 let id = UUID()
-                // bufferingNewest(1): the signal carries no payload, so under
-                // burst file changes we only care that *something* changed.
-                // Dropping intermediate signals is correct because the typed
-                // value is re-read on every consumed signal and deduped below.
-                // Bounded buffering prevents unbounded growth under load.
                 let (signal, signalContinuation) = AsyncStream<Void>.makeStream(
                     bufferingPolicy: .bufferingNewest(1)
                 )
                 await self.addSubscriber(id: id, continuation: signalContinuation)
+                let initial = await read(self)
+                continuation.yield(initial)
 
                 var last = initial
                 for await _ in signal {
                     if Task.isCancelled { break }
-                    let current = await self.value(for: key)
+                    let current = await read(self)
                     if current != last {
                         last = current
                         continuation.yield(current)
@@ -181,7 +239,23 @@ public actor JSONConfigStore {
         }
     }
 
-    // MARK: - Private
+    /// Reads one coherent root while isolated to the store actor.
+    public func coherentSnapshot() -> JSONConfigStoreSnapshot {
+        let root = loadedRoot()
+        let data = (try? JSONSerialization.data(
+            withJSONObject: root,
+            options: [.sortedKeys, .withoutEscapingSlashes]
+        )) ?? Data("{}".utf8)
+        if let lastCoherentSnapshot, lastCoherentSnapshot.data == data {
+            return lastCoherentSnapshot
+        }
+        let snapshot = JSONConfigStoreSnapshot(
+            data: data,
+            revision: (lastCoherentSnapshot?.revision ?? 0) + 1
+        )
+        lastCoherentSnapshot = snapshot
+        return snapshot
+    }
 
     private func addSubscriber(id: UUID, continuation: AsyncStream<Void>.Continuation) {
         subscribers[id] = continuation
@@ -230,7 +304,7 @@ public actor JSONConfigStore {
     /// old drain task releases the previous watcher; `FileWatcher` tears down
     /// its dispatch sources on deinit.
     private func refreshTargetWatcher() {
-        let resolved = Self.resolvedWriteURL(for: fileURL)
+        let resolved = pathResolver.resolvedURL(for: fileURL)
         let desired: String? = resolved.path == fileURL.path ? nil : resolved.path
         guard desired != watchedTargetPath else { return }
 
@@ -248,12 +322,22 @@ public actor JSONConfigStore {
     }
 
     private func loadedRoot() -> [String: Any] {
-        let resolvedURL = Self.resolvedWriteURL(for: fileURL)
+        let resolvedURL = pathResolver.resolvedURL(for: fileURL)
         if cacheIsCurrent(for: resolvedURL.path) { return cachedRoot }
-        cachedRoot = (try? readFromDisk(at: resolvedURL)) ?? [:]
-        cacheValid = true
-        cachedRootResolvedPath = resolvedURL.path
-        return cachedRoot
+        do {
+            let root = try readFromDisk(at: resolvedURL)
+            cachedRoot = root
+            cacheValid = true
+            cachedRootResolvedPath = resolvedURL.path
+            return root
+        } catch {
+            // Reads fail closed, but a parse failure must never become a valid
+            // empty cache: the next mutation must re-read and propagate the
+            // error instead of overwriting unrelated user configuration.
+            cacheValid = false
+            cachedRootResolvedPath = nil
+            return [:]
+        }
     }
 
     private func cacheIsCurrent(for resolvedPath: String) -> Bool {
@@ -270,20 +354,7 @@ public actor JSONConfigStore {
     }
 
     private nonisolated func readFromDisk(at url: URL) throws -> [String: Any] {
-        let data: Data
-        do {
-            data = try Data(contentsOf: url)
-        } catch let error as NSError where error.domain == NSCocoaErrorDomain
-            && error.code == NSFileReadNoSuchFileError {
-            return [:]
-        }
-        if data.isEmpty { return [:] }
-        let sanitized = try sanitizer.sanitize(data)
-        let object = try JSONSerialization.jsonObject(with: sanitized, options: [])
-        guard let dictionary = object as? [String: Any] else {
-            throw JSONConfigStoreReadError.notADictionary
-        }
-        return dictionary
+        try JSONConfigSnapshotDecoder(sanitizer: sanitizer).readRoot(at: url)
     }
 
     /// Resolves the location a write should target for `url`.
@@ -299,22 +370,6 @@ public actor JSONConfigStore {
     /// Mirrors `ConfigSource.configWriteURL(for:)`, which already does this for
     /// the ghostty-format config surface; the JSON store had not been given the
     /// same treatment.
-    private static func resolvedWriteURL(
-        for url: URL,
-        fileManager: FileManager = .default
-    ) -> URL {
-        guard let destination = try? fileManager.destinationOfSymbolicLink(atPath: url.path) else {
-            return url
-        }
-        let destinationURL: URL
-        if destination.hasPrefix("/") {
-            destinationURL = URL(fileURLWithPath: destination)
-        } else {
-            destinationURL = url.deletingLastPathComponent().appendingPathComponent(destination)
-        }
-        return destinationURL.standardizedFileURL.resolvingSymlinksInPath()
-    }
-
     /// Computes the mutation, writes it to disk, and **only then** commits to
     /// the in-memory cache.
     ///
@@ -338,7 +393,7 @@ public actor JSONConfigStore {
         // Write through a symlink to its target rather than at the link path:
         // an atomic write is a temp-file + `rename()`, which would replace the
         // link itself with a regular file and break a dotfiles-managed config.
-        let writeURL = Self.resolvedWriteURL(for: fileURL)
+        let writeURL = pathResolver.resolvedURL(for: fileURL)
         var root = cacheIsCurrent(for: writeURL.path) ? cachedRoot : try readFromDisk(at: writeURL)
         mutate(&root)
 

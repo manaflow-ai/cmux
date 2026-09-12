@@ -8561,7 +8561,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             eagerLoadTerminal: false,
             autoWelcomeIfNeeded: false,
             autoRefreshMetadata: false,
-            allowTextBoxFocusDefault: false
+            allowTextBoxFocusDefault: false,
+            initialRuntimeSpawnPolicy: .immediate.withoutDeclarativeDefaults()
         ) else {
             return nil
         }
@@ -10184,6 +10185,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    /// Returns the app-lifetime terminal configuration source for a new window.
+    /// Isolated tests without a configured Settings runtime receive an
+    /// immutable ready source; production windows always share the model built
+    /// by ``cmuxApp``.
+    private func terminalConfigurationSourceForNewWindow() -> any DeclarativeTerminalConfigurationProviding {
+        settingsRuntime?.declarativeTerminalConfigurationModel
+            ?? DeclarativeTerminalConfigurationSnapshotSource()
+    }
+
+    /// Returns the readiness gate for the app-lifetime terminal configuration.
+    private func terminalConfigurationReadinessForNewWindow() -> (@MainActor @Sendable () async -> Void)? {
+        guard let model = settingsRuntime?.declarativeTerminalConfigurationModel,
+              !model.hasInitialSnapshot else { return nil }
+        return { await model.waitForInitialSnapshot() }
+    }
+
     @discardableResult
     func createMainWindow(
         initialWorkspaceTitle: String? = nil,
@@ -10215,12 +10232,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialWorkspaceTitle: initialWorkspaceTitle,
             initialWorkingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
+            initialRuntimeSpawnPolicy: sessionWindowSnapshot != nil
+                ? .immediate.withoutDeclarativeDefaults()
+                : initialTerminalInput != nil
+                    ? .immediate.withoutDeclarativeStartupDefaults()
+                    : .immediate,
             autoWelcomeIfNeeded: initialTerminalInput == nil,
             tabDragTransferRegistry: tabDragTransferRegistry,
             pullRequestProbeService: pullRequestProbeService,
             workspaceCustomizationStore: self.tabManager?.workspaceCustomizationStore
                 ?? WorkspaceCustomizationStore(defaults: .standard),
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
+            declarativeTerminalConfigurationSource: terminalConfigurationSourceForNewWindow(),
+            initialWorkspaceReadiness: terminalConfigurationReadinessForNewWindow(),
             fileContentChangeCoordinator: self.tabManager?.fileContentChangeCoordinator
         )
         tabManager.windowId = windowId
@@ -10342,6 +10366,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             backing: .buffered,
             defer: false
         )
+        if tabManager.tabs.isEmpty {
+            mainWindowVisibilityController.deferInitialPresentation(of: window)
+        }
         let minimumWindowSize = CmuxMainWindow.minimumContentSize
         window.minSize = minimumWindowSize
         window.contentMinSize = minimumWindowSize
@@ -10444,18 +10471,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         publishCmuxWindowLifecycle(name: "window.created", windowId: windowId, origin: "create")
         installFileDropOverlay(on: window, tabManager: tabManager)
-        if !shouldActivate || TerminalController.shouldSuppressSocketCommandActivation() {
-            window.orderFront(nil)
-            if shouldActivate, TerminalController.socketCommandAllowsInAppFocusMutations() {
-                setActiveMainWindow(window)
+        let suppressActivation = !shouldActivate || TerminalController.shouldSuppressSocketCommandActivation()
+        let allowsFocusMutation = shouldActivate && TerminalController.socketCommandAllowsInAppFocusMutations()
+        let presentWindow: @MainActor () -> Void = { [weak self, weak window, weak tabManager] in
+            guard let self, let window, let tabManager,
+                  self.mainWindowContexts[ObjectIdentifier(window)]?.tabManager === tabManager else { return }
+            self.mainWindowVisibilityController.completeInitialPresentation(of: window) {
+                if suppressActivation {
+                    window.orderFront(nil)
+                    if allowsFocusMutation {
+                        self.setActiveMainWindow(window)
+                    }
+                } else {
+                    self.mainWindowVisibilityController.focus(
+                        window,
+                        reason: .createMainWindow,
+                        activation: .runningApplication([.activateAllWindows]),
+                        respectActivationSuppression: false
+                    )
+                }
+            }
+        }
+        if tabManager.tabs.isEmpty {
+            Task { @MainActor [weak tabManager] in
+                guard let tabManager else { return }
+                await tabManager.waitForInitialWorkspace()
+                guard !Task.isCancelled, !tabManager.tabs.isEmpty else { return }
+                presentWindow()
             }
         } else {
-            mainWindowVisibilityController.focus(
-                window,
-                reason: .createMainWindow,
-                activation: .runningApplication([.activateAllWindows]),
-                respectActivationSuppression: false
-            )
+            presentWindow()
         }
         if let explicitInitialFrame {
             window.setFrame(explicitInitialFrame, display: true)

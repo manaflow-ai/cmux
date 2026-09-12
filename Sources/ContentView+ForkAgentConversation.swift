@@ -298,7 +298,10 @@ extension ContentView {
                     initialTerminalStartupRestoreAgent: launch.startupRestoreAgent,
                     initialTerminalEnvironment: launch.initialTerminalEnvironment,
                     inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
-                    autoWelcomeIfNeeded: false
+                    autoWelcomeIfNeeded: false,
+                    initialRuntimeSpawnPolicy: launch.remoteConfiguration == nil
+                        ? .immediate
+                        : .immediate.withoutDeclarativeDefaults()
                 ) else {
                     didFork = false
                     break

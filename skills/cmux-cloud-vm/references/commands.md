@@ -626,6 +626,7 @@ cmux rpc <method> [json-params]        # call any v2 method directly, e.g. cmux 
 | `vm.base_open`, `vm.base_reset` | `vm base open`, `vm base reset` |
 | `vm.status` | `vm status`, `vm handoff`, `vm wait` |
 | `vm.stats` | `vm stats`; the router's load scoring |
+| `vm.diagnostics` | Cloud Diagnostics window and operation-state report (app-internal; no standalone CLI verb) |
 | `pane.resize` | `vm resize <id> --disk <GiB>`; machine row › Resize Disk… |
 | `vm.rename` | `vm new --name` and the router's `agent-pool` label; direct machine-label editing is currently a sidebar action |
 | `vm.tab_rename` | `vm tab rename` |

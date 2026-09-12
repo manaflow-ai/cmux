@@ -36,7 +36,8 @@ extension AppDelegate {
             eagerLoadTerminal: false,
             autoWelcomeIfNeeded: false,
             autoRefreshMetadata: false,
-            allowTextBoxFocusDefault: false
+            allowTextBoxFocusDefault: false,
+            initialRuntimeSpawnPolicy: .immediate.withoutDeclarativeDefaults()
         ) else {
             return false
         }

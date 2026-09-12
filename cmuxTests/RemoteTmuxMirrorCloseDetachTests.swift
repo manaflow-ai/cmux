@@ -33,8 +33,8 @@ import Testing
     /// The mark seam must NOT flag a mirror workspace's window for kill-on-close:
     /// the close detaches, the remote tmux session survives for resume. Before the
     /// fix this marked the window for kill; after, it never does.
-    @Test func markSeamDoesNotMarkMirrorForKill() throws {
-        let harness = try Harness()
+    @Test func markSeamDoesNotMarkMirrorForKill() async throws {
+        let harness = try await Harness()
         defer { harness.tearDown() }
 
         harness.workspace.isRemoteTmuxMirror = true
@@ -78,7 +78,7 @@ import Testing
             restoreEnvironment(sshLogKey, previousValue: previousLog)
         }
 
-        let harness = try Harness()
+        let harness = try await Harness()
         defer { harness.tearDown() }
         let host = RemoteTmuxHost(destination: "close-\(UUID().uuidString)@example.test")
         let connection = RemoteTmuxControlConnection(host: host, sessionName: "dev")
@@ -163,7 +163,7 @@ import Testing
             restoreEnvironment(sshLogKey, previousValue: previousLog)
         }
 
-        let harness = try Harness()
+        let harness = try await Harness()
         defer { harness.tearDown() }
         let host = RemoteTmuxHost(destination: "explicit-detach-\(UUID().uuidString)@example.test")
         let connection = RemoteTmuxControlConnection(host: host, sessionName: "dev")
@@ -200,8 +200,8 @@ import Testing
     /// A remote session ending removes its dead mirror but preserves the owning
     /// window with a fresh local workspace. Only explicit detach closes a
     /// dedicated final-mirror window.
-    @Test func remoteSessionEndOfDedicatedLastMirrorKeepsOwningWindowUsable() throws {
-        let harness = try Harness()
+    @Test func remoteSessionEndOfDedicatedLastMirrorKeepsOwningWindowUsable() async throws {
+        let harness = try await Harness()
         defer { harness.tearDown() }
         let host = RemoteTmuxHost(destination: "remote-end-\(UUID().uuidString)@example.test")
         let connection = RemoteTmuxControlConnection(host: host, sessionName: "dev")
@@ -333,11 +333,15 @@ import Testing
         let workspace: Workspace
         var controller: RemoteTmuxController { appDelegate.remoteTmuxController }
 
-        init() throws {
-            appDelegate = try #require(AppDelegate.shared)
-            windowId = appDelegate.createMainWindow()
-            manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-            workspace = try #require(manager.selectedWorkspace)
+        init() async throws {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            await manager.waitForInitialWorkspace()
+            self.appDelegate = appDelegate
+            self.windowId = windowId
+            self.manager = manager
+            self.workspace = try #require(manager.selectedWorkspace)
         }
 
         func tearDown() {
@@ -408,7 +412,7 @@ import Testing
             }
         }
 
-        let harness = try RemoteTmuxMirrorCloseDetachTests.Harness()
+        let harness = try await RemoteTmuxMirrorCloseDetachTests.Harness()
         var targetWindowID: UUID?
         defer {
             if let targetWindowID { harness.closeWindow(targetWindowID) }

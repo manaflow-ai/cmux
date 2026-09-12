@@ -407,8 +407,16 @@ class GhosttyApp {
     /// The injected collaborators for every `TerminalSurface` (transitional:
     /// dissolves into composition-root injection when `GhosttyAppService`
     /// replaces this type).
+    private static let computerUseConfigStore = JSONConfigStore(
+        fileURL: CmuxConfigLocation().userConfigFile
+    )
+
     @MainActor
-    static let terminalSurfaceRuntimeDependencies = TerminalSurfaceRuntimeDependencies(
+    private static func makeTerminalSurfaceRuntimeDependencies(
+        declarativeTerminalConfigurationSource: any DeclarativeTerminalConfigurationProviding,
+        computerUseConfigStore: JSONConfigStore
+    ) -> TerminalSurfaceRuntimeDependencies {
+        TerminalSurfaceRuntimeDependencies(
         registry: GhosttyApp.terminalSurfaceRegistry,
         engine: GhosttyApp.shared,
         viewProvider: {
@@ -431,7 +439,10 @@ class GhosttyApp {
                 imageTransferPreparation: preparationService
             )
         }(),
-        spawnPolicy: TerminalSurfaceSpawnPolicyBridge(),
+        spawnPolicy: TerminalSurfaceSpawnPolicyBridge(
+            declarativeTerminalConfigurationSource: declarativeTerminalConfigurationSource,
+            computerUseConfigStore: computerUseConfigStore
+        ),
         byteTee: TerminalOutputByteTeeBridge(),
         rendererRealization: RendererRealizationController.shared,
         hibernationRecorder: TerminalAgentHibernationRecorder(),
@@ -445,7 +456,45 @@ class GhosttyApp {
         globalFontMagnificationPercent: {
             GhosttyApp.shared.appliedGlobalFontMagnificationPercent
         }
+        )
+    }
+
+    /// Stable collaborators shared by app-only callers and surface clones.
+    @MainActor
+    static let terminalSurfaceRuntimeDependencies = makeTerminalSurfaceRuntimeDependencies(
+        declarativeTerminalConfigurationSource: DeclarativeTerminalConfigurationSnapshotSource(),
+        computerUseConfigStore: computerUseConfigStore
     )
+
+    /// Returns the stable runtime bundle with the caller's scoped declarative
+    /// snapshot owner substituted into the spawn-policy bridge.
+    @MainActor
+    static func terminalSurfaceRuntimeDependencies(
+        declarativeTerminalConfigurationSource: any DeclarativeTerminalConfigurationProviding
+    ) -> TerminalSurfaceRuntimeDependencies {
+        let base = terminalSurfaceRuntimeDependencies
+        return TerminalSurfaceRuntimeDependencies(
+            registry: base.registry,
+            engine: base.engine,
+            viewProvider: base.viewProvider,
+            spawnPolicy: TerminalSurfaceSpawnPolicyBridge(
+                declarativeTerminalConfigurationSource: declarativeTerminalConfigurationSource,
+                computerUseConfigStore: computerUseConfigStore
+            ),
+            byteTee: base.byteTee,
+            rendererRealization: base.rendererRealization,
+            hibernationRecorder: base.hibernationRecorder,
+            runtimeTeardown: base.runtimeTeardown,
+            restoreSpawnScheduler: base.restoreSpawnScheduler,
+            runtimeFilesystem: base.runtimeFilesystem,
+            agentCommandShimInstallDeadline: base.agentCommandShimInstallDeadline,
+            agentCommandShimInstallDeadlineClock: base.agentCommandShimInstallDeadlineClock,
+            sessionPortBase: base.sessionPortBase,
+            sessionPortRangeSize: base.sessionPortRangeSize,
+            scrollbackReplayEnvironmentKey: base.scrollbackReplayEnvironmentKey,
+            globalFontMagnificationPercent: base.globalFontMagnificationPercent
+        )
+    }
 
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
     /// Shared config-file discovery seam. Resolves Ghostty config scan paths,

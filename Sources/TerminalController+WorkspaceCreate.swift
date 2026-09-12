@@ -112,7 +112,10 @@ extension TerminalController {
                     select: execution.shouldFocus,
                     eagerLoadTerminal: execution.shouldEagerLoadTerminal,
                     autoWelcomeIfNeeded: initialTerminalInput == nil,
-                    autoRefreshMetadata: execution.shouldAutoRefreshMetadata
+                    autoRefreshMetadata: execution.shouldAutoRefreshMetadata,
+                    initialRuntimeSpawnPolicy: execution.layoutNode == nil
+                        ? .immediate
+                        : .immediate.withoutDeclarativeDefaults()
                 ) else { return }
                 ws.taskCreateOperationID = operationID
                 ws.setCustomDescription(execution.description)

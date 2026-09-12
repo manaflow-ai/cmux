@@ -151,17 +151,27 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          UNIT_TEST_LOG_DIR="${RUNNER_TEMP:-$PWD/.ci-unit-test-logs}"
+          mkdir -p "$UNIT_TEST_LOG_DIR"
           run_unit_suite() {
+            local suite_log_path="$1"
+            shift
+            : > "$suite_log_path"
+            CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH="$suite_log_path" \
             scripts/ci/xcodebuild_noninteractive.py \
               xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
-              -destination "platform=macOS" "$@" test 2>&1
+              -destination "platform=macOS" "$@" test > /dev/null 2>&1
           }
           run_unit_tests() {
+            local output_path="$1"
+            : > "$output_path"
             if [ -z "$UNIT_TEST_SUITES" ]; then
-              run_unit_suite
-              return $?
+              local suite_status=0
+              run_unit_suite "$UNIT_TEST_LOG_DIR/all.log" || suite_status=$?
+              cat "$UNIT_TEST_LOG_DIR/all.log" > "$output_path"
+              return "$suite_status"
             fi
             IFS=',' read -r -a suites <<< "$UNIT_TEST_SUITES"
             for suite in "${suites[@]}"; do
@@ -169,45 +179,42 @@ jobs:
                 echo "Invalid unit suite identifier" >&2
                 return 1
               fi
-              local suite_output suite_status=0
-              suite_output=$(run_unit_suite "-only-testing:cmuxTests/$suite") || suite_status=$?
-              printf '%s\n' "$suite_output"
+              local suite_log_path="$UNIT_TEST_LOG_DIR/$suite.log" suite_status=0
+              run_unit_suite "$suite_log_path" "-only-testing:cmuxTests/$suite" || suite_status=$?
+              cat "$suite_log_path" >> "$output_path"
               if [ "$suite_status" -ne 0 ]; then return "$suite_status"; fi
-              # A pipeline here makes `set -o pipefail` treat grep's normal
-              # early exit as a printf SIGPIPE when the xcodebuild log is
-              # large. Feed grep with a here-string so a passing suite cannot
-              # be reported as empty because of that logging artifact.
-              if ! grep -Eq 'Test run with [1-9][0-9]* tests?([[:space:]]|$)|Executed [1-9][0-9]* tests?([[:space:],]|$)' <<<"$suite_output"; then
+              if ! grep -Eq 'Test run with [1-9][0-9]* tests?([[:space:]]|$)|Executed [1-9][0-9]* tests?([[:space:],]|$)' "$suite_log_path"; then
                 echo "No tests executed for $suite" >&2
                 return 1
               fi
             done
           }
 
+          OUTPUT_PATH="$UNIT_TEST_LOG_DIR/all-tests.log"
           set +e
-          OUTPUT=$(run_unit_tests)
+          run_unit_tests "$OUTPUT_PATH"
           EXIT_CODE=$?
           set -e
 
           # SwiftPM binary artifact resolution can occasionally fail with
           # "Could not resolve package dependencies". Retry once after clearing
           # SwiftPM/DerivedData caches to recover from transient corruption.
-          if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
+          if [ "$EXIT_CODE" -ne 0 ] && grep -q "Could not resolve package dependencies" "$OUTPUT_PATH"; then
             echo "SwiftPM package resolution failed, clearing caches and retrying once"
             rm -rf ~/Library/Caches/org.swift.swiftpm
             rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
             set +e
-            OUTPUT=$(run_unit_tests)
+            run_unit_tests "$OUTPUT_PATH"
             EXIT_CODE=$?
             set -e
           fi
 
-          echo "$OUTPUT"
+          cat "$OUTPUT_PATH"
           if [ -n "$UNIT_TEST_SUITES" ] && [ "$EXIT_CODE" -ne 0 ]; then
             exit "$EXIT_CODE"
           fi
           if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
+            SUMMARY=$(grep "Executed.*tests.*with.*failures" "$OUTPUT_PATH" | tail -1)
             if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
               echo "All failures are expected, treating as pass"
             else

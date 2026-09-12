@@ -44,18 +44,35 @@ struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
 
 // MARK: Spawn policy
 
-/// Live settings/control-plane reads for spawn assembly (the legacy inline
-/// reads of the integration-settings enums, `sidebarShellIntegration`,
-/// `SidebarWorkspaceDetailDefaults`, and `TerminalController`'s socket path).
+/// Per-surface declarative defaults and live control-plane reads for spawn
+/// assembly. Pin startup defaults when the surface is created, alongside its
+/// working directory, rather than combining revisions at deferred attachment.
 @MainActor
 final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProviding {
-    private let computerUseConfigStore = JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile)
+    private let declarativeTerminalSettings: DeclarativeTerminalConfiguration.Snapshot
+    private let computerUseConfigStore: JSONConfigStore
     private let computerUseEnabledKey = SettingCatalog().computerUse.enabled
+
+    init(
+        declarativeTerminalConfigurationSource: any DeclarativeTerminalConfigurationProviding,
+        computerUseConfigStore: JSONConfigStore
+    ) {
+        self.declarativeTerminalSettings = declarativeTerminalConfigurationSource.snapshot
+        self.computerUseConfigStore = computerUseConfigStore
+    }
 
     func currentSpawnPolicy() -> TerminalSurfaceSpawnPolicy {
         let integrations = AgentIntegrationSettingsStore(defaults: .standard)
+        let shellStartupMode: TerminalShellStartupMode = switch declarativeTerminalSettings.shellStartupMode {
+        case .login:
+            .login
+        case .nonLogin:
+            .nonLogin
+        }
         return TerminalSurfaceSpawnPolicy(
             socketAuthenticationEnvironment: TerminalController.shared.socketClientCapabilityEnvironment(),
+            shellStartupMode: shellStartupMode,
+            shellStartupCommand: declarativeTerminalSettings.shellStartupCommand,
             claudeHooksEnabled: integrations.claudeCodeHooksEnabled,
             codexHooksEnabled: integrations.codexHooksEnabled,
             customClaudePath: integrations.customClaudePath,
@@ -199,8 +216,12 @@ extension TerminalSurface {
         manualInputHandler: (@Sendable (TerminalManualInput) -> Void)? = nil,
         manualInputKeyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
+        declarativeTerminalConfigurationSource: (any DeclarativeTerminalConfigurationProviding)? = nil,
         preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in }
     ) {
+        let declarativeTerminalConfigurationSource =
+            declarativeTerminalConfigurationSource
+                ?? DeclarativeTerminalConfigurationSnapshotSource()
         self.init(
             id: id,
             tabId: tabId,
@@ -219,7 +240,9 @@ extension TerminalSurface {
             manualInputKeyNameResolver: manualInputKeyNameResolver,
             runtimeSpawnPolicy: runtimeSpawnPolicy,
             preparePaneHost: preparePaneHost,
-            dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies
+            dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies(
+                declarativeTerminalConfigurationSource: declarativeTerminalConfigurationSource
+            )
         )
     }
 }

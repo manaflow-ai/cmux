@@ -3324,7 +3324,8 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             initialBrowserOmnibarVisible: Bool,
             initialBrowserTransparentBackground: Bool,
             workspaceEnvironment: [String: String],
-            allowTextBoxFocusDefault: Bool
+            allowTextBoxFocusDefault: Bool,
+            initialRuntimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
         ) -> Workspace {
             beforeCreateWorkspace?()
             return super.makeWorkspaceForCreation(
@@ -3342,7 +3343,8 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
                 workspaceEnvironment: workspaceEnvironment,
-                allowTextBoxFocusDefault: allowTextBoxFocusDefault
+                allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+                initialRuntimeSpawnPolicy: initialRuntimeSpawnPolicy
             )
         }
     }
@@ -3639,7 +3641,8 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             initialBrowserOmnibarVisible: Bool,
             initialBrowserTransparentBackground: Bool,
             workspaceEnvironment: [String: String],
-            allowTextBoxFocusDefault: Bool
+            allowTextBoxFocusDefault: Bool,
+            initialRuntimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
         ) -> Workspace {
             capturedConfigTemplate = configTemplate
             return super.makeWorkspaceForCreation(
@@ -3657,7 +3660,8 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
                 workspaceEnvironment: workspaceEnvironment,
-                allowTextBoxFocusDefault: allowTextBoxFocusDefault
+                allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+                initialRuntimeSpawnPolicy: initialRuntimeSpawnPolicy
             )
         }
     }

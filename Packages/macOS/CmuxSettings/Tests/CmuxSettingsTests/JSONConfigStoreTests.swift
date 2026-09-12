@@ -18,6 +18,170 @@ struct JSONConfigStoreTests {
         #expect(value == "")
     }
 
+    @Test func presenceReadDistinguishesMissingAndExplicitDefault() async throws {
+        let (store, _, _) = makeStore()
+        let key = JSONKey<String>(id: "terminal.shellStartup.command", defaultValue: "")
+
+        #expect(await store.valueIfPresent(for: key) == nil)
+        #expect(store.snapshotValueIfPresent(for: key) == nil)
+
+        try await store.set("", for: key)
+        #expect(await store.valueIfPresent(for: key) == "")
+        #expect(store.snapshotValueIfPresent(for: key) == "")
+    }
+
+    @Test func presenceReadFailsClosedForInvalidValue() async throws {
+        let (store, fileURL, _) = makeStore()
+        let key = JSONKey<NewSurfaceWorkingDirectoryPolicy>(
+            id: "terminal.newSurfaceWorkingDirectory.policy",
+            defaultValue: .inheritActivePane
+        )
+        try Data(
+            #"{"terminal":{"newSurfaceWorkingDirectory":{"policy":"unknown"}}}"#.utf8
+        ).write(to: fileURL)
+
+        #expect(await store.valueIfPresent(for: key) == nil)
+        #expect(store.snapshotValueIfPresent(for: key) == nil)
+    }
+
+    @Test func coherentSnapshotDecodesRelatedTerminalKeysTogether() async throws {
+        let (store, fileURL, _) = makeStore()
+        try Data(
+            #"{"terminal":{"newSurfaceWorkingDirectory":{"policy":"fixedPath","path":"/tmp/project"},"shellStartup":{"mode":"nonLogin","command":"echo ready"}}}"#.utf8
+        ).write(to: fileURL)
+
+        let revision = await store.coherentSnapshot()
+        let snapshot = DeclarativeTerminalConfiguration().snapshot(data: revision.data)
+        #expect(snapshot.workingDirectoryPolicy == .fixedPath)
+        #expect(snapshot.workingDirectoryPath == "/tmp/project")
+        #expect(snapshot.shellStartupMode == .nonLogin)
+        #expect(snapshot.shellStartupCommand == "echo ready")
+    }
+
+    @Test func malformedSnapshotNeverAuthorizesAnOverwritingWrite() async throws {
+        let (store, fileURL, _) = makeStore()
+        let original = Data(#"{"unrelated":{"value":42},"terminal":[}"#.utf8)
+        try original.write(to: fileURL)
+
+        // A read should fail closed for consumers, but must not mark the empty
+        // fallback as an authoritative store cache.
+        _ = await store.coherentSnapshot()
+
+        let key = JSONKey<String>(id: "terminal.shellStartup.command", defaultValue: "")
+        do {
+            try await store.set("echo unsafe", for: key)
+            Issue.record("A malformed config must reject writes instead of replacing the file")
+        } catch {
+            // The concrete parser error is intentionally opaque to callers;
+            // preserving the on-disk bytes is the behavior under test.
+        }
+        #expect(try Data(contentsOf: fileURL) == original)
+    }
+
+    @Test func coherentSnapshotsDistinguishReturningToEarlierContents() async throws {
+        let (store, fileURL, catalog) = makeStore()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+
+        try await store.set(.login, for: catalog.terminal.shellStartupMode)
+        let initial = await store.coherentSnapshot()
+        #expect(await store.coherentSnapshot() == initial)
+
+        try await store.set(.nonLogin, for: catalog.terminal.shellStartupMode)
+        let changed = await store.coherentSnapshot()
+        #expect(changed != initial)
+
+        try await store.set(.login, for: catalog.terminal.shellStartupMode)
+        let reverted = await store.coherentSnapshot()
+        #expect(reverted.data == initial.data)
+        #expect(reverted != initial)
+        #expect(await store.coherentSnapshot() == reverted)
+    }
+
+    @Test func snapshotStreamPublishesOneCoherentRevision() async throws {
+        let (store, fileURL, _) = makeStore()
+        try Data("{}".utf8).write(to: fileURL)
+
+        let (ready, readyContinuation) = AsyncStream<Void>.makeStream()
+        let observed = Task<DeclarativeTerminalConfiguration.Snapshot?, Never> {
+            var iterator = store.snapshots().makeAsyncIterator()
+            guard await iterator.next() != nil else { return nil }
+            readyContinuation.yield()
+            guard let revision = await iterator.next() else { return nil }
+            return DeclarativeTerminalConfiguration().snapshot(data: revision.data)
+        }
+
+        await withTimeout(seconds: 8) {
+            var iterator = ready.makeAsyncIterator()
+            _ = await iterator.next()
+        }
+        try Data(
+            #"{"terminal":{"newSurfaceWorkingDirectory":{"policy":"workspaceRoot","path":"/tmp/root"},"shellStartup":{"mode":"login","command":"mise activate"}}}"#.utf8
+        ).write(to: fileURL, options: [.atomic])
+
+        let snapshot = await withTimeout(seconds: 8) { await observed.value }
+        #expect(snapshot?.workingDirectoryPolicy == .workspaceRoot)
+        #expect(snapshot?.workingDirectoryPath == "/tmp/root")
+        #expect(snapshot?.shellStartupMode == .login)
+        #expect(snapshot?.shellStartupCommand == "mise activate")
+    }
+
+    @Test func presenceStreamReportsMissingExplicitResetAndValidTransitions() async throws {
+        let (store, _, _) = makeStore()
+        let key = JSONKey<NewSurfaceWorkingDirectoryPolicy>(
+            id: "terminal.newSurfaceWorkingDirectory.policy",
+            defaultValue: .inheritActivePane
+        )
+        let (first, firstContinuation) = AsyncStream<Void>.makeStream()
+        let (second, secondContinuation) = AsyncStream<Void>.makeStream()
+        let (third, thirdContinuation) = AsyncStream<Void>.makeStream()
+        let (fourth, fourthContinuation) = AsyncStream<Void>.makeStream()
+        let observed = Task<[NewSurfaceWorkingDirectoryPolicy?], Never> {
+            var values: [NewSurfaceWorkingDirectoryPolicy?] = []
+            for await value in store.valuesIfPresent(for: key) {
+                values.append(value)
+                switch values.count {
+                case 1:
+                    firstContinuation.yield()
+                case 2:
+                    secondContinuation.yield()
+                case 3:
+                    thirdContinuation.yield()
+                case 4:
+                    fourthContinuation.yield()
+                default:
+                    break
+                }
+                if values.count == 4 {
+                    break
+                }
+            }
+            return values
+        }
+
+        await withTimeout(seconds: 8) {
+            var iterator = first.makeAsyncIterator()
+            _ = await iterator.next()
+        }
+        try await store.set(.inheritActivePane, for: key)
+        await withTimeout(seconds: 8) {
+            var iterator = second.makeAsyncIterator()
+            _ = await iterator.next()
+        }
+        try await store.reset(key)
+        await withTimeout(seconds: 8) {
+            var iterator = third.makeAsyncIterator()
+            _ = await iterator.next()
+        }
+        try await store.set(.workspaceRoot, for: key)
+        await withTimeout(seconds: 8) {
+            var iterator = fourth.makeAsyncIterator()
+            _ = await iterator.next()
+        }
+
+        let values = await observed.value
+        #expect(values == [nil, .inheritActivePane, nil, .workspaceRoot])
+    }
+
     @Test func roundTripsNestedKey() async throws {
         let (store, fileURL, _) = makeStore()
         try await store.set("hunter2", for: JSONKey<String>(id: "automation.socketPassword", defaultValue: ""))
