@@ -545,7 +545,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
                 Darwin.bind(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
-        guard bindResult == 0, Darwin.listen(fd, 1) == 0 else {
+        guard bindResult == 0, Darwin.listen(fd, 16) == 0 else {
             let code = errno
             Darwin.close(fd)
             throw NSError(domain: "cmux.tests", code: Int(code))
