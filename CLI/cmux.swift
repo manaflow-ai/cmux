@@ -6396,6 +6396,8 @@ struct CMUXCLI {
 
             case "tree":
                 try runVMTreeCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+            case "tree-config":
+                try runVMTreeConfigCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
             case "self":
                 try runVMSelfCommand(rest: rest, client: client, jsonOutput: jsonOutput)
