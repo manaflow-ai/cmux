@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import CmuxFoundation
 import CmuxSettings
@@ -340,7 +341,8 @@ extension CMUXCLI {
     }
 
     func themeTargetBundleIdentifier(socketPath: String) -> String {
-        bundleIdentifierForThemeReloadSocketPath(socketPath)
+        bundleIdentifierFromSocketMarker(for: socketPath)
+            ?? bundleIdentifierForThemeReloadSocketPath(socketPath)
             ?? currentCmuxAppBundleIdentifier()
             ?? Self.cmuxThemeOverrideBundleIdentifier
     }
@@ -389,6 +391,92 @@ extension CMUXCLI {
             return "\(SocketPathMarkerFiles.defaultBaseDebugBundleIdentifier).\(slug)"
         }
         return nil
+    }
+
+    private func bundleIdentifierFromSocketMarker(for socketPath: String) -> String? {
+        let fileManager = FileManager.default
+        let markerDirectories = [
+            CmuxStateDirectory.url(homeDirectory: fileManager.homeDirectoryForCurrentUser),
+            CmuxStateDirectory.legacyApplicationSupportURL(fileManager: fileManager),
+            URL(fileURLWithPath: "/tmp", isDirectory: true),
+        ].compactMap { $0 }
+
+        for directory in markerDirectories {
+            guard let markerURLs = try? fileManager.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            ) else {
+                continue
+            }
+
+            for markerURL in markerURLs.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+                guard let bundleIdentifier = bundleIdentifierForThemeReloadMarkerFile(
+                    markerURL.lastPathComponent
+                ),
+                      let markedSocketPath = boundedThemeReloadMarkerContents(at: markerURL),
+                      SocketControlSettings.pathsMatch(markedSocketPath, socketPath) else {
+                    continue
+                }
+                return bundleIdentifier
+            }
+        }
+        return nil
+    }
+
+    private func bundleIdentifierForThemeReloadMarkerFile(_ fileName: String) -> String? {
+        let suffix = "-last-socket-path"
+        if fileName == SocketPathMarkerFiles.stableMarkerFileName {
+            return SocketPathMarkerFiles.releaseBundleIdentifier
+        }
+        if fileName == "nightly\(suffix)" {
+            return SocketPathMarkerFiles.nightlyBundleIdentifier
+        }
+        if fileName == "staging\(suffix)" {
+            return SocketPathMarkerFiles.stagingBundleIdentifier
+        }
+        if fileName == "dev\(suffix)" {
+            return SocketPathMarkerFiles.defaultBaseDebugBundleIdentifier
+        }
+        guard fileName.hasSuffix(suffix) else { return nil }
+
+        let variants: [(prefix: String, bundleIdentifier: String)] = [
+            ("nightly-", SocketPathMarkerFiles.nightlyBundleIdentifier),
+            ("staging-", SocketPathMarkerFiles.stagingBundleIdentifier),
+            ("dev-", SocketPathMarkerFiles.defaultBaseDebugBundleIdentifier),
+        ]
+        for variant in variants {
+            let prefix = variant.prefix
+            guard fileName.hasPrefix(prefix) else { continue }
+            let start = fileName.index(fileName.startIndex, offsetBy: prefix.count)
+            let end = fileName.index(fileName.endIndex, offsetBy: -suffix.count)
+            let slug = String(fileName[start..<end])
+            guard !slug.isEmpty else {
+                return variant.bundleIdentifier
+            }
+            return "\(variant.bundleIdentifier).\(slug.replacingOccurrences(of: "-", with: "."))"
+        }
+        return nil
+    }
+
+    private func boundedThemeReloadMarkerContents(at url: URL) -> String? {
+        var info = stat()
+        guard lstat(url.path, &info) == 0,
+              (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG),
+              info.st_uid == getuid(),
+              info.st_nlink == 1,
+              info.st_size >= 0,
+              info.st_size <= off_t(SocketPathMarkerStore.maximumMarkerBytes),
+              let handle = try? FileHandle(forReadingFrom: url) else {
+            return nil
+        }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: SocketPathMarkerStore.maximumMarkerBytes + 1),
+              data.count <= SocketPathMarkerStore.maximumMarkerBytes,
+              let value = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func themeReloadSocketSlug(_ name: String, prefix: String, suffix: String) -> String? {

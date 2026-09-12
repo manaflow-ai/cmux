@@ -3129,6 +3129,66 @@ import Testing
         }
     }
 
+    @Test func testThemesSetResolvesShortenedAppSupportSocketThroughVariantMarker() throws {
+        let cliPath = try bundledCLIPath()
+        let fileManager = FileManager.default
+        let root = URL(fileURLWithPath: "/tmp")
+            .appendingPathComponent("cmux-themes-shortened-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let resourcesURL = root.appendingPathComponent("resources", isDirectory: true)
+        let themesURL = resourcesURL.appendingPathComponent("themes", isDirectory: true)
+        try fileManager.createDirectory(at: themesURL, withIntermediateDirectories: true)
+        try writeTheme(named: "Theme A", background: "#101010", to: themesURL)
+
+        let tagSlug = "shortened-theme-" + String(repeating: "socket-", count: 12) + "x"
+        let variant = SocketPathVariant.dev(slug: tagSlug)
+        let stateDirectory = CmuxStateDirectory.url(homeDirectory: root)
+        try fileManager.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        let fullSocketFileName = SocketPathMarkerFiles.socketFileName(for: variant)
+        let socketPath = SocketPathMarkerFiles.socketPath(
+            fileName: fullSocketFileName,
+            directory: stateDirectory
+        )
+        XCTAssertNotEqual(
+            URL(fileURLWithPath: socketPath).lastPathComponent,
+            fullSocketFileName
+        )
+        let markerURL = stateDirectory.appendingPathComponent(
+            variant.markerFileName,
+            isDirectory: false
+        )
+        try "\(socketPath)\n".write(to: markerURL, atomically: true, encoding: .utf8)
+
+        let resources = resourcesURL.path
+        let expectedBundleIdentifier = "\(SocketPathMarkerFiles.defaultBaseDebugBundleIdentifier).\(tagSlug.replacingOccurrences(of: "-", with: "."))"
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CFFIXED_USER_HOME"] = root.path
+        environment["HOME"] = root.path
+        environment["GHOSTTY_RESOURCES_DIR"] = resources
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_BUNDLE_ID"] = "com.cmuxterm.app.debug.stale"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--json", "themes", "set", "Theme A"],
+            environment: environment
+        )
+
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+            result.diagnostics
+        )
+        XCTAssertEqual(payload["reload_target_bundle_id"] as? String, expectedBundleIdentifier)
+    }
+
     @Test func testThemesSetNightlyOverridePathIsReadableByNightlyAppConfigResolution() throws {
         let cliPath = try bundledCLIPath()
         let fileManager = FileManager.default
