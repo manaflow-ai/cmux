@@ -625,6 +625,15 @@ import WebKit
         ) {
             return
         }
+        // WebKit reads its fallback text encoding when it creates the document,
+        // so the local-file UTF-8 fallback has to be chosen before the
+        // navigation is allowed.
+        if navigationAction.targetFrame?.isMainFrame != false {
+            BrowserLocalFileTextEncoding.applyDefaultTextEncoding(
+                for: navigationAction.request.url,
+                in: webView
+            )
+        }
         decisionHandler(.allow)
     }
 

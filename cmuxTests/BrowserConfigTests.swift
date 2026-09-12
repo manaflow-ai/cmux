@@ -6123,6 +6123,52 @@ final class BrowserLocalFileTextEncodingTests: XCTestCase {
         )
     }
 
+    func testSniffAcceptsUTF8File() throws {
+        let directory = try makeTemporaryDirectory()
+        let file = directory.appendingPathComponent("notes.md")
+        try "# 산책의 즐거움".write(to: file, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: file))
+    }
+
+    func testSniffRejectsFileThatIsNotUTF8() throws {
+        let directory = try makeTemporaryDirectory()
+        let file = directory.appendingPathComponent("legacy.md")
+        // "한글" in EUC-KR, which is not valid UTF-8.
+        try Data([0xC7, 0xD1, 0xB1, 0xDB]).write(to: file)
+
+        XCTAssertFalse(BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: file))
+    }
+
+    /// The sniff reads a fixed prefix, which can stop partway through a
+    /// multi-byte scalar. That truncation must not read as "not UTF-8".
+    func testSniffAcceptsUTF8FileWhoseSniffWindowSplitsAScalar() throws {
+        let directory = try makeTemporaryDirectory()
+        let file = directory.appendingPathComponent("long.md")
+        var contents = Data(repeating: UInt8(ascii: "a"), count: BrowserLocalFileTextEncoding.sniffedByteCount - 1)
+        contents.append(Data("가나다".utf8))
+        try contents.write(to: file)
+
+        XCTAssertTrue(BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: file))
+    }
+
+    func testSniffRejectsEmptyMissingAndRemoteURLs() throws {
+        let directory = try makeTemporaryDirectory()
+        let empty = directory.appendingPathComponent("empty.md")
+        try Data().write(to: empty)
+
+        XCTAssertFalse(BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: empty))
+        XCTAssertFalse(
+            BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(
+                for: directory.appendingPathComponent("missing.md")
+            )
+        )
+        XCTAssertFalse(
+            BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: URL(string: "https://example.com/notes.md"))
+        )
+        XCTAssertFalse(BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: nil))
+    }
+
     /// An HTML page that declares its own charset must keep it: the fallback
     /// only fills in for documents that declare nothing.
     func testDeclaredCharsetStillWinsForLocalHTML() throws {
