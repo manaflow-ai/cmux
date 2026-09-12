@@ -948,6 +948,9 @@ import Testing
                 #expect(result["target_unresolved"] as? Bool == true)
                 #expect(result["terminal_skip"] as? Bool == false)
                 #expect(workspace.customTitle == nil)
+            }
+        }
+    }
 
     /// Applies a native Codex title without requiring auto-naming.
     @Test func codexNativeTitleSyncAppliesToRawPanelTitleWithAutoNamingDisabled() async throws {
