@@ -7,6 +7,7 @@ import subprocess
 import sys
 import textwrap
 import os
+import signal
 import tempfile
 import time
 from pathlib import Path
@@ -279,7 +280,6 @@ def main() -> int:
             time.sleep(0.1)
         """
     )
-    noisy_started = time.monotonic()
     noisy_post_test_result = subprocess.run(
         [sys.executable, str(HELPER), sys.executable, "-c", noisy_post_test_child],
         cwd=ROOT,
@@ -289,7 +289,6 @@ def main() -> int:
         timeout=5,
         env=post_test_env,
     )
-    noisy_elapsed = time.monotonic() - noisy_started
     if noisy_post_test_result.returncode != 0:
         print(noisy_post_test_result.stdout, end="")
         print(noisy_post_test_result.stderr, end="", file=sys.stderr)
@@ -298,10 +297,16 @@ def main() -> int:
             f"to exit 0, got {noisy_post_test_result.returncode}"
         )
         return 1
-    if noisy_elapsed > 1.5:
+    # The helper may spend a short, platform-dependent interval draining the
+    # terminated PTY group. Assert the semantic contract directly: post-test
+    # deadline handling must not be rearmed by every line of noise.
+    if noisy_post_test_result.stdout.count("post-summary-noise") > 5:
         print(noisy_post_test_result.stdout, end="")
         print(noisy_post_test_result.stderr, end="", file=sys.stderr)
-        print(f"FAIL: noisy post-test timeout was rearmed; elapsed {noisy_elapsed:.2f}s")
+        print(
+            "FAIL: noisy post-test timeout was rearmed; "
+            f"saw {noisy_post_test_result.stdout.count('post-summary-noise')} lines"
+        )
         return 1
 
     failing_post_test_child = textwrap.dedent(
@@ -446,6 +451,65 @@ def main() -> int:
             print(log_result.stdout, end="")
             print(log_result.stderr, end="", file=sys.stderr)
             print("FAIL: helper did not write child output to log path")
+            return 1
+
+    # A child can exit while a descendant keeps the PTY slave open. The helper
+    # must reap the leader independently of PTY EOF and clean that owned
+    # descendant instead of blocking forever in waitpid().
+    with tempfile.TemporaryDirectory() as tmp:
+        descendant_pid_path = Path(tmp) / "descendant.pid"
+        descendant = textwrap.dedent(
+            f"""
+            import os, signal, time
+            with open({str(descendant_pid_path)!r}, "w", encoding="utf-8") as marker:
+                marker.write(str(os.getpid()))
+                marker.flush()
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            while True:
+                time.sleep(0.05)
+            """
+        )
+        leader = textwrap.dedent(
+            f"""
+            import os, subprocess, sys, time
+            subprocess.Popen([sys.executable, "-c", {descendant!r}])
+            for _ in range(500):
+                if os.path.exists({str(descendant_pid_path)!r}):
+                    break
+                time.sleep(0.01)
+            os._exit(0)
+            """
+        )
+        orphan_result = subprocess.run(
+            [sys.executable, str(HELPER), sys.executable, "-c", leader],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=15,
+        )
+        if orphan_result.returncode != 0:
+            print(orphan_result.stdout, end="")
+            print(orphan_result.stderr, end="", file=sys.stderr)
+            print("FAIL: helper did not return the leader status after PTY EOF")
+            return 1
+        try:
+            descendant_pid = int(descendant_pid_path.read_text(encoding="utf-8"))
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                try:
+                    os.kill(descendant_pid, 0)
+                except ProcessLookupError:
+                    break
+                time.sleep(0.01)
+            else:
+                print(orphan_result.stdout, end="")
+                print(orphan_result.stderr, end="", file=sys.stderr)
+                print("FAIL: PTY descendant survived leader exit")
+                os.kill(descendant_pid, signal.SIGKILL)
+                return 1
+        except (FileNotFoundError, ValueError):
+            print("FAIL: orphan test did not publish descendant PID")
             return 1
 
     print(

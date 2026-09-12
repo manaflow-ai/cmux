@@ -55,6 +55,17 @@ GHOSTTY_RUNTIME_TEST_STUB_WEAK bool ghostty_surface_clear_selection(void *surfac
     return false;
 }
 
+GHOSTTY_RUNTIME_TEST_STUB_WEAK bool ghostty_surface_read_selection_clipboard_text(
+    void *surface,
+    uintptr_t max_bytes,
+    void *result
+) {
+    (void)surface;
+    (void)max_bytes;
+    (void)result;
+    return false;
+}
+
 GHOSTTY_RUNTIME_TEST_STUB_WEAK float ghostty_surface_font_size(void *surface) {
     (void)surface;
     return 0;

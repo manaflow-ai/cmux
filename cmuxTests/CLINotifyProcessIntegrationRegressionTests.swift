@@ -9669,7 +9669,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }, onListenerClosed: {})
     }
 
-    private func agentHookMockResponse(line: String, context: ClaudeHookContext) -> String {
+    func agentHookMockResponse(line: String, context: ClaudeHookContext) -> String {
         guard let payload = jsonObject(line) else {
             return "OK"
         }

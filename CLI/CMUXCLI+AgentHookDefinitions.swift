@@ -50,6 +50,14 @@ extension CMUXCLI {
         /// separate `session-finalize` subcommand / ``AgentHookAction/sessionFinalize``
         /// action, which performs the destructive cleanup this flag suppresses.
         let sessionEndIsTurnBoundary: Bool
+        /// Whether repeated prompt-start callbacks represent one authoritative
+        /// provider loop rather than independently balanced prompt frames.
+        ///
+        /// This is intentionally separate from `sessionEndIsTurnBoundary`:
+        /// a provider may use `session-end` as a per-turn restore boundary while
+        /// still emitting prompt starts/completions that must balance one at a
+        /// time (for example Grok and Hermes Agent).
+        let promptStartIsAuthoritative: Bool
         /// Events that install a `cmux hooks feed --source <name>` bridge.
         let feedHookEvents: [String]
         let postInstallAction: PostInstallAction?
@@ -146,6 +154,7 @@ extension CMUXCLI {
              dispatch: HookDispatch = .ambient,
              publishesStopNotification: Bool = true,
              sessionEndIsTurnBoundary: Bool = false,
+             promptStartIsAuthoritative: Bool = false,
              feedHookEvents: [String] = [],
              postInstallAction: PostInstallAction? = nil,
              postInstallNote: String? = nil) {
@@ -161,6 +170,7 @@ extension CMUXCLI {
             self.dispatch = dispatch
             self.publishesStopNotification = publishesStopNotification
             self.sessionEndIsTurnBoundary = sessionEndIsTurnBoundary
+            self.promptStartIsAuthoritative = promptStartIsAuthoritative
             self.aliases = Set(aliases.compactMap { alias in
                 let normalized = alias.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 return normalized.isEmpty ? nil : normalized
@@ -390,7 +400,7 @@ extension CMUXCLI {
         noOpCommand: String = "echo '{}'",
         failOpen: Bool = false
     ) -> String {
-        guard case .pinned(let marker) = def.dispatch else {
+        guard case .pinned = def.dispatch else {
             return agentHookShellCommand(command, for: def, noOpCommand: noOpCommand)
         }
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command

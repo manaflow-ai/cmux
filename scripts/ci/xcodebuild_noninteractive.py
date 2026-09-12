@@ -184,36 +184,107 @@ def heartbeat_seconds() -> float | None:
     return seconds
 
 
-def terminate_child(pid: int) -> None:
-    try:
-        os.killpg(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        return
-    except OSError:
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            return
+PTY_LEADER_EXIT_GRACE_SECONDS = 1.0
+TERMINATION_GRACE_SECONDS = 5.0
 
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
+
+def process_group_exists(process_group_id: int) -> bool:
+    """Return whether the kernel still exposes a process group."""
+
+    try:
+        os.killpg(process_group_id, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def read_process_group_receipt(fd: int, timeout: float = 1.0) -> int | None:
+    """Read the PTY child's post-setsid process-group receipt."""
+
+    try:
+        os.set_blocking(fd, False)
+    except OSError:
+        return None
+    receipt = bytearray()
+    deadline = time.monotonic() + max(0, timeout)
+    while time.monotonic() < deadline and len(receipt) < 32:
         try:
-            finished, _ = os.waitpid(pid, os.WNOHANG)
-        except ChildProcessError:
-            return
-        if finished:
+            readable, _, _ = select.select(
+                [fd], [], [], max(0, deadline - time.monotonic())
+            )
+        except (OSError, ValueError):
+            return None
+        if not readable:
+            break
+        try:
+            chunk = os.read(fd, 32 - len(receipt))
+        except BlockingIOError:
+            continue
+        except OSError:
+            return None
+        if not chunk:
+            break
+        receipt.extend(chunk)
+        if b"\n" in receipt:
+            break
+    try:
+        return int(bytes(receipt).strip())
+    except ValueError:
+        return None
+
+
+def terminate_child(pid: int, process_group_id: int | None = None) -> None:
+    """Terminate the PTY leader and descendants without an unbounded wait."""
+
+    # The child calls setsid(), so its PID is normally its process-group ID. If
+    # ownership was not proven, signal only the direct child; never infer a
+    # group from a PID that may already have been reaped and reused.
+    owned_group_id = process_group_id
+
+    def signal_owned_processes(signum: signal.Signals) -> None:
+        if owned_group_id is not None:
+            try:
+                os.killpg(owned_group_id, signum)
+                return
+            except (ProcessLookupError, OSError):
+                pass
+        try:
+            os.kill(pid, signum)
+        except ProcessLookupError:
+            pass
+
+    signal_owned_processes(signal.SIGTERM)
+    leader_reaped = False
+    deadline = time.monotonic() + TERMINATION_GRACE_SECONDS
+    while not leader_reaped and time.monotonic() < deadline:
+        if not leader_reaped:
+            try:
+                finished, _ = os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                finished = pid
+            if finished:
+                leader_reaped = True
+        if leader_reaped:
+            # The leader has exited. If a descendant still owns the group,
+            # terminate it immediately rather than spending the graceful
+            # deadline waiting on a process that can no longer coordinate its
+            # own teardown.
+            if owned_group_id is not None and process_group_exists(owned_group_id):
+                signal_owned_processes(signal.SIGKILL)
             return
         time.sleep(0.1)
 
+    # SIGKILL the group even when waitpid already reaped the leader. A
+    # descendant retaining the PTY must not survive to hold the next test.
+    signal_owned_processes(signal.SIGKILL)
     try:
-        os.killpg(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        return
-    except OSError:
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            return
+        os.waitpid(pid, os.WNOHANG)
+    except ChildProcessError:
+        pass
 
 
 def write_child_output(chunk: bytes, log_file: BinaryIO | None, stdout_fd: int) -> None:
@@ -282,13 +353,36 @@ def main() -> int:
         ),
     )
 
+    receipt_read, receipt_write = os.pipe()
     pid, fd = pty.fork()
     if pid == 0:
+        os.close(receipt_read)
         try:
             os.setsid()
         except OSError:
             pass
+        try:
+            receipt = f"{os.getpgid(0)}\n".encode("ascii")
+            os.write(receipt_write, receipt)
+        except OSError:
+            pass
+        try:
+            os.close(receipt_write)
+        except OSError:
+            pass
         os.execvp(sys.argv[1], sys.argv[1:])
+
+    os.close(receipt_write)
+    try:
+        receipt_group_id = read_process_group_receipt(
+            receipt_read,
+            timeout=min(timeout, 1.0) if timeout is not None else 1.0,
+        )
+    finally:
+        os.close(receipt_read)
+    # Only use a group id explicitly written after setsid(). A missing or
+    # mismatched receipt falls back to direct-child signalling.
+    process_group_id = receipt_group_id if receipt_group_id == pid else None
 
     # An outer timeout (the CI batch runner) terminates this wrapper; forward
     # that to the whole xcodebuild process group so the test host cannot
@@ -310,7 +404,55 @@ def main() -> int:
     pending_line = bytearray()
     timed_out = False
     post_test_timed_out = False
+    pty_open = True
+    child_status: int | None = None
+    leader_exit_deadline: float | None = None
+
+    def close_pty() -> None:
+        nonlocal pty_open
+        if not pty_open:
+            return
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        pty_open = False
+
     while True:
+        now = time.monotonic()
+        if child_status is None:
+            try:
+                finished, observed_status = os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                finished, observed_status = pid, 1 << 8
+            if finished:
+                child_status = observed_status
+                leader_exit_deadline = now + PTY_LEADER_EXIT_GRACE_SECONDS
+
+        # PTY EOF is not a reliable child-exit signal: a descendant can keep
+        # the slave open, while a closed slave can produce EIO before the
+        # leader has been reaped. Poll waitpid independently and bound the
+        # post-leader drain so the helper never falls into blocking waitpid().
+        if child_status is not None:
+            if not pty_open:
+                break
+            if leader_exit_deadline is not None and now >= leader_exit_deadline:
+                terminate_child(pid, process_group_id)
+                close_pty()
+                break
+
+        if not pty_open:
+            if heartbeat_deadline is not None and now >= heartbeat_deadline:
+                elapsed = now - started_at
+                write_child_output(
+                    f"[xcodebuild still running after {elapsed:.0f}s]\n".encode(),
+                    log_file,
+                    stdout_fd,
+                )
+                heartbeat_deadline = now + heartbeat
+            time.sleep(0.1)
+            continue
+
         select_timeout = None
         if deadline is not None:
             remaining = deadline - time.monotonic()
@@ -333,8 +475,9 @@ def main() -> int:
 
         try:
             readable, _, _ = select.select([fd], [], [], select_timeout)
-        except OSError:
-            break
+        except (OSError, ValueError):
+            close_pty()
+            continue
         if not readable:
             if heartbeat_deadline is not None and time.monotonic() >= heartbeat_deadline:
                 elapsed = time.monotonic() - started_at
@@ -351,9 +494,11 @@ def main() -> int:
         try:
             chunk = os.read(fd, 4096)
         except OSError:
-            break
+            close_pty()
+            continue
         if not chunk:
-            break
+            close_pty()
+            continue
 
         write_child_output(chunk, log_file, stdout_fd)
         if heartbeat:
@@ -407,7 +552,7 @@ def main() -> int:
         sample_app_host(log_file, stdout_fd)
         if log_file is not None:
             log_file.close()
-        terminate_child(pid)
+        terminate_child(pid, process_group_id)
         return TIMEOUT_EXIT_CODE
 
     if post_test_timed_out:
@@ -420,19 +565,24 @@ def main() -> int:
         if log_file is not None:
             log_file.write(f"{message}\n".encode())
             log_file.close()
-        terminate_child(pid)
+        terminate_child(pid, process_group_id)
         if selected_tests_result == "passed" or saw_passing_terminal_summary:
             return 0
         if selected_tests_result == "failed":
             return POST_TEST_FAILED_EXIT_CODE
         return TIMEOUT_EXIT_CODE
 
-    if heartbeat is None:
-        _, status = os.waitpid(pid, 0)
-    else:
-        while True:
-            finished, status = os.waitpid(pid, os.WNOHANG)
+    if child_status is None:
+        # This is only reachable when the child closed its PTY before waitpid
+        # observed its status. Keep the fallback bounded as a final guard.
+        wait_deadline = time.monotonic() + (timeout or TERMINATION_GRACE_SECONDS)
+        while time.monotonic() < wait_deadline:
+            try:
+                finished, observed_status = os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                finished, observed_status = pid, 1 << 8
             if finished:
+                child_status = observed_status
                 break
             if heartbeat_deadline is not None and time.monotonic() >= heartbeat_deadline:
                 elapsed = time.monotonic() - started_at
@@ -443,9 +593,12 @@ def main() -> int:
                 )
                 heartbeat_deadline = time.monotonic() + heartbeat
             time.sleep(0.1)
+        if child_status is None:
+            terminate_child(pid, process_group_id)
+            child_status = 1 << 8
     if log_file is not None:
         log_file.close()
-    return child_exit_code(status)
+    return child_exit_code(child_status)
 
 
 if __name__ == "__main__":

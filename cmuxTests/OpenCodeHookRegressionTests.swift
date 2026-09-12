@@ -23,9 +23,14 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        let socketPath = root.appendingPathComponent("cmux.sock").path
+        // macOS Unix-domain sockets have a short path limit. The XCTest temp
+        // directory plus a UUID is long enough for Node to report EADDRINUSE
+        // even though no process owns the path, so keep the socket name in a
+        // short, UUID-namespaced system temp location.
+        let socketPath = "/tmp/cmux-opencode-feed-\(UUID().uuidString).sock"
         let harnessURL = root.appendingPathComponent("harness.js")
         try Self.openCodeFeedEventHarness.write(to: harnessURL, atomically: true, encoding: .utf8)
+        defer { try? fileManager.removeItem(atPath: socketPath) }
         let bunURL = try Self.bunExecutableURL()
 
         let result = runProcess(

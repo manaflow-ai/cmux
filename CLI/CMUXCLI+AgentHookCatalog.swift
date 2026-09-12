@@ -153,7 +153,8 @@ extension CMUXCLI {
             ],
             aliases: ["agy"],
             dispatch: .pinned(marker: "cmux-antigravity-hook-v2"),
-            sessionEndIsTurnBoundary: true
+            sessionEndIsTurnBoundary: true,
+            promptStartIsAuthoritative: true
         ),
         AgentHookDef(
             name: "rovodev", displayName: "Rovo Dev", statusKey: "rovodev",

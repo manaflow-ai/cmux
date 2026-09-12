@@ -342,6 +342,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             )
         }
 
+        func storedAntigravitySession() throws -> [String: Any] {
+            let storeURL = root.appendingPathComponent("antigravity-hook-sessions.json", isDirectory: false)
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+            let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+            return try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        }
+
         let start = runAntigravityHook(
             "session-start",
             input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#
@@ -372,6 +379,28 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(
             backgroundStopCommands.contains { $0.contains("set_status antigravity Idle") },
             "Antigravity Stop with active background work must not mark idle, saw \(backgroundStopCommands)"
+        )
+
+        var backgroundSession = try storedAntigravitySession()
+        XCTAssertEqual(backgroundSession["agentLifecycle"] as? String, "running")
+        XCTAssertEqual(backgroundSession["runtimeStatus"] as? String, "running")
+
+        let backgroundSessionEnd = runAntigravityHook(
+            "session-end",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionEnd"}"#
+        )
+        XCTAssertFalse(backgroundSessionEnd.timedOut, backgroundSessionEnd.stderr)
+        XCTAssertEqual(backgroundSessionEnd.status, 0, backgroundSessionEnd.stderr)
+        backgroundSession = try storedAntigravitySession()
+        XCTAssertEqual(
+            backgroundSession["agentLifecycle"] as? String,
+            "running",
+            "A per-turn Antigravity SessionEnd must preserve a background-running lifecycle"
+        )
+        XCTAssertEqual(
+            backgroundSession["runtimeStatus"] as? String,
+            "running",
+            "A per-turn Antigravity SessionEnd must preserve a background-running runtime"
         )
 
         let backgroundDuplicateCommandStart = state.commands.count
@@ -508,6 +537,24 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Expected Antigravity permission notifications to mark needs-input, saw \(permissionCommands)"
         )
 
+        let needsInputSessionEnd = runAntigravityHook(
+            "session-end",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionEnd"}"#
+        )
+        XCTAssertFalse(needsInputSessionEnd.timedOut, needsInputSessionEnd.stderr)
+        XCTAssertEqual(needsInputSessionEnd.status, 0, needsInputSessionEnd.stderr)
+        let needsInputSession = try storedAntigravitySession()
+        XCTAssertEqual(
+            needsInputSession["agentLifecycle"] as? String,
+            "needsInput",
+            "A per-turn Antigravity SessionEnd must preserve a needs-input lifecycle"
+        )
+        XCTAssertEqual(
+            needsInputSession["runtimeStatus"] as? String,
+            "needsInput",
+            "A per-turn Antigravity SessionEnd must preserve a needs-input runtime"
+        )
+
         let stopErrorMessage = "Tool crashed"
         let stopErrorCommandStart = state.commands.count
         let stopError = runAntigravityHook(
@@ -551,6 +598,91 @@ extension CLINotifyProcessIntegrationRegressionTests {
             errorCommands.contains { $0.contains("set_status antigravity Antigravity error") },
             "Expected Antigravity error notifications to mark error status, saw \(errorCommands)"
         )
+    }
+
+    func testGrokPromptStartsRemainBalancedAcrossOverlappingCallbacks() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("grok-depth")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default
+            .temporaryDirectory
+            .appendingPathComponent("cmux-grok-depth-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "grok-depth-session"
+        let grokHome = root.appendingPathComponent("grok-home", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "GROK_HOME": grokHome.path,
+        ]
+
+        startDetachedAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId)
+
+        func runGrokHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "grok", subcommand],
+                environment: environment,
+                standardInput: input,
+                timeout: 5
+            )
+        }
+
+        let start = runGrokHook(
+            "session-start",
+            input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#
+        )
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        for promptIndex in 0..<2 {
+            let prompt = runGrokHook(
+                "prompt-submit",
+                input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"overlap \#(promptIndex)"}"#
+            )
+            XCTAssertEqual(prompt.status, 0, prompt.stderr)
+        }
+
+        let storeURL = root.appendingPathComponent("grok-hook-sessions.json", isDirectory: false)
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        var sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+        var session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        XCTAssertEqual(
+            session["activePromptDepth"] as? Int,
+            2,
+            "Grok prompt starts are independently balanced frames"
+        )
+
+        let stop = runGrokHook(
+            "stop",
+            input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Stop"}"#
+        )
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+
+        json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+        session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        XCTAssertEqual(
+            session["activePromptDepth"] as? Int,
+            1,
+            "One Grok completion must close only its matching prompt frame"
+        )
+        XCTAssertEqual(session["agentLifecycle"] as? String, "running")
     }
 
     func testHermesAgentNotificationsUseShellHookExtraPayload() throws {
