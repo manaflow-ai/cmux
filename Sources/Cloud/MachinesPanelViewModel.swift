@@ -470,7 +470,7 @@ final class MachinesPanelViewModel: ObservableObject {
         let finishedUserInfoKey = MachineCreateCoordinator.finishedUserInfoKey
         createChangeObserver = NotificationCenter.default.addObserver(
             forName: MachineCreateCoordinator.didChangeNotification,
-            object: createCoordinator,
+            object: self.createCoordinator,
             queue: .main
         ) { [weak self] notification in
             let finished = notification.userInfo?[finishedUserInfoKey] as? MachineCreateCoordinator.Finished

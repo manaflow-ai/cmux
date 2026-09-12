@@ -47,6 +47,9 @@ const templateDir = path.join(import.meta.dirname, "../services/vms/images/devbo
 const scriptsDir = path.join(import.meta.dirname, "../scripts");
 const read = (name: string) => readFileSync(path.join(templateDir, name), "utf8");
 const readScript = (name: string) => readFileSync(path.join(scriptsDir, name), "utf8");
+const bunToml = (globalThis as typeof globalThis & {
+  Bun?: { TOML?: { parse(input: string): unknown } };
+}).Bun?.TOML;
 
 const dockerfile = read("Dockerfile");
 const bashrc = read("cmux-bashrc");
@@ -761,7 +764,8 @@ describe("devbox image template", () => {
       };
       expect(spawnSync("bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env }).status).toBe(0);
       const merged = readFileSync(path.join(home, ".codex/config.toml"), "utf8");
-      const parsed = Bun.TOML.parse(merged) as Record<string, unknown>;
+      if (!bunToml) throw new Error("Bun TOML parser is required for this test");
+      const parsed = bunToml.parse(merged) as Record<string, unknown>;
       expect(parsed.model_provider).toBe("cmux");
       expect(parsed.hooks).toEqual({ state: { "/home/cmux/.codex/hooks.json:Stop:0:0": { trusted_hash: "3f0c" } } });
       expect(parsed.model_providers).toEqual({

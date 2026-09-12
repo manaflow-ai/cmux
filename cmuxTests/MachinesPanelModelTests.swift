@@ -809,7 +809,7 @@ final class MachinesPanelModelTests: XCTestCase {
         } else { XCTFail("expected browser row") }
     }
 
-    func testCloudTreeSleepingAndBrokenMachinesShowOnePlaceholder() {
+    func testCloudTreeSleepingAndBrokenMachinesKeepStatusAndPortInventory() {
         let asleep = CloudTreeNodeBuilder.nodes(
             machines: [machineSnapshot(id: "quiet-owl", image: "cmuxd-ws:tooling-20260509f")],
             snapshot: SurfaceCatalogSnapshot(machines: [machineInfo(.cloud("quiet-owl"), linkState: .asleep, hasDesktop: false)], resources: [], projections: []),

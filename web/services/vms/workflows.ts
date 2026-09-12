@@ -2922,17 +2922,17 @@ export function resizeVm(input: {
     // A no-op request still backfills the durable reservation for legacy rows
     // whose provider metadata predates the resource tracking.
     if (input.storageMb === currentMb) return current;
-    const rollbackReservation = () => reservation && repo.restoreVmResize
+    const rollbackReservation = (): Effect.Effect<void, never> => reservation && repo.restoreVmResize
       ? repo.restoreVmResize({
         id: vm.id,
         expectedDiskMb: reservation.reservedDiskMb,
         previousDiskMb: reservation.previousDiskMb,
         operationId: reservation.operationId,
-      }).pipe(Effect.catchAll(() => Effect.void))
+      }).pipe(Effect.catchAllCause(() => Effect.void))
       : Effect.void;
     const rollbackIfProviderDidNotGrow = (
       exit: Exit.Exit<void, VmProviderOperationError | VmOperationUnsupportedError>,
-    ) => {
+    ): Effect.Effect<void, never> => {
       if (!reservation || !repo.restoreVmResize || Exit.isSuccess(exit)) return Effect.void;
       // A provider request can complete and lose its response before the
       // caller observes success. Release the claim only when a fresh provider
@@ -2945,7 +2945,7 @@ export function resizeVm(input: {
             ? rollbackReservation()
             : Effect.void;
         }),
-        Effect.catchAll(() => Effect.void),
+        Effect.catchAllCause(() => Effect.void),
       );
     };
     yield* providers.resize(vm.provider, input.providerVmId, { storageMb: input.storageMb }).pipe(

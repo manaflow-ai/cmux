@@ -1911,6 +1911,7 @@ jobs:
             CmuxBrowser
             CmuxIrohTransport
             CmuxCommandPalette
+            CmuxCLISocketAuth
             CmuxControlSocket
             CmuxFoundation
             CmuxGit

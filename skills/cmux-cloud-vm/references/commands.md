@@ -622,6 +622,7 @@ cmux rpc <method> [json-params]        # call any v2 method directly, e.g. cmux 
 | Method | CLI verb |
 |---|---|
 | `vm.list` | `vm ls` |
+| `vm.diagnostics` | `cmux rpc vm.diagnostics '{"show":true}'`; read-only Cloud operation diagnostics, optionally opening the Cloud Diagnostics panel |
 | `vm.create` | `vm new`, and `vm run` / `vm route --provision` / `vm agent` when they provision |
 | `vm.base_open`, `vm.base_reset` | `vm base open`, `vm base reset` |
 | `vm.status` | `vm status`, `vm handoff`, `vm wait` |
