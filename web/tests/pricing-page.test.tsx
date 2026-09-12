@@ -116,6 +116,7 @@ describe("localized pricing page", () => {
       label: "Cloud agents on Cloud VMs",
       free: "false",
       pro: "true",
+      max: "true",
       team: "true",
       enterprise: "true",
     });
@@ -127,6 +128,7 @@ describe("localized pricing page", () => {
       label: "Concurrent Cloud VMs",
       free: "false",
       pro: "50",
+      max: "50",
       team: "50 per user",
       enterprise: "Custom",
     });
@@ -151,7 +153,7 @@ describe("localized pricing page", () => {
     const html = renderToStaticMarkup(element);
     const recoveryIndex = html.indexOf('href="/billing/recover"');
     expect(html.match(/href="\/billing\/recover"/g)).toHaveLength(1);
-    for (const plan of ["free", "pro", "team", "enterprise"] as const) {
+    for (const plan of ["free", "pro", "max", "team", "enterprise"] as const) {
       const lastFeature = enMessages.pricing[plan].features.at(-1)!;
       const featureIndex = html.indexOf(lastFeature);
       expect(featureIndex).toBeGreaterThan(-1);
@@ -201,12 +203,50 @@ describe("localized pricing page", () => {
     expect(html).toMatch(
       /href="\/api\/billing\/checkout\?plan=team[^"]*interval=year[^"]*"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Teams/,
     );
+    expect(html).toMatch(
+      /href="\/api\/billing\/checkout\?plan=max[^"]*"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Max/,
+    );
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain('style="min-height:4rem"');
     expect(html).toContain("text-3xl font-medium tabular-nums tracking-tight");
     expect(html).not.toContain("CodeRouter");
     expect(html).not.toContain("Subrouter");
     expect(html).not.toContain("cmux Vault");
+  });
+
+  test("sells Max at $200/mo on a monthly-only checkout link, between Pro and Team", async () => {
+    const element = await PricingPage({
+      params: Promise.resolve({ locale: "en" }),
+      searchParams: Promise.resolve({ interval: "year" }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    // The annual selector must not touch Max: no interval on its checkout
+    // link and no "billed yearly" label on its card or table column.
+    expect(html).toContain(
+      "/api/billing/checkout?plan=max&amp;cmux_external_browser=1&amp;cmux_source=pricing_page&amp;cmux_placement=pricing_page",
+    );
+    expect(html).toContain(
+      "/api/billing/checkout?plan=max&amp;cmux_external_browser=1&amp;cmux_source=pricing_page&amp;cmux_placement=pricing_compare_header",
+    );
+    expect(html).not.toMatch(/plan=max[^"]*interval=/);
+    expect(html.split("api/billing/checkout?plan=max")).toHaveLength(3);
+    expect(html).toContain("$200");
+    expect(html).toContain("$200 /mo");
+    expect(html).not.toContain("$200/mo, billed yearly");
+    expect(html).toContain("Cloud VMs with 32 GB or 64 GB RAM");
+    expect(html).toContain("Largest Cloud VM");
+    expect(html).toContain("What does Max add?");
+    expect(html).toContain("md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5");
+    const proIndex = html.indexOf("<span>Get Pro");
+    const maxIndex = html.indexOf("<span>Get Max");
+    const teamIndex = html.indexOf("<span>Get Teams");
+    expect(proIndex).toBeGreaterThan(-1);
+    expect(maxIndex).toBeGreaterThan(proIndex);
+    expect(teamIndex).toBeGreaterThan(maxIndex);
+    // Five plan columns in the comparison table.
+    expect(html.match(/<col class="w-\[14\.286%\]"/g)).toHaveLength(5);
+    expect(html).toContain("repeat(5,minmax(7.5rem,1fr))");
   });
 
   test("only advertises Vault when its release flag is enabled", async () => {
@@ -242,6 +282,10 @@ describe("localized pricing page", () => {
     expect(html).toContain('href="/api/billing/portal"');
     expect(html).toContain("Manage billing");
     expect(html).toContain("Current plan");
+    // A Pro subscriber can still upgrade: the Max card keeps its checkout
+    // link (the server routes an active Pro subscription to the portal).
+    expect(html).toContain("/api/billing/checkout?plan=max");
+    expect(html).toMatch(/plan=max[^"]*"[^>]*><span>Get Max/);
   });
 
   test("renders the annual price and sends annual checkout intent", async () => {
@@ -304,7 +348,7 @@ describe("localized pricing page", () => {
     expect(html).toContain("$50");
     expect(html).toContain("$60");
     expect(html).toContain(
-      "Up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs",
+      "Up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs per VM",
     );
     expect(html).toContain("Unlimited workspaces");
     expect(html).not.toContain("Unlimited active Cloud VMs");
