@@ -1766,6 +1766,7 @@ export function forkVm(input: {
       provider: source.provider,
       imageId: source.imageId,
       metadata: {
+        native: false,
         snapshotId: snapshot.id,
         forkProviderVmId: fork.providerVmId,
         idempotencyKeySet: !!input.idempotencyKey,
