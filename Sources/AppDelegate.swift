@@ -16230,7 +16230,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
-    private func enqueueWorkspaceTerminalFontSizeChange(
+    func enqueueWorkspaceTerminalFontSizeChange(
         _ action: KeyboardShortcutSettings.Action,
         workspace: Workspace,
         tabManager: TabManager?,

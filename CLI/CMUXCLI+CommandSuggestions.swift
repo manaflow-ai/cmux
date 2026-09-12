@@ -229,6 +229,7 @@ extension CMUXCLI {
         "welcome",
         "workspace",
         "workspace-action",
+        "workspace-font-size",
         "workspace-group",
     ]
 }

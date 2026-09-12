@@ -24,6 +24,18 @@ public protocol ControlWorkspaceContext: AnyObject {
     /// The localized workspace error messages, resolved against the app bundle.
     func controlWorkspaceStrings() -> ControlWorkspaceStrings
 
+    /// The localized errors for `workspace.font_size`, resolved against the
+    /// app bundle.
+    func controlWorkspaceFontSizeStrings() -> ControlWorkspaceFontSizeStrings
+
+    /// Enqueues a workspace terminal font-size change through the shared app
+    /// mutation path. An accepted result means the request was admitted; it
+    /// does not claim that the eventual UI mutation has completed.
+    func controlWorkspaceFontSize(
+        routing: ControlRoutingSelectors,
+        action: ControlWorkspaceFontSizeAction
+    ) -> ControlWorkspaceFontSizeResolution
+
     /// Whether the routing selectors resolve a TabManager, used to reproduce the
     /// legacy `unavailable`-first ordering for `workspace.reorder` /
     /// `workspace.next` / `previous` / `last` before their param/state work.

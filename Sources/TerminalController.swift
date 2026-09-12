@@ -3233,7 +3233,7 @@ class TerminalController {
             "workspace.next",
             "workspace.previous",
             "workspace.last",
-            "workspace.equalize_splits",
+            "workspace.equalize_splits", "workspace.font_size",
             "workspace.remote.configure",
             "workspace.remote.foreground_auth_ready",
             "workspace.remote.reconnect",

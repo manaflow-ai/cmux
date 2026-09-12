@@ -1,6 +1,655 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "socket.workspace.fontSize.invalidParams": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use increase, decrease, or reset with optional window_id and workspace_id selectors."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwenden Sie increase, decrease oder reset mit den optionalen Selektoren window_id und workspace_id."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez increase, decrease ou reset avec les sélecteurs facultatifs window_id et workspace_id."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم increase أو decrease أو reset مع المحددين الاختياريين window_id وworkspace_id."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa increase, decrease o reset con los selectores opcionales window_id y workspace_id."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請使用 increase、decrease 或 reset，並可選擇提供 window_id 和 workspace_id 選取器。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请使用 increase、decrease 或 reset，并可选择提供 window_id 和 workspace_id 选择器。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택적 window_id 및 workspace_id 선택자와 함께 increase, decrease 또는 reset을 사용하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "increase、decrease、reset のいずれかを使用し、必要に応じて window_id と workspace_id セレクターを指定してください。"
+          }
+        }
+      }
+    },
+    "socket.workspace.fontSize.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace font-size unavailable."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Schriftgröße des Arbeitsbereichs ist nicht verfügbar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La taille de police de l’espace de travail est indisponible."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم خط مساحة العمل غير متاح."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El tamaño de fuente del espacio de trabajo no está disponible."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區字型大小無法使用。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区字体大小不可用。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 글꼴 크기를 사용할 수 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのフォントサイズを利用できません。"
+          }
+        }
+      }
+    },
+    "socket.workspace.fontSize.notFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace not found in the requested window."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereich im angeforderten Fenster nicht gefunden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espace de travail introuvable dans la fenêtre demandée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على مساحة العمل في النافذة المطلوبة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró el espacio de trabajo en la ventana solicitada."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在指定的視窗中找不到工作區。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在指定窗口中找不到工作区。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요청한 창에서 작업 공간을 찾을 수 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指定したウインドウにワークスペースが見つかりません。"
+          }
+        }
+      }
+    },
+    "socket.workspace.fontSize.rejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace font-size request was not accepted."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Anfrage zur Schriftgröße des Arbeitsbereichs wurde nicht angenommen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La demande de taille de police de l’espace de travail n’a pas été acceptée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُقبل طلب حجم الخط لمساحة العمل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se aceptó la solicitud de tamaño de fuente del espacio de trabajo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區字型大小要求未獲接受。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区字体大小请求未被接受。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 글꼴 크기 요청이 수락되지 않았습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのフォントサイズ変更リクエストは受け付けられませんでした。"
+          }
+        }
+      }
+    },
+    "cli.workspaceFontSize.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux workspace-font-size <increase|decrease|reset> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n\nRequest the same font-size action as the GUI for all terminal panels in the\ntarget workspace. Increase and decrease use a relative 1pt step; reset\nrestores the configured size. The command does not change focus. Human\noutput confirms that the request was accepted; queued work may defer it."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux workspace-font-size <increase|decrease|reset> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n\nFordert für alle Terminalbereiche im Zielarbeitsbereich dieselbe Schriftgrößenaktion wie in\nder grafischen Oberfläche an. increase und decrease ändern die Größe relativ um 1 pt; reset\nstellt die konfigurierte Größe wieder her. Der Befehl ändert den Fokus nicht. Die lesbare\nAusgabe bestätigt die Annahme der Anfrage; ausstehende Arbeit kann die Ausführung verzögern."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux workspace-font-size <increase|decrease|reset> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n\nDemande la même action de taille de police que l’interface graphique pour tous les panneaux de\nterminal de l’espace de travail cible. increase et decrease modifient la taille par pas relatifs de 1\npt ; reset rétablit la taille configurée. La commande ne change pas le focus. La sortie lisible\nconfirme l’acceptation de la demande ; des opérations en attente peuvent en différer l’application."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux workspace-font-size <increase|decrease|reset> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n\nيطلب إجراء تغيير حجم الخط نفسه المتاح في الواجهة الرسومية لجميع لوحات\nالطرفية في مساحة العمل المستهدفة. يغيّر increase وdecrease الحجم بمقدار نقطة\nواحدة نسبيًا؛ ويستعيد reset الحجم المحدد في الإعدادات. لا يغيّر الأمر\nالتركيز. يؤكد الإخراج المقروء قبول الطلب؛ وقد تؤخر العمليات المنتظرة تطبيقه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux workspace-font-size <increase|decrease|reset> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n\nSolicita la misma acción de tamaño de fuente que la interfaz gráfica para todos los paneles de\nterminal del espacio de trabajo de destino. increase y decrease cambian el tamaño en pasos\nrelativos de 1 pt; reset restaura el tamaño configurado. El comando no cambia el foco. La salida\nlegible confirma que se aceptó la solicitud; las operaciones pendientes pueden retrasar su aplicación."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux workspace-font-size <increase|decrease|reset> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n\n對目標工作區中的所有終端機面板要求執行與圖形介面相同的字型大小操作。increase\n和 decrease 以相對 1\n點的幅度調整大小；reset\n會還原設定的大小。此命令不會變更焦點。可讀輸出會確認要求已獲接受；佇列中的作業可能會延後套用。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux workspace-font-size <increase|decrease|reset> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n\n对目标工作区中的所有终端面板请求执行与图形界面相同的字体大小操作。increase\n和 decrease 以相对 1\n点的幅度调整大小；reset\n会恢复配置的大小。此命令不会改变焦点。可读输出会确认请求已被接受；队列中的工作可能会延迟应用。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux workspace-font-size <increase|decrease|reset> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n\n대상 작업 공간의 모든 터미널 패널에 그래픽 인터페이스와 동일한 글꼴 크기 작업을\n요청합니다. increase와 decrease는 현재 크기를 1pt씩 조정하고,\nreset은 설정된 크기로 복원합니다. 이 명령은 포커스를 변경하지 않습니다. 읽기 쉬운\n출력은 요청이 수락되었음을 확인하며, 대기 중인 작업으로 인해 적용이 지연될 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用方法: cmux workspace-font-size <increase|decrease|reset> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n\n対象ワークスペース内のすべてのターミナルパネルに、GUI\nと同じフォントサイズ操作を要求します。increase と decrease は現在のサイズを 1pt\nずつ変更し、reset\nは設定されたサイズに戻します。このコマンドはフォーカスを変更しません。人が読める形式の出力はリクエストの受付を確認しますが、待機中の処理によって適用が遅れる場合があります。"
+          }
+        }
+      }
+    },
+    "cli.workspaceFontSize.accepted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace font size request accepted: %@. Application may be deferred."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anfrage zur Schriftgröße des Arbeitsbereichs angenommen: %@. Die Anwendung kann verzögert erfolgen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demande de taille de police de l’espace de travail acceptée : %@. L’application peut être différée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم قبول طلب حجم الخط لمساحة العمل: %@. قد يتأخر التطبيق."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solicitud de tamaño de fuente del espacio de trabajo aceptada: %@. Su aplicación puede retrasarse."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區字型大小要求已獲接受：%@。套用可能會延後。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区字体大小请求已被接受：%@。应用可能会延迟。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 글꼴 크기 요청이 수락되었습니다: %@. 적용이 지연될 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのフォントサイズ変更リクエストを受け付けました: %@。適用が遅れる場合があります。"
+          }
+        }
+      }
+    },
+    "cli.workspaceFontSize.error.missingAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace-font-size requires increase, decrease, or reset"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace-font-size erfordert increase, decrease oder reset"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace-font-size nécessite increase, decrease ou reset"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب workspace-font-size الإجراء increase أو decrease أو reset"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace-font-size requiere increase, decrease o reset"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace-font-size 需要指定 increase、decrease 或 reset"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace-font-size 需要指定 increase、decrease 或 reset"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace-font-size에는 increase, decrease 또는 reset이 필요합니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace-font-size には increase、decrease、reset のいずれかが必要です"
+          }
+        }
+      }
+    },
+    "cli.workspaceFontSize.error.invalidAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid workspace font-size action '%@'; expected increase, decrease, or reset"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungültige Schriftgrößenaktion für den Arbeitsbereich „%@“; erwartet wird increase, decrease oder reset"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Action de taille de police de l’espace de travail « %@ » non valide ; increase, decrease ou reset attendu"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إجراء حجم الخط لمساحة العمل «%@» غير صالح؛ المتوقع increase أو decrease أو reset"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acción de tamaño de fuente del espacio de trabajo «%@» no válida; se esperaba increase, decrease o reset"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區字型大小操作「%@」無效；應為 increase、decrease 或 reset"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区字体大小操作“%@”无效；应为 increase、decrease 或 reset"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잘못된 작업 공간 글꼴 크기 작업 ‘%@’; increase, decrease 또는 reset을 지정해야 합니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのフォントサイズ操作「%@」は無効です。increase、decrease、reset のいずれかを指定してください"
+          }
+        }
+      }
+    },
+    "cli.workspaceFontSize.error.optionValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ requires a workspace or window id, ref, or index"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ erfordert eine ID, Referenz oder einen Index eines Arbeitsbereichs oder Fensters"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nécessite un identifiant, une référence ou un index d’espace de travail ou de fenêtre"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب %@ معرّفًا أو مرجعًا أو فهرسًا لمساحة عمل أو نافذة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ requiere un identificador, una referencia o un índice de espacio de trabajo o ventana"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 需要工作區或視窗的 ID、參照或索引"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 需要工作区或窗口的 ID、引用或索引"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에는 작업 공간 또는 창의 ID, 참조 또는 인덱스가 필요합니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ にはワークスペースまたはウインドウの ID、参照、インデックスが必要です"
+          }
+        }
+      }
+    },
+    "cli.workspaceFontSize.error.unknownArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown workspace-font-size argument: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekanntes Argument für workspace-font-size: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Argument workspace-font-size inconnu : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وسيط workspace-font-size غير معروف: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Argumento de workspace-font-size desconocido: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 workspace-font-size 引數：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 workspace-font-size 参数：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 workspace-font-size 인수: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な workspace-font-size 引数: %@"
+          }
+        }
+      }
+    },
+    "cli.workspaceFontSize.error.duplicateArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duplicate workspace-font-size argument: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Doppeltes Argument für workspace-font-size: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Argument workspace-font-size en double : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وسيط workspace-font-size مكرر: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Argumento de workspace-font-size duplicado: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重複的 workspace-font-size 引數：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重复的 workspace-font-size 参数：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중복된 workspace-font-size 인수: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重複した workspace-font-size 引数: %@"
+          }
+        }
+      }
+    },
     "cli.hooks.enqueue.error.unsupportedHook": {
       "extractionState": "manual",
       "localizations": {

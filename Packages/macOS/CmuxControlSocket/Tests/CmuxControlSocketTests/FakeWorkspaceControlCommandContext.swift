@@ -12,6 +12,8 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
     var listResolution: ControlWorkspaceListResolution = .tabManagerUnavailable
     var currentResolution: ControlWorkspaceCurrentResolution = .tabManagerUnavailable
     var closeResolution: ControlWorkspaceCloseResolution = .tabManagerUnavailable
+    var fontSizeResolution: ControlWorkspaceFontSizeResolution = .unavailable
+    var fontSizeCall: (routing: ControlRoutingSelectors, action: ControlWorkspaceFontSizeAction)?
     var addWorkspaceToGroupResolution: ControlWorkspaceGroupAddResolution = .tabManagerUnavailable
     var addWorkspaceToGroupCall: (
         groupID: UUID,
@@ -106,6 +108,23 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
             reorderManyInvalidWorkspace: "invalid workspace",
             reorderManyTabManagerUnavailable: "tab manager unavailable"
         )
+    }
+
+    func controlWorkspaceFontSizeStrings() -> ControlWorkspaceFontSizeStrings {
+        ControlWorkspaceFontSizeStrings(
+            invalidParams: "font size invalid",
+            unavailable: "font size unavailable",
+            notFound: "font size not found",
+            rejected: "font size rejected"
+        )
+    }
+
+    func controlWorkspaceFontSize(
+        routing: ControlRoutingSelectors,
+        action: ControlWorkspaceFontSizeAction
+    ) -> ControlWorkspaceFontSizeResolution {
+        fontSizeCall = (routing: routing, action: action)
+        return fontSizeResolution
     }
 
     func controlWorkspaceRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool {

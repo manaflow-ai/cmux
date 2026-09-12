@@ -371,49 +371,6 @@ extension TerminalController: ControlWorkspaceContext {
         return .resolved(workspaceID: after, windowID: windowId)
     }
 
-    // MARK: - Equalize
-
-    func controlEqualizeWorkspaceSplits(
-        routing: ControlRoutingSelectors,
-        orientationFilter: String?
-    ) -> ControlWorkspaceEqualizeResolution {
-        guard let tabManager = resolveTabManager(routing: routing) else {
-            return .tabManagerUnavailable
-        }
-        guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else {
-            return .notFound
-        }
-        let tree = ws.bonsplitController.treeSnapshot()
-        let equalizeResult = tabManager.paneLayout.equalizeSplits(
-            in: tree,
-            controller: ws.bonsplitController,
-            orientationFilter: orientationFilter
-        )
-        return .resolved(workspaceID: ws.id, equalized: equalizeResult.didFullyEqualize)
-    }
-
-    /// Mirrors the legacy `v2ResolveWorkspace(params:tabManager:)` precedence
-    /// using the pre-resolved routing selectors: workspace, then surface, then
-    /// pane (same TabManager), then the selected workspace.
-    private func resolveWorkspace(
-        routing: ControlRoutingSelectors,
-        tabManager: TabManager
-    ) -> Workspace? {
-        if let workspaceId = routing.workspaceID {
-            return tabManager.tabs.first(where: { $0.id == workspaceId })
-        }
-        if let surfaceId = routing.surfaceID {
-            return tabManager.tabs.first(where: { $0.panels[surfaceId] != nil })
-        }
-        if let paneId = routing.paneID,
-           let located = v2LocatePane(paneId) {
-            guard located.tabManager === tabManager else { return nil }
-            return located.workspace
-        }
-        guard let workspaceId = tabManager.selectedTabId else { return nil }
-        return tabManager.tabs.first(where: { $0.id == workspaceId })
-    }
-
     // MARK: - Remote
 
     func controlResolveRemoteWorkspaceID(

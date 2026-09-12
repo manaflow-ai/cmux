@@ -13,7 +13,7 @@ import CmuxTerminalCore
 #endif
 
 @MainActor
-@Suite("Terminal font zoom session persistence")
+@Suite("Terminal font zoom session persistence", .serialized)
 struct TerminalFontZoomSessionPersistenceTests {
     @Test("Swift Ghostty font default matches the native macOS default")
     func ghosttyFontDefaultMatchesNativeMacOSDefault() {
