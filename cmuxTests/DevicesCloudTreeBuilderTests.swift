@@ -63,6 +63,7 @@ struct DevicesCloudTreeBuilderTests {
     private func makeCoordinator(defaults: UserDefaults) -> CloudTreeOutlineView.Coordinator {
         return CloudTreeOutlineView.Coordinator(
             machineActions: MachineRowActions(
+                setupVPN: { _ in },
                 openShell: { _ in }, openDesktop: { _ in }, runCommand: { _, _ in },
                 confirmDelete: { _ in }, promptRename: { _, _ in }, promptUpgrade: {}
             ),
