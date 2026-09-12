@@ -370,6 +370,11 @@ esac
       expect(jsonl.argv).toEqual(["--session", "cloud", "notify", "--jsonl", "--title=T"]);
     });
 
+    test("keeps --quiet when a body value merely contains a JSON flag", () => {
+      const run = runShim(["notify", "--body", "status --json complete"]);
+      expect(run.argv).toEqual(["--session", "cloud", "--quiet", "notify", "--body", "status --json complete"]);
+    });
+
     test("never adds Mac socket identity from the environment", () => {
       const run = runShim(["notify", "--title", "T"], {
         CMUX_TUI_TERMINAL_ID: TERMINAL_ID,
