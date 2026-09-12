@@ -7530,8 +7530,13 @@ final class cmuxUITests: XCTestCase {
         let nextSubscription = await server.prepareTerminalReconnect(lines: replayLines)
         tapCompactToolbarTitleMenu(app.buttons["MobileWorkspaceTitleMenu"], in: app)
         tapMenuItem(app.buttons["MobileWorkspaceTitleReconnectMenuItem"], in: app)
+        let reconnected = await server.waitForRequest(
+            method: "mobile.events.subscribe",
+            minimumCount: nextSubscription,
+            timeout: 15
+        )
         XCTAssertTrue(
-            await server.waitForRequest(method: "mobile.events.subscribe", minimumCount: nextSubscription, timeout: 15),
+            reconnected,
             "Reconnect must resubscribe before asserting the host echo"
         )
         assertTerminalRow(history.count, label: "echo: " + marker, in: app)
