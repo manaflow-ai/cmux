@@ -7,8 +7,6 @@ import { loadMessages } from "../i18n/messages";
 import { locales } from "../i18n/routing";
 import {
   LEGACY_PRICE_LOOKUP_KEYS,
-  MAX_BILLING_INTERVALS,
-  MAX_PRICING_USD,
   PRO_PRICING_USD,
   TEAM_PRICING_USD,
   proBillingInterval,
@@ -67,24 +65,10 @@ describe("pricing plans", () => {
     );
   });
 
-  test("prices Max at $200/mo, monthly only", () => {
-    expect(MAX_PRICING_USD).toEqual({
-      month: {
-        billedAmount: 200,
-        monthlyEquivalent: 200,
-        discountPercent: 0,
-        lookupKey: "cmux-max-monthly-200",
-      },
-    });
-    expect("year" in MAX_PRICING_USD).toBe(false);
-    expect(MAX_BILLING_INTERVALS).toEqual(["month"]);
-  });
-
   test("lookup keys carry their amount and never reuse a grandfathered key", () => {
     const current = [
       PRO_PRICING_USD.month,
       PRO_PRICING_USD.year,
-      MAX_PRICING_USD.month,
       TEAM_PRICING_USD.month,
       TEAM_PRICING_USD.year,
     ];
@@ -165,43 +149,8 @@ describe("VM defaults and pricing copy", () => {
         expect(copy).toContain("6 vCPU");
         expect(copy).toContain(shared);
       }
-      // Only Max sells the 32 GB and 64 GB sizes; Free, Pro, and Team copy
-      // must not mention them. The Max card, the "Largest Cloud VM" row, and
-      // the Max FAQ are the only places those sizes appear.
-      const { max: _max, compare, faq: _faq, ...otherPlans } = messages.pricing;
-      const nonMaxRows = compare.rows.map(({ max: _rowMax, ...rest }) => rest);
-      const nonMaxCopy = JSON.stringify([otherPlans, nonMaxRows]);
-      expect(nonMaxCopy).not.toMatch(/(?:8|32|64|256) GB|5 vCPU|each with its own resources|Each machine has its own|各マシンに専用のリソース|各マシンには独立した/);
-      expect(JSON.stringify(messages.pricing)).not.toMatch(/(?:8|256) GB|5 vCPU|each with its own resources|Each machine has its own|各マシンに専用のリソース|各マシンには独立した/);
-    });
-  }
-
-  for (const [locale, messages, largestLabel, faqQuestion] of [
-    ["en", enMessages, "Largest Cloud VM", "What does Max add?"],
-    ["ja", jaMessages, "最大の Cloud VM", "Max では何が追加されますか?"],
-  ] as const) {
-    test(`${locale} Max copy sells the 32 GB and 64 GB machines Pro cannot start`, () => {
-      const features = messages.pricing.max.features.join("\n");
-      expect(features).toContain("32 GB");
-      expect(features).toContain("64 GB");
-      expect(features).toContain("50");
-      const row = messages.pricing.compare.rows.find(row => row.label === largestLabel);
-      expect(row).toBeDefined();
-      expect(row!.max).toBe("64 GB RAM");
-      for (const plan of ["free", "pro", "team"] as const) {
-        expect(row![plan]).toBe("24 GB RAM");
-      }
-      for (const row of messages.pricing.compare.rows) {
-        expect(typeof row.max).toBe("string");
-      }
-      const faq = messages.pricing.faq.items.find(item => item.q === faqQuestion);
-      expect(faq).toBeDefined();
-      expect(faq!.a).toContain("$200");
-      expect(faq!.a).toContain("32 GB");
-      expect(faq!.a).toContain("64 GB");
-      expect(faq!.a).toContain("24 GB");
-      const billingFaq = messages.pricing.faq.items.map(item => item.a).join("\n");
-      expect(billingFaq).toContain("$200");
+      const pricing = JSON.stringify(messages.pricing);
+      expect(pricing).not.toMatch(/(?:8|32|64|256) GB|5 vCPU|each with its own resources|Each machine has its own|各マシンに専用のリソース|各マシンには独立した/);
     });
   }
 

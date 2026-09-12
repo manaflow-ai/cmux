@@ -5,7 +5,6 @@ import {
   defaultMemoryMbForPlan,
   isVmFreeAccessExpired,
   maxActiveVmsForPlan,
-  lockedMemoryOptionsMbForPlan,
   maxMemoryMbForPlan,
   memoryOptionsMbForPlan,
   vcpusForMemoryMb,
@@ -75,35 +74,13 @@ describe("free plan VM allowance", () => {
 });
 
 describe("Cloud VM memory allowance", () => {
-  test("plans default to 8 GB; Pro-tier plans stop at 24 GB and only Max reaches 64 GB", () => {
+  test("plans default to 8 GB and support the 4/8/16/24/32/64 GB ladder", () => {
     expect(PLAN_MACHINE_MEMORY_MB).toBe(8192);
+    expect(defaultMemoryMbForPlan("free", {})).toBe(8192);
+    expect(maxMemoryMbForPlan("free", {})).toBe(65536);
+    expect(defaultMemoryMbForPlan("pro", {})).toBe(8192);
+    expect(maxMemoryMbForPlan("pro", {})).toBe(65536);
     expect(VM_MEMORY_OPTIONS_MB).toEqual([4096, 8192, 16384, 24576, 32768, 65536]);
-    for (const planId of ["free", "pro", "team", "founders"]) {
-      expect(defaultMemoryMbForPlan(planId, {})).toBe(8192);
-      expect(maxMemoryMbForPlan(planId, {})).toBe(24576);
-      expect(lockedMemoryOptionsMbForPlan(planId, {})).toEqual({
-        memoryOptionsMb: [32768, 65536],
-        upgradePlanId: "max",
-      });
-    }
-    expect(defaultMemoryMbForPlan("max", {})).toBe(8192);
-    expect(maxMemoryMbForPlan("max", {})).toBe(65536);
-    expect(memoryOptionsMbForPlan("max", {})).toEqual([4096, 8192, 16384, 24576, 32768, 65536]);
-    expect(lockedMemoryOptionsMbForPlan("max", {})).toEqual({ memoryOptionsMb: [], upgradePlanId: null });
-  });
-
-  test("an operator ceiling on Max leaves nothing to upgrade to", () => {
-    // If Max itself is capped below a locked size, no plan sells it, so the
-    // locked list stays but no upgrade plan is advertised.
-    const env = { CMUX_VM_PLAN_MAX_MAX_MEMORY_MB: "32768" };
-    expect(lockedMemoryOptionsMbForPlan("pro", env)).toEqual({
-      memoryOptionsMb: [32768, 65536],
-      upgradePlanId: null,
-    });
-    expect(lockedMemoryOptionsMbForPlan("max", env)).toEqual({
-      memoryOptionsMb: [65536],
-      upgradePlanId: null,
-    });
   });
 
   test("vCPUs follow memory at one per 4 GB", () => {
@@ -120,12 +97,10 @@ describe("Cloud VM memory allowance", () => {
   });
 
   test("accepted sizes follow the plan ceiling and always include the configured default", () => {
-    expect(memoryOptionsMbForPlan("pro", {})).toEqual([4096, 8192, 16384, 24576]);
+    expect(memoryOptionsMbForPlan("pro", {})).toEqual([4096, 8192, 16384, 24576, 32768, 65536]);
     // An operator default below the catalog stays creatable, so an omitted
     // size never 400s after an override.
-    expect(memoryOptionsMbForPlan("free", { CMUX_VM_FREE_DEFAULT_MEMORY_MB: "16384" })).toEqual([4096, 8192, 16384, 24576]);
-    // A raised paid ceiling reopens the ladder for Pro without touching Max.
-    expect(memoryOptionsMbForPlan("pro", { CMUX_VM_PAID_MAX_MEMORY_MB: "65536" })).toEqual([4096, 8192, 16384, 24576]);
+    expect(memoryOptionsMbForPlan("free", { CMUX_VM_FREE_DEFAULT_MEMORY_MB: "16384" })).toEqual([4096, 8192, 16384, 24576, 32768, 65536]);
     // A lower ceiling trims the catalog and keeps the (clamped) default.
     expect(memoryOptionsMbForPlan("pro", { CMUX_VM_PLAN_PRO_MAX_MEMORY_MB: "16384" })).toEqual([4096, 8192, 16384]);
   });

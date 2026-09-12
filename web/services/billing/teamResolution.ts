@@ -65,10 +65,6 @@ export function billingTeamFromUnknown(value: unknown): BillingTeamLike | null {
 
 export function billingPlanIdFromMetadata(metadata: unknown): string | null {
   if (!metadata || typeof metadata !== "object") return null;
-  // A lower paid grant must not hide a paid Max purchase. Explicit free
-  // overrides retain their operator restriction.
-  const plan = metadata as { cmuxVmPlan?: unknown; cmuxPlan?: unknown };
-  if (plan.cmuxPlan === "max" && [undefined, null, "pro", "team", "founders", "max"].includes(plan.cmuxVmPlan as never)) return "max";
   const value = (metadata as { cmuxVmPlan?: unknown }).cmuxVmPlan ??
     (metadata as { cmuxPlan?: unknown }).cmuxPlan;
   return typeof value === "string" && value.trim() ? value.trim() : null;

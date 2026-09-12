@@ -24,7 +24,6 @@ import {
 } from "../../../services/vms/errors";
 import {
   defaultMemoryMbForPlan,
-  lockedMemoryOptionsMbForPlan,
   memoryOptionsMbForPlan,
   isPaidVmPlan,
   isVmBillingTeamResolutionError,
@@ -53,7 +52,6 @@ import {
   vmErrorResponse,
   withAuthedVmApiRoute,
   vmActiveLimitExceededResponse,
-  vmMemoryRequiresPlanResponse,
   resolveVmProvisioningAccountScope,
   runAfterResponse,
   type VmWorkflowErrorOverrides,
@@ -170,11 +168,6 @@ export async function GET(request: Request): Promise<Response> {
             null,
           ),
           memoryOptionsMb: memoryOptionsMbForPlan(listEntitlements.planId, process.env),
-          // Ladder sizes the plan does not include, and the plan that sells
-          // them, so a "new machine" dialog shows them locked with an upgrade
-          // instead of hiding that larger machines exist.
-          lockedMemoryOptionsMb: lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).memoryOptionsMb,
-          memoryUpgradePlanId: lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).upgradePlanId,
           // Kinds a client may request (and the image each resolves to) for the
           // default provider, so a "new machine" dialog offers only kinds that work.
           imageKinds: listVmImageKinds(defaultProviderId(), process.env, {
@@ -219,9 +212,7 @@ export async function POST(request: Request): Promise<Response> {
       if (!scope.ok) return scope.response;
       const { user, entitlements } = scope;
 
-      const memory = resolveCreateMemory(span, entitlements.planId, candidate.memoryMb as number | undefined);
-      if (!memory.ok) return memory.response;
-      const memoryMb = memory.memoryMb;
+      const memoryMb = resolveCreateMemory(span, entitlements.planId, candidate.memoryMb as number | undefined);
 
       // Resolve provider/image only after the paid-plan boundary. A free or
       // unknown plan must receive `vm_requires_pro` without consulting
@@ -602,41 +593,11 @@ async function resolveCreateAccount(input: {
  * with `vm_memory_exceeds_plan` until the next nightly published. The
  * server owns the machine spec, so a stale client must still get a
  * machine; the mismatch is recorded on the span for Axiom.
- *
- * A size that IS on the ladder but above the plan's ceiling is different:
- * the person chose it, and it is what Max sells. Coercing it to 8 GB would
- * silently hand them a smaller machine, so it is refused with the upgrade.
  */
-function resolveCreateMemory(
-  span: Span,
-  planId: string,
-  requestedMemoryMb: number | undefined,
-): { readonly ok: true; readonly memoryMb: number } | { readonly ok: false; readonly response: Response } {
+function resolveCreateMemory(span: Span, planId: string, requestedMemoryMb: number | undefined): number {
   const maxMemoryMb = maxMemoryMbForPlan(planId, process.env);
   const memoryOptionsMb = memoryOptionsMbForPlan(planId, process.env);
   const planMemoryMb = defaultMemoryMbForPlan(planId, process.env);
-  const locked = lockedMemoryOptionsMbForPlan(planId, process.env);
-  if (
-    requestedMemoryMb !== undefined &&
-    locked.upgradePlanId &&
-    locked.memoryOptionsMb.includes(requestedMemoryMb)
-  ) {
-    setSpanAttributes(span, {
-      "cmux.vm.memory_mb": requestedMemoryMb,
-      "cmux.vm.max_memory_mb": maxMemoryMb,
-      "cmux.vm.memory_requested_mb": requestedMemoryMb,
-      "cmux.vm.memory_requires_plan": locked.upgradePlanId,
-    });
-    return {
-      ok: false,
-      response: vmMemoryRequiresPlanResponse({
-        memoryMb: requestedMemoryMb,
-        maxMemoryMb,
-        planId,
-        upgradePlanId: locked.upgradePlanId,
-      }),
-    };
-  }
   const memoryMb =
     requestedMemoryMb === undefined || memoryOptionsMb.includes(requestedMemoryMb)
       ? requestedMemoryMb ?? planMemoryMb
@@ -647,7 +608,7 @@ function resolveCreateMemory(
     "cmux.vm.memory_requested_mb": requestedMemoryMb,
     "cmux.vm.memory_coerced": requestedMemoryMb !== undefined && requestedMemoryMb !== memoryMb,
   });
-  return { ok: true, memoryMb };
+  return memoryMb;
 }
 
 type CreateImageSelection =

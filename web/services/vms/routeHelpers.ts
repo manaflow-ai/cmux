@@ -468,42 +468,6 @@ export async function vmRequiresProResponse(locale: Locale = "en"): Promise<Resp
 }
 
 /**
- * A machine size the ladder offers but the caller's plan does not include
- * (today: 32 GB and 64 GB, sold by Max). This is a paywall, so the response
- * carries the same `upgradeRequired`/`upgradeUrl` fields as `vm_requires_pro`
- * plus the plan that unlocks the size, and it is never silently coerced.
- */
-export function vmMemoryRequiresPlanResponse(input: {
-  readonly memoryMb: number;
-  readonly maxMemoryMb: number;
-  readonly planId: string;
-  readonly upgradePlanId: string;
-}): Response {
-  const memoryGb = Math.round(input.memoryMb / 1024);
-  const maxGb = Math.round(input.maxMemoryMb / 1024);
-  const upgradeName = input.upgradePlanId.charAt(0).toUpperCase() + input.upgradePlanId.slice(1);
-  const upgradeUrl = `https://cmux.com/api/billing/checkout?plan=${encodeURIComponent(input.upgradePlanId)}&cmux_source=vm_memory_limit`;
-  return vmErrorResponse({
-    error: "vm_memory_requires_plan",
-    status: 402,
-    message: `${memoryGb} GB machines need cmux ${upgradeName}. Your plan starts machines up to ${maxGb} GB.`,
-    action: `Run \`cmux billing checkout --plan ${input.upgradePlanId}\` to upgrade, then retry. Or use \`cmux vm new --size ${maxGb}g\`. Checkout: ${upgradeUrl}`,
-    displayTitle: `cmux ${upgradeName} required`,
-    phase: "billing",
-    retryable: false,
-    details: { requestedMemoryMb: input.memoryMb, maxMemoryMb: input.maxMemoryMb, upgradePlanId: input.upgradePlanId },
-    extra: {
-      upgradeRequired: true,
-      upgradeUrl,
-      upgradePlanId: input.upgradePlanId,
-      planId: input.planId,
-      memoryMb: input.memoryMb,
-      maxMemoryMb: input.maxMemoryMb,
-    },
-  });
-}
-
-/**
  * One response for every provisioning verb that hits the active-VM limit. On a free plan the
  * limit is the paywall moment: the message sells the upgrade (Pro removes the cap and bills by
  * usage) and `upgradeRequired`/`upgradeUrl` let clients render a real upgrade prompt instead of
@@ -681,16 +645,6 @@ export function vmModelPlaneErrorResponse(
  * the create-family errors need plan and operation copy only the route knows.
  */
 export const vmWorkflowErrorResponders = {
-  VmMemoryPlanError: (error) => error.memoryMb === null
-    ? vmErrorResponse({
-        error: "vm_memory_size_unknown",
-        status: 409,
-        message: "The source machine's RAM size could not be verified.",
-        action: "Create a new machine with `cmux vm new --size 24g`, or retry after the source machine is available.",
-        phase: "billing",
-        retryable: false,
-      })
-    : vmMemoryRequiresPlanResponse({ ...error, memoryMb: error.memoryMb, upgradePlanId: "max" }),
   VmOperationUnsupportedError: (error, context) => vmUnsupportedOperationResponse(error, context.locale),
   VmProviderOperationError: (error, context) => {
     // A driver may report "unsupported" from inside a provider call; that is

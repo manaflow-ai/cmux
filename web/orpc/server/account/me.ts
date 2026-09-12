@@ -8,11 +8,7 @@ export const accountMeOutputSchema = z.object({
   // Empty string when the Stack user has no primary email, mirroring userId's
   // null-safe mapping and keeping the generated Swift type a plain String.
   email: z.string(),
-  // `planId` stays a two-value enum so installed Swift clients (the generated
-  // OpenAPI type is a closed enum) keep decoding; a Max subscriber reports
-  // "pro" here and the exact personal plan in `subscriptionPlanId`.
   planId: z.enum(["free", "pro"]),
-  subscriptionPlanId: z.enum(["free", "pro", "max"]),
   isPro: z.boolean(),
   billingManagement: z.enum(["stripe", "external", "none"]),
 });
@@ -26,7 +22,7 @@ export const accountMeProcedure = os
     operationId: "account.me",
     summary: "Get the authenticated account and plan",
     description:
-      "Returns the signed-in user's id, primary email, and resolved billing plan (free, pro, or max).",
+      "Returns the signed-in user's id, primary email, and resolved billing plan (free or pro).",
     tags: ["Account"],
     successStatus: 200,
   })
@@ -43,8 +39,7 @@ export const accountMeProcedure = os
       // the DB-free unit test, which drives the plan via a Stack-product fake.
       userId: user.id ?? "",
       email: user.primaryEmail ?? "",
-      planId: status.isPro ? "pro" : "free",
-      subscriptionPlanId: status.planId,
+      planId: status.planId,
       isPro: status.isPro,
       billingManagement: status.billingManagement,
     };

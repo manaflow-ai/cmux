@@ -28,12 +28,6 @@ export class VmNotFoundError extends Data.TaggedError("VmNotFoundError")<{
   readonly vmId: string;
 }> {}
 
-export class VmMemoryPlanError extends Data.TaggedError("VmMemoryPlanError")<{
-  readonly planId: string;
-  readonly memoryMb: number | null;
-  readonly maxMemoryMb: number;
-}> {}
-
 export class VmResizeInvalidError extends Data.TaggedError("VmResizeInvalidError")<{
   readonly vmId: string;
   readonly requestedMb: number;
@@ -198,7 +192,6 @@ export class VmModelPlaneError extends Data.TaggedError("VmModelPlaneError")<{
 }> {}
 
 export type VmWorkflowError =
-  | VmMemoryPlanError
   | VmDatabaseError
   | VmProviderOperationError
   | VmOperationUnsupportedError
@@ -339,7 +332,6 @@ export function isVmOperationUnsupportedError(err: unknown): err is VmOperationU
 // snapshot into a generic 500 instead of 404), and the `const` object rejects
 // tags that are not in the union.
 const vmWorkflowErrorTagRecord = {
-  VmMemoryPlanError: true,
   VmDatabaseError: true,
   VmProviderOperationError: true,
   VmOperationUnsupportedError: true,
