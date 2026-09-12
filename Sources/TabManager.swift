@@ -1149,9 +1149,9 @@ class TabManager: ObservableObject {
             allowTextBoxFocusDefault: allowTextBoxFocusDefault,
             tabDragTransferRegistry: tabDragTransferRegistry,
             settings: settings,
+            managedDevicePolicy: managedDevicePolicy,
             closeTabWarningDefaults: closeTabWarningDefaults,
             agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
-            managedDevicePolicy: managedDevicePolicy,
             fileContentChangeCoordinator: fileContentChangeCoordinator,
             nativeSSHConnectionBroker: nativeSSHConnectionBroker,
             artifactRepository: artifactRepository
@@ -1172,10 +1172,10 @@ class TabManager: ObservableObject {
             configTemplate: configTemplate,
             tabDragTransferRegistry: tabDragTransferRegistry,
             settings: settings,
+            managedDevicePolicy: managedDevicePolicy,
             closeTabWarningDefaults: closeTabWarningDefaults,
             initialDetachedSurface: detachedSurface,
             agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
-            managedDevicePolicy: managedDevicePolicy,
             fileContentChangeCoordinator: fileContentChangeCoordinator,
             nativeSSHConnectionBroker: nativeSSHConnectionBroker,
             artifactRepository: artifactRepository
@@ -6691,9 +6691,9 @@ extension TabManager {
                 portOrdinal: ordinal,
                 tabDragTransferRegistry: tabDragTransferRegistry,
                 settings: settings,
+                managedDevicePolicy: managedDevicePolicy,
                 closeTabWarningDefaults: closeTabWarningDefaults,
                 agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
-                managedDevicePolicy: managedDevicePolicy,
                 fileContentChangeCoordinator: fileContentChangeCoordinator,
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker,
                 artifactRepository: artifactRepository
