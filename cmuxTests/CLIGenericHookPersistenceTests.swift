@@ -17,6 +17,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let expectedEnvironment: [String: String]?
         let expectedSource: String?
         let expectedRejectionReason: String?
+        let expectExecutablePath: Bool
 
         init(
             agent: String,
@@ -29,6 +30,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             expectedEnvironment: [String: String]?,
             expectedSource: String? = nil,
             expectedRejectionReason: String? = nil,
+            expectExecutablePath: Bool = true,
             existingLaunchArguments: [String]? = nil,
             existingLaunchEnvironment: [String: String]? = nil,
             existingLaunchRejectionReason: String? = nil
@@ -46,6 +48,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             self.expectedEnvironment = expectedEnvironment
             self.expectedSource = expectedSource
             self.expectedRejectionReason = expectedRejectionReason
+            self.expectExecutablePath = expectExecutablePath
         }
     }
 
@@ -162,11 +165,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 extraEnvironment: [
                     "CMUX_AGENT_LAUNCH_ARGV_B64": "   ",
                     "GEMINI_CLI_HOME": "/tmp/gemini empty argv home",
+                    "CMUX_GEMINI_PID": "999999999",
                 ],
                 expectedArguments: [],
                 expectedEnvironment: ["GEMINI_CLI_HOME": "/tmp/gemini empty argv home"],
                 expectedSource: "environment",
-                expectedRejectionReason: "argvUnavailable"
+                expectedRejectionReason: "argvUnavailable",
+                expectExecutablePath: false
             ),
             GenericHookPersistenceScenario(
                 agent: "gemini",
@@ -4688,7 +4693,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(launchCommand["launcher"] as? String, scenario.agent)
         // A malformed trusted capture has no independently validated executable path. Keeping
         // that path would make an argv-less rejection look actionable to a later restore.
-        if scenario.expectedRejectionReason == "argvDecodeFailed" {
+        if scenario.expectedRejectionReason == "argvDecodeFailed" || !scenario.expectExecutablePath {
             XCTAssertNil(launchCommand["executablePath"])
         } else {
             XCTAssertEqual(launchCommand["executablePath"] as? String, scenario.executable)
