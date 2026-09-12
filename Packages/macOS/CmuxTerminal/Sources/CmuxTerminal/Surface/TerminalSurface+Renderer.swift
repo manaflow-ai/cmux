@@ -1,6 +1,12 @@
 public import AppKit
 public import Foundation
 public import GhosttyKit
+internal import os
+
+private let rendererHealthLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "terminal.render"
+)
 
 // MARK: - Focus, occlusion, and renderer reclamation
 
@@ -441,6 +447,9 @@ extension TerminalSurface {
     private func markRendererNotRendering(reason: String) {
         guard renderHealth != .shellExited else { return }
         renderHealth = .notRendering
+        rendererHealthLogger.error(
+            "surface.render.notRendering surface=\(self.id.uuidString, privacy: .public) reason=\(reason, privacy: .public)"
+        )
 #if DEBUG
         logDebugEvent(
             "surface.render.notRendering surface=\(id.uuidString.prefix(8)) reason=\(reason) " +
@@ -469,6 +478,9 @@ extension TerminalSurface {
     public func markShellExited() {
         rendererPresentationState.inFlightToken = nil
         renderHealth = .shellExited
+        rendererHealthLogger.notice(
+            "surface.render.shellExited surface=\(self.id.uuidString, privacy: .public)"
+        )
 #if DEBUG
         logDebugEvent("surface.render.shellExited surface=\(id.uuidString.prefix(8))")
 #endif
