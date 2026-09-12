@@ -3,13 +3,12 @@ import SwiftUI
 
 /// One line under the Machines control bar while the explicit Cloud VPN is
 /// starting, waiting for the user's extension approval, connected, or failed.
-/// The approval wait carries the button that opens the System Settings pane
-/// where macOS parks the extension; nothing else in the panel depends on the
 /// VPN, so the tree below keeps working meanwhile.
 struct MachinesTunnelBanner: View {
     let banner: CloudTunnelBanner
     let backgroundColor: NSColor
     let openSystemSettings: () -> Void
+    let onDismiss: () -> Void
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 5) {
@@ -29,6 +28,7 @@ struct MachinesTunnelBanner: View {
                 .controlSize(.small)
                 .accessibilityIdentifier("CloudMachinesTunnelOpenSystemSettingsButton")
             }
+            CloudBannerDismissButton(action: onDismiss)
         }
         .foregroundColor(tint)
         .padding(.horizontal, 12)
@@ -62,8 +62,8 @@ struct MachinesTunnelBanner: View {
 
     private var helpText: String {
         String(
-            localized: "cloud.ports.explanation",
-            defaultValue: "Connect Cloud VPN, or choose Forward Port. Forwarding stays off until you start it. This table shows the address and lets you stop it."
+            localized: "cloudTree.tunnel.help",
+            defaultValue: "The cmux Cloud Tunnel is a macOS network extension that gives every app on this Mac a route to your Cloud VM network. cmux itself does not need it: terminals, Ports, and Desktop use the built-in user-space tunnel."
         )
     }
 }

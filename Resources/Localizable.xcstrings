@@ -520176,6 +520176,34 @@
           }
         }
       }
+    },
+    "cloud.ports.vpnOff.setup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Set Up Cloud VPN"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Cloud-VPN einrichten"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Configurer le VPN Cloud"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إعداد Cloud VPN"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Configurar la VPN de Cloud"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "設定 Cloud VPN"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "设置云 VPN"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Cloud VPN 설정"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud VPN を設定"}}
+      }
+    },
+    "cloud.ports.vpnOff.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Cloud VPN is off"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Cloud-VPN ist deaktiviert"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Le VPN Cloud est désactivé"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "شبكة Cloud VPN متوقفة"}},
+        "es": {"stringUnit": {"state": "translated", "value": "La VPN de Cloud está desactivada"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Cloud VPN 已關閉"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "云 VPN 已关闭"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Cloud VPN이 꺼져 있습니다"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud VPN はオフです"}}
+      }
     }
   },
   "version": "1.0"
