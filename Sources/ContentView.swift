@@ -15984,7 +15984,12 @@ struct TabItemView: View, Equatable {
         let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
         let subtitleLineLimit = latestNotificationSubtitle == nil ? 2 : settings.notificationMessageLineLimit
         // Bound notification payloads before shaping so pathological text stays cheap in lazy, Equatable rows.
-        let displayedSubtitle = effectiveSubtitle?.sidebarBoundedDisplayString(maxDisplayedLines: subtitleLineLimit, maxDisplayedCharacters: 4096)
+        let displayedSubtitle = effectiveSubtitle.map { subtitle in
+            let display = subtitle.sidebarBoundedDisplayString(maxDisplayedLines: subtitleLineLimit, maxDisplayedCharacters: 4096)
+            return latestNotificationSubtitle == nil
+                ? display
+                : SidebarMarkdownRenderer(markdown: display).plainText
+        }
         let detailVisibility = visibleAuxiliaryDetails
         let titleLineLimit = settings.wrapsWorkspaceTitles ? Self.maxWrappedTitleLines : 1
         let displayedTitle = workspaceSnapshot.title.sidebarBoundedDisplayString(

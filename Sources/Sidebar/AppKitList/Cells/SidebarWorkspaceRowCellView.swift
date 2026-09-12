@@ -547,10 +547,13 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         subtitleView.isHidden = effectiveSubtitle == nil
         if let effectiveSubtitle {
             subtitleView.maximumNumberOfLines = subtitleLineLimit
-            subtitleView.stringValue = effectiveSubtitle.sidebarBoundedDisplayString(
+            let display = effectiveSubtitle.sidebarBoundedDisplayString(
                 maxDisplayedLines: subtitleLineLimit,
                 maxDisplayedCharacters: 4096
             )
+            subtitleView.stringValue = model.latestNotificationText == nil
+                ? display
+                : SidebarMarkdownRenderer(markdown: display).plainText
             subtitleView.font = .systemFont(ofSize: model.scaled(10))
             subtitleView.textColor = palette.secondary(0.8)
         }
