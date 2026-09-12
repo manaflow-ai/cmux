@@ -33,7 +33,6 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "app-icon", title: String(localized: "settings.app.appIcon", defaultValue: "App Icon"), synonyms: "App Icon app.appIcon dock icon application icon app switcher alternate icon"),
             .init(section: .app, id: "new-workspace-placement", title: String(localized: "settings.app.newWorkspacePlacement", defaultValue: "New Workspace Placement"), synonyms: "New Workspace Placement app.newWorkspacePlacement new tab insert position order top bottom end"),
             .init(section: .app, id: "workspace-layouts", title: String(localized: "settings.app.workspaceLayouts", defaultValue: "Workspace Layouts"), synonyms: "workspace layouts customize layout default new workspace menu save delete cmux.json actions"),
-            .init(section: .app, id: "workspace-inherit-working-directory", title: String(localized: "settings.app.workspaceInheritWorkingDirectory", defaultValue: "Inherit Workspace Working Directory"), synonyms: "Inherit Workspace Working Directory app.workspaceInheritWorkingDirectory workspace cwd directory inherit current focused working-directory"),
             .init(section: .app, id: "minimal-mode", title: String(localized: "settings.app.minimalMode", defaultValue: "Minimal Mode"), synonyms: "Minimal Mode app.minimalMode presentation compact chrome layout simple titlebar controls"),
             .init(section: .app, id: "keep-workspace-open", title: String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut", defaultValue: "Keep Workspace Open When Closing Last Surface"), synonyms: "Keep Workspace Open When Closing Last Surface app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace"),
             .init(section: .app, id: "focus-pane-first-click", title: String(localized: "settings.app.paneFirstClickFocus", defaultValue: "Focus Pane on First Click"), synonyms: "Focus Pane on First Click app.focusPaneOnFirstClick click to focus focus follows mouse first click mouse activation"),
@@ -487,7 +486,7 @@ extension Array where Element == CuratedSettingEntry {
 
             // Reset
             .init(section: .reset, id: "reset-all", title: String(localized: "settings.reset.resetAll", defaultValue: "Reset All Settings"), synonyms: "Reset All Settings factory reset restore defaults clear preferences"),
-        ]
+        ] + declarativeTerminalEntries
     }
 
     private static var keyboardShortcutActionSynonyms: String {
