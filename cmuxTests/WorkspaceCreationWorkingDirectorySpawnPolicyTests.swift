@@ -241,6 +241,54 @@ struct WorkspaceCreationWorkingDirectorySpawnPolicyTests {
         #expect(requestedDirectory != fallbackDirectory)
     }
 
+    @Test("new tabs and splits honor the declarative fixed-path policy")
+    func newTabsAndSplitsHonorDeclarativeFixedPathPolicy() throws {
+        let suiteName = "WorkspaceCreationWorkingDirectorySpawnPolicyTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-declarative-cwd-\(UUID().uuidString)", isDirectory: true)
+        let fixedDirectory = temporaryDirectory.appendingPathComponent("fixed", isDirectory: true)
+        let configurationFile = temporaryDirectory.appendingPathComponent("cmux.json")
+        try FileManager.default.createDirectory(
+            at: fixedDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let initialSnapshot = DeclarativeTerminalConfiguration.Snapshot(
+            workingDirectoryPolicy: .fixedPath,
+            workingDirectoryPath: fixedDirectory.path,
+            fixedPathIsUsable: true
+        )
+        let sourceDirectory = temporaryDirectory.appendingPathComponent("source").path
+        let workspace = Workspace(
+            workingDirectory: sourceDirectory,
+            settings: settings,
+            declarativeTerminalConfigurationFileURL: configurationFile,
+            declarativeTerminalConfigurationSource: DeclarativeTerminalConfigurationSnapshotSource(
+                snapshot: initialSnapshot,
+                fileURL: configurationFile
+            )
+        )
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+
+        let newTab = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false))
+        let split = try #require(
+            workspace.newTerminalSplit(
+                from: sourcePanelId,
+                orientation: .vertical,
+                focus: false
+            )
+        )
+
+        #expect(newTab.requestedWorkingDirectory == fixedDirectory.path)
+        #expect(split.requestedWorkingDirectory == fixedDirectory.path)
+    }
+
     @Test("unusable fixed-path policy falls back to the workspace root")
     func unusableFixedPathFallsBackToWorkspaceRoot() throws {
         let suiteName = "WorkspaceCreationWorkingDirectorySpawnPolicyTests.\(UUID().uuidString)"
