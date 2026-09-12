@@ -25,6 +25,10 @@ private final class OwlFreshRuntimeExecutor: @unchecked Sendable {
 
     private struct ExecutorStopped: Error {}
 
+    private func isWorkerThread() -> Bool {
+        Thread.current === workerThread
+    }
+
     private let lock = NSLock()
     private let jobsSemaphore = DispatchSemaphore(value: 0)
     private let readySemaphore = DispatchSemaphore(value: 0)
@@ -49,7 +53,7 @@ private final class OwlFreshRuntimeExecutor: @unchecked Sendable {
     func perform<Value: Sendable>(
         _ operation: @escaping @Sendable () throws -> Value
     ) async throws -> Value {
-        if Thread.current === workerThread {
+        if isWorkerThread() {
             return try operation()
         }
 
@@ -140,6 +144,11 @@ final class OwlFreshRuntime: @unchecked Sendable {
     private final class UnmanagedCallbackBox: @unchecked Sendable {
         let handler: EventHandler
         init(_ handler: @escaping EventHandler) { self.handler = handler }
+    }
+
+    private final class SessionBox: @unchecked Sendable {
+        let pointer: OpaquePointer
+        init(_ pointer: OpaquePointer) { self.pointer = pointer }
     }
 
     /// Returns a launcher outside the signed Content Shell bundle that adds
@@ -259,8 +268,9 @@ final class OwlFreshRuntime: @unchecked Sendable {
     deinit {
         if let session {
             self.session = nil
+            let sessionBox = SessionBox(session)
             _ = executor.submit {
-                owl_shim_session_destroy(session)
+                owl_shim_session_destroy(sessionBox.pointer)
             }
         }
         executor.stop()
