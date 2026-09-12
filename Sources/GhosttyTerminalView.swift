@@ -11654,11 +11654,10 @@ final class GhosttySurfaceScrollView: NSView {
     func beginPortalGeometrySettlement() { surfaceView.beginPortalGeometrySettlement() }
     func finishPortalGeometrySettlement() { surfaceView.finishPortalGeometrySettlement() }
 
-    func setVisibleInUI(_ visible: Bool) {
+    func setVisibleInUI(_ requestedVisible: Bool) {
+        let visible = requestedVisible && (isRightSidebarDockSurface || Workspace.portalRenderingEnabled(for: surfaceView.terminalSurface?.tabId))
         let wasVisible = surfaceView.isVisibleInUI
-        // Make the AppKit portal presentable before asking Ghostty to realize its
-        // drawable. Ghostty remains occluded until after the enqueue below, so it
-        // cannot draw into a released swap chain during this short transition.
+        // Make the portal presentable before asking Ghostty to realize its drawable.
         surfaceView.setVisibleInUI(visible)
         isHidden = !visible
         surfaceView.terminalSurface?.setRendererPortalVisible(visible)
@@ -11739,7 +11738,8 @@ final class GhosttySurfaceScrollView: NSView {
         return convert(bounds, to: nil)
     }
 
-    func setActive(_ active: Bool) {
+    func setActive(_ requestedActive: Bool) {
+        let active = requestedActive && (isRightSidebarDockSurface || Workspace.portalRenderingEnabled(for: surfaceView.terminalSurface?.tabId))
         let wasActive = isActive
         if !active {
             surfaceView.cancelKeyboardCopyMode()

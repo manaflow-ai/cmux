@@ -4547,6 +4547,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private var layoutFollowUpStalledAttemptCount = 0
     private var pendingReparentFocusSuppressionViews: [ObjectIdentifier: GhosttySurfaceScrollView] = [:]
     private var portalRenderingEnabled = true
+    var isPortalRenderingEnabled: Bool { portalRenderingEnabled }
     private var agentHibernationAutoResumePresentationVisible = true
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
@@ -4563,7 +4564,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         get { surfaceRegistry.nonFocusSplitFocusReassertGeneration }
         set { surfaceRegistry.nonFocusSplitFocusReassertGeneration = newValue }
     }
-
     /// Captured detach transfer payloads; stored in the split-layout
     /// sub-model. Mutations go through the model's detach-choreography
     /// verbs; this read-only view feeds the empty/count checks.
@@ -11600,6 +11600,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             clearLayoutFollowUp()
             hideAllTerminalPortalViews()
             hideAllBrowserPortalViews()
+            TerminalWindowPortalRegistry.hideHostedViews(forWorkspaceID: id)
+            BrowserWindowPortalRegistry.hideWebViews(forWorkspaceID: id)
         }
     }
 
@@ -11609,8 +11611,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         guard isVisible else { return }
         _ = resumeVisibleAgentHibernationPanels(panelIds: agentHibernationVisiblePanelIdsForCurrentLayout())
     }
-
-    // MARK: - Utility
 
     /// Create a new terminal panel (used when replacing the last panel)
     @discardableResult
