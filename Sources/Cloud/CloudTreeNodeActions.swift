@@ -52,6 +52,7 @@ struct CloudTreeNodeActions {
     /// Local forwarding addresses are copied explicitly from the Ports table.
     let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
     let refresh: @MainActor () -> Void
+    var refreshMachine: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
 
     @MainActor
     static func bound(
@@ -61,7 +62,8 @@ struct CloudTreeNodeActions {
         onWillMutate: @escaping @MainActor (String) -> Void,
         onDidMutate: @escaping @MainActor () -> Void,
         onFailure: @escaping @MainActor (String) -> Void,
-        refresh: @escaping @MainActor () -> Void
+        refresh: @escaping @MainActor () -> Void,
+        refreshMachine: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in }
     ) -> CloudTreeNodeActions {
         func run(_ label: String, _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void) {
             onWillMutate(label)
@@ -94,7 +96,7 @@ struct CloudTreeNodeActions {
         let startingLabel: (SurfaceMachineID) -> String = { machine in
             String(format: String(localized: "cloudTree.operation.newTerminal", defaultValue: "Starting a terminal on %@\u{2026}"), machineName(machine))
         }
-        return CloudTreeNodeActions(
+        var actions = CloudTreeNodeActions(
             project: { resource, placement, reuseExisting in
                 // Capture the caller's workspace before the async operation starts.
                 // Row selection and refresh notifications can otherwise change the
@@ -362,6 +364,8 @@ struct CloudTreeNodeActions {
             },
             refresh: refresh
         )
+        actions.refreshMachine = refreshMachine
+        return actions
     }
 
     /// The local workspace's title: the remote workspace's own name — what a
