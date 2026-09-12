@@ -4902,7 +4902,8 @@ class TerminalController {
                             panelApplied = workspace.setPanelCustomTitle(
                                 panelId: resolvedPanelId,
                                 title: title,
-                                source: .auto
+                                source: .auto,
+                                reconcileWorkspaceTitle: !workspaceApplySkipped
                             )
                         } else {
                             panelApplySkipped = true
@@ -4919,7 +4920,8 @@ class TerminalController {
                         panelApplied = workspace.setPanelCustomTitle(
                             panelId: resolvedPanelId,
                             title: title,
-                            source: .auto
+                            source: .auto,
+                            reconcileWorkspaceTitle: !workspaceApplySkipped
                         )
                     }
                 } else if let expectedPanelTitle,
@@ -4954,7 +4956,8 @@ class TerminalController {
                     panelApplied = workspace.setPanelCustomTitle(
                         panelId: resolvedPanelId,
                         title: title,
-                        source: .auto
+                        source: .auto,
+                        reconcileWorkspaceTitle: !workspaceApplySkipped
                     )
                 }
             }

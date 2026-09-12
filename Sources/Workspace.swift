@@ -5453,7 +5453,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         title: String?,
         source: CustomTitleSource = .user,
         propagateToRemoteTmux: Bool = true,
-        propagateToCloud: Bool = true
+        propagateToCloud: Bool = true,
+        reconcileWorkspaceTitle: Bool = true
     ) -> Bool {
         guard panels[panelId] != nil else { return false }
         let previousWorkspaceTitle = self.title
@@ -5492,7 +5493,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 // be able to turn a just-confirmed local intent into settled
                 // daemon-owned state without changing the visible tab twice.
                 panelCustomTitleSources[panelId] = source
-                if isIdempotentRemoteAutoWrite, panelTitle(panelId: panelId) != trimmed {
+                let currentRemoteTitle = panelTitles[panelId] ?? panelTitle(panelId: panelId)
+                if isIdempotentRemoteAutoWrite, currentRemoteTitle != trimmed {
                     // A differing remote `%window-renamed` value is
                     // authoritative. Preserve it and its derived tab chrome.
                     return true
@@ -5504,7 +5506,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             }
         }
 
-        applyFocusedPanelTitle(panelId: panelId)
+        if reconcileWorkspaceTitle {
+            applyFocusedPanelTitle(panelId: panelId)
+        }
 
         guard let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) else { return true }
         let baseTitle = panelTitles[panelId] ?? panel.displayTitle
