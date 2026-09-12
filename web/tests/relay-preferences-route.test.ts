@@ -157,7 +157,12 @@ describe("/api/relay/preferences", () => {
       checkRateLimit: async () => ({ rateLimited: true }),
     }));
     expect(limited.status).toBe(429);
-    expect(await limited.json()).toEqual({ error: "rate_limited", source: "account_budget" });
+    const payload = await limited.json();
+    expect(payload).toMatchObject({
+      error: "rate_limited",
+      source: "account_budget",
+    });
+    expect(payload.requestId).toBe(limited.headers.get("x-cmux-request-id"));
   });
 
   test("rejects unauthenticated callers", async () => {

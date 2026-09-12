@@ -442,7 +442,9 @@ describe("POST /api/relay/token", () => {
         deps({ issueCredentials }),
       );
       expect(response.status).toBe(503);
-      expect(await response.json()).toEqual({ error: "relay_policy_unavailable" });
+      const payload = await response.json();
+      expect(payload.error).toBe("relay_policy_unavailable");
+      expect(payload.requestId).toBe(response.headers.get("x-cmux-request-id"));
     }
   });
 
