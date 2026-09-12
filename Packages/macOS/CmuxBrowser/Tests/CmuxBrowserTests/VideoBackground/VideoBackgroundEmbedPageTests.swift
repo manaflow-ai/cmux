@@ -29,6 +29,14 @@ struct VideoBackgroundEmbedPageTests {
         #expect(html.contains("event: 'error'"))
     }
 
+    @Test func loopingPlaylistFallbackAdvancesAfterEnded() {
+        let html = VideoBackgroundEmbedPage(
+            source: .youTubePlaylist(id: "PLBsP89CPrMeMJk4CM2TS7KAfQ57hGXbNe")
+        ).html
+        #expect(html.contains("typeof event.target.nextVideo === 'function'"))
+        #expect(html.contains("event.target.nextVideo();"))
+    }
+
     @Test func pageWiresTheNativeBridge() {
         let html = VideoBackgroundEmbedPage(source: .youTubeVideo(id: "dQw4w9WgXcQ")).html
         #expect(html.contains("window.webkit.messageHandlers.\(VideoBackgroundEmbedPage.messageHandlerName).postMessage"))
