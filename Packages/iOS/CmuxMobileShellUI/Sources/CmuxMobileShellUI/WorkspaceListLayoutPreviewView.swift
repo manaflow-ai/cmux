@@ -655,9 +655,9 @@ public struct WorkspaceListLayoutPreviewView: View {
                 }
             },
             createWorkspace: {},
-            canCreateWorkspace: false,
             createWorkspaceInGroup: reorderEnabled ? { _ in } : nil,
             createWorkspaceGroup: reorderEnabled ? {} : nil,
+            canCreateWorkspace: false,
             macSelection: $macSelection,
             refresh: {
                 await MainActor.run {
