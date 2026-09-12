@@ -181,4 +181,17 @@ private struct NoFontProbe: GhosttyFontProbing {
             configPaths: [path]
         ) == nil)
     }
+
+    @Test func staleManagedSingleSidedThemeGetsSymmetricOverride() {
+        let path = "/cfg/config"
+        let reader = FakeFileReader(contentsByPath: [
+            path: "# cmux themes start\ntheme = light:Light Theme\n# cmux themes end"
+        ])
+        let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
+
+        #expect(discovery.conditionalThemeOverrideConfigContents(
+            preferredColorScheme: .dark,
+            configPaths: [path]
+        ) == "theme = Light Theme")
+    }
 }

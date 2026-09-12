@@ -82,4 +82,31 @@ import Testing
                 .caseInsensitiveCompare(Self.lightThemeBackgroundHex) == .orderedSame
         )
     }
+
+    /// Older cmux managed blocks could contain only a light-side theme. Repairing
+    /// that persisted value keeps Ghostty's background and foreground paired when
+    /// a light AskUserQuestion is rendered after switching appearances.
+    @Test func staleManagedLightThemeIsAppliedInDarkAppearance() throws {
+        let root = try makeThemesRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("config", isDirectory: false)
+        let themePath = root.appendingPathComponent("themes/Light Theme")
+        try """
+        # cmux themes start
+        theme = light:\(themePath.path)
+        # cmux themes end
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        var darkConfig = GhosttyConfig()
+        darkConfig.loadResolvedUserConfig(
+            configPaths: [configURL.path],
+            preferredColorScheme: .dark,
+            environment: ["GHOSTTY_RESOURCES_DIR": root.path],
+            bundleResourceURL: nil
+        )
+
+        #expect(darkConfig.backgroundColor.hexString() == Self.lightThemeBackgroundHex)
+        #expect(darkConfig.foregroundColor.hexString() == "#657B83")
+    }
 }
