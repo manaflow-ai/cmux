@@ -41,6 +41,51 @@ mkdir -p "$DEST_DIR"
 
 sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
 
+# R2 custom domains can return a transient 5xx while a regional incident is
+# being mitigated. Retry a bounded number of times, but never promote a partial
+# response: callers either receive a complete file that is subsequently
+# checksum-verified or the install fails closed.
+DOWNLOAD_ATTEMPTS=3
+DOWNLOAD_RETRY_DELAY_SECONDS="${CMUX_TUI_CLIENT_RETRY_DELAY_SECONDS:-2}"
+DOWNLOAD_CONNECT_TIMEOUT=10
+DOWNLOAD_MAX_TIME=300
+
+if [[ ! "$DOWNLOAD_RETRY_DELAY_SECONDS" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+  echo "error: CMUX_TUI_CLIENT_RETRY_DELAY_SECONDS must be a non-negative number" >&2
+  exit 2
+fi
+
+download_url() { # <url> <destination>
+  local url="$1" destination="$2"
+  local temp="${destination}.tmp.$$" attempt status display_url
+  display_url="${url%%\?*}"
+  [[ -n "$display_url" ]] || display_url="$url"
+
+  for ((attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt++)); do
+    if curl --proto '=https' --tlsv1.2 --fail --show-error --location \
+      --connect-timeout "$DOWNLOAD_CONNECT_TIMEOUT" \
+      --max-time "$DOWNLOAD_MAX_TIME" \
+      --retry 1 --retry-delay 1 --retry-max-time 15 --retry-all-errors \
+      -o "$temp" \
+      "$url"; then
+      mv -f "$temp" "$destination"
+      return 0
+    else
+      status=$?
+    fi
+    rm -f "$temp"
+    if ((attempt < DOWNLOAD_ATTEMPTS)); then
+      echo "warning: download failed for $display_url (attempt $attempt/$DOWNLOAD_ATTEMPTS); retrying" >&2
+      if [[ "$DOWNLOAD_RETRY_DELAY_SECONDS" != 0 ]]; then
+        sleep "$DOWNLOAD_RETRY_DELAY_SECONDS"
+      fi
+    else
+      echo "error: failed to download $display_url after $DOWNLOAD_ATTEMPTS attempts" >&2
+      return "$status"
+    fi
+  done
+}
+
 verify_probe() {
   local probe capability
   probe="$("$DEST" remote-probe --json 2>/dev/null || true)"
@@ -76,7 +121,7 @@ fi
 
 mkdir -p "$CACHE_DIR"
 MANIFEST="$CACHE_DIR/manifest.$(printf '%s' "$MANIFEST_URL" | shasum -a 256 | cut -c1-12).json"
-curl --proto '=https' --tlsv1.2 -fsSL --retry 3 --retry-delay 2 "$MANIFEST_URL" -o "$MANIFEST"
+download_url "$MANIFEST_URL" "$MANIFEST"
 COMMIT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["commit"])' "$MANIFEST")"
 [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "error: manifest at $MANIFEST_URL has no commit" >&2; exit 1; }
 if [[ -n "$EXPECTED_COMMIT" && "$COMMIT" != "$EXPECTED_COMMIT" ]]; then
@@ -102,10 +147,9 @@ fetch_slice() { # <artifact-name> -> path
   if [[ -f "$out" ]] && [[ "$(sha256_of "$out")" == "$want" ]]; then
     printf '%s' "$out"; return
   fi
-  curl --proto '=https' --tlsv1.2 -fsSL --retry 3 --retry-delay 2 "$BASE/$name" -o "$out.tmp"
-  got="$(sha256_of "$out.tmp")"
-  [[ "$got" == "$want" ]] || { echo "error: sha256 mismatch for $name (want $want, got $got)" >&2; rm -f "$out.tmp"; exit 1; }
-  mv -f "$out.tmp" "$out"
+  download_url "$BASE/$name" "$out"
+  got="$(sha256_of "$out")"
+  [[ "$got" == "$want" ]] || { echo "error: sha256 mismatch for $name (want $want, got $got)" >&2; rm -f "$out"; exit 1; }
   printf '%s' "$out"
 }
 

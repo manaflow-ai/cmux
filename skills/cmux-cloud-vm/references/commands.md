@@ -493,6 +493,14 @@ cmux vm ssh-attach <id>
 cmux transport may have no SSH endpoint. `ssh-attach` is an internal helper
 used by the app's attach surface and is not normally invoked by an agent.
 
+### Cloud operation diagnostics
+
+The app control socket exposes `vm.diagnostics` for an operation snapshot:
+`{show?: Bool}` returns `{report: String}` with the current cloud operation
+states and diagnostic details. Set `show: true` when the caller also needs the
+Cloud Diagnostics pane opened. This is an app-only socket method; it has no
+standalone `cmux vm` subcommand.
+
 ### `cmux surface ls`
 
 ```bash
