@@ -1,4 +1,5 @@
 import CmuxTerminal
+import CmuxCore
 import Foundation
 
 /// Owns one native cloud-terminal attachment.
@@ -17,6 +18,12 @@ final class CloudTuiManualMirrorSession {
     private(set) var remoteSurfaceID: UInt64
     let inputRouter: CloudTuiManualIOInputRouter
 
+    private let operations: CloudOperationRecorder?
+    private var diagnosticContext: CloudOperationContext?
+    private var diagnosticReplayReceived = false
+    private var diagnosticDeadline: Task<Void, Never>?
+    private(set) var diagnosticFailure: CloudDiagnosticFailure?
+    private var diagnosticReference: String?
     private weak var surface: TerminalSurface?
     private let onNeedsReconnect: @MainActor () -> Void
     private let commandBuilder: CloudTuiManualIOCommand
@@ -44,9 +51,47 @@ final class CloudTuiManualMirrorSession {
     /// socket is still the cleanup fence for peers without lease support.
     private var remoteLease: String?
     private var replayNeedsReset = false
+    /// The last sidecar fed to the local surface; the next one is applied as a delta from it.
+    private var appliedRemoteColors = CloudTuiRemoteColors()
     private var hasReceivedRemoteReplay = false
     private var lastRemoteGrid: CloudTuiManualIOGrid?
-    private(set) var phase: CloudTuiManualMirrorPhase = .idle
+    private(set) var phase: CloudTuiManualMirrorPhase = .idle {
+        didSet {
+            // Every transport failure calls `transitionToDisconnected(error:)`
+            // explicitly. Surface rebinds can therefore end a stream without
+            // creating a false network error.
+            if phase == .disconnected, oldValue != .disconnected, diagnosticContext != nil {
+                finishDiagnostics(error: CloudDiagnosticFailure.network)
+            }
+            if phase == .stopped { finishDiagnostics(error: CancellationError()) }
+            if phase == .attached && diagnosticReplayReceived { finishDiagnostics() }
+            surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
+        }
+    }
+
+    var connectionPresentation: CloudTerminalReconnectOverlayPolicy.Presentation? {
+        let state: WorkspaceRemoteConnectionState
+        switch phase {
+        case .idle, .connecting: state = .connecting
+        case .attached: state = diagnosticReplayReceived ? .connected : .connecting
+        case .disconnected: state = .error
+        case .stopped: return nil
+        }
+        var presentation = CloudTerminalReconnectOverlayPolicy.presentation(
+            isManagedCloudWorkspace: true, isRemoteTerminalSurface: true,
+            connectionState: state, detail: diagnosticFailure?.label ?? CloudOperationPhase.ready.label
+        )
+        presentation?.diagnosticReference = diagnosticReference
+        return presentation
+    }
+
+    @discardableResult
+    func retryConnection() -> Bool {
+        guard phase != .stopped else { return false }
+        if let socketPath { reconnect(socketPath: socketPath) }
+        else { onNeedsReconnect() }
+        return true
+    }
     private nonisolated static let leaseCapability = "view-attachment-lease-v1"
 
     init(
@@ -54,9 +99,11 @@ final class CloudTuiManualMirrorSession {
         terminalID: String,
         remoteSurfaceID: UInt64,
         initiallyClaimsGeometry: Bool = true,
+        operations: CloudOperationRecorder? = nil,
         commandBuilder: CloudTuiManualIOCommand = CloudTuiManualIOCommand(),
         onNeedsReconnect: @escaping @MainActor () -> Void
     ) {
+        self.operations = operations
         self.machineID = machineID
         self.terminalID = terminalID
         self.remoteSurfaceID = remoteSurfaceID
@@ -81,6 +128,14 @@ final class CloudTuiManualMirrorSession {
     /// assigning them here also makes rebinding after restore safe.
     func bind(surface: TerminalSurface) {
         self.surface = surface
+        // A color sidecar that arrived before any surface existed reaches this
+        // one now. The stored sidecar is the remote truth, and the next
+        // identical sidecar would produce an empty delta and leave the pane on
+        // the local theme.
+        let pendingColors = appliedRemoteColors.oscBytes
+        if !pendingColors.isEmpty {
+            surface.processRemoteOutput(pendingColors)
+        }
         surface.onManualSizeApplied = { [weak self] sample in
             self?.apply(size: sample, validatePanePixels: false)
         }
@@ -163,6 +218,7 @@ final class CloudTuiManualMirrorSession {
             serverCapabilities.removeAll(keepingCapacity: true)
             resizeScheduler.resetForReconnect()
             lastRemoteGrid = nil
+            finishDiagnostics(error: CancellationError())
             phase = .disconnected
         }
     }
@@ -190,6 +246,7 @@ final class CloudTuiManualMirrorSession {
         serverCapabilities.removeAll(keepingCapacity: true)
         resizeScheduler.resetForReconnect()
         lastRemoteGrid = nil
+        finishDiagnostics(error: CancellationError())
         phase = .disconnected
     }
 
@@ -232,6 +289,24 @@ final class CloudTuiManualMirrorSession {
             }
         }
 
+        finishDiagnostics(error: CancellationError())
+        diagnosticFailure = nil
+        diagnosticReplayReceived = false
+        if let parent = CloudOperationContext.current {
+            diagnosticContext = parent.recorder.beginChild(of: parent, phase: .ready, attempt: 0)
+        } else if let operations {
+            let root = operations.begin(.terminal, foreground: false)
+            diagnosticContext = root
+        }
+        if let context = diagnosticContext {
+            diagnosticReference = "operation=\(context.operationID.uuidString.lowercased()) trace=\(context.traceID)"
+            diagnosticDeadline = Task { @MainActor [weak self] in
+                do { try await Task.sleep(for: .seconds(60)) } catch { return }
+                guard let self, self.diagnosticContext?.spanID == context.spanID else { return }
+                self.finishDiagnostics(error: CloudDiagnosticFailure.timeout)
+                self.transitionToDisconnected(error: nil)
+            }
+        }
         if hasReceivedRemoteReplay {
             replayNeedsReset = true
         }
@@ -265,6 +340,7 @@ final class CloudTuiManualMirrorSession {
                     connection.close()
                     return
                 }
+                self.finishDiagnostics(error: error)
                 self.phase = .disconnected
                 self.onNeedsReconnect()
                 return
@@ -361,6 +437,19 @@ final class CloudTuiManualMirrorSession {
         self.surface = nil
     }
 
+
+    private func finishDiagnostics(error: Error? = nil) {
+        diagnosticDeadline?.cancel()
+        diagnosticDeadline = nil
+        if let error, !(error is CancellationError) { diagnosticFailure = .classify(error) }
+        surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
+        let context = diagnosticContext ?? (error != nil && !(error is CancellationError) ? operations?.begin(.terminal, foreground: false) : nil)
+        guard let context else { return }
+        diagnosticReference = "operation=\(context.operationID.uuidString.lowercased()) trace=\(context.traceID)"
+        diagnosticContext = nil
+        Task { await context.recorder.finish(context, error: error) }
+    }
+
     // MARK: - Transport events
 
     private func startEventTask(_ connection: CloudTuiManualIOConnection) {
@@ -384,25 +473,35 @@ final class CloudTuiManualMirrorSession {
 
     private func handle(frame: CloudTuiManualIOFrame) {
         switch frame {
-        case let .snapshot(surfaceID, columns, rows, bytes):
+        case let .snapshot(surfaceID, columns, rows, bytes, colors):
             guard surfaceID == remoteSurfaceID else { return }
             applyReplay(bytes, reset: replayNeedsReset)
+            applyColors(colors)
             replayNeedsReset = false
             hasReceivedRemoteReplay = true
+            diagnosticReplayReceived = true
+            if phase == .attached { finishDiagnostics() }
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
             reconcileRemoteGrid()
-        case let .output(surfaceID, bytes):
+        case let .output(surfaceID, bytes, colors):
             guard surfaceID == remoteSurfaceID else { return }
             surface?.processRemoteOutput(bytes)
-        case let .resized(surfaceID, columns, rows, bytes):
+            applyColors(colors)
+        case let .resized(surfaceID, columns, rows, bytes, colors):
             guard surfaceID == remoteSurfaceID else { return }
             // `resized` carries a replacement replay, not an incremental
             // output chunk. Resetting first prevents old rows/cursor state from
             // surviving a shrink or a reconnect.
             applyReplay(bytes, reset: true)
+            applyColors(colors)
             hasReceivedRemoteReplay = true
+            diagnosticReplayReceived = true
+            if phase == .attached { finishDiagnostics() }
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
             reconcileRemoteGrid()
+        case let .colorsChanged(surfaceID, colors):
+            guard surfaceID == remoteSurfaceID else { return }
+            applyColors(colors)
         case let .detached(surfaceID):
             guard surfaceID == remoteSurfaceID else { return }
             transitionToDisconnected()
@@ -424,12 +523,30 @@ final class CloudTuiManualMirrorSession {
 
     private func applyReplay(_ bytes: Data, reset: Bool) {
         if reset {
+            // Drop every remote color before the reset rather than trusting
+            // RIS to do it: the replay's own sidecar re-applies the authored
+            // set in full, so the pane ends in the same state either way.
+            applyColors(CloudTuiRemoteColors())
             surface?.processRemoteOutput(Self.replayReset)
         }
         surface?.processRemoteOutput(bytes)
     }
 
-    private func transitionToDisconnected() {
+    /// The replay is theme-portable: it carries no palette or default-color
+    /// OSC state, so the local Ghostty theme stands for every color the
+    /// remote PTY did not author. The sidecar restores the authored ones and
+    /// is a full sparse replacement, so an entry that vanished since the last
+    /// sidecar is reset back to the local theme. A frame with no sidecar
+    /// leaves the applied colors alone.
+    private func applyColors(_ colors: CloudTuiRemoteColors?) {
+        guard let colors else { return }
+        let delta = colors.oscDelta(from: appliedRemoteColors)
+        appliedRemoteColors = colors
+        guard !delta.isEmpty else { return }
+        surface?.processRemoteOutput(delta)
+    }
+
+    private func transitionToDisconnected(error: Error? = CloudDiagnosticFailure.network) {
         if hasReceivedRemoteReplay {
             replayNeedsReset = true
         }
@@ -446,6 +563,7 @@ final class CloudTuiManualMirrorSession {
         resizeScheduler.resetForReconnect()
         lastRemoteGrid = nil
         guard phase != .stopped else { return }
+        finishDiagnostics(error: error ?? CancellationError())
         phase = .disconnected
         onNeedsReconnect()
     }

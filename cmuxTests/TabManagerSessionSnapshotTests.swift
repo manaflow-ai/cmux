@@ -2122,6 +2122,52 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.selectedTabId, restored.tabs.last?.id)
     }
 
+    /// `DisableCloud` (MDM): no Cloud workspace restores through either
+    /// transport, the selection follows a surviving local workspace, and the
+    /// existing one-machine normalization is untouched without the policy.
+    func testManagedCloudPolicyDropsEveryCloudWorkspaceFromRestore() {
+        let localPanelId = UUID()
+        var boundWorkspace = Self.localWorkspaceSnapshot(title: "vm:bound", panelId: UUID())
+        boundWorkspace.cloudVM = SessionCloudVMBindingSnapshot(vmID: "bound", isBase: true)
+        let snapshots = [
+            Self.cloudVMWorkspaceSnapshot(panelId: UUID(), managedCloudVMID: "vm-managed"),
+            Self.localWorkspaceSnapshot(title: "Local", panelId: localPanelId),
+            boundWorkspace,
+        ]
+
+        let (kept, selection) = TabManager.normalizedCloudVMSessionRestoreWorkspaces(
+            snapshots,
+            selectedWorkspaceIndex: 2,
+            cloudDisabledByPolicy: true
+        )
+        XCTAssertEqual(kept.map(\.customTitle), ["Local"])
+        XCTAssertEqual(selection, 0)
+
+        let (_, localSelection) = TabManager.normalizedCloudVMSessionRestoreWorkspaces(
+            snapshots,
+            selectedWorkspaceIndex: 1,
+            cloudDisabledByPolicy: true
+        )
+        XCTAssertEqual(localSelection, 0)
+
+        // Nothing survives: restore falls through to its fresh-workspace path.
+        let (none, noneSelection) = TabManager.normalizedCloudVMSessionRestoreWorkspaces(
+            [snapshots[0], snapshots[2]],
+            selectedWorkspaceIndex: 0,
+            cloudDisabledByPolicy: true
+        )
+        XCTAssertTrue(none.isEmpty)
+        XCTAssertNil(noneSelection)
+
+        let (unmanaged, unmanagedSelection) = TabManager.normalizedCloudVMSessionRestoreWorkspaces(
+            snapshots,
+            selectedWorkspaceIndex: 2,
+            cloudDisabledByPolicy: false
+        )
+        XCTAssertEqual(unmanaged.map(\.customTitle), ["Cloud VM", "Local", "vm:bound"])
+        XCTAssertEqual(unmanagedSelection, 2)
+    }
+
     func testRestoreSessionSnapshotKeepsCmuxTuiCloudVMBinding() throws {
         let panelId = UUID()
         var workspace = Self.localWorkspaceSnapshot(title: "vm:vivid-gecko", panelId: panelId)
@@ -2790,6 +2836,10 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 "tab_ids": [originalWorkspaceId.uuidString, originalPanelId.uuidString],
                 "tab_id_groups": [[originalWorkspaceId.uuidString, originalPanelId.uuidString]],
                 "session_id": sessionID,
+                "environment": [
+                    "CMUX_WORKSPACE_ID": originalWorkspaceId.uuidString,
+                    "CMUX_SURFACE_ID": originalPanelId.uuidString,
+                ],
                 "caller": [
                     "workspace_id": originalWorkspaceId.uuidString,
                     "surface_id": originalPanelId.uuidString,
@@ -2830,6 +2880,10 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(params["tab_ids"] as? [String], [restoredWorkspace.id.uuidString, restoredPanelId.uuidString])
         XCTAssertEqual(params["tab_id_groups"] as? [[String]], [[restoredWorkspace.id.uuidString, restoredPanelId.uuidString]])
         XCTAssertEqual(params["session_id"] as? String, sessionID)
+
+        let environment = try XCTUnwrap(params["environment"] as? [String: String])
+        XCTAssertEqual(environment["CMUX_WORKSPACE_ID"], restoredWorkspace.id.uuidString)
+        XCTAssertEqual(environment["CMUX_SURFACE_ID"], restoredPanelId.uuidString)
 
         let caller = try XCTUnwrap(params["caller"] as? [String: Any])
         XCTAssertEqual(caller["workspace_id"] as? String, restoredWorkspace.id.uuidString)
@@ -2939,6 +2993,36 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(params["surface_id"] as? String, restoredPanelID.uuidString)
         XCTAssertEqual(params["tab_id"] as? String, restoredWorkspaceID.uuidString)
         XCTAssertEqual(params["tab_ids"] as? [String], [restoredWorkspaceID.uuidString])
+    }
+
+    func testRemoteRelayForcesQueuedHookProvenanceWithoutIDAliases() throws {
+        let manager = TabManager()
+        let remoteWorkspace = manager.addWorkspace(select: true)
+        for method in ["agent.hook.enqueue", "agent.hook.barrier"] {
+            let request: [String: Any] = [
+                "id": "relay-hook-provenance-request",
+                "method": method,
+                "params": [
+                    "agent": "claude",
+                    "subcommand": "prompt-submit",
+                    "relay_backed": false,
+                ],
+            ]
+            let requestData = try JSONSerialization.data(withJSONObject: request, options: [])
+
+            let rewrittenData = remoteWorkspace.rewriteRemoteRelayCommandLine(requestData)
+            let rewritten = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: rewrittenData) as? [String: Any]
+            )
+            let params = try XCTUnwrap(rewritten["params"] as? [String: Any])
+
+            XCTAssertEqual(params["relay_backed"] as? Bool, true, method)
+            XCTAssertEqual(
+                params["_cmux_remote_workspace_id"] as? String,
+                remoteWorkspace.id.uuidString,
+                method
+            )
+        }
     }
 
     func testPersistentSSHPTYRestoreRewritesMovedSourceWorkspaceContextID() throws {

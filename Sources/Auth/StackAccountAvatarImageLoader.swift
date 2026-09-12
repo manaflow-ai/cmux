@@ -1,16 +1,20 @@
 import AppKit
 import Foundation
 
-/// Loads a Stack profile picture and normalizes it into a square bitmap that
-/// the AppKit-hosted icon renderer draws as an aspect-fill avatar.
+/// Loads a Stack profile picture and normalizes it into a circular bitmap that
+/// the AppKit-hosted icon renderer draws as-is.
 ///
 /// `AsyncImage` hands its result to SwiftUI as a raster `Image`, which draws
-/// nothing on Intel Macs running macOS 15. Decoding here and drawing through
-/// `CmuxResolvedIconImage` keeps the real profile picture visible everywhere.
+/// nothing on Intel Macs running macOS 15, and a SwiftUI `clipShape` over the
+/// hosted image view goes blank after a while on the same machines. Decoding
+/// here, clipping to the circle inside the bitmap, and drawing through
+/// `CmuxResolvedIconImage` keeps the real profile picture visible everywhere
+/// without SwiftUI owning any pixel of it.
 @MainActor
 enum StackAccountAvatarImageLoader {
-    /// Fetches `url` through the shared URL cache and returns a square avatar
-    /// bitmap sized for `pointSize`, or `nil` when the download or decode fails.
+    /// Fetches `url` through the shared URL cache and returns a circular
+    /// avatar bitmap sized for `pointSize`, or `nil` when the download or
+    /// decode fails.
     static func load(
         from url: URL,
         pointSize: CGFloat,
@@ -19,12 +23,13 @@ enum StackAccountAvatarImageLoader {
         guard let (data, _) = try? await session.data(from: url) else {
             return nil
         }
-        return squareImage(from: data, pointSize: pointSize)
+        return circularImage(from: data, pointSize: pointSize)
     }
 
-    /// Decodes `data`, center-crops it to a square, and rasterizes it at
-    /// `scale` pixels per point so a square image view fills the avatar circle.
-    static func squareImage(from data: Data, pointSize: CGFloat, scale: CGFloat = 2) -> NSImage? {
+    /// Decodes `data`, center-crops it to a square, clips it to the inscribed
+    /// circle, and rasterizes it at `scale` pixels per point so the hosted
+    /// image view shows the finished avatar without any SwiftUI clipping.
+    static func circularImage(from data: Data, pointSize: CGFloat, scale: CGFloat = 2) -> NSImage? {
         guard pointSize.isFinite, pointSize > 0,
               scale.isFinite, scale > 0,
               let source = NSImage(data: data),
@@ -66,6 +71,7 @@ enum StackAccountAvatarImageLoader {
         graphicsContext.imageInterpolation = .high
         NSColor.clear.setFill()
         NSRect(origin: .zero, size: targetSize).fill()
+        NSBezierPath(ovalIn: NSRect(origin: .zero, size: targetSize)).addClip()
         source.draw(
             in: NSRect(origin: .zero, size: targetSize),
             from: cropRect,

@@ -53,7 +53,7 @@ extension TerminalController {
                 request = parsed
             }
 
-            let relayAuthorization = authorizeRemoteRelayRequest(request)
+            let relayAuthorization = await authorizeRemoteRelayRequestAsync(request)
             if let errorResponse = relayAuthorization.errorResponse {
                 return errorResponse
             }
@@ -97,6 +97,16 @@ extension TerminalController {
                             event: event,
                             action: action
                         )
+                    }
+                    if authorizedRequest.method == "surface.sync_codex_native_title" {
+                        return await self.v2MainAsync {
+                            self.v2Result(
+                                id: authorizedRequest.id?.foundationObject,
+                                self.v2SurfaceSyncCodexNativeTitle(
+                                    params: authorizedRequest.params.mapValues(\.foundationObject)
+                                )
+                            )
+                        }
                     }
                     if policy.runsOnSocketWorker {
                         // Terminal rename performs an awaited cloud-link mutation. Keep the
@@ -182,6 +192,12 @@ extension TerminalController {
             return Self.v2Encoder.response(id: request.id, result)
         }
 
+        if request.method == "agent.restore.admit" {
+            return await agentRestoreAdmissionResponse(request)
+        }
+        if request.method == "agent.restore.release" {
+            return await agentRestoreAdmissionReleaseResponse(request)
+        }
         if ControlCommandExecutionPolicy.servesFromPublishedReadSnapshot(method: request.method),
            let snapshotResult = socketReadSnapshotStore.response(
                 method: request.method,

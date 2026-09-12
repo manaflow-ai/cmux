@@ -147,167 +147,193 @@ export function makeStripeWebhookHandler(
   };
 }
 
-async function processStripeEvent(
-  event: Stripe.Event,
-  dependencies: StripeWebhookDependencies,
-): Promise<{
+type StripeEventOutcome = {
   processed?: string;
   skipped?: string;
   analytics?: () => Promise<void>;
-}> {
+};
+
+async function processStripeEvent(
+  event: Stripe.Event,
+  dependencies: StripeWebhookDependencies,
+): Promise<StripeEventOutcome> {
   switch (event.type) {
     case "checkout.session.completed":
-    case "checkout.session.async_payment_succeeded": {
-      const session = event.data.object;
-      // Preserve an explicit foreign marker from the signed event payload.
-      // Stripe's retrieve response is authoritative for expanded fields, but
-      // a test or a delayed provider read must not turn an explicitly foreign
-      // event into a cmux purchase.
-      if (
-        session.metadata?.app &&
-        session.metadata.app !== "cmux" &&
-        session.metadata.founders_edition !== "true"
-      ) {
-        return { skipped: "foreign_checkout" };
-      }
-      const expanded = await dependencies.stripe().checkout.sessions.retrieve(session.id, {
-        expand: ["subscription", "customer"],
-      });
-      const subscription = expandedSubscription(expanded);
-      if (!isCmuxCheckoutSession(expanded, subscription)) {
-        return { skipped: "foreign_checkout" };
-      }
-      if (
-        hasConflictingFounderMetadata(expanded, subscription, [
-          session.metadata,
-        ])
-      ) {
-        return { skipped: "conflicting_checkout_metadata" };
-      }
-      if (!checkoutPaymentSettled(expanded)) {
-        return { skipped: "checkout_payment_pending" };
-      }
-      const isFounderCheckout =
-        session.metadata?.founders_edition === "true" ||
-        expanded.metadata?.founders_edition === "true" ||
-        subscription?.metadata?.founders_edition === "true";
-      const result = isFounderCheckout
-        ? await (dependencies.recordFoundersCheckoutCompletion ?? recordFoundersCheckoutCompletionDefault)({
-            session: expanded,
-            subscription,
-            customer: expandedCustomer(expanded),
-          })
-        : await dependencies.recordCheckoutCompletion({
-            session: expanded,
-            subscription,
-            customer: expandedCustomer(expanded),
-          });
-      if (result && "skipped" in result) return { skipped: result.skipped };
-      // Personal Pro checkouts use the founders-welcome endpoint's canonical
-      // Austin/Lawrence message. Keep the older templated pro@cmux.com sender
-      // only as a fallback for deployments that have not configured the
-      // personal endpoint; when both endpoints are configured this gate avoids
-      // double-sending the customer.
-      // The personal endpoint's Pro message contains the TestFlight signup
-      // link. TestFlight enrollment remains an explicit signed-in user action
-      // in /api/testflight, so this webhook must not auto-enroll the buyer.
-      if (
-        result.scope === "user" &&
-        isPersonalProCheckout(expanded, subscription) &&
-        !(dependencies.isPersonalWelcomeConfigured ?? isPersonalWelcomeConfigured)()
-      ) {
-        await dependencies.sendProSignupWelcome({
-          session: expanded,
-          stackUserId: result.stackUserId,
-        });
-      }
-      const subscriptionStatus = isFounderCheckout
-        ? "active"
-        : subscription?.status ?? "unknown";
-      const subject = analyticsSubject(
-        result,
-        isActiveStripeSubscriptionStatus(subscriptionStatus),
-        subscriptionStatus,
-      );
-      return {
-        processed: event.type,
-        analytics: () => dependencies.captureStripeBillingEvent(event, subject),
-      };
-    }
+    case "checkout.session.async_payment_succeeded":
+      return processCheckoutCompleted(event, event.data.object, dependencies);
+    case "checkout.session.expired":
+      return processExpiredCheckout(event, event.data.object, dependencies);
     case "customer.subscription.created":
     case "customer.subscription.updated":
-    case "customer.subscription.deleted": {
+    case "customer.subscription.deleted":
       // Stripe can deliver events late or out of order. Always reconcile the
       // provider's current object rather than allowing an older event payload
       // to overwrite a newer entitlement state.
-      const subscription = await dependencies.stripe().subscriptions.retrieve(
-        event.data.object.id,
-      );
-      const result = await applySubscriptionEntitlementUpdate(
-        subscription,
-        dependencies,
-      );
-      return "skipped" in result
-        ? { skipped: "subscription_unmapped" }
-        : {
-            processed: event.type,
-            analytics: () => dependencies.captureStripeBillingEvent(
-              event,
-              analyticsSubject(result, result.isActive, subscription.status),
-            ),
-          };
-    }
+      return reconcileSubscriptionEvent(event, event.data.object.id, "subscription_unmapped", dependencies);
     case "invoice.paid":
     case "invoice.payment_failed": {
       const subscriptionId = invoiceSubscriptionId(event.data.object);
       if (!subscriptionId) return { skipped: "invoice_without_subscription" };
-      const subscription = await dependencies.stripe().subscriptions.retrieve(subscriptionId);
-      const result = await applySubscriptionEntitlementUpdate(
-        subscription,
-        dependencies,
-      );
-      return "skipped" in result
-        ? { skipped: "invoice_subscription_unmapped" }
-        : {
-            processed: event.type,
-            analytics: () => dependencies.captureStripeBillingEvent(
-              event,
-              analyticsSubject(result, result.isActive, subscription.status),
-            ),
-          };
+      return reconcileSubscriptionEvent(event, subscriptionId, "invoice_subscription_unmapped", dependencies);
     }
-    case "charge.refunded": {
-      const charge = event.data.object as Stripe.Charge & {
-        invoice?: string | Stripe.Invoice | null;
-      };
-      const invoiceId = stringId(charge.invoice);
-      if (!invoiceId) return { skipped: "refund_without_invoice" };
-      const invoice = await dependencies.stripe().invoices.retrieve(invoiceId);
-      const subscriptionId = invoiceSubscriptionId(invoice);
-      if (!subscriptionId) return { skipped: "refund_without_subscription" };
-      const subscription = await dependencies.stripe().subscriptions.retrieve(
-        subscriptionId,
-      );
-      // Refunds do not inherently revoke a subscription. Re-applying Stripe's
-      // current subscription state preserves that policy while mapping the
-      // event to the correct privacy-safe analytics principal.
-      const result = await applySubscriptionEntitlementUpdate(
-        subscription,
-        dependencies,
-      );
-      return "skipped" in result
-        ? { skipped: "refund_subscription_unmapped" }
-        : {
-            processed: event.type,
-            analytics: () => dependencies.captureStripeBillingEvent(
-              event,
-              analyticsSubject(result, result.isActive, subscription.status),
-            ),
-          };
-    }
+    case "charge.refunded":
+      return processRefund(event, event.data.object, dependencies);
     default:
       return { skipped: "event_type" };
   }
+}
+
+async function processCheckoutCompleted(
+  event: Stripe.Event,
+  session: Stripe.Checkout.Session,
+  dependencies: StripeWebhookDependencies,
+): Promise<StripeEventOutcome> {
+  // Preserve an explicit foreign marker from the signed event payload.
+  // Stripe's retrieve response is authoritative for expanded fields, but
+  // a test or a delayed provider read must not turn an explicitly foreign
+  // event into a cmux purchase.
+  if (
+    session.metadata?.app &&
+    session.metadata.app !== "cmux" &&
+    session.metadata.founders_edition !== "true"
+  ) {
+    return { skipped: "foreign_checkout" };
+  }
+  const expanded = await dependencies.stripe().checkout.sessions.retrieve(session.id, {
+    expand: ["subscription", "customer"],
+  });
+  const subscription = expandedSubscription(expanded);
+  if (!isCmuxCheckoutSession(expanded, subscription)) {
+    return { skipped: "foreign_checkout" };
+  }
+  if (hasConflictingFounderMetadata(expanded, subscription, [session.metadata])) {
+    return { skipped: "conflicting_checkout_metadata" };
+  }
+  if (!checkoutPaymentSettled(expanded)) {
+    return { skipped: "checkout_payment_pending" };
+  }
+  const isFounderCheckout = isFoundersCheckout(session, expanded, subscription);
+  const completion = { session: expanded, subscription, customer: expandedCustomer(expanded) };
+  const result = isFounderCheckout
+    ? await (dependencies.recordFoundersCheckoutCompletion ?? recordFoundersCheckoutCompletionDefault)(completion)
+    : await dependencies.recordCheckoutCompletion(completion);
+  if (result && "skipped" in result) return { skipped: result.skipped };
+  await sendLegacyProWelcomeIfNeeded(result, expanded, subscription, dependencies);
+  const subscriptionStatus = isFounderCheckout
+    ? "active"
+    : subscription?.status ?? "unknown";
+  const subject = analyticsSubject(
+    result,
+    isActiveStripeSubscriptionStatus(subscriptionStatus),
+    subscriptionStatus,
+  );
+  return {
+    processed: event.type,
+    analytics: () => dependencies.captureStripeBillingEvent(event, subject),
+  };
+}
+
+// Personal Pro checkouts use the founders-welcome endpoint's canonical
+// Austin/Lawrence message. Keep the older templated pro@cmux.com sender
+// only as a fallback for deployments that have not configured the
+// personal endpoint; when both endpoints are configured this gate avoids
+// double-sending the customer.
+// The personal endpoint's Pro message contains the TestFlight signup
+// link. TestFlight enrollment remains an explicit signed-in user action
+// in /api/testflight, so this webhook must not auto-enroll the buyer.
+async function sendLegacyProWelcomeIfNeeded(
+  result: { readonly scope: "user"; readonly stackUserId: string } | { readonly scope: "team" },
+  expanded: Stripe.Checkout.Session,
+  subscription: Stripe.Subscription | null,
+  dependencies: StripeWebhookDependencies,
+): Promise<void> {
+  if (
+    result.scope === "user" &&
+    isPersonalProCheckout(expanded, subscription) &&
+    !(dependencies.isPersonalWelcomeConfigured ?? isPersonalWelcomeConfigured)()
+  ) {
+    await dependencies.sendProSignupWelcome({
+      session: expanded,
+      stackUserId: result.stackUserId,
+    });
+  }
+}
+
+async function reconcileSubscriptionEvent(
+  event: Stripe.Event,
+  subscriptionId: string,
+  unmappedSkip: string,
+  dependencies: StripeWebhookDependencies,
+): Promise<StripeEventOutcome> {
+  const subscription = await dependencies.stripe().subscriptions.retrieve(subscriptionId);
+  const result = await applySubscriptionEntitlementUpdate(subscription, dependencies);
+  return "skipped" in result
+    ? { skipped: unmappedSkip }
+    : {
+        processed: event.type,
+        analytics: () => dependencies.captureStripeBillingEvent(
+          event,
+          analyticsSubject(result, result.isActive, subscription.status),
+        ),
+      };
+}
+
+async function processRefund(
+  event: Stripe.Event,
+  charge: Stripe.Charge & { invoice?: string | Stripe.Invoice | null },
+  dependencies: StripeWebhookDependencies,
+): Promise<StripeEventOutcome> {
+  const invoiceId = stringId(charge.invoice);
+  if (!invoiceId) return { skipped: "refund_without_invoice" };
+  const invoice = await dependencies.stripe().invoices.retrieve(invoiceId);
+  const subscriptionId = invoiceSubscriptionId(invoice);
+  if (!subscriptionId) return { skipped: "refund_without_subscription" };
+  // Refunds do not inherently revoke a subscription. Re-applying Stripe's
+  // current subscription state preserves that policy while mapping the
+  // event to the correct privacy-safe analytics principal.
+  return reconcileSubscriptionEvent(event, subscriptionId, "refund_subscription_unmapped", dependencies);
+}
+
+function isFoundersCheckout(
+  session: Stripe.Checkout.Session,
+  expanded: Stripe.Checkout.Session,
+  subscription: Stripe.Subscription | null | undefined,
+): boolean {
+  return (
+    session.metadata?.founders_edition === "true" ||
+    expanded.metadata?.founders_edition === "true" ||
+    subscription?.metadata?.founders_edition === "true"
+  );
+}
+
+// Nothing to fulfil: the buyer never paid. Report the abandoned checkout under
+// the principal that started it so the funnel has a denominator.
+function processExpiredCheckout(
+  event: Stripe.Event,
+  session: Stripe.Checkout.Session,
+  dependencies: StripeWebhookDependencies,
+): { processed?: string; skipped?: string; analytics?: () => Promise<void> } {
+  if (session.metadata?.app !== "cmux") return { skipped: "foreign_checkout" };
+  const subject = expiredCheckoutSubject(session.metadata);
+  if (!subject) return { skipped: "checkout_unmapped" };
+  return {
+    processed: event.type,
+    analytics: () => dependencies.captureStripeBillingEvent(event, subject),
+  };
+}
+
+function expiredCheckoutSubject(
+  metadata: Record<string, string> | null | undefined,
+): StripeBillingAnalyticsSubject | null {
+  const stackTeamId = metadata?.stackTeamId;
+  if (typeof stackTeamId === "string" && stackTeamId.length > 0) {
+    return { scope: "team", stackTeamId, isActive: false, status: "expired" };
+  }
+  const stackUserId = metadata?.stackUserId;
+  if (typeof stackUserId === "string" && stackUserId.length > 0) {
+    return { scope: "user", stackUserId, isActive: false, status: "expired" };
+  }
+  return null;
 }
 
 function analyticsSubject(

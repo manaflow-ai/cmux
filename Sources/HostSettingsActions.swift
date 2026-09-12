@@ -409,12 +409,16 @@ final class HostSettingsActions: SettingsHostActions {
         )
     }
 
+    func openCloudVPNSetup() {
+        AppDelegate.shared?.openCloudVPNSetupWorkspace()
+    }
+
     func openCloudMachinesPanel() {
         _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(mode: .machines)
     }
 
     func openCloudMachinesBilling() {
-        ProUpgradePresenter.present()
+        ProUpgradePresenter.present(source: .settingsCloudMachines)
     }
 
     func mobilePhonePushSettings() -> MobilePhonePushSettingsSnapshot {

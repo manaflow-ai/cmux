@@ -6,14 +6,14 @@ selectors, fields, results, errors, constraints, or stream types.
 
 ## Transported operations
 
-`cmux.protocol/2` transports 126 operations for exactly one local mux
+`cmux.protocol/2` transports 127 operations for exactly one local mux
 session. Cross-machine aggregation and provider lifecycle require a later
 broker protocol.
 
 | Class | Count | Semantics |
 | --- | ---: | --- |
 | `read` | 41 | Reads state and forbids an idempotency key |
-| `mutation` | 68 | Requires an idempotency key and returns a mutation result |
+| `mutation` | 69 | Requires an idempotency key and returns a mutation result |
 | `stream_open` | 5 | Opens a connection-owned typed stream |
 | `connection_control` | 12 | Changes only connection-local state |
 
@@ -33,7 +33,7 @@ correlation, and idempotency metadata.
 | `client` | 7 | `client.cell_pixels.set`, `client.detach`, `client.get`, `client.list`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set` |
 | `frontend_projection` | 2 | `frontend_projection.get`, `frontend_projection.put` |
 | `machine` | 2 | `machine.get`, `machine.list` |
-| `notification` | 3 | `notification.ack`, `notification.create`, `notification.list` |
+| `notification` | 4 | `notification.ack`, `notification.clear`, `notification.create`, `notification.list` |
 | `pairing_request` | 2 | `pairing_request.list`, `pairing_request.resolve` |
 | `pane` | 14 | `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.get`, `pane.list`, `pane.neighbor.get`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom` |
 | `request` | 1 | `request.cancel` |

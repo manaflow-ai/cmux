@@ -689,3 +689,64 @@ private func isLocalePathSegment(_ segment: String) -> Bool {
         (2...4).contains(subtag.count) && subtag.allSatisfy(\.isLetter)
     }
 }
+
+@Suite("Checkout attribution")
+struct CheckoutAttributionTests {
+    @Test
+    func queryItemsCarrySourceClientChannelAndVersion() throws {
+        let items = CheckoutAttribution.queryItems(
+            source: .sidebarBadge,
+            flavor: .nightly,
+            infoDictionary: ["CFBundleShortVersionString": "0.65.1", "CFBundleVersion": "2026090101"]
+        )
+        let values = Dictionary(uniqueKeysWithValues: items.compactMap { item in item.value.map { (item.name, $0) } })
+
+        #expect(values["cmux_source"] == "mac_sidebar_badge")
+        #expect(values["cmux_client"] == "mac")
+        #expect(values["cmux_channel"] == "nightly")
+        #expect(values["cmux_app_version"] == "0.65.1")
+        #expect(values["cmux_app_build"] == "2026090101")
+    }
+
+    @Test
+    func applyingReplacesStaleAttributionAndKeepsOtherQuery() throws {
+        let base = try #require(URL(string: "https://cmux.com/app-pricing?cmux_app=1&cmux_source=mac_help_menu&cmux_channel=stable"))
+        let url = CheckoutAttribution.applying(
+            to: base,
+            source: .commandPalette,
+            flavor: .dev,
+            infoDictionary: [:]
+        )
+        let items = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+
+        #expect(items.filter { $0.name == "cmux_source" }.map(\.value) == ["mac_command_palette"])
+        #expect(items.filter { $0.name == "cmux_channel" }.map(\.value) == ["dev"])
+        #expect(items.contains { $0.name == "cmux_app" && $0.value == "1" })
+        #expect(!items.contains { $0.name == "cmux_app_version" })
+    }
+
+    @Test
+    func everySourceIsAServerSafeToken() {
+        for source in ProUpgradeSource.allCases {
+            let token = source.rawValue
+            #expect(token.hasPrefix("mac_"), "\(token)")
+            #expect(token.count <= 64, "\(token)")
+            #expect(token.unicodeScalars.allSatisfy { ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "_" }, "\(token)")
+        }
+    }
+
+    @Test
+    func vmRequiresProErrorTextLinksWithATypedSource() {
+        let text = defaultCloudVMAction(status: 402, errorCode: "vm_requires_pro")
+        #expect(text.contains("cmux_source=\(ProUpgradeSource.vmRequiresProError.rawValue)"))
+        #expect(text.contains("cmux_client=mac"))
+    }
+
+    @Test
+    func intentPropertiesNameSurfaceAndChannel() {
+        let properties = CheckoutAttribution.intentProperties(source: .helpMenu, flavor: .stable)
+        #expect(properties["source"] as? String == "mac_help_menu")
+        #expect(properties["client"] as? String == "mac")
+        #expect(properties["channel"] as? String == "stable")
+    }
+}

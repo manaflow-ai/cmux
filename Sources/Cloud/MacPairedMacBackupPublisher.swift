@@ -28,6 +28,7 @@ final class MacPairedMacBackupPublisher {
     static let defaultsKey = "macPairedMacSelfPublish"
 
     private let session: URLSession = .shared
+    private let retryAfterGate = CmxRetryAfterGate()
     private var auth: AuthCoordinator?
     private var observeTask: Task<Void, Never>?
     /// The routes most recently published, so an unchanged status update (the
@@ -85,6 +86,7 @@ final class MacPairedMacBackupPublisher {
     }
 
     private func publish(routes: [CmxAttachRoute]) async {
+        guard (try? await retryAfterGate.wait()) != nil else { return }
         guard let auth, let baseURL = PresenceHeartbeatClient.resolvedServiceURL() else { return }
         let tokens: (accessToken: String, refreshToken: String)
         do {
@@ -137,7 +139,16 @@ final class MacPairedMacBackupPublisher {
 
         do {
             let (_, response) = try await session.data(for: req)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            guard let http = response as? HTTPURLResponse else { return }
+            if http.statusCode == 429 {
+                let seconds = CmxRetryAfterPolicy.seconds(
+                    from: http,
+                    defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
+                ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+                await retryAfterGate.extend(by: seconds)
+                return
+            }
+            guard (200...299).contains(http.statusCode) else {
                 macPairedMacPublishLog.warning("self-publish failed: HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
                 return
             }

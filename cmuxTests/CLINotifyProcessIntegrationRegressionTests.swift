@@ -1487,6 +1487,53 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeForkParentReportedSessionEndDoesNotClearForkPID() throws {
+        let context = try makeClaudeHookContext(name: "claude-fork-parent-end")
+        defer { context.cleanup() }
+
+        let parentSessionId = "parent-session"
+        let childSessionId = "child-session"
+        let parentSurfaceId = "99999999-9999-9999-9999-999999999999"
+        try seedClaudeForkHookStore(
+            context: context,
+            parentSessionId: parentSessionId,
+            parentSurfaceId: parentSurfaceId,
+            forkedSessionId: childSessionId,
+            forkedSurfaceId: context.surfaceId,
+            activeSessionId: childSessionId,
+            activeTurnId: nil
+        )
+
+        let start = runClaudeHookListingSurfaces(
+            context: context,
+            surfaceIds: [parentSurfaceId, context.surfaceId],
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(childSessionId)","source":"fork","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: claudeForkLaunchEnvironment(context: context, parentSessionId: parentSessionId)
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        let commandCount = context.state.commands.count
+        let result = runClaudeHookListingSurfaces(
+            context: context,
+            surfaceIds: [parentSurfaceId, context.surfaceId],
+            arguments: ["hooks", "claude", "session-end"],
+            standardInput: #"{"session_id":"\#(parentSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#,
+            extraEnvironment: claudeForkLaunchEnvironment(context: context, parentSessionId: parentSessionId)
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let parentEndCommands = Array(context.state.commands.dropFirst(commandCount))
+        XCTAssertFalse(
+            parentEndCommands.contains { $0.hasPrefix("clear_agent_pid claude_code ") },
+            "A parent-reported fork SessionEnd must not clear the child PID on the fork pane, saw \(parentEndCommands)"
+        )
+        let parentRecord = try readClaudeHookSession(parentSessionId, context: context)
+        XCTAssertEqual(parentRecord["surfaceId"] as? String, parentSurfaceId)
+    }
+
     func testClaudeForkedSessionPromptSubmitRecordsWithSurfaceRefForm() throws {
         let context = try makeClaudeHookContext(name: "claude-fork-surface-ref")
         defer { context.cleanup() }
@@ -7157,10 +7204,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let state = MockSocketServerState()
         let listedWindowId = "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"
         let requestedWindowId = listedWindowId.lowercased()
+        let homeURL = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-vm-window-case-\(UUID().uuidString)", isDirectory: true)
 
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
+            try? FileManager.default.removeItem(at: homeURL)
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
@@ -7173,17 +7222,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             switch method {
             case "window.list":
                 return self.v2Response(
-                    id: id,
-                    ok: true,
-                    result: [
-                        "windows": [
-                            [
-                                "id": listedWindowId,
-                                "ref": "window:1",
-                                "index": 0,
-                            ],
-                        ],
-                    ]
+                    id: id, ok: true,
+                    result: ["windows": [["id": listedWindowId, "ref": "window:1", "index": 0]]]
                 )
             case "vm.create":
                 return self.v2Response(
@@ -7204,7 +7244,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
-
+        environment["AppleLanguages"] = "(en)"  // the ready line is localized; the assertion reads English
+        environment["HOME"] = homeURL.path
+        environment["CFFIXED_USER_HOME"] = homeURL.path
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["vm", "new", "--window", requestedWindowId, "--detach"],
@@ -7215,7 +7257,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertTrue(result.stdout.contains("OK vm-test-case-window"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("vm-test-case-window is ready"), result.stdout)
         XCTAssertEqual(
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
             ["window.list", "vm.create"]
@@ -10260,33 +10302,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         return try XCTUnwrap(decodedReusableStartupScript(from: try XCTUnwrap(createParams["initial_command"] as? String)))
     }
     private func decodedReusableStartupScript(from command: String) -> String? {
-        guard let markerRange = command.range(of: "printf %s ") else {
-            return nil
-        }
-        let remainder = command[markerRange.upperBound...]
-        guard let encoded = remainder.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true).first,
-              let data = Data(base64Encoded: String(encoded)) else {
-            return nil
-        }
-        return String(data: data, encoding: .utf8)
+        SSHStartupCommandTestSupport.decodedScript(in: command)
     }
     private func params(for method: String, in requests: [[String: Any]]) -> [String: Any]? {
         requests
             .first { $0["method"] as? String == method }?["params"] as? [String: Any]
-    }
-    private func notificationRows(from stdout: String) throws -> [[String: Any]] {
-        let data = Data(stdout.utf8)
-        return try XCTUnwrap(
-            JSONSerialization.jsonObject(with: data, options: []) as? [[String: Any]],
-            "Expected notification JSON array, got: \(stdout)"
-        )
-    }
-    private func jsonPayload(from stdout: String) throws -> [String: Any] {
-        let data = Data(stdout.utf8)
-        return try XCTUnwrap(
-            JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-            "Expected JSON object, got: \(stdout)"
-        )
     }
 
 }
