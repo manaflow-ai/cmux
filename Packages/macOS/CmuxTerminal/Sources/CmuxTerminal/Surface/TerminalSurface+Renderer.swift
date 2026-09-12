@@ -2,6 +2,9 @@ public import AppKit
 public import Foundation
 public import GhosttyKit
 internal import os
+#if DEBUG
+internal import CMUXDebugLog
+#endif
 
 private let rendererHealthLogger = Logger(
     subsystem: "com.cmuxterm.app",

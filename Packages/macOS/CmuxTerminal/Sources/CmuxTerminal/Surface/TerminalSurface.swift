@@ -97,7 +97,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// renderer Ghostty created from one cmux has actually presented in a real
     /// window, while preserving Ghostty's native rebuild transaction.
     var rendererPresentationPhase = TerminalRendererPresentationPhase.awaitingFirstPresentation
-    @Published public private(set) var renderHealth: TerminalSurfaceRenderHealth = .notStarted
+    @Published public internal(set) var renderHealth: TerminalSurfaceRenderHealth = .notStarted
     let rendererPresentationState = TerminalRendererPresentationState()
     /// Wall-clock time (epoch seconds) this surface was last made visible in the
     /// UI. Used by `RendererRealizationController` as the LRU key so recently
