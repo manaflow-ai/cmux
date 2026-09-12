@@ -19,7 +19,9 @@ test("create, fork, and restore reject a 64 GB machine on Pro before provisionin
   const providers = { getStats: () => Effect.succeed({ memoryTotalMb: 65536, cpus: 16, diskTotalMb: 131072 }) } as unknown as VmProviderGatewayShape;
   const layer = Layer.mergeAll(Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, providers), Layer.succeed(VmBillingGateway, noOpVmBillingGateway()));
   const caller = { userId: "user", billingCustomerType: "team" as const, billingTeamId: "team", billingPlanId: "pro", maxActiveVms: 50 };
-  const expectPlanRejection = async <A, E, R>(program: Effect.Effect<A, E, R>) => {
+  const expectPlanRejection = async <A, E, R extends VmRepository | VmProviderGateway | VmBillingGateway>(
+    program: Effect.Effect<A, E, R>,
+  ) => {
     try {
       await Effect.runPromise(program.pipe(Effect.provide(layer)));
       throw new Error("expected plan rejection");
