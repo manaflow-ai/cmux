@@ -9,7 +9,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 0
 fi
 
-if xcrun --sdk macosx metal -version >/dev/null 2>&1; then
+if xcrun --sdk macosx metal -v >/dev/null 2>&1; then
   echo "Metal Toolchain is available"
   exit 0
 fi
@@ -17,7 +17,7 @@ fi
 echo "Metal Toolchain is missing; downloading it for the selected Xcode..."
 xcodebuild -downloadComponent MetalToolchain
 
-if ! xcrun --sdk macosx metal -version >/dev/null 2>&1; then
+if ! xcrun --sdk macosx metal -v >/dev/null 2>&1; then
   echo "error: Metal Toolchain is still unavailable after download" >&2
   exit 1
 fi
