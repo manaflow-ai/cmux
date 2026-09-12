@@ -283,6 +283,7 @@ describe("app pricing page", () => {
     // Apple 3.1.1: no external billing/purchase links inside App Store builds.
     expect(html).not.toContain("/api/billing/portal");
     expect(html).toContain("Current plan");
+    expect(html).toContain('class="mt-3 min-h-12"');
   });
 
   test("renders Manage billing for Stripe-managed Pro users", async () => {
