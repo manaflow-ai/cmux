@@ -500,6 +500,7 @@ extension Workspace {
             : nil
 
         let panelTitle = panelTitle(panelId: panelId)
+        let panelColorHex = panelColorHexes[panelId]
         let customTitle = panelCustomTitles[panelId]
         let customTitleSource: CustomTitleSource? = customTitle != nil
             ? (panelCustomTitleSources[panelId] ?? .user)
@@ -847,6 +848,7 @@ extension Workspace {
             stableSurfaceId: panel.stableSurfaceId,
             type: panel.panelType,
             title: panelTitle,
+            colorHex: panelColorHex,
             customTitle: customTitle,
             customTitleSource: customTitleSource == .remote ? .user : customTitleSource,
             customTitleWasRemote: customTitleSource == .remote ? true : nil,
@@ -2355,6 +2357,11 @@ extension Workspace {
 
         setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle, source: snapshot.effectiveCustomTitleSource ?? .user, propagateToCloud: false)
         setPanelPinned(panelId: panelId, pinned: snapshot.isPinned)
+        if let restoredColorHex = snapshot.colorHex.flatMap(WorkspaceTabColorSettings.normalizedHex) {
+            panelColorHexes[panelId] = restoredColorHex
+        } else {
+            panelColorHexes.removeValue(forKey: panelId)
+        }
 
         // The bonsplit tab header only refreshes when `updateTab` is called; the writes
         // above never reach it (`setPanelCustomTitle` skips the sync when there is no
@@ -2364,7 +2371,8 @@ extension Workspace {
             bonsplitController.updateTab(
                 tabId,
                 title: resolvedPanelTitle(panelId: panelId, fallback: panelTitles[panelId] ?? panel.displayTitle),
-                hasCustomTitle: panelCustomTitles[panelId] != nil
+                hasCustomTitle: panelCustomTitles[panelId] != nil,
+                colorHex: .some(panelColorHexes[panelId])
             )
         }
 
@@ -3003,6 +3011,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     @Published var panelTitles: [UUID: String] = [:] {
         didSet { surfaceCatalogPanelMetadataDidChange(old: oldValue, new: panelTitles) }
     }
+    /// User-assigned accent color per surface, as a normalized `#RRGGBB` hex.
+    /// Rendered as a strip along the tab's top edge and used to classify work
+    /// (priority, category) at a glance. Absent means the tab is uncolored.
+    /// Shares the named palette with workspace colors
+    /// (``WorkspaceTabColorSettings``) so both pickers stay in step.
+    @Published var panelColorHexes: [UUID: String] = [:]
     @Published var panelCustomTitles: [UUID: String] = [:]
     /// Provenance of entries in `panelCustomTitles` (see ``CustomTitleSource``).
     /// An entry may be absent for a title carried across panel moves or
@@ -4223,6 +4237,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         bonsplitController.tabContextMoveDestinationsProvider = { [weak self] tabId, _ in
             self?.bonsplitTabMoveDestinations(for: tabId) ?? []
+        }
+        bonsplitController.tabContextColorOptionsProvider = { [weak self] _, _ in
+            self?.surfaceTabColorOptions() ?? []
         }
         configureForkAgentConversationContextMenuAvailability()
         bonsplitController.tabContextForkConversationDefaultActionProvider = { _, _ in
@@ -5566,6 +5583,46 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return resolvedPanelTitle(panelId: panelId, fallback: fallback)
     }
 
+    // MARK: - Surface Tab Colors
+
+    /// The named palette offered in a surface tab's Tab Color submenu.
+    ///
+    /// Deliberately the same catalog as workspace colors
+    /// (``WorkspaceTabColorSettings``), so a color carries one meaning whether
+    /// the user applies it to a workspace row or to a single tab, and editing
+    /// the palette in Settings updates both pickers at once.
+    func surfaceTabColorOptions() -> [TabColorOption] {
+        WorkspaceTabColorSettings.palette().map { entry in
+            TabColorOption(name: entry.name, hex: entry.hex)
+        }
+    }
+
+    /// The single mutation path for a surface's accent color. Every entrypoint
+    /// (tab context menu, and any future palette/CLI command) routes here so
+    /// normalization, persistence state, and the tab-bar push stay in one place.
+    ///
+    /// - Parameter hex: A palette name (`"1 Critical"`) or a `#RRGGBB` value.
+    ///   Pass nil to clear the color.
+    /// - Returns: Whether the stored color actually changed.
+    @discardableResult
+    func setPanelColor(panelId: UUID, hex: String?) -> Bool {
+        guard panels[panelId] != nil else { return false }
+        let normalized = hex.flatMap { WorkspaceTabColorSettings.resolvedColorHex($0) }
+        guard panelColorHexes[panelId] != normalized else { return false }
+
+        if let normalized {
+            panelColorHexes[panelId] = normalized
+        } else {
+            panelColorHexes.removeValue(forKey: panelId)
+        }
+
+        if let tabId = surfaceIdFromPanelId(panelId) {
+            // .some(nil) clears the tab's color; a bare nil would mean "unchanged".
+            bonsplitController.updateTab(tabId, colorHex: .some(normalized))
+        }
+        return true
+    }
+
     func setPanelPinned(panelId: UUID, pinned: Bool) {
         guard panels[panelId] != nil else { return }
         let wasPinned = pinnedPanelIds.contains(panelId)
@@ -6492,6 +6549,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         remoteDirectoryTrustRequiredPanelIds = remoteDirectoryTrustRequiredPanelIds.filter { validSurfaceIds.contains($0) }
         remoteDirectoryReportPanelIds = remoteDirectoryReportPanelIds.filter { validSurfaceIds.contains($0) }
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
+        panelColorHexes = panelColorHexes.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitleSources = panelCustomTitleSources.filter { validSurfaceIds.contains($0.key) }
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
@@ -10983,6 +11041,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             panelCustomTitles[detached.panelId] = customTitle
             panelCustomTitleSources[detached.panelId] = detached.customTitleSource ?? .user
         }
+        if let adoptedColorHex = detached.colorHex.flatMap(WorkspaceTabColorSettings.normalizedHex) {
+            panelColorHexes[detached.panelId] = adoptedColorHex
+        } else {
+            panelColorHexes.removeValue(forKey: detached.panelId)
+        }
         if detached.isPinned {
             pinnedPanelIds.insert(detached.panelId)
         } else {
@@ -11016,6 +11079,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             isAudioMuted: detachedBrowserMuted,
             isAudioPlaying: detachedBrowserPlayingAudio,
             isPinned: detached.isPinned,
+            colorHex: panelColorHexes[detached.panelId],
             inPane: paneId
         ) else {
             removeBrowserOpenTabSuggestionIfNeeded(panel: detached.panel, panelId: detached.panelId)
@@ -11034,6 +11098,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: detached.panelId)
             syncRemotePortScanTTYs()
             panelTitles.removeValue(forKey: detached.panelId)
+            panelColorHexes.removeValue(forKey: detached.panelId)
             panelCustomTitles.removeValue(forKey: detached.panelId)
             panelCustomTitleSources.removeValue(forKey: detached.panelId)
             pinnedPanelIds.remove(detached.panelId)
@@ -13972,6 +14037,7 @@ extension Workspace: BonsplitDelegate {
                 ttyReportRuntimeSurfaceGeneration:
                     surfaceRegistry.runtimeReportedTTYSurfaceGenerations[panelId],
                 cachedTitle: cachedTitle,
+                colorHex: panelColorHexes[panelId],
                 customTitle: panelCustomTitles[panelId],
                 customTitleSource: panelCustomTitles[panelId] != nil
                     ? (panelCustomTitleSources[panelId] ?? .user)
@@ -14644,6 +14710,11 @@ extension Workspace: BonsplitDelegate {
         )
 #endif
         executeSurfaceTabBarCommandButton(identifier: identifier, inPane: pane)
+    }
+
+    func splitTabBar(_ controller: BonsplitController, didRequestTabColor colorHex: String?, for tab: Bonsplit.Tab, inPane pane: PaneID) {
+        guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+        setPanelColor(panelId: panelId, hex: colorHex)
     }
 
     func splitTabBar(_ controller: BonsplitController, didRequestTabContextAction action: TabContextAction, for tab: Bonsplit.Tab, inPane pane: PaneID) {
