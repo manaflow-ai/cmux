@@ -10556,10 +10556,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         // is authoritative for the device-local collapse store.
                         groupsAreAuthoritative: !workspaceListRequest.isScoped
                     )
-                    // Drop the now-stale previous-foreground/anonymous snapshot so it
-                    // doesn't linger in the aggregate (it's re-added as a secondary
-                    // below if still reachable).
-                    dropStalePreviousForeground(previousForegroundKey)
+                    // Drop the now-stale previous-foreground/anonymous snapshot.
+                    // A retained foreground is re-keyed to its stored control
+                    // owner before the aggregate cleanup runs.
+                    let retainedPreviousConnection =
+                        previousFocusedConnection.flatMap {
+                            secondaryMacSubscriptions[$0.ownerKey]?.client
+                                === $0.client
+                                ? $0
+                                : nil
+                        }
+                    dropStalePreviousForeground(
+                        previousForegroundKey,
+                        retainingConnection: retainedPreviousConnection
+                    )
                     syncSelectedTerminalForWorkspace()
                     // Publish the route only after the target client, identity,
                     // capabilities, and workspace mapping are coherent. Its
