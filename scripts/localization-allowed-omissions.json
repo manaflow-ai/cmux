@@ -3016,17 +3016,19 @@
       }
     }
   },
-  "cli.billing.global_usage": {
-    "source": "billing checkout --plan <max|pro> [--no-open]",
+  "cloud.ports.title": {
+    "source": "Ports",
     "identityLocales": {
-      "de": "Command syntax is intentionally identical in this locale.",
-      "fr": "Command syntax is intentionally identical in this locale.",
-      "ar": "Command syntax is intentionally identical in this locale.",
-      "es": "Command syntax is intentionally identical in this locale.",
-      "zh-Hant": "Command syntax is intentionally identical in this locale.",
-      "zh-Hans": "Command syntax is intentionally identical in this locale.",
-      "ko": "Command syntax is intentionally identical in this locale.",
-      "ja": "Command syntax is intentionally identical in this locale."
+      "de": "Standard technical UI term with the same spelling in this language.",
+      "fr": "Standard technical UI term with the same spelling in this language."
+    }
+  },
+  "cloud.ports.status": {
+    "source": "Status",
+    "identityLocales": {
+      "de": "Standard technical UI term with the same spelling in this language.",
+      "da": "Standard technical UI term with the same spelling in this language.",
+      "nb": "Standard technical UI term with the same spelling in this language."
     }
   }
 }

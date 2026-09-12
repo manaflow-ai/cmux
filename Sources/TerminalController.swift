@@ -3121,7 +3121,6 @@ class TerminalController {
             "auth.sign_in_url",
             "auth.begin_sign_in",
             "auth.sign_out",
-            "vm.billing_checkout",
             "vm.list",
             "vm.diagnostics",
             "vm.publication_list",
