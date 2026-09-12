@@ -1709,7 +1709,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
               host == "localhost" || host == "127.0.0.1" || host == "::1" else {
             return nil
         }
-        parts.host = privateAddress.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        let normalizedAddress = privateAddress.trimmingCharacters(in: CharacterSet(charactersIn: "[]")); parts.host = normalizedAddress.contains(":") ? "[\(normalizedAddress)]" : normalizedAddress
         return parts.url?.absoluteString
     }
 
