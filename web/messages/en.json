@@ -854,7 +854,7 @@
       "featuresLead": "Everything in Free, plus:",
       "features": [
         "Cloud agents on Cloud VMs in isolated remote sandboxes",
-        "Up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs per VM",
+        "Up to 50 Cloud VMs, with 4 vCPUs, 16 GB RAM, and 200 GB disk shared across all VMs",
         "Unlimited workspaces",
         "The cmux iOS app and email support"
       ],
@@ -969,11 +969,11 @@
           "enterprise": "Custom"
         },
         {
-          "label": "Resources per Cloud VM",
+          "label": "Shared Cloud VM pool",
           "free": "false",
-          "pro": "24 GB RAM and 6 vCPUs per VM",
+          "pro": "4 vCPUs, 16 GB RAM, and 200 GB disk shared across all VMs",
           "max": "64 GB RAM and 16 vCPUs per VM",
-          "team": "24 GB RAM and 6 vCPUs per VM",
+          "team": "4 vCPUs, 16 GB RAM, and 200 GB disk per user, shared across their VMs",
           "enterprise": "Custom"
         },
         {
@@ -1069,7 +1069,7 @@
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs per VM. Team includes the same limits per user. There is no metering or overage billing."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 50 Cloud VMs with a shared pool of 4 vCPUs, 16 GB RAM, and 200 GB disk. Team includes the same pool per user."
         },
         {
           "q": "What does Max add?",
@@ -1109,7 +1109,14 @@
     "signedOutNotice": "You're not signed in. Sign in to see your current plan or restore an existing purchase.",
     "signedOutSignIn": "Sign in",
     "billingInvalidRelay": "The app checkout link expired or could not be verified. Return to cmux and try again.",
-    "welcomeTeam": "Your cmux Team purchase is complete."
+    "welcomeTeam": "Your cmux Team purchase is complete.",
+    "audience": {
+      "label": "Pricing audience",
+      "individual": "Individual",
+      "team": "Team & Enterprise"
+    },
+    "priceMonthlyNote": "${amount}/mo when billed monthly",
+    "priceMonthlyPerUserNote": "${amount}/user/mo when billed monthly"
   },
   "home": {
     "taglinePrefix": "The terminal built for ",

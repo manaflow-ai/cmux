@@ -854,7 +854,7 @@
       "featuresLead": "Free のすべてに加えて:",
       "features": [
         "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
-        "最大 50 台の Cloud VM で、各 VM に 24 GB RAM と 6 vCPU",
+        "最大 50 台の Cloud VM で、4 vCPU、16 GB RAM、200 GB ディスクを共有",
         "ワークスペースは無制限",
         "cmux iOS アプリとメールサポート"
       ],
@@ -969,11 +969,11 @@
           "enterprise": "カスタム"
         },
         {
-          "label": "各 Cloud VM のリソース",
+          "label": "共有 Cloud VM プール",
           "free": "false",
-          "pro": "各 VM に 24 GB RAM と 6 vCPU",
+          "pro": "4 vCPU、16 GB RAM、200 GB ディスクをすべての VM で共有",
           "max": "各 VM に 64 GB RAM と 16 vCPU",
-          "team": "各 VM に 24 GB RAM と 6 vCPU",
+          "team": "ユーザーあたり 4 vCPU、16 GB RAM、200 GB ディスクを、そのユーザーの VM で共有",
           "enterprise": "カスタム"
         },
         {
@@ -1069,7 +1069,7 @@
         },
         {
           "q": "Cloud VM とは何ですか?",
-          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro では最大 50 台の Cloud VM で、各 VM に 24 GB RAM と 6 vCPU です。Team ではユーザーごとに同じ上限が適用されます。従量課金や超過料金はありません。"
+          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro では最大 50 台の Cloud VM で、4 vCPU、16 GB RAM、200 GB ディスクを共有します。Team ではユーザーごとに同じプールが適用されます。"
         },
         {
           "q": "Max では何が追加されますか?",
@@ -1109,7 +1109,14 @@
     "signedOutNotice": "サインインしていません。サインインすると、現在のプランの確認や購入済みプランの復元ができます。",
     "signedOutSignIn": "サインイン",
     "billingInvalidRelay": "アプリのチェックアウトリンクの有効期限が切れているか、検証できませんでした。cmuxに戻ってもう一度お試しください。",
-    "welcomeTeam": "cmux Team のご購入が完了しました。"
+    "welcomeTeam": "cmux Team のご購入が完了しました。",
+    "audience": {
+      "label": "料金の対象",
+      "individual": "個人",
+      "team": "チームとエンタープライズ"
+    },
+    "priceMonthlyNote": "月払いは${amount}/月",
+    "priceMonthlyPerUserNote": "月払いは${amount}/ユーザー/月"
   },
   "home": {
     "taglinePrefix": "次のために作られたターミナル：",

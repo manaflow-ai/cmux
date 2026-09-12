@@ -52,9 +52,9 @@ import {
 import {
   PricingCheckoutButton,
   PricingIntervalProvider,
-  PricingIntervalSelector,
   PricingIntervalValue,
 } from "../../components/pricing-interval-selector";
+import { PricingAudienceSelector } from "../../components/pricing-audience-selector";
 import {
   MAX_PRICING_USD,
   GO_PRICING_USD,
@@ -194,17 +194,12 @@ export default async function PricingPage({
         <PricingIntervalProvider initialInterval={interval}>
           {/* Title */}
           <h1 className="text-2xl font-medium tracking-tight">{t("title")}</h1>
-          <PricingIntervalSelector
-            billingPeriodLabel={t("billingPeriod")}
-            monthlyLabel={t("monthly")}
-            annualLabel={t("annual")}
-            savingsLabel={t("saveAnnual", {
-              discount: PRO_PRICING_USD.year.discountPercent,
-            })}
-            surface="public_pricing"
-          />
-
-          <PricingCategorySection
+          <PricingAudienceSelector
+            individualLabel={t("audience.individual")}
+            teamLabel={t("audience.team")}
+            ariaLabel={t("audience.label")}
+            individual={
+<PricingCategorySection
             id="individual-pricing-category"
             title={t("categories.individual.title")}
             description={t("categories.individual.description")}
@@ -285,6 +280,7 @@ export default async function PricingPage({
                   {t("pro.cta")}
                 </ProCtaLink>
               )}
+              <p className="mt-3 text-xs text-muted">{t("priceMonthlyNote", { amount: PRO_PRICING_USD.month.billedAmount })}</p>
               <p className="mt-5 text-sm font-medium">{t("pro.featuresLead")}</p>
               <FeatureList items={proFeatures} />
             </PlanCard>
@@ -327,8 +323,9 @@ export default async function PricingPage({
             </PlanCard>
 
           </PricingCategorySection>
-
-          <PricingCategorySection
+            }
+            team={
+<PricingCategorySection
             id="team-enterprise-pricing-category"
             title={t("categories.business.title")}
             description={t("categories.business.description")}
@@ -357,6 +354,7 @@ export default async function PricingPage({
               >
                 {t("team.cta")}
               </PricingCheckoutButton>
+              <p className="mt-3 text-xs text-muted">{t("priceMonthlyPerUserNote", { amount: TEAM_PRICING_USD.month.billedAmount })}</p>
               <p className="mt-5 text-sm font-medium">{t("team.featuresLead")}</p>
               <FeatureList items={teamFeatures} />
             </PlanCard>
@@ -375,6 +373,8 @@ export default async function PricingPage({
               <FeatureList items={enterpriseFeatures} />
             </PlanCard>
           </PricingCategorySection>
+            }
+          />
 
           <p className="mt-6 text-sm text-muted">
             <Link
