@@ -17,11 +17,10 @@ extension CmuxTuiSurfaceProvider {
               let url = URL(string: row.body),
               ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
               let sourcePanelID = target.panelID else {
-            return true
+            return false
         }
-        guard catalog.snapshot.resources.contains(where: {
-            $0.id == SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)
-        }) else {
+        let terminalResourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)
+        guard catalog.resources[terminalResourceID] != nil else {
             return false
         }
 

@@ -11,7 +11,10 @@ set -eu
 cmux_open_url="\${1:-}"
 if [ "\$cmux_open_url" = "--" ]; then cmux_open_url="\${2:-}"; fi
 if [ -z "\$cmux_open_url" ]; then
-  printf '%s\\n' "Open this URL: (missing URL)"
+  case "\${LC_ALL:-\${LC_MESSAGES:-\${LANG:-en}}}" in
+    ja*) printf '%s\\n' "この URL を開いてください: (URL がありません)" ;;
+    *) printf '%s\\n' "Open this URL: (missing URL)" ;;
+  esac
   exit 0
 fi
 
@@ -22,7 +25,10 @@ fi
 # The guest CLI is installed by the driver on attach. Until that happens, keep
 # browser-opening callers alive and give the person a usable handoff instead of
 # falling through to Chrome on DISPLAY=:1.
-printf 'Open this URL: %s\\n' "\$cmux_open_url"
+case "\${LC_ALL:-\${LC_MESSAGES:-\${LANG:-en}}}" in
+  ja*) printf 'この URL を開いてください: %s\\n' "\$cmux_open_url" ;;
+  *) printf 'Open this URL: %s\\n' "\$cmux_open_url" ;;
+esac
 `;
 
 export const GUEST_CMUX_OPEN_SHELL = `

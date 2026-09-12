@@ -169,6 +169,7 @@ struct CloudNotificationSyncTests {
         var handled: [String] = []
         var delivered: [String] = []
         var acked: [[String]] = []
+        let sendCompleted = AsyncStream<Void>.makeStream()
         let sync = CloudNotificationSync(
             machineID: "vm-handler",
             clientID: Self.me,
@@ -176,13 +177,15 @@ struct CloudNotificationSyncTests {
             newKey: { "handler-key" },
             resolveTarget: { _ in CloudNotificationDeliveryTarget(workspaceID: UUID(), panelID: UUID()) },
             deliver: { row, _ in delivered.append(row.id); return true },
-            send: { batch in acked.append(batch.ids) },
+            send: { batch in
+                acked.append(batch.ids)
+                sendCompleted.continuation.yield(())
+            },
             handle: { row, _ in handled.append(row.id); return row.id == control.id }
         )
 
         sync.apply(rows: [control])
-        await Task.yield()
-        await Task.yield()
+        #expect(await sendCompleted.stream.first(where: { _ in true }) != nil)
 
         #expect(handled == [control.id])
         #expect(delivered.isEmpty)
