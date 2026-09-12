@@ -83,6 +83,11 @@ struct CloudTuiManualIOCommand: Sendable {
         ["id": requestID, "cmd": "subscribe", "presence_only": true]
     }
 
+    /// Reads the requesting connection's opaque client id after the handshake.
+    func listClients(requestID: UInt64) -> [String: Any] {
+        ["id": requestID, "cmd": "list-clients"]
+    }
+
     /// Asks for every live pointer so a late joiner can draw them.
     func presenceList(requestID: UInt64) -> [String: Any] {
         ["id": requestID, "cmd": "presence-list"]

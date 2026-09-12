@@ -40,6 +40,7 @@ final class CloudPresenceOverlayView: NSView {
     }
 
     private var fadeTimer: DispatchSourceTimer?
+    private var laserStartTimes: [UInt64: UInt64] = [:]
 
     override var acceptsFirstResponder: Bool { false }
     override var isFlipped: Bool { true }
@@ -61,6 +62,20 @@ final class CloudPresenceOverlayView: NSView {
     }
 
     func apply(entries: [CloudPresenceEntry]) {
+        let now = Self.now()
+        let previousEntries = self.entries
+        var nextLaserStartTimes: [UInt64: UInt64] = [:]
+        for entry in entries {
+            guard let highlight = entry.highlight, highlight.mode == .laser else { continue }
+            if let previous = previousEntries.first(where: { $0.client == entry.client }),
+               previous.highlight == entry.highlight,
+               let start = laserStartTimes[entry.client] {
+                nextLaserStartTimes[entry.client] = start
+            } else {
+                nextLaserStartTimes[entry.client] = min(entry.updatedAtMs, now)
+            }
+        }
+        laserStartTimes = nextLaserStartTimes
         self.entries = entries
         isHidden = entries.isEmpty
         scheduleFadeIfNeeded()
@@ -99,9 +114,15 @@ final class CloudPresenceOverlayView: NSView {
         let age = age(of: entry, now: now)
         if entry.pointer != nil, age < Self.pointerLifetime { return true }
         if let highlight = entry.highlight {
-            return highlight.mode == .pin || age < Self.laserLifetime
+            return highlight.mode == .pin || laserAge(of: entry, now: now) < Self.laserLifetime
         }
         return false
+    }
+
+    private func laserAge(of entry: CloudPresenceEntry, now: UInt64) -> TimeInterval {
+        let start = laserStartTimes[entry.client] ?? entry.updatedAtMs
+        guard now > start else { return 0 }
+        return TimeInterval(now - start) / 1000
     }
 
     // MARK: Drawing
@@ -118,8 +139,9 @@ final class CloudPresenceOverlayView: NSView {
                 case .pin:
                     alpha = 0.28
                 case .laser:
-                    alpha = age < Self.laserLifetime
-                        ? 0.34 * CGFloat(max(0, 1 - age / Self.laserLifetime))
+                    let laserAge = laserAge(of: entry, now: now)
+                    alpha = laserAge < Self.laserLifetime
+                        ? 0.34 * CGFloat(max(0, 1 - laserAge / Self.laserLifetime))
                         : 0
                 }
                 if alpha > 0 {
@@ -149,10 +171,15 @@ final class CloudPresenceOverlayView: NSView {
     /// rows, full rows between. Rows off screen are skipped.
     private func drawHighlight(_ highlight: CloudPresenceHighlight, color: NSColor) {
         guard case let .cell(startRow, startCol, startOffset) = highlight.start,
-              case let .cell(endRow, endCol, _) = highlight.end else { return }
-        let shift = Int64(geometry.scrollOffset) - Int64(startOffset)
-        var first = (row: Int64(startRow) + shift, col: startCol)
-        var last = (row: Int64(endRow) + shift, col: endCol)
+              case let .cell(endRow, endCol, endOffset) = highlight.end else { return }
+        var first = (
+            row: Int64(startRow) + Int64(geometry.scrollOffset) - Int64(startOffset),
+            col: startCol
+        )
+        var last = (
+            row: Int64(endRow) + Int64(geometry.scrollOffset) - Int64(endOffset),
+            col: endCol
+        )
         if first.row > last.row || (first.row == last.row && first.col > last.col) {
             swap(&first, &last)
         }
