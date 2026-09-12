@@ -605,8 +605,18 @@
 		79390001AA11BB22CC33DD01 /* ClaudeHookLiveDeliveryTargetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79390002AA11BB22CC33DD02 /* ClaudeHookLiveDeliveryTargetTests.swift */; };
 		79390009AA11BB22CC33DD09 /* ClaudeHookLiveDeliveryTargetTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7939000AAA11BB22CC33DD0A /* ClaudeHookLiveDeliveryTargetTestSupport.swift */; };
 		79390011AA11BB22CC33DD11 /* ClaudeHookPIDAuthenticationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79390012AA11BB22CC33DD12 /* ClaudeHookPIDAuthenticationTests.swift */; };
+		A5D41215A1B2C3D4E5F60719 /* ClaudeHookProcessGeneration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41215A1B2C3D4E5F60718 /* ClaudeHookProcessGeneration.swift */; };
+		A5D41217A1B2C3D4E5F60719 /* ClaudeHookProcessGeneration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41215A1B2C3D4E5F60718 /* ClaudeHookProcessGeneration.swift */; };
+		A5D4120FA1B2C3D4E5F60719 /* ClaudeHookSessionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120FA1B2C3D4E5F60718 /* ClaudeHookSessionModels.swift */; };
+		A5D41211A1B2C3D4E5F60719 /* ClaudeHookSessionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120FA1B2C3D4E5F60718 /* ClaudeHookSessionModels.swift */; };
+		A5D41216A1B2C3D4E5F60719 /* ClaudeHookSessionRecord+ProcessGeneration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41216A1B2C3D4E5F60718 /* ClaudeHookSessionRecord+ProcessGeneration.swift */; };
+		A5D41218A1B2C3D4E5F60719 /* ClaudeHookSessionRecord+ProcessGeneration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41216A1B2C3D4E5F60718 /* ClaudeHookSessionRecord+ProcessGeneration.swift */; };
 		89930005AABBCCDDEEFF0001 /* ClaudeHookSessionStore+SupersededCleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89930005AABBCCDDEEFF0002 /* ClaudeHookSessionStore+SupersededCleanup.swift */; };
+		A5D41213A1B2C3D4E5F60719 /* ClaudeHookSessionStore+SupersededCleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89930005AABBCCDDEEFF0002 /* ClaudeHookSessionStore+SupersededCleanup.swift */; };
+		A5D41210A1B2C3D4E5F60719 /* ClaudeHookSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41210A1B2C3D4E5F60718 /* ClaudeHookSessionStore.swift */; };
+		A5D41212A1B2C3D4E5F60719 /* ClaudeHookSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41210A1B2C3D4E5F60718 /* ClaudeHookSessionStore.swift */; };
 		89930004AABBCCDDEEFF0001 /* ClaudeHookSessionStoreFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89930004AABBCCDDEEFF0002 /* ClaudeHookSessionStoreFile.swift */; };
+		A5D41214A1B2C3D4E5F60719 /* ClaudeHookSessionStoreFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89930004AABBCCDDEEFF0002 /* ClaudeHookSessionStoreFile.swift */; };
 		A5D41220A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41221A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift */; };
 		CC7FDF58CBB0EDDE5DADE167 /* ClaudeHookSurfaceSocketState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1136E25CD5300988F9F2162 /* ClaudeHookSurfaceSocketState.swift */; };
 		A5D41222A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41223A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift */; };
@@ -4235,7 +4245,11 @@
 		79390002AA11BB22CC33DD02 /* ClaudeHookLiveDeliveryTargetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHookLiveDeliveryTargetTests.swift; sourceTree = "<group>"; };
 		7939000AAA11BB22CC33DD0A /* ClaudeHookLiveDeliveryTargetTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHookLiveDeliveryTargetTestSupport.swift; sourceTree = "<group>"; };
 		79390012AA11BB22CC33DD12 /* ClaudeHookPIDAuthenticationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHookPIDAuthenticationTests.swift; sourceTree = "<group>"; };
+		A5D41215A1B2C3D4E5F60718 /* ClaudeHookProcessGeneration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHookProcessGeneration.swift; sourceTree = "<group>"; };
+		A5D4120FA1B2C3D4E5F60718 /* ClaudeHookSessionModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHookSessionModels.swift; sourceTree = "<group>"; };
+		A5D41216A1B2C3D4E5F60718 /* ClaudeHookSessionRecord+ProcessGeneration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeHookSessionRecord+ProcessGeneration.swift"; sourceTree = "<group>"; };
 		89930005AABBCCDDEEFF0002 /* ClaudeHookSessionStore+SupersededCleanup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeHookSessionStore+SupersededCleanup.swift"; sourceTree = "<group>"; };
+		A5D41210A1B2C3D4E5F60718 /* ClaudeHookSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHookSessionStore.swift; sourceTree = "<group>"; };
 		89930004AABBCCDDEEFF0002 /* ClaudeHookSessionStoreFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHookSessionStoreFile.swift; sourceTree = "<group>"; };
 		A5D41221A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHookSurfaceResolutionSwiftTests.swift; sourceTree = "<group>"; };
 		D1136E25CD5300988F9F2162 /* ClaudeHookSurfaceSocketState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeHookSurfaceSocketState.swift"; sourceTree = "<group>"; };
@@ -9682,6 +9696,10 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				89930007AABBCCDDEEFF0002 /* CMUXCLI+AgentHookProcessBindingSource.swift */,
 				89930005AABBCCDDEEFF0002 /* ClaudeHookSessionStore+SupersededCleanup.swift */,
 				89930004AABBCCDDEEFF0002 /* ClaudeHookSessionStoreFile.swift */,
+				A5D4120FA1B2C3D4E5F60718 /* ClaudeHookSessionModels.swift */,
+				A5D41215A1B2C3D4E5F60718 /* ClaudeHookProcessGeneration.swift */,
+				A5D41216A1B2C3D4E5F60718 /* ClaudeHookSessionRecord+ProcessGeneration.swift */,
+				A5D41210A1B2C3D4E5F60718 /* ClaudeHookSessionStore.swift */,
 				61AD48A9E6C3F1BE2B547FFE /* CMUXCLI+AgentHookCatalog.swift */,
 				918100000000000000000010 /* CMUXCLI+AgentHookFailureReporting.swift */,
 				918100000000000000000020 /* CodexTranscriptMonitorStopReplay.swift */,
@@ -13615,7 +13633,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A10649330000000000000001 /* AutomationWebhookPolicy.swift in Sources */,
 				A10649380000000000000001 /* AutomationWebhookRedirectDelegate.swift in Sources */,
 				805500000000000000000004 /* BrowserValueTextFormatter.swift in Sources */,
+				A5D41215A1B2C3D4E5F60719 /* ClaudeHookProcessGeneration.swift in Sources */,
+				A5D4120FA1B2C3D4E5F60719 /* ClaudeHookSessionModels.swift in Sources */,
+				A5D41216A1B2C3D4E5F60719 /* ClaudeHookSessionRecord+ProcessGeneration.swift in Sources */,
 				89930005AABBCCDDEEFF0001 /* ClaudeHookSessionStore+SupersededCleanup.swift in Sources */,
+				A5D41210A1B2C3D4E5F60719 /* ClaudeHookSessionStore.swift in Sources */,
 				89930004AABBCCDDEEFF0001 /* ClaudeHookSessionStoreFile.swift in Sources */,
 				C11218000000000000000052 /* CLIError.swift in Sources */,
 				B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */,
@@ -14030,6 +14052,12 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				79390001AA11BB22CC33DD01 /* ClaudeHookLiveDeliveryTargetTests.swift in Sources */,
 				79390009AA11BB22CC33DD09 /* ClaudeHookLiveDeliveryTargetTestSupport.swift in Sources */,
 				79390011AA11BB22CC33DD11 /* ClaudeHookPIDAuthenticationTests.swift in Sources */,
+				A5D41217A1B2C3D4E5F60719 /* ClaudeHookProcessGeneration.swift in Tests */,
+				A5D41211A1B2C3D4E5F60719 /* ClaudeHookSessionModels.swift in Tests */,
+				A5D41218A1B2C3D4E5F60719 /* ClaudeHookSessionRecord+ProcessGeneration.swift in Tests */,
+				A5D41213A1B2C3D4E5F60719 /* ClaudeHookSessionStore+SupersededCleanup.swift in Tests */,
+				A5D41212A1B2C3D4E5F60719 /* ClaudeHookSessionStore.swift in Tests */,
+				A5D41214A1B2C3D4E5F60719 /* ClaudeHookSessionStoreFile.swift in Tests */,
 				A5D41220A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift in Sources */,
 				CC7FDF58CBB0EDDE5DADE167 /* ClaudeHookSurfaceSocketState.swift in Sources */,
 				A5D41222A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift in Sources */,
@@ -15122,7 +15150,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.apptests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG CMUX_CLI_TESTS $(inherited)";
 				SWIFT_VERSION = 5.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/cmux DEV.app/Contents/MacOS/cmux DEV";
 				TEST_TARGET_NAME = cmux;
@@ -15141,6 +15169,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.apptests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "CMUX_CLI_TESTS $(inherited)";
 				SWIFT_VERSION = 5.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/cmux.app/Contents/MacOS/cmux";
 				TEST_TARGET_NAME = cmux;

@@ -46,13 +46,6 @@ struct ClaudeHookParsedInput {
     let title: String?
 }
 
-enum AgentHookRuntimeStatus: String, Codable {
-    case running
-    case idle
-    case needsInput
-    case error
-}
-
 #if DEBUG
 private func agentHookDebugLog(
     _ message: @autoclosure () -> String,
@@ -115,201 +108,6 @@ private func agentHookDebugSocketName(_ socketPath: String?) -> String {
 }
 #endif
 
-struct ClaudeHookSessionRecord: Codable {
-    /// Persisted beside the session record because it is only meaningful as
-    /// the command identity for this record's Cursor approval lifecycle.
-    struct PendingCursorShellApproval: Codable, Equatable {
-        private static let hexadecimal = Array("0123456789abcdef".utf8)
-        let commandFingerprint: String
-        let commandLength: Int
-        let displayCommand: String
-        let toolUseId: String?
-        /// Opaque identity of the notification created for this approval.
-        /// It lets completion clear one entry without scanning or clearing a
-        /// newer notification on the same surface.
-        let notificationCorrelationKey: String?
-        let createdAt: TimeInterval
-        let requiresToolUseId: Bool
-
-        init(
-            command: String,
-            toolUseId: String?,
-            createdAt: TimeInterval,
-            requiresToolUseId: Bool = false,
-            notificationCorrelationKey: String? = UUID().uuidString.lowercased()
-        ) {
-            let normalized = Self.normalizedCommand(command)
-            self.commandFingerprint = Self.fingerprint(for: normalized)
-            self.commandLength = normalized.utf8.count
-            self.displayCommand = Self.redactedPreview(for: normalized)
-            self.toolUseId = toolUseId
-            self.notificationCorrelationKey = notificationCorrelationKey
-                .flatMap { UUID(uuidString: $0)?.uuidString.lowercased() }
-                ?? UUID().uuidString.lowercased()
-            self.createdAt = createdAt
-            self.requiresToolUseId = requiresToolUseId
-        }
-
-        static func identity(for normalizedCommand: String) -> (fingerprint: String, length: Int) {
-            (
-                fingerprint: fingerprint(for: normalizedCommand),
-                length: normalizedCommand.utf8.count
-            )
-        }
-
-        private static func normalizedCommand(_ value: String) -> String {
-            value
-                .replacingOccurrences(of: "\r\n", with: "\n")
-                .replacingOccurrences(of: "\r", with: "\n")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        private static func fingerprint(for value: String) -> String {
-            var encoded: [UInt8] = []
-            encoded.reserveCapacity(64)
-            for byte in SHA256.hash(data: Data(value.utf8)) {
-                encoded.append(hexadecimal[Int(byte >> 4)])
-                encoded.append(hexadecimal[Int(byte & 0x0f)])
-            }
-            return String(decoding: encoded, as: UTF8.self)
-        }
-
-        private static func redactedPreview(for value: String) -> String {
-            _ = value
-            return String(
-                localized: "agent.generic.notification.body.approvalNeeded",
-                defaultValue: "Approval needed"
-            )
-        }
-
-        private enum CodingKeys: String, CodingKey {
-            case commandFingerprint
-            case commandLength
-            case displayCommand
-            case toolUseId
-            case notificationCorrelationKey
-            case createdAt
-            case requiresToolUseId
-            case legacyCommand = "command"
-        }
-
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            if let fingerprint = try container.decodeIfPresent(String.self, forKey: .commandFingerprint),
-               let length = try container.decodeIfPresent(Int.self, forKey: .commandLength) {
-                commandFingerprint = fingerprint
-                commandLength = length
-                displayCommand = try container.decodeIfPresent(String.self, forKey: .displayCommand) ?? ""
-            } else {
-                let legacy = try container.decodeIfPresent(String.self, forKey: .legacyCommand) ?? ""
-                let normalized = Self.normalizedCommand(legacy)
-                commandFingerprint = Self.fingerprint(for: normalized)
-                commandLength = normalized.utf8.count
-                displayCommand = Self.redactedPreview(for: normalized)
-            }
-            toolUseId = try container.decodeIfPresent(String.self, forKey: .toolUseId)
-            let decodedCorrelationKey = try container.decodeIfPresent(String.self, forKey: .notificationCorrelationKey)
-            notificationCorrelationKey = decodedCorrelationKey
-                .flatMap { UUID(uuidString: $0)?.uuidString.lowercased() }
-                ?? UUID().uuidString.lowercased()
-            createdAt = try container.decodeIfPresent(TimeInterval.self, forKey: .createdAt) ?? 0
-            requiresToolUseId = try container.decodeIfPresent(Bool.self, forKey: .requiresToolUseId) ?? false
-        }
-
-        /// Encodes the persisted approval fields without emitting the
-        /// decode-only legacy command. The legacy key is retained only for
-        /// decoding stores written by older builds.
-        func encode(to encoder: Encoder) throws {
-            var container = encoder.container(keyedBy: CodingKeys.self)
-            try container.encode(commandFingerprint, forKey: .commandFingerprint)
-            try container.encode(commandLength, forKey: .commandLength)
-            try container.encode(displayCommand, forKey: .displayCommand)
-            try container.encodeIfPresent(toolUseId, forKey: .toolUseId)
-            try container.encodeIfPresent(notificationCorrelationKey, forKey: .notificationCorrelationKey)
-            try container.encode(createdAt, forKey: .createdAt)
-            try container.encode(requiresToolUseId, forKey: .requiresToolUseId)
-        }
-    }
-
-    var sessionId: String
-    var workspaceId: String
-    var surfaceId: String
-    var cwd: String?
-    var title: String? = nil
-    var transcriptPath: String?
-    var pid: Int?
-    /// Exact process-generation identity captured when the hook recorded `pid`.
-    var pidStartSeconds: Int64? = nil
-    var pidStartMicroseconds: Int64? = nil
-    /// Recent process generations retained so a delayed SessionEnd can be
-    /// matched after a same-session resume updates the current PID.
-    var priorProcessGenerations: [ClaudeHookProcessGeneration]? = nil
-    var launchCommand: AgentHookLaunchCommandRecord?
-    /// Last hook-observed `permission_mode`, re-applied on user-owned restore (#8066).
-    var lastPermissionMode: String?
-    var isRestorable: Bool?
-    var agentLifecycle: AgentHibernationLifecycleState?
-    /// The hook event that most recently established the persisted lifecycle.
-    /// Optional so records written by older builds continue to decode.
-    var hookEventName: String? = nil
-    var lastSubtitle: String?
-    var lastBody: String?
-    var lastNotificationStatus: AgentHookNotificationStatus?
-    var lastEmittedNotificationFingerprint: String?
-    var lastEmittedNotificationAt: TimeInterval?
-    var recentEmittedNotificationFingerprints: [String: TimeInterval]?
-    var runtimeStatus: AgentHookRuntimeStatus?
-    var activePromptDepth: Int?
-    var activePromptTurnId: String?
-    var activePromptTurnIds: [String]?
-    var lastPromptTurnId: String?
-    var terminalPromptTurnIds: [String]?
-    var startedAt: TimeInterval
-    var updatedAt: TimeInterval
-    /// Immutable age anchor for a demoted record awaiting external cleanup.
-    /// Optional for compatibility with stores written before cleanup retries
-    /// became durable.
-    var supersededCleanupEnqueuedAt: TimeInterval? = nil
-    /// Retry ordering metadata. Attempts must not rewrite `updatedAt`, because
-    /// that timestamp is also the normal session-state expiry anchor.
-    var supersededCleanupLastAttemptAt: TimeInterval? = nil
-    var supersededCleanupAttemptCount: Int? = nil
-    // Auto-naming engine state (all optional so stores written before the
-    // feature decode unchanged). The durable baseline advances only after a
-    // confirmed title apply; the in-flight marker dedupes concurrent Stops.
-    var autoNameLastTitle: String?
-    var autoNameLastLineCount: Int?
-    var autoNameLastNamedAt: TimeInterval?
-    var autoNameInFlightAt: TimeInterval?
-    /// Last summarization attempt, including failures, for cooldown enforcement.
-    var autoNameLastAttemptAt: TimeInterval?
-    var autoNameRecentMessages: [AutoNamingTranscriptMessage]?
-    var autoNameMessageSequence: Int?
-    var hadPendingBackgroundWorkAtStop: Bool?
-    /// Unsandboxed Cursor shell calls that cmux asked Cursor to gate. The
-    /// after/failure hooks do not carry a native approval decision, so the
-    /// command identity is the only safe completion correlation available.
-    var pendingCursorShellApprovals: [PendingCursorShellApproval]? = nil
-    /// Command fingerprints cleared at a turn boundary. A recently reused
-    /// command requires a stable tool id on completion because Cursor's
-    /// command-only callback cannot distinguish an old delayed completion from
-    /// the new turn's approval.
-    var recentlyClearedCursorShellCommandFingerprints: [String: TimeInterval]? = nil
-    /// Once the bounded command-only fence overflows, command-only
-    /// correlation remains disabled for this session; re-enabling it after
-    /// eviction would let an old delayed callback consume a newer approval.
-    var cursorShellCommandOnlyCorrelationDisabled: Bool? = nil
-}
-
-struct ClaudeHookActiveSessionRecord: Codable {
-    var sessionId: String
-    var turnId: String?
-    var allowsNewSessionReplacement: Bool?
-    var updatedAt: TimeInterval
-}
-
-typealias AgentHookLaunchCommandRecord = AgentLaunchCommand
-
 private struct CodexMonitorLeaseRecord: Codable {
     var leaseId: String
     var sessionId: String
@@ -320,2490 +118,6 @@ private struct CodexMonitorLeaseRecord: Codable {
     var retiredAt: TimeInterval?
 }
 
-final class ClaudeHookSessionStore {
-    private typealias CursorPendingShellApproval = ClaudeHookSessionRecord.PendingCursorShellApproval
-    typealias CursorShellApprovalResolution = (
-        matched: Bool,
-        hasRemaining: Bool,
-        expired: Bool,
-        remainingDisplayCommand: String?,
-        notificationCorrelationKeys: [String],
-        remainingNotificationCorrelationKey: String?
-    )
-    typealias CursorShellApprovalRememberResult = (
-        accepted: Bool,
-        inserted: Bool,
-        notificationCorrelationKey: String?,
-        expiredNotificationCorrelationKeys: [String]
-    )
-    typealias CursorShellApprovalClearResult = (
-        cleared: Bool,
-        notificationCorrelationKeys: [String]
-    )
-
-    final class CursorShellApprovalReconciliationLease {
-        private var fileDescriptor: Int32
-        private let lockStart: off_t
-        private let lockLength: off_t
-
-        init(fileDescriptor: Int32, lockStart: off_t, lockLength: off_t) {
-            self.fileDescriptor = fileDescriptor
-            self.lockStart = lockStart
-            self.lockLength = lockLength
-        }
-
-        func release() {
-            guard fileDescriptor >= 0 else { return }
-            var lock = flock(
-                l_start: lockStart,
-                l_len: lockLength,
-                l_pid: 0,
-                l_type: Int16(F_UNLCK),
-                l_whence: Int16(SEEK_SET)
-            )
-            _ = Darwin.fcntl(fileDescriptor, F_SETLK, &lock)
-            Darwin.close(fileDescriptor)
-            fileDescriptor = -1
-        }
-
-        deinit {
-            release()
-        }
-    }
-    private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
-    private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
-    private static let maxPendingCursorShellApprovals = 16
-    private static let maxPendingCursorShellCommandLength = 64 * 1024
-    private static let maxPendingCursorShellApprovalAgeSeconds: TimeInterval = 60 * 60
-    private static let maxHookStateFileBytes = 8 * 1024 * 1024
-    private static let maxRecoverableHookStateFileBytes = 64 * 1024 * 1024
-    private static let maxRecoveredHookSessions = 512
-    private static let maxRecentlyClearedCursorShellCommandFingerprints = 16
-    private static let recentlyClearedCursorShellCommandAgeSeconds: TimeInterval = 10 * 60
-    private static let maxPendingCursorApprovalIndexEntriesPerSurface = 256
-    private static let maxRememberedTerminalPromptTurnIds = 32
-    private static let maxAutoNameRecentMessages = 24
-    private static let maxAutoNameMessageCharacters = 1_000
-
-    private let statePath: String
-    private let fileManager: FileManager
-    private let decoder = JSONDecoder()
-    private let encoder = JSONEncoder()
-
-    init(
-        processEnv: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
-    ) {
-        if let overridePath = processEnv["CMUX_CLAUDE_HOOK_STATE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !overridePath.isEmpty {
-            self.statePath = NSString(string: overridePath).expandingTildeInPath
-        } else if let overrideDirectory = processEnv["CMUX_AGENT_HOOK_STATE_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !overrideDirectory.isEmpty {
-            self.statePath = URL(fileURLWithPath: NSString(string: overrideDirectory).expandingTildeInPath, isDirectory: true)
-                .appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
-                .path
-        } else {
-            self.statePath = NSString(string: Self.defaultStatePath).expandingTildeInPath
-        }
-        self.fileManager = fileManager
-        self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-    }
-
-    func lookup(sessionId: String, deadline: Date? = nil) throws -> ClaudeHookSessionRecord? {
-        let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return nil }
-        return try withLockedState(deadline: deadline, persist: false) { state in
-            state.sessions[normalized]
-        }
-    }
-
-    /// Records one Cursor shell command for atomic completion correlation.
-    /// Cursor's after/failure hook payloads do not expose the native approval
-    /// decision or a stable tool id, so the normalized command is the durable
-    /// identity shared by the before and terminal hook callbacks.
-    @discardableResult
-    func rememberCursorShellApproval(
-        sessionId: String,
-        command: String,
-        toolUseId: String? = nil,
-        deadline: Date? = nil
-    ) throws -> CursorShellApprovalRememberResult {
-        let normalizedSession = normalizeSessionId(sessionId)
-        guard !normalizedSession.isEmpty,
-              let normalizedCommand = normalizedCursorShellCommand(command) else {
-            return (
-                accepted: false,
-                inserted: false,
-                notificationCorrelationKey: nil,
-                expiredNotificationCorrelationKeys: []
-            )
-        }
-        return try withLockedState(deadline: deadline) { state in
-            guard var record = state.sessions[normalizedSession] else {
-                return (
-                    accepted: false,
-                    inserted: false,
-                    notificationCorrelationKey: nil,
-                    expiredNotificationCorrelationKeys: []
-                )
-            }
-            var pending = record.pendingCursorShellApprovals ?? []
-            let now = Date().timeIntervalSince1970
-            let hadUnexpiredPending = hasUnexpiredCursorShellApproval(record, now: now)
-            let pendingCountBeforePrune = pending.count
-            var recentlyCleared = (record.recentlyClearedCursorShellCommandFingerprints ?? [:]).filter {
-                now - $0.value <= Self.recentlyClearedCursorShellCommandAgeSeconds
-            }
-            let expiredApprovals = pending.filter {
-                now - $0.createdAt > Self.maxPendingCursorShellApprovalAgeSeconds
-            }
-            let expiredNotificationCorrelationKeys = expiredApprovals.compactMap(\.notificationCorrelationKey)
-            for approval in expiredApprovals {
-                recentlyCleared[approval.commandFingerprint] = now
-            }
-            if recentlyCleared.count > Self.maxRecentlyClearedCursorShellCommandFingerprints {
-                record.cursorShellCommandOnlyCorrelationDisabled = true
-            }
-            if recentlyCleared.count > Self.maxRecentlyClearedCursorShellCommandFingerprints {
-                recentlyCleared = Dictionary(
-                    uniqueKeysWithValues: recentlyCleared.sorted { $0.value > $1.value }
-                        .prefix(Self.maxRecentlyClearedCursorShellCommandFingerprints)
-                        .map { ($0.key, $0.value) }
-                )
-            }
-            let hadExpiredApprovals = !expiredApprovals.isEmpty
-            pending.removeAll {
-                now - $0.createdAt > Self.maxPendingCursorShellApprovalAgeSeconds
-            }
-            let normalizedToolUseId = normalizedCursorShellToolUseId(toolUseId)
-            let commandIdentity = CursorPendingShellApproval.identity(for: normalizedCommand)
-            let requiresToolUseId = record.cursorShellCommandOnlyCorrelationDisabled == true
-                || recentlyCleared[commandIdentity.fingerprint].map {
-                    now - $0 <= Self.recentlyClearedCursorShellCommandAgeSeconds
-                } == true
-            // Only a repeated stable tool id is a retry. Without one, two
-            // identical commands may be concurrent invocations; preserving
-            // both records lets two terminal callbacks consume both waits.
-            let duplicateIndex = normalizedToolUseId.flatMap { toolUseId in
-                pending.firstIndex { $0.toolUseId == toolUseId }
-            }
-            if let duplicateIndex {
-                let existing = pending[duplicateIndex]
-                if existing.commandFingerprint != commandIdentity.fingerprint
-                    || existing.commandLength != commandIdentity.length {
-                    pending[duplicateIndex] = CursorPendingShellApproval(
-                        command: normalizedCommand,
-                        toolUseId: normalizedToolUseId,
-                        createdAt: existing.createdAt,
-                        requiresToolUseId: existing.requiresToolUseId,
-                        notificationCorrelationKey: existing.notificationCorrelationKey
-                    )
-                }
-                if hadExpiredApprovals || pending.count != pendingCountBeforePrune
-                    || existing.commandFingerprint != commandIdentity.fingerprint
-                    || existing.commandLength != commandIdentity.length {
-                    record.recentlyClearedCursorShellCommandFingerprints = recentlyCleared
-                    record.pendingCursorShellApprovals = pending
-                    record.updatedAt = now
-                    state.sessions[normalizedSession] = record
-                }
-                addCursorPendingIndex(
-                    &state,
-                    sessionId: normalizedSession,
-                    workspaceId: record.workspaceId,
-                    surfaceId: record.surfaceId,
-                    countDelta: hadUnexpiredPending || pending.isEmpty ? 0 : 1
-                )
-                return (
-                    accepted: true,
-                    inserted: false,
-                    notificationCorrelationKey: pending[duplicateIndex].notificationCorrelationKey,
-                    expiredNotificationCorrelationKeys: expiredNotificationCorrelationKeys
-                )
-            }
-            guard pending.count < Self.maxPendingCursorShellApprovals else {
-                if hadExpiredApprovals {
-                    record.recentlyClearedCursorShellCommandFingerprints = recentlyCleared
-                    record.pendingCursorShellApprovals = pending.isEmpty ? nil : pending
-                    record.updatedAt = now
-                    state.sessions[normalizedSession] = record
-                    if pending.isEmpty, hadExpiredApprovals {
-                        removeCursorPendingIndex(
-                            &state,
-                            sessionId: normalizedSession,
-                            workspaceId: record.workspaceId,
-                            surfaceId: record.surfaceId,
-                            countDelta: -1
-                        )
-                    }
-                }
-                return (
-                    accepted: false,
-                    inserted: false,
-                    notificationCorrelationKey: nil,
-                    expiredNotificationCorrelationKeys: expiredNotificationCorrelationKeys
-                )
-            }
-            pending.append(CursorPendingShellApproval(
-                command: normalizedCommand,
-                toolUseId: normalizedToolUseId,
-                createdAt: now,
-                requiresToolUseId: requiresToolUseId
-            ))
-            record.recentlyClearedCursorShellCommandFingerprints = recentlyCleared
-            record.pendingCursorShellApprovals = pending
-            record.updatedAt = now
-            state.sessions[normalizedSession] = record
-            addCursorPendingIndex(
-                &state,
-                sessionId: normalizedSession,
-                workspaceId: record.workspaceId,
-                surfaceId: record.surfaceId,
-                countDelta: hadUnexpiredPending ? 0 : 1
-            )
-            return (
-                accepted: true,
-                inserted: true,
-                notificationCorrelationKey: pending.last?.notificationCorrelationKey,
-                expiredNotificationCorrelationKeys: expiredNotificationCorrelationKeys
-            )
-        }
-    }
-
-    /// Resolves exactly one pending Cursor shell command, rejecting unrelated
-    /// or sandboxed completions without touching visible notification state.
-    /// The compare-and-remove happens under the store lock so overlapping hook
-    /// processes cannot clear one another's approval. Expired records are
-    /// pruned on the next lifecycle callback; Cursor's current hook protocol
-    /// exposes no independent deadline callback for a crashed process.
-    @discardableResult
-    func resolveCursorShellApproval(
-        sessionId: String,
-        command: String,
-        workspaceId: String,
-        surfaceId: String,
-        cwd: String?,
-        transcriptPath: String? = nil,
-        pid: Int? = nil,
-        launchCommand: AgentHookLaunchCommandRecord? = nil,
-        toolUseId: String? = nil,
-        hookEventName: String? = nil,
-        deadline: Date? = nil,
-        failureWasError: Bool = false
-    ) throws -> CursorShellApprovalResolution {
-        let normalizedSession = normalizeSessionId(sessionId)
-        guard !normalizedSession.isEmpty,
-              let normalizedCommand = normalizedCursorShellCommand(command) else {
-            return (
-                matched: false,
-                hasRemaining: false,
-                expired: false,
-                remainingDisplayCommand: nil,
-                notificationCorrelationKeys: [],
-                remainingNotificationCorrelationKey: nil
-            )
-        }
-        return try withLockedState(deadline: deadline) { state in
-            guard var record = state.sessions[normalizedSession],
-                  var pending = record.pendingCursorShellApprovals else {
-                return (
-                    matched: false,
-                    hasRemaining: false,
-                    expired: false,
-                    remainingDisplayCommand: nil,
-                    notificationCorrelationKeys: [],
-                    remainingNotificationCorrelationKey: nil
-                )
-            }
-            let now = Date().timeIntervalSince1970
-            let beforePruneCount = pending.count
-            let expiredApprovals = pending.filter {
-                now - $0.createdAt > Self.maxPendingCursorShellApprovalAgeSeconds
-            }
-            let expiredNotificationCorrelationKeys = expiredApprovals.compactMap(\.notificationCorrelationKey)
-            pending.removeAll {
-                now - $0.createdAt > Self.maxPendingCursorShellApprovalAgeSeconds
-            }
-            let expired = pending.count != beforePruneCount
-            if !expiredApprovals.isEmpty {
-                var recentlyCleared = (record.recentlyClearedCursorShellCommandFingerprints ?? [:]).filter {
-                    now - $0.value <= Self.recentlyClearedCursorShellCommandAgeSeconds
-                }
-                for approval in expiredApprovals {
-                    recentlyCleared[approval.commandFingerprint] = now
-                }
-                if recentlyCleared.count > Self.maxRecentlyClearedCursorShellCommandFingerprints {
-                    record.cursorShellCommandOnlyCorrelationDisabled = true
-                    recentlyCleared = Dictionary(
-                        uniqueKeysWithValues: recentlyCleared.sorted { $0.value > $1.value }
-                            .prefix(Self.maxRecentlyClearedCursorShellCommandFingerprints)
-                            .map { ($0.key, $0.value) }
-                    )
-                }
-                record.recentlyClearedCursorShellCommandFingerprints = recentlyCleared
-            }
-            let normalizedToolUseId = normalizedCursorShellToolUseId(toolUseId)
-            let commandIdentity = CursorPendingShellApproval.identity(for: normalizedCommand)
-            guard let matchIndex = pending.firstIndex(where: { pendingApproval in
-                if let normalizedToolUseId {
-                    if let pendingToolUseId = pendingApproval.toolUseId {
-                        return normalizedToolUseId == pendingToolUseId
-                    }
-                    return !pendingApproval.requiresToolUseId
-                        && pendingApproval.commandFingerprint == commandIdentity.fingerprint
-                        && pendingApproval.commandLength == commandIdentity.length
-                }
-                return !pendingApproval.requiresToolUseId
-                    && pendingApproval.commandFingerprint == commandIdentity.fingerprint
-                    && pendingApproval.commandLength == commandIdentity.length
-            }) else {
-                if expired {
-                    record.pendingCursorShellApprovals = pending.isEmpty ? nil : pending
-                    if pending.isEmpty {
-                        record.agentLifecycle = .running
-                        record.runtimeStatus = .running
-                        record.lastNotificationStatus = nil
-                        record.lastSubtitle = nil
-                        record.lastBody = nil
-                        removeCursorPendingIndex(
-                            &state,
-                            sessionId: normalizedSession,
-                            workspaceId: record.workspaceId,
-                            surfaceId: record.surfaceId,
-                            countDelta: pending.isEmpty ? -1 : 0
-                        )
-                    } else {
-                        addCursorPendingIndex(
-                            &state,
-                            sessionId: normalizedSession,
-                            workspaceId: record.workspaceId,
-                            surfaceId: record.surfaceId
-                        )
-                    }
-                    state.sessions[normalizedSession] = record
-                }
-                return (
-                    matched: false,
-                    hasRemaining: !pending.isEmpty,
-                    expired: expired,
-                    remainingDisplayCommand: pending.last?.displayCommand,
-                    notificationCorrelationKeys: expiredNotificationCorrelationKeys,
-                    remainingNotificationCorrelationKey: pending.last?.notificationCorrelationKey
-                )
-            }
-            let matchedNotificationCorrelationKey = pending[matchIndex].notificationCorrelationKey
-            pending.remove(at: matchIndex)
-            let hasRemaining = !pending.isEmpty
-            let previousWorkspaceId = record.workspaceId
-            let previousSurfaceId = record.surfaceId
-            let lifecycle = failureWasError
-                ? AgentHibernationLifecycleState.needsInput
-                : (hasRemaining ? .needsInput : .running)
-            let runtime = failureWasError
-                ? AgentHookRuntimeStatus.error
-                : (hasRemaining ? .needsInput : .running)
-            let notificationStatus: AgentHookNotificationStatus? = failureWasError
-                ? .error
-                : (hasRemaining ? .needsInput : nil)
-            update(
-                &record,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                cwd: cwd,
-                transcriptPath: transcriptPath,
-                pid: pid,
-                launchCommand: launchCommand,
-                isRestorable: nil,
-                agentLifecycle: lifecycle,
-                hookEventName: hookEventName,
-                lastSubtitle: nil,
-                lastBody: nil,
-                lastNotificationStatus: notificationStatus,
-                updateLastNotificationStatus: true,
-                runtimeStatus: runtime,
-                updateRuntimeStatus: true,
-                now: now
-            )
-            record.pendingCursorShellApprovals = hasRemaining ? pending : nil
-            let surfaceMoved = previousSurfaceId != record.surfaceId
-            if surfaceMoved {
-                removeCursorPendingIndex(
-                    &state,
-                    sessionId: normalizedSession,
-                    workspaceId: previousWorkspaceId,
-                    surfaceId: previousSurfaceId,
-                    countDelta: -1
-                )
-            }
-            if hasRemaining {
-                addCursorPendingIndex(
-                    &state,
-                    sessionId: normalizedSession,
-                    workspaceId: record.workspaceId,
-                    surfaceId: record.surfaceId,
-                    countDelta: surfaceMoved ? 1 : 0
-                )
-            } else if !surfaceMoved {
-                removeCursorPendingIndex(
-                    &state,
-                    sessionId: normalizedSession,
-                    workspaceId: record.workspaceId,
-                    surfaceId: record.surfaceId,
-                    countDelta: -1
-                )
-            }
-            if hasRemaining {
-                record.lastBody = pending.last?.displayCommand
-            } else {
-                record.lastSubtitle = nil
-                record.lastBody = nil
-                record.lastNotificationStatus = failureWasError ? .error : nil
-            }
-            state.sessions[normalizedSession] = record
-            return (
-                matched: true,
-                hasRemaining: hasRemaining,
-                expired: expired,
-                remainingDisplayCommand: pending.last?.displayCommand,
-                notificationCorrelationKeys: expiredNotificationCorrelationKeys
-                    + [matchedNotificationCorrelationKey].compactMap { $0 },
-                remainingNotificationCorrelationKey: pending.last?.notificationCorrelationKey
-            )
-        }
-    }
-
-    /// Drops all pending Cursor shell approvals when a session stops or starts
-    /// a new turn, returning the exact notification identities that were
-    /// visible for those approvals.
-    @discardableResult
-    func clearCursorShellApprovals(
-        sessionId: String,
-        deadline: Date? = nil
-    ) throws -> CursorShellApprovalClearResult {
-        let normalizedSession = normalizeSessionId(sessionId)
-        guard !normalizedSession.isEmpty else {
-            return (cleared: false, notificationCorrelationKeys: [])
-        }
-        return try withLockedState(deadline: deadline) { state in
-            guard var record = state.sessions[normalizedSession],
-                  record.pendingCursorShellApprovals?.isEmpty == false else {
-                return (cleared: false, notificationCorrelationKeys: [])
-            }
-            let notificationCorrelationKeys = (record.pendingCursorShellApprovals ?? [])
-                .compactMap(\.notificationCorrelationKey)
-            let now = Date().timeIntervalSince1970
-            var recentlyCleared = (record.recentlyClearedCursorShellCommandFingerprints ?? [:]).filter {
-                now - $0.value <= Self.recentlyClearedCursorShellCommandAgeSeconds
-            }
-            for approval in record.pendingCursorShellApprovals ?? [] {
-                recentlyCleared[approval.commandFingerprint] = now
-            }
-            if recentlyCleared.count > Self.maxRecentlyClearedCursorShellCommandFingerprints {
-                record.cursorShellCommandOnlyCorrelationDisabled = true
-                recentlyCleared = Dictionary(
-                    uniqueKeysWithValues: recentlyCleared.sorted { $0.value > $1.value }
-                        .prefix(Self.maxRecentlyClearedCursorShellCommandFingerprints)
-                        .map { ($0.key, $0.value) }
-                )
-            }
-            record.recentlyClearedCursorShellCommandFingerprints = recentlyCleared
-            record.pendingCursorShellApprovals = nil
-            removeCursorPendingIndex(
-                &state,
-                sessionId: normalizedSession,
-                workspaceId: record.workspaceId,
-                surfaceId: record.surfaceId,
-                countDelta: -1
-            )
-            record.lastSubtitle = nil
-            record.lastBody = nil
-            record.lastNotificationStatus = nil
-            record.updatedAt = now
-            state.sessions[normalizedSession] = record
-            return (cleared: true, notificationCorrelationKeys: notificationCorrelationKeys)
-        }
-    }
-
-    /// Whether another Cursor approval remains pending on the same surface.
-    /// Used to keep a late completion from clearing a newer session's wait.
-    func hasPendingCursorShellApproval(
-        workspaceId _: String,
-        surfaceId: String,
-        excludingSessionId: String?,
-        deadline: Date? = nil
-    ) throws -> Bool {
-        let excluded = excludingSessionId.map(normalizeSessionId)
-        return try withLockedState(deadline: deadline, persist: false) { state in
-            let now = Date().timeIntervalSince1970
-            let key = cursorPendingSurfaceKey(surfaceId: surfaceId)
-            let indexed = state.pendingCursorApprovalSessionsBySurface[key] ?? []
-            let indexedMatch = indexed.contains { candidate in
-                guard let record = state.sessions[candidate],
-                      hasUnexpiredCursorShellApproval(record, now: now),
-                      cursorPendingSurfaceKey(surfaceId: record.surfaceId) == key else {
-                    return false
-                }
-                return excluded.map { candidate != $0 } ?? true
-            }
-            if indexedMatch { return true }
-            let totalCount = state.pendingCursorApprovalSessionCountsBySurface[key]
-                ?? indexed.count
-            let hiddenCount = max(0, totalCount - indexed.count)
-            // When the capped id list overflowed, the exact count is the
-            // bounded summary that preserves sibling detection. A count above
-            // one proves that another session remains, even if the excluded
-            // session is one of the omitted ids.
-            if state.pendingCursorApprovalSurfaceOverflow[key] == true, hiddenCount > 0 {
-                return true
-            }
-            if hiddenCount > 0, totalCount > 1 {
-                return true
-            }
-            return false
-        }
-    }
-
-    /// Pending approval ownership follows the globally stable surface id;
-    /// workspace ids are transient while panes move between windows.
-    private func cursorPendingSurfaceKey(surfaceId: String) -> String {
-        surfaceId
-    }
-
-    private func hasUnexpiredCursorShellApproval(
-        _ record: ClaudeHookSessionRecord,
-        now: TimeInterval
-    ) -> Bool {
-        record.pendingCursorShellApprovals?.contains {
-            now - $0.createdAt <= Self.maxPendingCursorShellApprovalAgeSeconds
-        } == true
-    }
-
-    private func addCursorPendingIndex(
-        _ state: inout ClaudeHookSessionStoreFile,
-        sessionId: String,
-        workspaceId _: String,
-        surfaceId: String,
-        countDelta: Int = 0
-    ) {
-        let key = cursorPendingSurfaceKey(surfaceId: surfaceId)
-        var sessions = state.pendingCursorApprovalSessionsBySurface[key] ?? []
-        if !sessions.contains(sessionId) {
-            sessions.append(sessionId)
-            if sessions.count > Self.maxPendingCursorApprovalIndexEntriesPerSurface {
-                sessions.removeFirst(sessions.count - Self.maxPendingCursorApprovalIndexEntriesPerSurface)
-            }
-            state.pendingCursorApprovalSessionsBySurface[key] = sessions
-        }
-        if countDelta != 0 {
-            let currentCount = state.pendingCursorApprovalSessionCountsBySurface[key]
-                ?? max(0, sessions.count - (countDelta > 0 ? 1 : 0))
-            let nextCount = max(0, currentCount + countDelta)
-            state.pendingCursorApprovalSessionCountsBySurface[key] = nextCount
-            if nextCount > Self.maxPendingCursorApprovalIndexEntriesPerSurface {
-                state.pendingCursorApprovalSurfaceOverflow[key] = true
-            }
-        } else if state.pendingCursorApprovalSessionCountsBySurface[key] == nil {
-            state.pendingCursorApprovalSessionCountsBySurface[key] = sessions.count
-        }
-        state.pendingCursorApprovalIndexInitialized = true
-    }
-
-    private func removeCursorPendingIndex(
-        _ state: inout ClaudeHookSessionStoreFile,
-        sessionId: String,
-        workspaceId _: String,
-        surfaceId: String,
-        countDelta: Int = 0
-    ) {
-        let key = cursorPendingSurfaceKey(surfaceId: surfaceId)
-        var sessions = state.pendingCursorApprovalSessionsBySurface[key] ?? []
-        sessions.removeAll { $0 == sessionId }
-        let currentCount = state.pendingCursorApprovalSessionCountsBySurface[key] ?? sessions.count
-        let nextCount = max(0, currentCount + countDelta)
-        if nextCount == 0 {
-            state.pendingCursorApprovalSessionsBySurface.removeValue(forKey: key)
-            state.pendingCursorApprovalSessionCountsBySurface.removeValue(forKey: key)
-            state.pendingCursorApprovalSurfaceOverflow.removeValue(forKey: key)
-        } else {
-            state.pendingCursorApprovalSessionsBySurface[key] = sessions
-            state.pendingCursorApprovalSessionCountsBySurface[key] = nextCount
-            if nextCount > Self.maxPendingCursorApprovalIndexEntriesPerSurface {
-                state.pendingCursorApprovalSurfaceOverflow[key] = true
-            }
-        }
-        state.pendingCursorApprovalIndexInitialized = true
-    }
-
-    private func reconcileCursorPendingIndexAfterUpdate(
-        _ state: inout ClaudeHookSessionStoreFile,
-        sessionId: String,
-        previousSurfaceId: String?,
-        previousHadPending: Bool,
-        record: ClaudeHookSessionRecord,
-        now: TimeInterval
-    ) {
-        let surfaceMoved = previousSurfaceId != record.surfaceId
-        if let previousSurfaceId, surfaceMoved {
-            removeCursorPendingIndex(
-                &state,
-                sessionId: sessionId,
-                workspaceId: "",
-                surfaceId: previousSurfaceId,
-                countDelta: -1
-            )
-        }
-        if hasUnexpiredCursorShellApproval(record, now: now) {
-            addCursorPendingIndex(
-                &state,
-                sessionId: sessionId,
-                workspaceId: "",
-                surfaceId: record.surfaceId,
-                countDelta: surfaceMoved || !previousHadPending ? 1 : 0
-            )
-        } else if previousHadPending {
-            removeCursorPendingIndex(
-                &state,
-                sessionId: sessionId,
-                workspaceId: "",
-                surfaceId: record.surfaceId,
-                countDelta: -1
-            )
-        }
-    }
-
-    private func normalizedCursorShellCommand(_ command: String) -> String? {
-        let normalized = command
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty,
-              normalized.utf8.count <= Self.maxPendingCursorShellCommandLength else {
-            return nil
-        }
-        return normalized
-    }
-
-    private func normalizedCursorShellToolUseId(_ value: String?) -> String? {
-        guard let value else { return nil }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed.count <= 256 else { return nil }
-        return trimmed
-    }
-
-    /// Records the hook-observed permission mode on an existing session record.
-    /// The already-current check happens INSIDE the lock: an unlocked pre-check
-    /// can race an overlapping hook's write and skip persisting the newest mode,
-    /// leaving restore on a stale (possibly more permissive) mode. Unknown
-    /// sessions are left alone (the session-start upsert owns record creation).
-    func updateLastPermissionMode(sessionId: String, permissionMode: String) throws {
-        let normalized = normalizeSessionId(sessionId)
-        let mode = permissionMode.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty, !mode.isEmpty else { return }
-        try withLockedState { state in
-            guard var record = state.sessions[normalized],
-                  record.lastPermissionMode != mode else { return }
-            record.lastPermissionMode = mode
-            state.sessions[normalized] = record
-        }
-    }
-
-    struct AutoNamingRecentMessagesSnapshot {
-        var messages: [AutoNamingTranscriptMessage]
-        var totalMessageCount: Int
-    }
-
-    func autoNamingRecentMessages(sessionId: String) throws -> [AutoNamingTranscriptMessage] {
-        try autoNamingRecentMessagesSnapshot(sessionId: sessionId).messages
-    }
-
-    func autoNamingRecentMessagesSnapshot(sessionId: String) throws -> AutoNamingRecentMessagesSnapshot {
-        let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else {
-            return AutoNamingRecentMessagesSnapshot(messages: [], totalMessageCount: 0)
-        }
-        return try withLockedState { state in
-            let record = state.sessions[normalized]
-            let messages = record?.autoNameRecentMessages ?? []
-            return AutoNamingRecentMessagesSnapshot(
-                messages: messages,
-                totalMessageCount: max(messages.count, record?.autoNameMessageSequence ?? 0)
-            )
-        }
-    }
-
-    struct AutoNamingBeginOutcome {
-        var decision: AutoNamingThrottleDecision
-        var lastTitle: String?
-    }
-
-    /// Atomically evaluates the auto-naming throttle for a session and, when
-    /// the decision is to proceed, records the in-flight marker inside the
-    /// same locked transaction so a concurrent Stop hook sees it and skips.
-    /// When no session record exists yet (the auto-name hook can race the
-    /// sync Stop hook's upsert), a minimal record is synthesized so the
-    /// marker and baseline writes are never silently dropped.
-    func beginAutoNaming(
-        sessionId: String,
-        workspaceId: String,
-        surfaceId: String,
-        transcriptLineCount: Int,
-        now: Date,
-        engine: AutoNamingEngine
-    ) throws -> AutoNamingBeginOutcome {
-        let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else {
-            return AutoNamingBeginOutcome(decision: .skipShortTranscript, lastTitle: nil)
-        }
-        return try withLockedState { state in
-            var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
-                sessionId: normalized,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                startedAt: now.timeIntervalSince1970,
-                updatedAt: now.timeIntervalSince1970
-            )
-            let snapshot = AutoNamingSessionSnapshot(
-                lastTitle: record.autoNameLastTitle,
-                lastLineCount: record.autoNameLastLineCount,
-                lastNamedAt: record.autoNameLastNamedAt,
-                inFlightAt: record.autoNameInFlightAt,
-                lastAttemptAt: record.autoNameLastAttemptAt
-            )
-            let decision = engine.throttleDecision(
-                snapshot: snapshot,
-                transcriptLineCount: transcriptLineCount,
-                now: now
-            )
-            switch decision {
-            case .proceed:
-                record.autoNameInFlightAt = now.timeIntervalSince1970
-            case .reseedBaseline(let to):
-                record.autoNameLastLineCount = to
-            case .skipShortTranscript, .skipInFlight, .skipTooSoon, .skipInsufficientGrowth:
-                break
-            }
-            record.updatedAt = Date().timeIntervalSince1970
-            state.sessions[normalized] = record
-            return AutoNamingBeginOutcome(decision: decision, lastTitle: snapshot.lastTitle)
-        }
-    }
-
-    /// Records a completed naming pass. On a confirmed apply, the durable
-    /// baseline (title, line count, timestamp) advances; on failure only the
-    /// in-flight marker clears, so the next qualifying Stop retries.
-    func finishAutoNaming(
-        sessionId: String,
-        appliedTitle: String?,
-        baselineLineCount: Int?,
-        now: Date
-    ) throws {
-        let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return }
-        try withLockedState { state in
-            guard var record = state.sessions[normalized] else { return }
-            record.autoNameInFlightAt = nil
-            // Stamp every completed pass (success or failure) so the throttle
-            // enforces a cooldown before retrying a failing summarizer.
-            record.autoNameLastAttemptAt = now.timeIntervalSince1970
-            if let appliedTitle, let baselineLineCount {
-                record.autoNameLastTitle = appliedTitle
-                record.autoNameLastLineCount = baselineLineCount
-                record.autoNameLastNamedAt = now.timeIntervalSince1970
-            }
-            record.updatedAt = Date().timeIntervalSince1970
-            state.sessions[normalized] = record
-        }
-    }
-
-    func clearAgentLifecycleIfPresent(
-        sessionId: String,
-        workspaceId: String?,
-        surfaceId: String?
-    ) throws {
-        let normalizedSessionId = normalizeSessionId(sessionId)
-        guard !normalizedSessionId.isEmpty else { return }
-        try withLockedState { state in
-            guard var record = state.sessions[normalizedSessionId] else { return }
-            record.agentLifecycle = .unknown
-            record.updatedAt = Date().timeIntervalSince1970
-            state.sessions[normalizedSessionId] = record
-        }
-    }
-
-    @discardableResult
-    func recordPromptSubmit(
-        sessionId: String,
-        workspaceId: String,
-        surfaceId: String,
-        cwd: String?,
-        transcriptPath: String? = nil,
-        turnId: String? = nil,
-        previousActivePromptTurnIsTerminal: Bool = false,
-        terminalActivePromptTurnIds: Set<String> = [],
-        pid: Int?,
-        launchCommand: AgentHookLaunchCommandRecord?,
-        agentLifecycle: AgentHibernationLifecycleState? = nil,
-        hookEventName: String? = nil,
-        runtimeStatus: AgentHookRuntimeStatus? = nil,
-        updateRuntimeStatus: Bool = false,
-        updateLastSummary: Bool = false,
-        autoNameMessages: [AutoNamingTranscriptMessage] = [],
-        rejectTerminalTurn: Bool = false
-    ) throws -> (staleTerminalTurn: Bool, nested: Bool) {
-        let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return (staleTerminalTurn: false, nested: false) }
-        return try withLockedState { state in
-            let now = Date().timeIntervalSince1970
-            var record = makeSessionRecord(
-                state: state,
-                sessionId: normalized,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                now: now
-            )
-            let normalizedTurnId = normalizeOptional(turnId)
-            if rejectTerminalTurn,
-               let normalizedTurnId,
-               terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
-                return (staleTerminalTurn: true, nested: false)
-            }
-            update(
-                &record,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                cwd: cwd,
-                transcriptPath: transcriptPath,
-                pid: pid,
-                launchCommand: launchCommand,
-                isRestorable: nil,
-                agentLifecycle: agentLifecycle,
-                hookEventName: hookEventName,
-                lastSubtitle: nil,
-                lastBody: nil,
-                updateLastSummary: updateLastSummary,
-                lastNotificationStatus: nil,
-                updateLastNotificationStatus: false,
-                runtimeStatus: runtimeStatus,
-                updateRuntimeStatus: updateRuntimeStatus,
-                now: now
-            )
-            appendAutoNameMessages(autoNameMessages, to: &record)
-            if let normalizedTurnId {
-                markPromptTurnActive(normalizedTurnId, on: &record)
-                var turnStack = activePromptTurnStack(from: record)
-                let legacyDepth = max(0, record.activePromptDepth ?? 0)
-                if turnStack.isEmpty, legacyDepth > 0 {
-                    record.activePromptDepth = legacyDepth + 1
-                    record.activePromptTurnId = nil
-                    record.activePromptTurnIds = nil
-                    record.lastPromptTurnId = normalizedTurnId
-                    state.sessions[normalized] = record
-                    return (staleTerminalTurn: false, nested: true)
-                } else if let activeTurnId = turnStack.last,
-                          activeTurnId != normalizedTurnId {
-                    var removedTurnCount = 0
-                    var removedTerminalTurnIds: [String] = []
-                    if previousActivePromptTurnIsTerminal {
-                        removedTerminalTurnIds.append(turnStack.removeLast())
-                        removedTurnCount += 1
-                        while let activeTurnId = turnStack.last,
-                              terminalActivePromptTurnIds.contains(activeTurnId) {
-                            removedTerminalTurnIds.append(turnStack.removeLast())
-                            removedTurnCount += 1
-                        }
-                    }
-                    let totalDepth = max(0, max(legacyDepth, turnStack.count + removedTurnCount) - removedTurnCount) + 1
-                    turnStack.append(normalizedTurnId)
-                    setActivePromptTurnStack(turnStack, totalDepth: totalDepth, on: &record)
-                    markPromptTurnsTerminal(removedTerminalTurnIds, on: &record)
-                    record.lastPromptTurnId = normalizedTurnId
-                    state.sessions[normalized] = record
-                    return (staleTerminalTurn: false, nested: totalDepth > 1)
-                }
-                if turnStack.last == normalizedTurnId {
-                    let totalDepth = max(legacyDepth, turnStack.count)
-                    setActivePromptTurnStack(turnStack, totalDepth: totalDepth, on: &record)
-                    record.lastPromptTurnId = normalizedTurnId
-                    state.sessions[normalized] = record
-                    return (staleTerminalTurn: false, nested: totalDepth > 1)
-                }
-                let totalDepth = max(legacyDepth, turnStack.count) + 1
-                turnStack.append(normalizedTurnId)
-                setActivePromptTurnStack(turnStack, totalDepth: totalDepth, on: &record)
-                record.lastPromptTurnId = normalizedTurnId
-                state.sessions[normalized] = record
-                return (staleTerminalTurn: false, nested: totalDepth > 1)
-            }
-            let existingTurnStackDepth = activePromptTurnStack(from: record).count
-            record.activePromptDepth = max(max(0, record.activePromptDepth ?? 0), existingTurnStackDepth) + 1
-            state.sessions[normalized] = record
-            return (staleTerminalTurn: false, nested: (record.activePromptDepth ?? 0) > 1)
-        }
-    }
-
-    @discardableResult
-    func recordPromptStop(
-        sessionId: String,
-        workspaceId: String,
-        surfaceId: String,
-        cwd: String?,
-        transcriptPath: String? = nil,
-        turnId: String? = nil,
-        terminalActivePromptTurnIds: Set<String> = [],
-        pid: Int?,
-        launchCommand: AgentHookLaunchCommandRecord?,
-        agentLifecycle: AgentHibernationLifecycleState? = nil,
-        hookEventName: String? = nil,
-        lastSubtitle: String?,
-        lastBody: String?,
-        lastNotificationStatus: AgentHookNotificationStatus? = nil,
-        updateLastNotificationStatus: Bool = false,
-        runtimeStatus: AgentHookRuntimeStatus? = nil,
-        updateRuntimeStatus: Bool = false,
-        autoNameMessages: [AutoNamingTranscriptMessage] = []
-    ) throws -> Bool {
-        let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return false }
-        return try withLockedState { state in
-            let now = Date().timeIntervalSince1970
-            var record = makeSessionRecord(
-                state: state,
-                sessionId: normalized,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                now: now
-            )
-            let depthBeforeStop = max(0, record.activePromptDepth ?? 0)
-            let depthAfterStop = max(0, depthBeforeStop - 1)
-            update(
-                &record,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                cwd: cwd,
-                transcriptPath: transcriptPath,
-                pid: pid,
-                launchCommand: launchCommand,
-                isRestorable: nil,
-                agentLifecycle: depthAfterStop == 0 ? agentLifecycle : .running,
-                hookEventName: hookEventName,
-                lastSubtitle: lastSubtitle,
-                lastBody: lastBody,
-                lastNotificationStatus: lastNotificationStatus,
-                updateLastNotificationStatus: updateLastNotificationStatus,
-                runtimeStatus: runtimeStatus,
-                updateRuntimeStatus: updateRuntimeStatus,
-                now: now
-            )
-            appendAutoNameMessages(autoNameMessages, to: &record)
-            let normalizedTurnId = normalizeOptional(turnId)
-            if let normalizedTurnId {
-                var turnStack = activePromptTurnStack(from: record)
-                var totalDepthBeforeStop = max(depthBeforeStop, turnStack.count)
-                let terminalTurnIdsToPrune = terminalActivePromptTurnIds.subtracting([normalizedTurnId])
-                if !terminalTurnIdsToPrune.isEmpty {
-                    var removedTerminalTurnIds: [String] = []
-                    turnStack.removeAll { activeTurnId in
-                        if terminalTurnIdsToPrune.contains(activeTurnId) {
-                            removedTerminalTurnIds.append(activeTurnId)
-                            return true
-                        }
-                        return false
-                    }
-                    if !removedTerminalTurnIds.isEmpty {
-                        totalDepthBeforeStop = max(0, totalDepthBeforeStop - removedTerminalTurnIds.count)
-                        setActivePromptTurnStack(turnStack, totalDepth: totalDepthBeforeStop, on: &record)
-                        markPromptTurnsTerminal(removedTerminalTurnIds, on: &record)
-                    }
-                }
-                if let lastTurnId = turnStack.last {
-                    if lastTurnId == normalizedTurnId {
-                        let nested = totalDepthBeforeStop > 1
-                        turnStack.removeLast()
-                        setActivePromptTurnStack(
-                            turnStack,
-                            totalDepth: max(0, totalDepthBeforeStop - 1),
-                            on: &record
-                        )
-                        markPromptTurnTerminal(normalizedTurnId, on: &record)
-                        state.sessions[normalized] = record
-                        return nested
-                    }
-                    if let staleIndex = turnStack.lastIndex(of: normalizedTurnId) {
-                        turnStack.remove(at: staleIndex)
-                        setActivePromptTurnStack(
-                            turnStack,
-                            totalDepth: max(0, totalDepthBeforeStop - 1),
-                            on: &record
-                        )
-                        markPromptTurnTerminal(normalizedTurnId, on: &record)
-                    } else if depthBeforeStop > turnStack.count {
-                        setActivePromptTurnStack(
-                            turnStack,
-                            totalDepth: max(0, totalDepthBeforeStop - 1),
-                            on: &record
-                        )
-                        markPromptTurnTerminal(normalizedTurnId, on: &record)
-                    }
-                    state.sessions[normalized] = record
-                    return true
-                }
-                if totalDepthBeforeStop == 0, terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
-                    state.sessions[normalized] = record
-                    return true
-                }
-                markPromptTurnTerminal(normalizedTurnId, on: &record)
-                if totalDepthBeforeStop == 0 {
-                    state.sessions[normalized] = record
-                    return false
-                }
-                let depthAfterTurnStop = max(0, totalDepthBeforeStop - 1)
-                if depthAfterTurnStop == 0 {
-                    record.activePromptDepth = nil
-                } else {
-                    record.activePromptDepth = depthAfterTurnStop
-                }
-                record.activePromptTurnId = nil
-                record.activePromptTurnIds = nil
-                state.sessions[normalized] = record
-                return totalDepthBeforeStop > 1
-            }
-            if depthAfterStop == 0 {
-                record.activePromptDepth = nil
-                record.activePromptTurnId = nil
-                record.activePromptTurnIds = nil
-            } else {
-                let turnStack = activePromptTurnStack(from: record)
-                if !turnStack.isEmpty {
-                    setActivePromptTurnStack(
-                        Array(turnStack.prefix(depthAfterStop)),
-                        totalDepth: depthAfterStop,
-                        on: &record
-                    )
-                } else {
-                    record.activePromptDepth = depthAfterStop
-                }
-                if let normalizedTurnId, turnStack.isEmpty {
-                    record.activePromptTurnId = normalizedTurnId
-                    record.activePromptTurnIds = Array(repeating: normalizedTurnId, count: depthAfterStop)
-                }
-            }
-            state.sessions[normalized] = record
-            return depthBeforeStop > 1
-        }
-    }
-
-    @discardableResult
-    func upsert(
-        sessionId: String,
-        workspaceId: String,
-        surfaceId: String,
-        cwd: String?,
-        transcriptPath: String? = nil,
-        pid: Int? = nil,
-        launchCommand: AgentHookLaunchCommandRecord? = nil,
-        isRestorable: Bool? = nil,
-        agentLifecycle: AgentHibernationLifecycleState? = nil,
-        hookEventName: String? = nil,
-        lastSubtitle: String? = nil,
-        lastBody: String? = nil,
-        /// When true, nil summary fields explicitly clear their persisted values.
-        updateLastSummary: Bool = false,
-        lastNotificationStatus: AgentHookNotificationStatus? = nil,
-        updateLastNotificationStatus: Bool = false,
-        runtimeStatus: AgentHookRuntimeStatus? = nil,
-        updateRuntimeStatus: Bool = false,
-        hadPendingBackgroundWorkAtStop: Bool? = nil,
-        title: String? = nil,
-        markActive: Bool = false,
-        turnId: String? = nil,
-        allowsNewSessionReplacement: Bool = false,
-        supersedesSameProcessSession: Bool = false,
-        deadline: Date? = nil
-    ) throws -> [ClaudeHookSessionRecord] {
-        let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return [] }
-        return try withLockedState(deadline: deadline) { state in
-            let now = Date().timeIntervalSince1970
-            let previousSurfaceId = state.sessions[normalized]?.surfaceId
-            let previousHadPending = state.sessions[normalized].map {
-                hasUnexpiredCursorShellApproval($0, now: now)
-            } ?? false
-            var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
-                sessionId: normalized,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                cwd: nil,
-                transcriptPath: nil,
-                pid: nil,
-                launchCommand: nil,
-                isRestorable: nil,
-                agentLifecycle: nil,
-                lastSubtitle: nil,
-                lastBody: nil,
-                lastNotificationStatus: nil,
-                lastEmittedNotificationFingerprint: nil,
-                lastEmittedNotificationAt: nil,
-                runtimeStatus: nil,
-                activePromptDepth: nil,
-                activePromptTurnId: nil,
-                activePromptTurnIds: nil,
-                lastPromptTurnId: nil,
-                terminalPromptTurnIds: nil,
-                startedAt: now,
-                updatedAt: now
-            )
-            update(
-                &record,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                cwd: cwd,
-                transcriptPath: transcriptPath,
-                pid: pid,
-                launchCommand: launchCommand,
-                isRestorable: isRestorable,
-                agentLifecycle: agentLifecycle,
-                hookEventName: hookEventName,
-                lastSubtitle: lastSubtitle,
-                lastBody: lastBody,
-                updateLastSummary: updateLastSummary,
-                lastNotificationStatus: lastNotificationStatus,
-                updateLastNotificationStatus: updateLastNotificationStatus,
-                runtimeStatus: runtimeStatus,
-                updateRuntimeStatus: updateRuntimeStatus,
-                hadPendingBackgroundWorkAtStop: hadPendingBackgroundWorkAtStop,
-                title: title,
-                now: now
-            )
-            let superseded: [ClaudeHookSessionRecord]
-            if supersedesSameProcessSession {
-                superseded = supersededSessionCleanupCandidates(
-                    in: &state,
-                    keepingSessionId: normalized,
-                    owner: record
-                )
-            } else {
-                superseded = []
-            }
-            state.sessions[normalized] = record
-            reconcileCursorPendingIndexAfterUpdate(
-                &state,
-                sessionId: normalized,
-                previousSurfaceId: previousSurfaceId,
-                previousHadPending: previousHadPending,
-                record: record,
-                now: now
-            )
-            if markActive {
-                let activeRecord = ClaudeHookActiveSessionRecord(
-                    sessionId: normalized,
-                    turnId: normalizeOptional(turnId),
-                    allowsNewSessionReplacement: allowsNewSessionReplacement ? true : nil,
-                    updatedAt: now
-                )
-                if let normalizedWorkspace = normalizeOptional(workspaceId) {
-                    state.activeSessionsByWorkspace[normalizedWorkspace] = activeRecord
-                }
-                if let normalizedSurface = normalizeOptional(surfaceId) {
-                    state.activeSessionsBySurface[normalizedSurface] = activeRecord
-                }
-            }
-            return superseded
-        }
-    }
-
-    /// Atomically installs the identity reported by an authoritative Claude
-    /// SessionStart on its owning surface. SessionStart is the first event that
-    /// carries a fork or /clear child's real session id, so record creation and
-    /// the active-surface boundary must be one locked transaction.
-    ///
-    /// A late startup/resume event from a session that is already known but no
-    /// longer owns this surface is rejected unless the current owner explicitly
-    /// allows replacement or the incoming process is demonstrably newer. This
-    /// keeps /clear as an ordering barrier without treating a launch-time
-    /// `--resume` argument as identity.
-    @discardableResult
-    func upsertAuthoritativeClaudeSessionStart(
-        sessionId: String,
-        source: String?,
-        workspaceId: String,
-        surfaceId: String,
-        cwd: String?,
-        transcriptPath: String? = nil,
-        pid: Int? = nil,
-        launchCommand: AgentHookLaunchCommandRecord? = nil,
-        hookEventName: String? = nil,
-        turnId: String? = nil
-    ) throws -> Bool {
-        let normalizedSessionId = normalizeSessionId(sessionId)
-        guard !normalizedSessionId.isEmpty,
-              let normalizedWorkspaceId = normalizeOptional(workspaceId),
-              let normalizedSurfaceId = normalizeOptional(surfaceId) else {
-            return false
-        }
-        return try withLockedState { state in
-            let active = state.activeSessionsBySurface[normalizedSurfaceId]
-            let existing = state.sessions[normalizedSessionId]
-            let normalizedSource = normalizeOptional(source)?.lowercased()
-            let replacesCurrentOwner = active?.sessionId != normalizedSessionId
-            let acceptsReplacement = active?.allowsNewSessionReplacement == true
-            let incomingProcessIsNewer = active
-                .flatMap { state.sessions[$0.sessionId] }
-                .map { authoritativeSessionStartProcessIsNewer(pid, than: $0) }
-                ?? false
-            let accepted = normalizedSource == "clear"
-                || active == nil
-                || !replacesCurrentOwner
-                || existing == nil
-                || acceptsReplacement
-                || incomingProcessIsNewer
-            guard accepted else { return false }
-
-            let now = Date().timeIntervalSince1970
-            var record = makeSessionRecord(
-                state: state,
-                sessionId: normalizedSessionId,
-                workspaceId: normalizedWorkspaceId,
-                surfaceId: normalizedSurfaceId,
-                now: now
-            )
-            update(
-                &record,
-                workspaceId: normalizedWorkspaceId,
-                surfaceId: normalizedSurfaceId,
-                cwd: cwd,
-                transcriptPath: transcriptPath,
-                pid: pid,
-                launchCommand: launchCommand,
-                isRestorable: false,
-                agentLifecycle: .running,
-                hookEventName: hookEventName,
-                lastSubtitle: nil,
-                lastBody: nil,
-                lastNotificationStatus: nil,
-                updateLastNotificationStatus: false,
-                runtimeStatus: nil,
-                updateRuntimeStatus: false,
-                now: now
-            )
-            state.sessions[normalizedSessionId] = record
-
-            for (workspaceId, activeSession) in state.activeSessionsByWorkspace
-                where workspaceId != normalizedWorkspaceId
-                    && activeSession.sessionId == normalizedSessionId {
-                state.activeSessionsByWorkspace.removeValue(forKey: workspaceId)
-            }
-            for (surfaceId, activeSession) in state.activeSessionsBySurface
-                where surfaceId != normalizedSurfaceId
-                    && activeSession.sessionId == normalizedSessionId {
-                state.activeSessionsBySurface.removeValue(forKey: surfaceId)
-            }
-            let activeRecord = ClaudeHookActiveSessionRecord(
-                sessionId: normalizedSessionId,
-                turnId: normalizeOptional(turnId),
-                allowsNewSessionReplacement: nil,
-                updatedAt: now
-            )
-            state.activeSessionsByWorkspace[normalizedWorkspaceId] = activeRecord
-            state.activeSessionsBySurface[normalizedSurfaceId] = activeRecord
-            return true
-        }
-    }
-
-    @discardableResult
-    func upsertCodexSessionStartIfFresh(
-        sessionId: String,
-        workspaceId: String,
-        surfaceId: String,
-        cwd: String?,
-        transcriptPath: String? = nil,
-        pid: Int? = nil,
-        launchCommand: AgentHookLaunchCommandRecord? = nil,
-        agentLifecycle: AgentHibernationLifecycleState? = nil,
-        hookEventName: String? = nil,
-        runtimeStatus: AgentHookRuntimeStatus? = nil,
-        updateRuntimeStatus: Bool = false
-    ) throws -> Bool {
-        let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return false }
-        return try withLockedState { state in
-            let now = Date().timeIntervalSince1970
-            var record = makeSessionRecord(
-                state: state,
-                sessionId: normalized,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                now: now
-            )
-            if codexSessionStartIsStale(record, incomingPID: pid) {
-                return false
-            }
-            clearCodexSessionStartTurnState(on: &record)
-            update(
-                &record,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                cwd: cwd,
-                transcriptPath: transcriptPath,
-                pid: pid,
-                launchCommand: launchCommand,
-                isRestorable: nil,
-                agentLifecycle: agentLifecycle,
-                hookEventName: hookEventName,
-                lastSubtitle: nil,
-                lastBody: nil,
-                lastNotificationStatus: nil,
-                updateLastNotificationStatus: false,
-                runtimeStatus: runtimeStatus,
-                updateRuntimeStatus: updateRuntimeStatus,
-                now: now
-            )
-            state.sessions[normalized] = record
-            return true
-        }
-    }
-
-    @discardableResult
-    func upsertCodexPromptRunningIfFresh(
-        sessionId: String,
-        workspaceId: String,
-        surfaceId: String,
-        cwd: String?,
-        transcriptPath: String? = nil,
-        turnId: String? = nil,
-        pid: Int? = nil,
-        launchCommand: AgentHookLaunchCommandRecord? = nil,
-        hookEventName: String? = nil
-    ) throws -> Bool {
-        let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return false }
-        return try withLockedState { state in
-            let now = Date().timeIntervalSince1970
-            var record = makeSessionRecord(
-                state: state,
-                sessionId: normalized,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                now: now
-            )
-            if let normalizedTurnId = normalizeOptional(turnId),
-               terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
-                return false
-            }
-            update(
-                &record,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                cwd: cwd,
-                transcriptPath: transcriptPath,
-                pid: pid,
-                launchCommand: launchCommand,
-                isRestorable: nil,
-                agentLifecycle: .running,
-                hookEventName: hookEventName,
-                lastSubtitle: nil,
-                lastBody: nil,
-                lastNotificationStatus: nil,
-                updateLastNotificationStatus: false,
-                runtimeStatus: .running,
-                updateRuntimeStatus: true,
-                now: now
-            )
-            state.sessions[normalized] = record
-            return true
-        }
-    }
-
-    func codexSessionStartIsStale(
-        sessionId: String,
-        incomingPID: Int?,
-        includeTerminalPromptTurnIds: Bool = true
-    ) throws -> Bool {
-        let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return false }
-        return try withLockedState { state in
-            guard let record = state.sessions[normalized] else { return false }
-            return codexSessionStartIsStale(
-                record,
-                incomingPID: incomingPID,
-                includeTerminalPromptTurnIds: includeTerminalPromptTurnIds
-            )
-        }
-    }
-
-    func codexPromptTurnIsTerminal(sessionId: String, turnId: String?) throws -> Bool {
-        let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty, let normalizedTurnId = normalizeOptional(turnId) else { return false }
-        return try withLockedState { state in
-            guard let record = state.sessions[normalized] else { return false }
-            return terminalPromptTurnSet(from: record).contains(normalizedTurnId)
-        }
-    }
-
-    func markNotificationResolved(
-        sessionId: String,
-        workspaceId: String,
-        surfaceId: String,
-        cwd: String?,
-        transcriptPath: String? = nil,
-        pid: Int? = nil,
-        launchCommand: AgentHookLaunchCommandRecord? = nil,
-        agentLifecycle: AgentHibernationLifecycleState? = nil,
-        runtimeStatus: AgentHookRuntimeStatus? = nil
-    ) throws {
-        let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return }
-        try withLockedState { state in
-            let now = Date().timeIntervalSince1970
-            var record = makeSessionRecord(
-                state: state,
-                sessionId: normalized,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                now: now
-            )
-            update(
-                &record,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                cwd: cwd,
-                transcriptPath: transcriptPath,
-                pid: pid,
-                launchCommand: launchCommand,
-                isRestorable: nil,
-                agentLifecycle: agentLifecycle,
-                lastSubtitle: nil,
-                lastBody: nil,
-                lastNotificationStatus: nil,
-                updateLastNotificationStatus: true,
-                runtimeStatus: runtimeStatus,
-                updateRuntimeStatus: runtimeStatus != nil,
-                now: now
-            )
-            record.lastSubtitle = nil
-            record.lastBody = nil
-            record.lastNotificationStatus = nil
-            state.sessions[normalized] = record
-        }
-    }
-
-    private func makeSessionRecord(
-        state: ClaudeHookSessionStoreFile,
-        sessionId: String,
-        workspaceId: String,
-        surfaceId: String,
-        now: TimeInterval
-    ) -> ClaudeHookSessionRecord {
-        state.sessions[sessionId] ?? ClaudeHookSessionRecord(
-            sessionId: sessionId,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            cwd: nil,
-            transcriptPath: nil,
-            pid: nil,
-            launchCommand: nil,
-            isRestorable: nil,
-            agentLifecycle: nil,
-            lastSubtitle: nil,
-            lastBody: nil,
-            lastNotificationStatus: nil,
-            lastEmittedNotificationFingerprint: nil,
-            lastEmittedNotificationAt: nil,
-            runtimeStatus: nil,
-            activePromptDepth: nil,
-            activePromptTurnId: nil,
-            activePromptTurnIds: nil,
-            lastPromptTurnId: nil,
-            terminalPromptTurnIds: nil,
-            startedAt: now,
-            updatedAt: now
-        )
-    }
-
-    private func activePromptTurnStack(from record: ClaudeHookSessionRecord) -> [String] {
-        if let activePromptTurnIds = record.activePromptTurnIds {
-            let normalized = activePromptTurnIds.compactMap { normalizeOptional($0) }
-            if !normalized.isEmpty {
-                return normalized
-            }
-        }
-        if let activePromptTurnId = normalizeOptional(record.activePromptTurnId) {
-            return [activePromptTurnId]
-        }
-        return []
-    }
-
-    private func setActivePromptTurnStack(_ stack: [String], totalDepth: Int? = nil, on record: inout ClaudeHookSessionRecord) {
-        let normalizedStack = stack.compactMap { normalizeOptional($0) }
-        let resolvedDepth = max(max(0, totalDepth ?? normalizedStack.count), normalizedStack.count)
-        if resolvedDepth == 0 {
-            record.activePromptDepth = nil
-            record.activePromptTurnId = nil
-            record.activePromptTurnIds = nil
-        } else {
-            record.activePromptDepth = resolvedDepth
-            record.activePromptTurnId = normalizedStack.last
-            record.activePromptTurnIds = normalizedStack.isEmpty ? nil : normalizedStack
-        }
-    }
-
-    private func terminalPromptTurnStack(from record: ClaudeHookSessionRecord) -> [String] {
-        record.terminalPromptTurnIds?.compactMap { normalizeOptional($0) } ?? []
-    }
-
-    private func terminalPromptTurnSet(from record: ClaudeHookSessionRecord) -> Set<String> {
-        Set(terminalPromptTurnStack(from: record))
-    }
-
-    private func codexSessionStartIsStale(
-        _ record: ClaudeHookSessionRecord,
-        incomingPID: Int?,
-        includeTerminalPromptTurnIds: Bool = true
-    ) -> Bool {
-        if max(record.activePromptDepth ?? 0, record.activePromptTurnIds?.count ?? 0) > 0 {
-            return true
-        }
-        let hasCompletedTurnState = normalizeOptional(record.lastPromptTurnId) != nil
-            || (includeTerminalPromptTurnIds && !terminalPromptTurnSet(from: record).isEmpty)
-        guard hasCompletedTurnState,
-              let incomingPID,
-              let existingPID = record.pid else {
-            return false
-        }
-        return incomingPID == existingPID
-    }
-
-    private func clearCodexSessionStartTurnState(on record: inout ClaudeHookSessionRecord) {
-        record.activePromptDepth = nil
-        record.activePromptTurnId = nil
-        record.activePromptTurnIds = nil
-        record.lastPromptTurnId = nil
-    }
-
-    private func markPromptTurnActive(_ turnId: String, on record: inout ClaudeHookSessionRecord) {
-        var terminalTurnIds = terminalPromptTurnStack(from: record)
-        terminalTurnIds.removeAll { $0 == turnId }
-        record.terminalPromptTurnIds = terminalTurnIds.isEmpty ? nil : terminalTurnIds
-    }
-
-    private func markPromptTurnsTerminal(_ turnIds: [String], on record: inout ClaudeHookSessionRecord) {
-        for turnId in turnIds {
-            markPromptTurnTerminal(turnId, on: &record)
-        }
-    }
-
-    private func markPromptTurnTerminal(_ turnId: String, on record: inout ClaudeHookSessionRecord) {
-        guard let normalizedTurnId = normalizeOptional(turnId) else { return }
-        var terminalTurnIds = terminalPromptTurnStack(from: record)
-        terminalTurnIds.removeAll { $0 == normalizedTurnId }
-        terminalTurnIds.append(normalizedTurnId)
-        if terminalTurnIds.count > Self.maxRememberedTerminalPromptTurnIds {
-            terminalTurnIds.removeFirst(terminalTurnIds.count - Self.maxRememberedTerminalPromptTurnIds)
-        }
-        record.lastPromptTurnId = normalizedTurnId
-        record.terminalPromptTurnIds = terminalTurnIds.isEmpty ? nil : terminalTurnIds
-    }
-
-    private func appendAutoNameMessages(
-        _ messages: [AutoNamingTranscriptMessage],
-        to record: inout ClaudeHookSessionRecord
-    ) {
-        guard !messages.isEmpty else { return }
-        var recent = record.autoNameRecentMessages ?? []
-        var appendedCount = 0
-        for message in messages {
-            guard let normalized = normalizedAutoNameMessage(message) else { continue }
-            if recent.last == normalized { continue }
-            recent.append(normalized)
-            appendedCount += 1
-        }
-        if recent.count > Self.maxAutoNameRecentMessages {
-            recent.removeFirst(recent.count - Self.maxAutoNameRecentMessages)
-        }
-        record.autoNameRecentMessages = recent.isEmpty ? nil : recent
-        if appendedCount > 0 {
-            record.autoNameMessageSequence = (record.autoNameMessageSequence ?? 0) + appendedCount
-        }
-    }
-
-    private func normalizedAutoNameMessage(_ message: AutoNamingTranscriptMessage) -> AutoNamingTranscriptMessage? {
-        let role = message.role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard role == "user" || role == "assistant" else { return nil }
-        let text = autoNameNormalizedSingleLine(message.text)
-        guard !text.isEmpty else { return nil }
-        return AutoNamingTranscriptMessage(
-            role: role,
-            text: autoNameTruncate(text, maxLength: Self.maxAutoNameMessageCharacters)
-        )
-    }
-
-    private func autoNameNormalizedSingleLine(_ value: String) -> String {
-        let collapsed = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-        return collapsed.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func autoNameTruncate(_ value: String, maxLength: Int) -> String {
-        guard value.count > maxLength else { return value }
-        let index = value.index(value.startIndex, offsetBy: max(0, maxLength - 1))
-        return String(value[..<index]) + "…"
-    }
-
-    private func update(
-        _ record: inout ClaudeHookSessionRecord,
-        workspaceId: String,
-        surfaceId: String,
-        cwd: String?,
-        transcriptPath: String?,
-        pid: Int?,
-        launchCommand: AgentHookLaunchCommandRecord?,
-        isRestorable: Bool?,
-        agentLifecycle: AgentHibernationLifecycleState?,
-        hookEventName: String? = nil,
-        lastSubtitle: String?,
-        lastBody: String?,
-        updateLastSummary: Bool = false,
-        lastNotificationStatus: AgentHookNotificationStatus?,
-        updateLastNotificationStatus: Bool,
-        runtimeStatus: AgentHookRuntimeStatus?,
-        updateRuntimeStatus: Bool,
-        hadPendingBackgroundWorkAtStop: Bool? = nil,
-        title: String? = nil,
-        now: TimeInterval
-    ) {
-        record.workspaceId = workspaceId
-        if !surfaceId.isEmpty {
-            record.surfaceId = surfaceId
-        }
-        if let cwd = normalizeOptional(cwd) {
-            record.cwd = cwd
-        }
-        if let title = normalizeOptional(title) {
-            record.title = title
-        }
-        if let transcriptPath = normalizeOptional(transcriptPath) {
-            record.transcriptPath = transcriptPath
-        }
-        if let pid {
-            record.updateProcessGeneration(
-                pid: pid,
-                startIdentity: processStartIdentity(pid: pid)
-            )
-        }
-        if let launchCommand {
-            let existingHasArguments = !(record.launchCommand?.arguments.isEmpty ?? true)
-            let incomingHasArguments = !launchCommand.arguments.isEmpty
-            let incomingHasEnvironment = !(launchCommand.environment?.isEmpty ?? true)
-            // Persist an argv-bearing record always. Persist an argv-less, env-only record (the
-            // CODEX_HOME / CLAUDE_CONFIG_DIR fallback for a plain agent whose launch argv couldn't be
-            // captured) only when we don't already hold an argv-bearing one — so the durable store
-            // keeps the non-default home for the fork/resume path without ever downgrading a richer
-            // earlier capture to an env-only stub.
-            if incomingHasArguments || normalizeOptional(launchCommand.source)?.lowercased() == "rejected" || (normalizeOptional(launchCommand.source)?.lowercased() == "default" && !existingHasArguments && normalizeOptional(record.launchCommand?.environment?["CODEX_HOME"]) == nil) || (incomingHasEnvironment && !existingHasArguments) {
-                record.launchCommand = launchCommand
-            } else if let verificationHome = normalizeOptional(launchCommand.verificationHome),
-                      var existingLaunchCommand = record.launchCommand,
-                      normalizeOptional(existingLaunchCommand.verificationHome) == nil {
-                // Keep a richer argv capture while filling in the separate
-                // Codex verification hint learned by a later hook event.
-                existingLaunchCommand.verificationHome = verificationHome
-                record.launchCommand = existingLaunchCommand
-            }
-        }
-        if let isRestorable {
-            // Preserve sticky true: a later isRestorable=false must not clear
-            // record.isRestorable=true from a transcript-backed event.
-            record.isRestorable = isRestorable || record.isRestorable == true
-        }
-        if let agentLifecycle {
-            record.agentLifecycle = agentLifecycle
-        }
-        if let hookEventName = normalizeOptional(hookEventName) {
-            record.hookEventName = hookEventName
-        }
-        if updateLastSummary {
-            record.lastSubtitle = normalizeOptional(lastSubtitle)
-            record.lastBody = normalizeOptional(lastBody)
-        } else {
-            if let subtitle = normalizeOptional(lastSubtitle) {
-                record.lastSubtitle = subtitle
-            }
-            if let body = normalizeOptional(lastBody) {
-                record.lastBody = body
-            }
-        }
-        if updateLastNotificationStatus {
-            record.lastNotificationStatus = lastNotificationStatus
-        }
-        if updateRuntimeStatus {
-            record.runtimeStatus = runtimeStatus
-        }
-        if let hadPendingBackgroundWorkAtStop {
-            record.hadPendingBackgroundWorkAtStop = hadPendingBackgroundWorkAtStop
-        }
-        record.updatedAt = now
-    }
-
-    private func processStartIdentity(pid: Int) -> (seconds: Int64, microseconds: Int64)? {
-        guard pid > 0, pid <= Int(Int32.max) else { return nil }
-        var info = proc_bsdinfo()
-        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
-        let size = proc_pidinfo(pid_t(pid), PROC_PIDTBSDINFO, 0, &info, Int32(expectedSize))
-        guard size == expectedSize else { return nil }
-        return (
-            seconds: Int64(info.pbi_start_tvsec),
-            microseconds: Int64(info.pbi_start_tvusec)
-        )
-    }
-
-    private func authoritativeSessionStartProcessIsNewer(
-        _ incomingPID: Int?,
-        than activeRecord: ClaudeHookSessionRecord
-    ) -> Bool {
-        guard let incomingPID,
-              let incomingIdentity = processStartIdentity(pid: incomingPID) else {
-            return false
-        }
-        if let seconds = activeRecord.pidStartSeconds,
-           let microseconds = activeRecord.pidStartMicroseconds {
-            return (incomingIdentity.seconds, incomingIdentity.microseconds) > (seconds, microseconds)
-        }
-        guard let activePID = activeRecord.pid,
-              activePID != incomingPID else {
-            return false
-        }
-        return !Self.processExists(activePID)
-    }
-
-    func clearNotificationEmission(sessionId: String) throws {
-        let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return }
-        try withLockedState { state in
-            guard var record = state.sessions[normalized] else { return }
-            let now = Date().timeIntervalSince1970
-            record.lastEmittedNotificationFingerprint = nil
-            record.lastEmittedNotificationAt = nil
-            record.recentEmittedNotificationFingerprints = nil
-            record.updatedAt = now
-            state.sessions[normalized] = record
-        }
-    }
-
-    /// Removes a provisional completion summary without changing the session's
-    /// ownership or turn-depth state. A Codex Stop with live children is not a
-    /// user-visible completion and must not be reused by a later notification.
-    func clearNotificationSummary(sessionId: String) throws {
-        let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return }
-        try withLockedState { state in
-            guard var record = state.sessions[normalized] else { return }
-            record.lastSubtitle = nil
-            record.lastBody = nil
-            record.lastNotificationStatus = nil
-            state.sessions[normalized] = record
-        }
-    }
-
-    func recentlyEmittedNotification(
-        sessionId: String,
-        fingerprint: String,
-        within interval: TimeInterval = 60 * 60,
-        deadline: Date? = nil
-    ) throws -> Bool {
-        let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return false }
-        let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedFingerprint.isEmpty else { return false }
-        return try withLockedState(deadline: deadline) { state in
-            guard let record = state.sessions[normalized] else { return false }
-            let now = Date().timeIntervalSince1970
-            if let emittedAt = record.recentEmittedNotificationFingerprints?[normalizedFingerprint],
-               now - emittedAt <= interval {
-                return true
-            }
-            guard record.lastEmittedNotificationFingerprint == normalizedFingerprint,
-                  let emittedAt = record.lastEmittedNotificationAt else {
-                return false
-            }
-            return now - emittedAt <= interval
-        }
-    }
-
-    func markNotificationEmitted(
-        sessionId: String,
-        fingerprint: String,
-        deadline: Date? = nil
-    ) throws {
-        let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return }
-        let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedFingerprint.isEmpty else { return }
-        try withLockedState(deadline: deadline) { state in
-            guard var record = state.sessions[normalized] else { return }
-            let now = Date().timeIntervalSince1970
-            record.lastEmittedNotificationFingerprint = normalizedFingerprint
-            record.lastEmittedNotificationAt = now
-            var recent = record.recentEmittedNotificationFingerprints ?? [:]
-            recent[normalizedFingerprint] = now
-            recent = recent.filter { now - $0.value <= 60 * 60 }
-            if recent.count > 16 {
-                let keep = recent.sorted { lhs, rhs in
-                    if lhs.value == rhs.value { return lhs.key < rhs.key }
-                    return lhs.value > rhs.value
-                }.prefix(16)
-                recent = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
-            }
-            record.recentEmittedNotificationFingerprints = recent.isEmpty ? nil : recent
-            record.updatedAt = now
-            state.sessions[normalized] = record
-        }
-    }
-    func claimAgentHookFailureReport(
-        agentName: String,
-        stage: String,
-        sessionId: String,
-        within interval: TimeInterval = 15 * 60,
-        deadline: Date? = nil
-    ) throws -> Bool {
-        let normalized = normalizeSessionId(sessionId)
-        let key = "\(agentName):\(stage):\(normalized.isEmpty ? "unknown" : normalized)"
-        return try withLockedState(deadline: deadline) { state in
-            let now = Date().timeIntervalSince1970
-            var reports = state.agentHookFailureReportTimestamps
-            if let lastFailureAt = reports[key], now - lastFailureAt < interval {
-                return false
-            }
-            reports[key] = now
-            if reports.count > 64 {
-                let newestReports = reports.sorted { $0.value > $1.value }.prefix(64)
-                reports = Dictionary(uniqueKeysWithValues: newestReports.map { ($0.key, $0.value) })
-            }
-            state.agentHookFailureReportTimestamps = reports
-            return true
-        }
-    }
-    func hasRunningSession(
-        workspaceId: String,
-        surfaceId: String?,
-        excludingSessionId: String?,
-        onlyNewerThanExcludedSession: Bool = false,
-        requireLiveProcess: Bool = false
-    ) throws -> Bool {
-        guard let normalizedWorkspace = normalizeOptional(workspaceId) else {
-            return false
-        }
-        let normalizedSurface = normalizeOptional(surfaceId)
-        let excluded = normalizeOptional(excludingSessionId)
-        return try withLockedState { state in
-            let excludedUpdatedAt = excluded.flatMap { state.sessions[$0]?.updatedAt }
-            if onlyNewerThanExcludedSession, excludedUpdatedAt == nil { return false }
-            var foundRunningSession = false
-            let now = Date().timeIntervalSince1970
-
-            for sessionId in Array(state.sessions.keys) {
-                guard var record = state.sessions[sessionId] else { continue }
-                guard normalizeOptional(record.workspaceId) == normalizedWorkspace,
-                      record.sessionId != excluded,
-                      record.runtimeStatus == .running else {
-                    continue
-                }
-                if let normalizedSurface, normalizeOptional(record.surfaceId) != normalizedSurface {
-                    continue
-                }
-                if onlyNewerThanExcludedSession, let excludedUpdatedAt {
-                    guard record.updatedAt > excludedUpdatedAt else {
-                        continue
-                    }
-                }
-
-                if requireLiveProcess, !Self.processExists(record.pid) {
-                    record.runtimeStatus = nil
-                    record.updatedAt = now
-                    state.sessions[sessionId] = record
-                    continue
-                }
-
-                foundRunningSession = true
-                break
-            }
-
-            return foundRunningSession
-        }
-    }
-
-    private static func processExists(_ pid: Int?) -> Bool {
-        guard let pid, pid > 0 else { return false }
-        if kill(pid_t(pid), 0) == 0 {
-            return true
-        }
-        return errno == EPERM
-    }
-
-    /// Returns true when an event belongs to the workspace's active Claude session.
-    /// It fails open when the event cannot identify a session/workspace, when no
-    /// active session is registered yet, or when either side lacks a turnId so
-    /// multi-turn continuations can proceed after Stop clears the active turn.
-    func isCurrent(
-        sessionId: String?,
-        workspaceId: String,
-        surfaceId: String? = nil,
-        turnId: String? = nil
-    ) throws -> Bool {
-        guard let normalizedSessionId = normalizeOptional(sessionId),
-              let normalizedWorkspace = normalizeOptional(workspaceId) else {
-            return true
-        }
-        return try withLockedState { state in
-            // The pane's own active boundary decides first: a hook is stale when a
-            // DIFFERENT session was promoted in the SAME surface (post-/clear or
-            // replaced-session races in one pane). This stays true even after a
-            // sibling pane — e.g. a forked conversation in a split — later takes
-            // the single workspace-active slot.
-            // https://github.com/manaflow-ai/cmux/issues/5908
-            if let normalizedSurfaceId = normalizeOptional(surfaceId),
-               let surfaceActive = state.activeSessionsBySurface[normalizedSurfaceId] {
-                guard surfaceActive.sessionId == normalizedSessionId else {
-                    return false
-                }
-                guard let activeTurnId = normalizeOptional(surfaceActive.turnId),
-                      let normalizedTurnId = normalizeOptional(turnId) else {
-                    return true
-                }
-                return activeTurnId == normalizedTurnId
-            }
-            guard let active = state.activeSessionsByWorkspace[normalizedWorkspace] else {
-                return true
-            }
-            guard active.sessionId == normalizedSessionId else {
-                // Legacy fallback for stores written before per-surface tracking:
-                // a different active session only makes this hook stale when that
-                // session lives in the SAME surface; concurrent sessions in
-                // sibling panes stay current for their own surface.
-                guard let normalizedSurfaceId = normalizeOptional(surfaceId),
-                      let activeRecord = state.sessions[active.sessionId],
-                      let activeSurfaceId = normalizeOptional(activeRecord.surfaceId) else {
-                    // Cross-surface protection needs both surfaces; when the caller
-                    // omits surfaceId or the active session's record is gone/surface-
-                    // less, fall back to the stricter workspace-scoped staleness.
-                    return false
-                }
-                return activeSurfaceId != normalizedSurfaceId
-            }
-            guard let activeTurnId = normalizeOptional(active.turnId),
-                  let normalizedTurnId = normalizeOptional(turnId) else {
-                return true
-            }
-            return activeTurnId == normalizedTurnId
-        }
-    }
-
-    func canReplaceActiveSession(
-        sessionId: String?,
-        workspaceId: String,
-        surfaceId: String? = nil
-    ) throws -> Bool {
-        guard let normalizedSessionId = normalizeOptional(sessionId),
-              let normalizedWorkspace = normalizeOptional(workspaceId) else {
-            return false
-        }
-        return try withLockedState { state in
-            // Replacement is pane-scoped like staleness: a stopped session in
-            // THIS surface allows its own pane to start a new session even when
-            // another pane currently holds the workspace-active slot.
-            // https://github.com/manaflow-ai/cmux/issues/5908
-            if let normalizedSurfaceId = normalizeOptional(surfaceId),
-               let surfaceActive = state.activeSessionsBySurface[normalizedSurfaceId] {
-                guard surfaceActive.sessionId != normalizedSessionId else {
-                    return false
-                }
-                return surfaceActive.allowsNewSessionReplacement == true
-            }
-            guard let active = state.activeSessionsByWorkspace[normalizedWorkspace],
-                  active.sessionId != normalizedSessionId else {
-                return false
-            }
-            return active.allowsNewSessionReplacement == true
-        }
-    }
-
-    func consume(
-        sessionId: String?,
-        workspaceId: String?,
-        surfaceId: String?,
-        turnId: String? = nil
-    ) throws -> ClaudeHookSessionRecord? {
-        let normalizedSessionId = normalizeOptional(sessionId)
-        let normalizedWorkspace = normalizeOptional(workspaceId)
-        let normalizedSurface = normalizeOptional(surfaceId)
-        return try withLockedState { state in
-            if let normalizedSessionId,
-               let existing = state.sessions[normalizedSessionId] {
-                guard !hasActiveTurnMismatch(state, record: existing, turnId: turnId) else {
-                    return nil
-                }
-                let removed = state.sessions.removeValue(forKey: normalizedSessionId) ?? existing
-                clearActiveSessionIfMatching(&state, removed: removed, turnId: turnId)
-                return removed
-            }
-
-            guard let fallback = fallbackRecord(
-                sessions: Array(state.sessions.values),
-                workspaceId: normalizedWorkspace,
-                surfaceId: normalizedSurface
-            ) else {
-                return nil
-            }
-            guard !hasActiveTurnMismatch(state, record: fallback, turnId: turnId) else {
-                return nil
-            }
-            state.sessions.removeValue(forKey: fallback.sessionId)
-            clearActiveSessionIfMatching(&state, removed: fallback, turnId: turnId)
-            return fallback
-        }
-    }
-
-    private func hasActiveTurnMismatch(
-        _ state: ClaudeHookSessionStoreFile,
-        record: ClaudeHookSessionRecord,
-        turnId: String?
-    ) -> Bool {
-        guard let incomingTurnId = normalizeOptional(turnId) else {
-            return false
-        }
-        // Consult the pane-scoped slot alongside the workspace slot: once a
-        // sibling pane takes the single workspace-active slot, only the
-        // surface slot still proves that this session is mid-turn in its own
-        // pane and a stale SessionEnd from an older turn must not consume it.
-        // https://github.com/manaflow-ai/cmux/issues/5908
-        var activeRecords: [ClaudeHookActiveSessionRecord] = []
-        if let workspaceId = normalizeOptional(record.workspaceId),
-           let active = state.activeSessionsByWorkspace[workspaceId] {
-            activeRecords.append(active)
-        }
-        if let surfaceId = normalizeOptional(record.surfaceId),
-           let active = state.activeSessionsBySurface[surfaceId] {
-            activeRecords.append(active)
-        }
-        return activeRecords.contains { active in
-            guard active.sessionId == record.sessionId,
-                  let activeTurnId = normalizeOptional(active.turnId) else {
-                return false
-            }
-            return activeTurnId != incomingTurnId
-        }
-    }
-
-    private func clearActiveSessionIfMatching(
-        _ state: inout ClaudeHookSessionStoreFile,
-        removed: ClaudeHookSessionRecord,
-        turnId: String?
-    ) {
-        let incomingTurnId = normalizeOptional(turnId)
-        func matches(_ active: ClaudeHookActiveSessionRecord) -> Bool {
-            guard active.sessionId == removed.sessionId else { return false }
-            if let activeTurnId = normalizeOptional(active.turnId),
-               let incomingTurnId,
-               activeTurnId != incomingTurnId {
-                return false
-            }
-            return true
-        }
-        if let workspaceId = normalizeOptional(removed.workspaceId),
-           let active = state.activeSessionsByWorkspace[workspaceId],
-           matches(active) {
-            state.activeSessionsByWorkspace.removeValue(forKey: workspaceId)
-        }
-        for (surfaceId, active) in state.activeSessionsBySurface where matches(active) {
-            state.activeSessionsBySurface.removeValue(forKey: surfaceId)
-        }
-    }
-
-    private func fallbackRecord(
-        sessions: [ClaudeHookSessionRecord],
-        workspaceId: String?,
-        surfaceId: String?
-    ) -> ClaudeHookSessionRecord? {
-        if let surfaceId {
-            let matches = sessions.filter { $0.surfaceId == surfaceId }
-            return matches.max(by: { $0.updatedAt < $1.updatedAt })
-        }
-        if let workspaceId {
-            let matches = sessions.filter { $0.workspaceId == workspaceId }
-            if matches.count == 1 {
-                return matches[0]
-            }
-        }
-        return nil
-    }
-
-    func withLockedState<T>(
-        deadline: Date? = nil,
-        persist: Bool = true,
-        _ body: (inout ClaudeHookSessionStoreFile) throws -> T
-    ) throws -> T {
-        let lockPath = statePath + ".lock"
-        // The lock file is opened before the state is ever saved, so the first
-        // store access on a fresh HOME must create the state directory itself.
-        try fileManager.createDirectory(
-            at: URL(fileURLWithPath: lockPath).deletingLastPathComponent(),
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
-        )
-        let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
-        if fd < 0 {
-            throw CLIError(message: "Failed to open Claude hook state lock: \(lockPath)")
-        }
-        defer { Darwin.close(fd) }
-
-        if let deadline {
-            while flock(fd, LOCK_EX | LOCK_NB) != 0 {
-                guard errno == EWOULDBLOCK || errno == EAGAIN, Date.now < deadline else {
-                    throw CLIError(message: "Timed out locking Claude hook state: \(lockPath)")
-                }
-                usleep(5_000)
-            }
-        } else if flock(fd, LOCK_EX) != 0 {
-            throw CLIError(message: "Failed to lock Claude hook state: \(lockPath)")
-        }
-        defer { _ = flock(fd, LOCK_UN) }
-
-        if let deadline, Date.now >= deadline {
-            throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
-        }
-        var state = try loadUnlocked(deadline: deadline)
-        if let deadline, Date.now >= deadline {
-            throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
-        }
-        pruneExpired(&state)
-        let hasLegacyCursorPendingIndex = state.pendingCursorApprovalSessionsBySurface.keys.contains {
-            $0.contains("|")
-        }
-        let hasUninitializedCursorPendingCounts = !state.pendingCursorApprovalSessionsBySurface.isEmpty
-            && state.pendingCursorApprovalSessionCountsBySurface.isEmpty
-        let hasUninitializedCursorPendingOverflow = state.pendingCursorApprovalSessionCountsBySurface.contains {
-            $0.value > Self.maxPendingCursorApprovalIndexEntriesPerSurface
-                && state.pendingCursorApprovalSurfaceOverflow[$0.key] != true
-        }
-        if !state.pendingCursorApprovalIndexInitialized
-            || hasLegacyCursorPendingIndex
-            || hasUninitializedCursorPendingCounts
-            || hasUninitializedCursorPendingOverflow {
-            reconcileCursorPendingIndex(&state)
-            state.pendingCursorApprovalIndexInitialized = true
-        }
-        pruneCursorPendingIndex(&state)
-        if let deadline, Date.now >= deadline {
-            throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
-        }
-        let result = try body(&state)
-        if let deadline, Date.now >= deadline {
-            throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
-        }
-        if persist {
-            try saveUnlocked(state, deadline: deadline)
-        }
-        return result
-    }
-
-    /// Acquires a surface-scoped ordering lease for Cursor approval state/UI.
-    ///
-    /// The state lock is released before socket I/O; this separate lease keeps
-    /// approval creation, completion, and shared-status reconciliation ordered
-    /// for one surface, so a sibling session cannot publish a newer wait
-    /// between the pending check and its completion status update. When no
-    /// surface is known, the session id remains the compatibility identity.
-    /// The fixed shared lock file uses byte-range fcntl locks, so session count
-    /// cannot create unbounded lock files. This lock is a cross-process
-    /// ordering carve-out for synchronous hook callbacks; it guards only a
-    /// short, bounded reconciliation section.
-    func acquireCursorShellApprovalReconciliationLock(
-        sessionId: String,
-        surfaceId: String? = nil,
-        deadline: Date? = nil
-    ) throws -> CursorShellApprovalReconciliationLease {
-        let normalizedSession = normalizeSessionId(sessionId)
-        guard !normalizedSession.isEmpty else {
-            throw CLIError(message: "Cursor approval reconciliation requires a session")
-        }
-        let lockIdentity = normalizeOptional(surfaceId) ?? normalizedSession
-        let digest = Array(SHA256.hash(data: Data(lockIdentity.utf8)))
-        var rawOffset: UInt64 = 0
-        for byte in digest.prefix(MemoryLayout<UInt64>.size) {
-            rawOffset = (rawOffset << 8) | UInt64(byte)
-        }
-        let lockStart = off_t(rawOffset & 0x3FFF_FFFF_FFFF_FFFF) + 1
-        let lockLength: off_t = 1
-        let lockPath = statePath + ".cursor-approval-reconcile.lock"
-        let lockDirectory = URL(fileURLWithPath: lockPath).deletingLastPathComponent()
-        try fileManager.createDirectory(
-            at: lockDirectory,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
-        )
-        let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
-        if fd < 0 {
-            throw CLIError(message: "Failed to open Cursor approval reconciliation lock: \(lockPath)")
-        }
-        var lock = flock(
-            l_start: lockStart,
-            l_len: lockLength,
-            l_pid: 0,
-            l_type: Int16(F_WRLCK),
-            l_whence: Int16(SEEK_SET)
-        )
-        let lockDeadline = deadline ?? Date.now.addingTimeInterval(3.0)
-        while Darwin.fcntl(fd, F_SETLK, &lock) != 0 {
-            guard errno == EACCES || errno == EAGAIN, Date.now < lockDeadline else {
-                Darwin.close(fd)
-                throw CLIError(message: "Failed to lock Cursor approval reconciliation: \(lockPath)")
-            }
-            usleep(5_000)
-        }
-        return CursorShellApprovalReconciliationLease(
-            fileDescriptor: fd,
-            lockStart: lockStart,
-            lockLength: lockLength
-        )
-    }
-
-    private func loadUnlocked(deadline: Date? = nil) throws -> ClaudeHookSessionStoreFile {
-        guard fileManager.fileExists(atPath: statePath) else {
-            return ClaudeHookSessionStoreFile()
-        }
-        let stateURL = URL(fileURLWithPath: statePath)
-        guard let values = try? stateURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
-              values.isRegularFile == true,
-              let fileSize = values.fileSize else {
-            throw CLIError(message: "Claude hook state file is unavailable or too large: \(statePath)")
-        }
-        if deadline != nil, fileSize > Self.maxHookStateFileBytes {
-            throw CLIError(message: "Claude hook state file is too large for the hook deadline: \(statePath)")
-        }
-        if fileSize > Self.maxRecoverableHookStateFileBytes {
-            return try quarantineOversizedState(at: stateURL)
-        }
-        let data = try Data(contentsOf: stateURL)
-        guard var decoded = try? decoder.decode(ClaudeHookSessionStoreFile.self, from: data) else {
-            return try quarantineOversizedState(at: stateURL)
-        }
-        if fileSize > Self.maxHookStateFileBytes {
-            compactRecoveredState(&decoded)
-        }
-        backfillSurfaceActiveSlots(&decoded)
-        return decoded
-    }
-
-    /// Moves an unreadable/oversized state file aside before rebuilding a
-    /// bounded store, so hook routing can recover without silently destroying
-    /// the user's previous session mappings.
-    private func quarantineOversizedState(at url: URL) throws -> ClaudeHookSessionStoreFile {
-        let backupURL = url.deletingLastPathComponent()
-            .appendingPathComponent(".\(url.lastPathComponent).quarantined.json", isDirectory: false)
-        try? fileManager.removeItem(at: backupURL)
-        try fileManager.moveItem(at: url, to: backupURL)
-        return ClaudeHookSessionStoreFile()
-    }
-
-    private func reconcileCursorPendingIndex(_ state: inout ClaudeHookSessionStoreFile) {
-        let now = Date().timeIntervalSince1970
-        var index: [String: [String]] = [:]
-        var counts: [String: Int] = [:]
-        for (sessionId, record) in state.sessions {
-            guard hasUnexpiredCursorShellApproval(record, now: now) else { continue }
-            let key = cursorPendingSurfaceKey(surfaceId: record.surfaceId)
-            counts[key, default: 0] += 1
-            var sessions = index[key] ?? []
-            sessions.append(sessionId)
-            if sessions.count > Self.maxPendingCursorApprovalIndexEntriesPerSurface {
-                sessions.removeFirst(sessions.count - Self.maxPendingCursorApprovalIndexEntriesPerSurface)
-            }
-            index[key] = sessions
-        }
-        state.pendingCursorApprovalSessionsBySurface = index
-        state.pendingCursorApprovalSessionCountsBySurface = counts
-        state.pendingCursorApprovalSurfaceOverflow = counts.reduce(into: [:]) { result, entry in
-            if entry.value > Self.maxPendingCursorApprovalIndexEntriesPerSurface {
-                result[entry.key] = true
-            }
-        }
-    }
-
-    private func pruneCursorPendingIndex(_ state: inout ClaudeHookSessionStoreFile) {
-        let now = Date().timeIntervalSince1970
-        var next: [String: [String]] = [:]
-        var nextCounts = state.pendingCursorApprovalSessionCountsBySurface
-        for (key, sessions) in state.pendingCursorApprovalSessionsBySurface {
-            let valid = sessions.filter { sessionId in
-                guard let record = state.sessions[sessionId],
-                      hasUnexpiredCursorShellApproval(record, now: now) else {
-                    return false
-                }
-                return cursorPendingSurfaceKey(surfaceId: record.surfaceId) == key
-            }
-            let currentCount = nextCounts[key] ?? sessions.count
-            let removedKnownCount = max(0, sessions.count - valid.count)
-            let remainingCount = max(0, currentCount - removedKnownCount)
-            if remainingCount > 0 {
-                nextCounts[key] = remainingCount
-            } else {
-                nextCounts.removeValue(forKey: key)
-            }
-            if !valid.isEmpty {
-                next[key] = Array(valid.suffix(Self.maxPendingCursorApprovalIndexEntriesPerSurface))
-            }
-        }
-        state.pendingCursorApprovalSessionsBySurface = next
-        state.pendingCursorApprovalSessionCountsBySurface = nextCounts.filter { key, count in
-            count > 0 && (
-                next[key] != nil
-                    || count > Self.maxPendingCursorApprovalIndexEntriesPerSurface
-                    || state.pendingCursorApprovalSurfaceOverflow[key] == true
-            )
-        }
-        let retainedKeys = Set(state.pendingCursorApprovalSessionCountsBySurface.keys)
-        state.pendingCursorApprovalSurfaceOverflow = state.pendingCursorApprovalSurfaceOverflow.filter {
-            retainedKeys.contains($0.key)
-        }
-    }
-
-    private func compactRecoveredState(_ state: inout ClaudeHookSessionStoreFile) {
-        guard state.sessions.count > Self.maxRecoveredHookSessions else { return }
-        var required = Set(state.activeSessionsByWorkspace.values.map(\.sessionId))
-        required.formUnion(state.activeSessionsBySurface.values.map(\.sessionId))
-        required.formUnion(state.sessions.compactMap { sessionId, record in
-            record.pendingCursorShellApprovals?.isEmpty == false ? sessionId : nil
-        })
-        let newest = state.sessions
-            .sorted { $0.value.updatedAt > $1.value.updatedAt }
-            .prefix(Self.maxRecoveredHookSessions)
-            .map(\.key)
-        let keep = Set(newest).union(required)
-        state.sessions = state.sessions.filter { keep.contains($0.key) }
-        state.activeSessionsByWorkspace = state.activeSessionsByWorkspace.filter {
-            state.sessions[$0.value.sessionId] != nil
-        }
-        state.activeSessionsBySurface = state.activeSessionsBySurface.filter {
-            state.sessions[$0.value.sessionId] != nil
-        }
-        state.pendingSupersededSessionCleanup = state.pendingSupersededSessionCleanup.filter {
-            state.sessions[$0.key] != nil
-        }
-    }
-
-    /// Stores written before per-surface tracking (or rewritten by an older
-    /// CLI, which drops the unknown key) carry only workspace-active slots.
-    /// Rebuild the pane boundary from each workspace-active session's recorded
-    /// surface so pre-upgrade panes keep suppressing stale hooks after a
-    /// sibling pane takes the workspace slot.
-    /// https://github.com/manaflow-ai/cmux/issues/5908
-    private func backfillSurfaceActiveSlots(_ state: inout ClaudeHookSessionStoreFile) {
-        guard state.activeSessionsBySurface.isEmpty else { return }
-        for active in state.activeSessionsByWorkspace.values {
-            guard let surfaceId = normalizeOptional(state.sessions[active.sessionId]?.surfaceId) else {
-                continue
-            }
-            state.activeSessionsBySurface[surfaceId] = active
-        }
-    }
-
-    private func saveUnlocked(_ state: ClaudeHookSessionStoreFile, deadline: Date? = nil) throws {
-        if let deadline, Date.now >= deadline {
-            throw CLIError(message: "Claude hook state deadline exceeded: \(statePath)")
-        }
-        let stateURL = URL(fileURLWithPath: statePath)
-        let parentURL = stateURL.deletingLastPathComponent()
-        try fileManager.createDirectory(
-            at: parentURL,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
-        )
-        try? fileManager.setAttributes([.posixPermissions: NSNumber(value: Int16(0o700))], ofItemAtPath: parentURL.path)
-        let data = try encoder.encode(state)
-        if let deadline, Date.now >= deadline {
-            throw CLIError(message: "Claude hook state deadline exceeded: \(statePath)")
-        }
-        let tempURL = parentURL.appendingPathComponent(".\(stateURL.lastPathComponent).\(UUID().uuidString).tmp")
-        guard fileManager.createFile(atPath: tempURL.path, contents: data, attributes: [
-            .posixPermissions: NSNumber(value: Int16(0o600))
-        ]) else {
-            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: statePath])
-        }
-        if let deadline, Date.now >= deadline {
-            try? fileManager.removeItem(at: tempURL)
-            throw CLIError(message: "Claude hook state deadline exceeded: \(statePath)")
-        }
-        let renameResult = tempURL.path.withCString { source in
-            stateURL.path.withCString { destination in
-                Darwin.rename(source, destination)
-            }
-        }
-        if renameResult != 0 {
-            let code = POSIXErrorCode(rawValue: errno) ?? .EIO
-            try? fileManager.removeItem(at: tempURL)
-            throw POSIXError(code)
-        }
-        try? fileManager.setAttributes([.posixPermissions: NSNumber(value: Int16(0o600))], ofItemAtPath: stateURL.path)
-    }
-
-    private func pruneExpired(_ state: inout ClaudeHookSessionStoreFile) {
-        let now = Date().timeIntervalSince1970
-        let cutoff = now - Self.maxStateAgeSeconds
-        state.sessions = state.sessions.filter { _, record in
-            record.updatedAt >= cutoff
-        }
-        for sessionId in Array(state.sessions.keys) {
-            guard var record = state.sessions[sessionId],
-                  let pending = record.pendingCursorShellApprovals,
-                  pending.count > Self.maxPendingCursorShellApprovals else {
-                continue
-            }
-            // State files are user-writable and may have been produced by an
-            // older or interrupted writer. Keep only the newest bounded
-            // approvals. Because the dropped prefix may itself be enormous,
-            // disable command-only correlation for this session instead of
-            // scanning it to build a fence; stable tool ids remain eligible.
-            var recentlyCleared = (record.recentlyClearedCursorShellCommandFingerprints ?? [:]).filter {
-                now - $0.value <= Self.recentlyClearedCursorShellCommandAgeSeconds
-            }
-            record.cursorShellCommandOnlyCorrelationDisabled = true
-            if recentlyCleared.count > Self.maxRecentlyClearedCursorShellCommandFingerprints {
-                record.cursorShellCommandOnlyCorrelationDisabled = true
-                recentlyCleared = Dictionary(
-                    uniqueKeysWithValues: recentlyCleared.sorted { $0.value > $1.value }
-                        .prefix(Self.maxRecentlyClearedCursorShellCommandFingerprints)
-                        .map { ($0.key, $0.value) }
-                )
-            }
-            record.recentlyClearedCursorShellCommandFingerprints = recentlyCleared
-            record.pendingCursorShellApprovals = Array(pending.suffix(Self.maxPendingCursorShellApprovals))
-            state.sessions[sessionId] = record
-        }
-        state.pendingSupersededSessionCleanup = state.pendingSupersededSessionCleanup.filter { _, record in
-            (record.supersededCleanupEnqueuedAt ?? record.updatedAt) >= cutoff
-        }
-        state.activeSessionsByWorkspace = state.activeSessionsByWorkspace.filter { workspaceId, active in
-            guard active.updatedAt >= cutoff, let record = state.sessions[active.sessionId] else { return false }
-            // Self-heal cross-workspace/pane pollution: a session may only be active
-            // for its own recorded workspace (and surface, below). Stale focused/TTY
-            // misroutes from older builds could register a session as active for an
-            // unrelated tab or pane, stealing its notifications (isCurrent trusts the
-            // surface slot first) and suppressing that pane's own session.
-            return normalizeOptional(record.workspaceId) == workspaceId
-        }
-        state.activeSessionsBySurface = state.activeSessionsBySurface.filter { surfaceId, active in
-            active.updatedAt >= cutoff && normalizeOptional(state.sessions[active.sessionId]?.surfaceId) == surfaceId
-        }
-    }
-
-    private func normalizeSessionId(_ value: String) -> String {
-        value.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func normalizeOptional(_ value: String?) -> String? {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
-            return nil
-        }
-        return value
-    }
-}
 
 private let agentHookWrapperProcessNames: Set<String> = [
     "sh",
@@ -27692,11 +25006,19 @@ struct CMUXCLI {
         switch subcommand {
         case "session-start", "active":
             telemetry.breadcrumb("claude-hook.session-start")
+            let isCompactSessionStart = isClaudeCompactSessionStart(parsedInput)
+            // Compaction continues an existing session, so its persisted pane
+            // identity is valid routing evidence. Other SessionStart sources
+            // intentionally resolve without a record because startup/resume can
+            // report an old or parent session id before the new session exists.
+            let compactSession = isCompactSessionStart
+                ? parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+                : nil
             guard let resolvedTarget = try resolveClaudeHookDeliveryTarget(
-                mappedSession: nil,
+                mappedSession: compactSession,
                 routing: hookRouting,
                 client: client
-            ), resolvedTarget.isAuthoritative else {
+            ) else {
                 didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.session-start.unresolved")
                 emitAgentJournalEvent(
@@ -27717,10 +25039,38 @@ struct CMUXCLI {
                 printClaudeHookAck()
                 return
             }
+            let canUseCompactFallback = isCompactSessionStart && compactSession != nil
+            guard resolvedTarget.isAuthoritative || canUseCompactFallback else {
+                didSendFeedTelemetry = true
+                telemetry.breadcrumb("claude-hook.session-start.non-authoritative-target")
+                emitAgentJournalEvent(
+                    client: client,
+                    kind: .sessionStarted,
+                    source: "claude",
+                    agentKey: Self.claudeCodeStatusKey,
+                    sessionId: parsedInput.sessionId,
+                    workspaceId: nil,
+                    surfaceId: nil,
+                    unattributedReason: "target-non-authoritative",
+                    nativeEvent: reportedHookEventName(from: parsedInput) ?? "SessionStart",
+                    store: sessionStore,
+                    telemetry: telemetry
+                )
+                printClaudeHookAck()
+                return
+            }
             let workspaceId = resolvedTarget.workspaceId
             let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
-            sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+            if resolvedSurface.isAuthoritative {
+                sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+            } else {
+                // A compact fallback is useful only for preserving the
+                // persisted session obligation; its focused pane is not a
+                // valid feed destination.
+                didSendFeedTelemetry = true
+                telemetry.breadcrumb("claude-hook.session-start.fallback-telemetry-suppressed")
+            }
             let claudePid = observedHookAgentPID
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: liveHookAgentPID,
@@ -27743,83 +25093,163 @@ struct CMUXCLI {
                 fallbackPID: claudePid
             )
             let isClearSessionStart = isClaudeClearSessionStart(parsedInput)
+            let canMutateVisibleTarget = resolvedSurface.isAuthoritative
+            let canPersistSessionIdentity = resolvedSurface.isAuthoritative || canUseCompactFallback
             let sessionStartSource = parsedInput.object?["source"] as? String
-            let canReplaceStoppedSession = shouldReplaceStoppedClaudeSession(
+            let canReplaceStoppedSession = !isCompactSessionStart && shouldReplaceStoppedClaudeSession(
                 sessionStore: sessionStore,
                 parsedInput: parsedInput,
                 workspaceId: workspaceId,
                 surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
                 telemetry: telemetry
             )
-            let shouldPromoteActiveSession = !isForkSessionLaunch && (isClearSessionStart || canReplaceStoppedSession)
-            let acceptedSessionId: String? = parsedInput.sessionId.flatMap { sessionId in
-                guard sessionId != forkParentSessionId else { return nil }
-                let accepted = (try? sessionStore.upsertAuthoritativeClaudeSessionStart(
-                    sessionId: sessionId,
-                    source: sessionStartSource,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    cwd: hookCwd,
-                    transcriptPath: hookTranscriptPath,
-                    pid: claudePid,
-                    launchCommand: launchCommand,
-                    hookEventName: reportedHookEventName(from: parsedInput) ?? "SessionStart",
-                    turnId: parsedInput.turnId
-                )) == true
-                return accepted ? sessionId : nil
+            // A compact SessionStart may be delivered through the focused pane
+            // while its recorded pane is temporarily absent. That surface is
+            // only a delivery guess: retain the persisted identity above, but
+            // never promote or register visible state on the borrowed pane.
+            // Non-compact fallbacks were rejected before this point.
+            // Compact is a continuation of the same session, never a new
+            // active boundary. In particular, do not let a delayed compact
+            // event use a stopped-session replacement slot to resurrect an
+            // older session that the pane has already replaced.
+            let shouldPromoteActiveSession = !isCompactSessionStart
+                && !isForkSessionLaunch
+                && canMutateVisibleTarget
+                && (isClearSessionStart || canReplaceStoppedSession)
+            var sessionRecordWorkspaceId = workspaceId
+            var sessionRecordSurfaceId = surfaceId
+            if isCompactSessionStart,
+               !resolvedSurface.isAuthoritative,
+               let compactSession {
+                // A focused-surface fallback is only a delivery guess. Keep the
+                // compacted session's recorded identity so a later authoritative
+                // Stop can reconcile the title on the pane that owns it.
+                sessionRecordWorkspaceId = compactSession.workspaceId
+                sessionRecordSurfaceId = compactSession.surfaceId
             }
-            guard isForkSessionLaunch || acceptedSessionId != nil else {
-                telemetry.breadcrumb("claude-hook.session-start.stale")
-                printClaudeHookAck()
-                return
-            }
-            if let acceptedSessionId {
-                publishAgentSurfaceResumeBinding(
-                    client: client,
+            if isCompactSessionStart {
+                // Compact is a continuation of the recorded identity. Do not
+                // send it through the authoritative SessionStart transaction:
+                // that transaction intentionally rejects a stale session or
+                // promotes a fresh active boundary. A compact fallback keeps
+                // the persisted pane address while visible delivery remains
+                // fail-closed below.
+                if let sessionId = parsedInput.sessionId, canPersistSessionIdentity {
+                    let accepted = (try? sessionStore.upsertCompactSessionIfCurrent(
+                        sessionId: sessionId,
+                        expectedRecord: compactSession,
+                        workspaceId: sessionRecordWorkspaceId,
+                        surfaceId: sessionRecordSurfaceId,
+                        cwd: hookCwd,
+                        transcriptPath: hookTranscriptPath,
+                        pid: claudePid,
+                        launchCommand: launchCommand,
+                        targetIsAuthoritative: resolvedSurface.isAuthoritative
+                    )) == true
+                    guard accepted else {
+                        telemetry.breadcrumb("claude-hook.session-start.compact-stale")
+                        printClaudeHookAck()
+                        return
+                    }
+                }
+                runClaudeCompactAutoNameHook(
+                    parsedInput: parsedInput,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    kind: "claude",
-                    displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
-                    sessionId: acceptedSessionId,
-                    cwd: hookCwd,
-                    launchCommand: launchCommand,
-                    observedPermissionMode: observedHookPermissionMode
-                )
-                emitAgentJournalEvent(
+                    targetIsAuthoritative: resolvedSurface.isAuthoritative,
+                    sessionStore: sessionStore,
                     client: client,
-                    kind: .sessionStarted,
-                    source: "claude",
-                    agentKey: Self.claudeCodeStatusKey,
-                    sessionId: acceptedSessionId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    isSubagent: suppressVisibleMutations,
-                    nativeEvent: reportedHookEventName(from: parsedInput) ?? "SessionStart",
-                    detail: isClearSessionStart ? "clear-session-start" : nil,
-                    attention: Self.semanticAttentionContext(parsedInput.rawObject),
-                    occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
-                    store: sessionStore,
                     telemetry: telemetry
                 )
-            }
-            // SessionStart itself is the process-running signal. Keep ordinary
-            // startup/resume visually quiet, but register the PID immediately so
-            // later hooks and terminal state are attached to this exact surface.
-            let shouldRegisterPID = isForkSessionLaunch
-                ? resolvedSurface.isAuthoritative
-                : shouldPromoteActiveSession ||
-                    shouldApplyClaudeHookVisibleMutation(
-                        sessionStore: sessionStore,
-                        parsedInput: parsedInput,
+                // A compact event must never register a PID or otherwise
+                // mutate a borrowed focused pane. Only the current recorded
+                // owner may receive the visible PID update.
+                let shouldRegisterPID = canMutateVisibleTarget
+                    && (
+                        shouldPromoteActiveSession
+                            || shouldApplyClaudeHookVisibleMutation(
+                                sessionStore: sessionStore,
+                                parsedInput: parsedInput,
+                                workspaceId: workspaceId,
+                                surfaceId: surfaceId,
+                                telemetry: telemetry
+                            )
+                    )
+                if !relayOrigin, shouldRegisterPID, let claudePid, !suppressVisibleMutations {
+                    _ = try? sendV1Command(
+                        "set_agent_pid \(Self.claudeCodeStatusKey) \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        client: client
+                    )
+                }
+            } else {
+                let acceptedSessionId: String? = parsedInput.sessionId.flatMap { sessionId in
+                    guard sessionId != forkParentSessionId else { return nil }
+                    let accepted = (try? sessionStore.upsertAuthoritativeClaudeSessionStart(
+                        sessionId: sessionId,
+                        source: sessionStartSource,
                         workspaceId: workspaceId,
-                        surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
+                        surfaceId: surfaceId,
+                        cwd: hookCwd,
+                        transcriptPath: hookTranscriptPath,
+                        pid: claudePid,
+                        launchCommand: launchCommand,
+                        turnId: parsedInput.turnId
+                    )) == true
+                    return accepted ? sessionId : nil
+                }
+                guard isForkSessionLaunch || acceptedSessionId != nil else {
+                    telemetry.breadcrumb("claude-hook.session-start.stale")
+                    printClaudeHookAck()
+                    return
+                }
+                if let acceptedSessionId {
+                    publishAgentSurfaceResumeBinding(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        kind: "claude",
+                        displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
+                        sessionId: acceptedSessionId,
+                        cwd: hookCwd,
+                        launchCommand: launchCommand,
+                        observedPermissionMode: observedHookPermissionMode
+                    )
+                    emitAgentJournalEvent(
+                        client: client,
+                        kind: .sessionStarted,
+                        source: "claude",
+                        agentKey: Self.claudeCodeStatusKey,
+                        sessionId: acceptedSessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        isSubagent: suppressVisibleMutations,
+                        nativeEvent: reportedHookEventName(from: parsedInput) ?? "SessionStart",
+                        detail: isClearSessionStart ? "clear-session-start" : nil,
+                        attention: Self.semanticAttentionContext(parsedInput.rawObject),
+                        occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
+                        store: sessionStore,
                         telemetry: telemetry
                     )
-            if !relayOrigin, shouldRegisterPID, let claudePid, !suppressVisibleMutations {
-                _ = try? sendV1Command(
-                    "set_agent_pid \(Self.claudeCodeStatusKey) \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
-                )
+                }
+                // SessionStart itself is the process-running signal. Keep ordinary
+                // startup/resume visually quiet, but register the PID immediately so
+                // later hooks and terminal state are attached to this exact surface.
+                let shouldRegisterPID = isForkSessionLaunch
+                    ? resolvedSurface.isAuthoritative
+                    : shouldPromoteActiveSession ||
+                        shouldApplyClaudeHookVisibleMutation(
+                            sessionStore: sessionStore,
+                            parsedInput: parsedInput,
+                            workspaceId: workspaceId,
+                            surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
+                            telemetry: telemetry
+                        )
+                if !relayOrigin, shouldRegisterPID, let claudePid, !suppressVisibleMutations {
+                    _ = try? sendV1Command(
+                        "set_agent_pid \(Self.claudeCodeStatusKey) \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        client: client
+                    )
+                }
             }
             if isClearSessionStart, !suppressVisibleMutations {
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
@@ -28228,30 +25658,25 @@ struct CMUXCLI {
             didSendFeedTelemetry = true
             do {
                 let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-                guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
-                    preferred: mappedSession?.workspaceId,
-                    fallback: workspaceArg,
-                    preferCallerTTYOverFallback: preferCallerTTYRouting,
-                    callerTerminalBinding: callerTTYBindingProvider,
+                guard let resolvedTarget = try resolveClaudeHookDeliveryTarget(
+                    mappedSession: mappedSession,
+                    routing: hookRouting,
                     client: client
                 ) else {
                     telemetry.breadcrumb("claude-hook.auto-name.unresolved")
                     printClaudeHookAck()
                     return
                 }
-                let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
-                    preferred: mappedSession?.surfaceId,
-                    fallback: surfaceArg,
-                    fallbackIsExplicit: hookSurfaceFlag != nil,
-                    workspaceId: workspaceId,
-                    callerTerminalBinding: callerTTYBindingProvider,
-                    client: client
-                )
+                guard resolvedTarget.isAuthoritative else {
+                    telemetry.breadcrumb("claude-hook.auto-name.non-authoritative-target")
+                    printClaudeHookAck()
+                    return
+                }
                 runClaudeAutoNameHook(
                     parsedInput: parsedInput,
                     mappedSession: mappedSession,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
+                    workspaceId: resolvedTarget.workspaceId,
+                    surfaceId: resolvedTarget.surfaceId,
                     sessionStore: sessionStore,
                     client: client,
                     telemetry: telemetry
@@ -29067,11 +26492,20 @@ struct CMUXCLI {
         }
     }
 
-    private func isClaudeClearSessionStart(_ parsedInput: ClaudeHookParsedInput) -> Bool {
+    private func claudeSessionStartSource(_ parsedInput: ClaudeHookParsedInput) -> String? {
         guard let source = parsedInput.object?["source"] as? String else {
-            return false
+            return nil
         }
-        return source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "clear"
+        let normalized = source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private func isClaudeClearSessionStart(_ parsedInput: ClaudeHookParsedInput) -> Bool {
+        claudeSessionStartSource(parsedInput) == "clear"
+    }
+
+    private func isClaudeCompactSessionStart(_ parsedInput: ClaudeHookParsedInput) -> Bool {
+        claudeSessionStartSource(parsedInput) == "compact"
     }
 
     func socketPanelOption(_ surfaceId: String?) -> String {
@@ -36489,6 +33923,10 @@ export default CMUXSessionRestore;
                 sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             }
 
+            let autoNamingSession = sessionId.isEmpty
+                ? mapped
+                : ((try? store.lookup(sessionId: sessionId)) ?? mapped)
+
             if def.name == "codex", !suppressVisibleMutations, !sessionId.isEmpty {
                 spawnDetachedCodexNativeTitleSync(
                     sessionId: sessionId,
@@ -36502,8 +33940,11 @@ export default CMUXSessionRestore;
             // Opt-in auto-naming for generic-agent sessions: a detached pass so the
             // summarization subprocess never blocks this short sync hook.
             // Gate the fork on the live setting (one cheap socket probe) so a
-            // disabled feature spawns nothing extra on turn end; the detached
-            // process re-probes to honor a toggle that lands mid-pass.
+            // disabled feature or a manual workspace without prior auto-name
+            // state spawns nothing extra on turn end. Manual workspaces only
+            // fork when a compact obligation, in-flight claim, or transcript/
+            // message high-water change needs reconciliation. The detached
+            // process re-probes to honor a mid-pass toggle.
             if !relayOrigin,
                autoNamingSource(for: def) != nil,
                !suppressVisibleMutations,
@@ -36511,19 +33952,65 @@ export default CMUXSessionRestore;
                let autoNameProbe = try? client.sendV2(
                    method: "workspace.set_auto_title",
                    params: ["probe": true, "workspace_id": workspaceId]
-               ),
-               autoNameProbe["enabled"] as? Bool == true,
-               autoNameProbe["workspace_user_owned"] as? Bool != true {
-                spawnDetachedAgentAutoName(
-                    def: def,
-                    sessionId: sessionId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    transcriptPath: normalizedHookValue(localTranscriptPath(mapped: mapped)),
-                    cwd: cwd,
-                    env: env,
-                    telemetry: telemetry
+               ), autoNameProbe["enabled"] as? Bool == true {
+                let workspaceUserOwned = autoNameProbe["workspace_user_owned"] as? Bool == true
+                let hasReplayableAutoName = hasReplayableAutoNamingState(autoNamingSession)
+                let autoNamingTranscriptPath = normalizedHookValue(
+                    input.transcriptPath ?? autoNamingSession?.transcriptPath
                 )
+                let autoNamingFallbackLineCount: Int? = {
+                    guard workspaceUserOwned, hasReplayableAutoName,
+                          let autoNamingTranscriptPath,
+                          let source = autoNamingSource(for: def) else {
+                        return nil
+                    }
+                    switch source {
+                    case .codexRollout, .grokHistory:
+                        return readRecentTextFileLines(
+                            path: autoNamingTranscriptPath,
+                            maxBytes: 512 * 1024
+                        )?.count
+                    case .hookMessageCache:
+                        return nil
+                    }
+                }()
+                let autoNamingProgress: Int? = workspaceUserOwned && hasReplayableAutoName
+                    ? autoNamingProgressMetric(
+                        for: def,
+                        session: autoNamingSession,
+                        sessionId: sessionId,
+                        transcriptPath: autoNamingTranscriptPath,
+                        cwd: cwd,
+                        env: env,
+                        fallbackLineCount: autoNamingFallbackLineCount
+                    )
+                    : nil
+                let spawnToken: String? = {
+                    guard shouldSpawnDetachedAgentAutoName(
+                        probe: autoNameProbe,
+                        session: autoNamingSession,
+                        currentProgress: autoNamingProgress
+                    ) else { return nil }
+                    return try? store.claimAutoNamingSpawn(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        now: Date()
+                    )
+                }()
+                if let spawnToken {
+                    spawnDetachedAgentAutoName(
+                        def: def,
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        transcriptPath: autoNamingTranscriptPath,
+                        cwd: cwd,
+                        spawnToken: spawnToken,
+                        env: env,
+                        telemetry: telemetry
+                    )
+                }
             }
 
         case .shellObserved:

@@ -5453,7 +5453,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         title: String?,
         source: CustomTitleSource = .user,
         propagateToRemoteTmux: Bool = true,
-        propagateToCloud: Bool = true
+        propagateToCloud: Bool = true,
+        reconcileWorkspaceTitle: Bool = true
     ) -> Bool {
         guard panels[panelId] != nil else { return false }
         let previousWorkspaceTitle = self.title
@@ -5464,6 +5465,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let previous = panelCustomTitles[panelId]
+        let isIdempotentRemoteAutoWrite = isRemoteTmuxMirror
+            && source == .auto
+            && previous == trimmed
         if source == .auto {
             guard !trimmed.isEmpty else { return false }
             if previous != nil, (panelCustomTitleSources[panelId] ?? .user) != .auto { return false }
@@ -5489,6 +5493,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 // be able to turn a just-confirmed local intent into settled
                 // daemon-owned state without changing the visible tab twice.
                 panelCustomTitleSources[panelId] = source
+                let currentRemoteTitle = panelTitles[panelId] ?? panelTitle(panelId: panelId)
+                if isIdempotentRemoteAutoWrite, currentRemoteTitle != trimmed {
+                    // A differing remote `%window-renamed` value is
+                    // authoritative. Preserve it and its derived tab chrome.
+                    return true
+                }
                 sameText = true
             } else {
                 panelCustomTitles[panelId] = trimmed
@@ -5496,12 +5506,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             }
         }
 
-        applyFocusedPanelTitle(panelId: panelId)
-
-        // A repeated remote or automatic observation only changes provenance.
-        // A repeated USER edit remains an idempotent intent and must still reach
-        // the daemon, because the earlier request may have failed or been lost.
-        if sameText, source != .user { return true }
+        if reconcileWorkspaceTitle {
+            applyFocusedPanelTitle(panelId: panelId)
+        }
 
         guard let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) else { return true }
         let baseTitle = panelTitles[panelId] ?? panel.displayTitle
@@ -5510,8 +5517,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
             hasCustomTitle: panelCustomTitles[panelId] != nil
         )
+        // A repeated remote or automatic observation still repairs derived
+        // tab chrome. A repeated USER edit remains an idempotent intent and
+        // must still reach the daemon, because the earlier request may have
+        // failed or been lost.
+        if sameText, source != .user { return true }
         // A remote tmux mirror tab rename propagates to `rename-window`.
-        if propagateToRemoteTmux, isRemoteTmuxMirror {
+        if propagateToRemoteTmux, isRemoteTmuxMirror, !isIdempotentRemoteAutoWrite {
             AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
                 workspaceId: id, panelId: panelId, title: trimmed
             )

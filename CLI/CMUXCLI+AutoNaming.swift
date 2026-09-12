@@ -16,8 +16,8 @@ struct AutoNamingConfig: Sendable {
     var minLineGrowth: Int = 6
     /// Minimum seconds between summarization calls for one session.
     var minInterval: TimeInterval = 180
-    /// Transcripts shorter than this are skipped entirely (subagent or
-    /// trivial sessions).
+    /// Transcripts shorter than this skip naming unless a shrink needs its
+    /// baseline and stored title reconciled.
     var minTranscriptLines: Int = 12
     /// Hard deadline for the summarizer subprocess.
     var llmTimeout: TimeInterval = 60
@@ -44,6 +44,10 @@ struct AutoNamingConfig: Sendable {
 struct AutoNamingSessionSnapshot: Sendable {
     var lastTitle: String?
     var lastLineCount: Int?
+    /// Highest transcript size observed by any hook pass since the last
+    /// confirmed compaction reconciliation. Unlike `lastLineCount`, this also
+    /// advances while title generation is suppressed or fails.
+    var lastObservedLineCount: Int?
     var lastNamedAt: TimeInterval?
     var inFlightAt: TimeInterval?
     /// Last attempt time, success or failure (see the record field of the same
@@ -53,12 +57,14 @@ struct AutoNamingSessionSnapshot: Sendable {
     init(
         lastTitle: String? = nil,
         lastLineCount: Int? = nil,
+        lastObservedLineCount: Int? = nil,
         lastNamedAt: TimeInterval? = nil,
         inFlightAt: TimeInterval? = nil,
         lastAttemptAt: TimeInterval? = nil
     ) {
         self.lastTitle = lastTitle
         self.lastLineCount = lastLineCount
+        self.lastObservedLineCount = lastObservedLineCount
         self.lastNamedAt = lastNamedAt
         self.inFlightAt = inFlightAt
         self.lastAttemptAt = lastAttemptAt
@@ -69,8 +75,8 @@ struct AutoNamingSessionSnapshot: Sendable {
 enum AutoNamingThrottleDecision: Equatable, Sendable {
     /// Run the summarizer; on success the baseline advances to this count.
     case proceed(baseline: Int)
-    /// The transcript shrank (compaction or resume rewrite): record the new
-    /// baseline without naming so future growth measures from it.
+    /// The transcript shrank (compaction or resume rewrite): reseed the
+    /// baseline and let the caller reconcile the stored title without naming.
     case reseedBaseline(to: Int)
     case skipShortTranscript
     case skipInFlight
@@ -179,13 +185,19 @@ struct AutoNamingEngine: Sendable {
         transcriptLineCount: Int,
         now: Date
     ) -> AutoNamingThrottleDecision {
-        guard transcriptLineCount >= config.minTranscriptLines else {
-            return .skipShortTranscript
-        }
         let nowInterval = now.timeIntervalSince1970
-        if let inFlightAt = snapshot.inFlightAt, nowInterval - inFlightAt < config.inFlightExpiry {
-            return .skipInFlight
+        if let inFlightAt = snapshot.inFlightAt, nowInterval - inFlightAt < config.inFlightExpiry { return .skipInFlight }
+        // A shrink is authoritative even when the replacement transcript is short:
+        // reseed so the caller reconciles the title and measures future growth correctly.
+        let observedHighWater = max(
+            snapshot.lastLineCount ?? 0,
+            snapshot.lastObservedLineCount ?? 0
+        )
+        if observedHighWater > 0, snapshot.lastNamedAt != nil,
+           transcriptLineCount < observedHighWater {
+            return .reseedBaseline(to: transcriptLineCount)
         }
+        guard transcriptLineCount >= config.minTranscriptLines else { return .skipShortTranscript }
         guard let lastLineCount = snapshot.lastLineCount, snapshot.lastNamedAt != nil else {
             // First naming for this session always qualifies; this also seeds
             // the baseline for resumed sessions arriving with a large
@@ -196,9 +208,6 @@ struct AutoNamingEngine: Sendable {
                 return .skipTooSoon
             }
             return .proceed(baseline: transcriptLineCount)
-        }
-        if transcriptLineCount < lastLineCount {
-            return .reseedBaseline(to: transcriptLineCount)
         }
         // Cooldown anchors on the last attempt (success or failure), so a
         // session that named once and now keeps failing also backs off.
