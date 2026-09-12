@@ -689,15 +689,13 @@ final class SurfaceCatalog {
         guard case .cloud = info.id,
               let state = state ?? cloudStates[info.id] else { return info }
         var adjusted = info
-        let canonical = state.workspaces.map {
+        // Metadata has no mutation receipt: an absent id may be a deleted
+        // workspace, so it cannot establish a pending creation. Created terminal
+        // views already have receipt-backed resource overlays; empty workspaces
+        // become visible when the daemon includes them in its graph.
+        adjusted.remoteWorkspaces = state.workspaces.map {
             SurfaceRemoteWorkspace(id: $0.id, name: $0.name, index: $0.index, focused: $0.focused)
         }
-        var seen = Set(canonical.map(\.id))
-        // A create response can expose a new empty workspace before the next
-        // journal snapshot. Keep such genuinely new rows, but never retain an
-        // incoming row whose id the accepted graph removed.
-        let pending = (info.remoteWorkspaces ?? []).filter { seen.insert($0.id).inserted }
-        adjusted.remoteWorkspaces = canonical + pending
         return adjusted
     }
 
