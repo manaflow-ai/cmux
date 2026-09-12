@@ -436,7 +436,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         reprojectRestoredPanes(generation: lifecycle)
         return snapshotEstablishedCurrentGraph
     }
-
     @discardableResult
     private func installSnapshotIfNewer(_ incoming: CloudVMState, requestVersion: UInt64? = nil) -> Bool {
         guard acceptsIncomingGeneration(incoming.cursor) else {
@@ -1828,7 +1827,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private func notificationDeliveryTarget(for row: CloudVMNotificationRow) -> CloudNotificationDeliveryTarget? {
         if let terminalID = row.terminalID {
             let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)
-            if let projection = catalog.projections(of: resourceID).first {
+            let projections = catalog.projections(of: resourceID)
+            if projections.count == 1, let projection = projections.first {
                 return CloudNotificationDeliveryTarget(workspaceID: projection.workspaceID, panelID: projection.panelID)
             }
         }
