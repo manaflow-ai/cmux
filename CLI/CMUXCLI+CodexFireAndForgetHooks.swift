@@ -77,6 +77,90 @@ extension CMUXCLI {
         }
     }
 
+    /// Resolves Codex's own thread title in a detached process and sends the
+    /// plain title to the app. The stop hook must stay short and the app socket
+    /// handler must not perform Codex database I/O on the main actor.
+    func runCodexNativeTitleSyncHook(
+        commandArgs: [String],
+        environment: [String: String],
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry
+    ) {
+        guard let sessionId = optionValue(commandArgs, name: "--session"),
+              let workspaceId = optionValue(commandArgs, name: "--workspace"),
+              let surfaceId = optionValue(commandArgs, name: "--surface"),
+              !sessionId.isEmpty, !workspaceId.isEmpty, !surfaceId.isEmpty else {
+            telemetry.breadcrumb("codex-hook.native-title-sync.invalid-target")
+            return
+        }
+        let titleStore = CodexNativeTitleStore(
+            codexHome: normalizedHookValue(environment["CODEX_HOME"])
+        )
+        guard let title = titleStore.title(forSessionId: sessionId) else {
+            telemetry.breadcrumb("codex-hook.native-title-sync.no-title")
+            return
+        }
+        let turnLedger = CodexTurnLedger(environment: environment)
+        guard (try? turnLedger.isCurrent(sessionID: sessionId, surfaceID: surfaceId)) ?? true else {
+            telemetry.breadcrumb("codex-hook.native-title-sync.stale")
+            return
+        }
+        do {
+            _ = try client.sendV2(method: "surface.sync_codex_native_title", params: [
+                "workspace_id": workspaceId,
+                "panel_id": surfaceId,
+                "title": title
+            ])
+            telemetry.breadcrumb("codex-hook.native-title-sync.sent")
+        } catch {
+            telemetry.breadcrumb("codex-hook.native-title-sync.send-failed")
+        }
+    }
+
+    /// Starts the title lookup after the synchronous Codex Stop hook returns.
+    /// The title is already authoritative in Codex's state database, so this
+    /// path does not invoke a summarizer or depend on Workspace Auto-Naming.
+    func spawnDetachedCodexNativeTitleSync(
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        environment: [String: String],
+        telemetry: CLISocketSentryTelemetry
+    ) {
+        guard !sessionId.isEmpty, !workspaceId.isEmpty, !surfaceId.isEmpty else { return }
+        let selfPath: String = {
+            if let first = ProcessInfo.processInfo.arguments.first,
+               first.hasPrefix("/"),
+               FileManager.default.isExecutableFile(atPath: first) {
+                return first
+            }
+            if let bundled = normalizedHookValue(environment["CMUX_BUNDLED_CLI_PATH"]),
+               FileManager.default.isExecutableFile(atPath: bundled) {
+                return bundled
+            }
+            return "cmux"
+        }()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            "nohup \"$0\" hooks codex sync-native-title --session \"$1\" --workspace \"$2\" --surface \"$3\" </dev/null >/dev/null 2>&1 &",
+            selfPath,
+            sessionId,
+            workspaceId,
+            surfaceId
+        ]
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            telemetry.breadcrumb("codex-hook.native-title-sync.spawn-failed")
+        }
+    }
+
     /// Emit, NUL-separated to stdout, the exact codex arg list the wrapper must
     /// splice ahead of the user's args to enable cmux hooks for one Codex
     /// invocation without rewriting the user's Codex configuration. Returns
@@ -85,9 +169,9 @@ extension CMUXCLI {
     ///   --enable\0hooks\0--dangerously-bypass-hook-trust\0
     ///   -c\0hooks.SessionStart=[{hooks=[{type="command",command='''<hook>''',timeout=10000}]}]\0
     ///   -c\0hooks.UserPromptSubmit=...\0 ... (one `-c` pair per event)
-    /// Turn/status hooks use `codexFireAndForgetAgentHookShellCommand(...)`;
-    /// native child lifecycle hooks synchronously commit their ledger event and
-    /// then return. All larger socket delivery remains non-blocking.
+    /// Queued hooks use bounded ordered admission; native child lifecycle hooks
+    /// synchronously commit their ledger event and then return. All larger
+    /// socket delivery remains non-blocking.
     ///
     /// Layering contract (verified against codex-cli 0.146.0 and 0.153.4;
     /// tests/test_codex_wrapper_hook_append.py repeats it against the
@@ -120,13 +204,12 @@ extension CMUXCLI {
         // Prefer a #!/bin/sh SCRIPT FILE as the hook command over an inline shell
         // snippet. Some codex-compatible runtimes (subrouters, proxies) exec the
         // `command` string directly as a program instead of via a shell, so an
-        // inline snippet fails with "No such file or directory (os error 2)". A
-        // bare executable file path runs correctly whether the runtime execs it
-        // directly or through a shell, and normal codex (which runs it via shell)
-        // is unaffected. The scripts are env-driven and identical across
-        // invocations, so they are written once into a cmux-owned dir (~/.cmux/
-        // hooks), not the user's ~/.codex. Any write failure falls back to the
-        // inline snippet so the working path can never regress.
+        // inline snippet fails with "No such file or directory (os error 2)".
+        // Shell-safe paths remain bare for those runtimes; paths that need shell
+        // quoting are rendered as one argument for Codex's `/bin/sh -lc` runner.
+        // The scripts are env-driven and identical across invocations, so they
+        // are written once into a cmux-owned dir (~/.cmux/hooks), not the user's
+        // ~/.codex. Any write failure falls back to the inline snippet.
         let hooksDir = eventsToInject.isEmpty ? nil : Self.codexHookScriptsDirectory()
         var args: [String] = ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
         for event in eventsToInject {
@@ -134,8 +217,13 @@ extension CMUXCLI {
             let command: String
             if let scriptPath = hooksDir.flatMap({
                 Self.writeCodexHookScript(subcommand: event.cmuxSubcommand, body: hookBody, in: $0)
-            }), !scriptPath.contains("'''") {
-                command = scriptPath
+            }) {
+                let shellCommand = CodexHookScriptName.shellCommand(forScriptPath: scriptPath)
+                if !shellCommand.contains("'''") {
+                    command = shellCommand
+                } else {
+                    command = hookBody
+                }
             } else {
                 command = hookBody
             }
@@ -218,6 +306,26 @@ extension CMUXCLI {
         }
     }
 
+    /// Returns the filesystem path represented by a generated Codex hook command.
+    ///
+    /// The command may be a legacy bare path or the shell-safe token emitted for
+    /// paths containing spaces and other shell-significant characters.
+    static func codexHookScriptPath(fromCommand command: String) -> String? {
+        guard let path = CodexHookScriptName.legacyScriptPath(fromShellCommand: command) else {
+            return nil
+        }
+        let url = URL(fileURLWithPath: path, isDirectory: false)
+        let hooksDirectoryPath = codexHookScriptsURL().standardizedFileURL.path
+        // File URLs built by appending components can percent-encode semicolons
+        // differently from URLs initialized from a full path. Ownership follows
+        // the filesystem path, not those equivalent URL representations.
+        guard url.deletingLastPathComponent().standardizedFileURL.path == hooksDirectoryPath,
+              CodexHookScriptName(filename: url.lastPathComponent) != nil else {
+            return nil
+        }
+        return path
+    }
+
     /// Names that the current wrapper schema may reference from a live session.
     static func currentCodexWrapperHookScriptFilenames(for def: AgentHookDef) -> Set<String> {
         Set(CodexHookInjectionSchema.current.events.compactMap { event in
@@ -234,10 +342,15 @@ extension CMUXCLI {
         for def: AgentHookDef
     ) -> String {
         let command = "cmux hooks codex \(event.cmuxSubcommand)"
-        if event.isSynchronous {
-            return codexSynchronousAgentHookShellCommand(command, for: def)
+        if event.delivery == .queued {
+            return queuedAgentHookShellCommand(
+                agent: def.name,
+                subcommand: event.cmuxSubcommand,
+                disableEnvironmentVariable: def.disableEnvVar,
+                identityMarker: "cmux-codex-hook"
+            )
         }
-        return codexFireAndForgetAgentHookShellCommand(command, for: def)
+        return codexSynchronousAgentHookShellCommand(command, for: def)
     }
 
     /// Cmux-generated script names referenced by the active persistent config.
@@ -249,8 +362,6 @@ extension CMUXCLI {
               let hooks = root["hooks"] as? [String: Any] else {
             return []
         }
-        let hooksDirectory = codexHookScriptsURL().standardizedFileURL
-
         var filenames = Set<String>()
         for value in hooks.values {
             guard let groups = value as? [[String: Any]] else { continue }
@@ -258,11 +369,10 @@ extension CMUXCLI {
                 guard let handlers = group["hooks"] as? [[String: Any]] else { continue }
                 for handler in handlers {
                     guard let command = handler["command"] as? String else { continue }
-                    let url = URL(fileURLWithPath: command, isDirectory: false)
-                    guard url.deletingLastPathComponent().standardizedFileURL == hooksDirectory,
-                          CodexHookScriptName(filename: url.lastPathComponent) != nil else {
+                    guard let path = Self.codexHookScriptPath(fromCommand: command) else {
                         continue
                     }
+                    let url = URL(fileURLWithPath: path, isDirectory: false)
                     filenames.insert(url.lastPathComponent)
                 }
             }

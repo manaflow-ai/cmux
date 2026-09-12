@@ -42,7 +42,8 @@ struct ControlCommandExecutionPolicyTests {
     @Test func fixedWorkerSetRunsOnTheSocketWorker() {
         for method in [
             "system.ping", "system.capabilities", "auth.status", "auth.sign_in_url",
-            "feed.jump", "feed.push", "agent.restore.admit", "agent.restore.release",
+            "feed.jump", "feed.push", "agent.hook.enqueue", "agent.hook.barrier",
+            "agent.restore.admit", "agent.restore.release",
             "browser.download.wait", "system.top", "system.memory",
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
@@ -289,6 +290,13 @@ struct ControlCommandExecutionPolicyTests {
         // The read-side notification verbs stay on the main lane.
         #expect(ControlCommandExecutionPolicy(forMethod: "notification.list") == .mainActor)
         #expect(ControlCommandExecutionPolicy(forMethod: "notification.clear") == .mainActor)
+    }
+
+    @Test func codexNativeTitleSyncRunsAsyncOnTheWorker() {
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: "surface.sync_codex_native_title")
+                == .socketWorker(mainThreadCallable: false)
+        )
     }
 
     @Test func v1CommandsDefaultToTheMainActor() {

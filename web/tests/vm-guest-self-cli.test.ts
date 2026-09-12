@@ -4,6 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
 import path from "node:path";
+import { GUEST_CMUX_SHIM } from "../services/vms/guestCli";
 import {
   GUEST_CMUX_SELF_SHIM,
   GUEST_CMUX_SELF_SHIM_PATH,
@@ -101,6 +102,20 @@ describe("guest cmux self-discovery shim", () => {
     expect(result.stdout).toBe("  quiet-teal-otter\tfs-sibling\tpaused\n* builder\tfs-self\trunning\n");
     const json = run(["vm", "ls", "--json"]);
     expect(JSON.parse(json.stdout)).toEqual({ machines: SELF_BODY.machines });
+  });
+
+  test("the full guest CLI retains self discovery without requiring a daemon", () => {
+    withCurl(JSON.stringify(SELF_BODY), "200");
+    const fullCLI = path.join(bin, "cmux-full");
+    writeFileSync(fullCLI, GUEST_CMUX_SHIM);
+    for (const args of [["self", "--json"], ["vm", "ls", "--json"], ["vm", "list", "--json"]]) {
+      const result = spawnSync("/bin/sh", [fullCLI, ...args], {
+        encoding: "utf8",
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}`, HOME: home, CMUX_TUI_BIN: path.join(root, "absent-daemon") },
+      });
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout)).toEqual(args[0] === "self" ? SELF_BODY : { machines: SELF_BODY.machines });
+    }
   });
 
   test("an unreachable edge exits 1 with the hostname and curl's reason", () => {

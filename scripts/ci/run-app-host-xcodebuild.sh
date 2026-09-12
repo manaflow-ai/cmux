@@ -49,6 +49,14 @@ fi
 # that prefix when it launches the test runner, so the app host receives the
 # redirects without exposing them to the xcodebuild driver.
 app_host_test_runner_environment=("TEST_RUNNER_CMUX_TEST_PROCESS=1")
+# Xcode does not inherit the driver's full environment into the test host.
+# Preserve CI identity so existing CI-specific test deadlines actually apply.
+if [ -n "${CI:-}" ]; then
+  app_host_test_runner_environment+=("TEST_RUNNER_CI=$CI")
+fi
+if [ -n "${GITHUB_ACTIONS:-}" ]; then
+  app_host_test_runner_environment+=("TEST_RUNNER_GITHUB_ACTIONS=$GITHUB_ACTIONS")
+fi
 app_host_home=""
 app_host_key=""
 app_host_receipt_dir=""

@@ -115,6 +115,58 @@ private final class ReplyRelayFake: ReplyRelaying, @unchecked Sendable {
     }
 }
 
+private final class RateLimitedReplyURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    private static var storedRequestCount = 0
+
+    static var requestCount: Int { lock.withLock { storedRequestCount } }
+
+    static func reset() {
+        lock.withLock { storedRequestCount = 0 }
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.lock.withLock { Self.storedRequestCount += 1 }
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 429,
+            httpVersion: nil,
+            headerFields: ["Retry-After": "120"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+@Test func replyRelayDoesNotRepeatRequestInsideServerCooldown() async {
+    RateLimitedReplyURLProtocol.reset()
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [RateLimitedReplyURLProtocol.self]
+    let client = SystemReplyRelayClient(
+        serviceBaseURL: URL(string: "https://presence.test"),
+        accessToken: { "token" },
+        session: URLSession(configuration: configuration)
+    )
+    let reply = RelayedReply(
+        replyId: "reply-1",
+        macDeviceId: "mac-1",
+        workspaceId: "workspace-1",
+        surfaceId: "surface-1",
+        text: "hello"
+    )
+
+    let first = await client.relay(reply)
+    let second = await client.relay(reply)
+    #expect(!first)
+    #expect(!second)
+    #expect(RateLimitedReplyURLProtocol.requestCount == 1)
+}
+
 @MainActor
 private func makeReplyLaneCoordinator(
     runtime: ReplyRuntimeFake,

@@ -143,6 +143,12 @@ extension Workspace {
 
     @discardableResult
     func reconnectRemoteConnection(surfaceId: UUID? = nil) -> Bool {
+        // `DisableRemoteConnections` (MDM): a configuration retained from
+        // before the policy activated must not redial. New connections are
+        // refused by `configureRemoteConnection`, and the enforcement observer
+        // disconnects live ones; this covers the reconnect affordances in
+        // between (sidebar, placeholder pane, socket `reconnect`).
+        guard !managedDevicePolicy.isEnforced(.disableRemoteConnections) else { return false }
         guard let configuration = remoteConfiguration else { return false }
         var didRespawnTerminal = false
         // Persistent SSH wrappers must not be launched while the management
@@ -204,6 +210,11 @@ extension Workspace {
 
     @discardableResult
     func reconnectCloudTerminalSurface(surfaceId: UUID) -> Bool {
+        if let resource = cloudProjectedResource(forPanel: surfaceId),
+           let machineID = resource.id.machine.cloudMachineID,
+           let session = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID)?.manualMirrorSessions[surfaceId] {
+            return session.retryConnection()
+        }
         guard isManagedCloudVMWorkspace,
               isRemoteTerminalSurface(surfaceId) || remoteDisconnectPlaceholderPanelIds.contains(surfaceId) else {
             return false

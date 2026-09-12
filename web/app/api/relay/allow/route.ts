@@ -12,6 +12,7 @@
 // means 503: admissions of NEW endpoints fail closed, the relay side carries
 // availability through its allow cache.
 
+import { runWithCloudDbQueryTags } from "../../../../db/queryTags";
 import { env } from "../../../env";
 import { jsonResponse } from "../../../../services/relay/http";
 import {
@@ -228,5 +229,8 @@ async function readBoundedBody(
 }
 
 export function POST(request: Request): Promise<Response> {
-  return handleRelayAllowRequest(request, productionDeps);
+  return runWithCloudDbQueryTags(
+    { source: "app", route: "/api/relay/allow" },
+    async () => await handleRelayAllowRequest(request, productionDeps),
+  );
 }

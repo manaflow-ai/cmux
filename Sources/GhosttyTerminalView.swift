@@ -871,6 +871,13 @@ class GhosttyApp {
             unsetenv("NO_COLOR")
         }
 
+        let numericLocaleController = GhosttyNumericLocaleController()
+        defer {
+            // Ghostty may apply the user's locale during initialization. Restore
+            // the CoreUI-safe numeric locale on every exit, including failures.
+            numericLocaleController.pinProcessNumericLocale()
+        }
+
         // Initialize Ghostty library first
         let result = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
         if result != GHOSTTY_SUCCESS {
@@ -883,13 +890,13 @@ class GhosttyApp {
             )
             return
         }
+        numericLocaleController.pinProcessNumericLocale()
 
         resolvedUserShell = TerminalShellResolver.resolveCurrentUserShell()
         if let resolvedUserShell {
             setenv("SHELL", resolvedUserShell, 1)
         }
 
-        // Load config
         guard let primaryConfig = ghostty_config_new() else {
             #if DEBUG
             cmuxDebugLog("ghostty.initialize.config.failed")
@@ -9348,12 +9355,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     DispatchQueue.main.async(execute: send)
                 }
             },
-            onFailure: { [weak self] _ in
+            onFailure: { [weak self] error in
                 if let operation {
                     self?.terminalSurface?.hostedView.endImageTransferIndicator(for: operation)
                 }
                 DispatchQueue.main.async {
-                    NSSound.beep()
+                    if ManagedFileTransferPolicy.isRefusal(error) {
+                        ManagedFileTransferPolicy.presentRefusal()
+                    } else {
+                        NSSound.beep()
+                    }
 #if DEBUG
                     cmuxDebugLog("terminal.remoteDropUpload.failed surface=\(self?.terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
 #endif
@@ -9734,11 +9745,16 @@ private final class CloudTerminalReconnectOverlayView: NSView {
         }
     }
 
+    override func menu(for event: NSEvent) -> NSMenu? {
+        currentPresentation.map { CloudErrorCopy.menu($0.copyableError) }
+    }
+
     func apply(_ presentation: CloudTerminalReconnectOverlayPolicy.Presentation) {
         guard currentPresentation != presentation else { return }
         currentPresentation = presentation
         titleLabel.stringValue = presentation.title
         detailLabel.stringValue = presentation.detail
+        reconnectButton.menu = CloudErrorCopy.menu(presentation.copyableError)
         reconnectButton.isHidden = !presentation.showsReconnectButton
         spinner.isHidden = !presentation.showsProgress
         iconView.isHidden = presentation.showsProgress

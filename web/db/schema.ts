@@ -1370,6 +1370,51 @@ export const adminPlanGrants = pgTable(
   ],
 );
 
+// Operator actions taken through the admin API. One row per mutation, written
+// after the route has produced its response so the outcome (and the error code
+// on failure) is recorded. Reads page by (created_at, id) keyset.
+export const adminAuditLog = pgTable(
+  "admin_audit_log",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    actorUserId: text("actor_user_id").notNull(),
+    actorEmail: text("actor_email"),
+    /** Stable snake_case action name, e.g. user_grant_set. */
+    action: text("action").notNull(),
+    targetKind: text("target_kind").notNull(),
+    targetId: text("target_id"),
+    targetLabel: text("target_label"),
+    details: jsonb("details"),
+    outcome: text("outcome").notNull(),
+    error: text("error"),
+    requestId: text("request_id"),
+  },
+  (table) => [
+    index("admin_audit_log_created_at_idx").on(table.createdAt.desc()),
+    index("admin_audit_log_actor_created_at_idx").on(table.actorUserId, table.createdAt.desc()),
+    check("admin_audit_log_outcome_check", sql`${table.outcome} in ('ok', 'error')`),
+  ],
+);
+
+// Invited admins. A verified Stack email that matches an unrevoked row opens
+// the admin surface in addition to the company-domain rule (services/admin/access).
+export const adminMembers = pgTable(
+  "admin_members",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    /** Lower-cased, trimmed email. */
+    email: text("email").notNull(),
+    invitedByUserId: text("invited_by_user_id").notNull(),
+    invitedByEmail: text("invited_by_email"),
+    invitedAt: timestamp("invited_at", { withTimezone: true }).notNull().defaultNow(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+  },
+  (table) => [uniqueIndex("admin_members_email_unique").on(table.email)],
+);
+
 export const billingEmailClaims = pgTable(
   "billing_email_claims",
   {
@@ -1719,9 +1764,9 @@ export const irohEndpointBindings = pgTable(
 );
 
 /**
- * One-use registration challenges. Only a SHA-256 hash of the random nonce is
- * persisted. The payload hash binds all endpoint metadata before signature
- * verification and the consumed timestamp provides replay protection.
+ * Ephemeral registration challenges. Issuance replaces the user, namespace,
+ * device, and tag tuple under its database transaction lock. Only the nonce's
+ * SHA-256 hash is persisted; consumption deletes the row to prevent replay.
  */
 export const irohRegistrationChallenges = pgTable(
   "iroh_registration_challenges",
@@ -2001,3 +2046,40 @@ export const rateLimitAlertReports = pgTable("rate_limit_alert_reports", {
   alertKey: text("alert_key").primaryKey(),
   reportedAt: timestamp("reported_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/** Sanitized Cloud diagnostics. The receipt and export lease survive server restarts. */
+export const cloudDiagnosticEvents = pgTable("cloud_diagnostic_events", {
+  userId: text("user_id").notNull(),
+  eventId: uuid("event_id").notNull(),
+  payload: jsonb("payload").notNull(),
+  payloadHash: text("payload_hash").notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+  leaseId: uuid("lease_id"),
+  attempts: integer("attempts").notNull().default(0),
+}, (table) => [
+  primaryKey({ columns: [table.userId, table.eventId] }),
+  index("cloud_diagnostic_events_pending_idx").on(table.nextAttemptAt).where(sql`${table.deliveredAt} is null`),
+  index("cloud_diagnostic_events_retention_idx").on(table.receivedAt),
+]);
+
+export const cloudDiagnosticBudgets = pgTable("cloud_diagnostic_budgets", {
+  userId: text("user_id").notNull(),
+  minute: bigint("minute", { mode: "number" }).notNull(),
+  bytes: integer("bytes").notNull(),
+}, (table) => [primaryKey({ columns: [table.userId, table.minute] })]);
+
+export const cloudOperationSteps = pgTable("cloud_operation_steps", {
+  userId: text("user_id").notNull(),
+  operationId: uuid("operation_id").notNull(),
+  stepId: uuid("step_id").notNull(),
+  phase: text("phase").notNull(),
+  outcome: text("outcome").notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull().default(sql`now() + interval '1 day'`),
+}, (table) => [
+  primaryKey({ columns: [table.userId, table.operationId, table.stepId] }),
+  index("cloud_operation_steps_expiry_idx").on(table.expiresAt),
+]);
