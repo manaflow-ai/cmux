@@ -9,7 +9,7 @@ extension CMUXCLI {
             name: "codex", displayName: "Codex", statusKey: "codex",
             configDir: ".codex", configFile: "hooks.json", configDirEnvOverride: "CODEX_HOME",
             sessionStoreSuffix: "codex", disableEnvVar: "CMUX_CODEX_HOOKS_DISABLED",
-            hookMarker: "cmux hooks codex", format: .nested(timeoutMs: 5),
+            hookMarker: "cmux hooks codex", format: .nested(timeoutMs: agentHookDeclaredTimeoutMilliseconds),
             events: [
                 .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
@@ -93,7 +93,11 @@ extension CMUXCLI {
                 .init(agentEvent: "beforeSubmitPrompt", cmuxSubcommand: "prompt-submit"),
                 .init(agentEvent: "stop", cmuxSubcommand: "stop"),
                 .init(agentEvent: "afterAgentResponse", cmuxSubcommand: "agent-response"),
-                .init(agentEvent: "beforeShellExecution", cmuxSubcommand: "shell-exec"),
+                .init(
+                    agentEvent: "beforeShellExecution",
+                    cmuxSubcommand: "shell-exec",
+                    delivery: .direct
+                ),
                 .init(agentEvent: "afterShellExecution", cmuxSubcommand: "shell-done"),
                 .init(
                     agentEvent: "postToolUseFailure",

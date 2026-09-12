@@ -1,9 +1,11 @@
+import { cloudOperationId, CloudOperationProgress } from "../observability/cloudOperationProgress";
 import type { Span } from "@opentelemetry/api";
 import { trace } from "@opentelemetry/api";
 import { after } from "next/server";
 import {
   activeTraceIds,
   forceFlushTraces,
+  setSpanAttributes,
   recordSpanError,
   spanTraceIds,
   withApiRouteSpan,
@@ -148,6 +150,19 @@ export async function withAuthedVmApiRoute(
         recordSpanTiming(span, "auth", authDurationMs);
         if (!user) return finalize(unauthorized());
         requestContext.userId = user.id;
+        requestContext.operationId = cloudOperationId(request.headers.get("x-cmux-operation-id"));
+        if (requestContext.operationId && !isPolledVmOperation(operation)) {
+          requestContext.progress = new CloudOperationProgress(user.id, requestContext.operationId);
+          try { after(() => requestContext.progress!.flush()); } catch { /* Script calls have no request lifecycle. */ }
+        }
+        setSpanAttributes(span, {
+          "cmux.operation_id": requestContext.operationId,
+          "cmux.client.channel": requestContext.client.channel === "stable" ? "production" : requestContext.client.channel,
+          "cmux.client.revision": requestContext.client.revision,
+          "cmux.client.build": requestContext.client.build,
+          "deployment.environment.name": process.env.VERCEL_ENV ?? "development",
+          "cmux.backend.revision": process.env.VERCEL_GIT_COMMIT_SHA,
+        });
         // The caller's default billing scope. Routes that resolve entitlements
         // refine it (a requested team, the normalized plan) through
         // resolveVmAccountScope below.

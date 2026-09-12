@@ -62,8 +62,8 @@ struct MachinesTunnelBanner: View {
 
     private var helpText: String {
         String(
-            localized: "cloudTree.tunnel.help",
-            defaultValue: "The cmux Cloud Tunnel is a macOS network extension that gives every app on this Mac a route to your Cloud VM network. cmux itself does not need it: terminals, Ports, and Desktop use the built-in user-space tunnel."
+            localized: "cloud.ports.explanation",
+            defaultValue: "Connect Cloud VPN, or choose Forward Port. Forwarding stays off until you start it. This table shows the address and lets you stop it."
         )
     }
 }

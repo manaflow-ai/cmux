@@ -380,6 +380,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         func outlineViewItemDidExpand(_ notification: Notification) {
             guard !isUpdatingProgrammatically, let node = notification.userInfo?["NSObject"] as? CloudTreeNode else { return }
             expansionStore.setExpanded(true, node: node)
+            if node.kind.refreshesOnExpansion { nodeActions.refreshMachine(node.machine) }
         }
 
         func outlineViewItemDidCollapse(_ notification: Notification) {
@@ -590,6 +591,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             for item in menuItems(for: node) {
                 menu.addItem(item)
             }
+            if let error = node.errorCopyText {
+                if !menu.items.isEmpty { menu.addItem(.separator()) }
+                menu.addItem(item(CloudErrorCopy.title) { CloudErrorCopy.copy(error) })
+            }
             #if DEBUG
             cmuxDebugLog("cloudTree.menu.build row=\(resolvedRow) items=\(menu.items.count)")
             #endif
@@ -763,12 +768,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             items.append(.separator())
             if resource.id.isForwardedPort, !isLocal {
-                // The link that works from any app on this Mac is the loopback
-                // forward; the private address needs `cmux vpn up`.
-                items.append(item(String(localized: "cloudTree.menu.copyLink", defaultValue: "Copy Link")) { [nodeActions] in nodeActions.copyPortLink(resource.id) })
-                if let portURL {
-                    items.append(item(String(localized: "cloudTree.menu.copyPrivateURL", defaultValue: "Copy Private Address URL")) { [nodeActions] in nodeActions.copyToPasteboard(portURL) })
-                }
+                // Copying a port URL does not start a forward. The browser's
+                // explicit Ports table owns local forwarding addresses.
+                items.append(item(String(localized: "cloudTree.menu.copyPrivateURL", defaultValue: "Copy Private Address URL")) { [nodeActions] in nodeActions.copyPortLink(resource.id) })
+                items.append(item(String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…")) { [machineActions, window = outlineView?.window] in machineActions.setupVPN(window) })
             } else if let portURL {
                 items.append(item(String(localized: "cloudTree.menu.copyLink", defaultValue: "Copy Link")) { [nodeActions] in nodeActions.copyToPasteboard(portURL) })
             } else if let port = resource.port, resource.kind == .browser {
@@ -801,6 +804,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             if let address = machine.privateAddress {
                 items.append(item(String(localized: "machines.menu.copyIPAddress", defaultValue: "Copy IP Address")) { [nodeActions] in nodeActions.copyToPasteboard(address) })
             }
+            items.append(item(String(localized: "machines.menu.privateNetwork", defaultValue: "Private Network Access…")) { [window = outlineView?.window] in actions.setupVPN(window) })
             items.append(item(String(localized: "machines.menu.status", defaultValue: "Status")) { actions.runCommand(id, ["vm", "status"]) })
             // Only verbs this provider can honor: a Checkpoint that answers 502 is not a verb.
             if machine.capabilities.snapshot {
