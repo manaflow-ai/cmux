@@ -16,6 +16,11 @@ on:
         required: false
         default: false
         type: boolean
+      refresh_store_listing:
+        description: Replace an existing version's metadata and screenshots from the repository
+        required: false
+        default: false
+        type: boolean
       retarget_initial_draft:
         description: Change the app's sole PREPARE_FOR_SUBMISSION version to the configured initial version
         required: false
@@ -32,7 +37,8 @@ permissions:
 jobs:
   upload-and-validate:
     name: Upload and validate production App Store build
-    if: github.ref == 'refs/heads/main'
+    # The app source is always main, including dispatches of workflow repairs.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 90
     env:
@@ -44,15 +50,20 @@ jobs:
       INPUT_BUILD_NUMBER: ${{ github.event.inputs.build_number }}
       INPUT_COPY_METADATA_FROM: ${{ github.event.inputs.copy_metadata_from }}
       INPUT_SUBMIT_FOR_REVIEW: ${{ github.event.inputs.submit_for_review }}
+      INPUT_REFRESH_STORE_LISTING: ${{ github.event.inputs.refresh_store_listing }}
       INPUT_RETARGET_INITIAL_DRAFT: ${{ github.event.inputs.retarget_initial_draft }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: main
           persist-credentials: false
           submodules: recursive
           fetch-depth: 0
           fetch-tags: true
+
+      - name: Record app source
+        run: git rev-parse HEAD | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -225,6 +236,10 @@ jobs:
               --version-id "$VERSION_ID" \
               --copyright "2026 Manaflow, Inc." \
               --release-type MANUAL
+            if [ "${INPUT_REFRESH_STORE_LISTING:-false}" != "true" ]; then
+              echo "Keeping existing App Store metadata and screenshots for $VERSION"
+              exit 0
+            fi
           fi
           asc metadata validate --dir ios/AppStoreReview/metadata
           asc metadata apply \
@@ -251,7 +266,7 @@ jobs:
             --platform IOS \
             --path ios/AppStoreReview/screenshots \
             --device-type IPHONE_69 \
-            --replace
+            --replace --confirm
           asc screenshots validate \
             --path ios/AppStoreReview/screenshots/en-US/ipad \
             --device-type IPAD_PRO_3GEN_129
@@ -261,7 +276,7 @@ jobs:
             --platform IOS \
             --path ios/AppStoreReview/screenshots \
             --device-type IPAD_PRO_3GEN_129 \
-            --replace
+            --replace --confirm
 
       - name: Ensure App Store availability
         run: python3 ios/scripts/asc_bootstrap_app_availability.py --app "$ASC_APP_ID"
