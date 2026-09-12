@@ -257,10 +257,26 @@ struct TerminalCustomUploadRunner {
             throw uploadError("Failed to prepare upload command.")
         }
         defer { posix_spawnattr_destroy(&attributes) }
+        // A signal mask survives exec, and this spawns from a libdispatch worker, whose
+        // threads run with most signals blocked. Without SETSIGMASK the command inherits
+        // that mask and so does everything it runs, including SIGCHLD. A command that
+        // watches its own children through SIGCHLD then never learns they exited and
+        // waits out its internal timeouts instead. Measured with an uploader that reaps
+        // that way: each phase took exactly its own budget, 10003ms on a ten second probe
+        // and 45004ms on a forty-five second copy, for work that takes about a second;
+        // 103ms and 784ms with the mask cleared. Only the mask is reset, not signal
+        // dispositions -- an inherited SIG_IGN on SIGPIPE is what lets a child see EPIPE
+        // instead of dying mid-cleanup.
+        var emptyMask = sigset_t()
+        sigemptyset(&emptyMask)
         // New process group led by the child (pgid == child pid) so the whole tree
         // can be signalled with kill(-pid, …). If this fails we must not spawn,
         // else timeout/cancel couldn't tear the group down.
-        guard posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP)) == 0,
+        guard posix_spawnattr_setsigmask(&attributes, &emptyMask) == 0,
+              posix_spawnattr_setflags(
+                  &attributes,
+                  Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGMASK)
+              ) == 0,
               posix_spawnattr_setpgroup(&attributes, 0) == 0 else {
             throw uploadError("Failed to prepare upload command.")
         }

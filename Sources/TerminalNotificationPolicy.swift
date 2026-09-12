@@ -609,7 +609,17 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         var attributes: posix_spawnattr_t?
         try throwIfPOSIXError(posix_spawnattr_init(&attributes), operation: "initialize spawn attributes")
         defer { posix_spawnattr_destroy(&attributes) }
-        let flags = Int16(POSIX_SPAWN_SETPGROUP)
+        // Hooks are spawned from a dispatch queue, and a dispatch worker runs with most
+        // signals blocked. A mask survives exec, so without this the hook and everything
+        // it runs inherit that mask; see the longer note in TerminalCustomUploadRunner.
+        // Dispositions are left alone: this clears the mask, not an inherited SIG_IGN.
+        var emptyMask = sigset_t()
+        sigemptyset(&emptyMask)
+        try throwIfPOSIXError(
+            posix_spawnattr_setsigmask(&attributes, &emptyMask),
+            operation: "clear inherited signal mask"
+        )
+        let flags = Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGMASK)
         try throwIfPOSIXError(posix_spawnattr_setflags(&attributes, flags), operation: "set spawn flags")
         try throwIfPOSIXError(posix_spawnattr_setpgroup(&attributes, 0), operation: "set process group")
         let arguments = ["/bin/sh", "-c", hook.command]
