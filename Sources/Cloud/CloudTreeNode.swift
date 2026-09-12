@@ -24,6 +24,7 @@ final class CloudTreeNode: NSObject {
         /// "Terminals" pool under a cloud machine: every terminal the machine owns, one
         /// row per identity, whatever workspaces (zero or more) show it.
         case terminalsPool(machine: SurfaceMachineID, count: Int)
+        case agentsGroup(machine: SurfaceMachineID, count: Int)
         /// "Displays" group under a cloud machine: one row per VNC screen it exposes.
         case displaysPool(machine: SurfaceMachineID, count: Int)
         /// "Workspaces" group under a machine.
@@ -85,6 +86,7 @@ final class CloudTreeNode: NSObject {
         case .pendingMachine: return "pendingMachine"
         case .localMachine: return "localMachine"
         case .terminalsPool: return "terminalsPool"
+        case .agentsGroup: return "agentsGroup"
         case .displaysPool: return "displaysPool"
         case .workspacesGroup: return "workspacesGroup"
         case .workspace: return "workspace"
@@ -118,7 +120,7 @@ final class CloudTreeNode: NSObject {
         case .localMachine: return .local
         case .workspacesGroup(let machine), .browsersGroup(let machine), .portsGroup(let machine):
             return machine
-        case .terminalsPool(let machine, _), .displaysPool(let machine, _):
+        case .terminalsPool(let machine, _), .agentsGroup(let machine, _), .displaysPool(let machine, _):
             return machine
         case .workspace(let machine, _, _, _, _), .placeholder(let machine, _):
             return machine
@@ -144,6 +146,7 @@ final class CloudTreeNode: NSObject {
         case .pendingMachine(let operation): return operation.request.displayName
         case .localMachine(let row): return row.name
         case .terminalsPool: return String(localized: "cloudTree.group.terminals", defaultValue: "Terminals")
+        case .agentsGroup: return String(localized: "cloudTree.group.agents", defaultValue: "Agents")
         case .displaysPool: return String(localized: "cloudTree.group.displays", defaultValue: "Displays")
         case .workspacesGroup: return String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces")
         case .workspace(_, let workspace, _, _, _): return workspace.name
@@ -212,7 +215,7 @@ final class CloudTreeNode: NSObject {
         case .terminal(let row): return row.resource
         case .browser(let row): return row.resource
         case .display(let resource, _, _), .port(let resource, _, _): return resource
-        case .machine, .pendingMachine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .placeholder:
+        case .machine, .pendingMachine, .localMachine, .terminalsPool, .agentsGroup, .displaysPool, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .placeholder:
             return nil
         }
     }
@@ -878,9 +881,15 @@ enum CloudTreeNodeBuilder {
                 projectionIndex: projectionIndex
             ))
         }
+        let agentTerminals = terminals.filter { $0.agent != nil }
+        if !agentTerminals.isEmpty {
+            let terminalRows = terminalsGroupNode(machine: machine, terminals: agentTerminals, snapshot: snapshot, projectionIndex: projectionIndex)
+            children.append(CloudTreeNode(id: "machine:\(machine.rawValue)/agents", kind: .agentsGroup(machine: machine, count: agentTerminals.count), children: terminalRows.children))
+        }
         let groupForTag: [String: CloudTreeGroupPreferences.Group] = [
             "workspacesGroup": .workspaces,
             "terminalsPool": .terminals,
+            "agentsGroup": .agents,
             "browsersGroup": .browsers,
             "displaysPool": .displays,
             "portsGroup": .ports,
