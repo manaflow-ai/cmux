@@ -69,9 +69,9 @@ extension TerminalSurface {
         surface != nil && rendererPresentationPhase.isNativeRendererRealized
     }
 
-    /// Whether the current runtime renderer has completed cmux's presentation transition.
+    /// Whether the current runtime renderer has delivered a frame to its host layer.
     public var isRendererPresented: Bool {
-        surface != nil && rendererPresentationPhase == .presented
+        surface != nil && rendererPresentationPhase == .presented && renderHealth == .rendering
     }
 
     /// Whether this surface's portal is currently visible in the UI. This is the
@@ -102,7 +102,7 @@ extension TerminalSurface {
         guard rendererPortalVisible else { return }
         noteBecameVisibleForRendererReclamation()
         if visible {
-            if rendererPresentationPhase == .presented {
+            if rendererPresentationPhase == .presented, renderHealth == .rendering {
                 setOcclusion(true)
             } else {
                 ensureRendererPresented()
@@ -148,6 +148,10 @@ extension TerminalSurface {
         let wasVisible = rendererPortalVisible
         rendererPortalVisible = visible
         if !visible {
+            rendererPresentationState.inFlightToken = nil
+            if renderHealth != .shellExited {
+                renderHealth = .notStarted
+            }
             surfaceCallbackContext?.takeUnretainedValue().cancelRendererPresentationRepair()
         }
         // This is the single presentation transition for both a renderer that
@@ -177,8 +181,8 @@ extension TerminalSurface {
 
     /// Records a newly created native renderer and normalizes a hidden-at-birth
     /// surface into the same released state used by memory-pressure reclaim.
-    /// A visible birth is already attached to its presentation window and can be
-    /// marked presented without a redundant native realization cycle.
+    /// A visible birth is attached to its presentation window, but remains
+    /// awaiting acknowledgement until Ghostty presents its first frame.
     @MainActor
     func rendererRuntimeSurfaceDidCreate() {
         rendererRuntimeSurfaceDidCreate(
@@ -189,11 +193,16 @@ extension TerminalSurface {
     @MainActor
     func rendererRuntimeSurfaceDidCreate(presentationReady: Bool) {
         rendererPresentationPhase = .awaitingFirstPresentation
+        rendererPresentationState.inFlightToken = nil
+        rendererPresentationState.recoveryAttempted = false
+        renderHealth = .notStarted
         surfaceCallbackContext?.takeUnretainedValue().cancelRendererPresentationRepair()
         guard surface != nil else { return }
         if rendererPortalVisible, rendererWindowVisible, presentationReady {
             rendererPresentationPhase = .presented
+            renderHealth = .awaitingFrame
             setOcclusion(true)
+            requestRendererPresentationProbe(reason: "runtime.create")
         } else {
             // The portal may have become hidden before the native pointer
             // existed, or become visible before AppKit attached it to a real
@@ -244,6 +253,8 @@ extension TerminalSurface {
         // the rejection path keeps compatibility shims retryable.
         if ghostty_surface_set_renderer_realized(surface, false) {
             rendererPresentationPhase = .released
+            rendererPresentationState.inFlightToken = nil
+            renderHealth = .notStarted
             surfaceCallbackContext?.takeUnretainedValue().cancelRendererPresentationRepair()
             return true
         }
@@ -277,9 +288,19 @@ extension TerminalSurface {
         // released and let `setRendererWindowVisible(true)` replay this
         // transition when the window comes back on screen.
         guard rendererWindowVisible else { return }
-        guard rendererPresentationPhase != .presented else { return }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "renderer.ensurePresented") else { return }
         let callbackContext = surfaceCallbackContext?.takeUnretainedValue()
+
+        if rendererPresentationPhase == .presented {
+            guard !(renderHealth == .notRendering && rendererPresentationState.recoveryAttempted) else {
+                return
+            }
+            if renderHealth != .rendering {
+                renderHealth = .awaitingFrame
+                requestRendererPresentationProbe(reason: "ensure.presented")
+            }
+            return
+        }
 
         // A detached visibility update may already have lifted occlusion.
         // Re-occlude synchronously before publishing the renderer rebuild, and
@@ -294,7 +315,9 @@ extension TerminalSurface {
         if ghostty_surface_rebuild_renderer(surface) {
             callbackContext?.cancelRendererPresentationRepair()
             rendererPresentationPhase = .presented
+            renderHealth = .awaitingFrame
             setOcclusion(true)
+            requestRendererPresentationProbe(reason: "renderer.rebuild")
         }
 #endif
     }
@@ -315,7 +338,128 @@ extension TerminalSurface {
     func retryRendererPresentationAfterActivity(presentationReady: Bool) {
         guard rendererPortalVisible,
               hasLiveSurface,
-              rendererPresentationPhase != .presented else { return }
+              (rendererPresentationPhase != .presented || renderHealth != .rendering) else { return }
         ensureRendererPresented(presentationReady: presentationReady)
+    }
+
+    /// Starts one exact host-layer presentation probe for the current runtime.
+    /// Ghostty owns the renderer wakeup; no app timer or second draw loop is
+    /// needed to determine whether the first frame reached the pane.
+    @MainActor
+    private func requestRendererPresentationProbe(reason: String) {
+#if os(macOS)
+        guard rendererPortalVisible,
+              rendererWindowVisible,
+              rendererPresentationPhase == .presented,
+              let surface = liveSurfaceForGhosttyAccess(reason: "renderer.probe.\(reason)"),
+              rendererPresentationState.inFlightToken == nil else { return }
+
+        rendererPresentationState.token &+= 1
+        let token = rendererPresentationState.token
+        rendererPresentationState.inFlightToken = token
+        rendererPresentationState.baselineFrameSequence = surfaceView.renderedFrameSequence
+        guard ghostty_surface_request_render_with_token(
+            surface,
+            token
+        ) else {
+            rendererPresentationState.inFlightToken = nil
+            markRendererNotRendering(reason: "probeRejected.\(reason)")
+            recoverRendererPresentationIfNeeded(reason: "probeRejected.\(reason)")
+            return
+        }
+#if DEBUG
+        logDebugEvent(
+            "surface.render.probe surface=\(id.uuidString.prefix(8)) " +
+            "token=\(token) reason=\(reason) baseline=\(rendererPresentationState.baselineFrameSequence)"
+        )
+#endif
+#endif
+    }
+
+    /// Called by the exact tokened host-layer callback.
+    @MainActor
+    func rendererFrameDidPresent(token: UInt64) {
+        guard rendererPresentationState.inFlightToken == token,
+              rendererPortalVisible,
+              rendererPresentationPhase != .released else { return }
+        rendererPresentationState.inFlightToken = nil
+        rendererPresentationState.recoveryAttempted = false
+        rendererPresentationPhase = .presented
+        renderHealth = .rendering
+        surfaceCallbackContext?.takeUnretainedValue().cancelRendererPresentationRepair()
+#if DEBUG
+        logDebugEvent(
+            "surface.render.presented surface=\(id.uuidString.prefix(8)) token=\(token)"
+        )
+#endif
+    }
+
+    /// Called when Ghostty discarded or failed the exact tokened frame.
+    @MainActor
+    func rendererFrameDidFail(
+        token: UInt64,
+        status: ghostty_render_presentation_status_e
+    ) {
+        guard rendererPresentationState.inFlightToken == token else { return }
+        rendererPresentationState.inFlightToken = nil
+        guard rendererPortalVisible else {
+            renderHealth = .notStarted
+            return
+        }
+        markRendererNotRendering(reason: "probeFailed.\(status.rawValue)")
+        recoverRendererPresentationIfNeeded(reason: "probeFailed.\(status.rawValue)")
+    }
+
+    /// A draw-end callback with no drawable sequence advance proves that the
+    /// renderer did work but produced no host-layer frame. Use the one allowed
+    /// recovery kick, then leave a visible diagnostic if the second probe fails.
+    @MainActor
+    func rendererDrawFrameDidEnd() {
+        guard rendererPresentationState.inFlightToken != nil,
+              rendererPresentationPhase == .presented,
+              renderHealth != .rendering,
+              surfaceView.renderedFrameSequence == rendererPresentationState.baselineFrameSequence else {
+            return
+        }
+        rendererPresentationState.inFlightToken = nil
+        markRendererNotRendering(reason: "drawEndedWithoutDrawable")
+        recoverRendererPresentationIfNeeded(reason: "drawEndedWithoutDrawable")
+    }
+
+    @MainActor
+    private func markRendererNotRendering(reason: String) {
+        guard renderHealth != .shellExited else { return }
+        renderHealth = .notRendering
+#if DEBUG
+        logDebugEvent(
+            "surface.render.notRendering surface=\(id.uuidString.prefix(8)) reason=\(reason) " +
+            "portal=\(rendererPortalVisible ? 1 : 0) window=\(rendererWindowVisible ? 1 : 0)"
+        )
+#endif
+    }
+
+    @MainActor
+    private func recoverRendererPresentationIfNeeded(reason: String) {
+        guard !rendererPresentationState.recoveryAttempted,
+              rendererPortalVisible,
+              rendererPresentationPhase == .presented,
+              liveSurfaceForGhosttyAccess(reason: "renderer.recover.\(reason)") != nil else {
+            return
+        }
+        rendererPresentationState.recoveryAttempted = true
+        _ = surfaceView.forceRefreshSurface()
+        renderHealth = .awaitingFrame
+        requestRendererPresentationProbe(reason: "recovery.\(reason)")
+    }
+
+    /// Records that the child process has exited while retaining the pane for
+    /// inspection. A later runtime replacement resets this state.
+    @MainActor
+    public func markShellExited() {
+        rendererPresentationState.inFlightToken = nil
+        renderHealth = .shellExited
+#if DEBUG
+        logDebugEvent("surface.render.shellExited surface=\(id.uuidString.prefix(8))")
+#endif
     }
 }

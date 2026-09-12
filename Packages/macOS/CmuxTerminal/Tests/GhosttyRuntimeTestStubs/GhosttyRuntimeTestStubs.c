@@ -504,6 +504,31 @@ void ghostty_surface_quicklook_font(void) {}
 void ghostty_surface_read_screen_tail_vt(void) {}
 void ghostty_surface_read_text(void) {}
 void ghostty_surface_refresh(void) {}
+bool ghostty_surface_set_render_presented_callback(
+    void *surface,
+    void (*callback)(void *, uint64_t),
+    void *userdata
+) {
+    (void)surface;
+    (void)callback;
+    (void)userdata;
+    return true;
+}
+bool ghostty_surface_set_render_failed_callback(
+    void *surface,
+    void (*callback)(void *, uint64_t, int),
+    void *userdata
+) {
+    (void)surface;
+    (void)callback;
+    (void)userdata;
+    return true;
+}
+bool ghostty_surface_request_render_with_token(void *surface, uint64_t token) {
+    (void)surface;
+    (void)token;
+    return true;
+}
 void ghostty_surface_render_grid_json(void) {}
 void ghostty_surface_render_grid_json_with_theme(void) {}
 ghostty_string_s ghostty_surface_render_grid_json_v2(

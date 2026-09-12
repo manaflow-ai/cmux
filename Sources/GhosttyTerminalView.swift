@@ -9799,15 +9799,12 @@ private final class CloudTerminalReconnectOverlayView: NSView {
         onReconnect?()
     }
 }
-
 final class GhosttySurfaceScrollView: NSView {
     enum FlashStyle {
         case navigation
         case notification
     }
-
     private static let flashAnimationKey = "cmux.flash"
-
     static func flashStyle(for reason: WorkspaceAttentionFlashReason) -> FlashStyle {
         switch reason {
         case .navigation, .userInitiated:
@@ -9816,7 +9813,6 @@ final class GhosttySurfaceScrollView: NSView {
             return .notification
         }
     }
-
     private static func flashPresentation(for style: FlashStyle) -> WorkspaceAttentionFlashPresentation {
         switch style {
         case .navigation:
@@ -10646,6 +10642,9 @@ final class GhosttySurfaceScrollView: NSView {
         _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
         _ = setFrameIfNeeded(linkHoverIndicatorView, to: contentFrame)
+        if let renderHealthOverlayView {
+            _ = setFrameIfNeeded(renderHealthOverlayView, to: contentFrame)
+        }
         if let cloudTerminalReconnectOverlayView {
             _ = setFrameIfNeeded(cloudTerminalReconnectOverlayView, to: contentFrame)
         }
@@ -10939,6 +10938,7 @@ final class GhosttySurfaceScrollView: NSView {
     func attachSurface(_ terminalSurface: TerminalSurface) {
         if surfaceView.terminalSurface !== terminalSurface { setLinkHoverURL(nil) }
         surfaceView.attachSurface(terminalSurface)
+        bindRenderHealth(to: terminalSurface)
         // Preserve the bootstrap 800x600 surface until portal reattach churn
         // has produced a real host size instead of a transient 1x1 placeholder.
         guard bounds.width > 1, bounds.height > 1 else { return }

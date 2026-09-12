@@ -35,6 +35,7 @@ extension GhosttyApp {
         if let runtimeSurface {
             // Avoid re-entrant close/deinit while Ghostty dispatches this callback.
             DispatchQueue.main.async {
+                runtimeSurface.markShellExited()
                 guard let app = AppDelegate.shared else { return }
                 guard GhosttyApp.terminalSurfaceRegistry.surface(id: runtimeSurface.id) === runtimeSurface else { return }
                 if !keepSurfaceVisible,
