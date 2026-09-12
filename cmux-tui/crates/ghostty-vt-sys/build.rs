@@ -42,7 +42,6 @@ fn main() {
     let zig = env::var("ZIG").unwrap_or_else(|_| "zig".to_string());
     let prefix = out_dir.join("ghostty-vt");
     let target = env::var("TARGET").unwrap();
-    let host = env::var("HOST").unwrap();
     let mut command = Command::new(&zig);
     command
         .current_dir(&ghostty_dir)
@@ -50,19 +49,17 @@ fn main() {
         .arg("-Demit-lib-vt=true")
         .arg("-Demit-xcframework=false")
         .arg("-Doptimize=ReleaseFast");
-    if target != host
-        && let Some(zig_target) = zig_target_for_rust_target(&target)
-    {
+    if let Some(zig_target) = zig_target_for_rust_target(&target) {
         command.arg(format!("-Dtarget={zig_target}"));
     }
-    // Valgrind's instruction emulation doesn't cover every CPU-native SIMD
-    // extension zig's default target detection can select (e.g. some AVX-512
-    // variants), which SIGILLs under valgrind. CI's valgrind job sets this to
-    // "baseline" to match the same workaround ghostty's own build.zig uses
-    // for its valgrind step (see `Config.baselineTarget()`).
-    if let Ok(cpu) = env::var("CMUX_GHOSTTY_VT_ZIG_CPU") {
-        command.arg(format!("-Dcpu={cpu}"));
-    }
+    // When compiling libghostty-vt, ensure SIMD codegen defaults to the target's
+    // baseline architecture unless an explicit CPU target is requested via
+    // CMUX_GHOSTTY_VT_ZIG_CPU. Without an explicit -Dcpu, zig's default target
+    // detection on native-architecture builds selects host-native SIMD features
+    // (such as AVX-512 on CI builders), causing SIGILL on standard x86-64 CPUs
+    // (e.g., Haswell, Zen 1-3) and under Valgrind emulation.
+    let cpu = env::var("CMUX_GHOSTTY_VT_ZIG_CPU").unwrap_or_else(|_| "baseline".to_string());
+    command.arg(format!("-Dcpu={cpu}"));
     let status = command.arg("--prefix").arg(&prefix).status().unwrap_or_else(|e| {
         panic!("failed to run `{zig} build` in {}: {e}", ghostty_dir.display())
     });
