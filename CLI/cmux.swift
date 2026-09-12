@@ -27743,7 +27743,11 @@ struct CMUXCLI {
                 fallbackPID: claudePid
             )
             let isClearSessionStart = isClaudeClearSessionStart(parsedInput)
-            let sessionStartSource = parsedInput.object?["source"] as? String
+            let isForkSessionStart = isClaudeForkSessionStart(parsedInput)
+            let isNoFlickerStartupSessionStart = isClaudeNoFlickerStartupSessionStart(
+                parsedInput,
+                env: ProcessInfo.processInfo.environment
+            )
             let canReplaceStoppedSession = shouldReplaceStoppedClaudeSession(
                 sessionStore: sessionStore,
                 parsedInput: parsedInput,
@@ -27751,8 +27755,13 @@ struct CMUXCLI {
                 surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
                 telemetry: telemetry
             )
+            let shouldPublishSessionStartResumeBinding = isClearSessionStart
+                || isForkSessionStart
+                || isForkSessionLaunch
+                || canReplaceStoppedSession
+            let sessionStartSource = parsedInput.object?["source"] as? String
             let shouldPromoteActiveSession = !isForkSessionLaunch && (isClearSessionStart || canReplaceStoppedSession)
-            let acceptedSessionId: String? = parsedInput.sessionId.flatMap { sessionId in
+            let acceptedSessionStart = parsedInput.sessionId.flatMap { sessionId -> (sessionId: String, accepted: Bool)? in
                 guard sessionId != forkParentSessionId else { return nil }
                 let accepted = (try? sessionStore.upsertAuthoritativeClaudeSessionStart(
                     sessionId: sessionId,
@@ -27766,25 +27775,28 @@ struct CMUXCLI {
                     hookEventName: reportedHookEventName(from: parsedInput) ?? "SessionStart",
                     turnId: parsedInput.turnId
                 )) == true
-                return accepted ? sessionId : nil
+                return (sessionId: sessionId, accepted: accepted)
             }
-            guard isForkSessionLaunch || acceptedSessionId != nil else {
+            guard isForkSessionLaunch || acceptedSessionStart?.accepted == true else {
                 telemetry.breadcrumb("claude-hook.session-start.stale")
                 printClaudeHookAck()
                 return
             }
-            if let acceptedSessionId {
-                publishAgentSurfaceResumeBinding(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    kind: "claude",
-                    displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
-                    sessionId: acceptedSessionId,
-                    cwd: hookCwd,
-                    launchCommand: launchCommand,
-                    observedPermissionMode: observedHookPermissionMode
-                )
+            if let acceptedSessionStart, acceptedSessionStart.accepted {
+                let acceptedSessionId = acceptedSessionStart.sessionId
+                if shouldPublishSessionStartResumeBinding {
+                    publishAgentSurfaceResumeBinding(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        kind: "claude",
+                        displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
+                        sessionId: acceptedSessionId,
+                        cwd: hookCwd,
+                        launchCommand: launchCommand,
+                        observedPermissionMode: observedHookPermissionMode
+                    )
+                }
                 emitAgentJournalEvent(
                     client: client,
                     kind: .sessionStarted,
@@ -27821,7 +27833,10 @@ struct CMUXCLI {
                     client: client
                 )
             }
-            if isClearSessionStart, !suppressVisibleMutations {
+            let shouldPromoteNoFlickerSessionStart = !isForkSessionLaunch
+                && isNoFlickerStartupSessionStart
+                && acceptedSessionStart?.accepted == true
+            if (isClearSessionStart || shouldPromoteActiveSession || shouldPromoteNoFlickerSessionStart), !suppressVisibleMutations {
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
                 try setClaudeStatus(
                     client: client,
@@ -29072,6 +29087,26 @@ struct CMUXCLI {
             return false
         }
         return source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "clear"
+    }
+
+    private func isClaudeForkSessionStart(_ parsedInput: ClaudeHookParsedInput) -> Bool {
+        guard let source = parsedInput.object?["source"] as? String else {
+            return false
+        }
+        return source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "fork"
+    }
+
+    private func isClaudeNoFlickerStartupSessionStart(
+        _ parsedInput: ClaudeHookParsedInput,
+        env: [String: String]
+    ) -> Bool {
+        guard let raw = normalizedHookValue(env["CLAUDE_CODE_NO_FLICKER"]),
+              Self.parseHookBoolean(raw) == true,
+              let source = parsedInput.object?["source"] as? String,
+              let normalizedSource = normalizedHookValue(source)?.lowercased() else {
+            return false
+        }
+        return normalizedSource == "startup"
     }
 
     func socketPanelOption(_ surfaceId: String?) -> String {
