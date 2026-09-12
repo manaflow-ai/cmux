@@ -15,9 +15,9 @@ import OSLog
 final class MobileHostIrxRuntime {
     static let shared = MobileHostIrxRuntime()
 
-    static let maximumActivationRetryDelay: TimeInterval = 120
+    nonisolated static let maximumActivationRetryDelay: TimeInterval = 120
 
-    static func activationRetryDelay(
+    nonisolated static func activationRetryDelay(
         after error: any Error,
         failureCount: Int,
         jitterUnitInterval: Double
