@@ -640,6 +640,7 @@ cmux rpc <method> [json-params]        # call any v2 method directly, e.g. cmux 
 | `vm.open_port`, `vm.port_open` | `vm open <id> <port> --print`, `vm open <id> <port>` / `<id>:port/<n>` |
 | `vm.desktop_open` | `vm desktop`, `vm open <id>:desktop`, the split beside `vm shell` |
 | `vm.cmux_remote_info`, `vm.link_socket` | the shared machine shell and surface open path |
+| `vm.diagnostics` | cloud operation diagnostics returned by the app's cloud control path |
 | `vm.ssh_info` | provider-specific attach diagnostics surfaced by the app |
 | `vm.attach_info`, `vm.session_attach_info`, `vm.sessions` | legacy websocket/SSH attach transports the open path falls back to on deployments without a cmux-tui daemon (`cmux rpc` reaches them directly) |
 | `vm.tree` | the pre-catalog tree; `vm tree` uses `surface.catalog` |
