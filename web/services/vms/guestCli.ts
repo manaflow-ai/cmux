@@ -2564,10 +2564,16 @@ case "\${1:-}" in
     shift
     # Silent on success like the Mac CLI, unless the caller asked for the
     # JSON result: --quiet and --json are exclusive global output modes.
-    case " \$* " in
-      *" --json "*|*" --jsonl "*) exec "\$CMUX_TUI_BIN" --session "\$LOCAL_SESSION" notify "\$@" ;;
-      *) exec "\$CMUX_TUI_BIN" --session "\$LOCAL_SESSION" --quiet notify "\$@" ;;
-    esac
+    cmux_notify_json=
+    for cmux_notify_arg in "\$@"; do
+      case "\$cmux_notify_arg" in
+        --json|--jsonl) cmux_notify_json=1; break ;;
+      esac
+    done
+    if [ -n "\$cmux_notify_json" ]; then
+      exec "\$CMUX_TUI_BIN" --session "\$LOCAL_SESSION" notify "\$@"
+    fi
+    exec "\$CMUX_TUI_BIN" --session "\$LOCAL_SESSION" --quiet notify "\$@"
     ;;
   *)
     # Local daemon session. cmux-tui's own grammar is \`cmux <resource> <action>\`.
