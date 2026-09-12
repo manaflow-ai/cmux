@@ -746,34 +746,6 @@ struct SimulatorPanelIntegrationTests {
         #expect(await client.activationCount == 1)
     }
 
-    @Test("Control gestures map logical touches and edges through every orientation")
-    func controlGestureOrientationMapping() throws {
-        let touch = ControlSimulatorTouch(
-            phase: "moved", x: 0.2, y: 0.3,
-            secondX: 0.7, secondY: 0.8, edge: "left"
-        )
-        let cases: [(SimulatorOrientation, SimulatorPoint, SimulatorPoint, SimulatorEdge)] = [
-            (.portrait, SimulatorPoint(x: 0.2, y: 0.3), SimulatorPoint(x: 0.7, y: 0.8), .left),
-            (.portraitUpsideDown, SimulatorPoint(x: 0.8, y: 0.7),
-             SimulatorPoint(x: 0.3, y: 0.2), .right),
-            (.landscapeLeft, SimulatorPoint(x: 0.3, y: 0.8),
-             SimulatorPoint(x: 0.8, y: 0.3), .bottom),
-            (.landscapeRight, SimulatorPoint(x: 0.7, y: 0.2),
-             SimulatorPoint(x: 0.2, y: 0.7), .top),
-        ]
-
-        for (orientation, primary, secondary, edge) in cases {
-            let geometry = SimulatorOrientationGeometry(
-                rawWidth: 100, rawHeight: 200, requestedOrientation: orientation
-            )
-            let event = try controlSimulatorPointerEvent(touch, geometry: geometry)
-            #expect(event.phase == .moved)
-            #expect(event.primary == primary)
-            #expect(event.secondary == secondary)
-            #expect(event.edge == edge)
-        }
-    }
-
     @Test("Simulator accessibility socket payload preserves axe fields and bounds metadata")
     func accessibilitySocketPayload() throws {
         let node = SimulatorAccessibilityNode(

@@ -132,6 +132,11 @@ extension Workspace {
             panelId: panelId,
             revalidateProcessEvidence: false
         )
+        // A completed scan that has no matching entry is still only absence
+        // of evidence: the hook may have written this session after the scan
+        // finished. Only an observed entry with non-live process evidence can
+        // establish that an existing binding is stale.
+        guard let liveEntry else { return false }
         return !AgentResumeLiveness.hasLiveProcess(
             for: liveEntry,
             kind: kind,

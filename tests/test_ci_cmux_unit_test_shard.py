@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import subprocess
 import sys
 import tempfile
@@ -14,6 +15,15 @@ HELPER = ROOT / "scripts" / "ci" / "cmux_unit_test_shard.py"
 CI_PHYSICAL_SHARD_TOTAL = 4
 CI_LOGICAL_BATCHES_PER_WORKER = 2
 CI_LOGICAL_SHARD_TOTAL = CI_PHYSICAL_SHARD_TOTAL * CI_LOGICAL_BATCHES_PER_WORKER
+
+
+def load_helper_module():
+    spec = importlib.util.spec_from_file_location("cmux_unit_test_shard", HELPER)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def write_large_suite_fixture(test_root: Path) -> None:
@@ -196,6 +206,60 @@ def check_non_dict_manifest_falls_back() -> int:
         print(f"FAIL: non-dict manifest fallback lost suites, got {sorted(assigned)}")
         return 1
     print("PASS: non-dict JSON manifest falls back to count-based packing")
+    return 0
+
+
+def check_swift_testing_is_suite_scoped() -> int:
+    """Swift Testing metadata must not leak between suites or extensions."""
+    module = load_helper_module()
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_root = Path(tmp)
+        test_root = tmp_root / "cmuxTests"
+        test_root.mkdir()
+        (test_root / "MixedTests.swift").write_text(
+            """
+final class LegacyTests: XCTestCase {
+    func testLegacy() {}
+}
+
+@Test func freeStandingTest() {}
+
+@Suite
+struct ModernTests {
+    let closingBrace = "}"
+    /* A nested comment must not close the suite: /* } */ */
+    @MainActor @Test func testModern() {}
+}
+""".lstrip(),
+            encoding="utf-8",
+        )
+        (test_root / "ExtensionOnlyTests.swift").write_text(
+            """
+struct ExtensionOnlyTests {}
+""".lstrip(),
+            encoding="utf-8",
+        )
+        (test_root / "ExtensionOnlyTests+Swift.swift").write_text(
+            """
+extension ExtensionOnlyTests {
+    @available(macOS 14, *) @Test func testModernExtension() {}
+}
+""".lstrip(),
+            encoding="utf-8",
+        )
+        selectors = module.discover_selectors(tmp_root)
+
+    by_identifier = {selector.identifier: selector for selector in selectors}
+    if by_identifier["cmuxTests/LegacyTests"].has_swift_testing:
+        print("FAIL: Swift Testing leaked from outside the XCTest suite body")
+        return 1
+    if not by_identifier["cmuxTests/ModernTests"].has_swift_testing:
+        print("FAIL: Swift Testing suite was not detected")
+        return 1
+    if not by_identifier["cmuxTests/ExtensionOnlyTests"].has_swift_testing:
+        print("FAIL: Swift Testing extension was not attached to its suite")
+        return 1
+    print("PASS: Swift Testing metadata is scoped to suites and extensions")
     return 0
 
 
@@ -405,6 +469,9 @@ def main() -> int:
         return rc
 
     if (rc := check_non_dict_manifest_falls_back()) != 0:
+        return rc
+
+    if (rc := check_swift_testing_is_suite_scoped()) != 0:
         return rc
 
     if (rc := check_swift_testing_extension_weights()) != 0:

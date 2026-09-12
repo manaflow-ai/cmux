@@ -806,10 +806,9 @@ jobs:
       - name: Run agent chat transcript lifecycle regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
-          # Swift Testing assertion failures are tolerated in the full sharded
-          # app-host suite. Keep hook-driven transcript resolution on a
-          # non-tolerant focused invocation so Feed ingress cannot regain an
-          # unbounded recursive filesystem scan.
+          # Keep hook-driven transcript resolution in a dedicated invocation
+          # before the broad sharded suite. Verify that Feed ingress cannot
+          # regain an unbounded recursive filesystem scan.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           for suite in \
@@ -831,9 +830,8 @@ jobs:
       - name: Run agent resume binding regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
-          # Swift Testing assertion failures are tolerated in the full sharded
-          # app-host suite. Keep the resume-binding ownership rules on a
-          # non-tolerant focused invocation so a same-session agent-hook write
+          # Keep resume-binding ownership rules in a dedicated invocation
+          # before the broad sharded suite so a same-session agent-hook write
           # or a TUI prompt mark cannot regain the ability to demote a live
           # agent's automatic resume (#12084).
           set -euo pipefail
@@ -945,9 +943,8 @@ jobs:
       - name: Run Pi Feed ownership regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
-          # Swift Testing assertion failures are tolerated in the full sharded
-          # app-host suite. Keep Feed ingestion and ownership on a non-tolerant
-          # focused invocation so valid Pi Feed targets cannot silently regress.
+          # Verify Pi Feed ingestion and ownership in focused invocations
+          # before the broad sharded suite.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           # Each suite mutates process-global app/store state. Give every suite
@@ -1249,10 +1246,8 @@ jobs:
       - name: Run sidebar workspace-switch layout regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
-          # The tolerant full-suite step can accept Swift Testing assertion
-          # failures when XCTest reports "0 unexpected". Keep #9612's real
-          # window-switch workload non-tolerant so NSHostingView layout
-          # reentry cannot silently return.
+          # Keep #9612's real window-switch workload in a dedicated process,
+          # with NSHostingView layout reentry asserted directly.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           scripts/ci/run-in-console-session.sh \
@@ -1379,11 +1374,13 @@ jobs:
           run_unit_test_batch() {
             local logical_shard="$1"
             local shard_args="$RUNNER_TEMP/cmux-unit-shard-${logical_shard}-of-${LOGICAL_SHARD_TOTAL}.args"
+            local swift_testing_output="$RUNNER_TEMP/cmux-unit-shard-${logical_shard}-of-${LOGICAL_SHARD_TOTAL}.swift-testing"
             local batch_output="$RUNNER_TEMP/cmux-unit-output-${logical_shard}-of-${LOGICAL_SHARD_TOTAL}.txt"
             python3 scripts/ci/cmux_unit_test_shard.py \
               --shard-index "$logical_shard" \
               --shard-total "$LOGICAL_SHARD_TOTAL" \
-              --output "$shard_args" || {
+              --output "$shard_args" \
+              --swift-testing-output "$swift_testing_output" || {
                 local shard_status=$?
                 echo "Failed to generate app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}"
                 return "$shard_status"
@@ -1392,6 +1389,19 @@ jobs:
               echo "Missing selector file for app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}"
               return 1
             fi
+            if [ ! -r "$swift_testing_output" ]; then
+              echo "Missing Swift Testing metadata for app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}"
+              return 1
+            fi
+            local expect_swift_testing
+            expect_swift_testing="$(tr -d '[:space:]' < "$swift_testing_output")"
+            case "$expect_swift_testing" in
+              0|1) ;;
+              *)
+                echo "Invalid Swift Testing metadata for app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}"
+                return 1
+                ;;
+            esac
             local only_testing_args=()
             while IFS= read -r arg; do
               [ -n "$arg" ] && only_testing_args+=("$arg")
@@ -1420,7 +1430,11 @@ jobs:
               # hiding the actual unit test summary.
               # The app-host wrapper also serializes GUI XCTest ownership per Mac,
               # while still allowing shards on separate Macs to run in parallel.
-              scripts/ci/run-in-console-session.sh \
+              # Keep the helper's independent deadline below the 1800-second
+              # job watchdog so it can report its own timeout first.
+              CMUX_XCODEBUILD_NONINTERACTIVE_EXPECT_SWIFT_TESTING="$expect_swift_testing" \
+                CMUX_XCODEBUILD_NONINTERACTIVE_TOTAL_TIMEOUT_SECONDS=1700 \
+                scripts/ci/run-in-console-session.sh \
                 scripts/ci/run-app-host-xcodebuild.sh \
                 -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
                 -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
@@ -1468,10 +1482,15 @@ jobs:
             } | tee "$batch_output"
             batch_status="${PIPESTATUS[0]}"
 
-            if [ "$batch_status" -eq 65 ] \
-              && python3 scripts/ci/classify-app-host-test-output.py "$batch_output"; then
-                echo "All failures in app-host batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} are expected, continuing"
-                return 0
+            # Reuse the final classifier for per-batch continuation. It only
+            # tolerates ordinary XCTest statuses (65/125); reserved wrapper
+            # statuses and unknown failures cannot be hidden by a stale
+            # "(0 unexpected)" summary.
+            if [ "$batch_status" -ne 0 ] \
+              && scripts/ci/classify-app-host-test-result.sh \
+                "$batch_status" "$batch_output" >/dev/null 2>&1; then
+              echo "All failures in app-host batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} are expected, continuing"
+              return 0
             fi
             return "$batch_status"
           }
@@ -1492,13 +1511,12 @@ jobs:
           set +e
           run_unit_tests | tee "$TEST_OUTPUT"
           EXIT_CODE=${PIPESTATUS[0]}
-          OUTPUT=$(cat "$TEST_OUTPUT")
           set -e
 
           # SwiftPM binary artifact resolution can occasionally fail on ephemeral
           # runners with "Could not resolve package dependencies". Retry once after
           # clearing SwiftPM/DerivedData caches to recover from transient corruption.
-          if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
+          if [ "$EXIT_CODE" -ne 0 ] && grep -q "Could not resolve package dependencies" "$TEST_OUTPUT"; then
             echo "SwiftPM package resolution failed, clearing caches and retrying once"
             rm -rf ~/Library/Caches/org.swift.swiftpm
             mkdir -p ~/Library/Caches/org.swift.swiftpm
@@ -1507,17 +1525,10 @@ jobs:
             set +e
             run_unit_tests | tee "$TEST_OUTPUT"
             EXIT_CODE=${PIPESTATUS[0]}
-            OUTPUT=$(cat "$TEST_OUTPUT")
             set -e
           fi
 
-          if [ "$EXIT_CODE" -ne 0 ]; then
-            # Expected failures are normalized inside run_unit_test_batch. Any
-            # remaining non-zero status is a real batch failure or an incomplete
-            # run with no trustworthy summary and must stay red.
-            echo "App-host unit-test batch failed with status ${EXIT_CODE}"
-            exit "$EXIT_CODE"
-          fi
+          exit "$EXIT_CODE"
 
       - name: Run bundled Ghostty theme picker helper regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}

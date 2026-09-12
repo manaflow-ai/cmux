@@ -215,6 +215,7 @@ def run_linux_preflight(needs: dict[str, object]) -> subprocess.CompletedProcess
 
 def run_app_host_unit_test_step(
     shard_mode: str = "selectors",
+    failed_batch_status: int = 9,
 ) -> tuple[subprocess.CompletedProcess[str], bool]:
     script = workflow_job_step_script("app-host-unit-tests", "Run unit tests")
     script = script.replace("${{ matrix.shard }}", "1")
@@ -244,6 +245,9 @@ if mode == "fail":
     raise SystemExit(23)
 output = Path(sys.argv[sys.argv.index("--output") + 1])
 output.parent.mkdir(parents=True, exist_ok=True)
+if "--swift-testing-output" in sys.argv:
+    swift_testing_output = Path(sys.argv[sys.argv.index("--swift-testing-output") + 1])
+    swift_testing_output.write_text("0\\n", encoding="utf-8")
 selectors = "" if mode == "empty" else "-only-testing:cmuxTests/FakeTests\\n"
 output.write_text(selectors, encoding="utf-8")
 """.lstrip(),
@@ -265,14 +269,21 @@ iteration=$((iteration + 1))
 printf '%s\n' "$iteration" > "$counter"
 if [ "$iteration" -eq 1 ]; then
   echo "Executed 2 tests, with 2 failures (0 unexpected)"
+  # XCTest uses 65 for an assertion-failure run.  A generic shell failure
+  # status must remain blocking so the classifier cannot be bypassed by a
+  # plausible-looking prior summary.
   exit 65
 fi
 echo "simulated app-host crash before test summary" >&2
-exit 9
+exit "${CMUX_TEST_FAILED_BATCH_STATUS:?}"
 """.lstrip(),
             encoding="utf-8",
         )
         console_runner.chmod(0o755)
+
+        classifier = ci_scripts / "classify-app-host-test-result.sh"
+        shutil.copy2(ROOT / "scripts" / "ci" / classifier.name, classifier)
+        classifier.chmod(0o755)
 
         fake_sleep = fake_bin / "sleep"
         fake_sleep.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
@@ -290,6 +301,7 @@ exit 9
                 "CMUX_TEST_BATCH_COUNTER": str(root / "batch-counter"),
                 "CMUX_TEST_RUNNER_MARKER": str(runner_marker),
                 "CMUX_TEST_SHARD_MODE": shard_mode,
+                "CMUX_TEST_FAILED_BATCH_STATUS": str(failed_batch_status),
             },
             text=True,
             stdout=subprocess.PIPE,
@@ -841,11 +853,14 @@ def test_determinism_workflow_runs_self_test_before_strict_scan() -> None:
 
 
 def test_app_host_multi_batch_failure_cannot_reuse_prior_expected_summary() -> None:
-    result, runner_invoked = run_app_host_unit_test_step()
+    for failed_batch_status in (9, 65, 125):
+        result, runner_invoked = run_app_host_unit_test_step(
+            failed_batch_status=failed_batch_status,
+        )
 
-    assert runner_invoked
-    assert result.returncode != 0, result.stdout
-    assert "simulated app-host crash before test summary" in result.stdout
+        assert runner_invoked
+        assert result.returncode != 0, (failed_batch_status, result.stdout)
+        assert "simulated app-host crash before test summary" in result.stdout
 
 
 def run_focused_app_host_step(

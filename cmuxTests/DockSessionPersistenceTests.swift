@@ -1508,7 +1508,7 @@ struct DockSessionPersistenceTests {
                 "arguments": ["/usr/local/bin/codex"],
                 "workingDirectory": workingDirectory,
                 "capturedAt": updatedAt,
-                "source": "test",
+                "source": "process",
             ],
         ]
     }
