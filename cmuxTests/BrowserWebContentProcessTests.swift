@@ -1073,6 +1073,29 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func webAuthnHybridTransportDoesNotForceNativeHybridPrompt() throws {
+        let hybridOnly = BrowserWebAuthnTransportSummary(
+            descriptors: [
+                try webAuthnCredentialDescriptor(transports: ["hybrid"]),
+            ]
+        )
+        #expect(!hybridOnly.allowsPlatformCredentials)
+        #expect(!hybridOnly.allowsSecurityKeyCredentials)
+        #expect(!hybridOnly.needsBluetoothPreparation)
+        #expect(!hybridOnly.shouldShowHybridTransport)
+
+        let platformGoogleStyle = BrowserWebAuthnTransportSummary(
+            descriptors: [
+                try webAuthnCredentialDescriptor(transports: ["internal", "hybrid"]),
+            ]
+        )
+        #expect(platformGoogleStyle.allowsPlatformCredentials)
+        #expect(!platformGoogleStyle.allowsSecurityKeyCredentials)
+        #expect(!platformGoogleStyle.needsBluetoothPreparation)
+        #expect(!platformGoogleStyle.shouldShowHybridTransport)
+    }
+
+    @Test
     func webViewReplacementAfterProcessTerminationUpdatesInstanceIdentity() {
         let panel = BrowserPanel(
             workspaceId: UUID(),
@@ -1366,6 +1389,15 @@ private actor BrowserAppSessionRestoredSessionAuthClient: AuthClient {
     ) async -> String? {
         accessToken
     }
+}
+
+private func webAuthnCredentialDescriptor(transports: [String]) throws -> BrowserWebAuthnCredentialDescriptor {
+    let data = try JSONSerialization.data(withJSONObject: [
+        "type": "public-key",
+        "id": "AQID",
+        "transports": transports,
+    ])
+    return try JSONDecoder().decode(BrowserWebAuthnCredentialDescriptor.self, from: data)
 }
 
 private final class BrowserWebContentProcessLoadDelegate: NSObject, WKNavigationDelegate {

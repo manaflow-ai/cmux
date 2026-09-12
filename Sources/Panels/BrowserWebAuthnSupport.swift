@@ -4,7 +4,28 @@ import Bonsplit
 import CoreBluetooth
 import Foundation
 import ObjectiveC.runtime
+import os
 import WebKit
+
+nonisolated private let browserWebAuthnLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+    category: "BrowserWebAuthn"
+)
+
+private func browserWebAuthnTrace(_ message: @autoclosure () -> String) {
+    let text = message()
+    browserWebAuthnLogger.notice("\(text, privacy: .public)")
+
+    let path = "/tmp/cmux-webauthn-nightly.log"
+    let line = "\(ISO8601DateFormatter().string(from: Date())) \(text)\n"
+    if !FileManager.default.fileExists(atPath: path) {
+        _ = FileManager.default.createFile(atPath: path, contents: nil)
+    }
+    guard let handle = FileHandle(forWritingAtPath: path) else { return }
+    defer { try? handle.close() }
+    try? handle.seekToEnd()
+    try? handle.write(contentsOf: Data(line.utf8))
+}
 
 /// Native WebAuthn bridge for `WKWebView`.
 ///
@@ -815,6 +836,7 @@ private extension BrowserWebAuthnCredentialDescriptor {
 
         let descriptorTransports: [ASAuthorizationSecurityKeyPublicKeyCredentialDescriptor.Transport]
         if transports.isEmpty {
+            guard normalizedTransports.isEmpty else { return nil }
             descriptorTransports = [
                 .init(rawValue: "usb"),
                 .init(rawValue: "nfc"),
@@ -975,6 +997,7 @@ private final class BrowserPasskeyAuthorizationGate {
 
     private let manager = ASAuthorizationWebBrowserPublicKeyCredentialManager()
     private var inFlightRequest: Task<ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState, Never>?
+    private var lastAuthorizationRequestCompletedAt: Date?
 
     func currentAuthorizationState() -> ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState {
         manager.authorizationStateForPlatformCredentials
@@ -999,7 +1022,20 @@ private final class BrowserPasskeyAuthorizationGate {
         inFlightRequest = request
         let result = await request.value
         inFlightRequest = nil
+        lastAuthorizationRequestCompletedAt = Date()
         return result
+    }
+
+    func waitForCredentialRequestReadinessIfNeeded() async {
+        guard let completedAt = lastAuthorizationRequestCompletedAt else { return }
+
+        let settleInterval: TimeInterval = 0.5
+        let elapsed = Date().timeIntervalSince(completedAt)
+        guard elapsed < settleInterval else { return }
+
+        let remaining = settleInterval - elapsed
+        browserWebAuthnTrace("authRequests settlingAfterAuthorization delayMs=\(Int(remaining * 1000))")
+        try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
     }
 }
 
@@ -1070,6 +1106,7 @@ final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithRepl
                 #if DEBUG
                 cmuxDebugLog("webauthn.dispatch kind=\(envelope.kind.rawValue) frame=\(message.frameInfo.isMainFrame ? "main" : "sub") url=\(message.frameInfo.securityOrigin.host)")
                 #endif
+                browserWebAuthnTrace("dispatch kind=\(envelope.kind.rawValue) frame=\(message.frameInfo.isMainFrame ? "main" : "sub") host=\(message.frameInfo.securityOrigin.host)")
                 switch envelope.kind {
                 case .capabilities:
                     _ = try BrowserWebAuthnClientDataContext.resolvePermitted(for: message)
@@ -1082,6 +1119,7 @@ final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithRepl
                     #if DEBUG
                     cmuxDebugLog("webauthn.capabilities reply=\(capReply)")
                     #endif
+                    browserWebAuthnTrace("capabilities callerMayPrompt=\(callerMayPrompt) state=\(BrowserPasskeyAuthorizationGate.shared.currentAuthorizationState().rawValue) reply=\(capReply)")
                     replyHandler(capReply, nil)
                 case .createCredential:
                     let request = try BrowserWebAuthnRequestParser.decodePayload(
@@ -1097,10 +1135,16 @@ final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithRepl
                         "algorithmCount=\(request.publicKey.requestedAlgorithms.count)"
                     )
                     #endif
+                    browserWebAuthnTrace(
+                        "createCredential rp=\(request.publicKey.rp?.id ?? "(nil)") " +
+                            "attachment=\(request.publicKey.authenticatorSelection?.attachment ?? "(nil)") " +
+                            "algorithms=\(request.publicKey.requestedAlgorithms) exclude=\(request.publicKey.excludeCredentials?.count ?? 0)"
+                    )
                     let reply = try await handleCreateCredential(request, message: message)
                     #if DEBUG
                     cmuxDebugLog("webauthn.createCredential reply.ok=\(reply["ok"] ?? "nil") hasCredential=\(reply["credential"] != nil) fallback=\(reply["useWebKitFallback"] ?? "nil")")
                     #endif
+                    browserWebAuthnTrace("createCredential reply ok=\(reply["ok"] ?? "nil") hasCredential=\(reply["credential"] != nil) fallback=\(reply["useWebKitFallback"] ?? "nil")")
                     replyHandler(reply, nil)
                 case .getCredential:
                     let request = try BrowserWebAuthnRequestParser.decodePayload(
@@ -1114,22 +1158,35 @@ final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithRepl
                         "mediation=\(request.mediation ?? "(nil)")"
                     )
                     #endif
+                    let transportSummary = BrowserWebAuthnTransportSummary(
+                        descriptors: (request.publicKey.allowCredentials ?? []).filter(\.isPublicKeyCredential)
+                    )
+                    browserWebAuthnTrace(
+                        "getCredential rp=\(request.publicKey.rpId ?? "(nil)") " +
+                            "allowCredentials=\(request.publicKey.allowCredentials?.count ?? 0) " +
+                            "mediation=\(request.mediation ?? "(nil)") transports=[\(transportSummary.debugSummary)]"
+                    )
                     let reply = try await handleGetCredential(request, message: message)
                     #if DEBUG
                     cmuxDebugLog("webauthn.getCredential reply.ok=\(reply["ok"] ?? "nil") hasCredential=\(reply["credential"] != nil) fallback=\(reply["useWebKitFallback"] ?? "nil")")
                     #endif
+                    browserWebAuthnTrace("getCredential reply ok=\(reply["ok"] ?? "nil") hasCredential=\(reply["credential"] != nil) fallback=\(reply["useWebKitFallback"] ?? "nil")")
                     replyHandler(reply, nil)
                 }
             } catch let error as BrowserWebAuthnBridgeError {
                 #if DEBUG
                 cmuxDebugLog("webauthn.error bridge: \(error.replyObject())")
                 #endif
-                replyHandler(error.replyObject(), nil)
+                let reply = error.replyObject()
+                browserWebAuthnTrace("bridgeError reply=\(reply)")
+                replyHandler(reply, nil)
             } catch {
                 #if DEBUG
                 cmuxDebugLog("webauthn.error unknown: \(error.localizedDescription)")
                 #endif
-                replyHandler(BrowserWebAuthnBridgeError.unknown(error.localizedDescription).replyObject(), nil)
+                let reply = BrowserWebAuthnBridgeError.unknown(error.localizedDescription).replyObject()
+                browserWebAuthnTrace("unknownError description=\(error.localizedDescription) reply=\(reply)")
+                replyHandler(reply, nil)
             }
         }
     }
@@ -1144,6 +1201,7 @@ extension BrowserWebAuthnCoordinator: ASAuthorizationControllerDelegate, ASAutho
         #if DEBUG
         cmuxDebugLog("webauthn.asAuth.didComplete credentialType=\(type(of: authorization.credential))")
         #endif
+        browserWebAuthnTrace("asAuth.didComplete credentialType=\(type(of: authorization.credential))")
         do {
             finishAuthorization(
                 with: .success(
@@ -1162,11 +1220,12 @@ extension BrowserWebAuthnCoordinator: ASAuthorizationControllerDelegate, ASAutho
         controller: ASAuthorizationController,
         didCompleteWithError error: Error
     ) {
-        #if DEBUG
         let nsError = error as NSError
+        #if DEBUG
         cmuxDebugLog("webauthn.asAuth.didFail domain=\(nsError.domain) code=\(nsError.code)")
         #endif
-        finishAuthorization(with: .failure(bridgeError(from: error)))
+        browserWebAuthnTrace("asAuth.didFail domain=\(nsError.domain) code=\(nsError.code) description=\(nsError.localizedDescription)")
+        finishAuthorization(with: .failure(error))
     }
 
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
@@ -1290,12 +1349,14 @@ private extension BrowserWebAuthnCoordinator {
         #if DEBUG
         cmuxDebugLog("webauthn.authRequests hasPlatform=\(plan.hasPlatformRequests) hasSecurityKey=\(plan.securityKeyRequests.count > 0) order=\(plan.order)")
         #endif
+        browserWebAuthnTrace("authRequests start hasPlatform=\(plan.hasPlatformRequests) hasSecurityKey=\(plan.hasSecurityKeyRequests) order=\(plan.order)")
 
         if includePlatformRequests {
             let currentState = BrowserPasskeyAuthorizationGate.shared.currentAuthorizationState()
             #if DEBUG
             cmuxDebugLog("webauthn.authRequests passkeyAuthState=\(currentState.rawValue) callerMayPrompt=\(callerMayPromptForPlatformAuthorization(message))")
             #endif
+            browserWebAuthnTrace("authRequests platformAuthState=\(currentState.rawValue) callerMayPrompt=\(callerMayPromptForPlatformAuthorization(message))")
             if currentState == .notDetermined && !callerMayPromptForPlatformAuthorization(message) {
                 #if DEBUG
                 cmuxDebugLog("webauthn.authRequests skipping platform: cross-origin subframe can't prompt")
@@ -1306,8 +1367,11 @@ private extension BrowserWebAuthnCoordinator {
                 #if DEBUG
                 cmuxDebugLog("webauthn.authRequests authorizeIfNeeded result=\(authorizationState.rawValue)")
                 #endif
+                browserWebAuthnTrace("authRequests authorizeIfNeeded result=\(authorizationState.rawValue)")
                 if authorizationState != .authorized {
                     includePlatformRequests = false
+                } else {
+                    await BrowserPasskeyAuthorizationGate.shared.waitForCredentialRequestReadinessIfNeeded()
                 }
             }
         }
@@ -1316,6 +1380,7 @@ private extension BrowserWebAuthnCoordinator {
         #if DEBUG
         cmuxDebugLog("webauthn.authRequests finalCount=\(requests.count) includePlatform=\(includePlatformRequests)")
         #endif
+        browserWebAuthnTrace("authRequests finalCount=\(requests.count) includePlatform=\(includePlatformRequests) requestTypes=\(requests.map { String(describing: type(of: $0)) })")
         guard !requests.isEmpty else {
             #if DEBUG
             cmuxDebugLog("webauthn.authRequests FAIL: no requests available, throwing notAllowed")
@@ -1331,12 +1396,45 @@ private extension BrowserWebAuthnCoordinator {
             #if DEBUG
             cmuxDebugLog("webauthn.authRequests bluetooth result=\(btState)")
             #endif
+            browserWebAuthnTrace("authRequests bluetooth result=\(btState)")
         }
 
         return requests
     }
 
     func performAuthorization(
+        requests: [ASAuthorizationRequest],
+        window: NSWindow?,
+        prefersImmediatelyAvailableCredentials: Bool
+    ) async throws -> [String: Any] {
+        do {
+            return try await performAuthorizationAttempt(
+                requests: requests,
+                window: window,
+                prefersImmediatelyAvailableCredentials: prefersImmediatelyAvailableCredentials
+            )
+        } catch {
+            guard isRequestAlreadyInProgress(error) else {
+                throw bridgeError(from: error)
+            }
+
+            browserWebAuthnTrace("performAuth alreadyInProgress retryingAfterDelay")
+            cancelActiveAuthorization()
+            try? await Task.sleep(nanoseconds: 500_000_000)
+
+            do {
+                return try await performAuthorizationAttempt(
+                    requests: requests,
+                    window: window,
+                    prefersImmediatelyAvailableCredentials: prefersImmediatelyAvailableCredentials
+                )
+            } catch {
+                throw bridgeError(from: error)
+            }
+        }
+    }
+
+    func performAuthorizationAttempt(
         requests: [ASAuthorizationRequest],
         window: NSWindow?,
         prefersImmediatelyAvailableCredentials: Bool
@@ -1352,6 +1450,10 @@ private extension BrowserWebAuthnCoordinator {
             cmuxDebugLog("webauthn.performAuth request[\(i)]=\(type(of: req))")
         }
         #endif
+        browserWebAuthnTrace(
+            "performAuth requestCount=\(requests.count) hasWindow=\(window == nil ? 0 : 1) " +
+                "prefersImmediate=\(prefersImmediatelyAvailableCredentials) requestTypes=\(requests.map { String(describing: type(of: $0)) })"
+        )
         guard !requests.isEmpty else {
             throw BrowserWebAuthnBridgeError.notSupported("Native passkey support is unavailable.")
         }
@@ -1387,10 +1489,13 @@ private extension BrowserWebAuthnCoordinator {
     }
 
     func finishAuthorization(with result: Result<[String: Any], Error>) {
+        let controller = activeAuthorizationController
         let continuation = activeAuthorizationContinuation
         activeAuthorizationController = nil
         activeAuthorizationContinuation = nil
         activePresentationWindow = nil
+        controller?.delegate = nil
+        controller?.presentationContextProvider = nil
 
         switch result {
         case .success(let reply):
@@ -1446,12 +1551,12 @@ private extension BrowserWebAuthnCoordinator {
             if !excludedCredentials.isEmpty {
                 platformRequest.excludedCredentials = excludedCredentials
             }
-            platformRequest.shouldShowHybridTransport = attachment != "platform"
+            platformRequest.shouldShowHybridTransport = false
             platformRequests.append(platformRequest)
         }
 
         var securityKeyRequests: [ASAuthorizationRequest] = []
-        if attachment != "platform",
+        if attachment == "cross-platform",
            #available(macOS 14.4, *) {
             let provider = ASAuthorizationSecurityKeyPublicKeyCredentialProvider(
                 relyingPartyIdentifier: relyingPartyIdentifier
@@ -1496,12 +1601,17 @@ private extension BrowserWebAuthnCoordinator {
         #if DEBUG
         cmuxDebugLog("webauthn.buildCreationPlan rp=\(relyingPartyIdentifier) platform=\(platformRequests.count) securityKey=\(securityKeyRequests.count) attachment=\(attachment ?? "(nil)")")
         #endif
+        browserWebAuthnTrace(
+            "buildCreationPlan rp=\(relyingPartyIdentifier) platform=\(platformRequests.count) " +
+                "securityKey=\(securityKeyRequests.count) attachment=\(attachment ?? "(nil)") " +
+                "algorithms=\(requestedAlgorithms)"
+        )
         return .init(
             platformRequests: platformRequests,
             securityKeyRequests: securityKeyRequests,
             order: attachment == "cross-platform" ? .securityKeyFirst : .platformFirst,
-            needsBluetoothForPlatformRequests: attachment != "platform",
-            needsBluetoothForSecurityKeyRequests: false,
+            needsBluetoothForPlatformRequests: false,
+            needsBluetoothForSecurityKeyRequests: attachment == "cross-platform",
             prefersImmediatelyAvailableCredentials: false
         )
     }
@@ -1527,7 +1637,7 @@ private extension BrowserWebAuthnCoordinator {
         let includePlatformRequests =
             allowCredentials.isEmpty || transportSummary.allowsPlatformCredentials
         let includeSecurityKeyRequests =
-            allowCredentials.isEmpty || transportSummary.allowsSecurityKeyCredentials
+            !allowCredentials.isEmpty && transportSummary.allowsSecurityKeyCredentials
 
         var platformRequests: [ASAuthorizationRequest] = []
         if includePlatformRequests,
@@ -1544,7 +1654,7 @@ private extension BrowserWebAuthnCoordinator {
                 }
 
                 let transports = Set(descriptor.normalizedTransports)
-                guard transports.contains(.internal) || transports.contains(.hybrid) else {
+                guard transports.contains(.internal) else {
                     return nil
                 }
                 return descriptor.platformDescriptor()
@@ -1552,8 +1662,7 @@ private extension BrowserWebAuthnCoordinator {
             if !allowedCredentials.isEmpty {
                 platformRequest.allowedCredentials = allowedCredentials
             }
-            platformRequest.shouldShowHybridTransport =
-                allowCredentials.isEmpty ? true : transportSummary.shouldShowHybridTransport
+            platformRequest.shouldShowHybridTransport = false
             platformRequests.append(platformRequest)
         }
 
@@ -1586,12 +1695,16 @@ private extension BrowserWebAuthnCoordinator {
 
         let order: BrowserWebAuthnRequestOrder =
             transportSummary.prefersSecurityKeysFirst ? .securityKeyFirst : .platformFirst
-        let needsBluetoothForPlatformRequests =
-            allowCredentials.isEmpty ? true : transportSummary.shouldShowHybridTransport
+        let needsBluetoothForPlatformRequests = false
 
         #if DEBUG
         cmuxDebugLog("webauthn.buildAssertionPlan rp=\(relyingPartyIdentifier) platform=\(platformRequests.count) securityKey=\(securityKeyRequests.count) allowCredentials=\(allowCredentials.count) mediation=\(request.mediation ?? "(nil)") hybridTransport=\(transportSummary.shouldShowHybridTransport)")
         #endif
+        browserWebAuthnTrace(
+            "buildAssertionPlan rp=\(relyingPartyIdentifier) platform=\(platformRequests.count) " +
+                "securityKey=\(securityKeyRequests.count) allowCredentials=\(allowCredentials.count) " +
+                "mediation=\(request.mediation ?? "(nil)") transports=[\(transportSummary.debugSummary)]"
+        )
         return .init(
             platformRequests: platformRequests,
             securityKeyRequests: securityKeyRequests,
@@ -1766,6 +1879,16 @@ private extension BrowserWebAuthnCoordinator {
         default:
             return .unknown("The passkey request failed.")
         }
+    }
+
+    func isRequestAlreadyInProgress(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        guard nsError.domain == ASAuthorizationErrorDomain,
+              nsError.code == BrowserWebAuthnAuthorizationErrorCode.failed else {
+            return false
+        }
+
+        return nsError.localizedDescription.localizedCaseInsensitiveContains("request already in progress")
     }
 
     func capabilityReply(
