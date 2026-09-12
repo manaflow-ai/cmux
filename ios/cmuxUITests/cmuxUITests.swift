@@ -7494,7 +7494,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(workspaceRow.waitForExistence(timeout: 8))
         XCTAssertTrue(app.descendants(matching: .any)["MobileWorkspaceRow-workspace-docs"].exists)
         capture("ios18-01-workspace-list")
-        tap(workspaceRow, in: app)
+        try openSelectedWorkspaceIfNeeded(app)
 
         let surface = app.otherElements["MobileTerminalSurface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 8))
