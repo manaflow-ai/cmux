@@ -8268,19 +8268,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// and can route actions/opens through stale ownership — the regression the
     /// pre-aggregation `workspaces = remoteWorkspaces` full replacement avoided.
     ///
-    /// Only the OLD foreground key is removed. A live secondary is never keyed under
-    /// the foreground id (aggregation excludes the foreground), and a reachable
+    /// When a retained connection authenticated under a different tag than its
+    /// stored owner, move the foreground snapshot to that stored owner before
+    /// deciding whether it is stale. A live secondary is never keyed under the
+    /// foreground id (aggregation excludes the foreground), and a reachable
     /// previous Mac is re-added as a secondary by the `scheduleSecondaryAggregation`
-    /// the callers kick right after — so this never drops a real secondary's rows
-    /// (including an intentionally-kept offline secondary).
+    /// the callers kick right after.
     func dropStalePreviousForeground(
         _ previousKey: MacPairingKey,
         retainingConnection: MacConnection? = nil
     ) {
-        _ = retainingConnection
-        guard previousKey != foregroundMacKey,
-              secondaryMacSubscriptions[previousKey] == nil else { return }
-        workspacesByMac[previousKey] = nil
+        let retainedKey = retainingConnection?.ownerKey ?? previousKey
+        if let retainingConnection,
+           retainedKey != previousKey,
+           var state = workspacesByMac[previousKey] {
+            workspacesByMac[previousKey] = nil
+            state.macDeviceID = retainingConnection.macDeviceID
+            state.instanceTag = retainedKey.normalizedInstanceTag
+            state.workspaces = state.workspaces.map { workspace in
+                var copy = workspace
+                copy.macDeviceID = retainingConnection.macDeviceID
+                copy.macInstanceTag = retainedKey.normalizedInstanceTag
+                return copy
+            }
+            workspacesByMac[retainedKey] = state
+        }
+        guard retainedKey != foregroundMacKey,
+              secondaryMacSubscriptions[retainedKey] == nil else { return }
+        workspacesByMac[retainedKey] = nil
     }
 
     /// Adopt a host-reported real device id as the foreground Mac's aggregate key.

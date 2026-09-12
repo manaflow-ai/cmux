@@ -873,8 +873,13 @@ extension MobileShellComposite {
         }
         selectWorkspaceOnCurrentForegroundMac()
         // The old foreground snapshot remains live through its new control
-        // connection, so `dropStalePreviousForeground` keeps it in the aggregate.
-        dropStalePreviousForeground(previousForegroundKey)
+        // connection, so cleanup moves it to the control owner's stored key.
+        dropStalePreviousForeground(
+            previousForegroundKey,
+            retainingConnection: demotedForegroundSubscription == nil
+                ? nil
+                : previousForegroundConnection
+        )
         scheduleForegroundNotificationFeedRefresh(client: sub.client)
         syncSelectedTerminalForWorkspace()
         enqueueActivePairedMacWrite(

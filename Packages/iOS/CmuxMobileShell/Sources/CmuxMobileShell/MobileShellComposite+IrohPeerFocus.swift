@@ -219,7 +219,12 @@ extension MobileShellComposite {
             )
         }
 
-        dropStalePreviousForeground(previousForegroundKey)
+        dropStalePreviousForeground(
+            previousForegroundKey,
+            retainingConnection: demotedSubscription == nil
+                ? nil
+                : previousConnection
+        )
         scheduleForegroundNotificationFeedRefresh(
             client: subscription.client
         )
