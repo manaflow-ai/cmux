@@ -5861,121 +5861,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Optional private IP access for other apps"
+            "value": "Open cmux VM ports in Chrome, Safari, and other apps"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Optionaler Zugriff auf private IPs für andere Apps"
+            "value": "cmux-VM-Ports in Chrome, Safari und anderen Apps öffnen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Accès facultatif aux IP privées pour les autres apps"
+            "value": "Ouvrir les ports des VM cmux dans Chrome, Safari et d’autres apps"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Acceso opcional a IP privadas para otras apps"
+            "value": "Abrir los puertos de las VM de cmux en Chrome, Safari y otras apps"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ほかのアプリからプライベートIPへアクセスする任意の設定"
+            "value": "Chrome、Safariなどのアプリでcmux VMのポートを開く"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "为其他应用提供可选的私有 IP 访问"
+            "value": "在 Chrome、Safari 和其他应用中打开 cmux VM 端口"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "為其他 App 提供選用的私有 IP 存取"
+            "value": "在 Chrome、Safari 和其他 App 中開啟 cmux VM 連接埠"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다른 앱의 비공개 IP 접근을 위한 선택 설정"
+            "value": "Chrome, Safari 및 다른 앱에서 cmux VM 포트 열기"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "وصول اختياري إلى عناوين IP الخاصة للتطبيقات الأخرى"
+            "value": "فتح منافذ أجهزة cmux الافتراضية في Chrome وSafari وتطبيقات أخرى"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opcionalni pristup privatnim IP adresama za druge aplikacije"
+            "value": "Otvorite cmux VM portove u Chromeu, Safariju i drugim aplikacijama"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Valgfri privat IP-adgang for andre apps"
+            "value": "Åbn cmux-VM-porte i Chrome, Safari og andre apps"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Accesso facoltativo agli IP privati per altre app"
+            "value": "Apri le porte delle VM cmux in Chrome, Safari e altre app"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ចូលប្រើ IP ឯកជនសម្រាប់កម្មវិធីផ្សេងៗជាជម្រើស"
+            "value": "បើកច្រក cmux VM ក្នុង Chrome, Safari និងកម្មវិធីផ្សេងៗ"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Valgfri privat IP-tilgang for andre apper"
+            "value": "Åpne cmux-VM-porter i Chrome, Safari og andre apper"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opcjonalny dostęp innych aplikacji do prywatnych adresów IP"
+            "value": "Otwórz porty maszyn wirtualnych cmux w Chrome, Safari i innych aplikacjach"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Acesso opcional a IPs privados para outros apps"
+            "value": "Abra as portas das VMs cmux no Chrome, Safari e outros apps"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Необязательный доступ других приложений к частным IP"
+            "value": "Открывайте порты виртуальных машин cmux в Chrome, Safari и других приложениях"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การเข้าถึง IP ส่วนตัวสำหรับแอปอื่นแบบไม่บังคับ"
+            "value": "เปิดพอร์ต VM ของ cmux ใน Chrome, Safari และแอปอื่นๆ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diğer uygulamalar için isteğe bağlı özel IP erişimi"
+            "value": "cmux VM bağlantı noktalarını Chrome, Safari ve diğer uygulamalarda açın"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Необов’язковий доступ інших програм до приватних IP"
+            "value": "Відкривайте порти віртуальних машин cmux у Chrome, Safari та інших програмах"
           }
         }
       }
