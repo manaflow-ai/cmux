@@ -613,7 +613,7 @@ extension MobileHostAuthorizationTests {
         let recordedMethods = await requestRecorder.recordedMethods()
         #expect(recordedMethods == ["workspace.list"])
     }
-    @Test func testMobileHostConnectionClosesBeforeStartingAnUnboundedRPCBatch() async throws {
+    @Test func testMobileHostConnectionProcessesLargeBatchWithoutDisconnecting() async throws {
         let transport = RecordingMobileHostByteTransport()
         let invocationRecorder = MobileHostAuthorizationInvocationRecorder()
         let session = MobileHostConnection(
@@ -637,8 +637,12 @@ extension MobileHostAuthorizationTests {
 
         await session.debugHandleReceiveDataForTesting(batch)
 
-        #expect(await transport.observedCloseCount() == 1)
-        #expect(await invocationRecorder.count() == 0)
+        let responses = await transport.waitForSentBufferCount(
+            MobileHostRPCWorkQuota.recommendedMaximumConcurrentRequestCount + 1
+        )
+        #expect(responses.count == MobileHostRPCWorkQuota.recommendedMaximumConcurrentRequestCount + 1)
+        #expect(await transport.observedCloseCount() == 0)
+        await session.close(reason: "test complete")
     }
     // MARK: - Advertised mobile host capabilities
     @Test func testMobileHostAdvertisesWorkspaceActionCapabilities() {

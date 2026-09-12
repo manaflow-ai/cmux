@@ -66,6 +66,49 @@ enum IrxLiveTestSupport {
 
 @Suite("live QUIC", .serialized)
 struct IrxLiveQUICTests {
+    @Test("missing application pongs preserve a usable QUIC connection")
+    func missingPongPreservesConnection() async throws {
+        let journal = IrxLiveTestSupport.journal()
+        let server = try await IrxLiveTestSupport.bindLoopback(
+            seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 1)
+        let client = try await IrxLiveTestSupport.bindLoopback(
+            seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 0)
+        let serverTask = Task { () -> (IrxConnection, IrxLaneStream)? in
+            guard let incoming = await server.acceptNext() else { return nil }
+            let accepting = try await incoming.accept()
+            let connection = try await accepting.connect()
+            let irx = IrxConnection(connection: connection, role: .acceptor, journal: journal)
+            guard let (_, control, _) = await IrxAdmission.performServer(
+                connection: irx,
+                judgment: IrxLiveTestSupport.fixedJudgment(accepting: "good-grant"),
+                journal: journal
+            ) else { return nil }
+            return (irx, control)
+        }
+        let connection = try await client.connect(
+            addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol.alpnData)
+        let irx = IrxConnection(connection: connection, role: .dialer, journal: journal)
+        let (_, control) = try await IrxAdmission.performClient(
+            connection: irx, grantJWS: "good-grant", journal: journal)
+        let (host, hostControl) = try #require(try await serverTask.value)
+        let death = IrxControlReleaseProbe()
+        try await irx.startClientKeepalive(interval: .milliseconds(1), deadline: .milliseconds(10)) {
+            await death.record()
+        }
+        // Deliberately exceed both old pong deadlines while the host continues
+        // acknowledging QUIC packets. Its application sends no pong at all.
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(await !irx.isClosed)
+        #expect(await death.count == 0)
+        let payload = Data("still usable".utf8)
+        try await control.writer.write(payload)
+        #expect(try await hostControl.reader.readRaw() == payload)
+        await irx.close(code: .userRequested, origin: .local)
+        await host.close(code: .userRequested, origin: .local)
+        try? await client.close()
+        try? await server.close()
+    }
+
     @Test("closing a control transport releases its owner without closing the session")
     func controlTransportReleasesOwner() async throws {
         let journal = IrxLiveTestSupport.journal()
@@ -334,18 +377,14 @@ struct IrxLiveQUICTests {
 
         // Foreground recovery must not replace a healthy session merely
         // because it is older than the historical 15-second threshold.
-        await engine.foregroundKick(staleAfter: .seconds(15))
-        var retained = false
-        for _ in 0..<20 {
-            try await Task.sleep(for: .milliseconds(50))
-            if let current = await engine.currentSession(),
-               current.admit.session == first.admit.session
-            {
-                retained = true
-                break
-            }
+        await engine.foregroundKick(staleAfter: .zero)
+        let foregroundDeadline = ContinuousClock.now + .seconds(2)
+        while journal.counterSnapshot()["foreground-session-retained"] == nil,
+              ContinuousClock.now < foregroundDeadline {
+            try await Task.sleep(for: .milliseconds(10))
         }
-        #expect(retained, "foreground recovery replaced a healthy session")
+        #expect(journal.counterSnapshot()["foreground-session-retained"] == 1)
+        #expect(await engine.currentSession()?.admit.session == first.admit.session)
 
         // Host closes (e.g. shutdown): the engine must redial by itself and
         // reach ready again without any external trigger.

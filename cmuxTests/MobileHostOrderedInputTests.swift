@@ -75,9 +75,13 @@ struct MobileHostOrderedInputTests {
             try Self.framedBatch([("input-overflow", "terminal.input")])
         )
 
-        #expect(await transport.closeCount() == 1)
+        let responses = await transport.waitForResponseCount(1)
+        #expect(responses == ["input-overflow"])
+        #expect(await transport.errorCode(for: "input-overflow") == "server_busy")
+        #expect(await transport.closeCount() == 0)
         #expect(await gate.handledRequestCount() == 1)
         await gate.releaseFirstInput()
+        await connection.close(reason: "test complete")
     }
 
     @Test
@@ -256,6 +260,7 @@ private actor OrderedInputHandlerGate {
 
 private actor OrderedInputRecordingTransport: CmxByteTransport {
     private var responses: [String] = []
+    private var errorCodes: [String: String] = [:]
     private var responseWaiters:
         [(Int, CheckedContinuation<[String], Never>)] = []
     private var closes = 0
@@ -286,7 +291,9 @@ private actor OrderedInputRecordingTransport: CmxByteTransport {
         for payload in payloads {
             let envelope = try JSONSerialization.jsonObject(with: payload)
                 as? [String: Any]
-            responses.append(envelope?["id"] as? String ?? "")
+            let id = envelope?["id"] as? String ?? ""
+            responses.append(id)
+            errorCodes[id] = (envelope?["error"] as? [String: Any])?["code"] as? String
         }
         let ready = responseWaiters.filter { responses.count >= $0.0 }
         responseWaiters.removeAll { responses.count >= $0.0 }
@@ -306,6 +313,7 @@ private actor OrderedInputRecordingTransport: CmxByteTransport {
         }
     }
 
+    func errorCode(for id: String) -> String? { errorCodes[id] }
     func responseIDs() -> [String] { responses }
     func closeCount() -> Int { closes }
 }

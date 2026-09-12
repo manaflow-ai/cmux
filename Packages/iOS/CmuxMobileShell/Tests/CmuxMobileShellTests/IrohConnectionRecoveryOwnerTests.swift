@@ -398,32 +398,26 @@ extension ReconnectRouteSelectionTests {
         )
     }
 
-    @Test func stalledWriteRedialsExactCurrentIrohClientOnce() async throws {
+    @Test func operationFailurePreservesOpenIrohConnection() async throws {
         let fixture = try await makeRecoveryOwnerFixture()
         defer { fixture.release() }
-
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
         #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
         let client = try #require(fixture.store.remoteClient)
         let generation = fixture.store.connectionGeneration
-
         fixture.store.handleMacAvailabilityFailureIfCurrent(
             after: MobileShellConnectionError.transportWriteTimedOut,
             expectedClient: client,
             expectedGeneration: generation
         )
-
-        #expect(try await pollUntil {
-            guard let replacement = fixture.store.remoteClient else { return false }
-            let subscribeCount = await fixture.router.count(of: "mobile.events.subscribe")
-            return replacement !== client
-                && fixture.store.connectionState == .connected
-                && fixture.store.activeRoute?.kind == .iroh
-                && fixture.store.macConnectionStatus == .connected
-                && fixture.store.isRecoveringConnection == false
-                && subscribeCount >= 2
-        })
-        #expect(fixture.factory.attemptedKinds() == [.iroh, .iroh])
+        // Exercise the connection after the failure, so preservation also
+        // proves that the installed client continues serving real requests.
+        #expect(await fixture.store.reloadWorkspaceListFromMac())
+        #expect(fixture.store.remoteClient === client)
+        #expect(fixture.store.connectionGeneration == generation)
+        #expect(fixture.store.connectionState == .connected)
+        #expect(!fixture.store.isRecoveringConnection)
+        #expect(fixture.factory.attemptedKinds() == [.iroh])
     }
 
     @Test func failedIrohRecoveryPreservesTheTypedFailureCategory() async throws {
