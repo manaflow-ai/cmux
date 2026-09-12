@@ -134,7 +134,10 @@ private final class OwlFreshRuntimeExecutor: @unchecked Sendable {
             if let job {
                 job.operation()
             }
-            if shouldStop {
+            lock.lock()
+            let stoppedAfterJob = stopped && jobs.isEmpty
+            lock.unlock()
+            if shouldStop || stoppedAfterJob {
                 break
             }
         }
