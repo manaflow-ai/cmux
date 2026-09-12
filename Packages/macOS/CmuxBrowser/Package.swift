@@ -22,6 +22,7 @@ let package = Package(
             name: "CmuxBrowser",
             dependencies: [
                 "CmuxFoundation",
+                "OwlFreshRuntimeShim",
                 .product(name: "Bonsplit", package: "bonsplit"),
             ],
             resources: [
@@ -32,6 +33,12 @@ let package = Package(
                 .enableUpcomingFeature("ExistentialAny"),
                 .enableUpcomingFeature("InternalImportsByDefault"),
             ]
+        ),
+        .target(
+            name: "OwlFreshRuntimeShim",
+            path: "Sources/OwlFreshRuntimeShim",
+            publicHeadersPath: "include",
+            linkerSettings: [.linkedLibrary("dl")]
         ),
         .testTarget(
             name: "CmuxBrowserTests",

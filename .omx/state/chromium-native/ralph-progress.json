@@ -1,0 +1,23 @@
+{
+  "mode": "ralph",
+  "active": false,
+  "iteration": 1,
+  "max_iterations": 10,
+  "current_phase": "complete",
+  "context_snapshot_path": ".omx/context/chromium-native-20260905T021500Z.md",
+  "stories": [
+    {
+      "id": "native-extension-runtime",
+      "passes": true
+    },
+    {
+      "id": "reliable-pane-lifecycle",
+      "passes": true
+    },
+    {
+      "id": "fresh-tests-and-build",
+      "passes": true
+    }
+  ],
+  "completed_at": "2026-09-05T03:30:00Z"
+}

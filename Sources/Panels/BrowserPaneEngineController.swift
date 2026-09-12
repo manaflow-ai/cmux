@@ -1,0 +1,208 @@
+import AppKit
+import CmuxBrowser
+import Foundation
+import WebKit
+
+/// Owns the selected engine adapter for one browser pane and serializes
+/// Chromium profile replacement with the previous child-process shutdown.
+@MainActor
+final class BrowserPaneEngineController {
+    private(set) var adapter: any BrowserPaneEngineAdapter
+    private var chromiumSnapshotHandler: ((ChromiumSessionSnapshot) -> Void)?
+    private var chromiumFocusHandler: (() -> Void)?
+    private let chromiumRuntimeEnvironment: ChromiumBrowserRuntimeEnvironment
+    private let chromiumNavigationPolicy: BrowserEngineNavigationPolicyHandler?
+    private var profileID: UUID
+    private var storageID: UUID
+    private var remoteDebuggingPort: ChromiumRemoteDebuggingPort
+    private let startPrerequisite: Task<Bool, Never>?
+    private var initialURL: URL?
+    private var didFallbackFromCEF = false
+
+    var kind: BrowserEngineKind { adapter.kind }
+    var contentView: NSView? { adapter.contentView }
+    var remoteDebuggingEndpoint: BrowserCDPEndpoint? { adapter.remoteDebuggingEndpoint }
+    var chromiumStartupReadinessTask: Task<Void, Never>? { adapter.startupReadinessTask }
+
+    init(
+        kind: BrowserEngineKind,
+        webView: WKWebView,
+        profileID: UUID,
+        storageID: UUID,
+        remoteDebuggingPort: ChromiumRemoteDebuggingPort,
+        chromiumRuntimeEnvironment: ChromiumBrowserRuntimeEnvironment,
+        chromiumNavigationPolicy: BrowserEngineNavigationPolicyHandler? = nil,
+        initialDocumentScripts: [(source: String, isStyle: Bool)] = [],
+        startPrerequisite: Task<Bool, Never>? = nil
+    ) {
+        self.profileID = profileID
+        self.storageID = storageID
+        self.remoteDebuggingPort = remoteDebuggingPort
+        self.startPrerequisite = startPrerequisite
+        self.chromiumRuntimeEnvironment = chromiumRuntimeEnvironment
+        self.chromiumNavigationPolicy = chromiumNavigationPolicy
+        switch kind {
+        case .webkit:
+            adapter = WebKitBrowserPaneEngineAdapter(webView: webView)
+        case .chromium:
+            // OWL is opt-in while its native Mojo host is dogfooded. The
+            // legacy CEF adapter remains the safe default until OWL runs in a
+            // dedicated helper process (Chromium's base singleton cannot share
+            // an address space with CEF).
+            if ProcessInfo.processInfo.environment["CMUX_USE_OWL"] == "1" {
+                adapter = ChromiumBrowserPaneEngineAdapter(
+                    profileID: profileID,
+                    storageID: storageID,
+                    remoteDebuggingPort: remoteDebuggingPort,
+                    environment: chromiumRuntimeEnvironment,
+                    documentScripts: initialDocumentScripts,
+                    startPrerequisite: startPrerequisite,
+                    navigationPolicyHandler: chromiumNavigationPolicy
+                )
+            } else if CEFRuntimeBootstrap.isRuntimeAvailable {
+                let cefAdapter = CEFBrowserPaneEngineAdapter(
+                    profileID: profileID,
+                    storageID: storageID,
+                    remoteDebuggingPort: remoteDebuggingPort,
+                    documentScripts: initialDocumentScripts,
+                    startPrerequisite: startPrerequisite,
+                    navigationPolicy: chromiumNavigationPolicy
+                )
+                adapter = cefAdapter
+                cefAdapter.onStartupFailure = { [weak self] in self?.fallbackFromCEF() }
+            } else {
+                adapter = ChromiumBrowserPaneEngineAdapter(
+                    profileID: profileID,
+                    storageID: storageID,
+                    remoteDebuggingPort: remoteDebuggingPort,
+                    environment: chromiumRuntimeEnvironment,
+                    documentScripts: initialDocumentScripts,
+                    startPrerequisite: startPrerequisite,
+                    navigationPolicyHandler: chromiumNavigationPolicy
+                )
+            }
+        }
+    }
+
+    func setChromiumSnapshotHandler(_ handler: @escaping (ChromiumSessionSnapshot) -> Void) {
+        chromiumSnapshotHandler = handler
+        (adapter as? (any ChromiumEngineAdapting))?.onSnapshot = handler
+    }
+
+    func setChromiumFocusHandler(_ handler: @escaping () -> Void) {
+        chromiumFocusHandler = handler
+        (adapter as? (any ChromiumEngineAdapting))?.onContentFocused = handler
+    }
+
+    /// Replaces the managed child and its cmux-owned profile directory. The
+    /// engine kind stays Chromium; callers remount the returned host view so
+    /// no command can accidentally continue against the old profile.
+    @discardableResult
+    func replaceChromium(
+        profileID: UUID,
+        storageID: UUID,
+        remoteDebuggingPort: ChromiumRemoteDebuggingPort
+    ) -> Bool {
+        guard kind == .chromium else { return false }
+        let documentScripts = (adapter as? (any ChromiumEngineAdapting))?
+            .documentScriptDefinitions() ?? []
+        if let oldCEF = adapter as? CEFBrowserPaneEngineAdapter {
+            didFallbackFromCEF = false
+            oldCEF.onStartupFailure = nil
+            self.profileID = profileID
+            self.storageID = storageID
+            self.remoteDebuggingPort = remoteDebuggingPort
+            oldCEF.onSnapshot = nil
+            let stopTask = Task { @MainActor in
+                await oldCEF.stopAndWait()
+            }
+            let replacement = CEFBrowserPaneEngineAdapter(
+                profileID: profileID,
+                storageID: storageID,
+                remoteDebuggingPort: remoteDebuggingPort,
+                documentScripts: documentScripts,
+                startPrerequisite: stopTask,
+                navigationPolicy: chromiumNavigationPolicy
+            )
+            replacement.onSnapshot = chromiumSnapshotHandler
+            replacement.onContentFocused = chromiumFocusHandler
+            adapter = replacement
+            return true
+        }
+        guard let oldChromium = adapter as? ChromiumBrowserPaneEngineAdapter else { return false }
+        self.profileID = profileID
+        self.storageID = storageID
+        self.remoteDebuggingPort = remoteDebuggingPort
+        // Detach the callbacks before stopping so a queued stopped snapshot
+        // from the old profile cannot overwrite the replacement.
+        oldChromium.onSnapshot = nil
+        oldChromium.onContentFocused = nil
+        let stopTask = oldChromium.beginStop()
+        let replacement = ChromiumBrowserPaneEngineAdapter(
+            profileID: profileID,
+            storageID: storageID,
+            remoteDebuggingPort: remoteDebuggingPort,
+            environment: chromiumRuntimeEnvironment,
+            documentScripts: documentScripts,
+            startPrerequisite: stopTask,
+            navigationPolicyHandler: chromiumNavigationPolicy
+        )
+        replacement.onSnapshot = chromiumSnapshotHandler
+        replacement.onContentFocused = chromiumFocusHandler
+        adapter = replacement
+        return true
+    }
+
+    func start(initialURL: URL?) {
+        self.initialURL = initialURL
+        adapter.start(initialURL: initialURL)
+    }
+
+    /// Replaces an unusable embedded CEF runtime with the streamed child
+    /// engine while preserving the pane's profile, callbacks, and URL.
+    private func fallbackFromCEF() {
+        guard !didFallbackFromCEF,
+              let oldCEF = adapter as? CEFBrowserPaneEngineAdapter else { return }
+        didFallbackFromCEF = true
+        oldCEF.onStartupFailure = nil
+        oldCEF.onSnapshot = nil
+        let stopTask = Task { @MainActor in
+            await oldCEF.stopAndWait()
+        }
+        let replacement = ChromiumBrowserPaneEngineAdapter(
+            profileID: profileID,
+            storageID: storageID,
+            remoteDebuggingPort: remoteDebuggingPort,
+            environment: chromiumRuntimeEnvironment,
+            documentScripts: oldCEF.documentScriptDefinitions(),
+            startPrerequisite: stopTask,
+            navigationPolicyHandler: chromiumNavigationPolicy
+        )
+        replacement.onSnapshot = chromiumSnapshotHandler
+        replacement.onContentFocused = chromiumFocusHandler
+        adapter = replacement
+        replacement.start(initialURL: initialURL)
+    }
+
+    func waitForStartupReadiness() async {
+        await adapter.startupReadinessTask?.value
+    }
+
+    func stop() {
+        adapter.stop()
+    }
+
+    /// Stops an engine at its completed lifecycle boundary when it exposes
+    /// asynchronous teardown (CEF); synchronous engines stop immediately.
+    @discardableResult
+    func stopAndWait() async -> Bool {
+        if let cef = adapter as? CEFBrowserPaneEngineAdapter {
+            return await cef.stopAndWait()
+        } else if let chromium = adapter as? ChromiumBrowserPaneEngineAdapter {
+            return await chromium.stopAndWait()
+        } else {
+            adapter.stop()
+            return true
+        }
+    }
+}

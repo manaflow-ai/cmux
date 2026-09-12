@@ -51,7 +51,7 @@ public struct CmuxCLIArgumentParser: Sendable {
         "--shell", "--source", "--subtitle", "--surface", "--tab", "--target-pane", "--team",
         "--text", "--timeout", "--timeout-ms", "--title", "--transcript",
         "--turn", "--type", "--url", "--url-contains", "--value", "--window",
-        "--workspace", "--checkpoint", "--checkpoint-id",
+        "--workspace", "--engine", "--checkpoint", "--checkpoint-id",
     ]
 
     /// Creates the parser with cmux's command-option vocabulary.

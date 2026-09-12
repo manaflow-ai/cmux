@@ -620,6 +620,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         preloadInitialNavigationInBackground: Bool = false,
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool? = nil,
+        engine: BrowserEngineKind? = nil,
         allowsExternalBrowserFallback: Bool = true,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> UUID? {
@@ -656,6 +657,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 preloadInitialNavigationInBackground,
             transparentBackground: transparentBackground,
             bypassRemoteProxy: bypassRemoteProxy,
+            engine: engine,
             allowsExternalBrowserFallback: allowsExternalBrowserFallback,
             websiteDataStore: websiteDataStore
         ) else { return nil }
@@ -702,6 +704,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         preloadInitialNavigationInBackground: Bool = false,
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool? = nil,
+        engine: BrowserEngineKind? = nil,
         allowsExternalBrowserFallback: Bool = true,
         websiteDataStore: WKWebsiteDataStore? = nil,
         focus: Bool = true
@@ -738,6 +741,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 preloadInitialNavigationInBackground,
             transparentBackground: transparentBackground,
             bypassRemoteProxy: bypassRemoteProxy,
+            engine: engine,
             allowsExternalBrowserFallback: allowsExternalBrowserFallback,
             websiteDataStore: websiteDataStore
         ) else { return nil }
@@ -1006,6 +1010,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         preloadInitialNavigationInBackground: Bool = false,
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool? = nil,
+        engine: BrowserEngineKind? = nil,
         allowsExternalBrowserFallback: Bool = true,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> (any Panel)? {
@@ -1042,6 +1047,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                     preloadInitialNavigationInBackground,
                 transparentBackground: transparentBackground,
                 bypassRemoteProxy: bypassRemoteProxy,
+                engine: engine,
                 websiteDataStore: websiteDataStore
             )
         }

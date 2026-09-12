@@ -11,6 +11,14 @@ public struct ClosedBrowserPanelRestoreSnapshot: BrowserPanelRestoreSnapshot {
     public let url: URL?
     /// The browser profile the panel used, if any.
     public let profileID: UUID?
+    /// The renderer selected when the panel was created, or `nil` for legacy
+    /// snapshots. Restore callers treat a missing value as WebKit so changing
+    /// the current default cannot reinterpret an older closed pane.
+    public let engine: BrowserEngineKind?
+    /// Stable cmux-owned Chromium storage identity, when the pane used that
+    /// engine. Older closed-panel entries may omit it and receive a fresh
+    /// isolated directory on reopen.
+    public let chromiumStorageID: UUID?
     /// The pane that originally hosted the panel.
     public let originalPaneId: UUID
     /// The tab index the panel occupied within its pane.
@@ -29,6 +37,11 @@ public struct ClosedBrowserPanelRestoreSnapshot: BrowserPanelRestoreSnapshot {
     ///   - workspaceId: The workspace that owned the closed browser panel.
     ///   - url: The page the panel was showing, if any.
     ///   - profileID: The browser profile the panel used, if any.
+    ///   - engine: The renderer selected when the panel was created. Defaults
+    ///     to `nil` for compatibility with older callers; restoration treats
+    ///     that value as WebKit.
+    ///   - chromiumStorageID: The managed Chromium child-directory identity,
+    ///     when reopening a Chromium pane should preserve its login data.
     ///   - originalPaneId: The pane that originally hosted the panel.
     ///   - originalTabIndex: The tab index the panel occupied within its pane.
     ///   - fallbackSplitOrientation: The split orientation to recreate when the
@@ -42,6 +55,8 @@ public struct ClosedBrowserPanelRestoreSnapshot: BrowserPanelRestoreSnapshot {
         workspaceId: UUID,
         url: URL?,
         profileID: UUID?,
+        engine: BrowserEngineKind? = nil,
+        chromiumStorageID: UUID? = nil,
         originalPaneId: UUID,
         originalTabIndex: Int,
         fallbackSplitOrientation: SplitOrientation?,
@@ -52,6 +67,8 @@ public struct ClosedBrowserPanelRestoreSnapshot: BrowserPanelRestoreSnapshot {
         self.workspaceId = workspaceId
         self.url = url
         self.profileID = profileID
+        self.engine = engine
+        self.chromiumStorageID = chromiumStorageID
         self.originalPaneId = originalPaneId
         self.originalTabIndex = originalTabIndex
         self.fallbackSplitOrientation = fallbackSplitOrientation

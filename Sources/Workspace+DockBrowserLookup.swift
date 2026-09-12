@@ -70,6 +70,7 @@ extension Workspace {
             focus: false,
             preferredProfileID: panel.profileID,
             bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
+            engine: panel.engineKind,
             websiteDataStore: panel.explicitEphemeralWebsiteDataStoreForSibling
         ) else {
             return false
@@ -92,6 +93,7 @@ extension Workspace {
                 focus: false,
                 preferredProfileID: panel.profileID,
                 bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
+                engine: panel.engineKind,
                 websiteDataStore: panel.explicitEphemeralWebsiteDataStoreForSibling
             ) else {
                 return false
@@ -164,6 +166,8 @@ extension DockSplitStore {
         preloadInitialNavigationInBackground: Bool = false,
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool? = nil,
+        engine: BrowserEngineKind? = nil,
+        chromiumStorageID: UUID? = nil,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel {
         let settings = currentRemoteBrowserSettings()
@@ -173,6 +177,7 @@ extension DockSplitStore {
             id: id,
             workspaceId: workspaceId,
             profileID: preferredProfileID,
+            chromiumStorageID: chromiumStorageID,
             initialURL: url,
             initialRequest: initialRequest,
             renderInitialNavigation: renderInitialNavigation,
@@ -183,6 +188,7 @@ extension DockSplitStore {
             transparentBackground: transparentBackground,
             proxyEndpoint: settings.proxyEndpoint,
             bypassRemoteProxy: resolvedBypassRemoteProxy,
+            engine: engine,
             isRemoteWorkspace: settings.isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: resolvedBypassRemoteProxy
                 ? nil
@@ -272,6 +278,7 @@ extension DockSplitStore {
                     initialRequest: request,
                     focus: false,
                     preferredProfileID: sourcePanel.profileID,
+                    engine: sourcePanel.engineKind,
                     allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
                 ) else {
@@ -288,6 +295,7 @@ extension DockSplitStore {
                     sourcePanelId: sourcePanel.id,
                     initialRequest: request,
                     preferredProfileID: sourcePanel.profileID,
+                    engine: sourcePanel.engineKind,
                     allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore,
                     focus: false
@@ -304,6 +312,7 @@ extension DockSplitStore {
                     initialRequest: request,
                     focus: false,
                     preferredProfileID: sourcePanel.profileID,
+                    engine: sourcePanel.engineKind,
                     allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
                 ) else {
@@ -344,6 +353,7 @@ extension DockSplitStore {
                     url: url,
                     focus: false,
                     preferredProfileID: sourcePanel.profileID,
+                    engine: sourcePanel.engineKind,
                     allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
                 ) else {
@@ -361,6 +371,7 @@ extension DockSplitStore {
                     sourcePanelId: sourcePanel.id,
                     url: url,
                     preferredProfileID: sourcePanel.profileID,
+                    engine: sourcePanel.engineKind,
                     allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore,
                     focus: false
@@ -378,6 +389,7 @@ extension DockSplitStore {
                     url: url,
                     focus: false,
                     preferredProfileID: sourcePanel.profileID,
+                    engine: sourcePanel.engineKind,
                     allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
                 ) else {

@@ -2032,7 +2032,13 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     NEWEST_PID=""
     NEWEST_AGE=999999
     for PID in "${PIDS[@]}"; do
-      AGE="$(ps -o etimes= -p "$PID" | tr -d ' ')"
+      # macOS exposes elapsed process time as `etime`; normalize its
+      # MM:SS/H:MM:SS/DD-HH:MM:SS forms to seconds for the age comparison.
+      AGE="$(ps -o etime= -p "$PID" | tr -d ' ' | awk -F'[-:]' '{
+        if (NF == 2) print ($1 * 60) + $2;
+        else if (NF == 3) print ($1 * 3600) + ($2 * 60) + $3;
+        else print ($1 * 86400) + ($2 * 3600) + ($3 * 60) + $4;
+      }')"
       if [[ -n "$AGE" && "$AGE" -lt "$NEWEST_AGE" ]]; then
         NEWEST_AGE="$AGE"
         NEWEST_PID="$PID"

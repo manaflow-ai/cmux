@@ -8,6 +8,7 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var splitResolution: ControlSurfaceSplitResolution = .tabManagerUnavailable
     var splitInputs: ControlSurfaceSplitInputs?
     var createResolution: ControlSurfaceCreateResolution = .tabManagerUnavailable
+    var surfaceCreateInputs: ControlSurfaceCreateInputs?
     var createInputs: ControlSurfaceCreateInputs?
     var surfaceListSnapshot: ControlSurfaceListSnapshot?
     var resumeResolution: ControlSurfaceResumeResolution = .surfaceNotFound
@@ -74,6 +75,7 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         routing: ControlRoutingSelectors,
         inputs: ControlSurfaceCreateInputs
     ) -> ControlSurfaceCreateResolution {
+        surfaceCreateInputs = inputs
         createInputs = inputs
         return createResolution
     }

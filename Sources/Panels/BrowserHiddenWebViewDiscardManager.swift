@@ -20,6 +20,7 @@ protocol BrowserHiddenWebViewDiscardManagerDelegate: AnyObject {
 @MainActor
 final class BrowserHiddenWebViewDiscardManager {
     struct BlockerSnapshot {
+        let isChromiumBacked: Bool
         let isClosing: Bool
         let isVisibleInUI: Bool
         let shouldRenderWebView: Bool
@@ -80,6 +81,7 @@ final class BrowserHiddenWebViewDiscardManager {
             blockers.append("policy_disabled")
         }
         if isSystemSleeping { blockers.append("system_sleeping") }
+        if snapshot.isChromiumBacked { blockers.append("chromium_engine") }
         if snapshot.isClosing { blockers.append("closing") }
         if isDiscardedForMemory { blockers.append("already_discarded") }
         if snapshot.isVisibleInUI { blockers.append("visible") }

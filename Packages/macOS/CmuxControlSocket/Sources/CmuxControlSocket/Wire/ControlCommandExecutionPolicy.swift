@@ -261,6 +261,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.find.nth",
         "browser.highlight",
         "browser.screenshot",
+        "browser.viewport.set",
         "browser.frame.select",
         "browser.dialog.accept",
         "browser.dialog.dismiss",

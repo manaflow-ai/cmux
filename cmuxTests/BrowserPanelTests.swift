@@ -128,6 +128,7 @@ private func makeHiddenWebViewDiscardBlockerSnapshot(
     isPlayingMedia: Bool = false
 ) -> BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
     BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
+        isChromiumBacked: false,
         isClosing: false,
         isVisibleInUI: false,
         shouldRenderWebView: true,

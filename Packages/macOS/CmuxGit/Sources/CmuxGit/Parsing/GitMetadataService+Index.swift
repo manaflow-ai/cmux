@@ -355,7 +355,7 @@ extension GitMetadataService {
         let descriptor = Darwin.open(indexURL.path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
         guard descriptor >= 0 else { return nil }
         defer { Darwin.close(descriptor) }
-        var status = stat()
+        var status = Darwin.stat()
         guard Darwin.fstat(descriptor, &status) == 0,
               status.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG),
               status.st_size >= 20 else { return nil }

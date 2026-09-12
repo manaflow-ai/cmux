@@ -391,12 +391,14 @@ class TerminalController {
         let responder: (_ accept: Bool, _ text: String?) -> Void
     }
 
-    private final class V2BrowserUndefinedSentinel: Sendable {}
+    /// Marker returned when Chromium evaluates a JavaScript expression to undefined.
+    /// Kept internal because the extracted Chromium automation bridge shares the type.
+    final class V2BrowserUndefinedSentinel: Sendable {}
 
-    private nonisolated static let v2BrowserEvalEnvelopeTypeKey = "__cmux_t"
-    private nonisolated static let v2BrowserEvalEnvelopeValueKey = "__cmux_v"
-    private nonisolated static let v2BrowserEvalEnvelopeTypeUndefined = "undefined"
-    private nonisolated static let v2BrowserEvalEnvelopeTypeValue = "value"
+    internal nonisolated static let v2BrowserEvalEnvelopeTypeKey = "__cmux_t"
+    internal nonisolated static let v2BrowserEvalEnvelopeValueKey = "__cmux_v"
+    internal nonisolated static let v2BrowserEvalEnvelopeTypeUndefined = "undefined"
+    internal nonisolated static let v2BrowserEvalEnvelopeTypeValue = "value"
 
     private var v2BrowserNextElementOrdinal: Int = 1
     private var v2BrowserElementRefs: [String: V2BrowserElementRefEntry] = [:]
@@ -6999,11 +7001,13 @@ class TerminalController {
         return (workspace.focusedPanelId, nil)
     }
 
-    private nonisolated func v2JSONLiteral(_ value: Any) -> String {
+    // Shared by browser automation extensions in separate TerminalController files.
+    nonisolated func v2JSONLiteral(_ value: Any) -> String {
         v2BrowserControl.jsonLiteral(value)
     }
 
-    private nonisolated func v2NormalizeJSValue(_ value: Any?) -> Any {
+    // Shared by browser automation extensions in separate TerminalController files.
+    nonisolated func v2NormalizeJSValue(_ value: Any?) -> Any {
         v2BrowserControl.normalizeJSValue(value) { $0 is V2BrowserUndefinedSentinel }
     }
 
@@ -7275,7 +7279,8 @@ class TerminalController {
         return outcome == .committed
     }
 
-    private nonisolated func v2RunBrowserJavaScript(
+    // Shared by browser automation extensions in separate TerminalController files.
+    nonisolated func v2RunBrowserJavaScript(
         _ webView: WKWebView,
         browserPanel: BrowserPanel,
         surfaceId: UUID,
@@ -7847,7 +7852,8 @@ class TerminalController {
                     omnibarVisible: omnibarVisible
                 ),
                 transparentBackground: transparentBackground,
-                bypassRemoteProxy: bypassRemoteProxy
+                bypassRemoteProxy: bypassRemoteProxy,
+                engine: nil
             )
             guard let placement = container.openBrowserToRight(
                 of: sourceSurfaceId,
@@ -10847,302 +10853,6 @@ class TerminalController {
         ])
     }
 
-    private nonisolated func v2BrowserCookieDict(_ cookie: HTTPCookie) -> [String: Any] {
-        var out: [String: Any] = [
-            "name": cookie.name,
-            "value": cookie.value,
-            "domain": cookie.domain,
-            // Foundation represents host-only cookies without a leading dot;
-            // retain that distinction so state/load does not widen their scope.
-            "hostOnly": !cookie.domain.hasPrefix("."),
-            "path": cookie.path,
-            "secure": cookie.isSecure,
-            "httpOnly": cookie.isHTTPOnly,
-            "session_only": cookie.isSessionOnly
-        ]
-        if let expiresDate = cookie.expiresDate {
-            out["expires"] = Int(expiresDate.timeIntervalSince1970)
-        } else {
-            out["expires"] = NSNull()
-        }
-        return out
-    }
-
-    private nonisolated func v2BrowserCookieStoreAll(_ store: WKHTTPCookieStore, timeout: TimeInterval = 3.0) -> [HTTPCookie]? {
-        v2AwaitCallback(timeout: timeout) { finish in
-            v2MainSync {
-                store.getAllCookies { items in
-                    finish(items)
-                }
-            }
-        }
-    }
-
-    private nonisolated func v2BrowserCookieStoreSet(_ store: WKHTTPCookieStore, cookie: HTTPCookie, timeout: TimeInterval = 3.0) -> Bool {
-        v2AwaitCallback(timeout: timeout) { finish in
-            v2MainSync {
-                store.setCookie(cookie) {
-                    finish(true)
-                }
-            }
-        } ?? false
-    }
-
-    private nonisolated func v2BrowserCookieStoreDelete(_ store: WKHTTPCookieStore, cookie: HTTPCookie, timeout: TimeInterval = 3.0) -> Bool {
-        v2AwaitCallback(timeout: timeout) { finish in
-            v2MainSync {
-                store.delete(cookie) {
-                    finish(true)
-                }
-            }
-        } ?? false
-    }
-
-    private nonisolated func v2BrowserCookieFromObject(_ raw: [String: Any], fallbackURL: URL?) -> HTTPCookie? {
-        guard let name = raw["name"] as? String,
-              let value = raw["value"] as? String else {
-            return nil
-        }
-
-        let secure = v2Bool(raw, "secure") ?? false
-        let serializedDomain = raw["domain"] as? String
-        let hostOnly = v2Bool(raw, "hostOnly") == true
-        let originURL: URL?
-        if let urlString = raw["url"] as? String, let url = URL(string: urlString) {
-            originURL = url
-        } else if let serializedDomain {
-            originURL = BrowserCookieBuilder().originURL(forHost: serializedDomain, secure: secure)
-        } else {
-            originURL = fallbackURL
-        }
-        let domain = hostOnly ? nil : serializedDomain
-        let path = (raw["path"] as? String) ?? "/"
-        let expires: Date?
-        if let expiresValue = raw["expires"] as? TimeInterval {
-            expires = Date(timeIntervalSince1970: expiresValue)
-        } else if let expiresIntValue = raw["expires"] as? Int {
-            expires = Date(timeIntervalSince1970: TimeInterval(expiresIntValue))
-        } else {
-            expires = nil
-        }
-
-        return BrowserCookieBuilder().makeCookie(
-            name: name,
-            value: value,
-            originURL: originURL,
-            domain: domain,
-            path: path,
-            secure: secure,
-            expires: expires,
-            httpOnly: v2Bool(raw, "httpOnly") ?? false
-        )
-    }
-
-    private nonisolated func v2BrowserCookiesGet(params: [String: Any]) -> V2CallResult {
-        return v2BrowserWithPanelContext(params: params) { ctx in
-            let store = v2MainSync {
-                ctx.webView.configuration.websiteDataStore.httpCookieStore
-            }
-            guard let cookies = v2BrowserCookieStoreAll(store) else {
-                return .err(code: "timeout", message: "Timed out reading cookies", data: nil)
-            }
-
-            let name = v2String(params, "name")
-            let domain = v2String(params, "domain")
-            let path = v2String(params, "path")
-            let httpOnly = v2Bool(params, "httpOnly")
-            let filteredCookies = cookies.filter { cookie in
-                if let name, cookie.name != name { return false }
-                if let domain, !cookie.domain.contains(domain) { return false }
-                if let path, cookie.path != path { return false }
-                if let httpOnly, cookie.isHTTPOnly != httpOnly { return false }
-                return true
-            }
-
-            return .ok(v2BrowserPanelFields(ctx, adding: ["cookies": filteredCookies.map(v2BrowserCookieDict)]))
-        }
-    }
-
-    private nonisolated func v2BrowserCookiesSet(params: [String: Any]) -> V2CallResult {
-        return v2BrowserWithPanelContext(params: params) { ctx in
-            let cookieContext = v2MainSync {
-                (
-                    store: ctx.webView.configuration.websiteDataStore.httpCookieStore,
-                    fallbackURL: ctx.browserPanel.currentURL
-                )
-            }
-
-            var cookieObjects: [[String: Any]] = []
-            if let rows = params["cookies"] as? [[String: Any]] {
-                cookieObjects = rows
-            } else {
-                var single: [String: Any] = [:]
-                if let name = v2String(params, "name") { single["name"] = name }
-                if let value = v2String(params, "value") { single["value"] = value }
-                if let url = v2String(params, "url") { single["url"] = url }
-                if let domain = v2String(params, "domain") { single["domain"] = domain }
-                if let path = v2String(params, "path") { single["path"] = path }
-                if let secure = v2Bool(params, "secure") { single["secure"] = secure }
-                if let httpOnly = v2Bool(params, "httpOnly") { single["httpOnly"] = httpOnly }
-                if let expires = v2Int(params, "expires") { single["expires"] = expires }
-                if !single.isEmpty {
-                    cookieObjects = [single]
-                }
-            }
-
-            guard !cookieObjects.isEmpty else {
-                return .err(code: "invalid_params", message: "Missing cookies payload", data: nil)
-            }
-
-            var setCount = 0
-            for raw in cookieObjects {
-                guard let cookie = v2BrowserCookieFromObject(raw, fallbackURL: cookieContext.fallbackURL) else {
-                    return .err(code: "invalid_params", message: "Invalid cookie payload", data: nil)
-                }
-                if v2BrowserCookieStoreSet(cookieContext.store, cookie: cookie) {
-                    setCount += 1
-                } else {
-                    return .err(code: "timeout", message: "Timed out setting cookie", data: nil)
-                }
-            }
-
-            return .ok(v2BrowserPanelFields(ctx, adding: ["set": setCount]))
-        }
-    }
-
-    private nonisolated func v2BrowserCookiesClear(params: [String: Any]) -> V2CallResult {
-        return v2BrowserWithPanelContext(params: params) { ctx in
-            let store = v2MainSync {
-                ctx.webView.configuration.websiteDataStore.httpCookieStore
-            }
-            let clearRequiresScopeMessage = String(
-                localized: "cli.browser.cookies.clearRequiresScope",
-                defaultValue: "browser cookies clear requires exactly one of --all or a cookie scope"
-            )
-            let invalidFilterMessage = String(
-                localized: "cli.browser.cookies.invalidFilter",
-                defaultValue: "browser cookies clear received an invalid cookie filter"
-            )
-            let invalidURLMessage = String(
-                localized: "cli.browser.cookies.invalidURL",
-                defaultValue: "browser cookies clear --url requires a valid URL with a host"
-            )
-            let invalidExpiresMessage = String(
-                localized: "cli.browser.cookies.invalidExpires",
-                defaultValue: "browser cookies clear --expires must be an integer Unix timestamp"
-            )
-            let name = v2String(params, "name")
-            let value = v2String(params, "value")
-            let urlString = v2String(params, "url")
-            let domain = v2String(params, "domain")
-            let path = v2String(params, "path")
-
-            for key in ["name", "value", "domain", "path"] where
-                v2HasNonNullParam(params, key) && v2String(params, key) == nil {
-                return .err(code: "invalid_params", message: invalidFilterMessage, data: ["param": key])
-            }
-
-            if v2HasNonNullParam(params, "url"), urlString == nil {
-                return .err(
-                    code: "invalid_params",
-                    message: invalidURLMessage,
-                    data: ["param": "url"]
-                )
-            }
-            let url: URL?
-            if let urlString {
-                guard let parsedURL = URL(string: urlString), parsedURL.host != nil else {
-                    return .err(
-                        code: "invalid_params",
-                        message: invalidURLMessage,
-                        data: ["param": "url"]
-                    )
-                }
-                url = parsedURL
-            } else {
-                url = nil
-            }
-
-            let expires: Int?
-            if v2HasNonNullParam(params, "expires") {
-                guard let parsedExpires = v2Int(params, "expires") else {
-                    return .err(
-                        code: "invalid_params",
-                        message: invalidExpiresMessage,
-                        data: ["param": "expires"]
-                    )
-                }
-                expires = parsedExpires
-            } else {
-                expires = nil
-            }
-
-            let secure: Bool?
-            if v2HasNonNullParam(params, "secure") {
-                guard let parsedSecure = v2Bool(params, "secure") else {
-                    return .err(code: "invalid_params", message: invalidFilterMessage, data: ["param": "secure"])
-                }
-                secure = parsedSecure
-            } else {
-                secure = nil
-            }
-
-            let all: Bool
-            if v2HasNonNullParam(params, "all") {
-                guard let parsedAll = v2Bool(params, "all") else {
-                    return .err(code: "invalid_params", message: invalidFilterMessage, data: ["param": "all"])
-                }
-                all = parsedAll
-            } else {
-                all = false
-            }
-
-            let hasFilter = name != nil || value != nil || url != nil || domain != nil || path != nil ||
-                expires != nil || secure != nil
-            guard all || hasFilter else {
-                return .err(
-                    code: "invalid_params",
-                    message: clearRequiresScopeMessage,
-                    data: ["param": "scope"]
-                )
-            }
-            guard !(all && hasFilter) else {
-                return .err(
-                    code: "invalid_params",
-                    message: clearRequiresScopeMessage,
-                    data: ["param": "scope"]
-                )
-            }
-
-            guard let cookies = v2BrowserCookieStoreAll(store) else {
-                return .err(code: "timeout", message: "Timed out reading cookies", data: nil)
-            }
-
-            let targets = cookies.filter { cookie in
-                if all { return true }
-                if let name, cookie.name != name { return false }
-                if let value, cookie.value != value { return false }
-                if let url, !CmuxWebView.cookieMatchesURL(cookie, url: url) { return false }
-                if let domain, !CmuxWebView.cookieDomainMatchesFilter(cookie.domain, filter: domain) { return false }
-                if let path, cookie.path != path { return false }
-                if let expires,
-                   cookie.expiresDate.map({ Int($0.timeIntervalSince1970) }) != expires {
-                    return false
-                }
-                if let secure, cookie.isSecure != secure { return false }
-                return true
-            }
-
-            var removed = 0
-            for cookie in targets {
-                if v2BrowserCookieStoreDelete(store, cookie: cookie) {
-                    removed += 1
-                }
-            }
-
-            return .ok(v2BrowserPanelFields(ctx, adding: ["cleared": removed]))
-        }
-    }
 
     private nonisolated func v2BrowserStorageType(_ params: [String: Any]) -> String {
         v2BrowserControl.storageType(params: params)
@@ -11805,63 +11515,6 @@ class TerminalController {
         }
     }
 
-    private nonisolated func v2BrowserAddInitScript(params: [String: Any]) -> V2CallResult {
-        guard let script = v2String(params, "script") ?? v2String(params, "content") else {
-            return .err(code: "invalid_params", message: "Missing script", data: nil)
-        }
-        return v2BrowserWithPanelContext(params: params) { ctx in
-            let scriptsCount = v2MainSync {
-                let userScript = WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: false)
-                return ctx.browserPanel.registerBrowserAutomationInitScript(userScript)
-            }
-            _ = v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: script, timeout: 10.0)
-
-            return .ok(v2BrowserPanelFields(ctx, adding: ["scripts": scriptsCount]))
-        }
-    }
-
-    private nonisolated func v2BrowserAddScript(params: [String: Any]) -> V2CallResult {
-        guard let script = v2String(params, "script") ?? v2String(params, "content") else {
-            return .err(code: "invalid_params", message: "Missing script", data: nil)
-        }
-        return v2BrowserWithPanelContext(params: params) { ctx in
-            switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: script, timeout: 10.0) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
-            case .success(let value):
-                return .ok(v2BrowserPanelFields(ctx, adding: ["value": v2NormalizeJSValue(value)]))
-            }
-        }
-    }
-
-    private nonisolated func v2BrowserAddStyle(params: [String: Any]) -> V2CallResult {
-        guard let css = v2String(params, "css") ?? v2String(params, "style") ?? v2String(params, "content") else {
-            return .err(code: "invalid_params", message: "Missing css/style content", data: nil)
-        }
-        return v2BrowserWithPanelContext(params: params) { ctx in
-            let cssLiteral = v2JSONLiteral(css)
-            let source = """
-            (() => {
-              const el = document.createElement('style');
-              el.textContent = String(\(cssLiteral));
-              (document.head || document.documentElement || document.body).appendChild(el);
-              return true;
-            })()
-            """
-
-            let stylesCount = v2MainSync {
-                let userScript = WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: false)
-                return ctx.browserPanel.registerBrowserAutomationStyleScript(userScript)
-            }
-            _ = v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: source, timeout: 10.0)
-
-            return .ok(v2BrowserPanelFields(ctx, adding: ["styles": stylesCount]))
-        }
-    }
-
-    private func v2BrowserViewportSet(params: [String: Any]) -> V2CallResult {
-        v2BrowserViewportSetWKWebView(params: params)
-    }
 
     private func v2BrowserGeolocationSet(params _: [String: Any]) -> V2CallResult {
         v2BrowserNotSupported("browser.geolocation.set", details: "WKWebView does not expose per-tab geolocation spoofing hooks equivalent to Playwright/CDP")

@@ -51,6 +51,7 @@ private func makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot(
     isDesignModeActive: Bool = false
 ) -> BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
     BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
+        isChromiumBacked: false,
         isClosing: false,
         isVisibleInUI: false,
         shouldRenderWebView: true,

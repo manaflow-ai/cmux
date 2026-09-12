@@ -201,6 +201,9 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "browser": [
+                    "defaultEngine": SettingCatalog().browser.defaultEngine.defaultValue.rawValue,
+                    "chromiumExtensionDirectories": SettingCatalog().browser.chromiumExtensionDirectories.defaultValue,
+                    "remoteDebuggingPort": SettingCatalog().browser.remoteDebuggingPort.defaultValue,
                     "defaultSearchEngine": BrowserSearchSettingsStore.defaultSearchEngine.rawValue,
                     "defaultZoomLevel": BrowserZoomSettings.defaultLevel,
                     "customSearchEngineName": BrowserSearchSettingsStore.defaultCustomSearchEngineName,

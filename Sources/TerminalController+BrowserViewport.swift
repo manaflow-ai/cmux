@@ -92,6 +92,15 @@ extension TerminalController {
                     "supported_modes": ["native", "emulated"],
                 ]
             )
+        case .unsupportedEngine:
+            return .err(
+                code: "not_supported",
+                message: String(
+                    localized: "browser.viewport.error.unsupportedEngine",
+                    defaultValue: "Page zoom is not supported for Chromium browser panes"
+                ),
+                data: ["reason": "chromium_engine"]
+            )
         case let .renderGeometryTooLarge(requestedPageZoom, maximumPageZoom):
             return v2BrowserViewportRenderLimitError(
                 requestedPageZoom: requestedPageZoom,

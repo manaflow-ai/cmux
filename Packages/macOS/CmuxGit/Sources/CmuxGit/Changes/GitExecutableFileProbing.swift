@@ -9,7 +9,7 @@ protocol GitExecutableFileProbing: Sendable {
 /// Probes executable paths through Foundation's filesystem API.
 struct SystemGitExecutableFileProbe: GitExecutableFileProbing {
     func isExecutableFile(atPath path: String) -> Bool {
-        var metadata = stat()
+        var metadata = Darwin.stat()
         return stat(path, &metadata) == 0
             && metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG)
             && Darwin.access(path, X_OK) == 0

@@ -459,4 +459,101 @@ struct BrowserAutomationNavigationCoordinatorTests {
 
         #expect(await coordinator.wait(for: ticket) == .superseded)
     }
+
+    @Test("External Chromium navigation is bounded and cancelled after timeout")
+    func externalNavigationTimeoutCancelsOperation() async {
+        let coordinator = BrowserAutomationNavigationCoordinator(
+            navigationTimeout: .seconds(1),
+            sleep: { _ in }
+        )
+        let instanceID = UUID()
+        coordinator.bind(to: instanceID)
+        let ticket = coordinator.begin(instanceID: instanceID)
+        coordinator.startExternalNavigation(ticket) {
+            while !Task.isCancelled {
+                await Task.yield()
+            }
+            throw CancellationError()
+        }
+
+        #expect(await coordinator.wait(for: ticket) == .timedOut)
+    }
+
+    @Test(
+        "A replacement external navigation waits for a canceled operation to exit",
+        .timeLimit(.minutes(1))
+    )
+    func replacementExternalNavigationRunsAfterCancellation() async {
+        let (started, startedContinuation) = AsyncStream.makeStream(of: Int.self)
+        let gate = UncooperativeNavigationGate()
+        let coordinator = BrowserAutomationNavigationCoordinator(
+            navigationTimeout: .seconds(5)
+        )
+        let instanceID = UUID()
+        coordinator.bind(to: instanceID)
+        var startedIterator = started.makeAsyncIterator()
+
+        let firstTicket = coordinator.begin(instanceID: instanceID)
+        coordinator.startExternalNavigation(firstTicket) {
+            startedContinuation.yield(1)
+            await gate.wait()
+        }
+        #expect(await startedIterator.next() == 1)
+
+        let secondTicket = coordinator.begin(instanceID: instanceID)
+        coordinator.startExternalNavigation(secondTicket) {
+            startedContinuation.yield(2)
+        }
+
+        // The first operation ignores cancellation. The second request remains
+        // pending until the coordinator owns a free engine-operation slot.
+        #expect(await coordinator.wait(for: firstTicket) == .superseded)
+        gate.release()
+        #expect(await startedIterator.next() == 2)
+        #expect(await coordinator.wait(for: secondTicket) == .committed)
+
+        startedContinuation.finish()
+    }
+
+    @Test(
+        "External navigation timeout does not await an uncooperative operation",
+        .timeLimit(.minutes(1))
+    )
+    func externalNavigationTimeoutDoesNotAwaitUncooperativeOperation() async {
+        let (started, startedContinuation) = AsyncStream.makeStream(of: Void.self)
+        let (deadline, deadlineContinuation) = AsyncStream.makeStream(of: Void.self)
+        let (finished, finishedContinuation) = AsyncStream.makeStream(of: Void.self)
+        let gate = UncooperativeNavigationGate()
+        let coordinator = BrowserAutomationNavigationCoordinator(
+            navigationTimeout: .seconds(1),
+            sleep: { _ in
+                var iterator = deadline.makeAsyncIterator()
+                _ = await iterator.next()
+            }
+        )
+        let instanceID = UUID()
+        coordinator.bind(to: instanceID)
+        let ticket = coordinator.begin(instanceID: instanceID)
+        let events = ticket.transaction.makeEventStream()
+        var eventIterator = events.makeAsyncIterator()
+        var startedIterator = started.makeAsyncIterator()
+        var finishedIterator = finished.makeAsyncIterator()
+
+        coordinator.startExternalNavigation(ticket) {
+            startedContinuation.yield()
+            await gate.wait()
+            finishedContinuation.yield()
+        }
+
+        #expect(await startedIterator.next() != nil)
+        deadlineContinuation.yield()
+        deadlineContinuation.finish()
+
+        #expect(await eventIterator.next() == .timedOut)
+
+        gate.release()
+        #expect(await finishedIterator.next() != nil)
+        startedContinuation.finish()
+        finishedContinuation.finish()
+    }
 }

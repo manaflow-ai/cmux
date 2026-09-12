@@ -491973,6 +491973,120 @@
             "value": "둘 다"
           }
         }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chromium browser host is not in a visible window"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chromium browser host is not in a visible window"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chromium browser host is not in a visible window"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chromium browser host is not in a visible window"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chromium browser host is not in a visible window"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chromium browser host is not in a visible window"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chromium browser host is not in a visible window"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chromium browser host is not in a visible window"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chromium browser host is not in a visible window"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chromium browser host is not in a visible window"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chromium browser host is not in a visible window"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chromium browser host is not in a visible window"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chromium browser host is not in a visible window"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chromium browser host is not in a visible window"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chromium browser host is not in a visible window"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chromium browser host is not in a visible window"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chromium browser host is not in a visible window"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chromium browser host is not in a visible window"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chromium browser host is not in a visible window"
+        }
       }
     },
     "debug.splitButtonLayout.hoverSegment.caret": {
@@ -492327,6 +492441,120 @@
             "value": "controlBackgroundColor"
           }
         }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Unsupported browser navigation action"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Unsupported browser navigation action"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Unsupported browser navigation action"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Unsupported browser navigation action"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Unsupported browser navigation action"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Unsupported browser navigation action"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Unsupported browser navigation action"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Unsupported browser navigation action"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Unsupported browser navigation action"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Unsupported browser navigation action"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Unsupported browser navigation action"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Unsupported browser navigation action"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Unsupported browser navigation action"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Unsupported browser navigation action"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Unsupported browser navigation action"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Unsupported browser navigation action"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Unsupported browser navigation action"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Unsupported browser navigation action"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Unsupported browser navigation action"
+        }
       }
     },
     "debug.splitButtonLayout.option.hidden": {
@@ -492444,6 +492672,120 @@
             "state": "translated",
             "value": "사전 합성된 barBackground"
           }
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Timed out setting Chromium viewport"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Timed out setting Chromium viewport"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Timed out setting Chromium viewport"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Timed out setting Chromium viewport"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Timed out setting Chromium viewport"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Timed out setting Chromium viewport"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Timed out setting Chromium viewport"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Timed out setting Chromium viewport"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Timed out setting Chromium viewport"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Timed out setting Chromium viewport"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Timed out setting Chromium viewport"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Timed out setting Chromium viewport"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Timed out setting Chromium viewport"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Timed out setting Chromium viewport"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Timed out setting Chromium viewport"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Timed out setting Chromium viewport"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Timed out setting Chromium viewport"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Timed out setting Chromium viewport"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Timed out setting Chromium viewport"
         }
       }
     },
@@ -492680,6 +493022,120 @@
             "state": "translated",
             "value": "반투명 크롬"
           }
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Page zoom is not supported for Chromium browser panes"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Page zoom is not supported for Chromium browser panes"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Page zoom is not supported for Chromium browser panes"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Page zoom is not supported for Chromium browser panes"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Page zoom is not supported for Chromium browser panes"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Page zoom is not supported for Chromium browser panes"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Page zoom is not supported for Chromium browser panes"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Page zoom is not supported for Chromium browser panes"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Page zoom is not supported for Chromium browser panes"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Page zoom is not supported for Chromium browser panes"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Page zoom is not supported for Chromium browser panes"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Page zoom is not supported for Chromium browser panes"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Page zoom is not supported for Chromium browser panes"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Page zoom is not supported for Chromium browser panes"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Page zoom is not supported for Chromium browser panes"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Page zoom is not supported for Chromium browser panes"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Page zoom is not supported for Chromium browser panes"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Page zoom is not supported for Chromium browser panes"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Page zoom is not supported for Chromium browser panes"
         }
       }
     },
