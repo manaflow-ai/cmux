@@ -22,7 +22,7 @@ Project-local `.cmux/cmux.json` and `.cmux/dock.json` let worktree, SSH, review,
 
 If a request can be handled by Ghostty config, say so and use Ghostty config instead of inventing cmux UI settings.
 
-Key surfaces in `cmux.json`: `actions` (reusable, can appear in Cmd+Shift+P, surface tab bars, shortcuts, and the plus-button right-click menu), `ui.newWorkspace.action` (replaces the plus-button click) and `ui.newWorkspace.contextMenu` (right-click menu; `ui.newWorkspace.rightClick` is an accepted alias but new examples use `contextMenu`), `ui.surfaceTabBar.buttons` (replaces default tab bar buttons; include built-ins like `cmux.newTerminal`, `cmux.newBrowser`, `cmux.splitRight`, `cmux.splitDown` only when they should stay visible), and `commands` (workspace definitions with split layouts).
+Key surfaces in `cmux.json`: `actions` (reusable, can appear in Cmd+Shift+P, surface tab bars, shortcuts, and the plus-button right-click menu), `ui.newWorkspace.action` (replaces the plus-button click) and `ui.newWorkspace.contextMenu` (right-click menu; `ui.newWorkspace.rightClick` is an accepted alias but new examples use `contextMenu`), `ui.surfaceTabBar.buttons` (replaces default tab bar buttons; include built-ins like `cmux.newTerminal`, `cmux.newBrowser`, `cmux.openFile`, `cmux.splitRight`, `cmux.splitDown` only when they should stay visible), and `commands` (workspace definitions with split layouts).
 
 ## Workflow
 

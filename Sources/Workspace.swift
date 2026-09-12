@@ -14555,6 +14555,8 @@ extension Workspace: BonsplitDelegate {
                         debugSource: "surfaceTabBar.mobileConnect"
                     )
                 }
+            case .openFile:
+                _ = AppDelegate.shared?.showOpenFilePanel(preferredWindow: presentingWindow)
             case .newSimulator:
                 _ = newSimulatorSurface(inPane: pane, focus: true)
             case .newTerminal, .newBrowser, .splitRight, .splitDown:

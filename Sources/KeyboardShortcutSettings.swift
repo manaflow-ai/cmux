@@ -96,6 +96,7 @@ enum KeyboardShortcutSettings {
         case newBrowserWorkspace
         case saveLayoutTemplate
         case openFolder
+        case openFile
         case reopenPreviousSession
         case goToWorkspace
         case commandPalette
@@ -245,6 +246,7 @@ enum KeyboardShortcutSettings {
             case .newBrowserWorkspace: return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")
             case .saveLayoutTemplate: return String(localized: "shortcut.saveLayoutTemplate.label", defaultValue: "Save Layout as Template…")
             case .openFolder: return String(localized: "shortcut.openFolder.label", defaultValue: "Open Folder")
+            case .openFile: return String(localized: "shortcut.openFile.label", defaultValue: "Open File")
             case .reopenPreviousSession: return String(localized: "shortcut.reopenPreviousSession.label", defaultValue: "Restore Previous App Launch")
             case .goToWorkspace: return String(localized: "menu.file.goToWorkspace", defaultValue: "Go to Workspace…")
             case .commandPalette: return String(localized: "menu.file.commandPalette", defaultValue: "Command Palette…")
@@ -430,6 +432,8 @@ enum KeyboardShortcutSettings {
             case .saveLayoutTemplate:
                 return StoredShortcut(key: "s", command: true, shift: false, option: false, control: true)
             case .openFolder:
+                return StoredShortcut(key: "o", command: true, shift: false, option: true, control: false)
+            case .openFile:
                 return StoredShortcut(key: "o", command: true, shift: false, option: false, control: false)
             case .reopenPreviousSession:
                 return StoredShortcut(key: "o", command: true, shift: true, option: false, control: false)

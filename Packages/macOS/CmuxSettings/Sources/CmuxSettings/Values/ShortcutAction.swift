@@ -23,6 +23,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case newBrowserWorkspace
     case saveLayoutTemplate
     case openFolder
+    /// Opens one or more files in the focused workspace pane.
+    case openFile
     case reopenPreviousSession
     case goToWorkspace
     case commandPalette

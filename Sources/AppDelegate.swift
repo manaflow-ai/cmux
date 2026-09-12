@@ -9456,6 +9456,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    /// Presents the native file picker and routes the selected files through the
+    /// focused workspace pane's shared file-surface opener.
+    @discardableResult
+    func showOpenFilePanel(preferredWindow: NSWindow? = nil) -> Bool {
+        guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow),
+              let workspace = context.tabManager.selectedWorkspace,
+              let paneId = workspace.bonsplitController.focusedPaneId
+                  ?? workspace.bonsplitController.allPaneIds.first else {
+            NSSound.beep()
+            return false
+        }
+
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        panel.title = String(localized: "panel.openFile.title", defaultValue: "Open File")
+        panel.prompt = String(localized: "panel.openFile.prompt", defaultValue: "Open")
+        if let cwd = workspace.resolvedWorkingDirectory(),
+           FileManager.default.fileExists(atPath: cwd) {
+            panel.directoryURL = URL(fileURLWithPath: cwd, isDirectory: true)
+        }
+
+        guard panel.runModal() == .OK, !panel.urls.isEmpty else {
+            return true
+        }
+
+        let openedPanels = workspace.openFileSurfaces(
+            inPane: paneId,
+            filePaths: panel.urls.map(\.path),
+            focus: true,
+            reuseExisting: true
+        )
+        if openedPanels.isEmpty {
+            NSSound.beep()
+        }
+        return !openedPanels.isEmpty
+    }
+
     @discardableResult
     func openDirectoryInInlineVSCode(
         _ directoryURL: URL,
@@ -15173,6 +15212,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Open File: Cmd+O. Route the picker through the focused workspace pane
+        // so every file type keeps the shared openFileSurfaces behavior.
+        if matchConfiguredShortcut(event: event, action: .openFile) {
+            _ = showOpenFilePanel(preferredWindow: mainWindowForShortcutEvent(event))
+            return true
+        }
+
         // Check Show Notifications shortcut
         if matchConfiguredShortcut(event: event, action: .showNotifications) {
             toggleNotificationsPopover(animated: false, anchorView: fullscreenControlsViewModel?.notificationsAnchorView)
@@ -17633,6 +17679,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 onExecuted?()
                 return true
+            case .openFile:
+                let didOpen = showOpenFilePanel(preferredWindow: resolvedWindow(for: context) ?? preferredWindow)
+                if didOpen { onExecuted?() }
+                return didOpen
             case .splitRight:
                 if shouldSuppressSplitShortcutForTransientTerminalFocusState(
                     direction: .right,
