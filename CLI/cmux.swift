@@ -5547,8 +5547,8 @@ struct CMUXCLI {
 
         case "billing":
             let (planOption, rest) = parseOption(Array(commandArgs.dropFirst()), name: "--plan")
-            guard let plan = planOption, commandArgs.first == "checkout", ["pro", "max"].contains(plan), rest.allSatisfy({ $0 == "--no-open" }) else {
-                throw CLIError(message: "Usage: cmux billing checkout --plan <max|pro> [--no-open]")
+            guard let plan = planOption, commandArgs.first == "checkout", ["go", "pro", "max"].contains(plan), rest.allSatisfy({ $0 == "--no-open" }) else {
+                throw CLIError(message: "Usage: cmux billing checkout --plan <go|pro|max> [--no-open]")
             }
             let response = try client.sendV2(method: "vm.billing_checkout", params: ["plan": plan])
             guard let url = response["url"] as? String else {
@@ -18404,7 +18404,7 @@ struct CMUXCLI {
             Extension is absent. There is no privileged fallback.
             """
         case "billing":
-            return "Usage: cmux billing checkout --plan <max|pro> [--no-open]\n\nCreate checkout for the signed-in cmux account. Max is $200/month. Payment requires browser confirmation. --no-open or --json returns the URL without opening a browser."
+            return "Usage: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nCreate checkout for the signed-in cmux account. Max is $200/month. Payment requires browser confirmation. --no-open or --json returns the URL without opening a browser."
         case "auth":
             return """
             Usage: cmux auth <status|login|logout>

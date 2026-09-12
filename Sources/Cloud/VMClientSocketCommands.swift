@@ -34,7 +34,7 @@ extension TerminalController {
         }
         switch method {
         case "vm.billing_checkout":
-            guard let plan = params["plan"] as? String, plan == "max" || plan == "pro" else {
+            guard let plan = params["plan"] as? String, plan == "go" || plan == "max" || plan == "pro" else {
                 return v2Error(id: id, code: "invalid_params", message: "Use cmux billing checkout --plan max or --plan pro.")
             }
             return v2VmCall(id: id) { try await VMClient.shared.billingCheckout(plan: plan) }

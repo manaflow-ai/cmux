@@ -38,6 +38,7 @@ import {
 } from "./errors";
 import { recordSpanTiming } from "./timings";
 import { authProviderErrorResponse } from "./authErrors";
+import { goCapacityConstraint } from "./goUsage";
 import {
   captureVmRequestOutcome,
   isPolledVmOperation,
@@ -516,6 +517,7 @@ export function vmActiveLimitExceededResponse(input: {
   readonly phase?: VmLifecyclePhase;
 }): Response {
   const paid = isPaidVmPlan(input.planId);
+  if (input.planId === "go") return goLimitResponse("active");
   const plural = input.limit === 1 ? "" : "s";
   if (paid) {
     return vmErrorResponse({
@@ -680,6 +682,23 @@ export function vmModelPlaneErrorResponse(
  * overrides win over these. Entries returning `null` have no shared contract:
  * the create-family errors need plan and operation copy only the route knows.
  */
+export function goLimitResponse(kind: "saved" | "active" | "hours"): Response {
+  const message = kind === "hours"
+    ? "Go has used its 40 included VM-hours for this billing month. Your saved VMs are preserved."
+    : kind === "saved" ? "Go includes two saved VMs in total, including the running VM."
+      : "Go includes one running VM at a time.";
+  const next = kind === "hours" ? "Wait for your next billing month"
+    : kind === "saved" ? "Run `cmux vm ls`, then `cmux vm rm <id>` to delete a saved VM"
+      : "Run `cmux vm pause <id>` to pause the running VM";
+  return vmErrorResponse({
+    error: kind === "hours" ? "vm_hours_limit_reached" : kind === "saved" ? "vm_saved_limit_reached" : "vm_active_limit_exceeded",
+    status: 402, message,
+    action: `${next}, or run \`cmux billing checkout --plan pro\` to upgrade. Review the price before you pay.`,
+    phase: "billing", retryable: false,
+    extra: { upgradeRequired: true, upgradePlanId: "pro", upgradeUrl: "https://cmux.com/api/billing/checkout?plan=pro" },
+  });
+}
+
 export const vmWorkflowErrorResponders = {
   VmMemoryPlanError: (error) => error.memoryMb === null
     ? vmErrorResponse({
@@ -827,8 +846,10 @@ export const vmWorkflowErrorResponders = {
       phase: "create",
       retryable: true,
     }),
-  VmDatabaseError: (error) =>
-    vmErrorResponse({
+  VmDatabaseError: (error) => {
+    const limit = goCapacityConstraint(error.cause);
+    if (limit && limit !== "period") return goLimitResponse(limit);
+    return vmErrorResponse({
       error: "vm_cloud_state_unavailable",
       status: 503,
       message: "Cloud VM state is temporarily unavailable.",
@@ -839,7 +860,8 @@ export const vmWorkflowErrorResponders = {
       displayTitle: "Cloud VM state is unavailable",
       displayMessage: "Retrying is safe. The VM state database did not answer this request.",
       details: { operation: error.operation },
-    }),
+    });
+  },
   VmBillingError: (error) =>
     vmErrorResponse({
       error: "vm_billing_unavailable",
@@ -863,6 +885,14 @@ export const vmWorkflowErrorResponders = {
   VmCreateFailedError: () => null,
   VmImageConfigError: () => null,
   VmLimitExceededError: () => null,
+  VmUsageLimitExceededError: () => goLimitResponse("hours"),
+  VmSavedLimitExceededError: () => goLimitResponse("saved"),
+  VmGoShapeError: () => vmErrorResponse({
+    error: "vm_resources_require_pro", status: 402, phase: "billing",
+    message: "Go supports VMs with 2 vCPU, 4 GiB RAM, and 16 GiB disk.",
+    action: "Create a small VM with `cmux vm new --size 4g`, or run `cmux billing checkout --plan pro` to upgrade.",
+    extra: { upgradeRequired: true, upgradePlanId: "pro", upgradeUrl: "https://cmux.com/api/billing/checkout?plan=pro" },
+  }),
   VmCreateCreditsInsufficientError: () => null,
   // Only account deletion raises this, and that route owns the answer.
   VmAccountDeletionIdentityRevocationError: () => null,

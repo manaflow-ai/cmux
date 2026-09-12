@@ -191,7 +191,8 @@ export default async function AppPricingPage({
               surface="app_pricing"
             />
 
-            <PricingCategorySection
+          <PricingCategorySection
+            id="individual-pricing-category"
               title={pricing.categories.individual.title}
               description={pricing.categories.individual.description}
               columns="four"
@@ -319,7 +320,8 @@ export default async function AppPricingPage({
 
             </PricingCategorySection>
 
-            <PricingCategorySection
+          <PricingCategorySection
+            id="team-enterprise-pricing-category"
               title={pricing.categories.business.title}
               description={pricing.categories.business.description}
               columns="two"

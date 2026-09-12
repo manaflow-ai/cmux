@@ -72,6 +72,7 @@ import {
   VmTimingRecorder,
 } from "../../../services/vms/timings";
 import { authProviderErrorResponse } from "../../../services/vms/authErrors";
+import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
 
 
 // Cold creates (provider VM boot, image pull, cmux-tui bootstrap) routinely
@@ -161,6 +162,13 @@ export async function GET(request: Request): Promise<Response> {
           maxActiveVms: listEntitlements.maxActiveVms,
           planId: listEntitlements.planId,
           freeAccessWindowDays,
+          ...(listEntitlements.planId === "go" ? {
+            vmHoursIncluded: 40,
+            vmHoursUsed: await getGoVmUsage(user.id)
+              .then((usage) => usage ? Math.round(usage.usedSeconds / 360) / 10 : null)
+              .catch(() => null),
+            savedVmLimit: GO_SAVED_VM_LIMIT,
+          } : {}),
           // The earliest expiry across the caller's machines: what a fleet header
           // counts down to. Null when nothing is on a window.
           freeAccessExpiresAt: vms.reduce<number | null>(

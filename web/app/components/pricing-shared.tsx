@@ -103,16 +103,18 @@ export function PlanCard({
 
 export function PricingCategorySection({
   title,
+  id,
   description,
   children,
   columns = "three",
 }: {
   title: string;
+  id?: string;
   description: string;
   children: ReactNode;
   columns?: "two" | "three" | "four";
 }) {
-  const headingID = `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-pricing-category`;
+  const headingID = id ?? `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-pricing-category`;
   return (
     <section className="mt-12 first:mt-8" aria-labelledby={headingID}>
       <div className="mb-4 max-w-2xl">

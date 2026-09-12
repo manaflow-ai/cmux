@@ -272,12 +272,13 @@ price_id_for_lookup_key() {
 }
 
 # The Billing Portal configuration that lets a personal subscription switch
-# between Pro and Max (web/app/api/billing/portal/route.ts, flow=switch_plan).
+# between Go, Pro, and Max (web/app/api/billing/portal/route.ts, flow=switch_plan).
 # The account's default configuration stays quantity-only; this one is found
 # by its metadata the way Prices are found by lookup key.
 ensure_personal_plan_switch_portal() {
   local pro_product_id="$1"
   local max_product_id="$2"
+  local go_product_id="$3"
   local response starting_after page_ids configuration_id default_profile
   local -a matching_ids=()
   local -a page_args=()
@@ -310,10 +311,11 @@ ensure_personal_plan_switch_portal() {
   fi
   configuration_id="${matching_ids[0]:-}"
 
-  local pro_monthly_price_id pro_yearly_price_id max_monthly_price_id
+  local pro_monthly_price_id pro_yearly_price_id max_monthly_price_id go_monthly_price_id
   pro_monthly_price_id="$(price_id_for_lookup_key "cmux-pro-monthly-50")"
   pro_yearly_price_id="$(price_id_for_lookup_key "cmux-pro-yearly-480")"
   max_monthly_price_id="$(price_id_for_lookup_key "cmux-max-monthly-200")"
+  go_monthly_price_id="$(price_id_for_lookup_key "cmux-go-monthly-10")"
   local -a feature_args=(
     -d "features[subscription_update][enabled]=true"
     -d "features[subscription_update][default_allowed_updates][]=price"
@@ -325,6 +327,9 @@ ensure_personal_plan_switch_portal() {
     -d "features[subscription_update][products][1][product]=${max_product_id}"
     -d "features[subscription_update][products][1][prices][]=${max_monthly_price_id}"
     -d "features[subscription_update][products][1][adjustable_quantity][enabled]=false"
+    -d "features[subscription_update][products][2][product]=${go_product_id}"
+    -d "features[subscription_update][products][2][prices][]=${go_monthly_price_id}"
+    -d "features[subscription_update][products][2][adjustable_quantity][enabled]=false"
     -d "features[subscription_cancel][enabled]=true"
     -d "features[subscription_cancel][mode]=at_period_end"
     -d "features[invoice_history][enabled]=true"
@@ -389,7 +394,7 @@ ensure_price "$pro_product_id" "cmux-pro-yearly-288" "28800" "year" "cmux Pro Ye
 ensure_price "$team_product_id" "cmux-team-monthly" "3500" "month" "cmux Team Monthly (Legacy \$35)"
 ensure_price "$team_product_id" "cmux-team-yearly-336" "33600" "year" "cmux Team Yearly (Legacy \$336)"
 
-ensure_personal_plan_switch_portal "$pro_product_id" "$max_product_id"
+ensure_personal_plan_switch_portal "$pro_product_id" "$max_product_id" "$go_product_id"
 
 if [[ "$MODE" == "live" ]]; then
   webhook_ids=""

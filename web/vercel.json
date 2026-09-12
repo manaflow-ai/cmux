@@ -12,6 +12,10 @@
   ],
   "crons": [
     {
+      "path": "/api/cron/vm-runtime-limits",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/vm-reconcile",
       "schedule": "7,17,27,37,47,57 * * * *"
     },

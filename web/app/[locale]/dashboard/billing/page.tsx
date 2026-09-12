@@ -685,11 +685,11 @@ function priceCopy(
   }
   const dollars = unitAmount / 100;
   if (interval === "month") {
-    return t(plan === "pro" ? "pro.monthlyPrice" : plan === "go" ? "go.monthlyPrice" : "team.price", {
+    return t(plan === "pro" ? "pro.monthlyPrice" : plan === "go" ? "go.monthlyPrice" : plan === "max" ? "max.monthlyPrice" : "team.price", {
       amount: formatUsd(dollars),
     });
   }
-  return t(plan === "pro" ? "pro.annualPrice" : plan === "go" ? "go.monthlyPrice" : "team.annualPrice", {
+  return t(plan === "pro" ? "pro.annualPrice" : plan === "go" ? "go.monthlyPrice" : plan === "max" ? "max.monthlyPrice" : "team.annualPrice", {
     monthly: formatUsd(dollars / 12),
   });
 }

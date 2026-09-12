@@ -7,7 +7,7 @@ import type { CheckoutAttribution } from "../analytics/checkoutAttribution";
 export async function personalPortalSession(input: {
   userId: string;
   origin: string;
-  target: "pro" | "max";
+  target: "go" | "pro" | "max";
   attribution: CheckoutAttribution;
 }) {
   const status = await stripeBillingStatusForUser(input.userId);

@@ -103,14 +103,7 @@ describe("Stripe catalog provisioning", () => {
         call.args.includes("lookup_keys[]=cmux-max-monthly-200"),
     );
     expect(maxPriceLookups.length).toBeGreaterThan(0);
-    expect(
-      result.calls.some(
-        (call) =>
-          call.args.includes("https://api.stripe.com/v1/prices") &&
-          call.args.includes("lookup_keys[]=cmux-go-monthly-10") &&
-          call.args.includes("unit_amount=1000"),
-      ),
-    ).toBe(true);
+    expect(result.calls.some((call) => call.args.includes("lookup_keys[]=cmux-go-monthly-10"))).toBe(true);
     expect(
       result.calls.some((call) => call.args.some((argument) => argument.includes("cmux-max-yearly"))),
     ).toBe(false);
@@ -123,6 +116,7 @@ describe("Stripe catalog provisioning", () => {
     const portalArgs = portalCreate!.args.join("\n");
     expect(portalArgs).toContain("metadata[purpose]=personal_plan_switch");
     expect(portalArgs).toContain("features[subscription_update][default_allowed_updates][]=price");
+    expect(portalArgs).toContain("features[subscription_update][products][2][prices][]=price_go_month_10");
     expect(portalArgs).toContain("features[subscription_update][products][0][product]=prod_pro");
     expect(portalArgs).toContain("features[subscription_update][products][0][prices][]=price_pro_month_50");
     expect(portalArgs).toContain("features[subscription_update][products][1][product]=prod_max");
@@ -356,8 +350,20 @@ const products = {
     active: true,
     metadata: { app: "cmux", plan: "max" },
   },
+  go: {
+    id: "prod_go",
+    name: "cmux Go",
+    active: true,
+    metadata: { app: "cmux", plan: "go" },
+  },
 };
 const prices = {
+  "cmux-go-monthly-10": {
+    id: "price_go_month_10",
+    unit_amount: 1000,
+    interval: "month",
+    product: "go",
+  },
   "cmux-pro-monthly-50": {
     id: "price_pro_month_50",
     unit_amount: 5000,
@@ -492,7 +498,9 @@ if (url.endsWith("/prices") && !isPost) {
       ? "prod_new_pro"
       : dataValue === "cmux Max"
         ? "prod_new_max"
-        : "prod_new_team",
+        : dataValue === "cmux Go"
+          ? "prod_new_go"
+          : "prod_new_team",
   });
 } else if (url.endsWith("/billing_portal/configurations") && !isPost) {
   if (args.includes("is_default=true")) {

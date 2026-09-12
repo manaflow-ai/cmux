@@ -76,7 +76,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const user = await verifyRequest(request);
     if (!user || user.isAnonymous) return NextResponse.json({ error: "unauthorized", action: "Run `cmux auth login`, then retry." }, { status: 401 });
     const body = await request.json();
-    if (body?.plan !== "max" && body?.plan !== "pro") return NextResponse.json({ error: "invalid_plan", action: "Use `cmux billing checkout --plan max` or `--plan pro`." }, { status: 400 });
+    if (body?.plan !== "go" && body?.plan !== "max" && body?.plan !== "pro") return NextResponse.json({ error: "invalid_plan", action: "Use `cmux billing checkout --plan go`, `--plan pro`, or `--plan max`." }, { status: 400 });
     const app = await checkoutStackServerApp();
     if (!app || !isStripeBillingConfigured()) return NextResponse.json({ error: "billing_unavailable", action: "Try again later at https://cmux.com/pricing." }, { status: 503 });
     const attribution = checkoutAttributionFromRequest({ searchParams: new URLSearchParams({ cmux_source: "cli_billing_checkout", cmux_client: "cli" }) });
@@ -227,12 +227,11 @@ async function stripePersonalCheckout(
     if (stripeBillingStatus.hasRecurringSubscription || isStripePortalRecoverable(stripeBillingStatus)) {
       const portalURL = new URL("/api/billing/portal", requestOrigin(request));
       if (
-        plan === MAX_PLAN_ID &&
         stripeBillingStatus.hasActiveSubscription &&
-        stripeBillingStatus.activePlanId === PRO_PLAN_ID
+        stripeBillingStatus.activePlanId !== plan
       ) {
         portalURL.searchParams.set("flow", "switch_plan");
-        portalURL.searchParams.set("plan", MAX_PLAN_ID);
+        portalURL.searchParams.set("plan", plan);
       }
       forwardCheckoutAttribution(request.nextUrl.searchParams, portalURL);
       return NextResponse.redirect(portalURL);

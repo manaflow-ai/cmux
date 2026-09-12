@@ -513,6 +513,7 @@
         "name": "cmux Max",
         "activeBody": "Your Max plan is active. It renews on {date}.",
         "pendingBody": "Your Max plan ends on {date}.",
+        "monthlyPrice": "${amount}/mo",
         "upsell": "Start 32 GB and 64 GB machines with Max for $200 per month, billed monthly."
       }
     },
@@ -843,7 +844,8 @@
       "features": [
         "1 active Cloud VM",
         "2 vCPU, 4 GB RAM, and 16 GB disk",
-        "2 saved VMs; pause when you are done"
+        "2 saved VMs; pause when you are done",
+        "40 included VM-hours each month; VMs pause at the limit"
       ]
     },
     "pro": {
@@ -1084,7 +1086,7 @@
         },
         {
           "q": "How does billing work?",
-          "a": "Pro is $50/mo, or $40/mo when billed annually (a 20% savings). Max is $200/mo, billed monthly, with up to 64 GB RAM and 16 vCPUs per VM. Team is $60/user/mo, or $48/user/mo when billed annually. Paid plans include up to 50 Cloud VMs per user, with 24 GB RAM and 6 vCPUs per VM. There is no metering or overage billing. The terminal and local agents stay free."
+          "a": "Go is $10/mo with one 2 vCPU, 4 GB VM, two saved VMs, and 40 VM-hours each month. Pro is $50/mo, or $40/mo when billed annually. Max is $200/mo, billed monthly, with up to 64 GB RAM and 16 vCPUs per VM. Team is $60/user/mo, or $48/user/mo when billed annually. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",

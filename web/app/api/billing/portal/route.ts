@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
 
     const returnUrl = new URL("/dashboard/billing", requestOrigin(request)).toString();
     const target = request.nextUrl.searchParams.get("plan");
-    const wantsSwitch = !team && request.nextUrl.searchParams.get("flow") === "switch_plan" && (target === "max" || target === "pro");
+    const wantsSwitch = !team && request.nextUrl.searchParams.get("flow") === "switch_plan" && (target === "go" || target === "max" || target === "pro");
     const session = wantsSwitch
       ? await personalPortalSession({
           userId: user.id, origin: requestOrigin(request), target,

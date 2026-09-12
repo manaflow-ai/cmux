@@ -205,6 +205,7 @@ export default async function PricingPage({
           />
 
           <PricingCategorySection
+            id="individual-pricing-category"
             title={t("categories.individual.title")}
             description={t("categories.individual.description")}
             columns="four"
@@ -328,6 +329,7 @@ export default async function PricingPage({
           </PricingCategorySection>
 
           <PricingCategorySection
+            id="team-enterprise-pricing-category"
             title={t("categories.business.title")}
             description={t("categories.business.description")}
             columns="two"
