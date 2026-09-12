@@ -22,7 +22,9 @@ extension Workspace {
             }
         }
         let activeRemotePanelIds = panels.keys.filter {
-            isRemoteTerminalSurface($0) || cloudDirectoryProvenanceRequired(panelId: $0)
+            isRemoteTerminalSurface($0) ||
+                (cloudVMBinding != nil && terminalPanel(for: $0) != nil) ||
+                cloudProjectedResource(forPanel: $0)?.kind == .terminal
         }
         guard !activeRemotePanelIds.isEmpty else { return nil }
         let reportedDirectories = activeRemotePanelIds.compactMap { trustedReportedPanelDirectory(panelId: $0) }
