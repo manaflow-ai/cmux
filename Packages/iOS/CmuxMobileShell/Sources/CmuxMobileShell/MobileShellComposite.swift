@@ -8338,9 +8338,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // the live foreground rows.
             workspacesByMac[newKey] = state
         }
-        if let connection = connections[oldKey] {
-            removeFocusedConnection(ifMatching: connection)
-            installFocusedConnection(MacConnection(
+        let existingFocusedConnection =
+            connections[oldKey]
+                ?? connections.onDevice(oldKey.canonicalMacDeviceID)
+        if let connection = existingFocusedConnection {
+            let adoptedConnection = MacConnection(
                 macDeviceID: macDeviceID,
                 ticket: activeTicket ?? connection.ticket,
                 route: connection.route,
@@ -8356,7 +8358,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     from: supportedHostCapabilities,
                     allowsMacScopedMutations: allowsMacScopedWorkspaceMutations
                 )
-            ))
+            )
+            // The foreground key follows the authenticated tag, while the
+            // registry owner follows the stored pairing tag. Resolve the
+            // existing focused entry by device and preserve any shared control
+            // capability while replacing its focus metadata.
+            if !installFocusedConnectionPreservingControl(adoptedConnection) {
+                mobileShellLog.error(
+                    "failed to rekey focused Mac owner during identity adoption"
+                )
+            }
         } else if let client = remoteClient,
                   let ticket = activeTicket,
                   let route = activeRoute {
