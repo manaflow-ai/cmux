@@ -185,6 +185,10 @@ export const VmWorkflowLive = Layer.mergeAll(VmRepositoryWithAnalyticsLive, VmPr
 
 const EXPIRED_IDENTITY_REVOKE_BATCH = 5;
 const EXPIRED_IDENTITY_REVOKE_RETRY_BACKOFF_MS = 10 * 60 * 1000;
+/** Expired leases are kept this long for support and audit, then deleted. */
+export const EXPIRED_LEASE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+/** Delete batch per cron run; the cron runs every 10 minutes. */
+const EXPIRED_LEASE_DELETE_BATCH = 5_000;
 const IDENTITY_REVOKE_PROVIDER_TIMEOUT = "5 seconds";
 const ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT = 8;
 const ACCOUNT_DELETION_IDENTITY_REVOKE_BATCH = 8;
@@ -2657,6 +2661,28 @@ export function destroyVm(input: {
         ...(homeVolume ? { homeVolume, homeVolumeDeleted } : {}),
       },
     }).pipe(Effect.catchAll(() => Effect.void));
+  });
+}
+
+/**
+ * Delete leases that expired more than `EXPIRED_LEASE_RETENTION_MS` ago and
+ * need no provider cleanup. Every attach and exec mints a lease, so without
+ * this the table grows by every session ever opened (11k rows, all expired,
+ * on the Aurora ledger before the PlanetScale move).
+ */
+export function pruneExpiredLeases(input: {
+  readonly now?: Date;
+  readonly limit?: number;
+} = {}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const deleteExpiredLeases = repo.deleteExpiredLeases;
+    if (!deleteExpiredLeases) return 0;
+    const now = input.now ?? new Date();
+    return yield* deleteExpiredLeases({
+      before: new Date(now.getTime() - EXPIRED_LEASE_RETENTION_MS),
+      limit: input.limit ?? EXPIRED_LEASE_DELETE_BATCH,
+    });
   });
 }
 

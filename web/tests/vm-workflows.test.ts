@@ -59,6 +59,8 @@ import {
   openVmCmuxRemote,
   openVmSession,
   revokeExpiredIdentityLeases,
+  pruneExpiredLeases,
+  EXPIRED_LEASE_RETENTION_MS,
   revokeUserIdentityLeasesForAccountDeletion,
   resetBaseVm,
   restoreVm,
@@ -1430,6 +1432,53 @@ describe("VM Effect workflows", () => {
 
     expect(revokedIdentities).toEqual(["identity-account-delete-success"]);
     expect(String(thrown)).toContain(VmAccountDeletionIdentityRevocationError.name);
+  });
+
+  test("pruneExpiredLeases deletes leases expired past the retention window in one bounded batch", async () => {
+    const now = new Date("2026-09-10T00:00:00.000Z");
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000132",
+      userId: "user-workflow-prune-leases",
+      providerVmId: "provider-vm-prune-leases",
+      status: "running",
+    });
+    const calls: { before: Date; limit: number }[] = [];
+    const repo = testWorkflowRepo({
+      vm,
+      deleteExpiredLeases: (input) =>
+        Effect.sync(() => {
+          calls.push(input);
+          return 42;
+        }),
+    });
+
+    const deleted = await Effect.runPromise(
+      pruneExpiredLeases({ now }).pipe(
+        Effect.provide(workflowLayer(repo, unusedProviderGateway())),
+      ),
+    );
+
+    expect(deleted).toBe(42);
+    expect(calls).toEqual([
+      { before: new Date(now.getTime() - EXPIRED_LEASE_RETENTION_MS), limit: 5000 },
+    ]);
+    expect(EXPIRED_LEASE_RETENTION_MS).toBe(7 * 24 * 60 * 60 * 1000);
+  });
+
+  test("pruneExpiredLeases is a no-op for repositories without the delete capability", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000133",
+      userId: "user-workflow-prune-leases-noop",
+      providerVmId: "provider-vm-prune-leases-noop",
+      status: "running",
+    });
+    const repo = testWorkflowRepo({ vm });
+
+    const deleted = await Effect.runPromise(
+      pruneExpiredLeases().pipe(Effect.provide(workflowLayer(repo, unusedProviderGateway()))),
+    );
+
+    expect(deleted).toBe(0);
   });
 
   test("revokeExpiredIdentityLeases uses a small default cron batch", async () => {
@@ -6354,6 +6403,7 @@ function testWorkflowRepo(input: {
   readonly leases?: RecordedLease[];
   readonly activeIdentityLeases?: CloudVmLeaseRow[];
   readonly expiredIdentityLeases?: VmRepositoryShape["expiredIdentityLeases"];
+  readonly deleteExpiredLeases?: VmRepositoryShape["deleteExpiredLeases"];
   readonly accountDeletionIdentityLeases?: VmRepositoryShape["accountDeletionIdentityLeases"];
   readonly markLeasesRevoked?: VmRepositoryShape["markLeasesRevoked"];
   readonly revokedLeaseIds?: string[];
@@ -6410,6 +6460,7 @@ function testWorkflowRepo(input: {
         input.leases?.push(lease);
       }),
     expiredIdentityLeases: input.expiredIdentityLeases,
+    deleteExpiredLeases: input.deleteExpiredLeases,
     accountDeletionIdentityLeases: input.accountDeletionIdentityLeases ?? (() => Effect.succeed([])),
     markLeaseRevocationRetry: (retry) =>
       Effect.sync(() => {
