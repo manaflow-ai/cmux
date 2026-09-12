@@ -962,6 +962,21 @@ struct ParsedTerminalProbe {
 /// make terminals that ignore the Kitty APC wait for the full timeout.
 pub fn probe_terminal(known_cell_pixels: Option<(u16, u16)>) -> StartupTerminalProbe {
     let ioctl_pixels = ioctl_cell_pixels();
+    // Only ask when the reply can be read back. `read_stdin_until` is a
+    // non-unix no-op, so on Windows these queries would be answered by the
+    // host terminal and left in stdin, and the normal input loop would then
+    // deliver `CSI 4;h;w t` and the DA1 reply to the focused pane as typed
+    // input. Nothing is lost by staying quiet: `ioctl_cell_pixels` is already
+    // `None` here so the pixel query could not resolve anything, and graphics
+    // stay off because `GraphicsWriter::platform_supported()` is `cfg!(unix)`.
+    // `host_colors::probe_default_colors` gates its own probe the same way.
+    if !cfg!(unix) {
+        return StartupTerminalProbe {
+            cell_pixels: resolve_cell_pixels(known_cell_pixels, ioctl_pixels),
+            graphics_supported: false,
+            pending_input: StartupTerminalInput::default(),
+        };
+    }
     let terminal_size = crossterm::terminal::size().ok();
     let query_window_pixels =
         ioctl_pixels.is_none() && terminal_size.is_some_and(|(cols, rows)| cols > 0 && rows > 0);
