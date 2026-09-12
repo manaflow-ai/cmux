@@ -9672,6 +9672,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let imageTransferIndicatorView: NSVisualEffectView
     private let imageTransferIndicatorSpinner: NSProgressIndicator
     private let imageTransferCancelButton: NSButton
+    private let renderHealthOverlayController: TerminalRenderHealthOverlayController
     private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlay>?
     private let deferredSearchOverlayMutationScheduler = MainActorDeferredActionScheduler()
     private let imageTransferIndicatorShowScheduler = MainActorDeferredActionScheduler()
@@ -9917,6 +9918,7 @@ final class GhosttySurfaceScrollView: NSView {
         imageTransferIndicatorView = NSVisualEffectView(frame: .zero)
         imageTransferIndicatorSpinner = NSProgressIndicator(frame: .zero)
         imageTransferCancelButton = NSButton(frame: .zero)
+        renderHealthOverlayController = TerminalRenderHealthOverlayController()
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = false
@@ -10444,8 +10446,9 @@ final class GhosttySurfaceScrollView: NSView {
         _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
         _ = setFrameIfNeeded(linkHoverIndicatorView, to: contentFrame)
-        if let renderHealthOverlayView {
-            _ = setFrameIfNeeded(renderHealthOverlayView, to: contentFrame)
+        renderHealthOverlayController.updateFrame(contentFrame)
+        if let cloudTerminalReconnectOverlayView {
+            _ = setFrameIfNeeded(cloudTerminalReconnectOverlayView, to: contentFrame)
         }
         synchronizeCloudTerminalReconnectOverlay()
         if let overlay = searchOverlayHostingView {
@@ -10718,7 +10721,7 @@ final class GhosttySurfaceScrollView: NSView {
     func attachSurface(_ terminalSurface: TerminalSurface) {
         if surfaceView.terminalSurface !== terminalSurface { setLinkHoverURL(nil) }
         surfaceView.attachSurface(terminalSurface)
-        bindRenderHealth(to: terminalSurface)
+        renderHealthOverlayController.attach(host: self, surface: terminalSurface)
         // Preserve the bootstrap 800x600 surface until portal reattach churn
         // has produced a real host size instead of a transient 1x1 placeholder.
         guard bounds.width > 1, bounds.height > 1 else { return }
