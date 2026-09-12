@@ -141,12 +141,12 @@ final class PhoneReplyInboxCoordinator {
                 "text": decrypted.text,
                 "submit_key": "return",
             ]
-            if !decrypted.workspaceId.isEmpty {
-                params["workspace_id"] = decrypted.workspaceId
+            if let workspaceId = decrypted.workspaceId, !workspaceId.isEmpty {
+                params["workspace_id"] = workspaceId
             }
             let outcome = inject(params, decrypted.retargetsToLiveSurfaceOwner)
             #if DEBUG
-            cmuxDebugLog("phoneReply.inject outcome=\(outcome) surface=\(reply.surfaceId.prefix(8))")
+            cmuxDebugLog("phoneReply.inject outcome=\(outcome) surface=\(decrypted.surfaceId.prefix(8))")
             #endif
             switch outcome {
             case .delivered:
