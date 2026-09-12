@@ -285,7 +285,6 @@ final class CloudNotificationSync {
     private let unreadChanged: UnreadObserver
     private let withdraw: Withdrawer
     private let newKey: () -> String
-
     private(set) var state: CloudNotificationSyncState
     private(set) var rows: [CloudVMNotificationRow] = []
     private(set) var unreadTerminalIDs: Set<String> = []
