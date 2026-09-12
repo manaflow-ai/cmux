@@ -14,6 +14,24 @@ public struct CmuxAccountPlan: Sendable, Hashable {
     /// How billing is managed for this account: `"stripe"`, `"external"`, or `"none"`.
     public var billingManagement: String
 
+    /// Backward-compatible initializer for callers that only know the plan family.
+    public init(
+        userID: String,
+        email: String,
+        planID: String,
+        isPro: Bool,
+        billingManagement: String
+    ) {
+        self.init(
+            userID: userID,
+            email: email,
+            planID: planID,
+            subscriptionPlanID: planID,
+            isPro: isPro,
+            billingManagement: billingManagement
+        )
+    }
+
     /// Creates an account plan snapshot.
     /// - Parameters:
     ///   - userID: Stack user id of the signed-in account.
