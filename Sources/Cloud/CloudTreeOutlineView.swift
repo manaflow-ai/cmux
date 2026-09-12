@@ -663,9 +663,23 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             // expanded outline. The source sibling collection is authoritative;
             // using that parent keeps drops valid across both leaf gaps and
             // expanded rows without reparenting the placement.
-            let parent = context.parentID
-            guard index <= context.nodes.count else { return nil }
-            return (id, parent, index > sourceIndex ? index - 1 : index)
+            let proposedNode = item as? CloudTreeNode
+            let proposedParent = proposedNode.flatMap { organizationStore.siblings(of: $0.id, in: nodes)?.parentID }
+            // AppKit uses an expanded container as the proposed item when the
+            // pointer is inside it, and a previous sibling for a gap. Preserve
+            // the source parent for sibling gaps; use the container only when
+            // its child index is the actual target collection.
+            let parent: String
+            if let proposedNode, proposedNode.isExpandable, index >= 0,
+               proposedNode.id != id,
+               index <= proposedNode.children.count {
+                parent = proposedNode.id
+            } else {
+                parent = proposedParent == context.parentID ? context.parentID : context.parentID
+            }
+            let targetCount = parent == context.parentID ? context.nodes.count : (proposedNode?.children.count ?? 0)
+            guard index <= targetCount else { return nil }
+            return (id, parent, index > sourceIndex && parent == context.parentID ? index - 1 : index)
         }
 
         private func menuItems(for node: CloudTreeNode) -> [NSMenuItem] {
