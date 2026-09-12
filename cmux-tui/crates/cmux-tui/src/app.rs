@@ -7194,6 +7194,13 @@ pub struct App {
     config_reload_applications: usize,
     pub chrome: ChromeTheme,
     pub tree: TreeView,
+    /// Cached active-agent snapshot used by projection rows. Agent records
+    /// are unchanged across most redraws, so avoid rebuilding the full list
+    /// until a topology or agent event advances this generation.
+    projection_agents: Option<(u64, Vec<AgentInfo>)>,
+    projection_agents_generation: u64,
+    #[cfg(test)]
+    projection_agents_builds: usize,
     tab_locations: HashMap<SurfaceId, [usize; 4]>,
     pub render_states: HashMap<SurfaceId, RenderState>,
     pub(crate) chrome_row_scratch: ReusableRowBuffer,
@@ -9496,6 +9503,10 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         config_reload_applications: 0,
         chrome,
         tree: TreeView::default(),
+        projection_agents: None,
+        projection_agents_generation: 0,
+        #[cfg(test)]
+        projection_agents_builds: 0,
         tab_locations: HashMap::new(),
         render_states: HashMap::new(),
         chrome_row_scratch: ReusableRowBuffer::default(),
@@ -10313,7 +10324,38 @@ impl App {
         self.focus == FocusTarget::ProjectionRail(index)
     }
 
-    pub(crate) fn projection_rows(&self, index: usize) -> Vec<ProjectionRow> {
+    pub(crate) fn projection_rows(&mut self, index: usize) -> Vec<ProjectionRow> {
+        let Some(includes_agents) = self
+            .config
+            .sidebar
+            .views
+            .get(index)
+            .map(|spec| spec.includes(SidebarResourceKind::Agents))
+        else {
+            return Vec::new();
+        };
+        if includes_agents {
+            let generation = self.projection_agents_generation;
+            let cache_stale = self
+                .projection_agents
+                .as_ref()
+                .is_none_or(|(cached_generation, _)| *cached_generation != generation);
+            if cache_stale {
+                // Finished reports are historical records, not active agents.
+                // Otherwise detached "surface..." rows remain forever after exit.
+                let agents = self
+                    .session
+                    .agents()
+                    .into_iter()
+                    .filter(|agent| !matches!(agent.state.as_str(), "done" | "unknown"))
+                    .collect::<Vec<_>>();
+                self.projection_agents = Some((generation, agents));
+                #[cfg(test)]
+                {
+                    self.projection_agents_builds += 1;
+                }
+            }
+        }
         let Some(spec) = self.config.sidebar.views.get(index) else { return Vec::new() };
         let empty_collapsed = HashSet::new();
         let collapsed = self
@@ -10321,21 +10363,15 @@ impl App {
             .get(&spec.id)
             .map(|state| &state.collapsed)
             .unwrap_or(&empty_collapsed);
-        let agents = if spec.includes(SidebarResourceKind::Agents) {
-            // Finished reports are historical records, not active agents.
-            // Otherwise detached "surface..." rows remain forever after exit.
-            self.session
-                .agents()
-                .into_iter()
-                .filter(|agent| !matches!(agent.state.as_str(), "done" | "unknown"))
-                .collect::<Vec<_>>()
-        } else {
-            Vec::new()
-        };
+        let agents = self
+            .projection_agents
+            .as_ref()
+            .filter(|_| includes_agents)
+            .map_or(&[][..], |(_, agents)| agents.as_slice());
         crate::sidebar_projection::rows(
             spec,
             &self.tree,
-            &agents,
+            agents,
             self.sidebar_workspace_selection,
             collapsed,
         )
@@ -11980,6 +12016,7 @@ impl App {
             self.browser_input.forget_surface(surface);
         }
         self.tree = tree;
+        self.invalidate_projection_agents();
         // The readout belongs to the previous daemon; the replacement's own
         // value arrives from its background refresh.
         self.machine_usage = None;
@@ -13235,7 +13272,14 @@ impl App {
         changed
     }
 
+    fn invalidate_projection_agents(&mut self) {
+        self.projection_agents_generation = self.projection_agents_generation.wrapping_add(1);
+        self.projection_agents = None;
+    }
+
     fn replace_tree(&mut self, mut tree: TreeView) {
+        let topology_changed = self.tree.workspace_revision != tree.workspace_revision
+            || self.tree.pane_revision != tree.pane_revision;
         let previous_active = self.active_pane();
         let selected_workspace = self
             .tree
@@ -13289,6 +13333,9 @@ impl App {
         self.viewport_states.retain(|screen, _| live_screens.contains(screen));
         self.pane_focus_history.sync_membership(&tree);
         self.tree = tree;
+        if topology_changed {
+            self.invalidate_projection_agents();
+        }
         self.sidebar_workspace_selection = selected_workspace
             .and_then(|selected| {
                 self.tree.workspaces().iter().position(|workspace| workspace.id == selected)
@@ -13405,6 +13452,7 @@ impl App {
     /// topology refresh arrives. The backend projection still owns parent
     /// pane, screen, and workspace collapse.
     fn remove_surface_from_cached_tree(&mut self, surface: SurfaceId) {
+        self.invalidate_projection_agents();
         self.tree.invalidate_location_index();
         let Some([workspace_index, screen_index, pane_index, tab_index]) =
             self.tab_locations.get(&surface).copied()
@@ -15565,6 +15613,10 @@ impl App {
                 } else {
                     Ok(RenderAction::Paint)
                 }
+            }
+            AppEvent::Mux(MuxEvent::AgentChanged { .. }) => {
+                self.invalidate_projection_agents();
+                Ok(RenderAction::Draw)
             }
             AppEvent::Mux(MuxEvent::PairingRequested(challenge)) => {
                 let duplicate = self
@@ -44004,6 +44056,41 @@ mod tests {
     }
 
     #[test]
+    fn projection_rows_reuse_agent_snapshot_until_invalidated() {
+        let (mux, _surface) = test_mux("projection-agent-snapshot-cache-test", None);
+        let mut app = test_app(Session::Local(mux));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "workspace-agents".into(),
+            levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+
+        let first = app.projection_rows(0);
+        let second = app.projection_rows(0);
+        assert_eq!(first, second);
+        assert_eq!(app.projection_agents_builds, 1);
+
+        app.handle(AppEvent::Mux(MuxEvent::AgentChanged {
+            surface: 0,
+            state: "working".into(),
+            source: "hook".into(),
+            session: None,
+            updated_at_ms: 1,
+        }))
+        .unwrap();
+        let third = app.projection_rows(0);
+        assert_eq!(third, first);
+        assert_eq!(app.projection_agents_builds, 2);
+    }
+
+    #[test]
     fn tabs_column_context_menu_renames_the_exact_clicked_tab() {
         let (mux, first) = test_mux("tabs-column-rename-test", None);
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
@@ -46117,6 +46204,9 @@ mod tests {
             config_reload_applications: 0,
             chrome: ChromeTheme::dark(),
             tree: TreeView::default(),
+            projection_agents: None,
+            projection_agents_generation: 0,
+            projection_agents_builds: 0,
             tab_locations: HashMap::new(),
             render_states: HashMap::<u64, RenderState>::new(),
             chrome_row_scratch: crate::ui::ReusableRowBuffer::default(),
