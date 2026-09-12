@@ -218,6 +218,7 @@ extension CMUXCLI {
         "uninstall-hooks",
         "vault",
         "version",
+        "video-background",
         "vm",
         "vm-pty-attach",
         "vm-pty-connect",

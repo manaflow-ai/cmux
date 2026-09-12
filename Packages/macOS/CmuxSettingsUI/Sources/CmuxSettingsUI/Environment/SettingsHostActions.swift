@@ -285,6 +285,41 @@ public protocol SettingsHostActions: AnyObject {
 
     /// Opens the host's plan management / upgrade flow.
     func openCloudMachinesBilling()
+
+    /// Returns the current cmux-managed Ghostty `background-opacity` status.
+    /// Video backgrounds require a translucent value; Settings uses this to
+    /// explain the requirement before enabling the feature. The host performs
+    /// the file read off the main actor so opening Settings stays responsive.
+    func videoBackgroundGhosttyOpacityStatus() async -> VideoBackgroundGhosttyOpacityStatus
+
+    /// Writes the recommended `background-opacity = 0.8` to cmux's Ghostty
+    /// config and reloads open terminals. The UI calls this only after a clear
+    /// confirmation because the file is outside the cmux JSON settings store.
+    func setVideoBackgroundGhosttyOpacity() async -> Bool
+}
+
+/// Snapshot of cmux's Ghostty transparency prerequisite for video backgrounds.
+public struct VideoBackgroundGhosttyOpacityStatus: Equatable, Sendable {
+    /// Whether the host can inspect/edit a Ghostty config (false in previews).
+    public let isAvailable: Bool
+    /// The currently effective configured opacity, or `nil` when unavailable.
+    public let opacity: Double?
+    /// Human-readable path to the cmux-managed Ghostty config.
+    public let configPath: String
+    /// Whether the current value allows the video layer to show through.
+    public let isUsable: Bool
+    /// Creates a transparency status snapshot.
+    public init(
+        isAvailable: Bool,
+        opacity: Double?,
+        configPath: String,
+        isUsable: Bool
+    ) {
+        self.isAvailable = isAvailable
+        self.opacity = opacity
+        self.configPath = configPath
+        self.isUsable = isUsable
+    }
 }
 
 /// Snapshot of the caller's Cloud Machines plan for the settings section.
@@ -360,6 +395,17 @@ public extension SettingsHostActions {
     func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary? { nil }
     func openCloudMachinesPanel() {}
     func openCloudMachinesBilling() {}
+
+    func videoBackgroundGhosttyOpacityStatus() async -> VideoBackgroundGhosttyOpacityStatus {
+        VideoBackgroundGhosttyOpacityStatus(
+            isAvailable: false,
+            opacity: nil,
+            configPath: "",
+            isUsable: true
+        )
+    }
+
+    func setVideoBackgroundGhosttyOpacity() async -> Bool { false }
 
     /// Default no-op for package-only settings hosts without Ghostty.
     func terminalAdaptiveDefaultThemeDidChange() {}
@@ -500,4 +546,15 @@ public final class NoopSettingsHostActions: SettingsHostActions {
     /// package-only settings hosts.
     public func previewNotificationSound(value: String, customFilePath: String) {}
     public func browserHistoryEntryCount() -> Int? { nil }
+
+    public func videoBackgroundGhosttyOpacityStatus() async -> VideoBackgroundGhosttyOpacityStatus {
+        VideoBackgroundGhosttyOpacityStatus(
+            isAvailable: false,
+            opacity: nil,
+            configPath: "",
+            isUsable: true
+        )
+    }
+
+    public func setVideoBackgroundGhosttyOpacity() async -> Bool { false }
 }

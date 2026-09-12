@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxSettings
 import CmuxTerminal
 
 /// The live-app half of the v1 bonsplit pane commands (`list_panes` /
@@ -345,16 +346,19 @@ extension TerminalController {
     // MARK: - Misc ops
 
     func controlSidebarReloadConfig(
+        restartVideoBackground: Bool = false,
         completion:
             @escaping @MainActor @Sendable () -> Void = {}
     ) {
         _ = controlSidebarReloadConfigWithAdmission(
+            restartVideoBackground: restartVideoBackground,
             completion: completion
         )
     }
 
     @discardableResult
     func controlSidebarReloadConfigWithAdmission(
+        restartVideoBackground: Bool = false,
         /// Runs after surface propagation completes.
         completion:
             GhosttyApp.ConfigurationReloadCompletion? = nil,
@@ -363,17 +367,29 @@ extension TerminalController {
         commitCompletion:
             GhosttyApp.ConfigurationReloadCommitCompletion? = nil
     ) -> Bool {
+        let onCommit: GhosttyApp.ConfigurationReloadCommitCompletion = { committed in
+            if committed, restartVideoBackground,
+               let runtime = AppDelegate.shared?.videoBackgroundRuntime {
+                let settings = VideoBackgroundSettings()
+                _ = runtime.playbackCoordinator.configure(
+                    sourceTexts: settings.effectiveSourceTexts(defaults: .standard),
+                    quality: settings.quality(defaults: .standard),
+                    restart: true
+                )
+            }
+            commitCompletion?(committed)
+        }
         if let appDelegate = AppDelegate.shared {
             return appDelegate.reloadConfiguration(
                 source: "socket.reload_config",
                 completion: completion,
-                commitCompletion: commitCompletion
+                commitCompletion: restartVideoBackground ? onCommit : commitCompletion
             )
         }
         return GhosttyApp.shared.reloadConfiguration(
             source: "socket.reload_config",
             completion: completion,
-            commitCompletion: commitCompletion
+            commitCompletion: restartVideoBackground ? onCommit : commitCompletion
         )
     }
 

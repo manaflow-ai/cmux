@@ -1,0 +1,107 @@
+import Foundation
+import WebKit
+import CmuxBrowser
+
+/// Navigation policy and script-message adapter for the video background
+/// webview.
+///
+/// Mirrors ``BrowserMediaPlaybackMessageHandler``: a thin `NSObject` adapter so
+/// the player view never conforms to WebKit delegate protocols itself. The
+/// navigation policy pins the main frame to the generated embed page — the
+/// layer is not a browser, so any other main-frame navigation is cancelled —
+/// while YouTube's own iframe keeps full subframe freedom.
+final class VideoBackgroundWebViewBridge: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+    private let onPlayerError: @MainActor (String) -> Void
+    private var hasSeenMainFrameNavigation = false
+
+    /// Invoked when the YouTube player reports that it can render.
+    @MainActor var onPlayerReady: (@MainActor () -> Void)?
+
+    /// Invoked when the generated document finishes loading. This is only a
+    /// script-replay signal; it is not sufficient to mark playback active.
+    @MainActor var onPageLoaded: (@MainActor () -> Void)?
+
+    /// Invoked when a queue-managed YouTube item reaches its end.
+    @MainActor var onPlayerEnded: (@MainActor () -> Void)?
+
+    init(onPlayerError: @escaping @MainActor (String) -> Void) {
+        self.onPlayerError = onPlayerError
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        guard navigationAction.targetFrame?.isMainFrame == true else {
+            decisionHandler(.allow)
+            return
+        }
+        let url = navigationAction.request.url
+        let isEmbedPageLoad = url == VideoBackgroundEmbedPage.baseURL
+        let isInitialAboutBlank = url?.absoluteString == "about:blank" && !hasSeenMainFrameNavigation
+        hasSeenMainFrameNavigation = true
+        decisionHandler(isEmbedPageLoad || isInitialAboutBlank ? .allow : .cancel)
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation!,
+        withError error: any Error
+    ) {
+        MainActor.assumeIsolated {
+            onPlayerError("provisional-navigation-failed: \((error as NSError).code)")
+        }
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        MainActor.assumeIsolated {
+            #if DEBUG
+            cmuxDebugLog("videoBackground.page.didFinish url=\(webView.url?.absoluteString ?? "nil")")
+            #endif
+            onPageLoaded?()
+        }
+    }
+
+    /// WebKit can jettison the content process (memory pressure, crash); the
+    /// page would silently stay blank, so treat it like any other player failure.
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        MainActor.assumeIsolated {
+            onPlayerError("web-content-process-terminated")
+        }
+    }
+
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        guard message.frameInfo.isMainFrame else { return }
+        // WebKit delivers script messages on the main thread; apply synchronously
+        // to preserve delivery order relative to navigation callbacks.
+        MainActor.assumeIsolated {
+            handleScriptEvent(message.body)
+        }
+    }
+
+    /// Applies one `{event, code}` payload posted by the embed page.
+    @MainActor
+    func handleScriptEvent(_ body: Any) {
+        guard let body = body as? [String: Any],
+              let event = body["event"] as? String else { return }
+        let code = body["code"].map { "\($0)" } ?? "unknown"
+        #if DEBUG
+        cmuxDebugLog("videoBackground.page.event=\(event) code=\(code)")
+        #endif
+        switch event {
+        case "error":
+            onPlayerError("player-error: \(code)")
+        case "ready":
+            onPlayerReady?()
+        case "ended":
+            onPlayerEnded?()
+        default:
+            // "skipped" is informational; nothing to do.
+            break
+        }
+    }
+}

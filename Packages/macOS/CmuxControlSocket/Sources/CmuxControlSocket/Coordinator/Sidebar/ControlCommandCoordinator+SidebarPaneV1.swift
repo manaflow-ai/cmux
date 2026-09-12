@@ -263,11 +263,13 @@ extension ControlCommandCoordinator {
 
     /// `reload_config` — reload the Ghostty configuration.
     func sidebarReloadConfig(_ args: String) -> String {
-        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard trimmed.isEmpty else {
-            return "ERROR: Usage: reload_config"
+        guard let request = ControlConfigurationReloadRequest(arguments: args) else {
+            return "ERROR: Usage: reload_config [--restart-video-background]"
         }
-        sidebarContext?.controlSidebarReloadConfig(completion: {})
+        sidebarContext?.controlSidebarReloadConfig(
+            restartVideoBackground: request.restartVideoBackground,
+            completion: {}
+        )
         return "OK Reloaded config"
     }
 

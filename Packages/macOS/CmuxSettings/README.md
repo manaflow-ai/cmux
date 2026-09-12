@@ -184,6 +184,14 @@ Tests construct `DefaultsKey` / `JSONKey` directly with a temp-suite
 `UserDefaults` or a temp-dir file URL. The catalog isn't a test fixture; it
 is the production registry. See `Tests/CmuxSettingsTests/` for patterns.
 
+For a synchronous CLI-style video-background edit, use the shared JSONC-safe
+editor with an injected file URL:
+
+```swift
+let editor = VideoBackgroundConfigEditor(fileURL: configURL)
+try editor.update(.init(source: "dQw4w9WgXcQ", queue: ["dQw4w9WgXcQ"]))
+```
+
 ### Keyboard-shortcut `when` clauses
 
 `ShortcutWhenClause` parses a VS Code-style predicate over context keys and

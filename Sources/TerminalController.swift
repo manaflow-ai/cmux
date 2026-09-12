@@ -1470,10 +1470,8 @@ class TerminalController {
     private nonisolated func reloadConfigurationAndWait(
         _ args: String
     ) -> String {
-        guard args.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        ).isEmpty else {
-            return "ERROR: Usage: reload_config"
+        guard let request = ControlConfigurationReloadRequest(arguments: args) else {
+            return "ERROR: Usage: reload_config [--restart-video-background]"
         }
         guard let waiterLease =
                 reloadConfigurationWaiterAdmission.claim() else {
@@ -1485,6 +1483,7 @@ class TerminalController {
             Task { @MainActor in
                 let completionWasAdmitted =
                     self.controlSidebarReloadConfigWithAdmission(
+                        restartVideoBackground: request.restartVideoBackground,
                         commitCompletion: { committed in
                             completion(
                                 committed ? .committed : .failed

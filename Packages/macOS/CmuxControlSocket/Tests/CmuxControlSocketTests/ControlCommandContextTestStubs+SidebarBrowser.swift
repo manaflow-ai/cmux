@@ -237,6 +237,7 @@ extension ControlSidebarContext {
     func controlSidebarCloseSurface(surfaceArg: String?) -> ControlSidebarCloseSurfaceResolution { .noTabSelected }
 
     func controlSidebarReloadConfig(
+        restartVideoBackground: Bool,
         completion: @escaping @MainActor () -> Void
     ) {
         completion()

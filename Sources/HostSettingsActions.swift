@@ -22,8 +22,10 @@ final class HostSettingsActions: SettingsHostActions {
     private var runComputerUseOnboardingAction:
         @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void = { _ in }
 
-    /// Serializes font-size config writes so rapid slider saves persist in order.
-    private let fontConfigWriter = FontConfigWriter()
+    /// Serializes every cmux-managed Ghostty config read/modify/write so font
+    /// saves and video-background setup cannot lose each other's edits.
+    /// The actor also keeps file I/O off the main actor.
+    private let ghosttyConfigWriter = GhosttyConfigWriter()
 
     /// AppKit window identifier the dedicated terminal-config window carries.
     /// Matches the value `ConfigSettingsView.configureWindow` assigns so the
@@ -566,6 +568,20 @@ final class HostSettingsActions: SettingsHostActions {
         CmuxGhosttyConfigSettingEditor().formattedFontSize(points)
     }
 
+    func videoBackgroundGhosttyOpacityStatus() async -> VideoBackgroundGhosttyOpacityStatus {
+        await ghosttyConfigWriter.videoBackgroundOpacityStatus()
+    }
+
+    func setVideoBackgroundGhosttyOpacity() async -> Bool {
+        guard await ghosttyConfigWriter.writeRecommendedVideoBackgroundOpacity() else {
+            hostSettingsLogger.warning("failed to persist video background Ghostty opacity")
+            return false
+        }
+        GhosttyConfig.invalidateLoadCache()
+        GhosttyApp.shared.reloadConfiguration(source: "settings.terminal.videoBackground.ghosttyOpacity")
+        return true
+    }
+
     func mobilePairingStatus() -> MobilePairingStatusSnapshot? {
         Self.mobilePairingSnapshot(from: MobileHostService.shared.statusSnapshot())
     }
@@ -742,8 +758,8 @@ final class HostSettingsActions: SettingsHostActions {
     /// Writes a clamped font-size value to cmux's editable Ghostty config and
     /// triggers a live reload so open windows re-render at the new size.
     ///
-    /// The disk write runs on the serial ``fontConfigWriter`` actor so the main
-    /// actor is never blocked on file I/O during a slider drag or Reset tap, and
+    /// The disk write runs on the serial ``ghosttyConfigWriter`` actor so the
+    /// main actor is never blocked on file I/O during a slider drag or Reset tap, and
     /// rapid successive saves persist in submission order (last value wins). The
     /// reload then resumes on the main actor.
     ///
@@ -751,7 +767,7 @@ final class HostSettingsActions: SettingsHostActions {
     ///   warning is logged here; the Settings UI surfaces a save-failed message).
     private func persistFontSize(key: String, points: Double, reloadSource: String) async -> Bool {
         let formatted = CmuxGhosttyConfigSettingEditor().formattedFontSize(points)
-        guard await fontConfigWriter.write(key: key, value: formatted) else {
+        guard await ghosttyConfigWriter.write(key: key, value: formatted) else {
             hostSettingsLogger.warning("failed to persist \(key, privacy: .public)")
             return false
         }
@@ -778,14 +794,11 @@ final class MobileHostStatusObserverToken: @unchecked Sendable {
     }
 }
 
-/// Serializes cmux Ghostty config writes for the font-size settings so rapid
-/// successive saves apply in submission order instead of racing.
+/// Serializes cmux Ghostty config reads and writes away from the main actor.
 ///
-/// The Settings sliders fire a save on every release and Reset tap. Routed
-/// through this single actor, the writes run one-at-a-time in arrival order —
-/// each write is a full overwrite of the key, so the most recently submitted
-/// value is always the one left on disk. The work runs off the main actor.
-private actor FontConfigWriter {
+/// Font sliders and the video-background setup button share this actor so a
+/// read/modify/write from either path cannot overwrite the other's setting.
+private actor GhosttyConfigWriter {
     /// Writes a single cmux-editable Ghostty config setting to disk.
     ///
     /// - Parameters:
@@ -795,6 +808,38 @@ private actor FontConfigWriter {
     func write(key: String, value: String) -> Bool {
         do {
             try ConfigSourceEnvironment.live().writeCmuxConfigSetting(key: key, value: value)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Reads the managed Ghostty opacity for Settings without blocking the UI.
+    func videoBackgroundOpacityStatus() -> VideoBackgroundGhosttyOpacityStatus {
+        let environment = ConfigSourceEnvironment.live()
+        let url = environment.cmuxConfigURL
+        let contents = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        let raw = CmuxGhosttyConfigSettingEditor().parsedValue(
+            for: "background-opacity",
+            in: contents
+        )
+        let parsed = raw.flatMap { Double($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        let opacity = parsed?.isFinite == true ? min(max(parsed!, 0), 1) : nil
+        return VideoBackgroundGhosttyOpacityStatus(
+            isAvailable: true,
+            opacity: opacity,
+            configPath: environment.abbreviatedPath(for: url),
+            isUsable: (opacity ?? 1) < 0.999
+        )
+    }
+
+    /// Writes the recommended Ghostty opacity to cmux's managed config file.
+    func writeRecommendedVideoBackgroundOpacity() -> Bool {
+        do {
+            try ConfigSourceEnvironment.live().writeCmuxConfigSetting(
+                key: "background-opacity",
+                value: "0.8"
+            )
             return true
         } catch {
             return false

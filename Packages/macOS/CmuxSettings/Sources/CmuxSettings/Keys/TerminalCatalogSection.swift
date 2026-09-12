@@ -194,5 +194,55 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.runawayMemoryGuardrail.thresholdGB"
     )
 
+    /// Whether the muted dynamic video background plays behind terminal content.
+    public let videoBackgroundEnabled = DefaultsKey<Bool>(
+        id: "terminal.videoBackground.enabled",
+        defaultValue: VideoBackgroundSettings.defaultEnabled,
+        userDefaultsKey: VideoBackgroundSettings.enabledKey
+    )
+
+    /// YouTube video/playlist URL (or local video file path) for the video background.
+    public let videoBackgroundSource = DefaultsKey<String>(
+        id: "terminal.videoBackground.source",
+        defaultValue: VideoBackgroundSettings.defaultSource,
+        userDefaultsKey: VideoBackgroundSettings.sourceKey
+    )
+
+    /// Whether the video background stays silent (`false` opts in to audio).
+    public let videoBackgroundMuted = DefaultsKey<Bool>(
+        id: "terminal.videoBackground.muted",
+        defaultValue: VideoBackgroundSettings.defaultMuted,
+        userDefaultsKey: VideoBackgroundSettings.mutedKey
+    )
+
+    /// Ordered video sources played one after another. An empty queue keeps
+    /// the legacy ``videoBackgroundSource`` value as the single-source fallback.
+    public let videoBackgroundQueue = DefaultsKey<[String]>(
+        id: "terminal.videoBackground.queue",
+        defaultValue: [],
+        userDefaultsKey: VideoBackgroundSettings.queueKey
+    )
+
+    /// Maximum YouTube stream quality used for each queued source.
+    public let videoBackgroundQuality = DefaultsKey<String>(
+        id: "terminal.videoBackground.quality",
+        defaultValue: VideoBackgroundSettings.defaultQuality,
+        userDefaultsKey: VideoBackgroundSettings.qualityKey
+    )
+
+    /// Volume used when video-background audio is enabled (`0...1`).
+    public let videoBackgroundVolume = DefaultsKey<Double>(
+        id: "terminal.videoBackground.volume",
+        defaultValue: VideoBackgroundSettings.defaultVolume,
+        userDefaultsKey: VideoBackgroundSettings.volumeKey
+    )
+
+    /// Opacity of the terminal background fill drawn over the video (`1` hides it).
+    public let videoBackgroundDimOpacity = DefaultsKey<Double>(
+        id: "terminal.videoBackground.dimOpacity",
+        defaultValue: VideoBackgroundSettings.defaultDimOpacity,
+        userDefaultsKey: VideoBackgroundSettings.dimOpacityKey
+    )
+
     public init() {}
 }

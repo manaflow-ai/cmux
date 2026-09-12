@@ -27,15 +27,18 @@ describe("publication authorization capacity", () => {
       await held;
     });
     await ready;
-    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const completed = await Promise.race([
-        publicationDatabaseRuntime().then(runtime => runtime.runPromise(Effect.flatMap(Database, db => db.execute(sql`select 1`)))).then(() => true),
-        new Promise<boolean>(resolve => { timer = setTimeout(() => resolve(false), 1000); }),
-      ]);
-      expect(completed).toBe(true);
+      const result = await publicationDatabaseRuntime().then(runtime => runtime.runPromise(
+        Effect.flatMap(Database, db => db.execute(sql`select 1`)).pipe(
+          Effect.timeoutFail({
+            duration: 1_000,
+            onTimeout: () => new Error("authorization query exceeded the pool liveness deadline"),
+          }),
+          Effect.either,
+        ),
+      ));
+      expect(result._tag).toBe("Right");
     } finally {
-      clearTimeout(timer);
       release();
       await background;
     }

@@ -322,6 +322,7 @@ public protocol ControlSidebarContext: AnyObject {
     /// Reloads the Ghostty configuration (`reload_config`) and invokes the
     /// completion after the replacement configuration commits.
     func controlSidebarReloadConfig(
+        restartVideoBackground: Bool,
         completion: @escaping @MainActor () -> Void
     )
 

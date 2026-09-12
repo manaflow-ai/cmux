@@ -153,6 +153,78 @@ extension CmuxSettingsFileStore {
         }
     }
 
+    func parseTerminalVideoBackground(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        guard let rawVideoBackground = section["videoBackground"] else { return }
+        guard let videoBackground = rawVideoBackground as? [String: Any] else {
+            logInvalid("terminal.videoBackground", sourcePath: sourcePath)
+            return
+        }
+        if let value = jsonBool(videoBackground["enabled"]) {
+            snapshot.managedUserDefaults[VideoBackgroundSettings.enabledKey] = .bool(value)
+        } else if videoBackground.keys.contains("enabled") {
+            logInvalid("terminal.videoBackground.enabled", sourcePath: sourcePath)
+        }
+        if let value = jsonString(videoBackground["source"]) {
+            snapshot.managedUserDefaults[VideoBackgroundSettings.sourceKey] = .string(
+                value.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        } else if videoBackground.keys.contains("source") {
+            logInvalid("terminal.videoBackground.source", sourcePath: sourcePath)
+        }
+        if let value = jsonBool(videoBackground["muted"]) {
+            snapshot.managedUserDefaults[VideoBackgroundSettings.mutedKey] = .bool(value)
+        } else if videoBackground.keys.contains("muted") {
+            logInvalid("terminal.videoBackground.muted", sourcePath: sourcePath)
+        }
+        if let values = jsonStringArray(videoBackground["queue"]) {
+            let policy = VideoBackgroundSettings()
+            let normalized = policy.normalizedQueue(values)
+            snapshot.managedUserDefaults[VideoBackgroundSettings.queueKey] = .stringArray(normalized)
+        } else if videoBackground.keys.contains("queue") {
+            logInvalid("terminal.videoBackground.queue", sourcePath: sourcePath)
+        }
+        if let rawQuality = jsonString(videoBackground["quality"]) {
+            let policy = VideoBackgroundSettings()
+            let normalized = policy.normalizedQuality(rawQuality)
+            // Unknown values are not silently accepted in a file-managed
+            // setting: this keeps a typo from changing the effective quality
+            // while still allowing the documented aliases (4k/2k/etc.).
+            if policy.isValidQuality(rawQuality) {
+                snapshot.managedUserDefaults[VideoBackgroundSettings.qualityKey] = .string(normalized)
+            } else {
+                logInvalid("terminal.videoBackground.quality", sourcePath: sourcePath)
+            }
+        } else if videoBackground.keys.contains("quality") {
+            logInvalid("terminal.videoBackground.quality", sourcePath: sourcePath)
+        }
+        if let value = jsonDouble(videoBackground["volume"]) {
+            if value.isFinite {
+                snapshot.managedUserDefaults[VideoBackgroundSettings.volumeKey] = .double(
+                    VideoBackgroundSettings().normalizedVolume(value)
+                )
+            } else {
+                logInvalid("terminal.videoBackground.volume", sourcePath: sourcePath)
+            }
+        } else if videoBackground.keys.contains("volume") {
+            logInvalid("terminal.videoBackground.volume", sourcePath: sourcePath)
+        }
+        if let value = jsonDouble(videoBackground["dimOpacity"]) {
+            if value.isFinite {
+                snapshot.managedUserDefaults[VideoBackgroundSettings.dimOpacityKey] = .double(
+                    VideoBackgroundSettings().normalizedDimOpacity(value)
+                )
+            } else {
+                logInvalid("terminal.videoBackground.dimOpacity", sourcePath: sourcePath)
+            }
+        } else if videoBackground.keys.contains("dimOpacity") {
+            logInvalid("terminal.videoBackground.dimOpacity", sourcePath: sourcePath)
+        }
+    }
+
     func parseMobileSection(
         _ section: [String: Any],
         sourcePath: String,

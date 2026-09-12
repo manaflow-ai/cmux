@@ -368350,6 +368350,2630 @@
         }
       }
     },
+    "settings.terminal.videoBackground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video Background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビデオ背景"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Videohintergrund"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrière-plan vidéo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خلفية الفيديو"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fondo de vídeo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "影片背景"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "视频背景"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비디오 배경"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A shared video queue plays behind every terminal window. YouTube playlists keep an independent playhead in each window; audio is opt-in."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのターミナルウィンドウの背後で共有ビデオキューを再生します。YouTube プレイリストの再生位置はウィンドウごとに独立し、音声はオプトインです。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine gemeinsame Videowarteschlange wird hinter jedem Terminalfenster abgespielt. YouTube-Playlists behalten in jedem Fenster eine unabhängige Wiedergabeposition; Audio ist optional."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une file vidéo partagée est lue derrière chaque fenêtre de terminal. Les playlists YouTube conservent une position de lecture indépendante dans chaque fenêtre ; l’audio est facultatif."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتم تشغيل قائمة فيديو مشتركة خلف كل نافذة طرفية. تحتفظ قوائم YouTube بموضع تشغيل مستقل في كل نافذة؛ والصوت اختياري."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una cola de vídeo compartida se reproduce detrás de cada ventana de terminal. Las listas de reproducción de YouTube mantienen una posición independiente en cada ventana; el audio es opcional."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共用的影片佇列會在每個終端機視窗後方播放。YouTube 播放清單在每個視窗中保留獨立的播放位置；音訊為選用功能。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享视频队列会在每个终端窗口后播放。YouTube 播放列表在每个窗口中保持独立的播放位置；音频为可选功能。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "공유 비디오 대기열이 모든 터미널 창 뒤에서 재생됩니다. YouTube 재생목록은 각 창에서 독립적인 재생 위치를 유지하며 오디오는 선택 사항입니다."
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal windows use the regular static background."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルウィンドウは通常の静的な背景を使用します。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalfenster verwenden den normalen statischen Hintergrund."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les fenêtres de terminal utilisent l’arrière-plan statique habituel."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تستخدم نوافذ الطرفية الخلفية الثابتة العادية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las ventanas de terminal usan el fondo estático habitual."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機視窗會使用一般的靜態背景。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端窗口使用常规静态背景。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 창은 일반 정적 배경을 사용합니다."
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.source": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video Source"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビデオソース"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Videoquelle"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source vidéo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مصدر الفيديو"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fuente de vídeo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "影片來源"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "视频源"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비디오 소스"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.source.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A YouTube video or playlist URL or ID, or a local .mp4/.m4v/.mov path. Press Return to set the first queue entry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YouTube の動画／プレイリスト URL または ID、あるいはローカル .mp4／.m4v／.mov パス。Return キーでキューの先頭に設定します。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine YouTube-Video- oder Playlist-URL bzw. -ID oder ein lokaler .mp4/.m4v/.mov-Pfad. Drücke die Eingabetaste, um den ersten Warteschlangeneintrag festzulegen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL ou identifiant d’une vidéo ou playlist YouTube, ou chemin local .mp4/.m4v/.mov. Appuyez sur Retour pour définir la première entrée de la file."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عنوان URL أو معرّف لفيديو أو قائمة تشغيل على YouTube، أو مسار محلي لملف ‎.mp4/.m4v/.mov. اضغط Return لتعيين أول إدخال في قائمة الانتظار."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL o ID de un vídeo o una lista de reproducción de YouTube, o una ruta local .mp4/.m4v/.mov. Pulsa Retorno para establecer la primera entrada de la cola."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YouTube 影片或播放清單的 URL 或 ID，或本機 .mp4/.m4v/.mov 路徑。按下 Return 將其設為佇列中的第一個項目。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YouTube 视频或播放列表的 URL 或 ID，或本地 .mp4/.m4v/.mov 路径。按 Return 将其设置为队列中的第一个条目。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YouTube 동영상 또는 재생목록 URL이나 ID, 또는 로컬 .mp4/.m4v/.mov 경로입니다. Return 키를 눌러 대기열의 첫 항목으로 설정합니다."
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.source.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://www.youtube.com/watch?v=…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://www.youtube.com/watch?v=…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://www.youtube.com/watch?v=…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://www.youtube.com/watch?v=…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://www.youtube.com/watch?v=…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://www.youtube.com/watch?v=…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://www.youtube.com/watch?v=…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://www.youtube.com/watch?v=…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://www.youtube.com/watch?v=…"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.audio": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play Audio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声を再生"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio wiedergeben"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lire l’audio"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تشغيل الصوت"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reproducir audio"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放音訊"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放音频"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오디오 재생"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.audio.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play the video's sound. Only the most recently active window plays audio, and it stops whenever the video pauses."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビデオの音声を再生します。音声を再生するのは最後に操作したウィンドウだけで、ビデオが一時停止すると音声も止まります。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gibt den Videoton wieder. Nur das zuletzt aktive Fenster gibt Audio wieder; bei pausiertem Video wird es beendet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lit le son de la vidéo. Seule la fenêtre la plus récemment active lit l’audio, qui s’arrête lorsque la vidéo est en pause."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يشغّل صوت الفيديو. تشغّل الصوتَ النافذةُ النشطة مؤخرًا فقط، ويتوقف عند إيقاف الفيديو مؤقتًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reproduce el sonido del vídeo. Solo la ventana activa más recientemente reproduce audio, y este se detiene cuando el vídeo se pausa."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放影片聲音。只有最近使用的視窗會播放音訊，影片暫停時音訊也會停止。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放视频声音。只有最近活动的窗口会播放音频，视频暂停时音频也会停止。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비디오의 소리를 재생합니다. 가장 최근에 활성화된 창만 오디오를 재생하며 비디오가 일시 정지되면 오디오도 중지됩니다."
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.dimOpacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video Dimming"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビデオの減光"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Videodimmung"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assombrissement de la vidéo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعتيم الفيديو"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atenuación del vídeo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "影片變暗"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "视频变暗"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비디오 어둡게 하기"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.dimOpacity.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opacity of the terminal background drawn over the video. Higher keeps text more readable; 100 percent hides the video entirely."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビデオの上に描画されるターミナル背景の不透明度。高いほどテキストが読みやすくなり、100% でビデオは完全に隠れます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deckkraft des über dem Video gezeichneten Terminalhintergrunds. Ein höherer Wert hält Text lesbarer; bei 100 Prozent wird das Video vollständig ausgeblendet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opacité de l’arrière-plan du terminal dessiné par-dessus la vidéo. Une valeur élevée améliore la lisibilité du texte ; à 100 pour cent, la vidéo est entièrement masquée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عتامة خلفية الطرفية المرسومة فوق الفيديو. تحافظ القيمة الأعلى على سهولة قراءة النص؛ وتخفي القيمة 100 بالمئة الفيديو بالكامل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opacidad del fondo del terminal dibujado sobre el vídeo. Un valor más alto mantiene el texto más legible; el 100 por ciento oculta el vídeo por completo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "繪製在影片上方的終端機背景不透明度。數值越高，文字越容易閱讀；100% 會完全隱藏影片。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "绘制在视频上的终端背景不透明度。数值越高，文字越易读；100% 会完全隐藏视频。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비디오 위에 그려지는 터미널 배경의 불투명도입니다. 값이 높을수록 텍스트를 읽기 쉽고 100%에서는 비디오가 완전히 숨겨집니다."
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.dimOpacity.percent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld%%"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld%%"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld%%"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld%%"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld%%"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld%%"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld%%"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld%%"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld%%"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.queue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Video Queue" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ビデオキュー" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Videowarteschlange"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File vidéo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قائمة انتظار الفيديو"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cola de vídeo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "影片佇列"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "视频队列"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비디오 대기열"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.queue.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Entries play in order and repeat. Windows share this queue; only individual videos and local files share a playhead." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エントリを順番に再生して繰り返します。ウィンドウ間でキューを共有し、再生位置は単体の動画とローカルファイルのみで共有します。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einträge werden der Reihe nach abgespielt und wiederholt. Fenster teilen diese Warteschlange; nur einzelne Videos und lokale Dateien teilen eine Wiedergabeposition."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les entrées sont lues dans l’ordre et répétées. Les fenêtres partagent cette file ; seules les vidéos individuelles et les fichiers locaux partagent une position de lecture."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُشغّل الإدخالات بالترتيب وتُكرّر. تشترك النوافذ في قائمة الانتظار هذه؛ بينما تشترك مقاطع الفيديو الفردية والملفات المحلية فقط في موضع التشغيل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las entradas se reproducen en orden y se repiten. Las ventanas comparten esta cola; solo los vídeos individuales y los archivos locales comparten una posición de reproducción."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "項目會依序播放並重複。視窗會共用此佇列；只有個別影片和本機檔案會共用播放位置。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "条目按顺序播放并循环。窗口共享此队列；只有单个视频和本地文件共享播放位置。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "항목이 순서대로 재생되고 반복됩니다. 창은 이 대기열을 공유하며 개별 비디오와 로컬 파일만 재생 위치를 공유합니다."
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.queue.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No queued entries (the source above is used)." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キューにエントリがありません（上のソースを使用します）。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Einträge in der Warteschlange (die obige Quelle wird verwendet)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune entrée dans la file (la source ci-dessus est utilisée)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد إدخالات في قائمة الانتظار (سيُستخدم المصدر أعلاه)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay entradas en la cola (se usa la fuente anterior)."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "佇列中沒有項目（會使用上方的來源）。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "队列中没有条目（将使用上方的源）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대기열에 항목이 없습니다(위 소스를 사용합니다)."
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.queue.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add URL or file path" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "URL またはファイルパスを追加" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL oder Dateipfad hinzufügen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter une URL ou un chemin de fichier"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إضافة عنوان URL أو مسار ملف"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir URL o ruta de archivo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加入 URL 或檔案路徑"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加 URL 或文件路径"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL 또는 파일 경로 추가"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.queue.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "追加" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hinzufügen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إضافة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加入"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추가"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.queue.clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Clear" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "消去" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leeren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effacer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Borrar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지우기"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.queue.item": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lld. %@" } },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第%lld項：%@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nr. %lld: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "N° %lld : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "العنصر %lld: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "N.º %lld: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %lld 項：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %lld 项：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld번째: %@"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.queue.moveUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Move up" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "上へ移動" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach oben"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monter"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نقل لأعلى"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subir"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上移"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上移"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위로 이동"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.queue.moveDown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Move down" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "下へ移動" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach unten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descendre"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نقل لأسفل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bajar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下移"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下移"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아래로 이동"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.queue.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remove" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "削除" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entfernen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إزالة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제거"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.quality": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "YouTube Quality" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "YouTube の画質" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YouTube-Qualität"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qualité YouTube"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جودة YouTube"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calidad de YouTube"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YouTube 畫質"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YouTube 画质"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YouTube 화질"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.quality.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Caps the decoded stream before it is scaled to fill the window. Local files use their native resolution." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ウィンドウに合わせて拡大する前のストリーム画質を制限します。ローカルファイルは元の解像度を使用します。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Begrenzt den dekodierten Stream, bevor er auf Fenstergröße skaliert wird. Lokale Dateien verwenden ihre native Auflösung."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limite le flux décodé avant sa mise à l’échelle pour remplir la fenêtre. Les fichiers locaux utilisent leur résolution native."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحدّد دقة البث المفكوك قبل تحجيمه لملء النافذة. تستخدم الملفات المحلية دقتها الأصلية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limita el flujo decodificado antes de escalarlo para llenar la ventana. Los archivos locales usan su resolución nativa."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在縮放解碼串流以填滿視窗前限制其畫質。本機檔案會使用原生解析度。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在缩放解码流以填满窗口前限制其画质。本地文件使用原生分辨率。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창을 채우도록 크기를 조정하기 전에 디코딩된 스트림의 화질을 제한합니다. 로컬 파일은 기본 해상도를 사용합니다."
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.quality.720p": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "720p" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "720p" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "720p"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "720p"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "720p"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "720p"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "720p"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "720p"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "720p"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.quality.1080p": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "1080p (recommended)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1080p（推奨）" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1080p (empfohlen)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1080p (recommandé)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1080p (موصى به)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1080p (recomendado)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1080p（建議）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1080p（推荐）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1080p (권장)"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.quality.1440p": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "1440p" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1440p" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1440p"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1440p"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1440p"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1440p"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1440p"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1440p"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1440p"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.quality.2160p": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "2160p (4K)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "2160p（4K）" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2160p (4K)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2160p (4K)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2160p (4K)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2160p (4K)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2160p (4K)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2160p (4K)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2160p (4K)"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.volume": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Volume" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "音量" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lautstärke"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volume audio"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مستوى الصوت"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volumen"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音量"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音量"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "볼륨"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.volume.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Volume used when Play Audio is enabled. 0 percent is silent and 100 percent is full volume." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "「音声を再生」が有効なときの音量です。0% は無音、100% は最大音量です。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lautstärke bei aktiviertem Audio. 0 Prozent ist stumm, 100 Prozent volle Lautstärke."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volume utilisé lorsque la lecture audio est activée. 0 pour cent est silencieux et 100 pour cent correspond au volume maximal."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مستوى الصوت المستخدم عند تفعيل تشغيل الصوت. 0 بالمئة صامت و100% هو مستوى الصوت الكامل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volumen usado cuando la reproducción de audio está activada. El 0 por ciento es silencio y el 100 por ciento es el volumen máximo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟用播放音訊時使用的音量。0% 為靜音，100% 為最大音量。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用播放音频时使用的音量。0% 为静音，100% 为最大音量。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오디오 재생이 활성화될 때 사용하는 볼륨입니다. 0%는 무음이고 100%는 최대 볼륨입니다."
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ghostty transparency" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Ghostty の透明度" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty-Transparenz"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transparence de Ghostty"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شفافية Ghostty"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transparencia de Ghostty"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty 透明度"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty 透明度"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty 투명도"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Video backgrounds need background-opacity below 100 percent. The setup button edits cmux’s Ghostty config, not your standalone Ghostty config." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ビデオ背景には 100% 未満の background-opacity が必要です。セットアップボタンはスタンドアロンの Ghostty ではなく cmux の Ghostty 設定を編集します。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Videohintergründe benötigen eine background-opacity unter 100 Prozent. Die Setup-Schaltfläche bearbeitet die Ghostty-Konfiguration von cmux, nicht deine eigenständige Ghostty-Konfiguration."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les arrière-plans vidéo nécessitent une valeur background-opacity inférieure à 100 pour cent. Le bouton de configuration modifie la configuration Ghostty de cmux, pas votre configuration Ghostty autonome."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحتاج خلفيات الفيديو إلى background-opacity أقل من 100 بالمئة. يحرّر زر الإعداد تكوين Ghostty الخاص بـ cmux، وليس تكوين Ghostty المستقل لديك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los fondos de vídeo necesitan un valor de background-opacity inferior al 100 por ciento. El botón de configuración edita la configuración de Ghostty de cmux, no tu configuración independiente de Ghostty."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "影片背景需要將 background-opacity 設為低於 100%。設定按鈕會編輯 cmux 的 Ghostty 設定，而不是獨立的 Ghostty 設定。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "视频背景需要将 background-opacity 设置为低于 100%。设置按钮会编辑 cmux 的 Ghostty 配置，而不是独立的 Ghostty 配置。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비디오 배경에는 background-opacity가 100% 미만이어야 합니다. 설정 버튼은 독립 실행형 Ghostty 설정이 아닌 cmux의 Ghostty 구성을 편집합니다."
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty.setup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Set to 80 percent" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "80% に設定" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf 80 Prozent setzen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Régler sur 80 pour cent"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعيين إلى 80 بالمئة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Establecer en 80 por ciento"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設為 80%"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设为 80%"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "80%로 설정"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Current opacity: %lld%%" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "現在の透明度: %lld%%" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktuelle Deckkraft: %lld%%"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opacité actuelle : %lld %%"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "العتامة الحالية: %lld %%"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opacidad actual: %lld %%"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前不透明度：%lld %%"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前不透明度：%lld %%"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 불투명도: %lld %%"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty.statusNeedsSetup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Current opacity: %lld%% — setup required" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "現在の透明度: %lld%% — セットアップが必要です" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktuelle Deckkraft: %lld%% — Einrichtung erforderlich"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opacité actuelle : %lld %% — configuration requise"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "العتامة الحالية: %lld %% — يلزم الإعداد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opacidad actual: %lld %% — configuración necesaria"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前不透明度：%lld %% — 需要設定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前不透明度：%lld %% — 需要设置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 불투명도: %lld %% — 설정 필요"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ghostty status unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Ghostty の状態を取得できません" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty-Status nicht verfügbar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "État de Ghostty indisponible"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حالة Ghostty غير متاحة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estado de Ghostty no disponible"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法取得 Ghostty 狀態"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty 状态不可用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty 상태를 사용할 수 없음"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty.pathUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux’s Ghostty config" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux の Ghostty 設定" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty-Konfiguration von cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuration Ghostty de cmux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تكوين Ghostty الخاص بـ cmux"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuración de Ghostty de cmux"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 的 Ghostty 設定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 的 Ghostty 配置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux의 Ghostty 구성"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty.confirm.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Allow terminal transparency?" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルの透明化を許可しますか？" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal-Transparenz erlauben?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser la transparence du terminal ?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح بشفافية الطرفية؟"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Permitir la transparencia del terminal?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許終端機透明度？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许终端透明度？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 투명도를 허용할까요?"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty.confirm.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Video backgrounds are hidden by an opaque terminal. cmux will edit %@ and set background-opacity = 0.8, then reload open terminals." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不透明なターミナルではビデオ背景が隠れます。cmux は %@ を編集して background-opacity = 0.8 に設定し、開いているターミナルを再読み込みします。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Videohintergründe sind durch ein undurchsichtiges Terminal ausgeblendet. cmux bearbeitet %@ und setzt background-opacity = 0.8, dann werden offene Terminals neu geladen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les arrière-plans vidéo sont masqués par un terminal opaque. cmux modifiera %@ et définira background-opacity = 0.8, puis rechargera les terminaux ouverts."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُخفى خلفيات الفيديو بسبب طرفية غير شفافة. سيحرّر cmux ‏%@ ويعيّن background-opacity = 0.8، ثم يعيد تحميل الطرفيات المفتوحة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los fondos de vídeo están ocultos por un terminal opaco. cmux editará %@ y establecerá background-opacity = 0.8; después recargará los terminales abiertos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不透明的終端機會隱藏影片背景。cmux 會編輯 %@ 並將 background-opacity 設為 0.8，然後重新載入開啟的終端機。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不透明的终端会隐藏视频背景。cmux 将编辑 %@ 并将 background-opacity 设置为 0.8，然后重新加载打开的终端。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "불투명한 터미널에서는 비디오 배경이 숨겨집니다. cmux가 %@를 편집하고 background-opacity = 0.8로 설정한 다음 열려 있는 터미널을 다시 로드합니다."
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty.confirm.setup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Set opacity to 80 percent" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "透明度を 80% に設定" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deckkraft auf 80 Prozent setzen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Régler l’opacité sur 80 pour cent"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعيين العتامة إلى 80 بالمئة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Establecer la opacidad en 80 por ciento"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將不透明度設為 80%"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将不透明度设为 80%"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "불투명도를 80%로 설정"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty.confirm.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cancel" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キャンセル" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abbrechen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annuler"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إلغاء"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "취소"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty.failure.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn’t update Ghostty config" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Ghostty 設定を更新できませんでした" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty-Konfiguration konnte nicht aktualisiert werden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de mettre à jour la configuration Ghostty"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تحديث تكوين Ghostty"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo actualizar la configuración de Ghostty"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法更新 Ghostty 設定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法更新 Ghostty 配置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty 구성을 업데이트할 수 없음"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty.failure.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux could not write background-opacity = 0.8. Check the file permissions and try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux は background-opacity = 0.8 を書き込めませんでした。ファイルのアクセス権を確認して、もう一度お試しください。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte background-opacity = 0.8 nicht schreiben. Prüfe die Dateiberechtigungen und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu écrire background-opacity = 0.8. Vérifiez les permissions du fichier et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux كتابة background-opacity = 0.8. تحقّق من أذونات الملف وحاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo escribir background-opacity = 0.8. Comprueba los permisos del archivo y vuelve a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法寫入 background-opacity = 0.8。請檢查檔案權限後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法写入 background-opacity = 0.8。请检查文件权限后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 background-opacity = 0.8을 쓸 수 없습니다. 파일 권한을 확인한 후 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty.failure.ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OK" } },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bestätigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valider"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "موافق"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aceptar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "好"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确定"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인"
+          }
+        }
+      }
+    },
+    "cli.videoBackground.queue.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Video background queue is empty." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ビデオ背景キューは空です。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Videohintergrund-Warteschlange ist leer."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La file d’arrière-plan vidéo est vide."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قائمة انتظار خلفية الفيديو فارغة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cola del fondo de vídeo está vacía."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "影片背景佇列是空的。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "视频背景队列为空。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비디오 배경 대기열이 비어 있습니다."
+          }
+        }
+      }
+    },
+    "cli.videoBackground.next.single": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Queue has fewer than two entries; nothing to advance." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キューのエントリが 2 つ未満のため、進めるものがありません。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Warteschlange enthält weniger als zwei Einträge; nichts vorzuziehen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La file contient moins de deux entrées ; rien à avancer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحتوي قائمة الانتظار على أقل من إدخالين؛ لا شيء لتقديمه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cola tiene menos de dos entradas; no hay nada que avanzar."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "佇列中的項目少於兩個；沒有可前進的項目。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "队列中的条目少于两个；没有可前进的内容。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대기열에 항목이 두 개 미만이므로 이동할 항목이 없습니다."
+          }
+        }
+      }
+    },
+    "cli.videoBackground.ghostty.ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ghostty background opacity is set to 80 percent for video backgrounds." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ビデオ背景用に Ghostty の背景透明度を 80% に設定しました。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Ghostty-Hintergrunddeckkraft ist für Videohintergründe auf 80 Prozent gesetzt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’opacité d’arrière-plan de Ghostty est réglée sur 80 pour cent pour les arrière-plans vidéo."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم ضبط عتامة خلفية Ghostty على 80 بالمئة لخلفيات الفيديو."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La opacidad del fondo de Ghostty está establecida en el 80 por ciento para los fondos de vídeo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty 背景不透明度已針對影片背景設為 80%。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty 背景不透明度已针对视频背景设置为 80%。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비디오 배경을 위해 Ghostty 배경 불투명도가 80%로 설정되었습니다."
+          }
+        }
+      }
+    },
+    "cli.videoBackground.opacity.warning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Video is hidden while terminal opacity is 100 percent. Run `cmux video-background setup-ghostty --yes` to fix it." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルの不透明度が 100% のためビデオは表示されません。`cmux video-background setup-ghostty --yes` を実行して修正してください。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Video ist ausgeblendet, während die Terminaldeckkraft 100 Prozent beträgt. Führe `cmux video-background setup-ghostty --yes` aus, um dies zu beheben."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La vidéo est masquée lorsque l’opacité du terminal est de 100 pour cent. Exécutez `cmux video-background setup-ghostty --yes` pour résoudre le problème."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الفيديو مخفي لأن عتامة الطرفية تبلغ 100 بالمئة. شغّل `cmux video-background setup-ghostty --yes` لإصلاح ذلك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El vídeo está oculto mientras la opacidad del terminal es del 100 por ciento. Ejecuta `cmux video-background setup-ghostty --yes` para corregirlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機不透明度為 100% 時，影片會被隱藏。執行 `cmux video-background setup-ghostty --yes` 以修正。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端不透明度为 100% 时，视频会被隐藏。运行 `cmux video-background setup-ghostty --yes` 进行修复。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 불투명도가 100%이면 비디오가 숨겨집니다. `cmux video-background setup-ghostty --yes`를 실행하여 수정하세요."
+          }
+        }
+      }
+    },
+    "cli.videoBackground.updated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Video background %@." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ビデオ背景を %@ しました。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Videohintergrund %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrière-plan vidéo %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خلفية الفيديو %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fondo de vídeo %@."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "影片背景 %@。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "视频背景 %@。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비디오 배경 %@."
+          }
+        }
+      }
+    },
+    "cli.videoBackground.reloaded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Running cmux windows refreshed." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "実行中の cmux ウィンドウを更新しました。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geöffnete cmux-Fenster wurden aktualisiert."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les fenêtres cmux ouvertes ont été actualisées."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تحديث نوافذ cmux المفتوحة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se han actualizado las ventanas de cmux abiertas."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已重新整理開啟的 cmux 視窗。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已刷新打开的 cmux 窗口。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열려 있는 cmux 창이 새로 고쳐졌습니다."
+          }
+        }
+      }
+    },
+    "cli.videoBackground.savedReloadFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Saved; cmux is not running or could not be refreshed. Run `cmux reload-config` when it is available." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "保存しましたが、cmux が起動していないか更新できませんでした。利用可能になったら `cmux reload-config` を実行してください。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gespeichert; cmux läuft nicht oder konnte nicht aktualisiert werden. Führe `cmux reload-config` aus, sobald es verfügbar ist."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistré ; cmux n’est pas en cours d’exécution ou n’a pas pu être actualisé. Exécutez `cmux reload-config` lorsqu’il sera disponible."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم الحفظ؛ cmux غير قيد التشغيل أو تعذّر تحديثه. شغّل `cmux reload-config` عند توفره."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardado; cmux no está en ejecución o no se pudo actualizar. Ejecuta `cmux reload-config` cuando esté disponible."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已儲存；cmux 未執行或無法重新整理。可用時請執行 `cmux reload-config`。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已保存；cmux 未运行或无法刷新。可用时运行 `cmux reload-config`。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장되었습니다. cmux가 실행 중이 아니거나 새로 고칠 수 없습니다. 사용 가능할 때 `cmux reload-config`를 실행하세요."
+          }
+        }
+      }
+    },
+    "cli.videoBackground.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux video-background <status|on|off|set|add|remove|list|next|clear|quality|opacity|audio|volume|setup-ghostty> [args]\n\nConfigure the shared video background in every cmux window. Changes are written to ~/.config/cmux/cmux.json and applied live when cmux is running.\n\nCommands:\n  status                         Show enabled/source/queue/quality/audio and Ghostty opacity.\n  on|off [--yes]                 Enable or disable playback. --yes may set Ghostty opacity automatically.\n  set|source <source> [...]      Replace the queue.\n  add <source> [...]             Append entries to the queue.\n  remove <1-based-index>         Remove one queue entry.\n  list                           Print the effective queue.\n  next                           Rotate the queue so the next entry starts now.\n  clear                          Empty the queue and legacy source.\n  quality <720p|1080p|1440p|4k>  Set the YouTube stream cap (default 1080p).\n  opacity <0..1>                 Set terminal dim opacity (default 0.8).\n  audio <on|off>                 Opt into audio.\n  volume <0..1|0..100>          Set audio volume.\n  setup-ghostty [--yes]          Write background-opacity = 0.8 to cmux's Ghostty config.\n\nSettings > Terminal > Video Background offers the same controls and a confirmation before it edits cmux's Ghostty config." } },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux video-background <status|on|off|set|add|remove|list|next|clear|quality|opacity|audio|volume|setup-ghostty> [args]\n\n各 cmux ウィンドウで共有ビデオ背景を設定します。変更は ~/.config/cmux/cmux.json に書き込まれ、cmux の実行中にすぐ適用されます。\n\nコマンド:\n  status                         有効化／ソース／キュー／画質／音声と Ghostty の不透明度を表示します。\n  on|off [--yes]                 再生を有効または無効にします。--yes は Ghostty の不透明度を自動設定できます。\n  set|source <source> [...]      キューを置き換えます。\n  add <source> [...]             キューに項目を追加します。\n  remove <1-based-index>         キューの項目を 1 つ削除します。\n  list                           有効なキューを表示します。\n  next                           キューを回して次の項目を今すぐ開始します。\n  clear                          キューと従来のソースを空にします。\n  quality <720p|1080p|1440p|4k>  YouTube ストリーム上限を設定します（デフォルトは 1080p）。\n  opacity <0..1>                 ターミナルの減光不透明度を設定します（デフォルトは 0.8）。\n  audio <on|off>                 音声をオプトインします。\n  volume <0..1|0..100>           音量を設定します。\n  setup-ghostty [--yes]          cmux の Ghostty 設定に background-opacity = 0.8 を書き込みます。\n\n設定 > ターミナル > ビデオ背景では同じ操作を行え、cmux の Ghostty 設定を編集する前に確認できます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux video-background <status|on|off|set|add|remove|list|next|clear|quality|opacity|audio|volume|setup-ghostty> [args]\n\nKonfiguriert den gemeinsamen Videohintergrund in jedem cmux-Fenster. Änderungen werden in ~/.config/cmux/cmux.json geschrieben und live angewendet, wenn cmux läuft.\n\nBefehle:\n  status                         Aktiviert/Quelle/Warteschlange/Qualität/Audio und Ghostty-Deckkraft anzeigen.\n  on|off [--yes]                 Wiedergabe aktivieren oder deaktivieren. --yes kann die Ghostty-Deckkraft automatisch setzen.\n  set|source <source> [...]      Warteschlange ersetzen.\n  add <source> [...]             Einträge an die Warteschlange anhängen.\n  remove <1-based-index>         Einen Warteschlangeneintrag entfernen.\n  list                           Effektive Warteschlange ausgeben.\n  next                           Warteschlange drehen, damit der nächste Eintrag jetzt startet.\n  clear                          Warteschlange und alte Quelle leeren.\n  quality <720p|1080p|1440p|4k> YouTube-Streambegrenzung setzen (Standard 1080p).\n  opacity <0..1>                 Terminal-Dimmdeckkraft setzen (Standard 0.8).\n  audio <on|off>                 Audio optional aktivieren.\n  volume <0..1|0..100>           Audiolautstärke setzen.\n  setup-ghostty [--yes]          background-opacity = 0.8 in cmux’ Ghostty-Konfiguration schreiben.\n\nEinstellungen > Terminal > Videohintergrund bietet dieselben Steuerelemente und eine Bestätigung, bevor die Ghostty-Konfiguration von cmux bearbeitet wird."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux video-background <status|on|off|set|add|remove|list|next|clear|quality|opacity|audio|volume|setup-ghostty> [args]\n\nConfigure l’arrière-plan vidéo partagé dans chaque fenêtre cmux. Les modifications sont écrites dans ~/.config/cmux/cmux.json et appliquées en direct lorsque cmux est en cours d’exécution.\n\nCommandes :\n  status                         Afficher l’état, la source, la file, la qualité, l’audio et l’opacité Ghostty.\n  on|off [--yes]                 Activer ou désactiver la lecture. --yes peut régler automatiquement l’opacité Ghostty.\n  set|source <source> [...]      Remplacer la file.\n  add <source> [...]             Ajouter des entrées à la file.\n  remove <1-based-index>         Supprimer une entrée de la file.\n  list                           Afficher la file effective.\n  next                           Faire tourner la file pour démarrer l’entrée suivante.\n  clear                          Vider la file et l’ancienne source.\n  quality <720p|1080p|1440p|4k> Définir la limite du flux YouTube (1080p par défaut).\n  opacity <0..1>                 Définir l’opacité d’assombrissement du terminal (0.8 par défaut).\n  audio <on|off>                 Activer l’audio de façon facultative.\n  volume <0..1|0..100>           Définir le volume audio.\n  setup-ghostty [--yes]          Écrire background-opacity = 0.8 dans la configuration Ghostty de cmux.\n\nRéglages > Terminal > Arrière-plan vidéo propose les mêmes commandes et une confirmation avant de modifier la configuration Ghostty de cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux video-background <status|on|off|set|add|remove|list|next|clear|quality|opacity|audio|volume|setup-ghostty> [args]\n\nلتهيئة خلفية الفيديو المشتركة في كل نافذة cmux. تُكتب التغييرات إلى ~/.config/cmux/cmux.json وتُطبّق مباشرة عند تشغيل cmux.\n\nالأوامر:\n  status                         عرض التفعيل/المصدر/قائمة الانتظار/الجودة/الصوت وعتامة Ghostty.\n  on|off [--yes]                 تفعيل التشغيل أو تعطيله. قد يضبط --yes عتامة Ghostty تلقائيًا.\n  set|source <source> [...]      استبدال قائمة الانتظار.\n  add <source> [...]             إلحاق إدخالات بقائمة الانتظار.\n  remove <1-based-index>         إزالة إدخال واحد من قائمة الانتظار.\n  list                           طباعة قائمة الانتظار الفعلية.\n  next                           تدوير قائمة الانتظار لبدء الإدخال التالي الآن.\n  clear                          إفراغ قائمة الانتظار والمصدر القديم.\n  quality <720p|1080p|1440p|4k>  تعيين حد بث YouTube (الافتراضي 1080p).\n  opacity <0..1>                 تعيين عتامة تعتيم الطرفية (الافتراضي 0.8).\n  audio <on|off>                 تفعيل الصوت اختياريًا.\n  volume <0..1|0..100>           تعيين مستوى الصوت.\n  setup-ghostty [--yes]          كتابة background-opacity = 0.8 في تكوين Ghostty الخاص بـ cmux.\n\nتوفّر الإعدادات > الطرفية > خلفية الفيديو عناصر التحكم نفسها وتأكيدًا قبل تحرير تكوين Ghostty الخاص بـ cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux video-background <status|on|off|set|add|remove|list|next|clear|quality|opacity|audio|volume|setup-ghostty> [args]\n\nConfigura el fondo de vídeo compartido en cada ventana de cmux. Los cambios se escriben en ~/.config/cmux/cmux.json y se aplican en directo cuando cmux está en ejecución.\n\nComandos:\n  status                         Mostrar activación/fuente/cola/calidad/audio y opacidad de Ghostty.\n  on|off [--yes]                 Activar o desactivar la reproducción. --yes puede establecer automáticamente la opacidad de Ghostty.\n  set|source <source> [...]      Reemplazar la cola.\n  add <source> [...]             Añadir entradas a la cola.\n  remove <1-based-index>         Eliminar una entrada de la cola.\n  list                           Imprimir la cola efectiva.\n  next                           Rotar la cola para iniciar ahora la siguiente entrada.\n  clear                          Vaciar la cola y la fuente heredada.\n  quality <720p|1080p|1440p|4k>  Establecer el límite del flujo de YouTube (1080p de forma predeterminada).\n  opacity <0..1>                 Establecer la opacidad de atenuación del terminal (0.8 de forma predeterminada).\n  audio <on|off>                 Activar el audio de forma opcional.\n  volume <0..1|0..100>           Establecer el volumen de audio.\n  setup-ghostty [--yes]          Escribir background-opacity = 0.8 en la configuración de Ghostty de cmux.\n\nAjustes > Terminal > Fondo de vídeo ofrece los mismos controles y una confirmación antes de editar la configuración de Ghostty de cmux."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux video-background <status|on|off|set|add|remove|list|next|clear|quality|opacity|audio|volume|setup-ghostty> [args]\n\n在每個 cmux 視窗中設定共用影片背景。變更會寫入 ~/.config/cmux/cmux.json，並在 cmux 執行時即時套用。\n\n指令：\n  status                         顯示啟用狀態／來源／佇列／畫質／音訊和 Ghostty 不透明度。\n  on|off [--yes]                 啟用或停用播放。--yes 可能會自動設定 Ghostty 不透明度。\n  set|source <source> [...]      取代佇列。\n  add <source> [...]             將項目附加至佇列。\n  remove <1-based-index>         移除一個佇列項目。\n  list                           列印有效佇列。\n  next                           旋轉佇列，讓下一個項目立即開始。\n  clear                          清空佇列和舊版來源。\n  quality <720p|1080p|1440p|4k>  設定 YouTube 串流上限（預設為 1080p）。\n  opacity <0..1>                 設定終端機變暗不透明度（預設為 0.8）。\n  audio <on|off>                 選擇性啟用音訊。\n  volume <0..1|0..100>           設定音訊音量。\n  setup-ghostty [--yes]          將 background-opacity = 0.8 寫入 cmux 的 Ghostty 設定。\n\n設定 > 終端機 > 影片背景提供相同的控制項，並在編輯 cmux 的 Ghostty 設定前要求確認。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux video-background <status|on|off|set|add|remove|list|next|clear|quality|opacity|audio|volume|setup-ghostty> [args]\n\n在每个 cmux 窗口中配置共享视频背景。更改会写入 ~/.config/cmux/cmux.json，并在 cmux 运行时实时应用。\n\n命令：\n  status                         显示启用状态／源／队列／画质／音频和 Ghostty 不透明度。\n  on|off [--yes]                 启用或停用播放。--yes 可能会自动设置 Ghostty 不透明度。\n  set|source <source> [...]      替换队列。\n  add <source> [...]             将条目追加到队列。\n  remove <1-based-index>         移除一个队列条目。\n  list                           打印有效队列。\n  next                           轮换队列，让下一个条目立即开始。\n  clear                          清空队列和旧源。\n  quality <720p|1080p|1440p|4k>  设置 YouTube 流上限（默认为 1080p）。\n  opacity <0..1>                 设置终端变暗不透明度（默认为 0.8）。\n  audio <on|off>                 可选启用音频。\n  volume <0..1|0..100>           设置音频音量。\n  setup-ghostty [--yes]          将 background-opacity = 0.8 写入 cmux 的 Ghostty 配置。\n\n设置 > 终端 > 视频背景提供相同的控制项，并在编辑 cmux 的 Ghostty 配置前要求确认。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux video-background <status|on|off|set|add|remove|list|next|clear|quality|opacity|audio|volume|setup-ghostty> [args]\n\n각 cmux 창에서 공유 비디오 배경을 구성합니다. 변경 사항은 ~/.config/cmux/cmux.json에 기록되며 cmux 실행 중에 실시간으로 적용됩니다.\n\n명령:\n  status                         활성화/소스/대기열/화질/오디오 및 Ghostty 불투명도를 표시합니다.\n  on|off [--yes]                 재생을 활성화하거나 비활성화합니다. --yes는 Ghostty 불투명도를 자동으로 설정할 수 있습니다.\n  set|source <source> [...]      대기열을 교체합니다.\n  add <source> [...]             대기열에 항목을 추가합니다.\n  remove <1-based-index>         대기열 항목 하나를 제거합니다.\n  list                           유효한 대기열을 출력합니다.\n  next                           대기열을 순환하여 다음 항목을 지금 시작합니다.\n  clear                          대기열과 기존 소스를 비웁니다.\n  quality <720p|1080p|1440p|4k>  YouTube 스트림 상한을 설정합니다(기본값 1080p).\n  opacity <0..1>                 터미널 어둡게 하기 불투명도를 설정합니다(기본값 0.8).\n  audio <on|off>                 오디오를 선택적으로 사용합니다.\n  volume <0..1|0..100>           오디오 볼륨을 설정합니다.\n  setup-ghostty [--yes]          cmux의 Ghostty 구성에 background-opacity = 0.8을 기록합니다.\n\n설정 > 터미널 > 비디오 배경에서 같은 제어 기능을 제공하며 cmux의 Ghostty 구성을 편집하기 전에 확인을 요청합니다."
+          }
+        }
+      }
+    },
     "settings.terminal.copyOnSelect": {
       "extractionState": "manual",
       "localizations": {

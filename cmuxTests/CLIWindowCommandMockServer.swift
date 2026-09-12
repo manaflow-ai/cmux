@@ -6,6 +6,7 @@ final class CLIWindowCommandMockServer: @unchecked Sendable {
     private let socketPath: String
     private let targetWindowID: String
     private let targetWindowRef: String
+    private let responseOverride: (@Sendable (String) -> String?)?
     private let queue = DispatchQueue(label: "com.cmux.tests.cli-window-command-server")
     private let finished = DispatchGroup()
     private let lock = NSLock()
@@ -15,10 +16,16 @@ final class CLIWindowCommandMockServer: @unchecked Sendable {
     private var stopping = false
     private var receivedLines: [String] = []
 
-    init(socketPath: String, targetWindowID: String, targetWindowRef: String) throws {
+    init(
+        socketPath: String,
+        targetWindowID: String,
+        targetWindowRef: String,
+        responseOverride: (@Sendable (String) -> String?)? = nil
+    ) throws {
         self.socketPath = socketPath
         self.targetWindowID = targetWindowID
         self.targetWindowRef = targetWindowRef
+        self.responseOverride = responseOverride
 
         unlink(socketPath)
         listenerFD = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
@@ -241,6 +248,7 @@ final class CLIWindowCommandMockServer: @unchecked Sendable {
     }
 
     private func response(for line: String) -> String {
+        if let response = responseOverride?(line) { return response }
         if line == "focus_window \(targetWindowID)" || line == "close_window \(targetWindowID)" {
             return "OK"
         }

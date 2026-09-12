@@ -684,6 +684,63 @@
             }
           }
         },
+        "videoBackground": {
+          "type": "object",
+          "additionalProperties": false,
+          "descriptionKey": "schemaDescriptions.terminal.videoBackground",
+          "description": "Dynamic video background. A non-interactive video (YouTube video/playlist embed, or a looping local file) plays behind terminal content in every window, dimmed so text stays readable and silent unless muted is false. Playback pauses automatically while the window is occluded or minimized, during system sleep, and in Low Power Mode. Off by default.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "descriptionKey": "schemaDescriptions.terminal.videoBackgroundEnabled",
+              "description": "Play the configured video source behind terminal content."
+            },
+            "source": {
+              "type": "string",
+              "default": "",
+              "descriptionKey": "schemaDescriptions.terminal.videoBackgroundSource",
+              "description": "A YouTube video or playlist URL, a raw YouTube video or playlist ID, or a local .mp4/.m4v/.mov file path played with AVFoundation. Playlists loop and advance automatically."
+            },
+            "queue": {
+              "type": "array",
+              "items": { "type": "string" },
+              "maxItems": 128,
+              "default": [],
+              "descriptionKey": "schemaDescriptions.terminal.videoBackgroundQueue",
+              "description": "Ordered video URLs/IDs or local file paths played one after another and repeated. An empty queue falls back to source. Windows share the queue; YouTube playlists keep independent playheads."
+            },
+            "quality": {
+              "type": "string",
+              "enum": ["720p", "1080p", "1440p", "2160p", "720", "1080", "1440", "2160", "2k", "4k", "uhd", "auto"],
+              "default": "1080p",
+              "descriptionKey": "schemaDescriptions.terminal.videoBackgroundQuality",
+              "description": "Maximum YouTube stream quality. Local files use their native stream."
+            },
+            "volume": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 1,
+              "descriptionKey": "schemaDescriptions.terminal.videoBackgroundVolume",
+              "description": "Volume used when video-background audio is enabled (0 is silent, 1 is full volume)."
+            },
+            "muted": {
+              "type": "boolean",
+              "default": true,
+              "descriptionKey": "schemaDescriptions.terminal.videoBackgroundMuted",
+              "description": "Keep the video background silent (default). Set false to play the video's audio; only the most recently active cmux window plays sound, and audio stops whenever the video pauses."
+            },
+            "dimOpacity": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.8,
+              "descriptionKey": "schemaDescriptions.terminal.videoBackgroundDimOpacity",
+              "description": "Opacity of the terminal background fill drawn over the video (0 shows the video undimmed, 1 hides it). Higher keeps terminal text more readable."
+            }
+          }
+        },
         "textBoxMaxLines": {
           "type": "integer",
           "minimum": 1,
