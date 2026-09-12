@@ -140,6 +140,11 @@ struct CmxIrohClientSessionTests {
             await session.pathIsAllowed(.relay(url: allowedRelay.value))
         )
         #expect(
+            await session.pathIsAllowed(
+                .relay(url: "HTTPS://USE1-1.RELAY.LAWRENCE.CMUX.IROH.LINK")
+            )
+        )
+        #expect(
             !(await session.pathIsAllowed(
                 .relay(url: "https://unexpected.relay.example/")
             ))

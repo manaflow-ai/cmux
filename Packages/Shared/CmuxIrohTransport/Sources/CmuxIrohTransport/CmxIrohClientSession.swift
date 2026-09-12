@@ -364,7 +364,7 @@ public actor CmxIrohClientSession {
                 return dialPlan.publicPaths.contains {
                     $0.source == .native
                         && $0.kind == .relayURL
-                        && $0.value == url
+                        && relayURLsMatch($0.value, url)
                 }
             case let .direct(address):
                 // Native Iroh may discover a fresh public direct address after
@@ -487,6 +487,27 @@ public actor CmxIrohClientSession {
         }
         guard lhsHost == rhsHost else { return false }
         return true
+    }
+
+    private func relayURLsMatch(_ lhs: String, _ rhs: String) -> Bool {
+        guard let lhs = URLComponents(string: lhs),
+              let rhs = URLComponents(string: rhs),
+              lhs.scheme?.lowercased() == rhs.scheme?.lowercased(),
+              lhs.host?.lowercased() == rhs.host?.lowercased(),
+              (lhs.port ?? 443) == (rhs.port ?? 443),
+              lhs.user == nil,
+              rhs.user == nil,
+              lhs.password == nil,
+              rhs.password == nil,
+              lhs.query == nil,
+              rhs.query == nil,
+              lhs.fragment == nil,
+              rhs.fragment == nil else {
+            return false
+        }
+        let lhsPath = lhs.percentEncodedPath == "/" ? "" : lhs.percentEncodedPath
+        let rhsPath = rhs.percentEncodedPath == "/" ? "" : rhs.percentEncodedPath
+        return lhsPath == rhsPath
     }
 
     /// Observes redacted path lifecycle events on the admitted connection.

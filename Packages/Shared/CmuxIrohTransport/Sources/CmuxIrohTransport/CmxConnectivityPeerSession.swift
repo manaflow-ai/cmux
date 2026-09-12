@@ -929,6 +929,10 @@ actor CmxConnectivityPeerSession {
             )
             return
         }
+        guard path != .unknown else {
+            armAllPathsClosedEviction(for: id)
+            return
+        }
         guard path != .unavailable else {
             armAllPathsClosedEviction(for: id)
             return

@@ -379,7 +379,7 @@ struct CmxConnectivityPeerSessionTests {
         try await Self.waitUntil {
             await quietlyRecovered.hasSelectedPathObserver()
         }
-        await quietlyRecovered.publishSelectedPath(.unavailable)
+        await quietlyRecovered.publishSelectedPath(.unknown)
         await clock.waitUntilSleeping()
         // The path recovered but the observation stream never delivered the
         // usable value (a dropped event). The deadline must trust the live
@@ -401,7 +401,8 @@ struct CmxConnectivityPeerSessionTests {
         let peerID = try CmxConnectivityPeerID(request: request)
         let session = TestConnectivitySession(
             continuityID: 34,
-            keepsSelectedPathStreamOpen: true
+            keepsSelectedPathStreamOpen: true,
+            rejectsUnknownPaths: true
         )
         let builder = SequencedConnectivitySessionBuilder(sessions: [session])
         let peer = CmxConnectivityPeerSession(
@@ -1111,6 +1112,7 @@ private actor TestConnectivitySession: CmxConnectivitySession {
     private let gatesCloseAttribution: Bool
     private let keepsSelectedPathStreamOpen: Bool
     private let rejectsRelayPaths: Bool
+    private let rejectsUnknownPaths: Bool
     private let keepsPathEventStreamOpen: Bool
     private var closed = false
     private var closes = 0
@@ -1141,12 +1143,14 @@ private actor TestConnectivitySession: CmxConnectivitySession {
         gatesFirstIsClosedCheck: Bool = false,
         gatesFirstClose: Bool = false,
         initialPath: CmxIrohObservedConnectionPath = .direct(address: nil),
-        rejectsRelayPaths: Bool = false
+        rejectsRelayPaths: Bool = false,
+        rejectsUnknownPaths: Bool = false
     ) {
         self.continuityID = continuityID
         self.gatesCloseAttribution = gatesCloseAttribution
         self.keepsSelectedPathStreamOpen = keepsSelectedPathStreamOpen
         self.rejectsRelayPaths = rejectsRelayPaths
+        self.rejectsUnknownPaths = rejectsUnknownPaths
         self.keepsPathEventStreamOpen = keepsPathEventStreamOpen
         selectedPath = initialPath
         isClosedGatePending = gatesFirstIsClosedCheck
@@ -1277,7 +1281,7 @@ private actor TestConnectivitySession: CmxConnectivitySession {
     }
 
     func pathIsAllowed(_ path: CmxIrohObservedConnectionPath) async -> Bool {
-        if case .unknown = path { return false }
+        if rejectsUnknownPaths, case .unknown = path { return false }
         guard rejectsRelayPaths else { return true }
         if case .relay = path { return false }
         return true
