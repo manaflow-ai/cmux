@@ -178,11 +178,7 @@ extension WorkspaceListView {
         if store != nil {
             return true
         }
-        #if DEBUG
-        return UITestConfig.workspaceListLayoutPreviewEnabled
-        #else
         return false
-        #endif
     }
     #else
     var canMutateForegroundGroupsForSelection: Bool {
