@@ -1,61 +1,120 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cloud.overlay.manual.reopen.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close this tab and reopen the terminal from the Cloud sidebar."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタブを閉じ、Cloudサイドバーからターミナルを開き直してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schließe diesen Tab und öffne das Terminal erneut über die Cloud-Seitenleiste."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fermez cet onglet et rouvrez le terminal depuis la barre latérale Cloud."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أغلق علامة التبويب هذه وأعد فتح الطرفية من الشريط الجانبي Cloud."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cierra esta pestaña y vuelve a abrir el terminal desde la barra lateral Cloud."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請關閉此分頁，然後從 Cloud 側邊欄重新開啟終端機。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请关闭此标签页，然后从 Cloud 侧边栏重新打开终端。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 탭을 닫고 Cloud 사이드바에서 터미널을 다시 여세요."
+          }
+        }
+      }
+    },
     "cloud.overlay.manual.unavailable.detail": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The terminal pane is being restored. Reconnect to restore it."
+            "value": "The terminal view is unavailable. Reconnect to restore it."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナルペインを復元しています。再接続して復元してください。"
+            "value": "ターミナルビューを表示できません。再接続して復元してください。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Das Terminalfenster wird wiederhergestellt. Stelle die Verbindung wieder her."
+            "value": "Die Terminalansicht ist nicht verfügbar. Stelle die Verbindung wieder her, um sie wiederherzustellen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le panneau du terminal est en cours de restauration. Reconnectez-vous pour le restaurer."
+            "value": "La vue du terminal est indisponible. Reconnectez-vous pour la rétablir."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تتم استعادة جزء الطرفية. أعد الاتصال لاستعادته."
+            "value": "عرض الطرفية غير متاح. أعد الاتصال لاستعادته."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El panel del terminal se está restaurando. Reconecta para restaurarlo."
+            "value": "La vista del terminal no está disponible. Vuelve a conectarte para restaurarla."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在還原終端機面板。重新連線即可還原。"
+            "value": "無法顯示終端機檢視。請重新連線以恢復。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在恢复终端面板。重新连接以恢复。"
+            "value": "终端视图不可用。请重新连接以恢复。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "터미널 패널을 복원하는 중입니다. 다시 연결하여 복원하세요."
+            "value": "터미널 보기를 사용할 수 없습니다. 다시 연결하여 복원하세요."
           }
         }
       }
