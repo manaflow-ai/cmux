@@ -13,6 +13,19 @@ import Testing
 /// it never invokes the ratatui renderer or inspects source text.
 @Suite
 struct CloudManualMirrorTransportTests {
+    @Test("Restored Cloud terminal failures render a copyable error")
+    func restoredTerminalFailurePresentation() {
+        let presentation = Workspace.cloudMaterializationFailurePresentation(
+            detail: "The Cloud terminal endpoint was unavailable.",
+            reference: "operation=op trace=trace"
+        )
+
+        #expect(presentation.title == "Cloud terminal could not start")
+        #expect(presentation.detail == "The Cloud terminal endpoint was unavailable.")
+        #expect(!presentation.showsProgress)
+        #expect(!presentation.showsReconnectButton)
+        #expect(presentation.copyableError.contains("operation=op trace=trace"))
+    }
     private let commands = CloudTuiManualIOCommand()
     private let parser = CloudTuiLegacySnapshotParser()
 

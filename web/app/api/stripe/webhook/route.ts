@@ -27,7 +27,6 @@ import {
 } from "../../../../services/coderouter/repository";
 import { isStripeBillingConfigured, stripe } from "../../../../services/billing/stripe";
 import { personalProWelcomeOwnsDelivery } from "../../../../services/billing/personalProWelcome";
-import { isPersonalPlanId } from "../../../../services/billing/pro";
 import {
   recordSpanError,
   setSpanAttributes,
@@ -372,9 +371,9 @@ function isPersonalProCheckout(
   subscription?: Stripe.Subscription | null,
 ): boolean {
   return (
-    (session.metadata?.app === "cmux" && isPersonalPlanId(session.metadata?.plan)) ||
+    (session.metadata?.app === "cmux" && session.metadata?.plan === "pro") ||
     (subscription?.metadata?.app === "cmux" &&
-      isPersonalPlanId(subscription.metadata?.plan))
+      subscription.metadata?.plan === "pro")
   );
 }
 
