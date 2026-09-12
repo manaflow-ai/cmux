@@ -101,7 +101,9 @@ function parseCore(properties: Record<string, unknown>): CoreObservation | null 
 
 function parseMetadata(properties: Record<string, unknown>): Metadata | null {
   const platform = optionalExact(properties.platform, "ios");
-  const clientChannel = optionalSetValue(properties.client_channel, new Set(["dev", "nightly", "production", "unknown"]));
+  const clientChannel = optionalSetValue(properties.client_channel, new Set(["dev", "nightly", "production", "unknown"])) as
+    | MobileNetworkOutcome["clientChannel"]
+    | false;
   const appVersion = optionalMachineString(properties.app_version);
   const buildNumber = optionalMachineString(properties.build_number);
   const bundleIdentifier = optionalMachineString(properties.bundle_identifier);
