@@ -667,7 +667,9 @@ extension ChromiumBrowserSession {
     func beginNavigation() {
         owlLastRedirectNavigationRevision = nil
         owlLastRedirectNavigationTarget = nil
-        navigationRevision &+= 1
+        // A revision identifies a committed document. Keep it unchanged while
+        // the command is in flight so a stale load-complete event cannot look
+        // like the new navigation's completion.
         isLoading = true
         publish()
     }
