@@ -19,17 +19,22 @@ test("create, fork, and restore reject a 64 GB machine on Pro before provisionin
   const providers = { getStats: () => Effect.succeed({ memoryTotalMb: 65536, cpus: 16, diskTotalMb: 131072 }) } as unknown as VmProviderGatewayShape;
   const layer = Layer.mergeAll(Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, providers), Layer.succeed(VmBillingGateway, noOpVmBillingGateway()));
   const caller = { userId: "user", billingCustomerType: "team" as const, billingTeamId: "team", billingPlanId: "pro", maxActiveVms: 50 };
-  for (const program of [
-    createVm({ ...caller, provider: "freestyle", image: "snapshot", memoryMb: 65536 }),
-    forkVm({ ...caller, teamIds: ["team"], providerVmId: "vm" }),
-    restoreVm({ ...caller, provider: "freestyle", snapshotId: "snapshot" }),
-  ]) {
+  const expectMemoryPlanRejection = async (run: () => Promise<unknown>) => {
     try {
-      await Effect.runPromise(program.pipe(Effect.provide(layer)));
+      await run();
       throw new Error("expected plan rejection");
     } catch (error) {
       expect(vmWorkflowErrorCause(error)?._tag).toBe("VmMemoryPlanError");
     }
-  }
+  };
+  await expectMemoryPlanRejection(() => Effect.runPromise(
+    createVm({ ...caller, provider: "freestyle", image: "snapshot", memoryMb: 65536 }).pipe(Effect.provide(layer)),
+  ));
+  await expectMemoryPlanRejection(() => Effect.runPromise(
+    forkVm({ ...caller, teamIds: ["team"], providerVmId: "vm" }).pipe(Effect.provide(layer)),
+  ));
+  await expectMemoryPlanRejection(() => Effect.runPromise(
+    restoreVm({ ...caller, provider: "freestyle", snapshotId: "snapshot" }).pipe(Effect.provide(layer)),
+  ));
   expect(creates).toBe(0);
 });

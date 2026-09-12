@@ -80,7 +80,12 @@ describe("Max as a personal plan", () => {
 
   test("plan status reports max and reconciles a stale pro mirror to max", async () => {
     const written: unknown[] = [];
-    const user = { id: "user-max", isAnonymous: false, clientReadOnlyMetadata: { cmuxPlan: "pro" } };
+    const user = {
+      id: "user-max",
+      isAnonymous: false,
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      update: async () => undefined,
+    };
     const status = await resolveProPlanStatus(user, {
       activePersonalPlan: async () => "max",
       hasStripeCustomer: async () => true,
@@ -101,7 +106,12 @@ describe("Max as a personal plan", () => {
 
   test("an operator max grant is Max without a subscription to manage", async () => {
     const status = await resolveProPlanStatus(
-      { id: "user-grant", isAnonymous: false, clientReadOnlyMetadata: { cmuxVmPlan: "max" } },
+      {
+        id: "user-grant",
+        isAnonymous: false,
+        clientReadOnlyMetadata: { cmuxVmPlan: "max" },
+        update: async () => undefined,
+      },
       { activePersonalPlan: async () => null, hasStripeCustomer: async () => false },
     );
     expect(status.planId).toBe("max");
@@ -112,7 +122,12 @@ describe("Max as a personal plan", () => {
 
   test("the legacy boolean seam still means pro", async () => {
     const status = await resolveProPlanStatus(
-      { id: "user-legacy", isAnonymous: false, clientReadOnlyMetadata: { cmuxPlan: "pro" } },
+      {
+        id: "user-legacy",
+        isAnonymous: false,
+        clientReadOnlyMetadata: { cmuxPlan: "pro" },
+        update: async () => undefined,
+      },
       { hasActiveStripeSubscription: async () => true, hasStripeCustomer: async () => true },
     );
     expect(status.planId).toBe("pro");

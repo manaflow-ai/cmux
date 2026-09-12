@@ -1381,7 +1381,7 @@ export function restoreVm(input: {
       return yield* Effect.fail(new VmSnapshotNotFoundError({ snapshotId: input.snapshotId }));
     }
     let snapshotReservation: VmResourceReservation | null = null;
-    if (isPaidVmPlan(input.billingPlanId) && repo.ownedSnapshotResourceReservation) {
+    if (repo.ownedSnapshotResourceReservation) {
       snapshotReservation = yield* repo.ownedSnapshotResourceReservation({
         userId: input.userId,
         billingTeamId: input.billingTeamId,
