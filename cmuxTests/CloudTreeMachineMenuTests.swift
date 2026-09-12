@@ -9,11 +9,8 @@ import Testing
 
 /// The machine row's context menu is where the Cloud sidebar offers a
 /// machine's verbs, so it lists only verbs the product honors end to end.
-/// Disk resize is not one of them yet
-/// (https://github.com/manaflow-ai/cmux/issues/12156): the menu used to grow
-/// an "Increase Disk" submenu whose targets fired an unsupported resize. This
-/// pins the exact verb list a machine row offers and proves the surviving
-/// verbs still reach their closures.
+/// Disk resize is a supported grow-only operation for Freestyle and must be
+/// discoverable from this menu (https://github.com/manaflow-ai/cmux/issues/12406).
 @MainActor
 @Suite("Cloud tree machine context menu")
 struct CloudTreeMachineMenuTests {
@@ -34,8 +31,16 @@ struct CloudTreeMachineMenuTests {
         #expect(!workspaceGroup.kind.refreshesOnExpansion)
     }
 
-    @Test("A machine's menu lists its verbs with no disk resize item or submenu")
-    func machineMenuOffersOnlySupportedVerbs() throws {
+    @Test("CLI disk resize parser enforces grow-only allocation steps")
+    func cliDiskResizeParserValidatesFreestyleSteps() {
+        #expect(CMUXCLI.parseCloudVMDiskMb("64G") == 64 * 1024)
+        #expect(CMUXCLI.parseCloudVMDiskMb("128 GiB") == nil)
+        #expect(CMUXCLI.parseCloudVMDiskMb("66G") == nil)
+        #expect(CMUXCLI.parseCloudVMDiskMb("260G") == nil)
+    }
+
+    @Test("A machine's menu exposes grow-only disk resize and wires its target")
+    func machineMenuOffersSupportedVerbs() throws {
         let recorder = CloudTreeMenuVerbRecorder()
         let coordinator = CloudTreeOutlineView.Coordinator(
             machineActions: Self.machineActions(recording: recorder),
@@ -59,6 +64,7 @@ struct CloudTreeMachineMenuTests {
             Self.title("machines.menu.openShell", "Open Shell"),
             Self.title("cloudTree.menu.newWorkspace", "New Workspace"),
             Self.title("cloudTree.menu.openFullClient", "Open Full cmux-tui Client"),
+            Self.title("machines.menu.increaseDisk", "Increase Disk"),
             Self.title("cloudTree.menu.refresh", "Refresh"),
             Self.title("machines.menu.rename", "Rename\u{2026}"),
             Self.title("machines.menu.copyIPAddress", "Copy IP Address"),
@@ -71,12 +77,19 @@ struct CloudTreeMachineMenuTests {
         try Self.choose(Self.title("machines.menu.privateNetwork", "Private Network Access…"), in: menu)
         #expect(recorder.vpnSetupCount == 1)
         #expect(recorder.vpnSetupWindow === window)
-        // Every verb is a leaf: nothing opens a submenu of targets.
-        #expect(menu.items.allSatisfy { $0.submenu == nil })
+        let diskRoot = try #require(menu.items.first { $0.title == Self.title("machines.menu.increaseDisk", "Increase Disk") })
+        let diskMenu = try #require(diskRoot.submenu)
+        #expect(diskMenu.items.map(\.title) == [
+            Self.title("machines.menu.increaseDiskTo", "Increase to 64 GiB"),
+            Self.title("machines.menu.increaseDiskTo", "Increase to 128 GiB"),
+            Self.title("machines.menu.increaseDiskTo", "Increase to 256 GiB"),
+        ])
 
         // The verbs that stay are still wired, not merely titled.
         try Self.choose(Self.title("machines.menu.openShell", "Open Shell"), in: menu)
         #expect(recorder.newTerminals == [.cloud(Self.machineID)])
+        try Self.choose(Self.title("machines.menu.increaseDiskTo", "Increase to 64 GiB"), in: diskMenu)
+        #expect(recorder.resizes == [(Self.machineID, 64)])
         try Self.choose(Self.title("machines.menu.checkpoint", "Checkpoint"), in: menu)
         #expect(recorder.commands.map { $0.id } == [Self.machineID])
         #expect(recorder.commands.map { $0.verb } == [["vm", "snapshot"]])
@@ -133,6 +146,7 @@ struct CloudTreeMachineMenuTests {
             runCommand: { id, verb in recorder.commands.append((id: id, verb: verb)) },
             confirmDelete: { recorder.deletions.append($0) },
             promptRename: { _, _ in },
+            resizeDisk: { id, gib in recorder.resizes.append((id, gib)) },
             promptUpgrade: {}
         )
     }
@@ -168,4 +182,5 @@ private final class CloudTreeMenuVerbRecorder {
     var newTerminals: [SurfaceMachineID] = []
     var commands: [(id: String, verb: [String])] = []
     var deletions: [String] = []
+    var resizes: [(String, Int)] = []
 }
