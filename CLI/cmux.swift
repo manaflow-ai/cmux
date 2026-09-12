@@ -5547,8 +5547,7 @@ struct CMUXCLI {
 
         case "billing":
             let (planOption, rest) = parseOption(Array(commandArgs.dropFirst()), name: "--plan")
-            let plan = planOption ?? "max"
-            guard commandArgs.first == "checkout", ["pro", "max"].contains(plan), rest.allSatisfy({ $0 == "--no-open" }) else {
+            guard let plan = planOption, commandArgs.first == "checkout", ["pro", "max"].contains(plan), rest.allSatisfy({ $0 == "--no-open" }) else {
                 throw CLIError(message: "Usage: cmux billing checkout --plan <max|pro> [--no-open]")
             }
             let response = try client.sendV2(method: "vm.billing_checkout", params: ["plan": plan])
