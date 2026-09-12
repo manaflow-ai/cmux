@@ -91,7 +91,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     convenience init() {
         let hub = CloudTuiClientPaths.clientURL().map { CloudWireGuardHub.production(clientURL: $0) }
         self.init(
-            links: CloudMachineLinkManager(hub: hub),
+            links: CloudMachineLinkManager(hub: hub, operations: AppDelegate.shared?.cloudOperations),
             wireGuardHub: hub,
             allowsBackgroundWork: { CloudActivationPolicy.live().allowsBackgroundCloudWork },
             listPage: {
