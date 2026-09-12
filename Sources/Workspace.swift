@@ -578,7 +578,7 @@ extension Workspace {
                           let bindingSessionId = Self.normalizedResumeBindingValue(resumeBinding.checkpointId) else {
                         return false
                     }
-                    if restoredAgentLifecycleConfirmsRunning(resumeBinding, panelId: panelId) {
+                    if resumeBinding.recordsRunningPersistentSSHAgent(in: persistentSSHResumeContext(panelID: panelId)) == true || restoredAgentLifecycleConfirmsRunning(resumeBinding, panelId: panelId) {
                         return true
                     }
                     let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(

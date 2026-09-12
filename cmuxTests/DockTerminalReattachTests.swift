@@ -40,60 +40,6 @@ private final class DockTransferTestPanel: Panel {
 }
 
 extension DockSocketLifecycleTests {
-    @MainActor
-    private func detachedTerminalTransfer(
-        panel: any Panel,
-        sourceWorkspaceId: UUID,
-        directory: String? = nil,
-        cachedTitle: String? = nil,
-        customTitle: String? = nil,
-        customTitleSource: Workspace.CustomTitleSource? = nil,
-        directoryIsTrustedRemoteReport: Bool = false,
-        restorableAgent: SessionRestorableAgentSnapshot? = nil,
-        restorableAgentResumeState: Workspace.RestoredAgentResumeState? = nil,
-        restoredAgentCompletedGeneration: RestoredAgentCompletedGeneration? = nil,
-        shellActivityState: PanelShellActivityState? = nil,
-        restoredResumeSessionWorkingDirectory: String? = nil,
-        resumeBinding: SurfaceResumeBindingSnapshot? = nil,
-        managedAgentResumeBinding: SurfaceResumeBindingSnapshot? = nil,
-        agentRuntime: Workspace.DetachedAgentRuntimeState? = nil,
-        isRemoteTerminal: Bool = false
-    ) -> Workspace.DetachedSurfaceTransfer {
-        Workspace.DetachedSurfaceTransfer(
-            sourceWorkspaceId: sourceWorkspaceId,
-            sessionRestoreSourceWorkspaceId: nil,
-            panelId: panel.id,
-            panel: panel,
-            title: panel.displayTitle,
-            icon: panel.displayIcon,
-            iconImageData: nil,
-            kind: "terminal",
-            isLoading: false,
-            isPinned: false,
-            directory: directory,
-            directoryIsTrustedRemoteReport: directoryIsTrustedRemoteReport,
-            directoryDisplayLabel: nil,
-            ttyName: nil,
-            cachedTitle: cachedTitle,
-            customTitle: customTitle,
-            customTitleSource: customTitleSource,
-            manuallyUnread: false,
-            restoredUnreadIndicator: nil,
-            restorableAgent: restorableAgent,
-            restorableAgentResumeState: restorableAgentResumeState,
-            restoredAgentCompletedGeneration: restoredAgentCompletedGeneration,
-            shellActivityState: shellActivityState,
-            restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
-            resumeBinding: resumeBinding,
-            managedAgentResumeBinding: managedAgentResumeBinding,
-            agentRuntime: agentRuntime,
-            isRemoteTerminal: isRemoteTerminal,
-            remoteRelayPort: nil,
-            remotePTYSessionID: nil,
-            remoteCleanupConfiguration: nil
-        )
-    }
-
     @Test("Live terminal attach into Dock requests a view reattach")
     @MainActor
     func liveTerminalAttachIntoDockRequestsViewReattach() throws {

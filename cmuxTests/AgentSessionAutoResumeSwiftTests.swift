@@ -277,10 +277,7 @@ struct AgentSessionAutoResumeSwiftTests {
                     updatedAt: 1_777_777_777
                 ),
             ])
-            let snapshot = source.sessionSnapshot(
-                includeScrollback: false,
-                surfaceResumeBindingIndex: bindingIndex
-            )
+            let snapshot = try snapshotWithPersistedAgentRunning(source.sessionSnapshot(includeScrollback: false, surfaceResumeBindingIndex: bindingIndex), panelId: sourcePanelID)
 
             #expect(snapshot.customTitle == nil)
             #expect(snapshot.processTitle == resumeCommand)
@@ -401,10 +398,7 @@ struct AgentSessionAutoResumeSwiftTests {
                     updatedAt: 1_777_777_777
                 ),
             ])
-            let snapshot = source.sessionSnapshot(
-                includeScrollback: false,
-                surfaceResumeBindingIndex: bindingIndex
-            )
+            let snapshot = try snapshotWithPersistedAgentRunning(source.sessionSnapshot(includeScrollback: false, surfaceResumeBindingIndex: bindingIndex), panelId: sourcePanelId)
 
             #expect(snapshot.panels.first?.terminal?.agent?.workingDirectory == launchCwd)
             #expect(snapshot.panels.first?.terminal?.resumeBinding?.cwd == runtimeCwd)
@@ -864,6 +858,20 @@ struct AgentSessionAutoResumeSwiftTests {
         return path
     }
 
+    private func snapshotWithPersistedAgentRunning(_ snapshot: SessionWorkspaceSnapshot, panelId: UUID? = nil) throws -> SessionWorkspaceSnapshot {
+        var snapshot = snapshot
+        let index = try #require(snapshot.panels.firstIndex { $0.type == .terminal && (panelId == nil || $0.id == panelId) })
+        snapshot.panels[index].terminal?.wasAgentRunning = true
+        return snapshot
+    }
+
+    @MainActor
+    private func advanceAutoResumeCommand(_ workspace: Workspace, panelId: UUID) throws {
+        try #require(workspace.restoredAgentResumeStatesByPanelId[panelId] == .awaitingAutoResumeCommand)
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+        try #require(workspace.restoredAgentResumeStatesByPanelId[panelId] == .autoResumeCommandRunning)
+    }
+
     @MainActor
     @Test func splitAfterSecondRestoreOfClobberedRestorableAgentPaneUsesAgentCwd() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
@@ -872,10 +880,11 @@ struct AgentSessionAutoResumeSwiftTests {
             let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-second-restore-resume-project")
             defer { try? FileManager.default.removeItem(atPath: projectDir) }
 
-            let (restored, _, homeDir) = try restoreResumedRestorableAgentOnlyWorkspaceWithClobberedTrackedCwd(
+            let restoredFixture = try restoreResumedRestorableAgentOnlyWorkspaceWithClobberedTrackedCwd(
                 projectDir: projectDir
             )
-            let clobberedSnapshot = restored.sessionSnapshot(includeScrollback: false)
+            let (restored, restoredPanelId, homeDir) = restoredFixture
+            let clobberedSnapshot = try snapshotWithPersistedAgentRunning(restored.sessionSnapshot(includeScrollback: false), panelId: restoredPanelId)
             let clobberedTerminal = try #require(clobberedSnapshot.panels.first?.terminal)
             #expect(clobberedTerminal.workingDirectory == homeDir)
             #expect(clobberedTerminal.agent?.workingDirectory == projectDir)
@@ -884,9 +893,7 @@ struct AgentSessionAutoResumeSwiftTests {
             let secondRestore = Workspace()
             secondRestore.restoreSessionSnapshot(clobberedSnapshot)
             let secondRestoredPanelId = try #require(secondRestore.focusedPanelId)
-            try #require(
-                secondRestore.restoredAgentResumeStatesByPanelId[secondRestoredPanelId] == .autoResumeCommandRunning
-            )
+            try advanceAutoResumeCommand(secondRestore, panelId: secondRestoredPanelId)
             #expect(
                 secondRestore.restoredResumeSessionWorkingDirectoriesByPanelId[secondRestoredPanelId] == projectDir
             )
@@ -915,10 +922,11 @@ struct AgentSessionAutoResumeSwiftTests {
             let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-second-restore-chat-rebind")
             defer { try? FileManager.default.removeItem(atPath: projectDir) }
 
-            let (restored, _, homeDir) = try restoreResumedRestorableAgentOnlyWorkspaceWithClobberedTrackedCwd(
+            let restoredFixture = try restoreResumedRestorableAgentOnlyWorkspaceWithClobberedTrackedCwd(
                 projectDir: projectDir
             )
-            let clobberedSnapshot = restored.sessionSnapshot(includeScrollback: false)
+            let (restored, restoredPanelId, homeDir) = restoredFixture
+            let clobberedSnapshot = try snapshotWithPersistedAgentRunning(restored.sessionSnapshot(includeScrollback: false), panelId: restoredPanelId)
             let clobberedTerminal = try #require(clobberedSnapshot.panels.first?.terminal)
             try #require(clobberedTerminal.workingDirectory == homeDir)
             let agentSessionId = try #require(clobberedTerminal.agent?.sessionId)
@@ -976,7 +984,7 @@ struct AgentSessionAutoResumeSwiftTests {
                 panelId: sourcePanelId
             )
 
-            let snapshot = source.sessionSnapshot(includeScrollback: false)
+            let snapshot = try snapshotWithPersistedAgentRunning(source.sessionSnapshot(includeScrollback: false), panelId: sourcePanelId)
             let terminal = try #require(snapshot.panels.first?.terminal)
             #expect(terminal.agent?.workingDirectory == nil)
             #expect(terminal.agent?.launchCommand?.workingDirectory == projectDir)
@@ -984,9 +992,7 @@ struct AgentSessionAutoResumeSwiftTests {
             let restored = Workspace()
             restored.restoreSessionSnapshot(snapshot)
             let restoredPanelId = try #require(restored.focusedPanelId)
-            try #require(
-                restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .autoResumeCommandRunning
-            )
+            try advanceAutoResumeCommand(restored, panelId: restoredPanelId)
             #expect(restored.restoredResumeSessionWorkingDirectoriesByPanelId[restoredPanelId] == nil)
 
             let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
@@ -1317,15 +1323,14 @@ struct AgentSessionAutoResumeSwiftTests {
             ),
         ])
 
-        let snapshot = source.sessionSnapshot(
-            includeScrollback: false,
-            surfaceResumeBindingIndex: bindingIndex
-        )
+        let snapshot = try snapshotWithPersistedAgentRunning(source.sessionSnapshot(includeScrollback: false, surfaceResumeBindingIndex: bindingIndex), panelId: sourcePanelId)
         #expect(snapshot.currentDirectory == savedDirectory)
 
         let restored = Workspace()
         restored.restoreSessionSnapshot(snapshot)
         let restoredPanelId = try #require(restored.focusedPanelId)
+
+        try advanceAutoResumeCommand(restored, panelId: restoredPanelId)
 
         // Restore replays the persisted directory onto the workspace and panel.
         #expect(restored.currentDirectory == savedDirectory)
@@ -1364,13 +1369,15 @@ struct AgentSessionAutoResumeSwiftTests {
         source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
         source.setRestoredAgentSnapshotForTesting(agent, panelId: sourcePanelId)
 
-        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        let snapshot = try snapshotWithPersistedAgentRunning(source.sessionSnapshot(includeScrollback: false), panelId: sourcePanelId)
         #expect(snapshot.panels.first?.terminal?.agent?.workingDirectory == savedDirectory)
         #expect(snapshot.panels.first?.terminal?.resumeBinding == nil)
 
         let restored = Workspace()
         restored.restoreSessionSnapshot(snapshot)
         let restoredPanelId = try #require(restored.focusedPanelId)
+
+        try advanceAutoResumeCommand(restored, panelId: restoredPanelId)
 
         #expect(restored.currentDirectory == savedDirectory)
         #expect(restored.panelDirectories[restoredPanelId] == savedDirectory)
@@ -1406,16 +1413,15 @@ struct AgentSessionAutoResumeSwiftTests {
             ),
         ])
 
-        let snapshot = source.sessionSnapshot(
-            includeScrollback: false,
-            surfaceResumeBindingIndex: bindingIndex
-        )
+        let snapshot = try snapshotWithPersistedAgentRunning(source.sessionSnapshot(includeScrollback: false, surfaceResumeBindingIndex: bindingIndex), panelId: sourcePanelId)
         #expect(snapshot.panels.first?.terminal?.agent == nil)
         #expect(snapshot.panels.first?.terminal?.resumeBinding?.cwd == savedDirectory)
 
         let restored = Workspace()
         restored.restoreSessionSnapshot(snapshot)
         let restoredPanelId = try #require(restored.focusedPanelId)
+
+        try advanceAutoResumeCommand(restored, panelId: restoredPanelId)
 
         #expect(restored.currentDirectory == savedDirectory)
         #expect(restored.panelDirectories[restoredPanelId] == savedDirectory)
@@ -1463,10 +1469,7 @@ struct AgentSessionAutoResumeSwiftTests {
                     updatedAt: 1_777_777_778
                 ),
             ])
-            let snapshot = source.sessionSnapshot(
-                includeScrollback: false,
-                surfaceResumeBindingIndex: bindingIndex
-            )
+        let snapshot = try snapshotWithPersistedAgentRunning(source.sessionSnapshot(includeScrollback: false, surfaceResumeBindingIndex: bindingIndex), panelId: sourcePanelId)
 
             let restored = Workspace()
             restored.restoreSessionSnapshot(snapshot)
@@ -1529,10 +1532,7 @@ struct AgentSessionAutoResumeSwiftTests {
                     updatedAt: 1_777_777_778
                 ),
             ])
-            let snapshot = source.sessionSnapshot(
-                includeScrollback: false,
-                surfaceResumeBindingIndex: bindingIndex
-            )
+        let snapshot = try snapshotWithPersistedAgentRunning(source.sessionSnapshot(includeScrollback: false, surfaceResumeBindingIndex: bindingIndex), panelId: sourcePanelId)
 
             let restored = Workspace()
             restored.restoreSessionSnapshot(snapshot)
@@ -1595,10 +1595,7 @@ struct AgentSessionAutoResumeSwiftTests {
                     updatedAt: 1_777_777_778
                 ),
             ])
-            let snapshot = source.sessionSnapshot(
-                includeScrollback: false,
-                surfaceResumeBindingIndex: bindingIndex
-            )
+        let snapshot = try snapshotWithPersistedAgentRunning(source.sessionSnapshot(includeScrollback: false, surfaceResumeBindingIndex: bindingIndex), panelId: sourcePanelId)
             let terminalSnapshot = try #require(snapshot.panels.first?.terminal)
 
             #expect(terminalSnapshot.agent == nil)
