@@ -21018,7 +21018,6 @@ struct CMUXCLI {
                 }
             }
         }
-
         return RightSidebarCLIArguments(
             positional: positional,
             workspace: workspace,
@@ -21026,7 +21025,6 @@ struct CMUXCLI {
             noFocus: noFocus
         )
     }
-
     private func rightSidebarSocketArguments(from parsed: RightSidebarCLIArguments) throws -> [String] {
         guard let action = parsed.positional.first?.lowercased() else {
             throw CLIError(message: String(localized: "cli.rightSidebar.error.missingCommand", defaultValue: "right-sidebar requires a subcommand"))
@@ -22010,6 +22008,8 @@ struct CMUXCLI {
         if let tty = surface["tty"] as? String, !tty.isEmpty {
             parts.append("tty=\(tty)")
         }
+        if let health = surface["render_health"] as? String,
+           health == "not_rendering" || health == "shell_exited" { parts.append("[\(health)]") }
         if surfaceType.lowercased() == "browser",
            let url = surface["url"] as? String,
            !url.isEmpty {
