@@ -66,6 +66,7 @@ const resolveProPrice = mock(async (interval: unknown) =>
 const resolveTeamPrice = mock(async (interval: unknown) =>
   interval === "month" ? "price_team_month" : "price_team_year",
 );
+const resolveMaxPrice = mock(async () => "price_max_month");
 const stripeLimit = mock(async () => []);
 let useStubDb = false;
 
@@ -116,6 +117,8 @@ mock.module("../db/client", () => ({
 
 mock.module("../services/billing/stripe", () => ({
   isStripeBillingConfigured: () => stripeConfigured,
+  resolveMaxPrice,
+  resolvePersonalPlanSwitchPortalConfiguration: async () => "bpc_switch",
   resolveProPrice,
   resolveTeamPrice,
   stripe: () => ({
@@ -151,7 +154,10 @@ mock.module("../services/analytics/stripeBilling", () => ({
   captureBillingCheckoutStarted,
 }));
 
-const { GET } = await import("../app/api/billing/checkout/route");
+const realVmAuth = await import("../services/vms/auth");
+const verifyCheckoutUser = mock(async () => ({ id: SIGNED_IN_USER_ID, isAnonymous: false }));
+mock.module("../services/vms/auth", () => ({ ...realVmAuth, verifyRequest: verifyCheckoutUser }));
+const { GET, POST } = await import("../app/api/billing/checkout/route");
 
 beforeAll(() => {
   useStubDb = true;
@@ -162,6 +168,24 @@ afterAll(() => {
 });
 
 describe("billing checkout route", () => {
+  test("CLI checkout rejects cookie-only requests before creating a session", async () => {
+    const response = await POST(new NextRequest("https://cmux.test/api/billing/checkout", { method: "POST", body: JSON.stringify({ plan: "max" }) }));
+    expect(response.status).toBe(401);
+    expect(createStripeSession).not.toHaveBeenCalled();
+  });
+
+  test("CLI checkout binds the Stripe purchase to the verified app account", async () => {
+    stripeConfigured = true;
+    userResponses = [{ ...signedInUser, clientReadOnlyMetadata: {} }];
+    const response = await POST(new NextRequest("https://cmux.test/api/billing/checkout", {
+      method: "POST", headers: { authorization: "Bearer app-access", "x-stack-refresh-token": "app-refresh", "content-type": "application/json" },
+      body: JSON.stringify({ plan: "max" }),
+    }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ url: "https://checkout.stripe.com/c/session", plan: "max", flow: "checkout" });
+    expect(getUser).toHaveBeenCalledWith(SIGNED_IN_USER_ID);
+    expect(createdStripeSessions[0]).toMatchObject({ client_reference_id: SIGNED_IN_USER_ID, metadata: expect.objectContaining({ cmuxSource: "cli_billing_checkout", cmuxClient: "cli", plan: "max" }) });
+  });
   beforeEach(() => {
     getUser.mockClear();
     signedInUser.update.mockClear();
@@ -187,6 +211,7 @@ describe("billing checkout route", () => {
     createStripeSession.mockClear();
     createStripeCustomer.mockClear();
     resolveProPrice.mockClear();
+    resolveMaxPrice.mockClear();
     resolveTeamPrice.mockClear();
     captureBillingCheckoutStarted.mockClear();
     stripeLimit.mockClear();
@@ -611,6 +636,84 @@ describe("billing checkout route", () => {
       signedIn: true,
       existingStripeCustomer: false,
     });
+  });
+
+  test("creates a monthly Max checkout even when the interval selector says year", async () => {
+    stripeConfigured = true;
+    userResponses = [{ ...signedInUser, clientReadOnlyMetadata: {} }];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?plan=max&interval=year"),
+    );
+
+    expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/session");
+    expect(resolveMaxPrice).toHaveBeenCalledTimes(1);
+    expect(resolveProPrice).not.toHaveBeenCalled();
+    expect(createdStripeSessions[0]).toMatchObject({
+      mode: "subscription",
+      line_items: [{ price: "price_max_month", quantity: 1 }],
+      metadata: expect.objectContaining({ plan: "max", billingInterval: "month" }),
+      subscription_data: { metadata: expect.objectContaining({ plan: "max" }) },
+    });
+  });
+
+  test("a Founder can buy Max without changing the lifetime purchase", async () => {
+    stripeConfigured = true;
+    stripeCustomerRows = [{ id: "cus_founder" }];
+    stripeSubscriptionRows = [{ id: "sub_founder", plan: "pro", status: "active", raw: { metadata: { founders_edition: "true" } } }];
+    stripeActiveSubscriptionRows = stripeSubscriptionRows;
+    userResponses = [{ ...signedInUser, clientReadOnlyMetadata: { cmuxPlan: "pro" } }];
+    const response = await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=max"));
+    expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/session");
+    expect(createdStripeSessions[0]).toMatchObject({ customer: "cus_founder", line_items: [{ price: "price_max_month", quantity: 1 }] });
+  });
+
+  test("a manually granted Pro account can buy Max", async () => {
+    stripeConfigured = true;
+    userResponses = [{ ...signedInUser, clientReadOnlyMetadata: { cmuxVmPlan: "pro" } }];
+    const response = await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=max"));
+    expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/session");
+  });
+
+  test("sends an active Pro subscriber who asks for Max to the portal plan switch", async () => {
+    stripeConfigured = true;
+    stripeCustomerRows = [{ id: "cus_pro" }];
+    stripeSubscriptionRows = [{
+      id: "sub_pro",
+      status: "active",
+      cancelAtPeriodEnd: false,
+      plan: "pro",
+    }];
+    stripeActiveSubscriptionRows = stripeSubscriptionRows;
+    userResponses = [{ ...signedInUser, clientReadOnlyMetadata: { cmuxPlan: "pro" } }];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?plan=max"),
+    );
+
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/api/billing/portal?flow=switch_plan&plan=max",
+    );
+    expect(createStripeSession).not.toHaveBeenCalled();
+  });
+
+  test("sends an active Max subscriber who asks for Max to the plain portal", async () => {
+    stripeConfigured = true;
+    stripeCustomerRows = [{ id: "cus_max" }];
+    stripeSubscriptionRows = [{
+      id: "sub_max",
+      status: "active",
+      cancelAtPeriodEnd: false,
+      plan: "max",
+    }];
+    stripeActiveSubscriptionRows = stripeSubscriptionRows;
+    userResponses = [{ ...signedInUser, clientReadOnlyMetadata: { cmuxPlan: "max" } }];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?plan=max"),
+    );
+
+    expect(response.headers.get("location")).toBe("https://cmux.test/api/billing/portal");
   });
 
   test("routes a past_due customer to the billing portal", async () => {

@@ -24,7 +24,7 @@ export const APP_PRICING_NATIVE_RETURN_QUERY_PARAMS = [
   CHECKOUT_NATIVE_RETURN_SIGNATURE_PARAM,
 ] as const;
 export const CHECKOUT_PATH = "/api/billing/checkout";
-export type CheckoutPlan = "pro" | "team";
+export type CheckoutPlan = "pro" | "max" | "team";
 export type CheckoutInterval = "month" | "year";
 export type AppPricingCheckoutRelayParameters = {
   plan: CheckoutPlan | null;
@@ -35,8 +35,10 @@ export type CheckoutAttributionParams = Partial<
   Record<CheckoutAttributionParam, string | null | undefined>
 >;
 export const PRO_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "pro");
+export const MAX_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "max");
 export const TEAM_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "team");
 export const PRO_CHECKOUT_URL = withExternalBrowserIntent(PRO_CHECKOUT_PATH);
+export const MAX_CHECKOUT_URL = withExternalBrowserIntent(MAX_CHECKOUT_PATH);
 export const TEAM_CHECKOUT_URL = withExternalBrowserIntent(TEAM_CHECKOUT_PATH);
 
 const DEFAULT_APP_PRICING_CHECKOUT_URL = "https://cmux.com/api/billing/checkout";

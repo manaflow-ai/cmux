@@ -15,6 +15,8 @@ import {
   isStripeBillingConfigured,
   stripe,
 } from "../../../../services/billing/stripe";
+import { personalPortalSession } from "../../../../services/billing/personalPortal";
+import { checkoutAttributionFromRequest } from "../../../../services/analytics/checkoutAttribution";
 import { resolveBillingTeam } from "../../../../services/billing/teamResolution";
 
 
@@ -70,13 +72,15 @@ export async function GET(request: NextRequest) {
       return pricingRedirect(request, "unavailable");
     }
 
-    const session = await stripe().billingPortal.sessions.create({
-      customer: customerId,
-      return_url: new URL(
-        "/dashboard/billing",
-        requestOrigin(request),
-      ).toString(),
-    });
+    const returnUrl = new URL("/dashboard/billing", requestOrigin(request)).toString();
+    const target = request.nextUrl.searchParams.get("plan");
+    const wantsSwitch = !team && request.nextUrl.searchParams.get("flow") === "switch_plan" && (target === "max" || target === "pro");
+    const session = wantsSwitch
+      ? await personalPortalSession({
+          userId: user.id, origin: requestOrigin(request), target,
+          attribution: checkoutAttributionFromRequest({ searchParams: request.nextUrl.searchParams, referer: request.headers.get("referer") }),
+        })
+      : await stripe().billingPortal.sessions.create({ customer: customerId, return_url: returnUrl });
     if (!session.url) {
       throw new Error("Stripe Billing Portal Session did not include a URL");
     }

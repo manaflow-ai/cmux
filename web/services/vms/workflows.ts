@@ -49,6 +49,7 @@ import {
 } from "./machineSpec";
 import {
   VmBillingError,
+  VmMemoryPlanError,
   VmAccountDeletionIdentityRevocationError,
   VmAttachTransportUnsupportedError,
   VmCreateDisabledError,
@@ -72,6 +73,7 @@ import {
   isPaidVmPlan,
   isVmFreeAccessExpired,
   maxActiveVmsForPlan,
+  maxMemoryMbForPlan,
   vmFreeAccessWindowDays,
 } from "./entitlements";
 import { networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
@@ -461,6 +463,19 @@ function rollbackProviderCreate(
   });
 }
 
+/** Check the copied or requested shape before provisioning side effects. */
+function requireMemoryPlan(planId: string, memoryMb: number | null) {
+  const maxMemoryMb = maxMemoryMbForPlan(planId);
+  if (memoryMb === null ? maxMemoryMb < 65536 : memoryMb > maxMemoryMb) {
+    return Effect.fail(new VmMemoryPlanError({ planId, memoryMb, maxMemoryMb }));
+  }
+  return Effect.void;
+}
+
+function requestedCreateMemory(input: { memoryMb?: number; imageSize?: { memoryMb: number }; resourceReservation?: { memoryMb: number } }) {
+  return Math.max(input.memoryMb ?? 0, input.imageSize?.memoryMb ?? 0, input.resourceReservation?.memoryMb ?? 0);
+}
+
 export function createVm(input: {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
@@ -501,6 +516,7 @@ export function createVm(input: {
   readonly timing?: VmTimingSink;
 }): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
+    yield* requireMemoryPlan(input.billingPlanId, requestedCreateMemory(input as { memoryMb?: number; imageSize?: { memoryMb: number }; resourceReservation?: { memoryMb: number } }));
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
@@ -1381,6 +1397,7 @@ export function restoreVm(input: {
         diskMb: VM_DISK_MB_MAX,
       })
       : undefined;
+    yield* requireMemoryPlan(input.billingPlanId, snapshotReservation?.memoryMb ?? null);
     return yield* createVm({
       userId: input.userId,
       billingCustomerType: input.billingCustomerType,
@@ -1503,14 +1520,19 @@ function finalizeNativeForkReservation(
   );
 }
 
-/**
- * Select native cloning only when the driver declares that capability. The
- * gateway exposes a fork function for every provider, but unsupported drivers
- * fail inside that function; checking its presence alone selects the wrong path.
- */
-function providerForksNatively(providers: VmProviderGatewayShape, provider: ProviderId): boolean {
-  if (provider !== "freestyle" || providers.fork === undefined) return false;
-  return providers.capabilities?.(provider).fork ?? true;
+function requireForkMemoryPlan(source: CloudVmRow, providers: VmProviderGatewayShape, providerVmId: string, planId: string) {
+  return Effect.gen(function* () {
+    const sourceMemoryMb = hasVmResourceReservationMetadata(source.providerMetadata)
+      ? vmResourceReservationFromMetadata(source.providerMetadata).memoryMb
+      : yield* (providers.getStats
+        ? providers.getStats(source.provider, source.providerVmId ?? providerVmId).pipe(
+            Effect.timeout("5 seconds"),
+            Effect.map((stats) => vmProviderResourceSize("memoryMb", stats.memoryTotalMb)),
+            Effect.catchAll(() => Effect.succeed(null)),
+          )
+        : Effect.succeed(null));
+    yield* requireMemoryPlan(planId, sourceMemoryMb);
+  });
 }
 
 export function forkVm(input: {
@@ -1531,6 +1553,7 @@ export function forkVm(input: {
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
     const source = yield* requireUserVm(input);
+    yield* requireForkMemoryPlan(source, providers, input.providerVmId, input.billingPlanId);
     // Kill-switch parity with POST /api/vm: fork provisions a brand-new
     // machine on the source VM's provider and spends the same provider money.
     // The check lives here rather than in the route because the provider is
@@ -1554,7 +1577,7 @@ export function forkVm(input: {
     // A native fork has no way to accept the new row's edge rules. Use the
     // snapshot/create path for a model-plane machine so it receives its own
     // VM-bound credential instead of inheriting an unrouteable alias.
-    const nativeFork = !input.modelPlane && providerForksNatively(providers, source.provider) ? providers.fork : undefined;
+    const nativeFork = !input.modelPlane && source.provider === "freestyle" && providers.fork !== undefined;
     // The provider owns cloning the source. Record its initial shape and
     // reconcile the copied machine independently after the fork completes.
     const sourceHasReservation = hasVmResourceReservationMetadata(source.providerMetadata);
@@ -1635,7 +1658,7 @@ export function forkVm(input: {
       const handle = yield* measureVmEffect(
         input.timing,
         "provider_create",
-        nativeFork(source.provider, source.providerVmId ?? input.providerVmId),
+        providers.fork(source.provider, source.providerVmId ?? input.providerVmId),
       ).pipe(
         Effect.tapError((err) =>
           Effect.all([
@@ -1766,7 +1789,6 @@ export function forkVm(input: {
       provider: source.provider,
       imageId: source.imageId,
       metadata: {
-        native: false,
         snapshotId: snapshot.id,
         forkProviderVmId: fork.providerVmId,
         idempotencyKeySet: !!input.idempotencyKey,
