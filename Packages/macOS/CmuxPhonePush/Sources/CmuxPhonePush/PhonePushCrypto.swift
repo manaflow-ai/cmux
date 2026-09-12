@@ -231,14 +231,14 @@ public enum PhonePushKeyStore {
 public enum PhonePushPeerKeyStore {
     private static let prefix = "cmux.phone-push.peer."
 
-    public static func save(_ publicKey: Data, macDeviceID: String, instanceTag: String?, defaults: UserDefaults = .standard) {
+    public static func save(_ publicKey: Data, macDeviceID: String, instanceTag: String?) {
         let key = prefix + macDeviceID + "." + (instanceTag ?? "default")
-        defaults.set(publicKey.base64EncodedString(), forKey: key)
+        UserDefaults.standard.set(publicKey.base64EncodedString(), forKey: key)
     }
 
-    public static func load(macDeviceID: String, instanceTag: String?, defaults: UserDefaults = .standard) -> Data? {
+    public static func load(macDeviceID: String, instanceTag: String?) -> Data? {
         let key = prefix + macDeviceID + "." + (instanceTag ?? "default")
-        guard let value = defaults.string(forKey: key) else { return nil }
+        guard let value = UserDefaults.standard.string(forKey: key) else { return nil }
         return Data(base64Encoded: value)
     }
 }
