@@ -97,6 +97,10 @@
       },
       "hyperdrive": [
         {
+          "binding": "HYPERDRIVE_IROH_OWNERSHIP",
+          "id": "142da33499cb48849a9f6045d4a11a04"
+        },
+        {
           "binding": "HYPERDRIVE_CONNECTED_WORKSPACES",
           "id": "9d38cb41666442928bfc2821bdee38de"
         }
@@ -139,6 +143,10 @@
       },
       "hyperdrive": [
         {
+          "binding": "HYPERDRIVE_IROH_OWNERSHIP",
+          "id": "9538443279c344b6b19ee6031bbc2880"
+        },
+        {
           "binding": "HYPERDRIVE_CONNECTED_WORKSPACES",
           "id": "ac65e946d9ef412f829a88684540bede"
         }
@@ -180,6 +188,10 @@
         ]
       },
       "hyperdrive": [
+        {
+          "binding": "HYPERDRIVE_IROH_OWNERSHIP",
+          "id": "95cc697a68cf4746bbe1040e62cb0b83"
+        },
         {
           "binding": "HYPERDRIVE_CONNECTED_WORKSPACES",
           "id": "d048be5c21ad47aaa1db5afab15abe75"

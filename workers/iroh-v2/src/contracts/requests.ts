@@ -3,6 +3,8 @@ import {
   DeliveryReceiptSchema, DeviceDescriptorSchema, DeviceMetadataSchema, DeviceProofSchema, PermissionSchema,
   identifier, relayURL, revision, signature,
 } from "./common";
+import { WorkspaceGetRequestSchema, WorkspaceSnapshotRequestSchema } from "./workspaces";
+export { WorkspaceGetRequestSchema, WorkspaceSnapshotRequestSchema } from "./workspaces";
 
 export const SocketSetupSchema = z.strictObject({
   schemaId: z.literal("session.open.v1"),
@@ -84,6 +86,7 @@ export const RequestSchema = z.discriminatedUnion("schemaId", [
   ChallengeRequestSchema, RegisterRequestSchema, TicketRequestSchema, RelayRequestSchema,
   DirectoryRequestSchema, MetadataRequestSchema, RevokeRequestSchema,
   PermissionRequestSchema, PreferencesRequestSchema, GoodbyeRequestSchema, AcknowledgementRequestSchema,
+  WorkspaceSnapshotRequestSchema, WorkspaceGetRequestSchema,
 ]);
 
 export type SocketSetup = z.infer<typeof SocketSetupSchema>;
@@ -104,4 +107,6 @@ export const operationForSchema: Record<SchemaId, string> = {
   "preferences.update.v1": "preferences.update",
   "session.goodbye.v1": "session.goodbye",
   "session.ack.v1": "session.ack",
+  "workspace.snapshot.v1": "workspace.snapshot",
+  "workspace.get.v1": "workspace.get",
 };

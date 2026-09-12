@@ -33,7 +33,8 @@ const config = JSON.parse(await Bun.file(resolve(root, "wrangler.jsonc")).text()
 for (const environment of [config, ...Object.values(config.env ?? {})] as Record<string, unknown>[]) {
   const hyperdrive = environment.hyperdrive;
   if (hyperdrive !== undefined) {
-    if (!Array.isArray(hyperdrive) || hyperdrive.length !== 1 || hyperdrive[0]?.binding !== "HYPERDRIVE_CONNECTED_WORKSPACES") {
+    const bindings = Array.isArray(hyperdrive) ? hyperdrive.map(value => value?.binding) : [];
+    if (bindings.length !== 2 || !bindings.includes("HYPERDRIVE_IROH_OWNERSHIP") || !bindings.includes("HYPERDRIVE_CONNECTED_WORKSPACES")) {
       errors.push("v2 configuration declares an unexpected Hyperdrive binding");
     }
   }

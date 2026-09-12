@@ -201,6 +201,17 @@ extension V2ControlService {
                         throw V2ControlFailure.server(V2ErrorResponse(code: .deviceRevoked, requestID: "revocation", retryable: false, retryAfterMS: nil, schemaID: .errorV1))
                     }
                     requestDirectoryRefresh(run: run)
+                case "workspace.changed.v1":
+                    let change = try JSONDecoder().decode(V2WorkspaceChangedResponse.self, from: data)
+                    guard change.teamID == descriptor.identity.teamID else { throw V2ControlFailure.scopeMismatch }
+                    Task { [weak self] in
+                        guard let self else { return }
+                        do {
+                            _ = try await self.refreshWorkspace(vmID: change.vmID)
+                        } catch {
+                            await self.record(mapFailure(error), schema: "workspace.get.v1")
+                        }
+                    }
                 case "error.v1":
                     let response = try JSONDecoder().decode(V2ErrorResponse.self, from: data)
                     let error = V2ControlFailure.server(response)

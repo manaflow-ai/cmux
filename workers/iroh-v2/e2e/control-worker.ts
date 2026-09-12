@@ -1,11 +1,36 @@
 import production, { TeamControl as ProductionTeamControl, UserUsage as ProductionUserUsage } from "../src/index";
 import type { Environment } from "../src/environment";
+import type { WorkspaceSnapshot } from "../src/contracts/workspaces";
+import { OperationError } from "../src/errors";
+import type { WorkspaceProductStore, WorkspaceState } from "../src/workspaces/productStore";
 import { TeamStore } from "../src/storage/team-store";
 
 const TEAM_ID = "team-control";
 
+class InMemoryWorkspaceProductStore implements WorkspaceProductStore {
+  private readonly values = new Map<string, WorkspaceState>();
+
+  async get(teamId: string, vmId: string): Promise<WorkspaceState | null> {
+    return this.values.get(`${teamId}/${vmId}`) ?? null;
+  }
+
+  async put(input: { teamId: string; vmId: string; generation: string; revision: number; snapshot: WorkspaceSnapshot }) {
+    const key = `${input.teamId}/${input.vmId}`;
+    const current = this.values.get(key);
+    if (current && current.generation === input.generation && input.revision <= current.revision) return { state: current, changed: false };
+    if (current && current.generation === input.generation && input.revision !== current.revision + 1) {
+      throw new OperationError("resync_required", 409, true);
+    }
+    const state = { generation: input.generation, revision: input.revision, snapshot: input.snapshot };
+    this.values.set(key, state);
+    return { state, changed: true };
+  }
+}
+
 /** Test-only fixture. It seeds the local TeamStore and leaves all routing/auth code production. */
 export class TestTeamControl extends ProductionTeamControl {
+  private readonly workspaceStore = new InMemoryWorkspaceProductStore();
+
   constructor(ctx: DurableObjectState, env: Environment) {
     super(ctx, env);
     ctx.blockConcurrencyWhile(async () => {
@@ -58,6 +83,8 @@ export class TestTeamControl extends ProductionTeamControl {
       }
     });
   }
+
+  protected override workspaceProductStore(): WorkspaceProductStore { return this.workspaceStore; }
 }
 
 export class TestUserUsage extends ProductionUserUsage {}

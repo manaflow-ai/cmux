@@ -5,8 +5,11 @@ import { OperationError } from "./errors";
 import { PlanetScaleOwnership } from "./ownership/planetscale";
 import { RELAY_TOKEN_AUDIENCE, RELAY_TOKEN_ISSUER, RelayIssuer } from "./relay";
 export type Environment = Cloudflare.Env & {
-  /** Hyperdrive is the production database path; direct URLs remain for local fixtures only. */
+  /** Product workspace data uses cmux-prod through this binding. */
   HYPERDRIVE_CONNECTED_WORKSPACES?: { readonly connectionString: string };
+  /** Endpoint ownership remains in the IROH-specific database. */
+  HYPERDRIVE_IROH_OWNERSHIP?: { readonly connectionString: string };
+  /** Direct URLs are test-only fallbacks and are not deployed as secrets. */
   PLANETSCALE_DATABASE_URL?: string;
   DASHBOARD_ALLOWED_ORIGINS?: string;
   AXIOM_TOKEN?: string; AXIOM_DATASET?: string; AXIOM_INGEST_URL?: string;
@@ -41,7 +44,7 @@ function createRuntime(env: Environment) {
       ...scope, keys, currentKeyId, currentKey, allowedOrigins,
       stack: new StackAuthority({ ...scope, apiURL: env.STACK_API_URL, publishableKey: env.STACK_PUBLISHABLE_KEY, serverKey: env.STACK_SERVER_KEY }),
       ownership: new PlanetScaleOwnership(
-        env.HYPERDRIVE_CONNECTED_WORKSPACES?.connectionString ?? env.PLANETSCALE_DATABASE_URL ?? "",
+        env.HYPERDRIVE_IROH_OWNERSHIP?.connectionString ?? env.PLANETSCALE_DATABASE_URL ?? "",
         scope.environment,
         scope.projectId,
       ),

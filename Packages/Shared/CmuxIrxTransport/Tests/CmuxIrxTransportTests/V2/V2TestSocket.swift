@@ -87,6 +87,16 @@ actor V2TestSocket: V2ControlSocket {
                 throw URLError(.networkConnectionLost)
             }
             try push(V2CompletedResponse(requestID: header.requestId, revision: 2, schemaID: .operationCompletedV1))
+        case "workspace.snapshot.v1":
+            let request = try JSONDecoder().decode(V2WorkspaceSnapshotRequest.self, from: data)
+            let snapshot = try JSONDecoder().decode(V2WorkspaceSnapshotResponseSnapshot.self, from: JSONEncoder().encode(request.snapshot))
+            try push(V2WorkspaceSnapshotResponse(generation: request.generation, requestID: request.requestID, revision: request.revision,
+                schemaID: .workspaceSnapshotResultV1, snapshot: snapshot, vmID: request.vmID))
+        case "workspace.get.v1":
+            let request = try JSONDecoder().decode(V2WorkspaceGetRequest.self, from: data)
+            let snapshot = V2WorkspaceSnapshotResponseSnapshot(terminals: [], workspaces: [])
+            try push(V2WorkspaceSnapshotResponse(generation: "test-generation", requestID: request.requestID, revision: 0,
+                schemaID: .workspaceSnapshotResultV1, snapshot: snapshot, vmID: request.vmID))
         default:
             try push(V2CompletedResponse(requestID: header.requestId, revision: 2, schemaID: .operationCompletedV1))
         }
