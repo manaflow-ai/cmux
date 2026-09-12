@@ -6,6 +6,8 @@
 
 mod command;
 mod lifecycle;
+
+pub(crate) use command::AuthAction;
 mod raw;
 mod wire;
 
@@ -28,6 +30,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "browser",
     "notification",
     "agent",
+    "auth",
     "sidebar",
     "pairing",
     "projection",
@@ -159,6 +162,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         Ok(ParsedCommand::Command { global, plan }) => match plan {
             CommandPlan::Server(server) => lifecycle::run(global, server),
             CommandPlan::AgentHooks(plan) => command::run_agent_hooks(global, plan),
+            CommandPlan::Auth(plan) => crate::auth::run(plan.action),
             CommandPlan::Protocol(request) => wire::run(global, request),
             CommandPlan::SessionResetState(plan) => command::run_session_reset_state(global, plan),
             CommandPlan::Plugin(plugin) => command::run_plugin(global, plugin),

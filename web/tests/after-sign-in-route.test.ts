@@ -425,6 +425,44 @@ describe("after sign-in native handoff", () => {
       }
     }
   });
+  test("redirects verified loopback CLI handoffs to the loopback listener", async () => {
+    handoffCookie = "handoff-nonce";
+    const nativeReturnTo =
+      "http://127.0.0.1:45991/auth-callback?cmux_auth_state=state-123";
+    const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+    expect(response.status).toBe(307);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const location = response.headers.get("location");
+    expect(location).toBeTruthy();
+    const callbackURL = new URL(location!);
+    expect(callbackURL.protocol).toBe("http:");
+    expect(callbackURL.hostname).toBe("127.0.0.1");
+    expect(callbackURL.port).toBe("45991");
+    expect(callbackURL.pathname).toBe("/auth-callback");
+    expect(callbackURL.searchParams.get("cmux_auth_state")).toBe("state-123");
+    expect(callbackURL.searchParams.get("stack_refresh")).toBe("refresh-token");
+    expect(callbackURL.searchParams.get("stack_access")).toBe(
+      JSON.stringify(["refresh-token", "access-token"])
+    );
+  });
+  test("keeps the manual return page for loopback targets without a verified handoff nonce", async () => {
+    handoffCookie = "different-nonce";
+    const nativeReturnTo =
+      "http://127.0.0.1:45991/auth-callback?cmux_auth_state=state-123";
+    const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toContain("Return to cmux");
+    expect(returnHref(html)).toContain("http://127.0.0.1:45991/auth-callback");
+    expect(response.headers.get("location")).toBeNull();
+  });
+  test("rejects non-loopback http return-tos even with a verified handoff", async () => {
+    handoffCookie = "handoff-nonce";
+    const nativeReturnTo =
+      "http://attacker.example/auth-callback?cmux_auth_state=state-123";
+    const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+    expect(response.headers.get("location")).toBe("https://cmux.test/");
+  });
 });
 
 describe("sign out and sign back in", () => {

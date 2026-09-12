@@ -24,6 +24,7 @@ pub(super) enum CommandPlan {
     Plugin(PluginPlan),
     ProviderAuthority(ProviderAuthorityPlan),
     RawCommand(super::raw::RawCommandPlan),
+    Auth(AuthPlan),
 }
 
 #[derive(Clone, Debug)]
@@ -178,10 +179,38 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
         "projection" => parse_projection(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "provider" => parse_provider(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "raw" => parse_raw(&tokens.words[1..], &mut tokens.flags)?,
+        "auth" => parse_auth(&tokens.words[1..])?,
         value => return Err(super::unknown_scope(value)),
     };
     tokens.flags.reject_remaining()?;
     Ok(plan)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AuthAction {
+    Status,
+    Login,
+    Logout,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct AuthPlan {
+    pub action: AuthAction,
+}
+
+fn parse_auth(words: &[String]) -> Result<CommandPlan, UsageError> {
+    let action = match strs(words).as_slice() {
+        ["status"] => AuthAction::Status,
+        ["login"] => AuthAction::Login,
+        ["logout"] => AuthAction::Logout,
+        [action] => {
+            return Err(UsageError::new(format!(
+                "unknown auth action: {action}; use status|login|logout"
+            )));
+        }
+        _ => return Err(UsageError::new("usage: cmux auth <status|login|logout>")),
+    };
+    Ok(CommandPlan::Auth(AuthPlan { action }))
 }
 
 fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
