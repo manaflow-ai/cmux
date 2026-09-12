@@ -388,6 +388,13 @@ struct CloudTreeTerminalRowContent: View {
     }
 
     private var glyph: String {
+        if let source = terminal.agent?.source?.lowercased() {
+            if source.contains("claude") { return "brain.head.profile" }
+            if source.contains("codex") { return "sparkles.rectangle.stack" }
+            if source.contains("gemini") { return "wand.and.stars" }
+            if source.contains("cursor") { return "cursorarrow.rays" }
+            if source.contains("opencode") || source.contains("open-code") { return "chevron.left.forwardslash.chevron.right" }
+        }
         switch terminal.lifecycle {
         case .launching, .running: return "terminal"
         case .exited: return "xmark.rectangle"
