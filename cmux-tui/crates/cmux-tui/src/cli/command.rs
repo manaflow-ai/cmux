@@ -24,6 +24,7 @@ pub(super) enum CommandPlan {
     Plugin(PluginPlan),
     ProviderAuthority(ProviderAuthorityPlan),
     RawCommand(super::raw::RawCommandPlan),
+    CloudVm(super::cloud::Plan),
 }
 
 #[derive(Clone, Debug)]
@@ -148,6 +149,9 @@ struct Tokens {
 }
 
 pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
+    if args.first().is_some_and(|scope| scope == "vm") {
+        return super::cloud::parse(&args[1..]).map(CommandPlan::CloudVm);
+    }
     let mut tokens = tokenize(args)?;
     let scope = tokens
         .words

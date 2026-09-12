@@ -7,6 +7,8 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::config::Action;
 
+mod cloud_vm;
+
 const FOREIGN_VIEWPORT_HINT_CAPACITY: usize = 64;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1161,6 +1163,7 @@ impl StartupMessages {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Catalog {
     japanese: bool,
+    pub cloud_vm: cloud_vm::CloudVmMessages,
     pub startup: StartupMessages,
     pub local_server: LocalServerMessages,
     pub pairing: PairingMessages,
@@ -1191,6 +1194,7 @@ impl Catalog {
 
 static ENGLISH: Catalog = Catalog {
     japanese: false,
+    cloud_vm: cloud_vm::ENGLISH,
     startup: StartupMessages {
         schema_too_new: "cannot open session \"{session}\" with cmux {version}: its saved state is incompatible with this build",
         invalid_session_name: "The session name must be one path component without separators or control characters",
@@ -1870,6 +1874,7 @@ socket.
 
 static JAPANESE: Catalog = Catalog {
     japanese: true,
+    cloud_vm: cloud_vm::JAPANESE,
     startup: StartupMessages {
         schema_too_new: "cmux {version} ではセッション \"{session}\" を開けません。保存状態はこのビルドと互換性がありません",
         invalid_session_name: "セッション名には、区切り文字や制御文字を含まない 1 つのパス要素を指定してください",

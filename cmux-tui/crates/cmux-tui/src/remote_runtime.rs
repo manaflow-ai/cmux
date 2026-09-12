@@ -3198,12 +3198,23 @@ mod tests {
         .unwrap();
 
         assert_eq!(candidate.supported_client_auth(), SupportedClientAuthModes::DeviceOnly);
-        for scheme in ["ws", "wss", "relay+ws", "relay+wss", "relay+https", "relay+do", "iroh"] {
+        for scheme in ["ws", "wss", "relay+ws", "relay+wss", "relay+https", "relay+do"] {
             assert_eq!(
                 providers.supported_client_auth(scheme).unwrap(),
                 SupportedClientAuthModes::DeviceOnly,
                 "{scheme}"
             );
+        }
+        if cfg!(feature = "iroh-transport") {
+            assert_eq!(
+                providers.supported_client_auth("iroh").unwrap(),
+                SupportedClientAuthModes::DeviceOnly
+            );
+        } else {
+            assert!(matches!(
+                providers.supported_client_auth("iroh"),
+                Err(ProviderError::UnsupportedScheme(scheme)) if scheme == "iroh"
+            ));
         }
         assert_eq!(
             providers.supported_client_auth("ssh").unwrap(),

@@ -3,7 +3,10 @@
 //! The public grammar lives here and in `cli/command.rs`. The wire transport
 //! is deliberately isolated in `cli/wire.rs`, so public commands cannot
 //! accidentally fall back to the private command protocol.
+//! `vm` explicitly uses the macOS app's Cloud control socket in `cli/cloud.rs`;
+//! local session and resource commands retain their existing wire contract.
 
+mod cloud;
 mod command;
 mod lifecycle;
 mod raw;
@@ -33,6 +36,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "projection",
     "provider",
     "raw",
+    "vm",
 ];
 
 const REMOTE_COMMANDS: &[&str] = &[
@@ -166,6 +170,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
                 command::run_provider_authority(global, authority)
             }
             CommandPlan::RawCommand(command) => raw::run(global, command),
+            CommandPlan::CloudVm(plan) => cloud::run(global, plan),
         },
         Err(failure) => {
             let message = if matches!(failure.output, OutputMode::Quiet | OutputMode::Human) {
@@ -418,6 +423,7 @@ fn scope_help_for(
         "server stop" => Cow::Borrowed(catalog.local_server.stop_help),
         "server reload-config" => Cow::Borrowed(catalog.local_server.reload_config_help),
         "machine" => Cow::Borrowed(MACHINE_HELP),
+        "vm" => Cow::Borrowed(catalog.cloud_vm.help),
         "session" => Cow::Owned(session_help(&catalog.session_reset, &catalog.local_server)),
         "client" => Cow::Borrowed(CLIENT_HELP),
         "workspace" => Cow::Borrowed(WORKSPACE_HELP),
@@ -496,8 +502,11 @@ Run `cmux <scope> --help` for scope-specific paths.
 
 fn root_help(messages: &crate::localization::LocalServerMessages) -> String {
     format!(
-        "{ROOT_HELP_PROCESS_PREFIX}{}\n{ROOT_HELP_PROCESS_SUFFIX}{}\n{ROOT_HELP_GLOBALS}{}\n{ROOT_HELP_SCOPES_SUFFIX}",
-        messages.root_remote_usage, messages.root_server_usage, messages.root_server_scope,
+        "{ROOT_HELP_PROCESS_PREFIX}{}\n{ROOT_HELP_PROCESS_SUFFIX}{}\n{ROOT_HELP_GLOBALS}{}\n  vm            {}\n{ROOT_HELP_SCOPES_SUFFIX}",
+        messages.root_remote_usage,
+        messages.root_server_usage,
+        messages.root_server_scope,
+        crate::localization::catalog().cloud_vm.scope,
     )
 }
 
