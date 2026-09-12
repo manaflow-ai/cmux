@@ -299,14 +299,11 @@ extension ChromiumBrowserSession {
     ) -> Bool {
         guard let eventURL else { return intent.expectedURL == nil }
         switch intent {
-        case .destination, .reload:
+        case .destination, .rendererDestination, .reload:
             // The final document may be a server redirect. The readiness
             // predicate still requires this operation's loading edge and a
             // newer document epoch before accepting the URL.
             return true
-        case .rendererDestination:
-            guard let expectedURL = intent.expectedURL else { return false }
-            return Self.matches(url: eventURL, target: expectedURL)
         case .back, .forward:
             guard let expectedURL = intent.expectedURL else { return true }
             return Self.matches(url: eventURL, target: expectedURL)
