@@ -163,6 +163,18 @@ public final class NotificationDismissalModel: NotificationDismissing {
                 host.storeHasVisibleNotificationIndicator(workspaceId: workspaceId, surfaceId: $0)
             }
         }
+        // A notification recorded against the workspace itself, with no surface
+        // and no panel (cmux's own memory-pressure alert is one), matches no
+        // surface-scoped mark-read, so focusing the workspace left it unread and
+        // its sidebar count only cleared through an explicit "Mark Workspace as
+        // Read". Sweep it together with the dismissal of the workspace's focused
+        // surface, the moment the workspace is in front of the user; the other
+        // surfaces in the workspace keep their own unread state. See issue
+        // #12387.
+        let hasWorkspaceLevelUnreadNotification = !notificationSurfaceIds.isEmpty &&
+            host.storeHasUnreadNotification(workspaceId: workspaceId, surfaceId: nil) &&
+            (host.focusedSurfaceId(in: workspaceId)
+                .map { notificationSurfaceIds.contains($0) } ?? false)
         let manualStoreSurfaceIds = notificationSurfaceIds.filter {
             host.storeHasManualUnread(workspaceId: workspaceId, surfaceId: $0)
         }
@@ -171,7 +183,8 @@ public final class NotificationDismissalModel: NotificationDismissing {
         let canDismissRestoredUnreadIndicator = context.canDismissRestoredUnreadIndicator &&
             (hasRestoredPanelUnread || hasRestoredWorkspaceUnread)
         let canDismissUnreadIndicator = canDismissManualUnreadIndicator || canDismissRestoredUnreadIndicator
-        guard hasUnreadNotification || hasPendingNotification || hasFocusedIndicator || canDismissUnreadIndicator else {
+        guard hasUnreadNotification || hasPendingNotification || hasFocusedIndicator ||
+            hasWorkspaceLevelUnreadNotification || canDismissUnreadIndicator else {
             return false
         }
         if hasUnreadNotification || hasPendingNotification {
@@ -182,6 +195,9 @@ public final class NotificationDismissalModel: NotificationDismissing {
                     host.storeMarkRead(workspaceId: workspaceId, surfaceId: surfaceId)
                 }
             }
+        }
+        if hasWorkspaceLevelUnreadNotification {
+            host.storeMarkWorkspaceLevelNotificationsRead(workspaceId: workspaceId)
         }
         var didDismissUnreadIndicator = false
         if context.canDismissManualUnreadIndicator {

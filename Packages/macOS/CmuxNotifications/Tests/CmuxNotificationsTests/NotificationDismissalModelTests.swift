@@ -107,6 +107,11 @@ private final class FakeHost: NotificationDismissalHosting {
         unreadNotificationSurfaces.remove(surfaceId)
     }
 
+    func storeMarkWorkspaceLevelNotificationsRead(workspaceId: UUID) {
+        log.append("markWorkspaceLevelRead")
+        workspaceWideUnread.remove(workspaceId)
+    }
+
     func storeClearManualUnread(workspaceId: UUID) -> Bool {
         log.append("storeClearManualUnread")
         return manualWorkspaceUnread.contains(workspaceId)
