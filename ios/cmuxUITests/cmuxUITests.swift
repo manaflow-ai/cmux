@@ -7504,11 +7504,10 @@ final class cmuxUITests: XCTestCase {
             $0["proxyFirstResponder"] == "1"
                 && $0["inputRequested"] == "terminal"
                 && $0["inputActual"] == "terminal"
-                && $0["keyboardUp"] == "1"
         }
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
         let marker = "ios18 input verified"
-        surface.typeText(marker + "\n")
+        app.typeText(marker + "\n")
         let received = await server.waitForTerminalInput(marker + "\r", timeout: 12)
         XCTAssertTrue(received, "Direct terminal keyboard bytes must reach the host exactly once and in order")
         let requests = await server.terminalInputReceipt()
