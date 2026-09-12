@@ -19,9 +19,10 @@ public actor IrxControlByteTransport: CmxByteTransport {
     /// `closeCode` identifies the termination that caused the release.
     /// `retiresConnection` is true when this transport initiated a local
     /// owner retirement while the admitted connection was still live. A
-    /// control EOF or read failure is reported as a remote host shutdown, so
-    /// the peer engine's native termination watcher remains responsible for
-    /// automatic recovery.
+    /// A genuine control EOF or read/write failure is reported as a remote
+    /// host shutdown, so the peer engine's native termination watcher remains
+    /// responsible for automatic recovery. Caller cancellation remains a
+    /// local owner retirement.
     public typealias OnClose = @Sendable (
         _ connection: IrxConnection,
         _ closeCode: IrxCloseCode,
@@ -63,12 +64,20 @@ public actor IrxControlByteTransport: CmxByteTransport {
         let (_, lane) = try await establishedPair()
         do {
             let data = try await lane.reader.readRaw()
+            if Task.isCancelled {
+                await close()
+                try Task.checkCancellation()
+            }
             if data == nil {
                 controlTerminationObserved = true
                 await close()
             }
             return data
         } catch {
+            if error is CancellationError || Task.isCancelled {
+                await close()
+                throw error
+            }
             controlTerminationObserved = true
             await close()
             throw error
@@ -79,7 +88,12 @@ public actor IrxControlByteTransport: CmxByteTransport {
         let (_, lane) = try await establishedPair()
         do {
             try await lane.writer.write(data)
+            try Task.checkCancellation()
         } catch {
+            if error is CancellationError || Task.isCancelled {
+                await close()
+                throw error
+            }
             controlTerminationObserved = true
             await close()
             throw error
