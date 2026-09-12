@@ -201,7 +201,7 @@ struct RestoredAgentShellActivityLivenessTests {
     }
 
     @Test
-    func workspaceRetiresBindingWhenCompletedIndexHasNoMatchingSession() throws {
+    func workspaceKeepsBindingWhenCompletedIndexHasNoMatchingSession() throws {
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }
         let panelId = try #require(workspace.focusedPanelId)
@@ -211,10 +211,11 @@ struct RestoredAgentShellActivityLivenessTests {
             using: .empty,
             restorableAgentIndex: Self.emptyLiveIndex()
         )
-        // Unlike a missing index or pending restore, this completed scan has
-        // no live owner for the old binding. Keep manual resume available, but
-        // do not automatically replay a session whose process has exited.
-        #expect(workspace.surfaceResumeBinding(panelId: panelId)?.allowsAutomaticResume == false)
+        // A completed scan with no matching entry is still only absence of
+        // evidence: the hook may have written this session after the scan.
+        // Preserve automatic ownership until a scan observes the binding's
+        // process and proves that it exited.
+        #expect(workspace.surfaceResumeBinding(panelId: panelId)?.allowsAutomaticResume == true)
     }
 
     /// A completed scan that found no live process for any panel.
