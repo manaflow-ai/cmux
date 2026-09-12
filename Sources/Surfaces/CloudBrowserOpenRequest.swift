@@ -1,8 +1,8 @@
 import Foundation
 
-/// The private notification row used to request a Mac browser pane from a VM.
-struct CloudBrowserOpenRequest {
-    static let notificationTitle = "cmux.open-url"
+extension CmuxTuiSurfaceProvider {
+    /// Private notification title used to request a Mac browser pane from a VM.
+    static let cloudBrowserOpenNotificationTitle = "cmux.open-url"
 }
 
 extension CmuxTuiSurfaceProvider {
@@ -12,7 +12,7 @@ extension CmuxTuiSurfaceProvider {
         _ row: CloudVMNotificationRow,
         target: CloudNotificationDeliveryTarget
     ) -> Bool {
-        guard row.title == CloudBrowserOpenRequest.notificationTitle else { return false }
+        guard row.title == Self.cloudBrowserOpenNotificationTitle else { return false }
         guard let terminalID = row.terminalID,
               let url = URL(string: row.body),
               ["http", "https"].contains(url.scheme?.lowercased() ?? ""),

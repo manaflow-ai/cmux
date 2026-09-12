@@ -1832,7 +1832,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 return CloudNotificationDeliveryTarget(workspaceID: projection.workspaceID, panelID: projection.panelID)
             }
         }
-        if row.title == CloudBrowserOpenRequest.notificationTitle { return nil }
+        if row.title == Self.cloudBrowserOpenNotificationTitle { return nil }
         let remoteWorkspaceID = row.terminalID.flatMap { terminalID -> String? in
             guard let state = cloudState else { return nil }
             for tab in state.tabs where tab.contentID == terminalID {
@@ -1854,7 +1854,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
 
     private func deliverNotification(_ row: CloudVMNotificationRow, to target: CloudNotificationDeliveryTarget) -> Bool {
-        guard row.title != CloudBrowserOpenRequest.notificationTitle else { return false }; guard let store = AppDelegate.shared?.notificationStore else { return false }
+        guard row.title != Self.cloudBrowserOpenNotificationTitle else { return false }
+        guard let store = AppDelegate.shared?.notificationStore else { return false }
         guard CloudNotificationSyncHub.shared.admit(row, machineID: machineID) else { return true }
         let terminalTitle = row.terminalID.flatMap { cloudState?.lookupIndex.terminal(id: $0)?.title } ?? ""
         let machineName = summary.preferredName

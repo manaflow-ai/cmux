@@ -152,7 +152,8 @@ enum CloudNotificationSyncReducer {
         let byID = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let pending = state.pendingIDs
         var batch: [String] = []
-        for id in ids where !batch.contains(id) {
+        var seen = Set<String>()
+        for id in ids where seen.insert(id).inserted {
             if pending.contains(id) { continue }
             if let row = byID[id], row.isRead(by: clientID) { continue }
             batch.append(id)
