@@ -89,6 +89,7 @@ final class PhonePushClient {
     var presenceMonitor: MacPresenceMonitor = .live()
     private var presenceCache = MacPresenceDecisionCache()
     private var authLifecycleTask: Task<Void, Never>?
+    private var pushRecipients: [PhonePushRecipient] = []
     private var activeIdentity: AuthenticatedSessionIdentity?
     private var pendingPersistenceSnapshot: [PhonePushRequestEnvelope]?
     private var persistenceTask: Task<Void, Never>?
@@ -312,29 +313,15 @@ final class PhonePushClient {
             .pushTargetNamespace?.bundleIdentifier else {
             return .encodingFailed
         }
+        guard let envelope = makeEncryptedEnvelope(
+            payload: payload,
+            identity: identity,
+            targetBundleIdentifier: targetBundleIdentifier
+        ) else { return .encodingFailed }
         deliveryQueue.retainOnly(
             accountID: identity.accountID,
             generation: identity.generation
         )
-        let correlationID = UUID()
-        let envelope: PhonePushRequestEnvelope
-        do {
-            envelope = try PhonePushRequestEnvelope(
-                payload: payload,
-                correlationID: correlationID,
-                expirationEpochSeconds:
-                    clock.nowEpochSeconds + Self.eventTTLSeconds,
-                expectedAccountID: identity.accountID,
-                expectedSessionGeneration: identity.generation,
-                targetBundleIdentifier: targetBundleIdentifier
-            )
-        } catch {
-            logQueueStage(
-                "encoding_failed",
-                correlationID: correlationID.uuidString.lowercased()
-            )
-            return .encodingFailed
-        }
         guard deliveryQueue.enqueue(envelope) else {
             logQueueStage("queue_overflow", correlationID: envelope.correlationID)
             return .queueFull
@@ -374,23 +361,12 @@ final class PhonePushClient {
                 badgeCount: badgeCount,
                 hideContent: false
             )
-            let correlationID = UUID()
-            let envelope: PhonePushRequestEnvelope
-            do {
-                envelope = try PhonePushRequestEnvelope(
-                    payload: payload,
-                    correlationID: correlationID,
-                    expirationEpochSeconds:
-                        clock.nowEpochSeconds + Self.eventTTLSeconds,
-                    expectedAccountID: identity.accountID,
-                    expectedSessionGeneration: identity.generation,
-                    targetBundleIdentifier: targetBundleIdentifier
-                )
-            } catch {
-                logQueueStage(
-                    "dismiss_encoding_failed",
-                    correlationID: correlationID.uuidString.lowercased()
-                )
+            guard let envelope = makeEncryptedEnvelope(
+                payload: payload,
+                identity: identity,
+                targetBundleIdentifier: targetBundleIdentifier
+            ) else {
+                logQueueStage("dismiss_encoding_failed", correlationID: UUID().uuidString.lowercased())
                 continue
             }
             if !deliveryQueue.enqueuePrioritizingDismiss(envelope) {
@@ -416,6 +392,7 @@ final class PhonePushClient {
         auth.start()
         _ = try? await auth.authenticatedSessionSnapshot()
         guard !Task.isCancelled, self.auth === auth else { return }
+        await refreshPushRecipients(auth: auth)
         await restoreQueueIfAllowed(
             identity: auth.authenticatedSessionIdentity,
             auth: auth
@@ -425,6 +402,85 @@ final class PhonePushClient {
         for await identity in identities {
             guard !Task.isCancelled, self.auth === auth else { return }
             await handleAuthTransition(identity, auth: auth)
+        }
+    }
+
+    private func refreshPushRecipients(auth: AuthCoordinator) async {
+        guard let targetBundleIdentifier = MobileIOSPairingTargetStore()
+            .pushTargetNamespace?.bundleIdentifier,
+              let snapshot = try? await auth.authenticatedSessionSnapshot(),
+              var components = URLComponents(url: AuthEnvironment.pushAPIBaseURL, resolvingAgainstBaseURL: false)
+        else { return }
+        components.path = (components.path.hasSuffix("/") ? String(components.path.dropLast()) : components.path)
+            + "/api/device-tokens"
+        components.queryItems = [URLQueryItem(name: "bundleId", value: targetBundleIdentifier)]
+        guard let url = components.url else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(snapshot.accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(snapshot.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        request.setValue(targetBundleIdentifier, forHTTPHeaderField: "X-Cmux-App-Namespace")
+        guard let (data, response) = try? await session.data(for: request),
+              let http = response as? HTTPURLResponse,
+              (200...299).contains(http.statusCode),
+              let result = try? JSONDecoder().decode(PhonePushRecipientResponse.self, from: data)
+        else { return }
+        pushRecipients = result.recipients
+    }
+
+    private struct PhonePushRecipientResponse: Decodable {
+        let recipients: [PhonePushRecipient]
+    }
+
+    private func makeEncryptedEnvelope(
+        payload: PhonePushPayload,
+        identity: AuthenticatedSessionIdentity,
+        targetBundleIdentifier: String
+    ) -> PhonePushRequestEnvelope? {
+        guard !pushRecipients.isEmpty,
+              let macKey = try? PhonePushKeyStore.current(
+                  bundleID: Bundle.main.bundleIdentifier ?? "cmux"
+              ) else { return nil }
+        let correlationID = UUID()
+        do {
+            let plaintext = try PhonePushRequestEnvelope(
+                payload: payload,
+                correlationID: correlationID,
+                expirationEpochSeconds: clock.nowEpochSeconds + Self.eventTTLSeconds,
+                expectedAccountID: identity.accountID,
+                expectedSessionGeneration: identity.generation,
+                targetBundleIdentifier: targetBundleIdentifier
+            ).body
+            let encrypted = try pushRecipients.map { recipient in
+                try PhonePushCrypto.encrypt(
+                    plaintext: plaintext,
+                    tuple: PhonePushDeviceTuple(
+                        accountID: nil,
+                        teamID: nil,
+                        iosBuildID: recipient.bundleID,
+                        iosInstallationID: recipient.installationID,
+                        macDeviceID: payload.macDeviceId,
+                        macInstanceTag: payload.macInstanceTag,
+                        macBuildID: Bundle.main.bundleIdentifier
+                    ),
+                    recipientPublicKey: recipient.publicKey,
+                    keyID: recipient.keyID,
+                    installationID: recipient.installationID
+                )
+            }
+            return try PhonePushRequestEnvelope(
+                encryptedPayloads: encrypted,
+                payload: payload,
+                correlationID: correlationID,
+                expirationEpochSeconds: clock.nowEpochSeconds + Self.eventTTLSeconds,
+                expectedAccountID: identity.accountID,
+                expectedSessionGeneration: identity.generation,
+                targetBundleIdentifier: targetBundleIdentifier,
+                macPushPublicKey: macKey.publicKeyData.base64EncodedString()
+            )
+        } catch {
+            _ = macKey
+            return nil
         }
     }
 

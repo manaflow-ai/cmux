@@ -4,7 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "CmuxPhonePush",
-    platforms: [.macOS(.v14)],
+    platforms: [.iOS(.v18), .macOS(.v14)],
     products: [
         .library(name: "CmuxPhonePush", targets: ["CmuxPhonePush"]),
     ],

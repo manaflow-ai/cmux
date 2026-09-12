@@ -8,6 +8,9 @@ export const MAX_PUSH_BODY_CHARS = 500;
 export const MAX_PUSH_ID_CHARS = 200;
 export const MAX_PUSH_CORRELATION_ID_CHARS = 64;
 export const MAX_PUSH_REQUEST_BYTES = 8 * 1024;
+// APNs has a small provider-payload ceiling. Eight installations leaves room
+// for the envelope and routing fields while keeping one request fanout safe.
+export const MAX_ENCRYPTED_PUSH_PAYLOADS = 8;
 /** Max dismissed-notification ids one dismiss push may carry; the Mac chunks. */
 export const MAX_PUSH_DISMISS_IDS = 64;
 /** Badge ceiling; iOS renders large numbers fine but a runaway count is a bug. */
@@ -69,6 +72,8 @@ export type PushPayload = {
    */
   readonly badgeCount: number | null;
   readonly hideContent: boolean;
+  readonly encryptedPayloads?: readonly Record<string, unknown>[];
+  readonly macPushPublicKey?: string | null;
 };
 
 export type PushPayloadResult =
@@ -134,6 +139,16 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
   const expirationEpochSeconds = hasExpiration
     ? parseExpiration(body.expirationEpochSeconds)
     : null;
+  const encryptedPayloads = body.encryptedPayloads;
+  if (encryptedPayloads != null && (!Array.isArray(encryptedPayloads) || encryptedPayloads.length === 0 || encryptedPayloads.length > MAX_ENCRYPTED_PUSH_PAYLOADS)) {
+    return { ok: false, error: "missing_encrypted_payloads" };
+  }
+  const encryptedList = encryptedPayloads ?? [];
+  if (encryptedList.some((entry) => entry === null || typeof entry !== "object" || Array.isArray(entry))) {
+    return { ok: false, error: "invalid_encrypted_payload" };
+  }
+  const macPushPublicKey = body.macPushPublicKey == null ? "" : boundedString(body.macPushPublicKey, 128);
+  if (macPushPublicKey == null) return { ok: false, error: "invalid_mac_push_key" };
 
   if (title == null) return { ok: false, error: "title_too_long" };
   if (subtitle == null) return { ok: false, error: "subtitle_too_long" };
@@ -156,7 +171,7 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
     return { ok: false, error: "invalid_expiration" };
   }
   // A dismiss push is banner-less by design; only the visible kind needs text.
-  if (kind === "notify" && !title && !text) return { ok: false, error: "empty_notification" };
+  if (kind === "notify" && !title && !text && encryptedList.length === 0) return { ok: false, error: "empty_notification" };
 
   const dismissedIds = parseDismissedIds(body.notificationIds);
   if (!dismissedIds.ok) return { ok: false, error: dismissedIds.error };
@@ -183,6 +198,8 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
       badgeCount: parseBadgeCount(body.badgeCount),
       retargetsToLiveSurfaceOwner: kind === "notify" ? body.retargetsToLiveSurfaceOwner !== false : false,
       hideContent: body.hideContent === true,
+      ...(encryptedList.length > 0 ? { encryptedPayloads: encryptedList as Record<string, unknown>[] } : {}),
+      ...(macPushPublicKey ? { macPushPublicKey } : {}),
     },
   };
 }

@@ -1,4 +1,5 @@
 import Foundation
+import CmuxPhonePush
 import OSLog
 
 private let phoneReplySweepLog = Logger(subsystem: "dev.cmux", category: "phone-reply-inbox")
@@ -126,20 +127,24 @@ final class PhoneReplyInboxCoordinator {
                 ackIds.append(reply.replyId)
                 continue
             }
+            guard let decrypted = decrypt(reply) else {
+                retryableCount += 1
+                continue
+            }
             var params: [String: Any] = [
-                "surface_id": reply.surfaceId,
+                "surface_id": decrypted.surfaceId,
                 // Keep the reply text separate from its submit key. Appending a
                 // carriage return to terminal.input is a raw byte write and
                 // inserts a newline in full-screen agent editors instead of
                 // submitting the prompt. The Mac applies the retarget policy
                 // from the parked record before invoking terminal.paste.
-                "text": reply.text,
+                "text": decrypted.text,
                 "submit_key": "return",
             ]
-            if !reply.workspaceId.isEmpty {
-                params["workspace_id"] = reply.workspaceId
+            if !decrypted.workspaceId.isEmpty {
+                params["workspace_id"] = decrypted.workspaceId
             }
-            let outcome = inject(params, reply.retargetsToLiveSurfaceOwner)
+            let outcome = inject(params, decrypted.retargetsToLiveSurfaceOwner)
             #if DEBUG
             cmuxDebugLog("phoneReply.inject outcome=\(outcome) surface=\(reply.surfaceId.prefix(8))")
             #endif
@@ -148,18 +153,18 @@ final class PhoneReplyInboxCoordinator {
                 seenReplyIds.insert(reply.replyId)
                 ackIds.append(reply.replyId)
                 phoneReplySweepLog.info(
-                    "relayed phone reply delivered surface=\(reply.surfaceId.prefix(8), privacy: .public)"
+                    "relayed phone reply delivered surface=\(decrypted.surfaceId.prefix(8), privacy: .public)"
                 )
             case .permanentlyUndeliverable:
                 seenReplyIds.insert(reply.replyId)
                 ackIds.append(reply.replyId)
                 phoneReplySweepLog.error(
-                    "relayed phone reply dropped: target gone surface=\(reply.surfaceId.prefix(8), privacy: .public)"
+                    "relayed phone reply dropped: target gone surface=\(decrypted.surfaceId.prefix(8), privacy: .public)"
                 )
             case .retryable:
                 retryableCount += 1
                 phoneReplySweepLog.info(
-                    "relayed phone reply deferred surface=\(reply.surfaceId.prefix(8), privacy: .public)"
+                    "relayed phone reply deferred surface=\(decrypted.surfaceId.prefix(8), privacy: .public)"
                 )
             }
         }
@@ -172,6 +177,32 @@ final class PhoneReplyInboxCoordinator {
             guard (try? await sleep(retryDelay)) != nil else { return }
             sweepSoon(reason: "retryable-replies")
         }
+    }
+
+    private struct DecryptedReply: Decodable {
+        let workspaceId: String?
+        let surfaceId: String
+        let retargetsToLiveSurfaceOwner: Bool
+        let text: String
+    }
+
+    private func decrypt(_ reply: PhoneReplyRecord) -> DecryptedReply? {
+        guard let identity = try? PhonePushKeyStore.current(
+            bundleID: Bundle.main.bundleIdentifier ?? "cmux"
+        ), let data = try? PhonePushCrypto.decrypt(
+            envelope: reply.encryptedPayload,
+            tuple: PhonePushDeviceTuple(
+                accountID: nil,
+                teamID: nil,
+                iosBuildID: MobileIOSPairingTargetStore().pushTargetNamespace?.bundleIdentifier ?? "cmux",
+                iosInstallationID: reply.encryptedPayload.installationID,
+                macDeviceID: reply.macDeviceId,
+                macInstanceTag: reply.macInstanceTag,
+                macBuildID: nil
+            ),
+            privateKey: identity.privateKey
+        ) else { return nil }
+        return try? JSONDecoder().decode(DecryptedReply.self, from: data)
     }
 }
 

@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxPhonePush
 import Foundation
 import OSLog
 
@@ -10,33 +11,21 @@ private let phoneReplyLog = Logger(subsystem: "dev.cmux", category: "phone-reply
 struct PhoneReplyRecord: Decodable, Equatable, Sendable {
     let replyId: String
     let macDeviceId: String
-    let workspaceId: String
-    let surfaceId: String
-    let notificationId: String
-    /// Whether the notification may follow its surface to a new workspace.
-    /// Older parked records predate this field and remain retargetable.
-    let retargetsToLiveSurfaceOwner: Bool
-    let text: String
+    let macInstanceTag: String
+    let encryptedPayload: PhonePushEncryptedPayload
     let createdAtMs: UInt64
     let expiresAtMs: UInt64
 
     private enum CodingKeys: String, CodingKey {
-        case replyId, macDeviceId, workspaceId, surfaceId, notificationId
-        case retargetsToLiveSurfaceOwner, text, createdAtMs, expiresAtMs
+        case replyId, macDeviceId, macInstanceTag, encryptedPayload, createdAtMs, expiresAtMs
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         replyId = try container.decode(String.self, forKey: .replyId)
         macDeviceId = try container.decode(String.self, forKey: .macDeviceId)
-        workspaceId = try container.decode(String.self, forKey: .workspaceId)
-        surfaceId = try container.decode(String.self, forKey: .surfaceId)
-        notificationId = try container.decode(String.self, forKey: .notificationId)
-        retargetsToLiveSurfaceOwner = try container.decodeIfPresent(
-            Bool.self,
-            forKey: .retargetsToLiveSurfaceOwner
-        ) ?? true
-        text = try container.decode(String.self, forKey: .text)
+        macInstanceTag = try container.decode(String.self, forKey: .macInstanceTag)
+        encryptedPayload = try container.decode(PhonePushEncryptedPayload.self, forKey: .encryptedPayload)
         createdAtMs = try container.decode(UInt64.self, forKey: .createdAtMs)
         expiresAtMs = try container.decode(UInt64.self, forKey: .expiresAtMs)
     }

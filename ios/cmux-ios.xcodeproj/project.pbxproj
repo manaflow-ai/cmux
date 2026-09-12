@@ -27,7 +27,10 @@
 		8B7E20022DF3A00100A66F90 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8B7E20042DF3A00100A66F90 /* CMUXMobileCore */; };
 		8B7E20052DF3A00100A66F90 /* CmuxMobileTransport in Frameworks */ = {isa = PBXBuildFile; productRef = 8B7E20062DF3A00100A66F90 /* CmuxMobileTransport */; };
 		8B7E20112DF3A00100A66F90 /* CmuxIrohReleaseGateSupport in Frameworks */ = {isa = PBXBuildFile; productRef = 8B7E20122DF3A00100A66F90 /* CmuxIrohReleaseGateSupport */; };
+		D4E2A0090000000000000001 /* CmuxPhonePush in NotificationService Frameworks */ = {isa = PBXBuildFile; productRef = D4E2A00A0000000000000001 /* CmuxPhonePush */; };
 /* End PBXBuildFile section */
+		D4E2A0010000000000000001 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E2A0020000000000000001 /* NotificationService.swift */; };
+		D4E2A0010000000000000002 /* NotificationService.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = D4E2A0030000000000000001 /* NotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 
 /* Begin PBXContainerItemProxy section */
 		8B41F65D2DEDD0D6001A66F9 /* PBXContainerItemProxy */ = {
@@ -64,6 +67,8 @@
 		8B8A10E32DF5000000A66F90 /* SnapshotHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotHelper.swift; sourceTree = "<group>"; };
 		8B8A10E52DF5000000A66F90 /* SnapshotUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotUITests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+		D4E2A0020000000000000001 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+		D4E2A0030000000000000001 /* NotificationService.appex */ = {isa = PBXFileReference; explicitFileType = wrapper.app-extension; includeInIndex = 0; path = NotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 
 /* Begin PBXFrameworksBuildPhase section */
 		8B41F6422DEDD0D5001A66F9 /* Frameworks */ = {
@@ -87,6 +92,7 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
+		D4E2A0040000000000000001 /* NotificationService Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (D4E2A0090000000000000001 /* CmuxPhonePush in NotificationService Frameworks */); runOnlyForDeploymentPostprocessing = 0; };
 
 /* Begin PBXGroup section */
 		8B41F6472DEDD0D5001A66F9 /* cmux */ = {
@@ -100,6 +106,7 @@
 				8B8A10AB2DF5000000A66F90 /* AppCompositionRoot.swift */,
 				8B8A10AD2DF5000000A66F90 /* MobileAppLifecycleDiagnostics.swift */,
 				8B8A10182DF5000000A66F90 /* cmux.xctestplan */,
+				D4E2A0050000000000000001 /* NotificationService */,
 			);
 			path = cmux;
 			sourceTree = "<group>";
@@ -133,6 +140,7 @@
 			children = (
 				8B41F6452DEDD0D5001A66F9 /* cmux.app */,
 				8B41F65C2DEDD0D6001A66F9 /* cmux.xctest */,
+				D4E2A0030000000000000001 /* NotificationService.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -167,6 +175,7 @@
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
+		D4E2A0050000000000000001 /* NotificationService */ = {isa = PBXGroup; children = (D4E2A0020000000000000001 /* NotificationService.swift */); path = NotificationService; sourceTree = "<group>"; };
 
 /* Begin PBXNativeTarget section */
 		8B41F6442DEDD0D5001A66F9 /* cmux */ = {
@@ -177,6 +186,7 @@
 				8B41F6422DEDD0D5001A66F9 /* Frameworks */,
 				8B41F6432DEDD0D5001A66F9 /* Resources */,
 				8BMDVWR0COPYASSETS0001AA /* Copy Markdown Viewer Assets */,
+				D4E2A0060000000000000001 /* Embed App Extensions */,
 			);
 			buildRules = (
 			);
@@ -215,6 +225,18 @@
 			productReference = 8B41F65C2DEDD0D6001A66F9 /* cmux.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		D4E2A0070000000000000001 /* NotificationService */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D4E2A00B0000000000000001 /* Build configuration list for NotificationService */;
+			buildPhases = (D4E2A0080000000000000001 /* NotificationService Sources */, D4E2A0040000000000000001 /* NotificationService Frameworks */);
+			buildRules = ();
+			dependencies = ();
+			packageProductDependencies = (D4E2A00A0000000000000001 /* CmuxPhonePush */);
+			name = NotificationService;
+			productName = NotificationService;
+			productReference = D4E2A0030000000000000001 /* NotificationService.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -232,6 +254,7 @@
 						CreatedOnToolsVersion = 16.3;
 						TestTargetID = 8B41F6442DEDD0D5001A66F9;
 					};
+					D4E2A0070000000000000001 = { CreatedOnToolsVersion = 16.3; };
 				};
 			};
 			buildConfigurationList = 8B41F6402DEDD0D5001A66F9 /* Build configuration list for PBXProject "cmux" */;
@@ -257,6 +280,7 @@
 			targets = (
 				8B41F6442DEDD0D5001A66F9 /* cmux */,
 				8B41F65B2DEDD0D6001A66F9 /* cmuxUITests */,
+				D4E2A0070000000000000001 /* NotificationService */,
 			);
 		};
 /* End PBXProject section */
@@ -316,6 +340,7 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+		D4E2A0060000000000000001 /* Embed App Extensions */ = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = ""; dstSubfolderSpec = 13; files = (D4E2A0010000000000000002 /* NotificationService.appex in Embed App Extensions */); runOnlyForDeploymentPostprocessing = 0; };
 
 /* Begin PBXSourcesBuildPhase section */
 		8B41F6412DEDD0D5001A66F9 /* Sources */ = {
@@ -343,6 +368,7 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+		D4E2A0080000000000000001 /* NotificationService Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (D4E2A0010000000000000001 /* NotificationService.swift in Sources */); runOnlyForDeploymentPostprocessing = 0; };
 
 /* Begin PBXTargetDependency section */
 		8B41F65E2DEDD0D6001A66F9 /* PBXTargetDependency */ = {
@@ -554,6 +580,8 @@
 			};
 			name = Release;
 		};
+		D4E2A00C0000000000000001 /* Debug */ = { isa = XCBuildConfiguration; buildSettings = { CODE_SIGN_STYLE = Automatic; CODE_SIGN_ENTITLEMENTS = Config/NotificationService.entitlements; INFOPLIST_FILE = NotificationService/Info.plist; PRODUCT_BUNDLE_IDENTIFIER = "dev.cmux.ios.NotificationService"; SWIFT_VERSION = 5.0; }; name = Debug; };
+		D4E2A00D0000000000000001 /* Release */ = { isa = XCBuildConfiguration; buildSettings = { CODE_SIGN_STYLE = Automatic; CODE_SIGN_ENTITLEMENTS = Config/NotificationService.entitlements; INFOPLIST_FILE = NotificationService/Info.plist; PRODUCT_BUNDLE_IDENTIFIER = "dev.cmux.app.beta.NotificationService"; SWIFT_VERSION = 5.0; }; name = Release; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -584,6 +612,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		D4E2A00B0000000000000001 /* Build configuration list for NotificationService */ = { isa = XCConfigurationList; buildConfigurations = (D4E2A00C0000000000000001 /* Debug */, D4E2A00D0000000000000001 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -612,6 +641,7 @@
 			productName = CmuxIrohReleaseGateSupport;
 		};
 /* End XCSwiftPackageProductDependency section */
+		D4E2A00A0000000000000001 /* CmuxPhonePush */ = { isa = XCSwiftPackageProductDependency; productName = CmuxPhonePush; };
 	};
 	rootObject = 8B41F63D2DEDD0D5001A66F9 /* Project object */;
 }

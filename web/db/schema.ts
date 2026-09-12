@@ -989,6 +989,9 @@ export const deviceTokens = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     userId: text("user_id").notNull(),
     deviceToken: text("device_token").notNull(),
+    installationId: text("installation_id").notNull().default("legacy"),
+    pushKeyId: text("push_key_id").notNull().default("legacy"),
+    pushPublicKey: text("push_public_key"),
     platform: text("platform").notNull().default("ios"),
     // The APNs topic the token belongs to (the iOS bundle id, which varies by
     // build: dev.cmux.ios.<tag>, dev.cmux.app.beta, com.cmux.app).
