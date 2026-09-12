@@ -46,9 +46,9 @@ def resolve_distribution(
     override = marketing_version_override.strip()
     if variant not in {"internal", "external", "demo"}:
         raise ValueError(f"unsupported TestFlight variant: {variant}")
-    if override and variant != "internal":
+    if override and variant == "demo":
         raise ValueError(
-            "marketing_version_override requires variant=internal"
+            "marketing_version_override cannot be used with variant=demo"
         )
     if override:
         return _external_decision(

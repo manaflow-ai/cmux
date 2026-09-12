@@ -92,6 +92,29 @@ def test_distribution_helper_resolves_automatic_external_upload() -> None:
     assert decision.audience == "external TestFlight testers"
 
 
+def test_distribution_helper_allows_external_variant_recovery_override() -> None:
+    helper = load_distribution_helper()
+
+    decision = helper.resolve_distribution("external", "1.2.3")
+
+    assert decision.bundle_id == "dev.cmux.app.beta"
+    assert decision.assign_external_group is True
+    assert decision.assign_internal_group is False
+    assert decision.metadata_artifact == "ios-testflight-build-metadata-override"
+    assert decision.upload_mode == "marketing_version_override"
+
+
+def test_distribution_helper_rejects_demo_recovery_override() -> None:
+    helper = load_distribution_helper()
+
+    try:
+        helper.resolve_distribution("demo", "1.2.3")
+    except ValueError as error:
+        assert str(error) == "marketing_version_override cannot be used with variant=demo"
+    else:
+        raise AssertionError("demo recovery override should be rejected")
+
+
 def test_workflow_executes_distribution_helper_and_consumes_its_outputs() -> None:
     text = workflow_text()
     upload_job = workflow_job(text, "upload")
@@ -117,6 +140,8 @@ if __name__ == "__main__":
     test_distribution_helper_resolves_demo_upload()
     test_distribution_helper_resolves_manual_external_override()
     test_distribution_helper_resolves_automatic_external_upload()
+    test_distribution_helper_allows_external_variant_recovery_override()
+    test_distribution_helper_rejects_demo_recovery_override()
     test_workflow_executes_distribution_helper_and_consumes_its_outputs()
     test_ci_executes_this_testflight_workflow_guard()
     print("all iOS TestFlight Pro distribution tests passed")
