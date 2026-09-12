@@ -135,7 +135,7 @@ export function NotFoundTerminal({ command, welcome, lastLogin, dragLabel }: Ter
       <div className="overflow-hidden rounded-[22px] border border-[#52534f] bg-[#272823] shadow-[0_28px_70px_-30px_rgba(0,0,0,0.9)]">
         <button
           type="button"
-          className="relative block h-[38px] w-full touch-none cursor-grab select-none border-0 border-b border-[#353631] bg-[#272823] p-0 text-left active:cursor-grabbing"
+          className="relative block h-10 w-full touch-none cursor-grab select-none border-0 border-b border-[#353631] bg-[#272823] p-0 text-left active:cursor-grabbing"
           aria-label={dragLabel}
           aria-roledescription="draggable window"
           onKeyDown={onKeyDown}
