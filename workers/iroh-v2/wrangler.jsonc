@@ -67,7 +67,8 @@
         "STACK_API_URL": "https://api.stack-auth.com",
         "AXIOM_DATASET": "iroh-v2",
         "AXIOM_INGEST_URL": "https://api.axiom.co/v1/datasets/iroh-v2/ingest",
-        "SENTRY_ENVIRONMENT": "development"
+        "SENTRY_ENVIRONMENT": "development",
+        "DASHBOARD_ALLOWED_ORIGINS": "[\"https://cmux.com\",\"https://www.cmux.com\",\"http://localhost:4175\",\"http://127.0.0.1:4175\",\"https://cmux-dev-backend-1.tail137216.ts.net:4405\",\"https://cmux-dev-backend-1.tail137216.ts.net:4618\"]"
       },
       "durable_objects": {
         "bindings": [
