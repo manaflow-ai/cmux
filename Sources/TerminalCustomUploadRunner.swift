@@ -317,46 +317,64 @@ struct TerminalCustomUploadRunner {
             stderrBuffer.set(drainPipe(stderrReadFD, cap: maxStderrBytes)); stderrDrained.signal()
         }
 
-        // `wakeup` is signalled by the reaper when the child exits AND by
-        // cancellation, so the waits below block on a real event — never a timer or
-        // a poll. On cancel/timeout the group gets SIGTERM, then SIGKILL after a
-        // bounded grace if it hasn't died. Signalling only happens while the leader
-        // is still alive (group non-empty), so the pgid can't have been reused.
+        // `wakeup` is signalled when the leader exits AND by cancellation, so the waits
+        // below block on a real event — never a timer or a poll. On cancel/timeout the
+        // group gets SIGTERM, then SIGKILL. Signalling only happens while the leader is
+        // unreaped, and an unreaped leader is still a member of its group, so the pgid
+        // cannot have been reused.
         let wakeup = DispatchSemaphore(value: 0)
+        // The leader is observed without being reaped, then reaped once teardown is
+        // over. `mayReap` is what says teardown is over, so the two stages stay on this
+        // one thread and the blocking waits never move onto the caller's.
+        let mayReap = DispatchSemaphore(value: 0)
+        let reaped = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).async {
-            spawned.reap()
+            spawned.awaitLeaderExit()
             wakeup.signal()
+            mayReap.wait()
+            spawned.collectLeader()
+            reaped.signal()
         }
         operation.installCancellationHandler {
             spawned.signalGroup(SIGTERM)
             wakeup.signal()
         }
         defer { operation.clearCancellationHandler() }
+        // Whatever happens below, the leader gets reaped: an early return would otherwise
+        // park the reaper thread forever and leave a zombie. Signalling twice is fine,
+        // the reaper waits once.
+        defer { mayReap.signal() }
 
-        // Blocks on `wakeup` until the child is reaped or `grace` elapses.
-        func awaitExit(within grace: TimeInterval) -> Bool {
+        // Blocks on `wakeup` until the leader exits or `grace` elapses.
+        func awaitLeaderExit(within grace: TimeInterval) -> Bool {
             let deadline = DispatchTime.now() + grace
-            while !spawned.isReaped {
+            while !spawned.hasLeaderExited {
                 if wakeup.wait(timeout: deadline) == .timedOut { break }
             }
-            return spawned.isReaped
+            return spawned.hasLeaderExited
         }
 
         // First wait: exit, cancel, or the timeout budget — whichever comes first.
         let deadline = DispatchTime.now() + timeout
-        while !spawned.isReaped && !operation.isCancelled {
+        while !spawned.hasLeaderExited && !operation.isCancelled {
             if wakeup.wait(timeout: deadline) == .timedOut { break }
         }
 
-        var timedOut = false
-        if !spawned.isReaped {
-            timedOut = !operation.isCancelled
+        let timedOut = !spawned.hasLeaderExited && !operation.isCancelled
+        if timedOut || operation.isCancelled {
             spawned.signalGroup(SIGTERM)
-            if !awaitExit(within: 1) {
-                spawned.signalGroup(SIGKILL)
-                _ = awaitExit(within: 5)
-            }
+            // The leader exiting is not the group exiting. A descendant that ignores
+            // SIGTERM outlives it, keeps our pipes open, and would survive the whole
+            // teardown if the leader's exit were read as success — so SIGKILL goes to
+            // the group either way, as soon as the leader is gone or the grace runs out.
+            // Reaping waits until after that: a reaped leader frees its pgid for reuse,
+            // and the kill would then be addressed to whatever group inherits the id.
+            _ = awaitLeaderExit(within: 1)
+            spawned.signalGroup(SIGKILL)
+            _ = awaitLeaderExit(within: 5)
         }
+        mayReap.signal()
+        _ = reaped.wait(timeout: .now() + 5)
 
         // The leader exited, but a descendant — possibly `setsid`'d out of the
         // group, so a group kill can't reach it — could still hold a write end
@@ -455,17 +473,40 @@ struct TerminalCustomUploadRunner {
 
     /// A spawned child process group, led by the `/bin/sh` child. A lock guards the
     /// wait status across the reaper thread and the caller; an actor can't own the
-    /// blocking `waitpid` this wraps.
+    /// blocking waits this wraps. The leader's exit and its reaping are separate steps
+    /// because teardown has to keep signalling the group after the leader is gone.
     private final class SpawnedProcess: @unchecked Sendable {
         private let lock = NSLock()
         private let groupID: pid_t
         private var rawStatus: Int32 = 0
-        private var reaped = false
+        private var leaderExited = false
+        private var collected = false
 
         init(pid: pid_t) { groupID = pid }
 
-        /// Blocks until the group leader (`/bin/sh`) exits and records its status.
-        func reap() {
+        /// Blocks until the group leader (`/bin/sh`) exits, leaving it unreaped. The
+        /// zombie is still a member of the process group, which keeps the pgid from
+        /// being handed to anything else while teardown is still signalling it.
+        func awaitLeaderExit() {
+            var info = siginfo_t()
+            while waitid(P_PID, id_t(groupID), &info, WEXITED | WNOWAIT) == -1 {
+                if errno == EINTR { continue }
+                break
+            }
+            lock.lock()
+            leaderExited = true
+            lock.unlock()
+        }
+
+        var hasLeaderExited: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return leaderExited
+        }
+
+        /// Reaps the leader and records its status. Blocks, so callers hand this to the
+        /// same thread that did `awaitLeaderExit`.
+        func collectLeader() {
             var status: Int32 = 0
             while true {
                 let result = waitpid(groupID, &status, 0)
@@ -476,25 +517,20 @@ struct TerminalCustomUploadRunner {
             }
             lock.lock()
             rawStatus = status
-            reaped = true
+            leaderExited = true
+            collected = true
             lock.unlock()
-        }
-
-        var isReaped: Bool {
-            lock.lock()
-            defer { lock.unlock() }
-            return reaped
         }
 
         /// Signals the whole process group, unless the leader has been reaped — once
         /// reaped, the pgid may be empty and reusable, so signalling it could hit an
-        /// unrelated group. The reap flag is checked and the signal sent under the
-        /// same lock that `reap()` sets it with, so a signal never races past reap.
-        /// We only ever signal the group, never a bare pid.
+        /// unrelated group. The collected flag is checked and the signal sent under the
+        /// same lock that `collectLeader()` sets it with, so a signal never races past
+        /// the reap. We only ever signal the group, never a bare pid.
         func signalGroup(_ signal: Int32) {
             lock.lock()
             defer { lock.unlock() }
-            guard !reaped else { return }
+            guard !collected else { return }
             _ = kill(-groupID, signal)
         }
 
