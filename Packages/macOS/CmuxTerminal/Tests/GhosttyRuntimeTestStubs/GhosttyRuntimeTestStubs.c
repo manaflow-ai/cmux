@@ -569,11 +569,10 @@ bool ghostty_surface_set_render_failed_callback(
 }
 bool ghostty_surface_request_render_with_token(void *surface, uint64_t token) {
     GhosttyRuntimeTestRenderCallbacks* callbacks = cmux_test_render_callbacks_for(surface);
-    if (callbacks != NULL && callbacks->presented != NULL) {
-        if (callbacks->has_pending_token) return false;
-        callbacks->pending_token = token;
-        callbacks->has_pending_token = true;
-    }
+    if (callbacks == NULL || callbacks->presented == NULL) return false;
+    if (callbacks->has_pending_token) return false;
+    callbacks->pending_token = token;
+    callbacks->has_pending_token = true;
     return true;
 }
 
