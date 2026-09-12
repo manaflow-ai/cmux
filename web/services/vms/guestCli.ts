@@ -2734,40 +2734,25 @@ case "\${1:-}" in
     ;;
   notify)
     # Mac-CLI compatible \`cmux notify\` inside a machine (agent hooks call it
-    # with --title/--subtitle/--body). cmux-tui's verb is \`notification create\`;
-    # the notification lands in this machine's daemon ledger and the user's Mac
-    # picks it up from the session event stream it already follows. The Mac
-    # attributes it to the pane showing this terminal, so the daemon-assigned
-    # CMUX_TUI_TERMINAL_ID is the only selector that means anything here: Mac
-    # topology selectors are ignored, --subtitle folds into the body (cmux-tui
-    # has no such field), and only the levels the daemon accepts are forwarded.
-    # Nothing here can name a Mac workspace, surface, or socket.
+    # with --title/--subtitle/--body). cmux-tui's own \`notify\` verb takes the
+    # macOS signature: it stores --subtitle as its own field, scopes --clear,
+    # refuses --reply, and validates any selector it is handed, so the shim
+    # forwards the arguments verbatim and the daemon stays the one place that
+    # knows the grammar. Nothing here can name a Mac workspace, surface, or
+    # socket: those selectors are rejected by the daemon rather than mapped.
     shift
-    title=""; subtitle=""; body=""; level=""; terminal="\${CMUX_TUI_TERMINAL_ID:-}"
-    while [ "\$#" -gt 0 ]; do
-      case "\$1" in
-        --title) title="\${2:-}"; shift; [ "\$#" -gt 0 ] && shift ;;
-        --title=*) title="\${1#--title=}"; shift ;;
-        --subtitle) subtitle="\${2:-}"; shift; [ "\$#" -gt 0 ] && shift ;;
-        --subtitle=*) subtitle="\${1#--subtitle=}"; shift ;;
-        --body) body="\${2:-}"; shift; [ "\$#" -gt 0 ] && shift ;;
-        --body=*) body="\${1#--body=}"; shift ;;
-        --level) level="\${2:-}"; shift; [ "\$#" -gt 0 ] && shift ;;
-        --level=*) level="\${1#--level=}"; shift ;;
-        --terminal) terminal="\${2:-}"; shift; [ "\$#" -gt 0 ] && shift ;;
-        --terminal=*) terminal="\${1#--terminal=}"; shift ;;
-        --workspace|--surface|--window|--tab|--panel) shift; [ "\$#" -gt 0 ] && shift ;;
-        *) shift ;;
+    # Silent on success like the Mac CLI, unless the caller asked for the
+    # JSON result: --quiet and --json are exclusive global output modes.
+    cmux_notify_json=
+    for cmux_notify_arg in "\$@"; do
+      case "\$cmux_notify_arg" in
+        --json|--jsonl) cmux_notify_json=1; break ;;
       esac
     done
-    [ -n "\$title" ] || title=Notification
-    if [ -n "\$subtitle" ]; then
-      if [ -n "\$body" ]; then body="\$subtitle — \$body"; else body="\$subtitle"; fi
+    if [ -n "\$cmux_notify_json" ]; then
+      exec "\$CMUX_TUI_BIN" --session "\$LOCAL_SESSION" notify "\$@"
     fi
-    set -- notification create --title "\$title" --body "\$body"
-    case "\$level" in info|warning|error) set -- "\$@" --level "\$level" ;; esac
-    if [ -n "\$terminal" ]; then set -- "\$@" --terminal "\$terminal"; fi
-    exec "\$CMUX_TUI_BIN" --session "\$LOCAL_SESSION" --quiet "\$@"
+    exec "\$CMUX_TUI_BIN" --session "\$LOCAL_SESSION" --quiet notify "\$@"
     ;;
   *)
     # Local daemon session. cmux-tui's own grammar is \`cmux <resource> <action>\`.

@@ -39,7 +39,6 @@ describe("account.me", () => {
       userId: "",
       email: "a@example.com",
       planId: "free",
-      subscriptionPlanId: "free",
       isPro: false,
       billingManagement: "none",
     });
