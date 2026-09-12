@@ -527,7 +527,7 @@
         "activeBody": "Your Max plan is active. It renews on {date}.",
         "pendingBody": "Your Max plan ends on {date}.",
         "monthlyPrice": "${amount}/mo",
-        "upsell": "Start 32 GB and 64 GB machines with Max for $200 per month, billed monthly."
+        "upsell": "Run machines with up to 64 GB RAM on Max for $200 per month, billed monthly."
       }
     },
     "testflight": {

@@ -527,7 +527,7 @@
         "activeBody": "Max プランは有効です。次回更新日は {date} です。",
         "pendingBody": "Max プランは {date} に終了します。",
         "monthlyPrice": "${amount}/月",
-        "upsell": "月額 $200 の Max で、32 GB と 64 GB のマシンを作成できます。月払いのみです。"
+        "upsell": "Max は月額 $200 で、マシンごとに最大 64 GB RAM を利用できます。月払いのみです。"
       }
     },
     "testflight": {
