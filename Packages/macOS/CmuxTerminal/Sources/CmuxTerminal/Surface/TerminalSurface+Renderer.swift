@@ -120,9 +120,6 @@ extension TerminalSurface {
             }
         } else {
             rendererPresentationState.recoveryAttempted = false
-            if renderHealth != .shellExited {
-                renderHealth = .notStarted
-            }
             setOcclusion(false)
         }
     }
