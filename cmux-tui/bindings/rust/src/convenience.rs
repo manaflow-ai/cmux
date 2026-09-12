@@ -28,6 +28,7 @@ impl SubscriptionBuilder {
 
     pub fn open(self, client: &mut CmuxClient) -> Result<CmuxStream> {
         client.subscribe(SubscribeRequest {
+            presence_only: Optional::Missing,
             tree_events: Optional::Value(if self.deltas {
                 SubscribeRequestTreeEvents::Deltas
             } else {
