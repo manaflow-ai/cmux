@@ -475,7 +475,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             case .browser(let row):
                 return resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
             case .display(let resource, _, _):
-                nodeActions.project(resource.id, .split, true)
+                return resourceMenuItems(resource, isLocal: false)
             case .port(let resource, _, _):
                 return resourceMenuItems(resource, isLocal: false)
             case .browsersGroup:
