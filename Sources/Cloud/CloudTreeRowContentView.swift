@@ -83,7 +83,7 @@ struct CloudTreeRowContentView: View {
             groupRow(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count)
         case .workspacesGroup:
             groupRow(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"))
-        case .workspace(_, let workspace, let terminalCount, _, _):
+        case .workspace(_, let workspace, _, _, _):
             // No open marker here (none on any row since #11069); the row's open
             // verb reads "Go to Workspace" when it is already showing locally.
             CloudTreeLeafRow(
@@ -91,10 +91,7 @@ struct CloudTreeRowContentView: View {
                 icon: "folder.fill",
                 tint: CloudTreeIconPalette.workspace,
                 title: workspace.name,
-                titleWeight: workspace.focused ? .medium : .regular,
-                detail: style.showsGroupCounts
-                    ? CloudTreeRowContentView.count(terminalCount)
-                    : nil
+                titleWeight: workspace.focused ? .medium : .regular
             )
         case .localWorkspace(let row):
             CloudTreeLeafRow(
@@ -102,8 +99,7 @@ struct CloudTreeRowContentView: View {
                 icon: "folder.fill",
                 tint: CloudTreeIconPalette.workspace,
                 title: row.title,
-                titleWeight: row.isSelected ? .medium : .regular,
-                detail: style.showsGroupCounts ? CloudTreeRowContentView.count(row.terminalCount) : nil
+                titleWeight: row.isSelected ? .medium : .regular
             )
         case .terminal(let row):
             CloudTreeTerminalRowContent(row: row, style: style)
@@ -190,13 +186,13 @@ struct CloudTreeRowContentView: View {
         .padding(.trailing, CloudTreeRowGrid.trailingPadding)
     }
 
+    /// Formats terminal totals for group and machine summaries.
     static func count(_ terminals: Int) -> String {
         terminals == 1
             ? String(localized: "cloudTree.workspace.terminalCount.one", defaultValue: "1 terminal")
             : String(format: String(localized: "cloudTree.workspace.terminalCount.other", defaultValue: "%d terminals"), terminals)
     }
 
-    /// A workspace row's detail: the total terminal rows shown beneath it.
     /// Formats the transport and screen label shown beneath a VNC display row.
     /// A key such as `display:1` becomes `noVNC · :1`; unknown key shapes retain
     /// the transport-only detail.
@@ -325,7 +321,6 @@ struct CloudTreeLeafRow<Accessories: View>: View {
                         titleText
                         if let detail, !detail.isEmpty {
                             detailText(detail)
-                                .fixedSize(horizontal: true, vertical: false)
                         }
                     }
                     Spacer(minLength: CloudTreeRowGrid.trailingGap)
@@ -349,6 +344,7 @@ struct CloudTreeLeafRow<Accessories: View>: View {
             .underline(titleIsLink)
             .lineLimit(1)
             .truncationMode(.tail)
+            .layoutPriority(1)
     }
 
     private var titleColor: AnyShapeStyle {

@@ -743,6 +743,33 @@ struct CheckoutAttributionTests {
     }
 
     @Test
+    func vmMemoryRequiresPlanErrorTextNamesMaxAndLinksTheMaxCheckout() {
+        let text = defaultCloudVMAction(status: 402, errorCode: "vm_memory_requires_plan")
+        #expect(text.contains("cmux Max"))
+        #expect(text.contains("https://cmux.com/pricing?plan=max"))
+        #expect(text.contains("cmux_source=\(ProUpgradeSource.vmMemoryRequiresPlanError.rawValue)"))
+        #expect(text.contains("cmux_client=mac"))
+    }
+
+    /// Pro is the server's default plan, so its checkout carries no `plan`;
+    /// Max sends `plan=max` next to the source attribution, and a stale
+    /// `plan` on the base URL is replaced rather than duplicated.
+    @Test
+    func checkoutURLCarriesThePlanOnlyForMax() throws {
+        let base = try #require(URL(string: "https://cmux.com/api/billing/checkout?cmux_external_browser=1&plan=pro"))
+        let pro = ProUpgradePresenter.checkoutURL(source: .newMachineSheetMaxUpgrade, plan: .pro, base: base)
+        let max = ProUpgradePresenter.checkoutURL(source: .newMachineSheetMaxUpgrade, plan: .max, base: base)
+        let proItems = try #require(URLComponents(url: pro, resolvingAgainstBaseURL: false)?.queryItems)
+        let maxItems = try #require(URLComponents(url: max, resolvingAgainstBaseURL: false)?.queryItems)
+        #expect(!proItems.contains { $0.name == "plan" })
+        #expect(maxItems.filter { $0.name == "plan" }.map(\.value) == ["max"])
+        #expect(maxItems.filter { $0.name == "cmux_source" }.map(\.value) == ["mac_new_machine_sheet_max_upgrade"])
+        #expect(maxItems.contains { $0.name == "cmux_external_browser" && $0.value == "1" })
+        #expect(pro.path == "/api/billing/checkout")
+        #expect(max.path == "/api/billing/checkout")
+    }
+
+    @Test
     func intentPropertiesNameSurfaceAndChannel() {
         let properties = CheckoutAttribution.intentProperties(source: .helpMenu, flavor: .stable)
         #expect(properties["source"] as? String == "mac_help_menu")

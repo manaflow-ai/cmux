@@ -24,6 +24,21 @@ struct NewMachineSheet: View {
         .padding(24)
         .frame(width: 500)
         .accessibilityIdentifier("NewMachineSheet")
+        .confirmationDialog(
+            String(localized: "machines.new.max.title", defaultValue: "Upgrade to cmux Max"),
+            isPresented: $model.showsMaxUpgrade,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "machines.new.max.checkout", defaultValue: "Continue to checkout")) {
+                ProUpgradePresenter.presentCheckout(source: .newMachineSheetMaxUpgrade, plan: .max)
+            }
+        } message: {
+            Text(String(localized: "machines.new.max.message", defaultValue: "Max is $200 per month, billed monthly. It unlocks 32 GB and 64 GB machines. Review the price before you confirm payment."))
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await model.refreshPlan?() }
+        }
+
     }
 
     private var header: some View {
@@ -61,20 +76,44 @@ struct NewMachineSheet: View {
             }
 
             if let selectedSize = model.selectedSize {
-                Picker(selection: $model.memoryMb) {
+                Menu {
                     ForEach(model.memoryOptions, id: \.self) { memoryMb in
                         if let size = MachineSizeOption(memoryMb: memoryMb) {
-                            Text(size.menuTitle).tag(memoryMb)
+                            Button(size.menuTitle) { model.selectSize(memoryMb) }
+                        }
+                    }
+                    ForEach(model.lockedMemoryOptions, id: \.self) { memoryMb in
+                        if let size = MachineSizeOption(memoryMb: memoryMb) {
+                            Button { model.selectSize(memoryMb) } label: {
+                                Label(model.lockedSizeMenuTitle(size), systemImage: "lock.fill")
+                            }
+                            .disabled(model.memoryUpgradePlanId == nil)
+                            .accessibilityIdentifier("NewMachineSheet.size.locked.\(memoryMb)")
                         }
                     }
                 } label: {
                     Text(selectedSize.menuTitle)
                 }
-                .pickerStyle(.menu)
-                .labelsHidden()
                 .accessibilityIdentifier("NewMachineSheet.size")
                 .accessibilityLabel(String(localized: "machines.new.size.accessibilityLabel", defaultValue: "RAM size"))
                 .accessibilityValue(selectedSize.menuTitle)
+            }
+
+            if let note = model.lockedSizesNoteText, let upgradeTitle = model.memoryUpgradeButtonTitle {
+                HStack(alignment: .center, spacing: 8) {
+                    Text(note)
+                        .cmuxFont(size: 11)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("NewMachineSheet.size.lockedNote")
+                    Spacer(minLength: 0)
+                    Button(upgradeTitle) {
+                        model.showsMaxUpgrade = true
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("NewMachineSheet.size.upgrade")
+                }
             }
         }
         .accessibilityIdentifier("NewMachineSheet.sizeSection")
@@ -105,7 +144,7 @@ struct NewMachineSheet: View {
         ScrollView(.vertical) {
             Text(text)
                 .font(.system(size: 11, design: .monospaced))
-                .copyOnlyTextSelection(for: text)
+                .textSelection(.disabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(8)
         }
@@ -119,6 +158,7 @@ struct NewMachineSheet: View {
                 .strokeBorder(Color.red.opacity(0.35), lineWidth: 1)
         )
         .accessibilityIdentifier("NewMachineSheet.error")
+        .cloudErrorCopyMenu(text)
     }
 
     private var buttons: some View {

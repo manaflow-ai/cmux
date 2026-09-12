@@ -1,3 +1,4 @@
+import { retainCloudServerError } from "../observability/cloudServerError";
 import { randomUUID } from "node:crypto";
 import { after } from "next/server";
 import { trace, type Span } from "@opentelemetry/api";
@@ -86,6 +87,7 @@ export function reportVmErrorResponse(input: VmErrorResponseInput): void {
   if (activeSpan) annotateVmErrorSpan(activeSpan, input);
   const context = currentVmRequestContext();
   if (context) context.lastError = input;
+  retainCloudServerError(input, context);
   const diagnostics = input.diagnostics ?? {};
   const provider = stringOrUndefined(diagnostics.provider);
   const operatorFault = isOperatorFaultVmError(input);
@@ -219,6 +221,24 @@ function requestTelemetryProperties(
  * and an Axiom trace of one failure share one key. Reads only the status
  * and the `x-cmux-vm-error` header, never the body stream.
  */
+function addMemoryUpgradeProperties(requestProperties: PostHogProperties, errorCode: string | undefined, lastError: VmErrorResponseInput | undefined) {
+  if (errorCode === "vm_memory_requires_plan") {
+    requestProperties.requested_memory_mb = typeof lastError?.details?.requestedMemoryMb === "number" ? lastError.details.requestedMemoryMb : 0;
+    requestProperties.max_memory_mb = typeof lastError?.details?.maxMemoryMb === "number" ? lastError.details.maxMemoryMb : 0;
+    requestProperties.upgrade_plan = typeof lastError?.details?.upgradePlanId === "string" ? lastError.details.upgradePlanId : "max";
+  }
+}
+
+function requestAnalyticsBatch(requestProperties: PostHogProperties, errorCode: string | undefined) {
+  const batch: Array<{ event: string; properties: PostHogProperties }> = [
+    { event: VM_REQUEST_POSTHOG_EVENT, properties: requestProperties },
+  ];
+  if (errorCode === "vm_memory_requires_plan") {
+    batch.push({ event: "cmux_vm_size_upgrade_required", properties: { ...requestProperties, $insert_id: randomUUID() } });
+  }
+  return batch;
+}
+
 export function captureVmRequestOutcome(
   input: {
     readonly context: VmRequestContext;
@@ -247,7 +267,9 @@ export function captureVmRequestOutcome(
       "cmux.client.name": context.client.name,
       "cmux.client.version": context.client.version,
       "cmux.client.build": context.client.build,
-      "cmux.client.channel": context.client.channel,
+      "cmux.client.channel": normalizedCloudClientChannel(context.client.channel),
+      "cmux.client.revision": context.client.revision,
+      "cmux.operation_id": context.operationId,
       "cmux.client.request_id": context.client.requestId,
       "cmux.client.trace_id": context.client.traceId,
       "cmux.vercel.request_id": context.vercelRequestId,
@@ -276,12 +298,11 @@ export function captureVmRequestOutcome(
   if (errorCode) requestProperties.error_code = errorCode;
   if (lastError?.phase) requestProperties.error_phase = lastError.phase;
   if (lastError?.retryable !== undefined) requestProperties.retryable = lastError.retryable;
+  addMemoryUpgradeProperties(requestProperties, errorCode, lastError);
   const provider = stringOrUndefined(lastError?.diagnostics?.provider);
   if (provider) requestProperties.provider = provider;
   const timestamp = new Date().toISOString();
-  const batch: Array<{ event: string; properties: PostHogProperties }> = [
-    { event: VM_REQUEST_POSTHOG_EVENT, properties: requestProperties },
-  ];
+  const batch = requestAnalyticsBatch(requestProperties, errorCode);
   if (!success) {
     const reason = scrubForAnalytics(lastError?.reason ?? lastError?.message ?? `HTTP ${status}`);
     batch.push({
@@ -567,4 +588,8 @@ export function captureVmProvisionOutcome(
 
 function stringOrUndefined(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function normalizedCloudClientChannel(channel: string | undefined): string | undefined {
+  return channel === "stable" ? "production" : channel;
 }

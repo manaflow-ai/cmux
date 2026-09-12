@@ -1149,6 +1149,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     /// The app-managed Cloud tunnel (see `AppDelegate+CloudTunnel.swift`).
     var cloudTunnelCoordinator: CloudTunnelCoordinator?
+    var cloudOperations: CloudOperationRecorder?
+    var cloudDiagnosticsWindowController: NSWindowController?
     /// The in-flight sign-out teardown of that tunnel, so a second sign-out
     /// replaces rather than stacks it.
     var cloudTunnelTeardownTask: Task<Void, Never>?
@@ -2528,6 +2530,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         let cloudTunnel = makeCloudTunnelCoordinator()
         cloudTunnelCoordinator = cloudTunnel
+        CmuxTuiSurfaceProviderRegistry.shared.portAccess.coordinator = cloudTunnel
+        let cloudUploader = CloudTelemetryUploader(
+            auth: auth.coordinator, baseURL: AuthEnvironment.vmAPIBaseURL, client: .current()
+        )
+        let cloudOperations = CloudOperationRecorder(uploader: cloudUploader, identity: { [weak coordinator = auth.coordinator] in
+            coordinator?.authenticatedSessionIdentity
+        })
+        self.cloudOperations = cloudOperations
         VMClient.bootstrap(auth: auth.coordinator)
         TerminalController.shared.cloudTunnel = cloudTunnel
         RemotesClient.bootstrap(auth: auth.coordinator)
@@ -8886,6 +8896,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     mode: .base(workspaceID: workspace.id),
                     plan: MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits),
                     memoryOptionsMb: page?.limits?.memoryOptionsMb ?? [],
+                    lockedMemoryOptionsMb: page?.limits?.lockedMemoryOptionsMb,
+                    memoryUpgradePlanId: page?.limits?.memoryUpgradePlanId,
                     submit: { [weak self] request in
                         guard let self else { return false }
                         return MachineCreateCoordinator.shared.start(request, cancellableLaunch: { [weak self] arguments, progress, completion in

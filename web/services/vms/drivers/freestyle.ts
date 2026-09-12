@@ -631,6 +631,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
     if (!slug) throw new ProviderError("freestyle", "ensureNetwork requires a slug");
     return withVmSpan(
       "cmux.vm.provider.ensure_network",
+      "tunnel",
       { "cmux.vm.provider": "freestyle", "cmux.vm.operation": "ensure_network", "cmux.vm.network.slug": slug, "cmux.vm.network.heal": options.heal === true },
         async (span) => {
         const fs = this.client();
@@ -695,6 +696,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
     }
     return withVmSpan(
       "cmux.vm.provider.create_tunnel",
+      "tunnel",
       {
         "cmux.vm.provider": "freestyle",
         "cmux.vm.operation": "create_tunnel",
@@ -913,6 +915,7 @@ export class FreestyleProvider implements VMProvider {
     const tlsRules = freestyleEdgeRules(options.edgeRules);
     return withVmSpan(
       "cmux.vm.provider.create",
+      "provider",
       {
         "cmux.vm.provider": "freestyle",
         "cmux.vm.operation": "create",
@@ -1028,6 +1031,7 @@ export class FreestyleProvider implements VMProvider {
   async destroy(vmId: string): Promise<void> {
     return withVmSpan(
       "cmux.vm.provider.destroy",
+      "provider",
       spanAttributes(vmId, "destroy"),
       async () => {
         try {
@@ -1043,6 +1047,7 @@ export class FreestyleProvider implements VMProvider {
   async getStatus(vmId: string): Promise<VMStatus> {
     return withVmSpan(
       "cmux.vm.provider.get_status",
+      "provider",
       spanAttributes(vmId, "get_status"),
       async (span) => {
         try {
@@ -1062,6 +1067,7 @@ export class FreestyleProvider implements VMProvider {
   async pause(vmId: string): Promise<void> {
     return withVmSpan(
       "cmux.vm.provider.pause",
+      "provider",
       spanAttributes(vmId, "pause"),
       async () => {
         try {
@@ -1076,6 +1082,7 @@ export class FreestyleProvider implements VMProvider {
   async resume(vmId: string): Promise<VMHandle> {
     return withVmSpan(
       "cmux.vm.provider.resume",
+      "provider",
       spanAttributes(vmId, "resume"),
       async (span) => {
         try {
@@ -1135,6 +1142,7 @@ export class FreestyleProvider implements VMProvider {
     const timeoutMs = normalizeFreestyleExecTimeout(opts?.timeoutMs);
     return withVmSpan(
       "cmux.vm.provider.exec",
+      "provider",
       spanAttributes(vmId, "exec", {
         "cmux.command_length": command.length,
         "cmux.timeout_ms": timeoutMs,
@@ -1162,6 +1170,7 @@ export class FreestyleProvider implements VMProvider {
   async getStats(vmId: string): Promise<VMStats> {
     return withVmSpan(
       "cmux.vm.provider.get_stats",
+      "provider",
       spanAttributes(vmId, "getStats"),
       async () => {
         try {
@@ -1187,6 +1196,7 @@ export class FreestyleProvider implements VMProvider {
   async resize(vmId: string, options: VMResizeOptions): Promise<void> {
     return withVmSpan(
       "cmux.vm.provider.resize",
+      "provider",
       spanAttributes(vmId, "resize", {
         "cmux.vm.resize.storage_mb": options.storageMb ?? 0,
       }),
@@ -1210,6 +1220,7 @@ export class FreestyleProvider implements VMProvider {
   async snapshot(vmId: string, name?: string): Promise<SnapshotRef> {
     return withVmSpan(
       "cmux.vm.provider.snapshot",
+      "provider",
       spanAttributes(vmId, "snapshot", {
         "cmux.snapshot.named": !!name,
         "cmux.timeout_ms": SNAPSHOT_TIMEOUT_MS,
@@ -1234,6 +1245,7 @@ export class FreestyleProvider implements VMProvider {
   async listSnapshots(vmId: string): Promise<SnapshotRef[]> {
     return withVmSpan(
       "cmux.vm.provider.list_snapshots",
+      "provider",
       spanAttributes(vmId, "listSnapshots"),
       async (span) => {
         try {
@@ -1261,6 +1273,7 @@ export class FreestyleProvider implements VMProvider {
   async deleteSnapshot(vmId: string, snapshotId: string): Promise<void> {
     return withVmSpan(
       "cmux.vm.provider.delete_snapshot",
+      "provider",
       spanAttributes(vmId, "deleteSnapshot", { "cmux.snapshot.id": snapshotId }),
       async () => {
         try {
@@ -1283,6 +1296,7 @@ export class FreestyleProvider implements VMProvider {
     const tlsRules = freestyleEdgeRules(options?.edgeRules);
     return withVmSpan(
       "cmux.vm.provider.restore",
+      "provider",
       {
         "cmux.vm.provider": "freestyle",
         "cmux.vm.operation": "restore",
@@ -1344,6 +1358,7 @@ export class FreestyleProvider implements VMProvider {
   async openCmuxRemote(vmId: string, options?: CmuxRemoteAttachOptions): Promise<CmuxRemoteEndpoint> {
     return withVmSpan(
       "cmux.vm.provider.open_cmux_remote",
+      "tunnel",
       spanAttributes(vmId, "open_cmux_remote"),
       // oxlint-disable-next-line complexity -- Attach healing must preserve readiness, enrollment, and route-token ordering.
       async (span) => {
@@ -1468,6 +1483,7 @@ export class FreestyleProvider implements VMProvider {
     void options;
     return withVmSpan(
       "cmux.vm.provider.approve_cmux_remote_enrollment",
+      "provider",
       spanAttributes(vmId, "approve_cmux_remote_enrollment"),
       async () => {
         try {
@@ -1494,6 +1510,7 @@ export class FreestyleProvider implements VMProvider {
   async openPort(vmId: string, port: number): Promise<{ url: string; token: string; openUrl: string; expiresAtMs?: number }> {
     return withVmSpan(
       "cmux.vm.provider.open_port",
+      "provider",
       spanAttributes(vmId, "open_port", { "cmux.vm.port": port }),
       async (span) => {
         if (!Number.isInteger(port) || port < 1 || port > 65535 || port === CMUX_TUI_PORT) {
@@ -1537,6 +1554,7 @@ export class FreestyleProvider implements VMProvider {
   async revokeEndpointLeases(vmId: string): Promise<void> {
     return withVmSpan(
       "cmux.vm.provider.revoke_endpoint_leases",
+      "provider",
       spanAttributes(vmId, "revoke_endpoint_leases"),
       async () => {
         const fs = this.deps.client();

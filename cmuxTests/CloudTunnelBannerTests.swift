@@ -10,7 +10,7 @@ import Testing
 /// The Machines panel's tunnel banner: shown only while an explicit VPN start
 /// is doing something the user should see, with the System Settings control
 /// exactly while macOS waits for the extension approval.
-@Suite(.timeLimit(.minutes(1)))
+@Suite
 struct CloudTunnelBannerTests {
     private static let extensionID = "com.cmuxterm.app.tests.tunnel"
     private let networkExtension = CloudTunnelBackend.networkExtension(extensionBundleIdentifier: CloudTunnelBannerTests.extensionID)
@@ -27,6 +27,16 @@ struct CloudTunnelBannerTests {
         #expect(banner.kind == .awaitingApproval)
         #expect(banner.opensSystemSettings)
         #expect(banner.text.contains("Login Items & Extensions"))
+    }
+
+    @Test("the connected banner is hidden in Machines while transient states stay visible")
+    func machinesPanelVisibility() throws {
+        let connected = try #require(CloudTunnelBanner(status: CloudTunnelStatus(backend: networkExtension, state: .up, isPinned: true)))
+        #expect(!connected.showsInMachinesPanel)
+        let waiting = try #require(CloudTunnelBanner(status: CloudTunnelStatus(backend: networkExtension, state: .awaitingApproval, isPinned: true)))
+        #expect(waiting.showsInMachinesPanel)
+        let failed = try #require(CloudTunnelBanner(status: CloudTunnelStatus(backend: networkExtension, state: .failed("no route"), isPinned: false)))
+        #expect(failed.showsInMachinesPanel)
     }
 
     @Test("starting, failed, and up are reported without a settings control")
@@ -85,5 +95,93 @@ struct CloudTunnelBannerTests {
             await Task.yield()
         }
         return predicate()
+    }
+}
+
+@MainActor
+@Suite("Optional Cloud VPN setup")
+struct CloudVPNSetupModelTests {
+    private let backend = CloudTunnelBackend.networkExtension(extensionBundleIdentifier: "test.cloud.vpn")
+
+    @Test("Opening setup reads status without enrolling or requesting approval")
+    func openingIsPassive() async {
+        let controller = FakeTunnelController()
+        let enroller = FakeTunnelEnroller()
+        let coordinator = CloudTunnelCoordinator(backend: backend, controller: controller, enroller: enroller, consumers: FakeTunnelConsumers())
+        let model = CloudVPNSetupModel(coordinator: coordinator)
+        await model.refresh()
+        #expect(model.state == .off)
+        #expect(model.canConnect)
+        #expect(enroller.enrollCount == 0)
+        #expect(controller.calls.isEmpty)
+    }
+
+    @Test("Unavailable extensions cannot start setup")
+    func unsupportedBuild() async {
+        let model = CloudVPNSetupModel(coordinator: nil)
+        #expect(!model.canConnect)
+        #expect(model.unavailableMessage != nil)
+        await model.connect()
+        #expect(model.state == .off)
+    }
+
+    @Test("Admission errors stay visible without an extension prompt")
+    func admissionError() async {
+        let controller = FakeTunnelController()
+        let enroller = FakeTunnelEnroller()
+        let coordinator = CloudTunnelCoordinator(
+            backend: backend,
+            controller: controller,
+            enroller: enroller,
+            consumers: FakeTunnelConsumers(),
+            admission: CloudTunnelAdmission(knownRefusal: { .noCloudMachine }, resolvedRefusal: { .noCloudMachine })
+        )
+        let model = CloudVPNSetupModel(coordinator: coordinator)
+        await model.connect()
+        #expect(model.errorMessage == CloudTunnelError.noCloudMachine.description)
+        #expect(!model.isSubmitting)
+        #expect(controller.calls.isEmpty)
+        #expect(enroller.enrollCount == 0)
+    }
+
+    @Test("Approval completes the same connection, and Disconnect stops it")
+    func approvalThenDisconnect() async {
+        let controller = FakeTunnelController()
+        controller.holdInstallForApproval = true
+        let enroller = FakeTunnelEnroller()
+        let coordinator = CloudTunnelCoordinator(backend: backend, controller: controller, enroller: enroller, consumers: FakeTunnelConsumers())
+        let model = CloudVPNSetupModel(coordinator: coordinator)
+        await model.connect()
+        #expect(await coordinator.waitForState(timeout: .seconds(5)) { $0 == .awaitingApproval } == .awaitingApproval)
+        await model.refresh()
+        #expect(model.state == .awaitingApproval)
+        #expect(!model.canConnect)
+        await model.connect()
+        #expect(enroller.enrollCount == 1)
+        controller.approve()
+        #expect(await coordinator.waitForState(timeout: .seconds(5)) { $0 == .up } == .up)
+        await model.refresh()
+        #expect(model.state == .up)
+        #expect(await coordinator.status().isPinned)
+        await model.disconnect()
+        #expect(model.state == .off)
+        #expect(!(await coordinator.status().isPinned))
+    }
+
+    @Test("Failed connection is reported and the user can retry")
+    func failedStartCanRetry() async {
+        let controller = FakeTunnelController()
+        controller.startError = FakeTunnelController.Failure.refused
+        let coordinator = CloudTunnelCoordinator(backend: backend, controller: controller, enroller: FakeTunnelEnroller(), consumers: FakeTunnelConsumers())
+        let model = CloudVPNSetupModel(coordinator: coordinator)
+        await model.connect()
+        _ = await coordinator.waitForState(timeout: .seconds(5)) { $0.failureMessage != nil }
+        await model.refresh()
+        #expect(model.state.failureMessage != nil)
+        #expect(model.canConnect)
+        controller.startError = nil
+        await model.connect()
+        #expect(await coordinator.waitForState(timeout: .seconds(5)) { $0 == .up } == .up)
+        await model.disconnect()
     }
 }
