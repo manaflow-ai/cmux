@@ -71,7 +71,13 @@ final class CloudTreeCellView: NSTableCellView {
             let buttons = buttonsHost ?? makeButtonsHost()
             buttons.rootView = AnyView(CloudTreeRowHoverButtons(kind: node.kind, machineActions: machineActions, nodeActions: nodeActions))
             buttons.isHidden = false
-            buttons.alphaValue = hovered ? 1 : 0
+            let isPersistentAccessory: Bool
+            if case .portsGroup = node.kind {
+                isPersistentAccessory = true
+            } else {
+                isPersistentAccessory = false
+            }
+            buttons.alphaValue = isPersistentAccessory || hovered ? 1 : 0
             buttonsLeadingConstraint?.isActive = true
             // Two-line machine cards pin the buttons to the name line; every
             // other row centers them vertically.

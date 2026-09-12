@@ -1854,6 +1854,23 @@
       "recoveryReset": "Reset: explicitly create a new Base generation. cmux keeps the old generation retained; permanent deletion should be a separate confirmation step.",
       "recoverySupport": "Feedback: include the VM id, elapsed time, and last non-secret error so support can tell whether the failure is auth, service readiness, terminal endpoint, or local client state."
     },
+    "cloudVpn": {
+      "title": "Cloud VPN onboarding",
+      "metaTitle": "Cloud VPN onboarding",
+      "metaDescription": "Connect cmux Cloud ports through the private network on your Mac.",
+      "intro": "Cloud machine ports use a private network. cmux must connect your Mac to that network before a port preview can load.",
+      "callout": "If a port stays unavailable, check the VPN status first. The port itself may be healthy while your Mac is not connected to the Cloud network.",
+      "beforeTitle": "Before you start",
+      "before1": "Sign in to the same cmux account that owns the Cloud machine.",
+      "before2": "Use a current nightly or release build with Cloud VPN support.",
+      "before3": "Keep cmux open while the tunnel connects and the port preview starts.",
+      "connectTitle": "Connect and open a port",
+      "step1": "Open the Cloud Machines panel and expand your machine.",
+      "step2": "Use the warning button beside Ports if you need this guide, then wait for the VPN status to become connected.",
+      "step3": "Select a port. cmux opens the private machine URL in an embedded browser pane.",
+      "troubleshootingTitle": "If the port still does not load",
+      "troubleshooting": "Refresh the Machines panel and try the port again. If the VPN status reports an error, quit and reopen cmux so the Network Extension can restart. Include the exact status text when contacting support."
+    },
     "managedPolicies": {
       "title": "Managed Device Policies (MDM)",
       "metaTitle": "Managed device policies (MDM)",
@@ -3104,7 +3121,8 @@
       "textBox": "TextBox (Beta)",
       "ios": "iOS App",
       "vault": "Vault",
-      "taskManager": "Task Manager"
+      "taskManager": "Task Manager",
+      "cloudVpn": "Cloud VPN"
     },
     "dock": {
       "metaTitle": "Dock",

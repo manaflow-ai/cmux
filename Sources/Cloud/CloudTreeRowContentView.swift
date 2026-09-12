@@ -872,6 +872,17 @@ struct CloudTreeRowHoverButtons: View {
             plus(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) {
                 nodeActions.newWorkspace(machine)
             }
+        case .portsGroup:
+            MachinesChromeIconButton(
+                symbolName: "exclamationmark.triangle.fill",
+                accessibilityLabel: String(
+                    localized: "cloudTree.vpnOnboarding.button",
+                    defaultValue: "Learn how to connect Cloud VPN"
+                ),
+                isBusy: false
+            ) {
+                nodeActions.openVPNOnboarding()
+            }
         case .workspace(let machine, let workspace, _, _, _):
             HStack(spacing: 4) {
                 plus(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) {
@@ -897,7 +908,7 @@ struct CloudTreeRowHoverButtons: View {
     /// True when this row kind renders any hover button at all.
     static func hasButtons(for kind: CloudTreeNode.Kind) -> Bool {
         switch kind {
-        case .machine, .localMachine, .terminalsPool, .workspacesGroup, .workspace:
+        case .machine, .localMachine, .terminalsPool, .workspacesGroup, .workspace, .portsGroup:
             return true
         case .pendingMachine:
             return true

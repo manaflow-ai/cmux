@@ -52,6 +52,8 @@ struct CloudTreeNodeActions {
     /// Local forwarding addresses are copied explicitly from the Ports table.
     let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
     let refresh: @MainActor () -> Void
+    /// Open the Cloud VPN onboarding guide in an in-app browser surface.
+    var openVPNOnboarding: @MainActor () -> Void = { }
     var refreshMachine: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
 
     @MainActor
@@ -63,7 +65,8 @@ struct CloudTreeNodeActions {
         onDidMutate: @escaping @MainActor () -> Void,
         onFailure: @escaping @MainActor (String) -> Void,
         refresh: @escaping @MainActor () -> Void,
-        refreshMachine: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in }
+        refreshMachine: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in },
+        openVPNOnboarding: @escaping @MainActor () -> Void = { }
     ) -> CloudTreeNodeActions {
         func run(_ label: String, _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void) {
             onWillMutate(label)
@@ -369,6 +372,7 @@ struct CloudTreeNodeActions {
             refresh: refresh
         )
         actions.refreshMachine = refreshMachine
+        actions.openVPNOnboarding = openVPNOnboarding
         return actions
     }
 
