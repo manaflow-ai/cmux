@@ -50,7 +50,12 @@ fn main() {
         .arg("-Demit-lib-vt=true")
         .arg("-Demit-xcframework=false")
         .arg("-Doptimize=ReleaseFast");
-    if target != host
+    // Pass the target whenever we know it, not only when cross-compiling.
+    // zig defaults to the msvc ABI on Windows, so a native *-windows-gnu
+    // host (no Visual Studio, e.g. a rustup gnu toolchain with MSYS2) would
+    // otherwise get `-target native-native-msvc` and fail the zig build with
+    // "failed to find libc installation: WindowsSdkNotFound".
+    if (target != host || target.contains("windows-gnu"))
         && let Some(zig_target) = zig_target_for_rust_target(&target)
     {
         command.arg(format!("-Dtarget={zig_target}"));
