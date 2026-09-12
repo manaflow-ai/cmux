@@ -502,12 +502,6 @@
         "free": "無料",
         "pro": "Pro",
         "loading": "読み込み中…"
-      },
-      "max": {
-        "name": "cmux Max",
-        "activeBody": "Max プランは有効です。次回更新日は {date} です。",
-        "pendingBody": "Max プランは {date} に終了します。",
-        "upsell": "月額 $200 の Max で、32 GB と 64 GB のマシンを作成できます。月払いのみです。"
       }
     },
     "testflight": {
@@ -826,7 +820,7 @@
       "featuresLead": "Free のすべてに加えて:",
       "features": [
         "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
-        "最大 50 台の Cloud VM で、各 VM に 24 GB RAM と 6 vCPU",
+        "最大 50 台の Cloud VM で、24 GB RAM と 6 vCPU を共有",
         "ワークスペースは無制限",
         "cmux iOS アプリとメールサポート"
       ],
@@ -836,15 +830,6 @@
       ],
       "hostedNetworkingFeatures": [
         "iOS アプリから Mac に接続するホスト型ネットワーク、Tailscale の設定不要"
-      ]
-    },
-    "max": {
-      "name": "Max",
-      "cta": "Max を入手",
-      "featuresLead": "Pro のすべてに加えて:",
-      "features": [
-        "32 GB または 64 GB RAM の Cloud VM",
-        "Pro のすべて: 50 台の Cloud VM、無制限のワークスペース、iOS アプリ"
       ]
     },
     "team": {
@@ -877,7 +862,6 @@
           "label": "ネイティブ macOS ターミナル、オープンソース",
           "free": "true",
           "pro": "true",
-          "max": "true",
           "team": "true",
           "enterprise": "true"
         },
@@ -885,7 +869,6 @@
           "label": "自分のキーで使うローカル CLI エージェント",
           "free": "true",
           "pro": "true",
-          "max": "true",
           "team": "true",
           "enterprise": "true"
         },
@@ -893,7 +876,6 @@
           "label": "縦型タブ、分割、通知、ソケット API",
           "free": "true",
           "pro": "true",
-          "max": "true",
           "team": "true",
           "enterprise": "true"
         },
@@ -901,7 +883,6 @@
           "label": "セッション履歴",
           "free": "ローカル",
           "pro": "無制限",
-          "max": "無制限",
           "team": "無制限",
           "enterprise": "無制限",
           "vault": true
@@ -910,7 +891,6 @@
           "label": "cmux Vault: クラウドセッションバックアップ",
           "free": "false",
           "pro": "true",
-          "max": "true",
           "team": "true",
           "enterprise": "true",
           "vault": true
@@ -919,7 +899,6 @@
           "label": "すべてのセッションを横断検索",
           "free": "false",
           "pro": "true",
-          "max": "true",
           "team": "true",
           "enterprise": "true",
           "vault": true
@@ -928,7 +907,6 @@
           "label": "Cloud VM 上のクラウドエージェント",
           "free": "false",
           "pro": "true",
-          "max": "true",
           "team": "true",
           "enterprise": "true"
         },
@@ -936,31 +914,20 @@
           "label": "同時 Cloud VM 数",
           "free": "false",
           "pro": "50",
-          "max": "50",
           "team": "ユーザーごとに 50",
           "enterprise": "カスタム"
         },
         {
-          "label": "各 Cloud VM のリソース",
+          "label": "すべての Cloud VM で共有するリソース",
           "free": "false",
-          "pro": "各 VM に 24 GB RAM と 6 vCPU",
-          "max": "各 VM に 64 GB RAM と 16 vCPU",
-          "team": "各 VM に 24 GB RAM と 6 vCPU",
-          "enterprise": "カスタム"
-        },
-        {
-          "label": "最大の Cloud VM",
-          "free": "24 GB RAM",
-          "pro": "24 GB RAM",
-          "max": "64 GB RAM",
-          "team": "24 GB RAM",
+          "pro": "24 GB RAM と 6 vCPU をすべての VM で共有",
+          "team": "ユーザーあたり 24 GB RAM と 6 vCPU を、そのユーザーのすべての VM で共有",
           "enterprise": "カスタム"
         },
         {
           "label": "ワークスペース",
           "free": "無制限",
           "pro": "無制限",
-          "max": "無制限",
           "team": "無制限",
           "enterprise": "無制限"
         },
@@ -968,7 +935,6 @@
           "label": "iOS アプリ",
           "free": "false",
           "pro": "true",
-          "max": "true",
           "team": "true",
           "enterprise": "true"
         },
@@ -976,7 +942,6 @@
           "label": "Mac に接続するネットワーク",
           "free": "持ち込み",
           "pro": "ホスト型",
-          "max": "ホスト型",
           "team": "ホスト型",
           "enterprise": "セルフホスト",
           "hostedNetworking": true
@@ -985,7 +950,6 @@
           "label": "SSO と SAML サインイン",
           "free": "false",
           "pro": "false",
-          "max": "false",
           "team": "false",
           "enterprise": "true"
         },
@@ -993,7 +957,6 @@
           "label": "セルフホストとエアギャップ実行",
           "free": "false",
           "pro": "false",
-          "max": "false",
           "team": "false",
           "enterprise": "true"
         },
@@ -1001,7 +964,6 @@
           "label": "監査ログ: セッション、ネットワーク、ブラウザ",
           "free": "false",
           "pro": "false",
-          "max": "false",
           "team": "false",
           "enterprise": "true"
         },
@@ -1009,7 +971,6 @@
           "label": "ボリューム価格",
           "free": "false",
           "pro": "false",
-          "max": "false",
           "team": "false",
           "enterprise": "true"
         },
@@ -1017,7 +978,6 @@
           "label": "SOC 2 と SLA",
           "free": "false",
           "pro": "false",
-          "max": "false",
           "team": "false",
           "enterprise": "true"
         },
@@ -1025,7 +985,6 @@
           "label": "サポート",
           "free": "コミュニティ",
           "pro": "メール",
-          "max": "メール",
           "team": "優先",
           "enterprise": "専任"
         }
@@ -1041,11 +1000,7 @@
         },
         {
           "q": "Cloud VM とは何ですか?",
-          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro では最大 50 台の Cloud VM で、各 VM に 24 GB RAM と 6 vCPU です。Team ではユーザーごとに同じ上限が適用されます。従量課金や超過料金はありません。"
-        },
-        {
-          "q": "Max では何が追加されますか?",
-          "a": "Max は月払いで $200/月です。Pro のすべてを含み、32 GB または 64 GB RAM の Cloud VM を利用できます。Pro、Team、Free のマシンは最大 24 GB RAM です。"
+          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro では最大 50 台の Cloud VM で、24 GB RAM と 6 vCPU を共有します。Team ではユーザーごとに同じ上限が適用されます。従量課金や超過料金はありません。"
         },
         {
           "q": "cmux Vault とは何ですか?",
@@ -1058,7 +1013,7 @@
         },
         {
           "q": "課金はどのように行われますか?",
-          "a": "Pro は月払いで $50/月、年払いでは $40/月（20%割引）です。Max は月払いのみで $200/月です。Team は月払いで $60/ユーザー/月、年払いでは $48/ユーザー/月です。有料プランではユーザーごとに最大 50 台の Cloud VM で、ユーザーあたり 各 VM に 24 GB RAM と 6 vCPU です。従量課金や超過料金はありません。ターミナルとローカルエージェントは無料のままです。"
+          "a": "Pro は月払いで $50/月、年払いでは $40/月（20%割引）です。Team は月払いで $60/ユーザー/月、年払いでは $48/ユーザー/月です。有料プランではユーザーごとに最大 50 台の Cloud VM で、ユーザーあたり 24 GB RAM と 6 vCPU を共有します。従量課金や超過料金はありません。ターミナルとローカルエージェントは無料のままです。"
         },
         {
           "q": "クラウドをセルフホストできますか?",

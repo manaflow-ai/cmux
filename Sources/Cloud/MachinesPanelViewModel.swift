@@ -121,7 +121,7 @@ struct MachinePlanSnapshot: Equatable {
 
     static func isPaidPlanID(_ planId: String) -> Bool {
         switch planId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "pro", "max", "team", "founders":
+        case "pro", "team", "founders":
             return true
         default:
             return false
@@ -455,8 +455,6 @@ final class MachinesPanelViewModel: ObservableObject {
     /// these on every local recompute without another round trip.
     private var lastLimits: VMPlanLimits?
     var memoryOptionsMb: [Int] { lastLimits?.memoryOptionsMb ?? [] }
-    var lockedMemoryOptionsMb: [Int]? { lastLimits?.lockedMemoryOptionsMb }
-    var memoryUpgradePlanId: String? { lastLimits?.memoryUpgradePlanId }
     private var authSignOutObserver: NSObjectProtocol?
     private var treeChangeObserver: NSObjectProtocol?
     private var createChangeObserver: NSObjectProtocol?

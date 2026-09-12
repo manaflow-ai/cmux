@@ -9,7 +9,6 @@ export type CompareRow = {
   label: string;
   free: string;
   pro: string;
-  max: string;
   team: string;
   enterprise: string;
   vault?: boolean;
@@ -22,7 +21,7 @@ export type FaqItem = {
   vault?: boolean;
 };
 
-type PlanColumn = "free" | "pro" | "max" | "team" | "enterprise";
+type PlanColumn = "free" | "pro" | "team" | "enterprise";
 export type PricingActionSize = "default" | "compact";
 
 export function visibleProFeatures({
@@ -194,13 +193,11 @@ export function PricingCompareTable({
   actions?: Partial<Record<PlanColumn, ReactNode>>;
   stickyTopClassName?: string;
 }) {
-  // Five plan columns: the label column takes 2/7 and each plan 1/7, matching
-  // the <colgroup> widths below so the sticky header lines up with the table.
-  const gridTemplateColumns = "minmax(12rem,2fr) repeat(5,minmax(7.5rem,1fr))";
+  const gridTemplateColumns = "minmax(12rem,2fr) repeat(4,minmax(8rem,1fr))";
 
   return (
     <div className="max-md:overflow-x-auto">
-      <div className="max-md:min-w-[50rem]">
+      <div className="max-md:min-w-[44rem]">
         <div
           className={`sticky ${stickyTopClassName} z-20 grid border-b border-border py-3 text-[15px] [background:var(--pricing-sticky-bg,var(--background))]`}
           style={{ gridTemplateColumns }}
@@ -208,7 +205,6 @@ export function PricingCompareTable({
           <div className="pr-4" />
           <ColumnHead name={names.free} price={prices.free} action={actions?.free} />
           <ColumnHead name={names.pro} price={prices.pro} action={actions?.pro} />
-          <ColumnHead name={names.max} price={prices.max} action={actions?.max} />
           <ColumnHead name={names.team} price={prices.team} action={actions?.team} />
           <ColumnHead
             name={names.enterprise}
@@ -218,12 +214,11 @@ export function PricingCompareTable({
         </div>
         <table className="w-full table-fixed border-separate border-spacing-0 text-[15px]">
           <colgroup>
-            <col className="w-[28.572%]" />
-            <col className="w-[14.286%]" />
-            <col className="w-[14.286%]" />
-            <col className="w-[14.286%]" />
-            <col className="w-[14.286%]" />
-            <col className="w-[14.286%]" />
+            <col className="w-[33.333%]" />
+            <col className="w-[16.667%]" />
+            <col className="w-[16.667%]" />
+            <col className="w-[16.667%]" />
+            <col className="w-[16.667%]" />
           </colgroup>
           <tbody>
           {rows.map((row, i) => (
@@ -236,7 +231,6 @@ export function PricingCompareTable({
               </th>
               <CompareCell value={row.free} />
               <CompareCell value={row.pro} />
-              <CompareCell value={row.max} />
               <CompareCell value={row.team} />
               <CompareCell value={row.enterprise} />
             </tr>

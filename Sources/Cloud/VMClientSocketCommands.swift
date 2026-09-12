@@ -33,11 +33,6 @@ extension TerminalController {
             )
         }
         switch method {
-        case "vm.billing_checkout":
-            guard let plan = params["plan"] as? String, plan == "max" || plan == "pro" else {
-                return v2Error(id: id, code: "invalid_params", message: "Use cmux billing checkout --plan max or --plan pro.")
-            }
-            return v2VmCall(id: id) { try await VMClient.shared.billingCheckout(plan: plan) }
         case "vm.list":
             return v2CloudCall(id: id, method: method, params: params) {
                 let page = try await VMClient.shared.listPage()
@@ -52,8 +47,6 @@ extension TerminalController {
                         "freeAccessExpiresAt": limits.freeAccessExpiresAt.map { $0 as Any } ?? NSNull(),
                         "imageKinds": limits.imageKinds.map { ["kind": $0.kind.rawValue, "image": $0.image] },
                         "memoryOptionsMb": limits.memoryOptionsMb,
-                        "lockedMemoryOptionsMb": limits.lockedMemoryOptionsMb.map { $0 as Any } ?? NSNull(),
-                        "memoryUpgradePlanId": limits.memoryUpgradePlanId.map { $0 as Any } ?? NSNull(),
                     ]
                 }
                 return payload

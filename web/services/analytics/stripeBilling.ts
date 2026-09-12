@@ -1,5 +1,4 @@
 import type Stripe from "stripe";
-import { personalPlanIdForSubscription } from "../billing/subscriptionPlan";
 
 import {
   isAnalyticsTestRun,
@@ -50,26 +49,11 @@ export async function captureStripeBillingEvent(
   }, postHogFetch);
 }
 
-export async function captureBillingPlanSwitchStarted(input: {
-  sessionId: string;
-  userId: string;
-  fromPlan: string | null;
-  targetPlan: string;
-  attribution: CheckoutAttribution;
-}, postHogFetch?: typeof fetch): Promise<void> {
-  await captureBillingPayload({
-    name: "cmux_billing_plan_switch_started",
-    insertId: input.sessionId,
-    subject: { scope: "user", stackUserId: input.userId },
-    properties: { from_plan: input.fromPlan, target_plan: input.targetPlan, ...checkoutAttributionProperties(input.attribution) },
-  }, postHogFetch);
-}
-
 export async function captureBillingCheckoutStarted(
   input: {
     readonly sessionId: string;
     readonly subject: StripeBillingAnalyticsSubject;
-    readonly plan: "pro" | "max" | "team";
+    readonly plan: "pro" | "team";
     readonly billingInterval: "month" | "year";
     /** Where the checkout link was opened from (page, app button, channel). */
     readonly attribution: CheckoutAttribution;
@@ -223,9 +207,8 @@ function subscriptionEvent(
     name: `cmux_billing_subscription_${action}`,
     properties: {
       ...common,
-      plan: subscription.metadata?.plan === "team" ? "team" : personalPlanIdForSubscription(subscription),
-      billing_interval: subscription.items?.data?.[0]?.price?.recurring?.interval ?? metadataString(subscription.metadata, "billingInterval"),
-      ...(action === "deleted" ? {} : { $set: { billing_plan: subscription.metadata?.plan === "team" ? "team" : personalPlanIdForSubscription(subscription) } }),
+      plan: metadataString(subscription.metadata, "plan"),
+      billing_interval: metadataString(subscription.metadata, "billingInterval"),
       subscription_status: subscription.status,
       cancel_at_period_end: subscription.cancel_at_period_end,
       cancellation_reason: subscription.cancellation_details?.reason ?? null,

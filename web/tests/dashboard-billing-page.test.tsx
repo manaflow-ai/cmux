@@ -108,12 +108,7 @@ describe("dashboard billing page", () => {
       'href="/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_source=dashboard_billing&amp;interval=month&amp;cmux_placement=dashboard_billing"',
     );
     expect(html).toContain("Get Pro");
-    expect(html).toContain("Get Max");
     expect(html).toContain("Get Teams");
-    expect(html).toContain(
-      'href="/api/billing/checkout?plan=max&amp;cmux_external_browser=1&amp;cmux_source=dashboard_billing&amp;cmux_placement=dashboard_billing"',
-    );
-    expect(html).not.toMatch(/plan=max[^"]*interval=/);
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
     expect(html).not.toContain("/mo.");
