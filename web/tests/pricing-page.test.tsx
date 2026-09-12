@@ -31,6 +31,7 @@ const originalVaultEnabled = process.env.CMUX_VAULT_ENABLED;
 const nextNavigationMock = createNextNavigationMock(redirect);
 
 mock.module("next/navigation", () => nextNavigationMock);
+mock.module("next/headers", () => ({ headers: async () => new Headers() }));
 
 // The pricing page uses the locale-aware Link returned by createNavigation.
 // Bun module mocks are process-global, so mock the package's complete export
