@@ -94,6 +94,46 @@ struct SessionEntryResumeLaunchTests {
         )
     }
 
+    @Test("Registry-owned built-ins preserve structured restore argv")
+    func registryOwnedBuiltInsUsePlannerAndAppParity() throws {
+        let cases: [(CmuxVaultAgentRegistration, [String])] = [
+            (.builtInPi, ["pi", "--session", "registry-pi-session"]),
+            (.builtInGrok, ["grok", "-r", "registry-grok-session"]),
+            (
+                .builtInAntigravity,
+                ["agy", "--conversation", "registry-antigravity-session"]
+            ),
+            (.builtInKimi, ["kimi", "--resume", "registry-kimi-session"]),
+        ]
+
+        for (registration, expectedArguments) in cases {
+            let sessionID = expectedArguments.last ?? ""
+            let entry = SessionEntry(
+                id: "\(registration.id):\(sessionID)",
+                agent: .registered(RegisteredSessionAgent(registration: registration)),
+                sessionId: sessionID,
+                title: "Registry-owned restore",
+                cwd: "/tmp/registry-owned-restore",
+                gitBranch: nil,
+                pullRequest: nil,
+                modified: Date(timeIntervalSince1970: 1_800_000_003),
+                fileURL: nil,
+                specifics: .registered(registration)
+            )
+
+            let launch = try #require(entry.resumeLaunch)
+            let snapshot = try #require(launch.startupRestoreAgent)
+            #expect(snapshot.kind == .custom(registration.id))
+            #expect(
+                snapshot.preparedResumeArguments(
+                    launchCommand: snapshot.launchCommand,
+                    workingDirectory: snapshot.workingDirectory,
+                    observedPermissionMode: snapshot.permissionMode
+                ) == expectedArguments
+            )
+        }
+    }
+
     @Test("Unencodable custom Vault kinds use the explicit legacy strategy")
     func unencodableCustomKindUsesLegacyFallback() throws {
         let registration = CmuxVaultAgentRegistration(
@@ -246,9 +286,12 @@ struct SessionEntryResumeLaunchTests {
 
         let encoded = try JSONEncoder().encode(persisted)
         let decoded = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: encoded)
+        source.teardownAllPanels()
+        resumeIntents.removeAll()
         let restored = Workspace(
             agentSessionAutoResumeDefaults: defaults,
-            agentChatResumeIntentRecorder: resumeIntentRecorder
+            agentChatResumeIntentRecorder: resumeIntentRecorder,
+            restorableAgentIndexProvider: { .empty }
         )
         defer { restored.teardownAllPanels() }
         let restoredPanelIDs = restored.restoreSessionSnapshot(decoded)
@@ -265,6 +308,7 @@ struct SessionEntryResumeLaunchTests {
                 .panels.first { $0.id == restoredPanelID }?.terminal?.agent?.sessionId
                 == sessionID
         )
+        #expect(resumeIntents.count == 1)
         let restoredIntent = try #require(resumeIntents.last)
         #expect(restoredIntent.sessionID == sessionID)
         #expect(restoredIntent.surfaceID == restoredPanelID.uuidString)
@@ -428,7 +472,7 @@ struct SessionEntryResumeLaunchTests {
         )
         let matchingLaunch = try #require(matchingEntry.resumeLaunch)
 
-        SessionEntryResumeCoordinator.resume(matchingEntry, tabManager: manager)
+        SessionEntryResumeCoordinator().resume(matchingEntry, tabManager: manager)
 
         #expect(manager.tabs.count == 2)
         let matchingWorkspace = try #require(manager.selectedWorkspace)
@@ -468,7 +512,7 @@ struct SessionEntryResumeLaunchTests {
         )
         let differentLaunch = try #require(differentEntry.resumeLaunch)
 
-        SessionEntryResumeCoordinator.resume(differentEntry, tabManager: manager)
+        SessionEntryResumeCoordinator().resume(differentEntry, tabManager: manager)
 
         #expect(manager.tabs.count == 3)
         let createdWorkspace = try #require(manager.selectedWorkspace)
@@ -535,7 +579,7 @@ struct SessionEntryResumeLaunchTests {
         let paneCountBefore = workspace.bonsplitController.allPaneIds.count
         let panelCountBefore = workspace.panels.count
 
-        SessionEntryResumeCoordinator.open(entry, tabManager: manager)
+        SessionEntryResumeCoordinator().open(entry, tabManager: manager)
 
         #expect(manager.tabs.count == 1)
         #expect(manager.selectedWorkspace === workspace)
@@ -557,7 +601,7 @@ struct SessionEntryResumeLaunchTests {
         )
     }
 
-    @Test("Vault active-session keys follow foreground shell activity")
+    @Test("Vault active-session keys and focus follow foreground shell activity")
     func inPaneSessionKeysDropAfterAgentReturnsToShell() throws {
         let manager = TabManager(
             initialWorkingDirectory: "/tmp/vault-active-session",
@@ -566,6 +610,7 @@ struct SessionEntryResumeLaunchTests {
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.selectedWorkspace)
         let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let originalPanelID = try #require(workspace.focusedPanelId)
         let entry = SessionEntry(
             id: "codex:active-session",
             agent: .codex,
@@ -593,11 +638,29 @@ struct SessionEntryResumeLaunchTests {
             startupRestoreAgent: snapshot
         ))
         let key = VaultLiveSessionKeys.key(for: entry)
+        let coordinator = SessionEntryResumeCoordinator()
+
+        workspace.panelShellActivityStates.removeValue(forKey: panel.id)
+        #expect(!coordinator.inPaneSessionKeys(tabManager: manager).contains(key))
+        #expect(coordinator.activeTarget(for: entry, tabManager: manager) == nil)
+        #expect(!coordinator.focusIfActive(entry, tabManager: manager))
 
         workspace.updatePanelShellActivityState(panelId: panel.id, state: .commandRunning)
-        #expect(SessionEntryResumeCoordinator.inPaneSessionKeys(tabManager: manager).contains(key))
+        #expect(coordinator.inPaneSessionKeys(tabManager: manager).contains(key))
+        let target = try #require(coordinator.activeTarget(for: entry, tabManager: manager))
+        #expect(target.workspaceID == workspace.id)
+        #expect(target.surfaceID == panel.id)
+        manager.focusTab(workspace.id, surfaceId: originalPanelID)
+        #expect(workspace.focusedPanelId == originalPanelID)
+        #expect(coordinator.focusIfActive(entry, tabManager: manager))
+        #expect(workspace.focusedPanelId == panel.id)
 
         workspace.updatePanelShellActivityState(panelId: panel.id, state: .promptIdle)
-        #expect(!SessionEntryResumeCoordinator.inPaneSessionKeys(tabManager: manager).contains(key))
+        manager.focusTab(workspace.id, surfaceId: originalPanelID)
+        #expect(workspace.restoredAgentSnapshotsByPanelId[panel.id]?.sessionId == entry.sessionId)
+        #expect(!coordinator.inPaneSessionKeys(tabManager: manager).contains(key))
+        #expect(coordinator.activeTarget(for: entry, tabManager: manager) == nil)
+        #expect(!coordinator.focusIfActive(entry, tabManager: manager))
+        #expect(workspace.focusedPanelId == originalPanelID)
     }
 }

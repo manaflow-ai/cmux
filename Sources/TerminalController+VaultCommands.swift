@@ -213,8 +213,7 @@ extension TerminalController {
                 opened = v2MainSync(commandKey: "vault.fork") {
                     MainActor.assumeIsolated {
                         guard let tabManager = self.tabManager else { return false }
-                        SessionEntryResumeCoordinator.resume(forked, tabManager: tabManager)
-                        return true
+                        return SessionEntryResumeCoordinator().resume(forked, tabManager: tabManager)
                     }
                 }
             }

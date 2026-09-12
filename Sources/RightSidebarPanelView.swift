@@ -500,9 +500,9 @@ struct RightSidebarPanelView: View {
                     store: sessionIndexStore,
                     onResume: onResumeSession,
                     onOpen: onOpenSession,
-                    activeSessionKeys: SessionEntryResumeCoordinator.inPaneSessionKeys(tabManager: tabManager),
+                    activeSessionKeys: SessionEntryResumeCoordinator().inPaneSessionKeys(tabManager: tabManager),
                     onFocus: { entry in
-                        _ = SessionEntryResumeCoordinator.focusIfActive(entry, tabManager: tabManager)
+                        _ = SessionEntryResumeCoordinator().focusIfActive(entry, tabManager: tabManager)
                     }
                 )
                     .onAppear {

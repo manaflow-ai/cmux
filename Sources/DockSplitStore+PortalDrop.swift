@@ -105,39 +105,47 @@ extension DockSplitStore {
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool {
         guard let launch = entry.resumeLaunch else { return false }
+        let focusWindow = NSApp.keyWindow ?? NSApp.mainWindow
+        noteKeyboardFocusIntent(window: focusWindow)
+        // Dock terminals use the same local login-shell dialect as the main
+        // workspace. Ask the immutable launch plan to render it here instead
+        // of reusing a caller-specific cached string, so every Vault drop
+        // admits the identical `cmux restore` selector and snapshot.
+        let initialInput = launch.startupInput(for: .loginShell)
         switch destination {
-        case .insert(let paneId, _):
-            noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
-            guard let panelId = newSurface(
+        case .insert(let paneId, let targetIndex):
+            guard let panelID = newSurface(
                 kind: .terminal,
                 inPane: paneId,
                 workingDirectory: launch.workingDirectory,
-                initialInput: launch.initialInput,
+                initialInput: initialInput,
                 startupRestoreAgent: launch.startupRestoreAgent,
                 focus: false
-            ) else { return false }
-            focusPanelFromDockInteraction(
-                panelId,
-                window: NSApp.keyWindow ?? NSApp.mainWindow
-            )
+            ) else {
+                return false
+            }
+            // The tab-strip drop handler supplies an insertion gap for external
+            // sources. Keep Dock placement identical to the main workspace
+            // Vault path after the restore record has been committed.
+            if let targetIndex,
+               let tabID = surfaceId(forPanelId: panelID) {
+                _ = bonsplitController.reorderTab(tabID, toIndex: targetIndex)
+            }
+            focusPanelFromDockInteraction(panelID, window: focusWindow)
             return true
         case .split(let paneId, let orientation, let insertFirst):
             let sourcePanelId = selectedPanelForPaneDrop(in: paneId)?.panelId
-            noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
             guard let panelId = newSplit(
                 kind: .terminal,
                 orientation: orientation,
                 insertFirst: insertFirst,
                 sourcePanelId: sourcePanelId,
                 workingDirectory: launch.workingDirectory,
-                initialInput: launch.initialInput,
+                initialInput: initialInput,
                 startupRestoreAgent: launch.startupRestoreAgent,
                 focus: false
             ) else { return false }
-            focusPanelFromDockInteraction(
-                panelId,
-                window: NSApp.keyWindow ?? NSApp.mainWindow
-            )
+            focusPanelFromDockInteraction(panelId, window: focusWindow)
             return true
         }
     }

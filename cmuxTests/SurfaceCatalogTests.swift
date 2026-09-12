@@ -315,7 +315,12 @@ struct SurfaceCatalogTests {
             info: provider.info
         )
 
-        #expect(catalog.snapshot.resources(on: machine).first { $0.id.key == "term_one" }?.title == "new")
+        #expect(
+            catalog.snapshot.resources(on: machine)
+                .first { $0.id.key == "term_one" }?
+                .remoteViews?.first { $0.tabID == "tab_one" }?
+                .name == "new"
+        )
         #expect(catalog.snapshot.resources(on: machine).contains(termTwo))
         #expect(catalog.snapshot.resources(on: machine).contains(port))
         #expect(catalog.cloudStates[machine]?.cursor == CloudVMCursor(generation: "g1", revision: 2))
@@ -352,7 +357,7 @@ struct SurfaceCatalogTests {
         #expect(catalog.hasResources(on: machine))
     }
 
-    @Test("Stale machine metadata cannot regress the accepted cloud workspace graph")
+    @Test("Cloud machine metadata preserves canonical rows and pending workspace overlays")
     func staleMachineMetadataPreservesCanonicalWorkspaceNames() throws {
         let machine = SurfaceMachineID.cloud("vivid-newt")
         let catalog = SurfaceCatalog()
@@ -384,6 +389,7 @@ struct SurfaceCatalogTests {
 
         #expect(catalog.machines[machine]?.remoteWorkspaces == [
             SurfaceRemoteWorkspace(id: "ws", name: "canonical", index: 0, focused: true),
+            SurfaceRemoteWorkspace(id: "removed", name: "removed", index: 1, focused: false),
         ])
     }
 

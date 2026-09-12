@@ -346,6 +346,10 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
         return TerminalStartupWorkingDirectoryPrefix.prefix(command, workingDirectory: cwd)
     }
 
+    var vaultResumeCompatibilityCommand: String? {
+        copyResumeCommandWithoutWorkingDirectory
+    }
+
     private var copyResumeCommandWithoutWorkingDirectory: String? {
         switch specifics {
         case let .claude(model, permissionMode, configDirectoryForResume):
@@ -357,7 +361,7 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
             // included), so the rendered command is wrapped in `/bin/sh -c '…'` to parse
             // everywhere; the `cd` guard stays outside in `copyResumeCommand`.
             // https://github.com/manaflow-ai/cmux/issues/5639
-            var parts = ["\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume \(sessionId)"]
+            var parts = ["\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume \(Self.shellQuote(sessionId))"]
             if let model, !model.isEmpty {
                 parts.append("--model \(Self.shellQuote(model))")
             }
@@ -382,7 +386,7 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
             // user's own shell (fish/csh included), so the rendered command is
             // wrapped in `/bin/sh -c '…'`; the `cd` guard stays outside in
             // `copyResumeCommand`. https://github.com/manaflow-ai/cmux/issues/5639
-            var parts = ["\(AgentResumeArgv.codexWrapperShellExecutableToken) resume \(sessionId)", AgentResumeArgv.codexUpdateCheckSuppressionOverride.joined(separator: " ")]
+            var parts = ["\(AgentResumeArgv.codexWrapperShellExecutableToken) resume \(Self.shellQuote(sessionId))", AgentResumeArgv.codexUpdateCheckSuppressionOverride.joined(separator: " ")]
             if let model, !model.isEmpty {
                 parts.append("-m \(Self.shellQuote(model))")
             }
@@ -413,7 +417,7 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
             } ?? [:]
             return Self.singleQuotedShellCommand(environment: environment, argv: argv)
         case let .opencode(providerModel, agentName):
-            var parts = ["opencode --session \(sessionId)"]
+            var parts = ["opencode --session \(Self.shellQuote(sessionId))"]
             if let providerModel, !providerModel.isEmpty {
                 parts.append("-m \(Self.shellQuote(providerModel))")
             }

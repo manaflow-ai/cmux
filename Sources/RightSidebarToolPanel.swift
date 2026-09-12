@@ -290,14 +290,14 @@ struct RightSidebarToolPanelView: View {
             SessionIndexView(
                 store: panel.sessionIndexStore,
                 onResume: { entry in
-                    SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+                    SessionEntryResumeCoordinator().resume(entry, tabManager: tabManager)
                 },
                 onOpen: { entry in
-                    SessionEntryResumeCoordinator.open(entry, tabManager: tabManager)
+                    SessionEntryResumeCoordinator().open(entry, tabManager: tabManager)
                 },
-                activeSessionKeys: SessionEntryResumeCoordinator.inPaneSessionKeys(tabManager: tabManager),
+                activeSessionKeys: SessionEntryResumeCoordinator().inPaneSessionKeys(tabManager: tabManager),
                 onFocus: { entry in
-                    _ = SessionEntryResumeCoordinator.focusIfActive(entry, tabManager: tabManager)
+                    _ = SessionEntryResumeCoordinator().focusIfActive(entry, tabManager: tabManager)
                 }
             )
             .background(

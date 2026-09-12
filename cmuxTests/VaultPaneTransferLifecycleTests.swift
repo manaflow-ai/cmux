@@ -32,8 +32,8 @@ struct VaultPaneTransferLifecycleTests {
         .browser,
     ]
 
-    @Test("An accepted surface pane transfer defers native completion to endedAt")
-    func acceptedSurfaceTransferDefersNativeCompletionToEndedAt() async throws {
+    @Test("An accepted surface pane transfer revokes routing before source teardown")
+    func acceptedSurfaceTransferRevokesRoutingBeforeSourceTeardown() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let fixture = try VaultPaneAppFixture()
             defer { fixture.tearDown() }
@@ -91,9 +91,12 @@ struct VaultPaneTransferLifecycleTests {
             #expect(plan.source == .surface)
             #expect(registry.resolve(from: pasteboard) != nil)
             #expect(router.perform(plan, pasteboard: pasteboard))
-            // Destination acceptance revokes routing, but the native source
-            // remains live until AppKit invokes its `endedAt` callback.
-            #expect(controller.internalController.tabDragSession != nil)
+            // Accepted-drop cleanup is versioned by the Bonsplit submodule:
+            // newer revisions defer the model teardown to `endedAt`, while
+            // older revisions complete it from the registry callback. The
+            // invariant exposed to cmux is stable: routing is revoked before
+            // the source's explicit completion, and that completion is safe
+            // to call in either order.
             #expect(registry.resolve(from: pasteboard) == nil)
             source.finishDrag()
             #expect(controller.internalController.tabDragSession == nil)
@@ -217,14 +220,21 @@ struct VaultPaneTransferLifecycleTests {
                 currentEvent: mouseDragged,
                 dragPasteboard: drag.pasteboard
             )
+            let dragTarget = try #require(dragHit as? BrowserPaneDropTargetView)
+            let draggingInfo = VaultPaneMockDraggingInfo(
+                window: window,
+                location: pointInWindow,
+                pasteboard: drag.pasteboard
+            )
+            #expect(dragTarget.draggingEntered(draggingInfo) == .move)
+            defer { dragTarget.draggingEnded(draggingInfo) }
             let mouseUpHit = host.performHitTest(
                 at: pointInHost,
                 currentEvent: mouseUp,
                 dragPasteboard: drag.pasteboard
             )
 
-            #expect(dragHit is BrowserPaneDropTargetView)
-            #expect(mouseUpHit is BrowserPaneDropTargetView)
+            #expect(mouseUpHit === dragTarget)
             #expect(drag.resolvedTransfer?.tab.id.uuid == drag.dragID)
         }
     }
@@ -358,6 +368,37 @@ struct VaultPaneTransferLifecycleTests {
                 #expect(dock.bonsplitController.allPaneIds.count == baselinePaneCount + 1)
                 #expect(dock.bonsplitController.adjacentPane(to: targetPane, direction: .right) == createdPane)
             }
+        }
+    }
+
+    @Test("Dock tab-strip Vault drops preserve the requested insertion index")
+    func dockVaultDropPreservesRequestedTabIndex() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try VaultPaneAppFixture()
+            defer { fixture.tearDown() }
+
+            let dock = try #require(fixture.workspace.dockSplit)
+            let targetPane = try #require(dock.bonsplitController.allPaneIds.first)
+            _ = try #require(dock.newSurface(kind: .terminal, inPane: targetPane, focus: false))
+            _ = try #require(dock.newSurface(kind: .terminal, inPane: targetPane, focus: false))
+            let entry = Self.makeEntry(sessionID: "dock-indexed-vault-drop")
+            let baselinePanelIDs = Set(dock.panels.keys)
+
+            #expect(dock.performPortalVaultSessionDrop(
+                entry: entry,
+                destination: .insert(targetPane: targetPane, targetIndex: 0)
+            ))
+
+            let droppedPanelID = try #require(dock.panels.keys.first {
+                !baselinePanelIDs.contains($0)
+            })
+            let orderedPanelIDs = dock.bonsplitController.tabs(inPane: targetPane).compactMap { tab in
+                dock.panels.keys.first { panelID in
+                    dock.surfaceId(forPanelId: panelID) == tab.id
+                }
+            }
+            #expect(orderedPanelIDs.first == droppedPanelID)
+            #expect(dock.restoredAgentLifecycle.snapshotsByPanelId[droppedPanelID]?.sessionId == entry.sessionId)
         }
     }
 

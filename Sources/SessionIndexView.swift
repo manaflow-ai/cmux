@@ -7,148 +7,6 @@ import SQLite3
 import SwiftUI
 import UniformTypeIdentifiers
 
-@MainActor
-enum SessionEntryResumeCoordinator {
-    @discardableResult
-    private static func launchInNewWorkspace(
-        _ launch: SessionEntryResumeLaunch,
-        tabManager: TabManager
-    ) -> Workspace? {
-        tabManager.addWorkspaceIfActive(
-            workingDirectory: launch.workingDirectory,
-            initialTerminalInput: launch.initialInput,
-            initialTerminalStartupRestoreAgent: launch.startupRestoreAgent
-        )
-    }
-
-    /// Returns the in-pane target for an indexed session, if one is currently
-    /// represented by a real surface in the tab manager.
-    ///
-    /// Keeping target discovery separate from the focus mutation lets the Vault
-    /// row expose an honest enabled/disabled state without focusing anything
-    /// while SwiftUI is rendering a context menu.
-    static func activeTarget(
-        for entry: SessionEntry,
-        tabManager: TabManager
-    ) -> (workspaceID: UUID, surfaceID: UUID)? {
-        // Prefer the tab manager's authoritative surface snapshots. This
-        // catches an open-but-idle session even while the process index is
-        // between refreshes.
-        for workspace in tabManager.tabs {
-            if let panel = workspace.restoredAgentSnapshotsByPanelId.first(where: { panelID, snapshot in
-                workspace.panels[panelID] != nil
-                    && workspace.panelShellActivityStates[panelID] == .commandRunning
-                    && snapshot.kind.rawValue == entry.agent.rawValue
-                    && ManagedAgentSessionIdentity.sessionIDsMatch(
-                        kind: entry.agent.rawValue,
-                        lhs: snapshot.sessionId,
-                        rhs: entry.sessionId
-                    )
-            }) {
-                return (workspace.id, panel.key)
-            }
-        }
-
-        // Process-detected sessions can still be present in the live index
-        // before their snapshot has been projected into the tab manager.
-        guard let index = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh(),
-              let match = index.forkValidationEntries().first(where: { panelKey, observation in
-                  observation.processLiveness == .running
-                      && observation.snapshot.kind.rawValue == entry.agent.rawValue
-                      && ManagedAgentSessionIdentity.sessionIDsMatch(
-                          kind: entry.agent.rawValue,
-                          lhs: observation.snapshot.sessionId,
-                          rhs: entry.sessionId
-                      )
-                      && tabManager.tabs.contains(where: { $0.id == panelKey.workspaceId })
-                      && tabManager.tabs.first(where: { $0.id == panelKey.workspaceId })?.panels[panelKey.panelId] != nil
-              }) else {
-            return nil
-        }
-
-        return (match.0.workspaceId, match.0.panelId)
-    }
-
-    /// Returns managed-session identities whose agent command is currently
-    /// running in a real pane. A shell-idle pane is intentionally excluded so
-    /// a failed restore or a quit cannot keep the Vault row green merely from
-    /// retaining its historical snapshot.
-    static func inPaneSessionKeys(tabManager: TabManager) -> Set<String> {
-        var keys: Set<String> = []
-        for workspace in tabManager.tabs {
-            for (panelID, snapshot) in workspace.restoredAgentSnapshotsByPanelId
-                where workspace.panels[panelID] != nil
-                    && workspace.panelShellActivityStates[panelID] == .commandRunning {
-                keys.insert(
-                    VaultLiveSessionKeys.key(
-                        kind: snapshot.kind.rawValue,
-                        sessionID: snapshot.sessionId
-                    )
-                )
-            }
-        }
-        return keys
-    }
-
-    /// Opens an indexed session in a new split in the selected workspace.
-    ///
-    /// This is intentionally different from ``focusIfActive``: Open Session
-    /// is an explicit second launch, even when the same session is already
-    /// represented by a live pane. Focus Session is the action for reusing an
-    /// existing pane.
-    static func open(_ entry: SessionEntry, tabManager: TabManager) {
-        guard let launch = entry.resumeLaunch else { return }
-
-        guard let workspace = tabManager.selectedWorkspace,
-              !workspace.isRemoteWorkspace,
-              !workspace.isRemoteTmuxMirror,
-              let paneId = workspace.bonsplitController.focusedPaneId
-                  ?? workspace.bonsplitController.allPaneIds.first else {
-            // A remote workspace cannot safely execute a local Vault restore
-            // command. If there is no usable local pane, fall back to the
-            // same isolated-workspace launch used by Resume.
-            _ = launchInNewWorkspace(launch, tabManager: tabManager)
-            return
-        }
-
-        // A zoomed pane has no room to represent the new split until it is
-        // restored to the normal layout.
-        workspace.clearSplitZoom()
-        if workspace.splitPaneWithNewTerminal(
-            targetPane: paneId,
-            orientation: .horizontal,
-            insertFirst: false,
-            workingDirectory: launch.workingDirectory,
-            initialInput: launch.initialInput,
-            startupRestoreAgent: launch.startupRestoreAgent
-        ) == nil {
-            // Keep the action useful if the selected workspace retires between
-            // menu presentation and invocation.
-            _ = launchInNewWorkspace(launch, tabManager: tabManager)
-        }
-    }
-
-    /// Focuses the current surface for `entry` when the live agent index still
-    /// points at a real panel in this tab manager.
-    @discardableResult
-    static func focusIfActive(_ entry: SessionEntry, tabManager: TabManager) -> Bool {
-        guard let target = activeTarget(for: entry, tabManager: tabManager) else {
-            return false
-        }
-        tabManager.focusTab(target.workspaceID, surfaceId: target.surfaceID)
-        return true
-    }
-
-    static func resume(_ entry: SessionEntry, tabManager: TabManager) {
-        guard let launch = entry.resumeLaunch else { return }
-        // Resume is deliberately workspace-scoped. It must remain predictable
-        // even when the selected workspace happens to share the session's cwd;
-        // Open Session is the separate action for a split in the current
-        // workspace.
-        _ = launchInNewWorkspace(launch, tabManager: tabManager)
-    }
-}
-
 struct SessionIndexView: View {
     @ObservedObject var store: SessionIndexStore
     @Environment(\.sessionDragRegistry) private var sessionDragRegistry
@@ -1066,6 +924,7 @@ private func sessionRowMenuItems(
     onFocus: ((SessionEntry) -> Void)? = nil,
     isActive: Bool = false
 ) -> some View {
+    let resumeLaunch = entry.resumeLaunch
     if let onFocus {
         Button {
             onFocus(entry)
@@ -1080,15 +939,32 @@ private func sessionRowMenuItems(
         } label: {
             Text(String(localized: "sessionIndex.row.openSession", defaultValue: "Open Session"))
         }
+        .disabled(resumeLaunch == nil)
     }
     if onFocus != nil || onOpen != nil {
         Divider()
     }
     if let onResume {
-        Button {
-            onResume(entry)
-        } label: {
-            Text(String(localized: "sessionIndex.row.resume", defaultValue: "Resume in New Workspace"))
+        if let launch = resumeLaunch {
+            let resumeTitle = launch.legacyFallbackReason == nil
+                ? String(localized: "sessionIndex.row.resume", defaultValue: "Resume in New Workspace")
+                : String(
+                    localized: "sessionIndex.row.resume.compatibility",
+                    defaultValue: "Resume (compatibility command)"
+                )
+            Button {
+                onResume(entry)
+            } label: {
+                Text(resumeTitle)
+            }
+        } else {
+            Button {} label: {
+                Text(String(
+                    localized: "sessionIndex.row.resume.unavailable",
+                    defaultValue: "Resume unavailable"
+                ))
+            }
+            .disabled(true)
         }
         Divider()
     }

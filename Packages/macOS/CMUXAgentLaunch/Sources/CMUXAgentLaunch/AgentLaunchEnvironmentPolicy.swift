@@ -35,6 +35,34 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
     /// Creates a launch environment policy.
     public init() {}
 
+    /// Returns whether an environment key is approved for replay.
+    ///
+    /// This key-only check intentionally performs no path normalization or
+    /// filesystem probing, so callers that already own the captured value can
+    /// validate it on a UI path without turning policy inspection into I/O.
+    ///
+    /// - Parameter key: Environment variable name.
+    /// - Returns: `true` when the key is in the replay allow-list.
+    func isReplaySafeKey(_ key: String) -> Bool {
+        Self.safeEnvironmentKeys.contains(key)
+    }
+
+    /// Validates a registration-owned value without normalizing path locations.
+    ///
+    /// Vault registrations are user-authored and their path values identify a
+    /// specific account. Unlike general restore selection, this operation must
+    /// not consult the filesystem or migrate a path to another account root.
+    /// `NODE_OPTIONS` remains subject to its dedicated sanitizer.
+    ///
+    /// - Parameters:
+    ///   - key: Environment variable name.
+    ///   - value: Captured value.
+    /// - Returns: The exact value, a sanitized `NODE_OPTIONS`, or `nil` when rejected or empty.
+    func registrationEnvironmentValue(key: String, value: String?) -> String? {
+        guard isReplaySafeKey(key), let value, !value.isEmpty else { return nil }
+        return key == "NODE_OPTIONS" ? sanitizedNodeOptions(value) : value
+    }
+
     private static let hermesAgentEnvironmentKeys: Set<String> = [
         "CUSTOM_BASE_URL",
         "HERMES_CODEX_BASE_URL",

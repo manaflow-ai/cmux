@@ -23,9 +23,13 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        let socketPath = root.appendingPathComponent("cmux.sock").path
+        let socketURL = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-opencode-feed-\(UUID().uuidString).sock", isDirectory: false)
+        let socketPath = socketURL.path
         let harnessURL = root.appendingPathComponent("harness.js")
         try Self.openCodeFeedEventHarness.write(to: harnessURL, atomically: true, encoding: .utf8)
+        defer { try? fileManager.removeItem(at: socketURL) }
+
         let bunURL = try Self.bunExecutableURL()
 
         let result = runProcess(
