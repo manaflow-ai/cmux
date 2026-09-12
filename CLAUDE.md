@@ -167,3 +167,7 @@ Detailed contributor rules live in `skills/`. Use the task-specific skill before
   build, and never compile cmux-tui on the Mac. The skill lives in cmuxterm-hq at
   `skills/infra/blacksmith-testbox/SKILL.md`; the workflows, `scripts/blacksmith-*.sh`, and the
   `tests/test_testbox_*` guards stay here. Quickest path: `./scripts/blacksmith-testbox-demo.sh`.
+
+## GPT-6 Astra
+
+Use `gpt-6-astra` as the default OpenAI model for agent work. Use reasoning effort `low`, `medium`, `high`, `xhigh`, or `max`; `none` is unsupported. Prefer the Responses API for tool calling, remove unsupported `temperature`, `top_p`, and log probability parameters, and verify behavior with representative repository tasks before changing prompts or tool workflows.
