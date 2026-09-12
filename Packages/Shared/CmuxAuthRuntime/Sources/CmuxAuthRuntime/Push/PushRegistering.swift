@@ -42,6 +42,16 @@ public protocol PushRegistering: Sendable {
     /// Re-upload the cached token (e.g. after sign-in). No-op unless opted in.
     func syncTokenIfPossible() async
 
+    /// Replace this device token's server-side notification filters with the
+    /// caller-encoded filters document (opaque JSON bytes; `nil` clears them).
+    /// The latest document is retained locally, scoped to the authenticated
+    /// account that authored it, and re-sent after any later successful token
+    /// registration under that same account, because a re-created token row
+    /// starts with no filters. A registration under a different account drops
+    /// the retained document instead of uploading it. A 404
+    /// `unknown_device_token` re-registers once and retries the PUT once.
+    func updateFilters(_ documentData: Data?) async
+
     /// Remove the cached token from the server (on disable, while still
     /// signed in), authenticating through the live token provider.
     func unregisterFromServer() async

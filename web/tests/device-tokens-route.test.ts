@@ -27,6 +27,7 @@ mock.module("../app/lib/stack", () => ({
 }));
 
 const { DELETE, POST } = await import("../app/api/device-tokens/route");
+const { PUT: PUT_FILTERS } = await import("../app/api/device-tokens/filters/route");
 
 let sql: Sql | null = null;
 
@@ -503,6 +504,157 @@ describe("device token route", () => {
     expect(rowsAfterDelete).toEqual([
       { bundle_id: "dev.cmux.app.beta" },
     ]);
+  });
+
+  test("push filters PUT validates before touching the database", async () => {
+    const put = (body: Record<string, unknown>) => PUT_FILTERS(
+      new Request("https://cmux.test/api/device-tokens/filters", {
+        method: "PUT",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify(body),
+      }),
+    );
+
+    const badToken = await put({
+      deviceToken: "not-hex",
+      bundleId: "com.cmux.app",
+      filters: null,
+    });
+    expect(badToken.status).toBe(400);
+    expect(await badToken.json()).toEqual({ error: "invalid_device_token" });
+
+    const badBundle = await put({
+      deviceToken: "b".repeat(64),
+      bundleId: "com.example.app",
+      filters: null,
+    });
+    expect(badBundle.status).toBe(400);
+    expect(await badBundle.json()).toEqual({ error: "invalid_bundle_id" });
+
+    const badFilters = await put({
+      deviceToken: "b".repeat(64),
+      bundleId: "com.cmux.app",
+      filters: { version: 1, rules: [{ id: "r", enabled: true }] },
+    });
+    expect(badFilters.status).toBe(400);
+    expect(await badFilters.json()).toEqual({ error: "filter_rule_missing_criteria" });
+
+    const slowPattern = await put({
+      deviceToken: "b".repeat(64),
+      bundleId: "com.cmux.app",
+      filters: {
+        version: 1,
+        rules: [{ id: "r", enabled: true, titlePattern: "(a+)+$" }],
+      },
+    });
+    expect(slowPattern.status).toBe(400);
+    expect(await slowPattern.json()).toEqual({ error: "filter_rule_pattern_too_slow" });
+  });
+
+  dbTest("push filters PUT stores, replaces, and clears the device's rules", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const token = "b".repeat(64);
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, platform, bundle_id, environment
+      ) values (
+        'push-user-1', ${token}, 'ios', 'dev.cmux.app.internal', 'production'
+      )
+    `;
+    const put = (filters: unknown) => PUT_FILTERS(
+      new Request("https://cmux.test/api/device-tokens/filters", {
+        method: "PUT",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          deviceToken: token.toUpperCase(),
+          bundleId: "dev.cmux.app.internal",
+          filters,
+        }),
+      }),
+    );
+    const storedFilters = async () => {
+      const [row] = await sql!<{ push_filters: unknown }[]>`
+        select push_filters from device_tokens
+        where user_id = 'push-user-1' and device_token = ${token}
+      `;
+      return row.push_filters;
+    };
+
+    const stored = await put({
+      version: 1,
+      rules: [{ id: "rule-1", enabled: true, groupName: " Backend Work " }],
+    });
+    expect(stored.status).toBe(200);
+    expect(await stored.json()).toEqual({ ok: true });
+    // Persisted normalized (trimmed) so send-time matching sees clean rules.
+    expect(await storedFilters()).toEqual({
+      version: 1,
+      rules: [{ id: "rule-1", enabled: true, groupName: "Backend Work" }],
+    });
+
+    const cleared = await put(null);
+    expect(cleared.status).toBe(200);
+    expect(await cleared.json()).toEqual({ ok: true });
+    expect(await storedFilters()).toBeNull();
+
+    const unknown = await PUT_FILTERS(
+      new Request("https://cmux.test/api/device-tokens/filters", {
+        method: "PUT",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          deviceToken: "f".repeat(64),
+          bundleId: "dev.cmux.app.internal",
+          filters: null,
+        }),
+      }),
+    );
+    expect(unknown.status).toBe(404);
+    expect(await unknown.json()).toEqual({ error: "unknown_device_token" });
+  });
+
+  dbTest("push filters PUT respects an active delivery lease", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const token = "c".repeat(64);
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, platform, bundle_id, environment,
+        delivery_lease_until, delivery_lease_token
+      ) values (
+        'push-user-1', ${token}, 'ios', 'com.cmux.app', 'production',
+        now() + interval '30 seconds',
+        '00000000-0000-4000-8000-000000000003'
+      )
+    `;
+
+    const response = await PUT_FILTERS(
+      new Request("https://cmux.test/api/device-tokens/filters", {
+        method: "PUT",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          deviceToken: token,
+          bundleId: "com.cmux.app",
+          filters: null,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(Number(response.headers.get("retry-after"))).toBeGreaterThan(0);
+    expect(await response.json()).toMatchObject({
+      error: "push_delivery_in_progress",
+    });
   });
 
   dbTest("does not transfer or delete a token during an active delivery", async () => {

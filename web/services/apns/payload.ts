@@ -34,6 +34,16 @@ export interface ApnsNotificationInput {
   readonly macDeviceId?: string | null;
   /** The cmux app-instance tag paired with `macDeviceId`. */
   readonly macInstanceTag?: string | null;
+  /** Sidebar workspace-group id owning the notifying workspace (Mac-local). */
+  readonly workspaceGroupId?: string | null;
+  /** Display name paired with `workspaceGroupId`. */
+  readonly workspaceGroupName?: string | null;
+  /**
+   * Set by the delivery service when this device's mute filters matched a
+   * `notify` push: build the silent badge-only variant instead of an alert so
+   * the icon badge stays truthful while nothing visible is shown.
+   */
+  readonly filteredToBadgeOnly?: boolean;
   /**
    * Stable Mac-side notification id. Surfaced in the payload as
    * `cmux.notificationId` so an iOS swipe-dismiss can tell the Mac which
@@ -78,6 +88,7 @@ export const CMUX_APNS_REPLY_CATEGORY = "cmux.terminal.reply";
  */
 export function buildApnsPayload(input: ApnsNotificationInput): Record<string, unknown> {
   if (input.kind === "dismiss") return buildDismissPayload(input);
+  if (input.filteredToBadgeOnly === true) return buildFilteredBadgeOnlyPayload(input);
   const hidden = input.hideContent === true;
   const title = input.title.trim() || "cmux";
   const body = input.body;
@@ -103,6 +114,13 @@ export function buildApnsPayload(input: ApnsNotificationInput): Record<string, u
   const cmux: Record<string, string | boolean> = {};
   if (input.workspaceId) cmux.workspaceId = input.workspaceId;
   if (input.surfaceId) cmux.surfaceId = input.surfaceId;
+  if (input.workspaceGroupId) cmux.workspaceGroupId = input.workspaceGroupId;
+  // The group display name is user content. The Mac already withholds it when
+  // content hiding is on; enforce the same policy here so no client can leak
+  // a workspace name through a content-hidden push.
+  if (input.workspaceGroupName && !hidden) {
+    cmux.workspaceGroupName = input.workspaceGroupName;
+  }
   if (typeof input.retargetsToLiveSurfaceOwner === "boolean") {
     cmux.retargetsToLiveSurfaceOwner = input.retargetsToLiveSurfaceOwner;
   }
@@ -112,6 +130,23 @@ export function buildApnsPayload(input: ApnsNotificationInput): Record<string, u
   if (input.correlationId) cmux.correlationId = input.correlationId;
 
   return Object.keys(cmux).length > 0 ? { aps, cmux } : { aps };
+}
+
+/**
+ * The mute-filtered variant of a `notify` push: like the dismiss push it is
+ * banner-less (no alert/sound/category/time-sensitive level), carries the
+ * authoritative badge when one was sent, and wakes the app via
+ * `content-available` with `cmux.filtered` so iOS knows a muted event passed
+ * by. Unlike dismiss it carries no `dismissedIds` (nothing was cleared).
+ */
+function buildFilteredBadgeOnlyPayload(input: ApnsNotificationInput): Record<string, unknown> {
+  const aps: Record<string, unknown> = { "content-available": 1 };
+  if (typeof input.badgeCount === "number") aps.badge = input.badgeCount;
+  const cmux: Record<string, unknown> = { filtered: true };
+  if (input.macDeviceId) cmux.macDeviceId = input.macDeviceId;
+  if (input.macInstanceTag) cmux.macInstanceTag = input.macInstanceTag;
+  if (input.correlationId) cmux.correlationId = input.correlationId;
+  return { aps, cmux };
 }
 
 /**

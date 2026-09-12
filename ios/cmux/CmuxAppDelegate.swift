@@ -55,13 +55,26 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
         let ids = Self.cmuxIDs(from: notification.request.content.userInfo)
-        let present = await pushCoordinator?.shouldPresentInForeground(
+        let decision = await pushCoordinator?.foregroundDecision(
             workspaceId: ids.workspaceId,
             surfaceId: ids.surfaceId,
             macDeviceId: ids.macDeviceId,
-            macInstanceTag: ids.macInstanceTag
-        ) ?? true
-        return present ? [.banner, .sound, .badge] : []
+            macInstanceTag: ids.macInstanceTag,
+            title: notification.request.content.title,
+            workspaceGroupId: ids.workspaceGroupId,
+            workspaceGroupName: ids.workspaceGroupName
+        ) ?? .present
+        switch decision {
+        case .present:
+            return [.banner, .sound, .badge]
+        case .suppressedByFilter:
+            // A local mute must not lose the badge: the server's muted lane is
+            // a badge-only push, and an unattached foreground app has no live
+            // channel to refresh the badge otherwise.
+            return [.badge]
+        case .suppressedByContext:
+            return []
+        }
     }
 
     func userNotificationCenter(
@@ -193,16 +206,20 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
         surfaceId: String?,
         macDeviceId: String?,
         macInstanceTag: String?,
+        workspaceGroupId: String?,
+        workspaceGroupName: String?,
         retargetsToLiveSurfaceOwner: Bool
     ) {
         guard let cmux = userInfo["cmux"] as? [String: Any] else {
-            return (nil, nil, nil, nil, true)
+            return (nil, nil, nil, nil, nil, nil, true)
         }
         return (
             cmux["workspaceId"] as? String,
             cmux["surfaceId"] as? String,
             cmux["macDeviceId"] as? String,
             cmux["macInstanceTag"] as? String,
+            cmux["workspaceGroupId"] as? String,
+            cmux["workspaceGroupName"] as? String,
             cmux["retargetsToLiveSurfaceOwner"] as? Bool ?? true
         )
     }

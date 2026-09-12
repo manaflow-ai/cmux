@@ -1,14 +1,24 @@
 import CmuxPhonePush
+import Foundation
 
 extension PhonePushPayload {
     /// Builds the phone banner payload from the stored notification identity.
+    /// `workspaceGroup` is the resolved sidebar group owning the notification's
+    /// workspace, or nil when ungrouped; its name is dropped under content
+    /// hiding because a group name is user content while the id is opaque.
     init(
         notification: TerminalNotification,
         macDeviceId: String,
         macInstanceTag: String,
         badgeCount: Int,
-        hideContent: Bool
+        hideContent: Bool,
+        workspaceGroup: (id: UUID, name: String)?
     ) {
+        let groupFields = Self.workspaceGroupFields(
+            groupId: workspaceGroup?.id,
+            groupName: workspaceGroup?.name,
+            hideContent: hideContent
+        )
         self.init(
             kind: .notify,
             title: notification.title,
@@ -16,6 +26,8 @@ extension PhonePushPayload {
             body: notification.body,
             replyShape: notification.replyShape.rawValue,
             workspaceId: notification.tabId.uuidString,
+            workspaceGroupId: groupFields.workspaceGroupId,
+            workspaceGroupName: groupFields.workspaceGroupName,
             surfaceId: notification.surfaceId?.uuidString,
             retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
             macDeviceId: macDeviceId,

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import postgres, { type Sql } from "postgres";
 import { DEVICE_DELIVERY_LEASE_MS } from "../services/apns/deviceDeliveryLease";
+import { parsePushPayload } from "../services/apns/routePolicy";
 import { PUSH_SEND_LEASE_MS } from "../services/apns/rateLimit";
 import { APNS_DEFAULT_MAX_DELIVERY_DURATION_MS } from "../services/apns/sender";
 import { accountDeletionUserHash } from "../services/account/deletionLock";
@@ -349,6 +350,165 @@ describe("notifications push route", () => {
       environment: "production",
     });
     expect(typeof targets[0]?.targetId).toBe("string");
+  });
+
+  test("fingerprint binds the workspace-group identity to the logical event", () => {
+    const parse = (extra: Record<string, unknown>) => {
+      const parsed = parsePushPayload({ title: "agent", body: "done", ...extra });
+      if (!parsed.ok) throw new Error(parsed.error);
+      return parsed.value;
+    };
+    const base = parse({ workspaceGroupId: "grp-1", workspaceGroupName: "Backend" });
+
+    expect(pushRoute.pushPayloadFingerprint(base, "com.cmux.app"))
+      .toBe(pushRoute.pushPayloadFingerprint(
+        parse({ workspaceGroupId: "grp-1", workspaceGroupName: "Backend" }),
+        "com.cmux.app",
+      ));
+    expect(pushRoute.pushPayloadFingerprint(base, "com.cmux.app"))
+      .not.toBe(pushRoute.pushPayloadFingerprint(
+        parse({ workspaceGroupId: "grp-2", workspaceGroupName: "Backend" }),
+        "com.cmux.app",
+      ));
+    expect(pushRoute.pushPayloadFingerprint(base, "com.cmux.app"))
+      .not.toBe(pushRoute.pushPayloadFingerprint(
+        parse({ workspaceGroupId: "grp-1", workspaceGroupName: "Frontend" }),
+        "com.cmux.app",
+      ));
+    expect(pushRoute.pushPayloadFingerprint(base, "com.cmux.app"))
+      .not.toBe(pushRoute.pushPayloadFingerprint(parse({}), "com.cmux.app"));
+  });
+
+  dbTest("mute filters split one fan-out into alert and badge-only sends", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    useStubDb = false;
+    const mutedToken = "a".repeat(64);
+    const unmutedToken = "b".repeat(64);
+    const muteBackend = JSON.stringify({
+      version: 1,
+      rules: [{ id: "rule-1", enabled: true, groupName: "backend work" }],
+    });
+    await sql`
+      truncate device_tokens, notification_send_events restart identity cascade
+    `;
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, platform, bundle_id, environment, push_filters
+      ) values
+        ('user-1', ${mutedToken}, 'ios', 'com.cmux.app', 'production', ${muteBackend}::jsonb),
+        ('user-1', ${unmutedToken}, 'ios', 'com.cmux.app', 'production', null)
+    `;
+
+    const response = await pushRoute.sendPushWithTransport(
+      new Request("https://cmux.test/api/notifications/push", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+          "x-cmux-ios-target-namespace": "com.cmux.app",
+        },
+        body: JSON.stringify({
+          title: "agent",
+          body: "done",
+          workspaceGroupId: "grp-1",
+          workspaceGroupName: "Backend Work",
+          badgeCount: 4,
+          correlationId: "0c40778c-6a40-4d3e-9dd2-6c2867d1f0aa",
+        }),
+      }),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+
+    expect(response.status).toBe(200);
+    // Both devices resolve in one summary even though two sends happened.
+    expect(await response.json()).toMatchObject({ sent: 2, devices: 2 });
+    const calls = (sendApnsNotificationReliably as unknown as {
+      mock: { calls: unknown[][] };
+    }).mock.calls;
+    expect(calls).toHaveLength(2);
+    const alertCall = calls[0]!;
+    const badgeOnlyCall = calls[1]!;
+    expect(
+      (alertCall[1] as Array<{ deviceToken: string }>).map((t) => t.deviceToken),
+    ).toEqual([unmutedToken]);
+    expect(
+      (alertCall[2] as { filteredToBadgeOnly?: boolean }).filteredToBadgeOnly,
+    ).toBeUndefined();
+    expect(
+      (badgeOnlyCall[1] as Array<{ deviceToken: string }>).map((t) => t.deviceToken),
+    ).toEqual([mutedToken]);
+    expect(badgeOnlyCall[2] as Record<string, unknown>).toMatchObject({
+      filteredToBadgeOnly: true,
+      badgeCount: 4,
+    });
+  });
+
+  dbTest("a muted device with no badge gets no APNs send, only a terminal outcome", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    useStubDb = false;
+    const mutedToken = "a".repeat(64);
+    const unmutedToken = "b".repeat(64);
+    const muteGroup = JSON.stringify({
+      version: 1,
+      rules: [{ id: "rule-1", enabled: true, groupId: "grp-1" }],
+    });
+    await sql`
+      truncate device_tokens, notification_send_events restart identity cascade
+    `;
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, platform, bundle_id, environment, push_filters
+      ) values
+        ('user-1', ${mutedToken}, 'ios', 'com.cmux.app', 'production', ${muteGroup}::jsonb),
+        ('user-1', ${unmutedToken}, 'ios', 'com.cmux.app', 'production', null)
+    `;
+
+    const correlationId = "5b7cc0a4-01f5-4be4-96b1-2a1f0cbb1c9e";
+    const response = await pushRoute.sendPushWithTransport(
+      new Request("https://cmux.test/api/notifications/push", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+          "x-cmux-ios-target-namespace": "com.cmux.app",
+        },
+        body: JSON.stringify({
+          title: "agent",
+          body: "done",
+          workspaceGroupId: "grp-1",
+          correlationId,
+        }),
+      }),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+
+    expect(response.status).toBe(200);
+    // The suppressed device is terminal-success: counted, never retried.
+    expect(await response.json()).toMatchObject({
+      sent: 2,
+      devices: 2,
+      transientFailures: 0,
+      permanentFailures: 0,
+    });
+    const calls = (sendApnsNotificationReliably as unknown as {
+      mock: { calls: unknown[][] };
+    }).mock.calls;
+    expect(calls).toHaveLength(1);
+    expect(
+      (calls[0]![1] as Array<{ deviceToken: string }>).map((t) => t.deviceToken),
+    ).toEqual([unmutedToken]);
+    const [event] = await sql<{ outcomes: Array<{ status: number; reason?: string }> }[]>`
+      select result_outcomes as outcomes from notification_send_events
+      where user_id = 'user-1' and correlation_id = ${correlationId}
+    `;
+    expect(event.outcomes.map((outcome) => outcome.status).sort()).toEqual([200, 200]);
+    expect(
+      event.outcomes.filter((outcome) => outcome.reason === "filtered"),
+    ).toHaveLength(1);
   });
 
   test("keeps correlation on unexpected failures after payload parsing", async () => {
