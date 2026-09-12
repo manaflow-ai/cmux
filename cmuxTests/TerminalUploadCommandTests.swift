@@ -326,4 +326,117 @@ import Testing
         }
         #expect(text == "done")
     }
+
+    @Test func realProcessDoesNotHandTheCommandOurBlockedSignals() {
+        // cmux spawns upload commands from a libdispatch worker, and those threads run
+        // with most signals blocked. A mask survives exec, so a command spawned without
+        // SETSIGMASK inherits it. Blocking SIGTERM here stands in for that worker: the
+        // command traps SIGTERM, signals itself, and records that the signal arrived,
+        // which it can only do if the mask did not come along.
+        //
+        // The command raises its own signal and then runs to completion, so nothing
+        // here waits on a clock and teardown never gets involved. A SIGTERM that was
+        // handed a blocked mask stays pending, is never delivered, and the marker is
+        // simply absent when the command exits.
+        var blocked = sigset_t()
+        sigemptyset(&blocked)
+        sigaddset(&blocked, SIGTERM)
+        var previous = sigset_t()
+        pthread_sigmask(SIG_BLOCK, &blocked, &previous)
+        defer { pthread_sigmask(SIG_SETMASK, &previous, nil) }
+
+        let markerPath = NSTemporaryDirectory() + "cmux-upload-sigmask-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(atPath: markerPath) }
+
+        let result = TerminalCustomUploadRunner().runSync(
+            fileURLs: [URL(fileURLWithPath: "/tmp/a.png")],
+            endpoint: endpoint(),
+            command: "trap 'echo caught > \(markerPath)' TERM; kill -TERM $$; echo done",
+            operation: TerminalImageTransferOperation()
+        )
+        guard case .success = result else {
+            Issue.record("expected the command to run to completion, got \(String(describing: result))")
+            return
+        }
+        #expect(
+            FileManager.default.fileExists(atPath: markerPath),
+            "the command never saw SIGTERM, so it was handed this thread's blocked mask"
+        )
+    }
+
+    @Test func realProcessKillsADescendantThatOutlivesTheLeader() {
+        // The leader dies on SIGTERM and the descendant it left behind ignores it, so
+        // reading the leader's exit as "the command is gone" leaves that descendant
+        // running with our pipes still open. Teardown has to escalate to the group.
+        //
+        // Cancellation drives the teardown rather than the timeout, because the
+        // descendant has to exist before there is anything to prove. A one second
+        // budget can expire on a loaded machine before the shell is ever scheduled,
+        // and the test would then fail having tested nothing. Waiting for the pid file
+        // makes the descendant's arrival the trigger; the timeout is only a backstop.
+        let pidPath = NSTemporaryDirectory() + "cmux-upload-teardown-\(UUID().uuidString).pid"
+        defer { try? FileManager.default.removeItem(atPath: pidPath) }
+
+        let operation = TerminalImageTransferOperation()
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = Self.waitForRecordedPID(atPath: pidPath, within: 20)
+            operation.cancel()
+        }
+
+        let result = TerminalCustomUploadRunner().runSync(
+            fileURLs: [URL(fileURLWithPath: "/tmp/a.png")],
+            endpoint: endpoint(),
+            command: "/bin/sh -c 'trap \"\" TERM; echo $$ > \(pidPath); exec /bin/sleep 30' & wait",
+            operation: operation,
+            timeout: 60
+        )
+        if case .success = result { Issue.record("a cancelled command must fail closed") }
+
+        guard let descendant = Self.recordedPID(atPath: pidPath) else {
+            Issue.record("the descendant never recorded its pid, so this proved nothing")
+            return
+        }
+        let died = Self.waitForExit(descendant, within: 5)
+        if !died { kill(descendant, SIGKILL) }
+        #expect(died, "a descendant that ignores SIGTERM must not survive teardown")
+    }
+
+    private static func recordedPID(atPath path: String) -> pid_t? {
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+        return pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// Whether `path` shows up within `seconds`. The command touches it to say it has
+    /// reached the state the test needs before teardown starts.
+    private static func waitForFile(atPath path: String, within seconds: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if FileManager.default.fileExists(atPath: path) { return true }
+            usleep(20_000)
+        }
+        return FileManager.default.fileExists(atPath: path)
+    }
+
+    /// The pid the spawned descendant wrote to `path`, waiting up to `seconds` for it
+    /// to appear. A partially written file reads back as nil, so keep polling.
+    private static func waitForRecordedPID(atPath path: String, within seconds: TimeInterval) -> pid_t? {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if let pid = recordedPID(atPath: path) { return pid }
+            usleep(20_000)
+        }
+        return recordedPID(atPath: path)
+    }
+
+    /// Whether `pid` is gone within `seconds`. Polled rather than waited on: it is not
+    /// our child, so there is no exit to wait for — the reparented process is reaped by
+    /// launchd and `kill(pid, 0)` starts failing.
+    private static func waitForExit(_ pid: pid_t, within seconds: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if kill(pid, 0) != 0 { return true }
+            usleep(20_000)
+        }
+        return kill(pid, 0) != 0
+    }
 }
