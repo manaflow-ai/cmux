@@ -1,195 +1,129 @@
 import Foundation
 
-/// The Ports and Desktop rows' panes: every route goes through
-/// ``CloudPortRoutePlan``, and a machine with a private address is reached
-/// over the user-space WireGuard hub on a loopback forward. Nothing here asks
-/// for the Network Extension.
 extension CmuxTuiSurfaceProvider {
-    /// Creates the browser pane for a port or desktop row at once (showing the
-    /// connecting placeholder) and navigates it when its route is ready. The
-    /// forward exists before this returns, so `localPortURL(port:)` answers
-    /// immediately afterwards.
+    /// Rebind active browser panes when the VM private address changes.
+    func refreshCloudBrowserRoutes() {
+        for resource in catalog.snapshot.resources(on: machine) where resource.kind != .terminal {
+            for projection in catalog.projections(of: resource.id) {
+                guard let browser = SurfacePaneFactory.browserPanel(panelID: projection.panelID, in: projection.workspaceID) else { continue }
+                switch CloudPortRoutePlan.plan(resource: resource, privateAddress: info.privateAddress) {
+                case .privateDirect(let raw):
+                    if let url = URL(string: raw) { configureBrowser(browser, url: url) }
+                case .unsupported(let message):
+                    browser.cloudAccess.showUnavailable(message)
+                }
+            }
+        }
+    }
+
+    /// Create the browser with native connection state before attempting access.
+    /// The user chooses forwarding explicitly in that pane.
     func materializeBrowserPane(
         _ resource: SurfaceResource,
         at destination: SurfaceDestination,
         focus: Bool,
         reusing existingPane: (workspaceID: UUID, panelID: UUID)? = nil
     ) async throws -> (workspaceID: UUID, panelID: UUID) {
-        let generation = currentLifecycleGeneration
         try Task.checkCancellation()
-        let desktop = resource.kind == .display
-        let plan = CloudPortRoutePlan.plan(
-            resource: resource,
-            privateAddress: info.privateAddress,
-            supportsControlPlanePreviews: capabilities.ports
-        )
-        switch plan {
-        case .unsupported(let reason):
-            throw SurfaceCatalogError.unsupported(reason)
-        case .hubForward(let target, let remoteURL):
-            let forward = try await hubForward(to: target)
-            guard let localURL = CloudPortRoutePlan.localURL(rewriting: remoteURL, toLoopbackPort: await forward.localPort) else {
-                throw ProviderError.localForwardURLUnavailable
-            }
-            try Task.checkCancellation()
-            guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { throw CancellationError() }
-            let label = Self.paneLabel(machineID: machineID, port: target.port, desktop: desktop)
-            let pane = try Self.makeConnectingPane(label: label, at: destination, focus: focus, reusing: existingPane)
-            let machineWasAwake = isAwake
-            // A provider that is stopped or replaced while this runs must not
-            // touch the pane its successor now owns.
-            browserPaneTasks[pane.panelID] = Task { @MainActor [weak self] in
-                guard let self else { return }
-                defer { self.browserPaneTasks[pane.panelID] = nil }
-                do {
-                    try Task.checkCancellation()
-                    if !machineWasAwake {
-                        // Waking a paused machine is an explicit management
-                        // operation. The returned public URL is ignored; the
-                        // pane keeps the private route.
-                        guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
-                        _ = try await client.openPort(id: self.machineID, port: target.port)
-                    }
-                    try Task.checkCancellation()
-                    // Start the hub now so a hub that cannot come up is explained
-                    // in the pane instead of surfacing as a browser error page.
-                    try await forward.warmUpHub()
-                    try Task.checkCancellation()
-                    guard self.isCurrentLifecycleGeneration(generation) else { return }
-                    SurfacePaneFactory.navigate(panelID: pane.panelID, in: pane.workspaceID, to: localURL)
-                } catch {
-                    guard !Task.isCancelled else { return }
-                    guard self.isCurrentLifecycleGeneration(generation) else { return }
-                    Self.showFailure(label: label, error: error, pane: pane)
-                }
-            }
-            return pane
-        case .controlPlanePreview(let port):
-            guard isRegisteredInCatalog() else { throw CancellationError() }
-            let label = Self.paneLabel(machineID: machineID, port: port, desktop: desktop)
-            let pane = try Self.makeConnectingPane(label: label, at: destination, focus: focus, reusing: existingPane)
-            browserPaneTasks[pane.panelID] = Task { @MainActor [weak self] in
-                guard let self else { return }
-                defer { self.browserPaneTasks[pane.panelID] = nil }
-                do {
-                    try Task.checkCancellation()
-                    let url = try await self.controlPlanePreviewURL(port: port)
-                    try Task.checkCancellation()
-                    guard self.isCurrentLifecycleGeneration(generation) else { return }
-                    SurfacePaneFactory.navigate(panelID: pane.panelID, in: pane.workspaceID, to: url)
-                } catch {
-                    guard !Task.isCancelled else { return }
-                    guard self.isCurrentLifecycleGeneration(generation) else { return }
-                    Self.showFailure(label: label, error: error, pane: pane)
-                }
-            }
-            return pane
-        }
-    }
-
-    /// Restored browser tabs retain their identity, but their saved loopback
-    /// ports belong to the previous process. Reuse the normal route preparation
-    /// path to create a new forward and navigate the existing tab in place.
-    func reprojectRestoredBrowserPanes(generation: UInt64) {
-        for resource in catalog.snapshot.resources(on: machine) where resource.kind != .terminal {
-            for projection in catalog.projections(of: resource.id)
-            where !materializedPanels.contains(projection.panelID) {
-                guard SurfacePaneFactory.browserPanel(panelID: projection.panelID, in: projection.workspaceID) != nil,
-                      let paneID = SurfacePaneFactory.paneID(ofPanel: projection.panelID, in: projection.workspaceID) else { continue }
-                materializedPanels.insert(projection.panelID)
-                let pane = (workspaceID: projection.workspaceID, panelID: projection.panelID)
-                // The old process no longer owns this URL. Retire it before
-                // any route setup can suspend, then reuse the normal preparer.
-                SurfacePaneFactory.navigate(panelID: pane.panelID, in: pane.workspaceID, to: SurfacePaneFactory.blankURL)
-                SurfacePaneFactory.showPlaceholder(SurfaceBrowserPlaceholder.connecting(resource.title), panelID: pane.panelID, in: pane.workspaceID)
-                // This task owns forward creation; materializeBrowserPane hands
-                // the same slot to its navigation task after the forward binds.
-                browserPaneTasks[pane.panelID] = Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    do {
-                        try Task.checkCancellation()
-                        guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { return }
-                        _ = try await self.materializeBrowserPane(
-                            resource,
-                            at: .tab(workspaceID: pane.workspaceID, paneID: paneID, index: nil),
-                            focus: false,
-                            reusing: pane
-                        )
-                    } catch {
-                        self.browserPaneTasks[pane.panelID] = nil
-                        guard !Task.isCancelled, self.isCurrentLifecycleGeneration(generation) else { return }
-                        Self.showFailure(label: resource.title, error: error, pane: pane)
-                    }
-                }
-            }
-        }
-    }
-
-    /// The link `port` opens as, shared by the pane, Copy Link, and
-    /// `vm.port_open`: the loopback forward when the machine has a private
-    /// address, else the control plane's tokened preview URL. Throws when the
-    /// machine supports neither route or the route it has cannot be made;
-    /// never falls back to an address only `cmux vpn up` can reach.
-    func portLinkURL(port: Int) async throws -> String {
-        if let local = try await localPortURL(port: port) { return local }
-        return try await controlPlanePreviewURL(port: port).absoluteString
-    }
-
-    /// The control plane's tokened preview URL for `port`, the route for a
-    /// machine without a private address. Only a web URL may reach a pane or
-    /// the pasteboard, so anything else is refused here for every caller.
-    func controlPlanePreviewURL(port: Int) async throws -> URL {
-        guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
-        let endpoint = try await client.openPort(id: machineID, port: port)
-        guard let url = URL(string: endpoint.openUrl),
-              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { throw ProviderError.invalidPreviewURL }
-        return url
-    }
-
-    /// The loopback URL that reaches `port` on this machine from any app on
-    /// this Mac, starting the forward if needed. Nil when the machine has no
-    /// private address, so its ports are only reachable through the control
-    /// plane's preview URL; throws only when a forward should exist and could
-    /// not be made.
-    func localPortURL(port: Int) async throws -> String? {
-        let plan = CloudPortRoutePlan.plan(
-            resource: CmuxTuiSnapshotParser.portBrowser(machine: machine, port: port),
-            privateAddress: info.privateAddress,
-            supportsControlPlanePreviews: capabilities.ports
-        )
-        switch plan {
-        case .hubForward(let target, _):
-            return try await hubForward(to: target).localURLString
-        case .controlPlanePreview:
-            return nil
-        case .unsupported(let reason):
-            throw SurfaceCatalogError.unsupported(reason)
-        }
-    }
-
-    private func hubForward(to target: CloudPortForwardTarget) async throws -> CloudLoopbackPortForward {
-        guard let portForwards else { throw ProviderError.hubUnavailable }
-        var dualStackTarget = target
-        dualStackTarget.fallbackHosts = await links.privateAddresses(for: machineID)
-        return try await portForwards.forward(machineID: machineID, to: dualStackTarget)
-    }
-
-    private static func makeConnectingPane(
-        label: String,
-        at destination: SurfaceDestination,
-        focus: Bool,
-        reusing existingPane: (workspaceID: UUID, panelID: UUID)? = nil
-    ) throws -> (workspaceID: UUID, panelID: UUID) {
+        guard isRegisteredInCatalog() else { throw CancellationError() }
         let pane = try existingPane ?? SurfacePaneFactory.makeBrowserPane(url: SurfacePaneFactory.blankURL, at: destination, focus: focus)
-        SurfacePaneFactory.showPlaceholder(SurfaceBrowserPlaceholder.connecting(label), panelID: pane.panelID, in: pane.workspaceID)
+        guard let browser = SurfacePaneFactory.browserPanel(panelID: pane.panelID, in: pane.workspaceID) else {
+            throw ProviderError.localForwardURLUnavailable
+        }
+        switch CloudPortRoutePlan.plan(resource: resource, privateAddress: info.privateAddress) {
+        case .privateDirect(let raw):
+            guard let url = URL(string: raw) else { throw ProviderError.localForwardURLUnavailable }
+            configureBrowser(browser, url: url)
+        case .unsupported(let message):
+            browser.cloudAccess.showUnavailable(message)
+        }
         return pane
     }
 
-    private static func showFailure(label: String, error: any Error, pane: (workspaceID: UUID, panelID: UUID)) {
-        let text = CloudMachineLink.errorText(error)
-        SurfacePaneFactory.showPlaceholder(SurfaceBrowserPlaceholder.failed(label, error: text), panelID: pane.panelID, in: pane.workspaceID)
-        #if DEBUG
-        cmuxDebugLog("cloud.provider.endpointFailed label=\(label) error=\(String(reflecting: error))")
-        #endif
+    func configureBrowser(_ browser: BrowserPanel, url: URL) {
+        guard let address = info.privateAddress,
+              let privateURL = CloudPortRoutePlan.privateURL(url.absoluteString, address: address) else {
+            browser.cloudAccess.showUnavailable(String(localized: "cloud.portAccess.invalidURL", defaultValue: "This port does not have a valid HTTP or HTTPS address."))
+            return
+        }
+        let port = privateURL.port ?? (privateURL.scheme == "https" ? 443 : 80)
+        browser.webView.stopLoading()
+        browser.cloudAccess.configure(model: accessModel(port: port, address: address), url: privateURL)
+        browser.showCloudAddress(privateURL)
+    }
+
+    func accessModel(port: Int, address: String) -> CloudPortAccessModel {
+        let target = CloudPortForwardTarget(host: address, port: port)
+        return portAccessStore.model(machineID: machineID, target: target) {
+            CloudPortAccessModel(
+                machineID: machineID,
+                target: target,
+                coordinator: portAccessStore.coordinator,
+                wake: { [weak self] in
+                    guard let self, self.isRegisteredInCatalog() else { throw CancellationError() }
+                    let generation = self.currentLifecycleGeneration
+                    if !self.isAwake {
+                        guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
+                        _ = try await client.openPort(id: self.machineID, port: port)
+                    }
+                    guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
+                },
+                startForward: { [weak self] target in
+                    guard let self, let portForwards = self.portForwards, self.isRegisteredInCatalog() else { throw ProviderError.hubUnavailable }
+                    var target = target
+                    target.fallbackHosts = await self.links.privateAddresses(for: self.machineID)
+                    let forward = try await portForwards.forward(machineID: self.machineID, to: target)
+                    do {
+                        try await forward.warmUpHub()
+                        try Task.checkCancellation()
+                        return await forward.localPort
+                    } catch {
+                        await portForwards.close(machineID: self.machineID, port: port)
+                        throw error
+                    }
+                },
+                stopForward: { [portForwards, machineID] in
+                    await portForwards?.close(machineID: machineID, port: port)
+                }
+            )
+        }
+    }
+
+    func reprojectRestoredBrowserPanes(generation: UInt64) {
+        for resource in catalog.snapshot.resources(on: machine) where resource.kind != .terminal {
+            for projection in catalog.projections(of: resource.id) where !materializedPanels.contains(projection.panelID) {
+                guard let browser = SurfacePaneFactory.browserPanel(panelID: projection.panelID, in: projection.workspaceID),
+                      isCurrentLifecycleGeneration(generation) else { continue }
+                materializedPanels.insert(projection.panelID)
+                switch CloudPortRoutePlan.plan(resource: resource, privateAddress: info.privateAddress) {
+                case .privateDirect(let raw):
+                    if let url = URL(string: raw) { configureBrowser(browser, url: url) }
+                case .unsupported(let message): browser.cloudAccess.showUnavailable(message)
+                }
+            }
+        }
+    }
+
+    /// Copying a link is read-only and always returns the private address.
+    func portLinkURL(port: Int) async throws -> String {
+        let resource = CmuxTuiSnapshotParser.portBrowser(machine: machine, port: port)
+        switch CloudPortRoutePlan.plan(resource: resource, privateAddress: info.privateAddress) {
+        case .privateDirect(let url): return url
+        case .unsupported(let message): throw SurfaceCatalogError.unsupported(message)
+        }
+    }
+
+    /// Inspect an explicit forward without creating one.
+    func localPortURL(port: Int) async throws -> String? {
+        guard let localPort = await portForwards?.localPort(machineID: machineID, port: port) else { return nil }
+        return "http://127.0.0.1:\(localPort)"
+    }
+
+    /// Explicit provider preview API retained for diagnostic callers only.
+    func controlPlanePreviewURL(port: Int) async throws -> URL {
+        guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
+        let endpoint = try await client.openPort(id: machineID, port: port)
+        guard let url = URL(string: endpoint.openUrl), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { throw ProviderError.invalidPreviewURL }
+        return url
     }
 }
