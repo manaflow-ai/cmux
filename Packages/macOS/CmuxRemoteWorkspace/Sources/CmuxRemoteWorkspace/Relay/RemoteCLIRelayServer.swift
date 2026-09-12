@@ -27,6 +27,9 @@ import Network
 /// argument. The actor/async migration is a deliberate later-phase item
 /// (plan: "Modernization hot-spots").
 public final class RemoteCLIRelayServer: @unchecked Sendable {
+    /// Bounds authenticated and pre-auth relay work, including local socket waits.
+    static let maximumConcurrentSessions = 16
+
     private let localSocketPath: String
     private let relayID: String
     private let relayToken: Data
@@ -173,7 +176,8 @@ public final class RemoteCLIRelayServer: @unchecked Sendable {
     }
 
     private func acceptConnectionLocked(_ connection: NWConnection) {
-        guard !isStopped else {
+        guard !isStopped,
+              sessions.count < Self.maximumConcurrentSessions else {
             connection.cancel()
             return
         }
