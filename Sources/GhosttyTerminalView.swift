@@ -9669,7 +9669,7 @@ private final class TerminalViewportBorderOverlayView: NSView {
     }
 }
 
-private final class CloudTerminalReconnectOverlayView: NSView {
+final class CloudTerminalReconnectOverlayView: NSView {
     var onReconnect: (() -> Void)?
 
     private let cardView = NSVisualEffectView(frame: .zero)
@@ -9804,7 +9804,6 @@ private final class CloudTerminalReconnectOverlayView: NSView {
         onReconnect?()
     }
 }
-
 final class GhosttySurfaceScrollView: NSView {
     enum FlashStyle {
         case navigation
@@ -14054,7 +14053,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         let instanceSerial: UInt64
         private(set) var geometryRevision: UInt64 = 0
         private var lastReportedGeometryState: GeometryState?
-
+        var cloudFallbackOverlay: CloudTerminalReconnectOverlayView?
         override init(frame frameRect: NSRect) {
             Self.nextInstanceSerial &+= 1
             instanceSerial = Self.nextInstanceSerial
@@ -14235,6 +14234,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
 #endif
 
         let hostContainer = nsView as? HostContainerView
+        hostContainer?.synchronizeCloudManualMirrorFallback(hostedView: hostedView, terminalSurface: terminalSurface, visible: isVisibleInUI)
         let ownsCurrentPane = isCurrentPaneOwner()
         let portalExpectedSurfaceId = terminalSurface.id
         let portalExpectedGeneration = terminalSurface.portalBindingGeneration()

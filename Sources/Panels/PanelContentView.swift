@@ -42,6 +42,8 @@ struct PanelContentView: View {
     let onTriggerFlash: () -> Void
     /// Owner action used to materialize a deferred browser after its host reports visibility.
     let onRequestDeferredBrowserMaterialization: () -> Void
+    /// Owner action used to recover a stale Cloud terminal panel mapping.
+    var onRequestCloudTerminalRecovery: () -> Void = {}
 
     var body: some View {
         renderedPanel
@@ -71,6 +73,11 @@ struct PanelContentView: View {
                     onResumeAgentHibernation: onResumeAgentHibernation,
                     onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
                     onTriggerFlash: onTriggerFlash
+                )
+            } else {
+                TerminalPanelUnavailableView(
+                    appearance: appearance,
+                    onRecover: onRequestCloudTerminalRecovery
                 )
             }
         case .browser:
@@ -259,6 +266,39 @@ struct PanelContentView: View {
         case .terminal, .browser:
             return false
         }
+    }
+}
+
+/// A Bonsplit terminal tab whose panel registry entry is stale must remain
+/// explainable instead of falling through to an empty view.
+private struct TerminalPanelUnavailableView: View {
+    let appearance: PanelAppearance
+    let onRecover: () -> Void
+
+    var body: some View {
+        VStack(spacing: 10) {
+            CmuxSystemSymbolImage(
+                magnified: "exclamationmark.triangle",
+                pointSize: 28,
+                tint: Color(nsColor: .secondaryLabelColor)
+            )
+            Text(String(localized: "cloud.overlay.manual.unavailable.title", defaultValue: "Cloud terminal unavailable"))
+                .cmuxFont(size: 14, weight: .semibold)
+                .foregroundStyle(.primary)
+            Text(String(localized: "cloud.overlay.manual.unavailable.detail", defaultValue: "The terminal pane is being restored. Reconnect to restore it."))
+                .cmuxFont(size: 12)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 360)
+            Button(
+                String(localized: "cloud.overlay.reconnect.button", defaultValue: "Reconnect"),
+                action: onRecover
+            )
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: appearance.contentBackgroundColor))
     }
 }
 

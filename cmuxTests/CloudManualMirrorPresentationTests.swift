@@ -8,6 +8,19 @@ import Testing
 
 @Suite("Cloud manual mirror presentation")
 struct CloudManualMirrorPresentationTests {
+    @Test
+    func attachedPaneNeedsReplayAndRendererBeforeHidingItsStatus() {
+        #expect(CloudTuiManualMirrorPresentationPolicy.connectionState(
+            phase: .attached, replayReceived: false, rendererReady: true
+        ) == .connecting)
+        #expect(CloudTuiManualMirrorPresentationPolicy.connectionState(
+            phase: .attached, replayReceived: true, rendererReady: false
+        ) == .error)
+        #expect(CloudTuiManualMirrorPresentationPolicy.connectionState(
+            phase: .attached, replayReceived: true, rendererReady: true
+        ) == .connected)
+    }
+
     /// A failed numeric-surface resolution must remain recoverable. The provider
     /// cannot attach with a stale id, but fencing the stream must schedule the
     /// next authoritative refresh rather than strand the visible tab.

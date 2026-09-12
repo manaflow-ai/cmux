@@ -57,26 +57,20 @@ final class CloudTuiManualMirrorSession {
     private var lastRemoteGrid: CloudTuiManualIOGrid?
     private(set) var phase: CloudTuiManualMirrorPhase = .idle {
         didSet {
-            // Every transport failure calls `transitionToDisconnected(error:)`
-            // explicitly. Surface rebinds can therefore end a stream without
-            // creating a false network error.
             if phase == .disconnected, oldValue != .disconnected, diagnosticContext != nil {
                 finishDiagnostics(error: CloudDiagnosticFailure.network)
             }
             if phase == .stopped { finishDiagnostics(error: CancellationError()) }
             if phase == .attached && diagnosticReplayReceived { finishDiagnostics() }
-            surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
+            CloudTuiManualMirrorLog.phase(terminalID: terminalID, remoteSurfaceID: remoteSurfaceID, phase: phase, replayReceived: diagnosticReplayReceived); surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
         }
     }
 
     var connectionPresentation: CloudTerminalReconnectOverlayPolicy.Presentation? {
-        let state: WorkspaceRemoteConnectionState
-        switch phase {
-        case .idle, .connecting: state = .connecting
-        case .attached: state = diagnosticReplayReceived ? .connected : .connecting
-        case .disconnected: state = .error
-        case .stopped: return nil
-        }
+        guard let state = CloudTuiManualMirrorPresentationPolicy.connectionState(
+            phase: phase, replayReceived: diagnosticReplayReceived,
+            rendererReady: surface?.isNativeViewInRealWindow == true && surface?.isRendererPortalVisible == true && surface?.isRendererPresented == true
+        ) else { return nil }
         var presentation = CloudTerminalReconnectOverlayPolicy.presentation(
             isManagedCloudWorkspace: true, isRemoteTerminalSurface: true,
             connectionState: state, detail: diagnosticFailure?.label ?? CloudOperationPhase.ready.label
@@ -128,6 +122,7 @@ final class CloudTuiManualMirrorSession {
     /// assigning them here also makes rebinding after restore safe.
     func bind(surface: TerminalSurface) {
         self.surface = surface
+        CloudTuiManualMirrorLog.bind(terminalID: terminalID, remoteSurfaceID: remoteSurfaceID)
         // A color sidecar that arrived before any surface existed reaches this
         // one now. The stored sidecar is the remote truth, and the next
         // identical sidecar would produce an empty delta and leave the pane on
@@ -246,6 +241,7 @@ final class CloudTuiManualMirrorSession {
         serverCapabilities.removeAll(keepingCapacity: true)
         resizeScheduler.resetForReconnect()
         lastRemoteGrid = nil
+        if phase != .disconnected { onNeedsReconnect() }
         finishDiagnostics(error: CancellationError())
         phase = .disconnected
     }
@@ -436,8 +432,6 @@ final class CloudTuiManualMirrorSession {
         }
         self.surface = nil
     }
-
-
     private func finishDiagnostics(error: Error? = nil) {
         diagnosticDeadline?.cancel()
         diagnosticDeadline = nil

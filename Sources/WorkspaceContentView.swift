@@ -93,12 +93,8 @@ private struct WorkspacePanelContentHostView: View {
             onResumeAgentHibernation: onResumeAgentHibernation,
             onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
             onTriggerFlash: onTriggerFlash,
-            onRequestDeferredBrowserMaterialization: {
-                workspace.requestDeferredBrowserMaterialization(
-                    panelId: panel.id,
-                    isVisibleInUI: isVisibleInUI
-                )
-            }
+            onRequestDeferredBrowserMaterialization: { workspace.requestDeferredBrowserMaterialization(panelId: panel.id, isVisibleInUI: isVisibleInUI) },
+            onRequestCloudTerminalRecovery: { _ = workspace.reconnectCloudTerminalSurface(surfaceId: panel.id) }
         )
     }
 }
