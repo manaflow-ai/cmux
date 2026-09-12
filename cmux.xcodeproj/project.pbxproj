@@ -3172,6 +3172,7 @@
 		5330B0515330B0515330B051 /* TextBoxInlineAttachmentThumbnailSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5330B0525330B0525330B052 /* TextBoxInlineAttachmentThumbnailSize.swift */; };
 		5330B0615330B0615330B061 /* TextBoxInlineAttachmentThumbnailSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5330B0625330B0625330B062 /* TextBoxInlineAttachmentThumbnailSource.swift */; };
 		5330B0815330B0815330B081 /* TextBoxInlineTextAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5330B0825330B0825330B082 /* TextBoxInlineTextAttachment.swift */; };
+		1BC9E9262A2B40DA910F400A /* TerminalWrapWidthRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E56A84DC03D744B0958FF544 /* TerminalWrapWidthRegressionTests.swift */; };
 		C0DE7B100000000000000001 /* TextBoxInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B100000000000000002 /* TextBoxInput.swift */; };
 		B88351000000000000000011 /* TextBoxInputContainer+Paste.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000012 /* TextBoxInputContainer+Paste.swift */; };
 		B8835100000000000000000F /* TextBoxInputTextView+AsyncPastePreparation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000010 /* TextBoxInputTextView+AsyncPastePreparation.swift */; };
@@ -6687,6 +6688,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		5330B0525330B0525330B052 /* TextBoxInlineAttachmentThumbnailSize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInlineAttachmentThumbnailSize.swift; sourceTree = "<group>"; };
 		5330B0625330B0625330B062 /* TextBoxInlineAttachmentThumbnailSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInlineAttachmentThumbnailSource.swift; sourceTree = "<group>"; };
 		5330B0825330B0825330B082 /* TextBoxInlineTextAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInlineTextAttachment.swift; sourceTree = "<group>"; };
+		E56A84DC03D744B0958FF544 /* TerminalWrapWidthRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWrapWidthRegressionTests.swift; sourceTree = "<group>"; };
 		C0DE7B100000000000000002 /* TextBoxInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInput.swift; sourceTree = "<group>"; };
 		B88351000000000000000012 /* TextBoxInputContainer+Paste.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TextBoxInputContainer+Paste.swift"; sourceTree = "<group>"; };
 		B88351000000000000000010 /* TextBoxInputTextView+AsyncPastePreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TextBoxInputTextView+AsyncPastePreparation.swift"; sourceTree = "<group>"; };
@@ -10109,6 +10111,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				AA11BB22CC33DD44EE55F001 /* TerminalWindowPortalLayoutPassRefreshTests.swift */,
 				54F4341871F2416AB0E1F5DE /* TerminalWindowPortalEngineDivergenceTests.swift */,
 				6190C0116190C0116190C011 /* TerminalCopyOnSelectManagedConfigLayeringTests.swift */,
+				E56A84DC03D744B0958FF544 /* TerminalWrapWidthRegressionTests.swift */,
 				606600010000000000000002 /* WindowTerminalHostViewTitlebarHitTests.swift */,
 				C0DE53360000000000000002 /* TerminalSearchOverlayMouseReleaseTests.swift */,
 				5F48D7DEDA3163226C11A4B2 /* TerminalSearchNavigationTests.swift */,
@@ -14681,6 +14684,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				970400000000000000000001 /* TextBoxEscapePassthroughTests.swift in Sources */,
 				C0DE86250000000000000001 /* TextBoxIMECompositionLayoutTests.swift in Sources */,
 				5330A0015330A0015330A001 /* TextBoxInlineAttachmentRenderingTests.swift in Sources */,
+				1BC9E9262A2B40DA910F400A /* TerminalWrapWidthRegressionTests.swift in Sources */,
 				C0DE7B300000000000000001 /* TextBoxMentionCompletionTests.swift in Sources */,
 				7898A0010000000000000001 /* TextBoxMentionGitIgnoreProbeTests.swift in Sources */,
 				A8530203C8F1BD33EF960CF0 /* TextBoxPendingPasteReservationInteractionTests.swift in Sources */,
