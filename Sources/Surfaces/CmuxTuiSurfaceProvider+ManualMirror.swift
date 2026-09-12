@@ -34,6 +34,7 @@ extension CmuxTuiSurfaceProvider {
             terminalID: resource.id.key,
             remoteSurfaceID: resolved.surfaceID,
             initiallyClaimsGeometry: focus,
+            operations: links.operations,
             onNeedsReconnect: { [weak self] in
                 self?.scheduleRefresh()
             }
