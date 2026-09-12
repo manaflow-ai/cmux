@@ -74,6 +74,37 @@ import Testing
         #expect(config.theme == "light:Solarized Light,dark:Solarized Light")
     }
 
+    @Test func laterColorDirectiveKeepsPrecedenceOverRepairedManagedTheme() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-theme-repair-color-precedence-\(UUID().uuidString)", isDirectory: true)
+        let themesDirectory = directory.appendingPathComponent("themes", isDirectory: true)
+        try FileManager.default.createDirectory(at: themesDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try "background = #ABCDEF\n".write(
+            to: themesDirectory.appendingPathComponent("Legacy Theme"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let configPath = directory.appendingPathComponent("config", isDirectory: false)
+        try """
+        # cmux themes start
+        theme = light:Legacy Theme
+        # cmux themes end
+        background = #123456
+        """.write(to: configPath, atomically: true, encoding: .utf8)
+
+        var config = GhosttyConfig()
+        config.loadResolvedUserConfig(
+            configPaths: [configPath.path],
+            preferredColorScheme: .light,
+            environment: ["GHOSTTY_RESOURCES_DIR": directory.path],
+            bundleResourceURL: nil
+        )
+
+        #expect(config.backgroundColor.hexString() == "#123456")
+    }
+
     @Test func includedUserThemeKeepsPrecedenceOverRepairedManagedTheme() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-theme-repair-include-\(UUID().uuidString)", isDirectory: true)
