@@ -659,8 +659,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                   let context = organizationStore.siblings(of: id, in: nodes),
                   let sourceIndex = context.nodes.firstIndex(where: { $0.id == id }),
                   context.nodes[sourceIndex].canOrganize else { return nil }
-            let parent = (item as? CloudTreeNode)?.id ?? ""
-            guard parent == context.parentID, index <= context.nodes.count else { return nil }
+            // NSOutlineView proposes the previous sibling as `item` for an
+            // expanded outline. The source sibling collection is authoritative;
+            // using that parent keeps drops valid across both leaf gaps and
+            // expanded rows without reparenting the placement.
+            let parent = context.parentID
+            guard index <= context.nodes.count else { return nil }
             return (id, parent, index > sourceIndex ? index - 1 : index)
         }
 
