@@ -6,7 +6,7 @@ import Foundation
 /// for its domain) and consume ``events`` to react to changes:
 ///
 /// ```swift
-/// guard let watcher = RecursivePathWatcher(paths: paths) else { return }
+/// guard let watcher = await RecursivePathWatcher(paths: paths) else { return }
 /// let task = Task { @MainActor in
 ///     for await _ in watcher.events { reload() }
 /// }
@@ -22,14 +22,16 @@ import Foundation
 /// wait for changes to stop, which keeps reactions responsive without per-event
 /// churn.
 ///
-/// **Construction.** The `FSEventStream` is created synchronously in ``init``,
-/// so the watcher is already listening when it returns (nothing is missed in the
-/// gap a deferred start would open) and ``init`` fails (`nil`) if the stream
-/// cannot be created. The stream's `@Sendable` sink forwards into a private
-/// raw-event `AsyncStream` rather than capturing the actor, which is what lets
-/// creation happen in-`init`; a single actor-isolated pump drains that raw stream
-/// and applies the throttle. The pump's lifetime is the raw stream's: ``stop()``
-/// and `deinit` finish it.
+/// **Construction.** The `FSEventStream` is created synchronously during the
+/// asynchronous initializer, so the watcher is already listening when it
+/// returns (nothing is missed in the gap a deferred start would open) and the
+/// initializer fails (`nil`) if the stream cannot be created. Actor
+/// initialization runs on the watcher's executor, keeping the potentially
+/// blocking daemon registration off a caller's actor, including the main
+/// actor. The stream's `@Sendable` sink forwards into a private raw-event
+/// `AsyncStream` rather than capturing the actor; a single actor-isolated pump
+/// drains that raw stream and applies the throttle. The pump's lifetime is the
+/// raw stream's: ``stop()`` and `deinit` finish it.
 public struct RecursivePathChange: Equatable, Sendable {
     /// Absolute paths reported during one bounded coalescing window.
     public let paths: [String]
@@ -86,7 +88,7 @@ public actor RecursivePathWatcher {
     /// Bounds path accumulation across multiple callbacks in one window.
     private static let maximumPendingPathCount = 4_096
 
-    /// Creates and starts a watcher for `paths`.
+    /// Creates and starts a watcher for `paths` without blocking the caller's executor.
     ///
     /// - Parameters:
     ///   - paths: The files and directories to watch. Must be non-empty.
@@ -105,7 +107,7 @@ public actor RecursivePathWatcher {
         clock: any FileWatchClock = SystemFileWatchClock(),
         throttleInterval: Duration = .milliseconds(250),
         eventFilter: @escaping @Sendable (RecursivePathChange) -> Bool = { _ in true }
-    ) {
+    ) async {
         guard !paths.isEmpty else { return nil }
         self.watchedPaths = paths
         self.clock = clock
