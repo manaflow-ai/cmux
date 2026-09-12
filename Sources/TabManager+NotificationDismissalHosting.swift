@@ -110,8 +110,17 @@ extension TabManager: NotificationDismissalHosting {
             .hasVisibleNotificationIndicator(forTabId: workspaceId, surfaceId: surfaceId) ?? false
     }
 
+    func storeHasSidebarNotificationPreview(workspaceId: UUID) -> Bool {
+        AppDelegate.shared?.notificationStore?.hasSidebarNotificationPreview(forTabId: workspaceId) ?? false
+    }
+
     func storeMarkRead(workspaceId: UUID, surfaceId: UUID?) {
         AppDelegate.shared?.notificationStore?.markRead(forTabId: workspaceId, surfaceId: surfaceId)
+    }
+
+    @discardableResult
+    func storeClearSidebarNotificationPreviews(workspaceId: UUID) -> Bool {
+        AppDelegate.shared?.notificationStore?.clearSidebarNotificationPreviews(forTabId: workspaceId) ?? false
     }
 
     @discardableResult
