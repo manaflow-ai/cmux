@@ -4035,7 +4035,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         if reasons.contains(.notification),
            renderedFrameNotificationDemandIsActive {
-            terminalSurface?.hostedView.cloudTerminalOverlay.renderedFrameArrived()
             NotificationCenter.default.post(
                 name: .ghosttyDidRenderFrame,
                 object: self
