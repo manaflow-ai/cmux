@@ -79,9 +79,12 @@ public enum IrxAdmission {
                     "admission", "denied-or-timeout",
                     ["code": termination.code]
                 )
-                if let code = IrxCloseCode(rawValue: termination.code) {
+                if let code = IrxCloseCode(rawValue: termination.code),
+                    IrxCloseCode.admissionOutcomeCodes.contains(code)
+                {
                     throw IrxAdmissionDenied(code: code)
                 }
+                throw IrxConnectionError.closed(termination)
             }
             throw error
         }
@@ -98,10 +101,12 @@ public enum IrxAdmission {
                 "admission", "denied-or-timeout",
                 ["code": termination.code]
             )
-            if let code = IrxCloseCode(rawValue: termination.code) {
+            if let code = IrxCloseCode(rawValue: termination.code),
+                IrxCloseCode.admissionOutcomeCodes.contains(code)
+            {
                 throw IrxAdmissionDenied(code: code)
             }
-            throw IrxConnectionError.admissionTimeout
+            throw IrxConnectionError.closed(termination)
         }
         let elapsedMs =
             (DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000
