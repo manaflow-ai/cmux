@@ -1,9 +1,10 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 
 import { CHECKOUT_SOURCE_DASHBOARD_BILLING } from "@/services/analytics/checkoutAttribution";
 import {
+  MAX_CHECKOUT_URL,
   PRO_CHECKOUT_URL,
   TEAM_CHECKOUT_URL,
   withCheckoutSource,
@@ -27,6 +28,7 @@ import { stripeCustomers, stripeSubscriptions } from "@/db/schema";
 import { Link } from "@/i18n/navigation";
 import {
   ACTIVE_STRIPE_PRO_STATUSES,
+  PERSONAL_PLAN_IDS,
   PRO_PLAN_ID,
   TEAM_PLAN_ID,
   isPaidPlanId,
@@ -35,6 +37,7 @@ import {
 } from "@/services/billing/pro";
 import { resolveBillingTeam, type BillingTeamLike } from "@/services/billing/teamResolution";
 import {
+  MAX_PRICING_USD,
   PRO_PRICING_USD,
   TEAM_PRICING_USD,
   proBillingInterval,
@@ -50,6 +53,7 @@ type SearchParams = {
 
 type StripeSubscriptionRow = {
   id: string;
+  plan?: string;
   status: string;
   priceId: string | null;
   seats: number | null;
@@ -167,6 +171,8 @@ export default async function DashboardBillingPage({
         <FreePlan t={t} showBillingPortal={canManagePersonalBilling} />
       )}
 
+      <MaxUpsell isFreePlan={isFreePlan} planId={status.planId} t={t} pricingT={pricingT} />
+
       {billingTeam && teamSubscription ? (
         <TeamPlan
           t={t}
@@ -180,10 +186,26 @@ export default async function DashboardBillingPage({
   );
 }
 
+function MaxUpsell({ isFreePlan, planId, t, pricingT }: {
+  isFreePlan: boolean; planId: string;
+  t: Awaited<ReturnType<typeof getTranslations>>;
+  pricingT: Awaited<ReturnType<typeof getTranslations>>;
+}) {
+  if (isFreePlan || planId === "max") return null;
+  return (
+        <section className="mt-3 border border-border p-3">
+          <h2 className="text-sm font-medium">{pricingT("max.name")}</h2>
+          <p className="mt-2 text-muted">{t("max.upsell")}</p>
+          <a className="mt-3 inline-block underline" href={withCheckoutSource(MAX_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING)}>{pricingT("max.cta")}</a>
+        </section>
+  );
+}
+
 async function latestActiveStripeSubscription(stackUserId: string): Promise<StripeSubscriptionRow | null> {
   const rows = await cloudDb()
     .select({
       id: stripeSubscriptions.id,
+      plan: stripeSubscriptions.plan,
       status: stripeSubscriptions.status,
       priceId: stripeSubscriptions.priceId,
       seats: stripeSubscriptions.seats,
@@ -196,11 +218,11 @@ async function latestActiveStripeSubscription(stackUserId: string): Promise<Stri
       and(
         eq(stripeSubscriptions.stackUserId, stackUserId),
         eq(stripeSubscriptions.scope, "user"),
-        eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+        inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
         inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
       ),
     )
-    .orderBy(desc(stripeSubscriptions.currentPeriodEnd), desc(stripeSubscriptions.updatedAt))
+    .orderBy(desc(sql`${stripeSubscriptions.plan} = 'max'`), desc(stripeSubscriptions.currentPeriodEnd), desc(stripeSubscriptions.updatedAt))
     .limit(1);
   return rows[0] ?? null;
 }
@@ -209,6 +231,7 @@ async function latestActiveStripeSubscriptionForTeam(stackTeamId: string): Promi
   const rows = await cloudDb()
     .select({
       id: stripeSubscriptions.id,
+      plan: stripeSubscriptions.plan,
       status: stripeSubscriptions.status,
       priceId: stripeSubscriptions.priceId,
       seats: stripeSubscriptions.seats,
@@ -301,8 +324,11 @@ function FreePlanUpsell({
       hostedNetworking: false,
     },
   });
+  const maxFeatures = pricingT.raw("max.features") as string[];
   const teamFeatures = pricingT.raw("team.features") as string[];
   const proCheckoutURL = withCheckoutSource(PRO_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING);
+  // Max is monthly only: one checkout link, no interval parameter.
+  const maxCheckoutHref = withCheckoutSource(MAX_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING);
   const teamCheckoutURL = withCheckoutSource(TEAM_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING);
   const proCheckoutHrefs = {
     month: withCheckoutInterval(proCheckoutURL, "month"),
@@ -335,7 +361,7 @@ function FreePlanUpsell({
               surface="dashboard_billing"
             />
           </div>
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 md:grid-cols-3">
             <PlanCard
               name={pricingT("pro.name")}
               price={
@@ -359,6 +385,22 @@ function FreePlanUpsell({
               </PricingCheckoutButton>
               <p className="mt-5 text-sm font-medium">{pricingT("pro.featuresLead")}</p>
               <FeatureList items={proFeatures} />
+            </PlanCard>
+
+            <PlanCard
+              name={pricingT("max.name")}
+              price={`$${MAX_PRICING_USD.month.billedAmount}`}
+              period={pricingT("perMonth")}
+            >
+              <PricingCheckoutButton
+                hrefs={maxCheckoutHref}
+                location="dashboard_billing"
+                plan="max"
+              >
+                {pricingT("max.cta")}
+              </PricingCheckoutButton>
+              <p className="mt-5 text-sm font-medium">{pricingT("max.featuresLead")}</p>
+              <FeatureList items={maxFeatures} />
             </PlanCard>
 
             <PlanCard
@@ -415,18 +457,19 @@ function StripePlan({
   subscription: StripeSubscriptionRow;
   canManageBilling: boolean;
 }) {
-  const price = priceCopy(subscription, t, "pro");
+  const plan = subscription.plan === "max" ? "max" : "pro";
+  const price = priceCopy(subscription, t, plan);
   const periodDate = subscription.currentPeriodEnd
     ? formatBillingDate(subscription.currentPeriodEnd, locale)
     : t("dates.unknown");
 
   return (
     <section className="border border-border p-3">
-      <h2 className="text-sm font-medium">{t("pro.name")}</h2>
+      <h2 className="text-sm font-medium">{t(`${plan}.name`)}</h2>
       <p className="mt-2 max-w-2xl text-muted">
         {subscription.cancelAtPeriodEnd
-          ? t("pro.pendingBody", { date: periodDate })
-          : t("pro.activeBody", { date: periodDate })}
+          ? t(`${plan}.pendingBody`, { date: periodDate })
+          : t(`${plan}.activeBody`, { date: periodDate })}
       </p>
 
       <div className="mt-4 grid border border-border sm:grid-cols-2">
@@ -608,7 +651,7 @@ function billingBanner(value: string | undefined) {
 function priceCopy(
   subscription: StripeSubscriptionRow,
   t: Awaited<ReturnType<typeof getTranslations>>,
-  plan: "pro" | "team",
+  plan: "pro" | "max" | "team",
 ): string | null {
   const price = stripePrice(subscription);
   const unitAmount = price?.unit_amount;

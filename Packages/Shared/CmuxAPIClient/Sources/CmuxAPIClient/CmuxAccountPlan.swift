@@ -5,20 +5,16 @@ public struct CmuxAccountPlan: Sendable, Hashable {
     public var userID: String
     /// Primary email, or the empty string when the Stack user has none.
     public var email: String
-    /// Resolved plan identifier, currently `"free"` or `"pro"`.
+    /// Resolved plan family, `"free"` or `"pro"` (a Max subscriber is `"pro"` here).
     public var planID: String
+    /// The exact personal plan: `"free"`, `"pro"`, or `"max"`.
+    public var subscriptionPlanID: String
     /// Whether the account has an active Pro entitlement.
     public var isPro: Bool
     /// How billing is managed for this account: `"stripe"`, `"external"`, or `"none"`.
     public var billingManagement: String
 
-    /// Creates an account plan snapshot.
-    /// - Parameters:
-    ///   - userID: Stack user id of the signed-in account.
-    ///   - email: Primary email, or the empty string when there is none.
-    ///   - planID: Resolved plan identifier (`"free"` or `"pro"`).
-    ///   - isPro: Whether the account has an active Pro entitlement.
-    ///   - billingManagement: `"stripe"`, `"external"`, or `"none"`.
+    /// Backward-compatible initializer for callers that only know the plan family.
     public init(
         userID: String,
         email: String,
@@ -26,9 +22,36 @@ public struct CmuxAccountPlan: Sendable, Hashable {
         isPro: Bool,
         billingManagement: String
     ) {
+        self.init(
+            userID: userID,
+            email: email,
+            planID: planID,
+            subscriptionPlanID: planID,
+            isPro: isPro,
+            billingManagement: billingManagement
+        )
+    }
+
+    /// Creates an account plan snapshot.
+    /// - Parameters:
+    ///   - userID: Stack user id of the signed-in account.
+    ///   - email: Primary email, or the empty string when there is none.
+    ///   - planID: Resolved plan family (`"free"` or `"pro"`).
+    ///   - subscriptionPlanID: The exact personal plan (`"free"`, `"pro"`, or `"max"`).
+    ///   - isPro: Whether the account has an active Pro entitlement.
+    ///   - billingManagement: `"stripe"`, `"external"`, or `"none"`.
+    public init(
+        userID: String,
+        email: String,
+        planID: String,
+        subscriptionPlanID: String,
+        isPro: Bool,
+        billingManagement: String
+    ) {
         self.userID = userID
         self.email = email
         self.planID = planID
+        self.subscriptionPlanID = subscriptionPlanID
         self.isPro = isPro
         self.billingManagement = billingManagement
     }
