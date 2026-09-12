@@ -72,6 +72,7 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
     /// that can still save a configuration later. Replacement starts wait for
     /// those owners to finish before installing their own configuration.
     private var revocationTask: Task<Void, any Error>?
+    private var revocationGeneration = 0
     private var retiredStarts: [Int: Task<Void, any Error>] = [:]
     private var lastRevokedStartGeneration = -1
     /// What a superseded start left behind because a newer start was in
@@ -249,8 +250,10 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
             try await self.controller.remove()
         }
         revocationTask = task
+        revocationGeneration += 1
+        let generation = revocationGeneration
         defer {
-            if revocationTask == task { revocationTask = nil }
+            if revocationGeneration == generation { revocationTask = nil }
         }
         try await task.value
     }

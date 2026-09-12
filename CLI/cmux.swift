@@ -34002,7 +34002,7 @@ export default CMUXSessionRestore;
                 )
             } catch {
                 if subcommand == "session-finalize" {
-                    telemetry.breadcrumb("\\(def.name)-hook.session-finalize.barrier-failed")
+                    telemetry.breadcrumb("\(def.name)-hook.session-finalize.barrier-failed")
                 } else if def.name == "codex" {
                     telemetry.breadcrumb("codex-hook.notification.barrier-failed")
                 } else {
