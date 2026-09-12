@@ -16,7 +16,10 @@ for await (const path of new Bun.Glob("**/*.ts").scan({ cwd: sourceRoot, absolut
       const target = resolve(dirname(path), value);
       if (!target.startsWith(sourceRoot + "/") && target !== generatedWire) errors.push(label + " imports outside the v2 backend: " + value);
     } else if (value === "postgres") {
-      if (relative(sourceRoot, path) !== "ownership/planetscale.ts") errors.push(label + " uses PlanetScale outside the ownership adapter");
+      const modulePath = relative(sourceRoot, path);
+      if (modulePath !== "ownership/planetscale.ts" && modulePath !== "workspaces/productStore.ts") {
+        errors.push(label + " uses PlanetScale outside an approved product database adapter");
+      }
     } else if (!allowed.has(value) && !value.startsWith("drizzle-orm/")) {
       errors.push(label + " imports an unapproved backend dependency: " + value);
     }
@@ -28,8 +31,14 @@ for await (const path of new Bun.Glob("**/*.ts").scan({ cwd: sourceRoot, absolut
 }
 const config = JSON.parse(await Bun.file(resolve(root, "wrangler.jsonc")).text());
 for (const environment of [config, ...Object.values(config.env ?? {})] as Record<string, unknown>[]) {
-  if (environment.hyperdrive) errors.push("v2 configuration declares Hyperdrive");
+  const hyperdrive = environment.hyperdrive;
+  if (hyperdrive !== undefined) {
+    const bindings = Array.isArray(hyperdrive) ? hyperdrive.map(value => value?.binding) : [];
+    if (bindings.length !== 2 || !bindings.includes("HYPERDRIVE_IROH_OWNERSHIP") || !bindings.includes("HYPERDRIVE_CONNECTED_WORKSPACES")) {
+      errors.push("v2 configuration declares an unexpected Hyperdrive binding");
+    }
+  }
   if (environment.services) errors.push("v2 configuration declares an unreviewed external service binding");
 }
 if (errors.length) throw new Error(errors.join("\n"));
-console.log(`Verified ${files} v2 source files: Cloudflare boundary and isolated PlanetScale ownership adapter`);
+console.log(`Verified ${files} v2 source files: Cloudflare boundary and approved product database adapters`);

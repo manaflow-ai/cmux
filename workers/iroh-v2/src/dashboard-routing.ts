@@ -18,7 +18,10 @@ interface Dependencies {
 export async function routeDashboard(request: Request, services: Dependencies): Promise<Response> {
   let requestId = "unidentified", approvedOrigin: string | null = null;
   const cors = (response: Response): Response => {
-    if (!approvedOrigin) return response;
+    // A WebSocket upgrade returned by a Durable Object has immutable headers.
+    // Its Origin was checked before dispatch, and the handshake needs no CORS
+    // decoration. Preserve the upgrade response and its selected protocol.
+    if (!approvedOrigin || response.status === 101) return response;
     response.headers.set("access-control-allow-origin", approvedOrigin);
     response.headers.set("vary", "Origin");
     response.headers.set("cache-control", "no-store");

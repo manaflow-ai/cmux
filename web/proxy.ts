@@ -26,6 +26,7 @@ import {
 
 const intlMiddleware = createMiddleware(routing);
 const localeSet = new Set<string>(routing.locales);
+const DASHBOARD_REWRITE_MARKER = "x-cmux-dashboard-rewrite";
 
 export default function middleware(incomingRequest: NextRequest) {
   const request = requestWithOrigin(incomingRequest);
@@ -36,6 +37,17 @@ export default function middleware(incomingRequest: NextRequest) {
   );
   const host = request.headers.get("host") ?? "";
   const { pathname } = request.nextUrl;
+
+  if (
+    dashboardReturnPath &&
+    request.headers.get(DASHBOARD_REWRITE_MARKER) === "1"
+  ) {
+    return dashboardResponse(
+      request,
+      NextResponse.next({ request: { headers: new Headers(request.headers) } }),
+      dashboardReturnPath,
+    );
+  }
 
   // A cmux Cloud machine dialing its reflection alias
   // (`https://reflection.cmux.internal/<path>`): the platform edge marks the
@@ -70,7 +82,31 @@ export default function middleware(incomingRequest: NextRequest) {
   response = handleLegalAndDocsRoutes(request, pathname);
   if (response) return response;
 
+  // next-intl's default-locale canonicalization can redirect an unprefixed
+  // dashboard request back to itself after the dashboard auth gate has run.
+  // Rewrite this route directly so `/dashboard/...` remains the public URL.
+  if (dashboardReturnPath && isUnprefixedDashboardPath(pathname)) {
+    const localized = request.nextUrl.clone();
+    localized.pathname = `/${routing.defaultLocale}${pathname}`;
+    return dashboardResponse(request, dashboardRewrite(localized, request), dashboardReturnPath);
+  }
+
   response = intlMiddleware(request);
+  // `localePrefix: "as-needed"` can return a redirect to the same unprefixed
+  // dashboard URL after rewriting it to the default locale. That becomes an
+  // infinite loop on direct dev backends. Keep the request on the localized
+  // route and let the dashboard auth header flow through the rewrite.
+  if (
+    dashboardReturnPath &&
+    response.status >= 300 &&
+    response.status < 400 &&
+    sameRedirectURL(response.headers.get("location"), request.url)
+  ) {
+    const locale = preferredAppRouteLocale(request);
+    const localized = request.nextUrl.clone();
+    localized.pathname = `/${locale}${pathname}`;
+    response = dashboardRewrite(localized, request);
+  }
   if (featureWorkflowDocRequest) {
     setFeatureWorkflowDocLinkHeader(
       response,
@@ -90,6 +126,35 @@ export default function middleware(incomingRequest: NextRequest) {
   return dashboardReturnPath
     ? dashboardResponse(request, response, dashboardReturnPath)
     : response;
+}
+
+function isUnprefixedDashboardPath(pathname: string): boolean {
+  const [, first] = pathname.split("/");
+  return pathname.startsWith("/dashboard/") ||
+    pathname === "/dashboard" ||
+    !first ||
+    !localeSet.has(first);
+}
+
+function dashboardRewrite(url: URL, request: NextRequest): NextResponse {
+  const headers = new Headers(request.headers);
+  headers.set(DASHBOARD_REWRITE_MARKER, "1");
+  return NextResponse.rewrite(url, {
+    request: { headers },
+  });
+}
+
+function sameRedirectURL(location: string | null, requestURL: string): boolean {
+  if (!location) return false;
+  try {
+    const target = new URL(location, requestURL);
+    const current = new URL(requestURL);
+    const normalizePath = (pathname: string) => pathname.replace(/\/+$/u, "") || "/";
+    return normalizePath(target.pathname) === normalizePath(current.pathname) &&
+      target.search === current.search;
+  } catch {
+    return false;
+  }
 }
 
 function handleHostAndMachineRoutes(

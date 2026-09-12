@@ -15,6 +15,7 @@ import type { UsageOperation } from "./storage/user-usage";
 import { unwrap } from "./user-usage-object";
 import { observe } from "./observability";
 import { DashboardControl } from "./dashboard-control";
+import { PostgresWorkspaceProductStore, type WorkspaceProductStore } from "./workspaces/productStore";
 
 const SessionSchema = z.strictObject({
   sessionId: identifier, identity: IdentitySchema, endpointId: endpointID, identityGeneration: revision,
@@ -168,6 +169,7 @@ export class TeamControl extends DurableObject<Environment> {
     let broker = this.brokers.get(teamId);
     if (!broker) {
       const services = runtime(this.env);
+      const workspace = this.workspaceProductStore();
       broker = new TeamBroker({
         store: new TeamStore(this.ctx.storage, { ...scope, teamId }, { initialize: false }),
         ownership: services.ownership, relays: services.relays, now: () => Math.floor(Date.now() / 1000),
@@ -176,10 +178,17 @@ export class TeamControl extends DurableObject<Environment> {
         verifyStack: (token, identity, now) => services.stack.verify(token, identity, now),
         canManageTeam: authority => services.stack.canManageTeam(authority),
         verifyTeamMember: (teamId, userId) => services.stack.verifyTeamMember(teamId, userId),
+        ...(workspace ? { workspace } : {}),
       });
       this.brokers.set(teamId, broker);
     }
     return broker;
+  }
+
+  /** Test subclasses may provide an in-memory store without changing production routing. */
+  protected workspaceProductStore(): WorkspaceProductStore | undefined {
+    const binding = this.env.HYPERDRIVE_CONNECTED_WORKSPACES;
+    return binding ? new PostgresWorkspaceProductStore(binding.connectionString) : undefined;
   }
 
   private user(userId: string) {
@@ -231,9 +240,13 @@ export class TeamControl extends DurableObject<Environment> {
   }
 
   private scheduleChanges(result: BrokerResult, teamId: string) {
-    if (result.changed) this.ctx.waitUntil(Promise.all([
-      this.broadcast(teamId, result.changed), this.dashboard.broadcast(teamId, result.changed.revision),
-    ]).catch(() => {
+    const tasks: Promise<void>[] = [];
+    if (result.changed) tasks.push(this.broadcast(teamId, result.changed), this.dashboard.broadcast(teamId, result.changed.revision));
+    if (result.workspaceChanged) tasks.push(
+      this.broadcastWorkspace(teamId, result.workspaceChanged),
+      this.dashboard.broadcastWorkspace(teamId, result.workspaceChanged),
+    );
+    if (tasks.length) this.ctx.waitUntil(Promise.all(tasks).catch(() => {
       observe(this.ctx, this.env, { event: "iroh.directory.delivery_failed", environment: this.env.ENVIRONMENT });
     }));
   }
@@ -258,6 +271,19 @@ export class TeamControl extends DurableObject<Environment> {
           }
           await this.send(ws, { schemaId: "directory.changed.v1", teamId, revision: change.revision });
         }
+      }).catch(() => { this.close(ws, "slow_consumer"); })));
+    }
+  }
+
+  private async broadcastWorkspace(teamId: string, change: NonNullable<BrokerResult["workspaceChanged"]>) {
+    const sockets = this.ctx.getWebSockets().filter(ws => !this.dashboard.owns(ws));
+    for (let start = 0; start < sockets.length; start += 16) {
+      await Promise.allSettled(sockets.slice(start, start + 16).map(ws => this.enqueue(ws, 0, async () => {
+        const attachment = this.load(ws);
+        if (attachment.closed || attachment.session.expiresAt <= Math.floor(Date.now() / 1000)) return;
+        const broker = this.broker(teamId);
+        broker.requiredDevice(attachment.session);
+        await this.send(ws, { schemaId: "workspace.changed.v1", teamId, ...change });
       }).catch(() => { this.close(ws, "slow_consumer"); })));
     }
   }

@@ -138,6 +138,57 @@ test("production control session and relay paths use the same ticket authority",
   expect(relayResult.body.credentials[0].relayURL).toBe("https://relay.test");
 });
 
+test("workspace snapshots persist through the product path and reject revision gaps", async () => {
+  const snapshot = {
+    workspaces: [{ id: "ws-control", name: "Control", index: 0, focused: true }],
+    terminals: [{ id: "term-control", title: "Shell", workspaceId: "ws-control", cwd: "/work", agent: null }],
+  };
+  const put = { schemaId: "workspace.snapshot.v1", requestId: "workspace-put", vmId: "control-device", generation: "0", revision: 0, snapshot };
+  const putSetup = await setupFor(put.requestId, put);
+  const stored = await json("https://iroh.test/v2/requests", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `IrohTicket ${ticket}`, "x-cmux-v2-setup": setupHeader(putSetup) },
+    body: JSON.stringify(put),
+  });
+  expect(stored.response.status).toBe(200);
+  expect(stored.body.schemaId).toBe("workspace.snapshot.result.v1");
+  expect(stored.body.snapshot).toEqual(snapshot);
+
+  const get = { schemaId: "workspace.get.v1", requestId: "workspace-get", vmId: "control-device" };
+  const getSetup = await setupFor(get.requestId, get);
+  const fetched = await json("https://iroh.test/v2/requests", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `IrohTicket ${ticket}`, "x-cmux-v2-setup": setupHeader(getSetup) },
+    body: JSON.stringify(get),
+  });
+  expect(fetched.response.status).toBe(200);
+  expect(fetched.body.schemaId).toBe("workspace.snapshot.result.v1");
+  expect(fetched.body.revision).toBe(0);
+  expect(fetched.body.snapshot).toEqual(snapshot);
+
+  const list = { schemaId: "workspace.list.v1", requestId: "workspace-list" };
+  const listSetup = await setupFor(list.requestId, list);
+  const listed = await json("https://iroh.test/v2/requests", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `IrohTicket ${ticket}`, "x-cmux-v2-setup": setupHeader(listSetup) },
+    body: JSON.stringify(list),
+  });
+  expect(listed.response.status).toBe(200);
+  expect(listed.body.schemaId).toBe("workspace.list.result.v1");
+  expect(listed.body.workspaces).toHaveLength(1);
+  expect(listed.body.workspaces[0].vmId).toBe("control-device");
+
+  const gap = { ...put, requestId: "workspace-gap", revision: 2 };
+  const gapSetup = await setupFor(gap.requestId, gap);
+  const rejected = await json("https://iroh.test/v2/requests", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `IrohTicket ${ticket}`, "x-cmux-v2-setup": setupHeader(gapSetup) },
+    body: JSON.stringify(gap),
+  });
+  expect(rejected.response.status).toBe(409);
+  expect(rejected.body.code).toBe("resync_required");
+});
+
 test("native socket setup delivers directory and relay responses", async () => {
   const setup = await setupFor("socket-open", undefined);
   const ready = await mf.ready;
@@ -156,6 +207,14 @@ test("native socket setup delivers directory and relay responses", async () => {
   socket.send(JSON.stringify({ schemaId: "relay.request.v1", requestId: "socket-relay" }));
   await new Promise(resolve => setTimeout(resolve, 50));
   expect(messages.some(value => value.includes('"schemaId":"relay.result.v1"'))).toBe(true);
+  socket.send(JSON.stringify({
+    schemaId: "workspace.snapshot.v1", requestId: "socket-workspace", vmId: "control-device",
+    generation: "0", revision: 1,
+    snapshot: { workspaces: [{ id: "ws-socket", name: "Socket", index: 0, focused: true }], terminals: [] },
+  }));
+  await new Promise(resolve => setTimeout(resolve, 100));
+  expect(messages.some(value => value.includes('"schemaId":"workspace.snapshot.result.v1"'))).toBe(true);
+  expect(messages.some(value => value.includes('"schemaId":"workspace.changed.v1"'))).toBe(true);
   socket.close();
 });
 

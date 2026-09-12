@@ -87,7 +87,10 @@ export function parseSocketSetup(input: unknown) { return parseInput(SocketSetup
 /** Zod checks the server result as well as the client request. */
 export function encodeResponse(response: ControlResponse): string {
   const parsed = ResponseSchema.safeParse(response);
-  if (!parsed.success) throw new OperationError("internal_error", 500, true);
+  if (!parsed.success) {
+    console.error("iroh.response_schema_failed", parsed.error.issues);
+    throw new OperationError("internal_error", 500, true);
+  }
   const text = JSON.stringify(parsed.data);
   if (encoder.encode(text).byteLength > OUTPUT_BYTES) throw new OperationError("internal_error", 500, true);
   return text;

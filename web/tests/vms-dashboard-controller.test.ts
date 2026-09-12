@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { V2DashboardController } from "../app/[locale]/dashboard/iroh/v2-dashboard-controller";
+import { V2DashboardController } from "../app/[locale]/dashboard/vms/v2-dashboard-controller";
 
 const originalFetch = globalThis.fetch;
 const originalSocket = globalThis.WebSocket;
@@ -22,7 +22,7 @@ class FakeSocket {
   message(value: unknown) { this.onmessage?.({ data: JSON.stringify(value) } as MessageEvent); }
 }
 
-describe("IROH Dashboard v2 controller", () => {
+describe("VM Dashboard v2 controller", () => {
   afterEach(() => { globalThis.fetch = originalFetch; globalThis.WebSocket = originalSocket; FakeSocket.instances = []; });
 
   test("uses Stack bearer only to open a session and keeps ticket out of the URL", async () => {
@@ -99,7 +99,42 @@ describe("IROH Dashboard v2 controller", () => {
     await update; await controller.stop();
   });
 
+  test("loads team workspaces after the directory and refreshes them on change", async () => {
+    globalThis.fetch = (async () => Response.json({ schemaId: "dashboard.ready.v1", requestId: "r", ticket: { token: "t.s", expiresAt: 3600, refreshAfter: 3300 } })) as typeof fetch;
+    globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
+    const workspaces: unknown[] = [];
+    const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.cmux-presence-worker.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onWorkspaces: value => workspaces.push(value), onError: () => {} });
+    const pending = controller.start(); await new Promise(resolve => setTimeout(resolve, 0));
+    const socket = FakeSocket.instances[0]!; socket.open();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const directoryRequest = JSON.parse(socket.sent[0]!);
+    socket.message({ schemaId: "dashboard.directory.v1", requestId: directoryRequest.requestId, directory: { teamId: "t", revision: 1, devices: [], relayURLs: [], issuedAt: 1, nextCursor: null, canManageTeam: true, managedDeviceIds: [] } });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const listRequest = JSON.parse(socket.sent[1]!);
+    expect(listRequest.schemaId).toBe("workspace.list.v1");
+    socket.message({ schemaId: "workspace.list.result.v1", requestId: listRequest.requestId, workspaces: [{ vmId: "vm-1", generation: "0", revision: 2 }] });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const workspaceRequest = JSON.parse(socket.sent[2]!);
+    expect(workspaceRequest.schemaId).toBe("workspace.get.v1");
+    socket.message({ schemaId: "workspace.snapshot.result.v1", requestId: workspaceRequest.requestId, vmId: "vm-1", generation: "0", revision: 2, snapshot: { workspaces: [{ id: "ws-1", name: "Build", index: 0, focused: true }], terminals: [] } });
+    await pending;
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(workspaces).toHaveLength(1);
+    socket.message({ schemaId: "workspace.changed.v1", teamId: "t", vmId: "vm-1", generation: "0", revision: 3 });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const refresh = JSON.parse(socket.sent[3]!);
+    expect(refresh.schemaId).toBe("workspace.list.v1");
+    socket.message({ schemaId: "workspace.list.result.v1", requestId: refresh.requestId, workspaces: [] });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(workspaces).toHaveLength(2);
+    await controller.stop();
+  });
+
   test("rejects an unapproved worker origin before creating a socket", () => {
     expect(() => new V2DashboardController({ origin: "https://example.com", environment: "production", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => {} })).toThrow("approved Cloudflare Worker");
+  });
+
+  test("accepts the development account's deployed Worker origin", () => {
+    expect(() => new V2DashboardController({ origin: "https://cmux-iroh-v2-development.debussy.workers.dev", environment: "development", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => {} })).not.toThrow();
   });
 });

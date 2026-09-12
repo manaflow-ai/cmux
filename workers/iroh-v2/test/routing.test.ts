@@ -71,6 +71,16 @@ test("unsupported paths, methods, oversized setup and mismatched aliases fail be
   expect(calls).toEqual({ stack: 0, open: 0, team: 0 });
 });
 
+test("retired Vercel device and relay paths are not part of the v2 Worker", async () => {
+  const { calls, dependencies } = fixture();
+  const responses = await Promise.all([
+    routeControl(new Request("https://api.example/api/devices/iroh"), dependencies),
+    routeControl(new Request("https://api.example/api/relay/token"), dependencies),
+  ]);
+  expect(responses.map(response => response.status)).toEqual([404, 404]);
+  expect(calls).toEqual({ stack: 0, open: 0, team: 0 });
+});
+
 test("cross-environment setup never reaches Stack or a team object", async () => {
   const { calls, dependencies } = fixture();
   const result = await routeControl(new Request("https://api.example/v2/control/session", {

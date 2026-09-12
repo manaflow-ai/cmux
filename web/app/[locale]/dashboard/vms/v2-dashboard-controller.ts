@@ -19,6 +19,17 @@ export type DashboardDirectory = {
   readonly managedDeviceIds: readonly string[];
 };
 
+export type DashboardWorkspace = {
+  readonly vmId: string;
+  readonly generation: string;
+  readonly revision: number;
+  readonly snapshot: {
+    readonly workspaces: readonly { readonly id: string; readonly name: string; readonly index: number; readonly focused: boolean }[];
+    readonly terminals: readonly { readonly id: string; readonly title: string; readonly workspaceId: string | null; readonly cwd: string | null; readonly agent: string | null }[];
+  };
+};
+type DashboardWorkspaceSummary = Pick<DashboardWorkspace, "vmId" | "generation" | "revision">;
+
 type DashboardOptions = {
   readonly origin: string;
   readonly environment: string;
@@ -27,6 +38,7 @@ type DashboardOptions = {
   readonly teamId: string;
   readonly getStackToken: () => Promise<string | null>;
   readonly onDirectory: (directory: DashboardDirectory) => void;
+  readonly onWorkspaces?: (workspaces: readonly DashboardWorkspace[]) => void;
   readonly onError: (message: string) => void;
 };
 
@@ -38,7 +50,7 @@ type Frame = { readonly schemaId?: string; readonly requestId?: string; readonly
 const REQUEST_TIMEOUT_MS = 10_000;
 // Only the three managed Workers may receive browser Stack tokens. A generic
 // workers.dev suffix would also trust another account's Worker.
-const ORIGIN_ALLOWED = /^https:\/\/cmux-iroh-v2(?:-development|-staging)?\.cmux-presence-worker\.workers\.dev$/u;
+const ORIGIN_ALLOWED = /^https:\/\/cmux-iroh-v2(?:-development|-staging)?\.(?:cmux-presence-worker|debussy)\.workers\.dev$/u;
 
 export class V2DashboardController {
   private readonly options: DashboardOptions;
@@ -132,12 +144,17 @@ export class V2DashboardController {
           this.reconnectDelayMs = 1_000;
           clearTimeout(timeout);
           resolve();
-          void this.requestDirectory().catch(cause => this.fail(cause));
+          void this.requestDirectory()
+            .then(() => this.options.onWorkspaces ? this.requestWorkspaces() : undefined)
+            .catch(cause => this.fail(cause));
           return;
         }
         this.resolvePending(frame);
         if (frame.schemaId === "directory.changed.v1" && typeof frame.revision === "number" && frame.revision > (this.revision ?? -1)) {
           void this.requestDirectory().catch(cause => this.fail(cause));
+        }
+        if (frame.schemaId === "workspace.changed.v1" && this.options.onWorkspaces) {
+          void this.requestWorkspaces().catch(cause => this.fail(cause));
         }
       };
       socket.onerror = () => { clearTimeout(timeout); reject(new Error("Dashboard socket failed")); };
@@ -178,6 +195,25 @@ export class V2DashboardController {
     this.revision = frame.directory.revision;
     this.options.onDirectory(frame.directory);
     if (frame.directory.nextCursor) await this.requestDirectory(frame.directory.nextCursor, seenCursors);
+  }
+
+  private async requestWorkspaces(): Promise<void> {
+    const requestId = this.nextRequestId();
+    const frame = await this.request({ schemaId: "workspace.list.v1", requestId });
+    if (frame.schemaId !== "workspace.list.result.v1" || !isWorkspaceList(frame.workspaces)) {
+      throw new Error("Dashboard returned an invalid workspace list");
+    }
+    const snapshots = await Promise.all(frame.workspaces.map(item => this.requestWorkspace(item.vmId)));
+    this.options.onWorkspaces?.(snapshots);
+  }
+
+  private async requestWorkspace(vmId: string): Promise<DashboardWorkspace> {
+    const requestId = this.nextRequestId();
+    const frame = await this.request({ schemaId: "workspace.get.v1", requestId, vmId });
+    if (frame.schemaId !== "workspace.snapshot.result.v1" || !isWorkspaceSnapshot(frame)) {
+      throw new Error("Dashboard returned an invalid workspace snapshot");
+    }
+    return frame;
   }
 
   private request(input: Record<string, unknown>): Promise<Frame> {
@@ -253,4 +289,18 @@ export class V2DashboardController {
 function parseFrame(value: unknown): Frame | null { try { const parsed = typeof value === "string" ? JSON.parse(value) : value; return parsed && typeof parsed === "object" ? parsed as Frame : null; } catch { return null; } }
 function isTicket(value: unknown): value is Ticket { return !!value && typeof value === "object" && typeof (value as Ticket).token === "string" && typeof (value as Ticket).expiresAt === "number" && typeof (value as Ticket).refreshAfter === "number"; }
 function isDirectory(value: unknown): value is DashboardDirectory { if (!value || typeof value !== "object") return false; const candidate = value as DashboardDirectory; return typeof candidate.teamId === "string" && Number.isSafeInteger(candidate.revision) && Array.isArray(candidate.devices) && Array.isArray(candidate.relayURLs) && typeof candidate.canManageTeam === "boolean" && Array.isArray(candidate.managedDeviceIds); }
+function isWorkspaceList(value: unknown): value is readonly DashboardWorkspaceSummary[] {
+  if (!Array.isArray(value)) return false;
+  return value.every(item => {
+    if (!item || typeof item !== "object") return false;
+    const candidate = item as DashboardWorkspace;
+    return typeof candidate.vmId === "string" && typeof candidate.generation === "string" && Number.isSafeInteger(candidate.revision);
+  });
+}
+function isWorkspaceSnapshot(value: Record<string, unknown>): value is DashboardWorkspace {
+  return typeof value.vmId === "string" && typeof value.generation === "string" && Number.isSafeInteger(value.revision)
+    && !!value.snapshot && typeof value.snapshot === "object"
+    && Array.isArray((value.snapshot as DashboardWorkspace["snapshot"]).workspaces)
+    && Array.isArray((value.snapshot as DashboardWorkspace["snapshot"]).terminals);
+}
 function errorCode(value: unknown): string | undefined { return value instanceof Error && typeof (value as Error & { code?: unknown }).code === "string" ? (value as Error & { code: string }).code : undefined; }

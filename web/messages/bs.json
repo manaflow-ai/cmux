@@ -295,7 +295,8 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "pregled",
       "team": "tim",
-      "irohDevices": "IROH devices"
+      "irohDevices": "IROH devices",
+      "vms": "VMs"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -341,11 +342,11 @@
       }
     },
     "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+      "title": "VMs and workspaces",
+      "description": "View the selected team's VMs, workspaces, and terminals in real time.",
       "team": "Team",
       "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
+      "empty": "No VMs are registered for this team.",
       "unavailable": "Dashboard authorization is unavailable.",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
@@ -356,6 +357,17 @@
       "revoked": "Revoked",
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
+      "vmsTitle": "Cloud VMs",
+      "vmsDescription": "Cloud VMs available to this team.",
+      "vmsEmpty": "No Cloud VMs are available for this team.",
+      "unnamedVm": "Unnamed VM",
+      "workspacesTitle": "Connected Workspaces",
+      "workspacesDescription": "Workspace and terminal state for this team, updated in real time.",
+      "workspacesEmpty": "No synced workspaces are available for this team.",
+      "vmLabel": "VM {id}",
+      "revisionLabel": "revision {revision}",
+      "focused": "focused",
+      "noTerminals": "No terminals",
       "saveRelaySettings": "Save relay settings"
     }
   },
