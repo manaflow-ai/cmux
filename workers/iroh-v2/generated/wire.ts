@@ -162,6 +162,13 @@ export interface V2WorkspaceGetRequest {
 
 export type V2WorkspaceGetRequestSchemaID = "workspace.get.v1";
 
+export interface V2WorkspaceListRequest {
+    requestId: string;
+    schemaId:  V2WorkspaceListRequestSchemaID;
+}
+
+export type V2WorkspaceListRequestSchemaID = "workspace.list.v1";
+
 export interface V2WorkspaceSnapshotRequest {
     generation: string;
     requestId:  string;
@@ -391,6 +398,21 @@ export interface V2WorkspaceChangedResponse {
 
 export type V2WorkspaceChangedResponseSchemaID = "workspace.changed.v1";
 
+export interface V2WorkspaceListResponse {
+    deliveryReceipt?: V2DeliveryReceipt;
+    requestId:        string;
+    schemaId:         V2WorkspaceListResponseSchemaID;
+    workspaces:       V2WorkspaceListResponseWorkspace[];
+}
+
+export type V2WorkspaceListResponseSchemaID = "workspace.list.result.v1";
+
+export interface V2WorkspaceListResponseWorkspace {
+    generation: string;
+    revision:   number;
+    vmId:       string;
+}
+
 export interface V2WorkspaceSnapshotResponse {
     deliveryReceipt?: V2DeliveryReceipt;
     generation:       string;
@@ -423,5 +445,5 @@ export interface FluffyWorkspace {
     name:    string;
 }
 
-export type V2Request = V2AcknowledgementRequest | V2ChallengeRequest | V2DirectoryRequest | V2GoodbyeRequest | V2MetadataRequest | V2PermissionRequest | V2PreferencesRequest | V2RegisterRequest | V2RelayRequest | V2RevokeRequest | V2TicketRequest | V2WorkspaceGetRequest | V2WorkspaceSnapshotRequest;
-export type V2Response = V2ChallengeResponse | V2ChangedResponse | V2CompletedResponse | V2DashboardConnectedResponse | V2DashboardDirectoryResponse | V2DashboardReadyResponse | V2DirectoryResponse | V2ErrorResponse | V2ReadyResponse | V2RegisteredResponse | V2RelayResponse | V2RevokedResponse | V2TicketResponse | V2WorkspaceChangedResponse | V2WorkspaceSnapshotResponse;
+export type V2Request = V2AcknowledgementRequest | V2ChallengeRequest | V2DirectoryRequest | V2GoodbyeRequest | V2MetadataRequest | V2PermissionRequest | V2PreferencesRequest | V2RegisterRequest | V2RelayRequest | V2RevokeRequest | V2TicketRequest | V2WorkspaceGetRequest | V2WorkspaceListRequest | V2WorkspaceSnapshotRequest;
+export type V2Response = V2ChallengeResponse | V2ChangedResponse | V2CompletedResponse | V2DashboardConnectedResponse | V2DashboardDirectoryResponse | V2DashboardReadyResponse | V2DirectoryResponse | V2ErrorResponse | V2ReadyResponse | V2RegisteredResponse | V2RelayResponse | V2RevokedResponse | V2TicketResponse | V2WorkspaceChangedResponse | V2WorkspaceListResponse | V2WorkspaceSnapshotResponse;
