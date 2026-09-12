@@ -72,6 +72,8 @@ struct PanelContentView: View {
                     onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
                     onTriggerFlash: onTriggerFlash
                 )
+            } else {
+                TerminalPanelUnavailableView(appearance: appearance)
             }
         case .browser:
             if let browserPanel = panel as? BrowserPanel {
@@ -262,6 +264,8 @@ struct PanelContentView: View {
         }
     }
 }
+
+
 
 private struct CloudVMLoadingPanelView: View {
     @ObservedObject var panel: CloudVMLoadingPanel
