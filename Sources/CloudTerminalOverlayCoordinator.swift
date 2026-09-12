@@ -1,6 +1,5 @@
 import AppKit
 import CmuxTerminal
-import CmuxTerminalCore
 import os
 
 private let cloudTerminalPresentationLogger = Logger(
@@ -8,7 +7,8 @@ private let cloudTerminalPresentationLogger = Logger(
 )
 
 /// Owns one status card across the representable anchor and the native portal.
-/// Session, layout, visibility, and rendered-frame events all reconcile this owner.
+/// The attachment session owns connection health. Layout and visibility only
+/// choose where to present that state, never whether the connection has failed.
 @MainActor
 final class CloudTerminalOverlayCoordinator {
     weak var session: CloudTuiManualMirrorSession?
@@ -16,8 +16,6 @@ final class CloudTerminalOverlayCoordinator {
     private weak var anchor: GhosttyTerminalView.HostContainerView?
     private var anchorOwnership: (generation: UInt64, serial: UInt64)?
     private var anchorVisible = false
-    private var renderDemand: (any RenderDemandRetention)?
-    private var onRenderedFrame: (() -> Void)?
     private var lastDestination: Destination = .hidden
 
     private enum Destination: String {
@@ -58,28 +56,11 @@ final class CloudTerminalOverlayCoordinator {
             presented = hostedView.window != nil && !hostedView.isHidden
                 && hostedView.bounds.width > 1 && hostedView.bounds.height > 1
         }
-        let rendererReady = presented
-            && hostedView.surfaceView.terminalSurface?.isRendererPresented == true
-            && hostedView.surfaceView.renderedFrameSequence > 0
-        var presentation: CloudTerminalReconnectOverlayPolicy.Presentation?
+        let presentation: CloudTerminalReconnectOverlayPolicy.Presentation?
         if let session {
             presentation = session.connectionPresentation
-            if session.phase != .stopped, presentation == nil, !rendererReady {
-                presentation = unavailablePresentation
-            }
         } else {
             presentation = legacyPresentation
-        }
-        let needsFrame = visible && session != nil && session?.phase != .stopped && !rendererReady
-        if needsFrame, renderDemand == nil {
-            renderDemand = hostedView.surfaceView.localRenderedFrameNotificationDemand.retain()
-            onRenderedFrame = { [weak hostedView] in
-                hostedView?.synchronizeCloudTerminalReconnectOverlay()
-            }
-        } else if !needsFrame {
-            renderDemand?.release()
-            renderDemand = nil
-            onRenderedFrame = nil
         }
 
         let destination: NSView = presented ? hostedView : ((anchor as NSView?) ?? hostedView)
@@ -91,7 +72,7 @@ final class CloudTerminalOverlayCoordinator {
         )
         let next: Destination = overlay == nil ? .hidden : (presented ? .terminal : .anchor)
         if next != lastDestination, let session {
-            cloudTerminalPresentationLogger.notice("pane terminal=\(session.terminalID, privacy: .private(mask: .hash)) destination=\(next.rawValue, privacy: .public) bound=\(presented) rendererReady=\(rendererReady)")
+            cloudTerminalPresentationLogger.notice("pane terminal=\(session.terminalID, privacy: .private(mask: .hash)) destination=\(next.rawValue, privacy: .public) bound=\(presented) phase=\(String(describing: session.phase), privacy: .public)")
         }
         lastDestination = next
     }
@@ -102,13 +83,6 @@ final class CloudTerminalOverlayCoordinator {
         session = nil
         overlay?.removeFromSuperview()
         overlay = nil
-        renderDemand?.release()
-        renderDemand = nil
-        onRenderedFrame = nil
-    }
-
-    func renderedFrameArrived() {
-        onRenderedFrame?()
     }
 
     /// Applies a snapshot by moving the existing card; no second fallback view
@@ -135,16 +109,4 @@ final class CloudTerminalOverlayCoordinator {
         }
     }
 
-    private var unavailablePresentation: CloudTerminalReconnectOverlayPolicy.Presentation {
-        .init(
-            title: String(localized: "cloud.overlay.manual.unavailable.title", defaultValue: "Cloud terminal unavailable"),
-            detail: String(localized: "cloud.overlay.manual.unavailable.detail", defaultValue: "The terminal view is unavailable. Reconnect to restore it."),
-            showsProgress: false,
-            showsReconnectButton: true
-        )
-    }
-
-    deinit {
-        renderDemand?.release()
-    }
 }

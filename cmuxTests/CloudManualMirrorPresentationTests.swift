@@ -18,6 +18,81 @@ struct CloudManualMirrorPresentationTests {
     }
 
     @Test @MainActor
+    func usableAttachmentClearsTheCardWithoutRendererObservations() async throws {
+        let fixture = try CloudManualMirrorSocketFixture()
+        defer { fixture.close() }
+        let session = CloudTuiManualMirrorSession(
+            machineID: "machine", terminalID: "term_live", remoteSurfaceID: 17,
+            onNeedsReconnect: {}
+        )
+        defer { session.stop() }
+        let frame = NSRect(x: 0, y: 0, width: 480, height: 320)
+        let hosted = GhosttySurfaceScrollView(surfaceView: GhosttyNSView(frame: frame))
+        let anchor = GhosttyTerminalView.HostContainerView(frame: frame)
+        let owner = hosted.cloudTerminalOverlay
+        owner.session = session
+        owner.updateAnchor(anchor, visible: true, ownershipGeneration: 1)
+        func synchronize() {
+            owner.synchronize(hostedView: hosted, contentFrame: frame, legacyPresentation: nil) {}
+        }
+
+        session.reconnect(socketPath: fixture.socketPath)
+        synchronize()
+        #expect(owner.overlay?.currentPresentation?.showsProgress == true)
+        let identify = try #require(await fixture.nextCommand(timeout: .seconds(5)))
+        fixture.send(["id": identify.id, "ok": true, "data": ["protocol": 8]])
+        let clientInfo = try #require(await fixture.nextCommand(timeout: .seconds(5)))
+        fixture.send(["id": clientInfo.id, "ok": true])
+        let attach = try #require(await fixture.nextCommand(timeout: .seconds(5)))
+        #expect(attach.cmd == "attach-surface")
+        fixture.send(["id": attach.id, "ok": true, "data": [:]])
+        var deadline = ContinuousClock.now + .seconds(5)
+        while session.phase != .attached, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(session.phase == .attached)
+        synchronize()
+        #expect(owner.overlay?.currentPresentation?.showsProgress == true)
+
+        fixture.send([
+            "event": "vt-state", "surface": 17, "cols": 80, "rows": 24,
+            "data": Data("cmux@cloud> ".utf8).base64EncodedString()
+        ])
+        deadline = ContinuousClock.now + .seconds(5)
+        while session.connectionPresentation != nil, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(session.connectionPresentation == nil)
+        session.inputRouter.send(.bytes(Data("pwd\n".utf8)))
+        let input = try #require(await fixture.nextCommand(timeout: .seconds(5)))
+        #expect(input.cmd == "send")
+        #expect(input.surface == 17)
+        // Renderer observations are absent, as during a portal handoff. A
+        // healthy byte attachment must not become a connection failure.
+        #expect(hosted.surfaceView.renderedFrameSequence == 0)
+        synchronize()
+        #expect(owner.overlay == nil)
+        for visible in [false, true] {
+            owner.updateAnchor(anchor, visible: visible, ownershipGeneration: 1)
+            synchronize()
+            #expect(owner.overlay == nil)
+        }
+
+        // A real transport failure must still be shown after successful use.
+        fixture.send(["event": "detached", "surface": 17])
+        deadline = ContinuousClock.now + .seconds(5)
+        while session.phase != .disconnected, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(session.phase == .disconnected)
+        synchronize()
+        let error = try #require(owner.overlay?.currentPresentation)
+        #expect(error.showsReconnectButton)
+        #expect(!error.showsProgress)
+        #expect(!error.copyableError.isEmpty)
+    }
+
+    @Test @MainActor
     func unavailableSurfaceResolutionRequestsRefreshOnceAndRemainsRetryable() {
         var reconnectRequests = 0
         let session = CloudTuiManualMirrorSession(
