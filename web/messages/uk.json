@@ -149,9 +149,8 @@
     "benefits": "Медичне, стоматологічне страхування та страхування зору",
     "locationLabel": "Місце",
     "location": "Сан-Франциско",
-    "applyAriaLabel": "Подати заявку на Founding Engineer електронною поштою",
-    "applyEmailSubject": "Заявка на Founding Engineer у cmux",
-    "applyCta": "Надіслати e-mail",
+    "applyAriaLabel": "Подати заявку на Founding Engineer",
+    "applyCta": "Подати заявку",
     "foundingChromiumEngineer": {
       "metaTitle": "Founding Chromium Engineer у cmux",
       "metaDescription": "Станьте founding-інженером з Chromium у cmux: очоліть наш форк Chromium і перенесіть cmux на Windows і Linux за допомогою C++ і Rust.",
@@ -184,9 +183,8 @@
       "benefits": "Медичне, стоматологічне страхування та страхування зору",
       "locationLabel": "Місце",
       "location": "Сан-Франциско",
-      "applyAriaLabel": "Подати заявку на Founding Chromium Engineer електронною поштою",
-      "applyEmailSubject": "Заявка на Founding Chromium Engineer у cmux",
-      "applyCta": "Надіслати e-mail"
+      "applyAriaLabel": "Подати заявку на Founding Chromium Engineer",
+      "applyCta": "Подати заявку"
     },
     "foundingDesigner": {
       "metaTitle": "Founding Designer у cmux",
@@ -220,9 +218,8 @@
       "benefits": "Медичне, стоматологічне страхування та страхування зору",
       "locationLabel": "Місце",
       "location": "Сан-Франциско",
-      "applyAriaLabel": "Подати заявку на Founding Designer електронною поштою",
-      "applyEmailSubject": "Заявка на Founding Designer у cmux",
-      "applyCta": "Надіслати e-mail"
+      "applyAriaLabel": "Подати заявку на Founding Designer",
+      "applyCta": "Подати заявку"
     }
   },
   "home": {

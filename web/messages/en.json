@@ -703,9 +703,8 @@
     "benefits": "Health, dental, and vision insurance",
     "locationLabel": "Location",
     "location": "San Francisco",
-    "applyAriaLabel": "Apply for a founding engineer role by email",
-    "applyEmailSubject": "Founding Engineer at cmux",
-    "applyCta": "Email",
+    "applyAriaLabel": "Apply for a founding engineer role",
+    "applyCta": "Apply",
     "foundingChromiumEngineer": {
       "metaTitle": "Founding Chromium Engineer jobs at cmux",
       "metaDescription": "Join cmux as a founding Chromium engineer to own our fork of Chromium and bring cmux to Windows and Linux with C++ and Rust.",
@@ -738,9 +737,8 @@
       "benefits": "Health, dental, and vision insurance",
       "locationLabel": "Location",
       "location": "San Francisco",
-      "applyAriaLabel": "Apply for a founding chromium engineer role by email",
-      "applyEmailSubject": "Founding Chromium Engineer at cmux",
-      "applyCta": "Email"
+      "applyAriaLabel": "Apply for a founding chromium engineer role",
+      "applyCta": "Apply"
     },
     "foundingDesigner": {
       "metaTitle": "Founding Designer jobs at cmux",
@@ -774,9 +772,8 @@
       "benefits": "Health, dental, and vision insurance",
       "locationLabel": "Location",
       "location": "San Francisco",
-      "applyAriaLabel": "Apply for a founding designer role by email",
-      "applyEmailSubject": "Founding Designer at cmux",
-      "applyCta": "Email"
+      "applyAriaLabel": "Apply for a founding designer role",
+      "applyCta": "Apply"
     }
   },
   "pricing": {

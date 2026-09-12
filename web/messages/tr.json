@@ -149,9 +149,8 @@
     "benefits": "Sağlık, diş ve göz sigortası",
     "locationLabel": "Konum",
     "location": "San Francisco",
-    "applyAriaLabel": "Founding Engineer roluna e-posta ile başvurun",
-    "applyEmailSubject": "cmux Founding Engineer başvurusu",
-    "applyCta": "E-posta gönder",
+    "applyAriaLabel": "Founding Engineer roluna başvurun",
+    "applyCta": "Başvur",
     "foundingChromiumEngineer": {
       "metaTitle": "cmux Founding Chromium Engineer pozisyonu",
       "metaDescription": "Kurucu Chromium mühendisi olarak cmux'a katılın: Chromium fork'umuzu üstlenin ve C++ ve Rust ile cmux'u Windows ve Linux'a taşıyın.",
@@ -184,9 +183,8 @@
       "benefits": "Sağlık, diş ve göz sigortası",
       "locationLabel": "Konum",
       "location": "San Francisco",
-      "applyAriaLabel": "Founding Chromium Engineer rolüne e-posta ile başvurun",
-      "applyEmailSubject": "cmux Founding Chromium Engineer başvurusu",
-      "applyCta": "E-posta gönder"
+      "applyAriaLabel": "Founding Chromium Engineer rolüne başvurun",
+      "applyCta": "Başvur"
     },
     "foundingDesigner": {
       "metaTitle": "cmux Founding Designer pozisyonu",
@@ -220,9 +218,8 @@
       "benefits": "Sağlık, diş ve göz sigortası",
       "locationLabel": "Konum",
       "location": "San Francisco",
-      "applyAriaLabel": "Founding Designer roluna e-posta ile başvurun",
-      "applyEmailSubject": "cmux Founding Designer başvurusu",
-      "applyCta": "E-posta gönder"
+      "applyAriaLabel": "Founding Designer roluna başvurun",
+      "applyCta": "Başvur"
     }
   },
   "home": {

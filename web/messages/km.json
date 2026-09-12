@@ -149,9 +149,8 @@
     "benefits": "ធានារ៉ាប់រងសុខភាព ធ្មេញ និងភ្នែក",
     "locationLabel": "ទីតាំង",
     "location": "សាន់ហ្វ្រាន់ស៊ីស្កូ",
-    "applyAriaLabel": "ដាក់ពាក្យ Founding Engineer តាមអ៊ីមែល",
-    "applyEmailSubject": "ដាក់ពាក្យ Founding Engineer នៅ cmux",
-    "applyCta": "ផ្ញើអ៊ីមែល",
+    "applyAriaLabel": "ដាក់ពាក្យ Founding Engineer",
+    "applyCta": "ដាក់ពាក្យ",
     "foundingChromiumEngineer": {
       "metaTitle": "ការងារ Founding Chromium Engineer នៅ cmux",
       "metaDescription": "ចូលរួមជាមួយ cmux ជាវិស្វករ Chromium ស្ថាបនិក ដើម្បីទទួលបន្ទុក Chromium fork របស់យើង និងនាំ cmux ទៅ Windows និង Linux ជាមួយ C++ និង Rust។",
@@ -184,9 +183,8 @@
       "benefits": "ធានារ៉ាប់រងសុខភាព ធ្មេញ និងភ្នែក",
       "locationLabel": "ទីតាំង",
       "location": "សាន់ហ្វ្រាន់ស៊ីស្កូ",
-      "applyAriaLabel": "ដាក់ពាក្យ Founding Chromium Engineer តាមអ៊ីមែល",
-      "applyEmailSubject": "ដាក់ពាក្យ Founding Chromium Engineer នៅ cmux",
-      "applyCta": "ផ្ញើអ៊ីមែល"
+      "applyAriaLabel": "ដាក់ពាក្យ Founding Chromium Engineer",
+      "applyCta": "ដាក់ពាក្យ"
     },
     "foundingDesigner": {
       "metaTitle": "ការងារ Founding Designer នៅ cmux",
@@ -220,9 +218,8 @@
       "benefits": "ធានារ៉ាប់រងសុខភាព ធ្មេញ និងភ្នែក",
       "locationLabel": "ទីតាំង",
       "location": "សាន់ហ្វ្រាន់ស៊ីស្កូ",
-      "applyAriaLabel": "ដាក់ពាក្យ Founding Designer តាមអ៊ីមែល",
-      "applyEmailSubject": "ដាក់ពាក្យ Founding Designer នៅ cmux",
-      "applyCta": "ផ្ញើអ៊ីមែល"
+      "applyAriaLabel": "ដាក់ពាក្យ Founding Designer",
+      "applyCta": "ដាក់ពាក្យ"
     }
   },
   "home": {
