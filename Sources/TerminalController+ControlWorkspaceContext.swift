@@ -371,6 +371,41 @@ extension TerminalController: ControlWorkspaceContext {
         return .resolved(workspaceID: after, windowID: windowId)
     }
 
+    // MARK: - Font size
+
+    func controlWorkspaceFontSizeStrings() -> ControlWorkspaceFontSizeStrings {
+        ControlWorkspaceFontSizeStrings(
+            invalidParams: String(localized: "socket.workspace.fontSize.invalidParams", defaultValue: "Use increase, decrease, or reset with optional window_id and workspace_id selectors."),
+            unavailable: String(localized: "socket.workspace.fontSize.unavailable", defaultValue: "Workspace font-size coordinator unavailable."),
+            notFound: String(localized: "socket.workspace.fontSize.notFound", defaultValue: "Workspace not found in the requested window."),
+            rejected: String(localized: "socket.workspace.fontSize.rejected", defaultValue: "Workspace font-size request was not accepted.")
+        )
+    }
+
+    func controlWorkspaceFontSize(
+        routing: ControlRoutingSelectors,
+        action: ControlWorkspaceFontSizeAction
+    ) -> ControlWorkspaceFontSizeResolution {
+        guard let tabManager = resolveTabManager(routing: routing),
+              let appDelegate = AppDelegate.shared else { return .unavailable }
+        guard let workspace = resolveWorkspace(routing: routing, tabManager: tabManager) else {
+            return .notFound
+        }
+        let shortcut: KeyboardShortcutSettings.Action
+        switch action {
+        case .increase: shortcut = .increaseWorkspaceTerminalFontSize
+        case .decrease: shortcut = .decreaseWorkspaceTerminalFontSize
+        case .reset: shortcut = .resetWorkspaceTerminalFontSize
+        }
+        switch appDelegate.enqueueWorkspaceTerminalFontSizeChange(
+            shortcut, workspace: workspace, tabManager: tabManager, deferFlush: false
+        ) {
+        case .acceptedMutation: return .accepted(workspaceID: workspace.id)
+        case .consumedWithoutMutation: return .unavailable
+        case .rejected: return .rejected
+        }
+    }
+
     // MARK: - Equalize
 
     func controlEqualizeWorkspaceSplits(
