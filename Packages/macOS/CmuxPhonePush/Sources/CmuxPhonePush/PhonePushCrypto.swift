@@ -1,6 +1,6 @@
-import CryptoKit
-import Foundation
-import Security
+public import CryptoKit
+public import Foundation
+public import Security
 
 /// The identity boundary authenticated by a phone-push envelope. Optional
 /// fields are omitted from the canonical form so a relay never needs account
