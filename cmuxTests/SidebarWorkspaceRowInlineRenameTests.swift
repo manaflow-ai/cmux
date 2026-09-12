@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import Testing
 @testable import cmux_DEV
 
@@ -41,6 +42,7 @@ struct SidebarWorkspaceRowInlineRenameTests {
                         self?.committedTitles.append(title)
                     }
                 ),
+                chromePalette: ChromePalette.resolve(theme: .default, colorScheme: .light),
                 isPointerHovering: false,
                 contextMenuDidOpen: {},
                 contextMenuDidClose: {}

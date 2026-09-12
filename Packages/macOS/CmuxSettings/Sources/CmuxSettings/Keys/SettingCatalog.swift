@@ -27,6 +27,8 @@ public struct SettingCatalog: SettingCatalogSection {
     public let notifications = NotificationsCatalogSection()
     public let sidebar = SidebarCatalogSection()
     public let sidebarAppearance = SidebarAppearanceCatalogSection()
+    /// Named, user-overridable palette for cmux-owned app chrome.
+    public let chrome = ChromeCatalogSection()
     /// Settings for cmux pane divider and focused-pane chrome.
     public let paneChrome = PaneChromeCatalogSection()
     public let workspaceColors = WorkspaceColorsCatalogSection()

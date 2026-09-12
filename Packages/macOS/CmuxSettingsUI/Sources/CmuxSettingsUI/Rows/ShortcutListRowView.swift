@@ -15,14 +15,16 @@ import SwiftUI
 struct ShortcutListRowView: View, Equatable {
     let snapshot: ShortcutListRowSnapshot
     let actions: ShortcutListRowActions
+    let chromePalette: ChromePalette
 
-    init(snapshot: ShortcutListRowSnapshot, actions: ShortcutListRowActions) {
+    init(snapshot: ShortcutListRowSnapshot, actions: ShortcutListRowActions, chromePalette: ChromePalette) {
         self.snapshot = snapshot
         self.actions = actions
+        self.chromePalette = chromePalette
     }
 
     nonisolated static func == (lhs: ShortcutListRowView, rhs: ShortcutListRowView) -> Bool {
-        lhs.snapshot == rhs.snapshot
+        lhs.snapshot == rhs.snapshot && lhs.chromePalette == rhs.chromePalette
     }
 
     var body: some View {
@@ -34,7 +36,7 @@ struct ShortcutListRowView: View, Equatable {
                         if let subtitle = snapshot.subtitle {
                             Text(subtitle)
                                 .cmuxFont(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(chromePalette.textSecondary.swiftUIColor)
                         }
                     }
 
@@ -77,11 +79,11 @@ struct ShortcutListRowView: View, Equatable {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .cmuxFont(.caption)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(chromePalette.agentError.swiftUIColor)
 
                         Text(validationMessage)
                             .cmuxFont(.caption)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(chromePalette.agentError.swiftUIColor)
                             .fixedSize(horizontal: false, vertical: true)
 
                         // Legacy `KeyboardShortcutRecorder` always renders an
@@ -101,11 +103,11 @@ struct ShortcutListRowView: View, Equatable {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background {
                         RoundedRectangle(cornerRadius: 6)
-                            .fill(Color.red.opacity(0.12))
+                            .fill(chromePalette.agentError.swiftUIColor.opacity(0.12))
                     }
                     .overlay {
                         RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.red.opacity(0.35), lineWidth: 1)
+                            .stroke(chromePalette.agentError.swiftUIColor.opacity(0.35), lineWidth: 1)
                     }
                     .accessibilityIdentifier("ShortcutRecorderValidationMessage")
                 }
@@ -115,7 +117,7 @@ struct ShortcutListRowView: View, Equatable {
 
             if !snapshot.isLast {
                 Rectangle()
-                    .fill(Color(nsColor: NSColor.separatorColor).opacity(0.5))
+                    .fill(chromePalette.borderSubtle.swiftUIColor.opacity(0.5))
                     .frame(height: 1)
             }
         }

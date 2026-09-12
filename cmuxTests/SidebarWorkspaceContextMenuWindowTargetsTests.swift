@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxSettings
 import Foundation
 import SwiftUI
 import Testing
@@ -31,7 +32,8 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
         }
         let row = TabItemView(
             snapshot: try Self.rowSnapshot(),
-            actions: actions
+            actions: actions,
+            chromePalette: ChromePalette.builtIn(theme: .default, colorScheme: .light)
         )
 
         // Rendering the lazy row must not freeze or resolve app-window state.

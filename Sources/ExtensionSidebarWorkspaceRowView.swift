@@ -1,5 +1,7 @@
 import CmuxFoundation
 import AppKit
+import CmuxSettings
+import CmuxSettingsUI
 import CmuxSidebarProviderKit
 import SwiftUI
 import WebKit
@@ -10,6 +12,8 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
     let providerId: String
     let relativeNow: Date
     let isSelected: Bool
+    /// Immutable app-chrome palette captured above the sidebar row boundary.
+    let chromePalette: ChromePalette
     let onSelect: (UUID) -> Void
     let onOpenWindow: (CmuxSidebarProviderWorkspace) -> Void
     @State private var showsInspector = false
@@ -20,7 +24,8 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
             lhs.workspace == rhs.workspace &&
             lhs.providerId == rhs.providerId &&
             lhs.relativeNow == rhs.relativeNow &&
-            lhs.isSelected == rhs.isSelected
+            lhs.isSelected == rhs.isSelected &&
+            lhs.chromePalette == rhs.chromePalette
     }
 
     private var isSuperCompact: Bool {
@@ -38,14 +43,14 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
             VStack(alignment: .leading, spacing: isSuperCompact ? 0 : 2) {
                 Text(row.title)
                     .cmuxFont(size: primarySize, weight: .regular)
-                    .foregroundColor(isSelected ? .primary : .primary.opacity(0.86))
+                    .foregroundColor(isSelected ? chromePalette.textOnSelected.swiftUIColor : chromePalette.textPrimary.swiftUIColor.opacity(0.86))
                     .lineLimit(1)
                     .truncationMode(.tail)
 
                 if !isSuperCompact, let subtitle = rendered(row.subtitle) {
                     Text(subtitle)
                         .cmuxFont(size: secondarySize, weight: .regular)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(chromePalette.textSecondary.swiftUIColor)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
@@ -55,7 +60,7 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
             if !isSuperCompact, let trailing = rendered(row.trailingText) {
                 Text(trailing)
                     .cmuxFont(size: 10.5, weight: .regular)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(chromePalette.textSecondary.swiftUIColor)
                     .lineLimit(1)
             }
 
@@ -71,6 +76,7 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
                 } label: {
                     Image(systemName: accessory.systemImageName)
                         .cmuxFont(size: isSuperCompact ? 10 : 12, weight: .regular)
+                        .foregroundColor(chromePalette.textSecondary.swiftUIColor)
                         .frame(width: isSuperCompact ? 14 : 18, height: isSuperCompact ? 14 : 18)
                 }
                 .buttonStyle(.plain)
@@ -100,7 +106,7 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
         .background {
             if isSelected {
                 Rectangle()
-                    .fill(Color.primary.opacity(0.10))
+                    .fill(chromePalette.surfaceSelected.swiftUIColor)
             }
         }
         .contentShape(Rectangle())

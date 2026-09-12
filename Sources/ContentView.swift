@@ -877,6 +877,7 @@ struct ContentView: View {
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     @EnvironmentObject var fileExplorerState: FileExplorerState
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.chromePalette) private var chromePalette
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
 #endif
@@ -3961,11 +3962,11 @@ struct ContentView: View {
                 .background(CommandPalettePanelHitRegion())
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color(nsColor: .windowBackgroundColor).opacity(0.98))
+                        .fill(chromePalette.surfaceRaised.swiftUIColor.opacity(0.98))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color(nsColor: .separatorColor).opacity(0.7), lineWidth: 1)
+                        .stroke(chromePalette.border.swiftUIColor.opacity(0.7), lineWidth: 1)
                 )
                 .shadow(color: Color.black.opacity(0.24), radius: 10, x: 0, y: 5)
                 .padding(.top, 40)
@@ -3996,10 +3997,12 @@ struct ContentView: View {
             .padding(.vertical, 7)
 
             Divider()
+                .overlay(chromePalette.borderSubtle.swiftUIColor.opacity(0.7))
 
             CommandPaletteCommandListRenderView(
                 renderModel: commandPaletteOverlayRenderModel,
-                onRunResult: runCommandPaletteResult(commandID:)
+                onRunResult: runCommandPaletteResult(commandID:),
+                chromePalette: chromePalette
             )
 
             // Keep Esc-to-close behavior without showing footer controls.
@@ -5701,74 +5704,6 @@ struct ContentView: View {
             )
         }
         return CommandPaletteSwitcherFingerprintContext.fingerprint(windowContexts: fingerprintContexts)
-    }
-
-    private static func commandPaletteHighlightedTitleText(_ title: String, matchedIndices: Set<Int>) -> Text {
-        guard !matchedIndices.isEmpty else {
-            return Text(title).foregroundColor(.primary)
-        }
-
-        let chars = Array(title)
-        var index = 0
-        var result = Text("")
-
-        while index < chars.count {
-            let isMatched = matchedIndices.contains(index)
-            var end = index + 1
-            while end < chars.count, matchedIndices.contains(end) == isMatched {
-                end += 1
-            }
-
-            let segment = String(chars[index..<end])
-            if isMatched {
-                result = result + Text(segment).foregroundColor(.blue)
-            } else {
-                result = result + Text(segment).foregroundColor(.primary)
-            }
-            index = end
-        }
-
-        return result
-    }
-
-    @ViewBuilder
-    private static func commandPaletteRenderTrailingLabelView(_ trailingLabel: CommandPaletteRenderTrailingLabel?) -> some View {
-        if let trailingLabel {
-            switch trailingLabel.style {
-            case .shortcut:
-                Text(trailingLabel.text)
-                    .cmuxFont(size: 11, weight: .medium)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(
-                        Color.primary.opacity(0.08),
-                        in: RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    )
-            case .kind:
-                Text(trailingLabel.text)
-                    .cmuxFont(size: 11, weight: .regular)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-        }
-    }
-
-    static func commandPaletteRenderResultLabelContent(
-        title: String,
-        matchedIndices: Set<Int>,
-        trailingLabel: CommandPaletteRenderTrailingLabel?
-    ) -> some View {
-        HStack(spacing: 8) {
-            commandPaletteHighlightedTitleText(
-                title,
-                matchedIndices: matchedIndices
-            )
-                .cmuxFont(size: 13, weight: .regular)
-                .lineLimit(1)
-            Spacer()
-            commandPaletteRenderTrailingLabelView(trailingLabel)
-        }
     }
 
     private func commandPaletteSwitcherEntries(includeSurfaces: Bool) -> [CommandPaletteCommand] {
@@ -11284,6 +11219,7 @@ struct VerticalTabsSidebar: View, Equatable {
     @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
 #endif
     @Environment(\.colorScheme) private var sidebarColorScheme
+    @Environment(\.chromePalette) private var sidebarChromePalette
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var sidebarGlobalFontMagnificationPercent
 
     // The provider to actually render. Built-in views are always honored; only
@@ -11716,12 +11652,14 @@ struct VerticalTabsSidebar: View, Equatable {
 #if DEBUG
         let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
             colorScheme: sidebarColorScheme,
+            chromePalette: sidebarChromePalette,
             globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
             lazyContractProbe: sidebarLazyContractProbe
         )
 #else
         let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
             colorScheme: sidebarColorScheme,
+            chromePalette: sidebarChromePalette,
             globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent
         )
 #endif
@@ -11772,10 +11710,22 @@ struct VerticalTabsSidebar: View, Equatable {
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
         .overlay(alignment: .trailing) {
-            WindowChromeBorder(
-                orientation: .vertical,
-                backgroundColor: chromeBackgroundColor
-            )
+            if sidebarChromePalette.isCustomized(.surface)
+                || sidebarChromePalette.isCustomized(.border) {
+                Rectangle()
+                    .fill(sidebarChromePalette.border.swiftUIColor)
+                    .frame(width: 1)
+            } else {
+                WindowChromeBorder(
+                    orientation: .vertical,
+                    backgroundColor: chromeBackgroundColor
+                )
+            }
+        }
+        .background {
+            if sidebarChromePalette.isCustomized(.surface) {
+                sidebarChromePalette.surface.swiftUIColor
+            }
         }
         .background(
             WindowAccessor(refreshID: showModifierHoldHints) { window in
@@ -13390,7 +13340,7 @@ struct VerticalTabsSidebar: View, Equatable {
                         .cmuxFont(size: 13, weight: .regular)
                     Spacer(minLength: 0)
                 }
-                .foregroundColor(.secondary)
+                .foregroundColor(sidebarChromePalette.textSecondary.swiftUIColor)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 7)
             }
@@ -13420,12 +13370,14 @@ struct VerticalTabsSidebar: View, Equatable {
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                CmuxSystemSymbolImage(magnified: "folder.fill", pointSize: 14, weight: .regular, tint: .secondary)
+                CmuxSystemSymbolImage(magnified: "folder.fill", pointSize: 14, weight: .regular, tint: sidebarChromePalette.textSecondary.swiftUIColor)
+                    .foregroundColor(sidebarChromePalette.textSecondary.swiftUIColor)
                 Text(extensionSidebarTreeSectionTitle(section.treeSection))
                     .cmuxFont(size: 13, weight: .semibold)
-                    .foregroundColor(.primary.opacity(0.86))
+                    .foregroundColor(sidebarChromePalette.textPrimary.swiftUIColor.opacity(0.86))
                     .lineLimit(1)
-                CmuxSystemSymbolImage(magnified: "chevron.down", pointSize: 11, weight: .medium, tint: .secondary)
+                CmuxSystemSymbolImage(magnified: "chevron.down", pointSize: 11, weight: .medium, tint: sidebarChromePalette.textSecondary.swiftUIColor)
+                    .foregroundColor(sidebarChromePalette.textSecondary.swiftUIColor)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 10)
@@ -13447,10 +13399,10 @@ struct VerticalTabsSidebar: View, Equatable {
         .padding(.bottom, 9)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.primary.opacity(0.09))
+                .fill(sidebarChromePalette.surfaceRaised.swiftUIColor.opacity(0.85))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                        .stroke(sidebarChromePalette.borderSubtle.swiftUIColor.opacity(0.8), lineWidth: 1)
                 )
         )
         .padding(.horizontal, 8)
@@ -13473,13 +13425,13 @@ struct VerticalTabsSidebar: View, Equatable {
                     RoundedRectangle(cornerRadius: 13, style: .continuous)
                         .fill(
                             isSelected
-                                ? Color(red: 0.44, green: 0.29, blue: 0.23).opacity(0.9)
-                                : Color.primary.opacity(0.10)
+                                ? sidebarChromePalette.surfaceSelected.swiftUIColor
+                                : sidebarChromePalette.surfaceHover.swiftUIColor.opacity(0.45)
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 13, style: .continuous)
                                 .stroke(
-                                    isSelected ? Color.red.opacity(0.85) : Color.primary.opacity(0.08),
+                                    isSelected ? sidebarChromePalette.accent.swiftUIColor.opacity(0.85) : sidebarChromePalette.borderSubtle.swiftUIColor.opacity(0.8),
                                     lineWidth: isSelected ? 2 : 1
                                 )
                         )
@@ -13549,14 +13501,14 @@ struct VerticalTabsSidebar: View, Equatable {
                 extensionBrowserStackIcon(row.leadingIcon, size: compact ? 22 : 24)
                 Text(row.title)
                     .cmuxFont(size: compact ? 12.5 : 13, weight: .medium)
-                    .foregroundColor(isSelected ? .primary : .primary.opacity(0.82))
+                    .foregroundColor(isSelected ? sidebarChromePalette.textOnSelected.swiftUIColor : sidebarChromePalette.textPrimary.swiftUIColor.opacity(0.82))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
                 if let trailing = extensionSidebarRenderedText(row.trailingText, now: now) {
                     Text(trailing)
                         .cmuxFont(size: 11, weight: .regular)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(sidebarChromePalette.textSecondary.swiftUIColor)
                         .lineLimit(1)
                 }
             }
@@ -13564,11 +13516,11 @@ struct VerticalTabsSidebar: View, Equatable {
             .padding(.vertical, compact ? 6 : 7)
             .background(
                 RoundedRectangle(cornerRadius: compact ? 8 : 10, style: .continuous)
-                    .fill(isSelected ? Color.primary.opacity(0.12) : Color.clear)
+                    .fill(isSelected ? sidebarChromePalette.surfaceSelected.swiftUIColor : Color.clear)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: compact ? 8 : 10, style: .continuous)
-                    .stroke(isSelected ? cmuxAccentColor().opacity(0.55) : Color.clear, lineWidth: 1)
+                    .stroke(isSelected ? sidebarChromePalette.cmuxAccentColor.opacity(0.55) : Color.clear, lineWidth: 1)
             )
             .contentShape(Rectangle())
         }
@@ -13625,7 +13577,7 @@ struct VerticalTabsSidebar: View, Equatable {
     ) -> some View {
         if dragState.dropIndicator == SidebarDropIndicator(tabId: row.workspaceId, edge: edge) {
             Rectangle()
-                .fill(cmuxAccentColor())
+                .fill(sidebarChromePalette.cmuxAccentColor)
                 .frame(height: 2)
                 .padding(.horizontal, 8)
         }
@@ -13721,8 +13673,14 @@ struct VerticalTabsSidebar: View, Equatable {
         size: CGFloat
     ) -> some View {
         let shape = icon?.shape ?? .circle
-        let foreground = extensionSidebarColor(hex: icon?.foregroundColorHex, fallback: .primary)
-        let background = extensionSidebarColor(hex: icon?.backgroundColorHex, fallback: Color.primary.opacity(0.16))
+        let foreground = extensionSidebarColor(
+            hex: icon?.foregroundColorHex,
+            fallback: sidebarChromePalette.textPrimary.swiftUIColor
+        )
+        let background = extensionSidebarColor(
+            hex: icon?.backgroundColorHex,
+            fallback: sidebarChromePalette.surfaceHover.swiftUIColor.opacity(0.65)
+        )
         return ZStack {
             if shape == .circle {
                 Circle().fill(background)
@@ -13795,7 +13753,7 @@ struct VerticalTabsSidebar: View, Equatable {
 
                 Text(extensionSidebarTreeSectionTitle(section.treeSection))
                     .cmuxFont(size: 12, weight: .regular)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(sidebarChromePalette.textSecondary.swiftUIColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
 
@@ -13830,6 +13788,7 @@ struct VerticalTabsSidebar: View, Equatable {
                             providerId: providerId,
                             relativeNow: now,
                             isSelected: row.workspaceId == selectedWorkspaceId,
+                            chromePalette: sidebarChromePalette,
                             onSelect: selectExtensionSidebarWorkspace,
                             onOpenWindow: CmuxExtensionSidebarInspectorWindowController.show
                         )
@@ -13929,7 +13888,7 @@ struct VerticalTabsSidebar: View, Equatable {
             .overlay(alignment: .bottom) {
                 if emptyAreaTopDropIndicatorVisible() {
                     Rectangle()
-                        .fill(cmuxAccentColor())
+                        .fill(sidebarChromePalette.cmuxAccentColor)
                         .frame(height: 2)
                         .padding(.horizontal, 8)
                         .offset(y: tabRowSpacing / 2)
@@ -15258,6 +15217,7 @@ struct VerticalTabsSidebar: View, Equatable {
         SidebarWorkspaceRowView(
             snapshot: input.rowSnapshot(list: listSnapshot),
             actions: actionFactory(input),
+            chromePalette: sidebarChromePalette,
             shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
         )
     }
@@ -15317,6 +15277,7 @@ struct SidebarFooterButtons: View {
     @ObservedObject var fileExplorerState: FileExplorerState
     let modifierKeyMonitor: WindowScopedShortcutHintModifierMonitor
     let onSendFeedback: () -> Void
+    @Environment(\.chromePalette) private var chromePalette
     @State private var extensionBrowserAnchorView: NSView?
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
     // Reuse the exact Command-hold shortcut-hint signal that drives the per-row
@@ -15382,7 +15343,7 @@ struct SidebarFooterButtons: View {
                 .background(TitlebarControlAnchorView { extensionBrowserAnchorView = $0 })
             }
             if shows(.update), let updateActionsHost = AppDelegate.shared {
-                UpdatePill(model: updateViewModel, accent: cmuxAccentColor(), actions: updateActionsHost)
+                UpdatePill(model: updateViewModel, accent: chromePalette.cmuxAccentColor, actions: updateActionsHost)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -15665,10 +15626,13 @@ private struct SidebarHelpMenuButton: View {
 // cross this LazyVStack boundary (#6707 / #2586).
 struct TabItemView: View, Equatable {
     nonisolated static func == (lhs: TabItemView, rhs: TabItemView) -> Bool {
-        lhs.snapshot == rhs.snapshot
+        lhs.snapshot == rhs.snapshot && lhs.chromePalette == rhs.chromePalette
     }
 
     @Environment(\.colorScheme) private var colorScheme
+    // Immutable chrome snapshot injected above the lazy row boundary. Keeping
+    // this as a value (rather than a store reference) preserves the sidebar's
+    // low-churn Equatable projection contract.
     // Global font magnification percent, read once per row instead of through a
     // per-label `CmuxFontModifier`. Each `.cmuxFont(...)` is a custom
     // `@Environment`-reading `ViewModifier`; with 100+ workspaces continuously
@@ -15686,6 +15650,7 @@ struct TabItemView: View, Equatable {
 #endif
     let snapshot: SidebarWorkspaceRowSnapshot
     let actions: SidebarWorkspaceRowActions
+    let chromePalette: ChromePalette
 
     @State private var contextMenuVisible = false
     @State var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
@@ -15771,12 +15736,16 @@ struct TabItemView: View, Equatable {
     private var selectedWorkspaceBackgroundNSColor: NSColor {
         sidebarSelectedWorkspaceBackgroundNSColor(
             for: colorScheme,
-            sidebarSelectionColorHex: sidebarSelectionColorHex
+            sidebarSelectionColorHex: sidebarSelectionColorHex,
+            chromePalette: chromePalette
         )
     }
 
     private func selectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
-        sidebarSelectedWorkspaceForegroundNSColor(
+        if sidebarSelectionColorHex == nil {
+            return (chromePalette.textOnSelected).cmuxNSColor.withAlphaComponent(opacity)
+        }
+        return sidebarSelectedWorkspaceForegroundNSColor(
             on: selectedWorkspaceBackgroundNSColor,
             opacity: opacity
         )
@@ -15839,7 +15808,7 @@ struct TabItemView: View, Equatable {
         case .leftRail:
             return .clear
         case .solidFill:
-            return Color.primary.opacity(0.5)
+            return (chromePalette[.border]).cmuxColor.opacity(0.5)
         }
     }
 
@@ -15850,32 +15819,34 @@ struct TabItemView: View, Equatable {
     private var activePrimaryTextColor: Color {
         usesInvertedActiveForeground
             ? Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: 1.0))
-            : .primary
+            : (chromePalette[.textPrimary]).cmuxColor
     }
 
     private func activeSecondaryColor(_ opacity: Double = 0.75) -> Color {
         usesInvertedActiveForeground
             ? Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: CGFloat(opacity)))
-            : .secondary
+            : (chromePalette[.textSecondary]).cmuxColor.opacity(opacity)
     }
 
     private var activeUnreadBadgeFillColor: Color {
         if let hex = sidebarNotificationBadgeColorHex, let nsColor = NSColor(hex: hex) {
             return Color(nsColor: nsColor)
         }
-        return usesInvertedActiveForeground ? activePrimaryTextColor.opacity(0.25) : cmuxAccentColor()
+        return usesInvertedActiveForeground ? activePrimaryTextColor.opacity(0.25) : chromePalette.cmuxAccentColor
     }
 
     private var activeUnreadBadgeTextColor: Color {
-        usesInvertedActiveForeground ? activePrimaryTextColor : .white
+        usesInvertedActiveForeground
+            ? activePrimaryTextColor
+            : (chromePalette.textOnAccent).cmuxColor
     }
 
     private var activeProgressTrackColor: Color {
-        usesInvertedActiveForeground ? activeSecondaryColor(0.15) : Color.secondary.opacity(0.2)
+        usesInvertedActiveForeground ? activeSecondaryColor(0.15) : (chromePalette[.borderSubtle]).cmuxColor.opacity(0.45)
     }
 
     private var activeProgressFillColor: Color {
-        usesInvertedActiveForeground ? activeSecondaryColor(0.8) : cmuxAccentColor()
+        usesInvertedActiveForeground ? activeSecondaryColor(0.8) : chromePalette.cmuxAccentColor
     }
 
     private var shortcutHintEmphasis: Double {
@@ -16014,7 +15985,9 @@ struct TabItemView: View, Equatable {
         let titleRowSpacing: CGFloat = spinnerOnLeading ? 6 : 8
         let badgeFont = magnifiedFont(scaledFontSize(9), weight: .semibold)
         let spinnerTooltip = SidebarWorkspaceLoadingTooltip.text(count: workspaceSnapshot.activeCodingAgentCount)
-        let spinnerColor = usesInvertedActiveForeground ? selectedWorkspaceForegroundNSColor(opacity: 0.55) : .secondaryLabelColor
+        let spinnerColor = usesInvertedActiveForeground
+            ? selectedWorkspaceForegroundNSColor(opacity: 0.55)
+            : (chromePalette[.textSecondary]).cmuxNSColor.withAlphaComponent(0.8)
         let rowView = VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .sidebarTitleFirstLineCenter, spacing: titleRowSpacing) {
 
@@ -16116,7 +16089,8 @@ struct TabItemView: View, Equatable {
                     markdown: description,
                     isActive: usesInvertedActiveForeground,
                     activeForegroundColor: activeSecondaryColor(0.84),
-                    fontScale: fontScale
+                    fontScale: fontScale,
+                    chromePalette: chromePalette
                 )
             }
 
@@ -16489,7 +16463,8 @@ struct TabItemView: View, Equatable {
             isMultiSelected: isMultiSelected,
             customColorHex: workspaceSnapshot.customColorHex,
             colorScheme: colorScheme,
-            sidebarSelectionColorHex: sidebarSelectionColorHex
+            sidebarSelectionColorHex: sidebarSelectionColorHex,
+            chromePalette: chromePalette
         )
         guard let color = style.color else { return .clear }
         return Color(nsColor: color).opacity(style.opacity)
@@ -16537,7 +16512,7 @@ struct TabItemView: View, Equatable {
     }
 
     private var pullRequestForegroundColor: Color {
-        isActive ? activeSecondaryColor(0.75) : .secondary
+        isActive ? activeSecondaryColor(0.75) : (chromePalette[.textSecondary]).cmuxColor
     }
 
     private func openPullRequestLink(_ url: URL) {
@@ -16582,11 +16557,11 @@ struct TabItemView: View, Equatable {
             }
         }
         switch level {
-        case .info: return .secondary
-        case .progress: return .blue
-        case .success: return .green
-        case .warning: return .orange
-        case .error: return .red
+        case .info: return (chromePalette[.agentIdle]).cmuxColor
+        case .progress: return (chromePalette[.agentWorking]).cmuxColor
+        case .success: return (chromePalette[.agentSuccess]).cmuxColor
+        case .warning: return (chromePalette[.agentWarning]).cmuxColor
+        case .error: return (chromePalette[.agentError]).cmuxColor
         }
     }
 
@@ -16824,6 +16799,7 @@ private struct SidebarMetadataRows: View {
     let onFocus: () -> Void
 
     @State private var isExpanded: Bool = false
+    @Environment(\.chromePalette) private var chromePalette
     private let collapsedEntryLimit = 3
 
     var body: some View {
@@ -16847,7 +16823,7 @@ private struct SidebarMetadataRows: View {
                 }
                 .buttonStyle(.plain)
                 .cmuxFont(size: 10 * fontScale, weight: .semibold)
-                .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary.opacity(0.9))
+                .foregroundColor(isActive ? activeSecondaryForegroundColor : (chromePalette[.textSecondary]).cmuxColor.opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -16875,6 +16851,7 @@ private struct SidebarMetadataEntryRow: View {
     let activeForegroundColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
+    @Environment(\.chromePalette) private var chromePalette
 
     var body: some View {
         Group {
@@ -16922,7 +16899,7 @@ private struct SidebarMetadataEntryRow: View {
         if let raw = entry.color, let explicit = Color(hex: raw) {
             return explicit
         }
-        return isActive ? activeForegroundColor.opacity(0.84) : .secondary
+        return isActive ? activeForegroundColor.opacity(0.84) : (chromePalette[.textSecondary]).cmuxColor
     }
 
     private var iconView: AnyView? {
@@ -16986,6 +16963,7 @@ private struct SidebarMetadataMarkdownBlocks: View {
     let onFocus: () -> Void
 
     @State private var isExpanded: Bool = false
+    @Environment(\.chromePalette) private var chromePalette
     private let collapsedBlockLimit = 1
 
     var body: some View {
@@ -17009,7 +16987,7 @@ private struct SidebarMetadataMarkdownBlocks: View {
                 }
                 .buttonStyle(.plain)
                 .cmuxFont(size: 10 * fontScale, weight: .semibold)
-                .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary.opacity(0.9))
+                .foregroundColor(isActive ? activeSecondaryForegroundColor : (chromePalette[.textSecondary]).cmuxColor.opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -17031,6 +17009,7 @@ private struct SidebarMetadataMarkdownBlockRow: View {
     let activeForegroundColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
+    @Environment(\.chromePalette) private var chromePalette
     private static let maxDisplayedLines = 12
     private static let maxDisplayedCharacters = 4096
 
@@ -17063,7 +17042,7 @@ private struct SidebarMetadataMarkdownBlockRow: View {
     }
 
     private var foregroundColor: Color {
-        isActive ? activeForegroundColor : .secondary
+        isActive ? activeForegroundColor : (chromePalette[.textSecondary]).cmuxColor
     }
 
     private static func displayMarkdown(from markdown: String) -> String {

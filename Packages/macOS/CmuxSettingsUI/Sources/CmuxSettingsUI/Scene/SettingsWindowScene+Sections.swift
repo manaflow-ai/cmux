@@ -75,6 +75,14 @@ extension SettingsWindowRoot {
             SidebarSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
         }
 
+        slot(.chrome, proxy: proxy) {
+            ChromeSection(
+                jsonStore: jsonStore,
+                catalog: catalog,
+                errorLog: runtime.errorLog
+            )
+        }
+
         slot(.customSidebars, proxy: proxy) {
             CustomSidebarsSection(
                 defaultsStore: defaultsStore,

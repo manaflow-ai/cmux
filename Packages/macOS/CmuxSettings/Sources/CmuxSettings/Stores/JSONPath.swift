@@ -48,6 +48,20 @@ public struct JSONPath: Sendable, Hashable {
         return cursor
     }
 
+    /// Returns whether a value exists at this path, even when its type is not
+    /// the type a caller expects.
+    public func contains(in root: [String: Any]) -> Bool {
+        guard !components.isEmpty else { return false }
+        var cursor: Any = root
+        for component in components {
+            guard let dictionary = cursor as? [String: Any], let next = dictionary[component] else {
+                return false
+            }
+            cursor = next
+        }
+        return true
+    }
+
     /// Assigns ``value`` at this path inside ``root``, creating intermediate
     /// objects as needed. Sibling values are preserved at every level.
     public func assign(_ value: Any, in root: inout [String: Any]) {

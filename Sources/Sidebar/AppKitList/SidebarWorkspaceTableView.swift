@@ -1,4 +1,6 @@
 import CmuxNotifications
+import CmuxSettings
+import CmuxSettingsUI
 import CmuxAppKitSupportUI
 import SwiftUI
 
@@ -32,6 +34,7 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
 #if DEBUG
     @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
 #endif
+    @Environment(\.chromePalette) private var chromePalette
 
     func makeCoordinator() -> SidebarWorkspaceTableController {
         SidebarWorkspaceTableController()
@@ -51,6 +54,7 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
         context.coordinator.reconfigurationProbe = sidebarLazyContractProbe.tableRootViewReconfigure
 #endif
         context.coordinator.setUnreadSource(unreadSource)
+        context.coordinator.setChromePalette(chromePalette)
         context.coordinator.onDeferredRowClickAwaitingApply = onDeferredClickAwaitingApply
         context.coordinator.setPresentationActive(
             isPresented,

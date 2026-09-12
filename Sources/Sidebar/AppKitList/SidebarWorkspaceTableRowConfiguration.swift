@@ -1,4 +1,5 @@
 import CmuxNotifications
+import CmuxSettings
 import SwiftUI
 
 struct SidebarWorkspaceTableContextMenuActions {
@@ -256,4 +257,7 @@ struct SidebarWorkspaceTableRowConfiguration {
             auxiliaryLineCount: 0
         )
     }
+
+    /// Palette snapshot captured above the AppKit cell boundary.
+    var chromePalette: ChromePalette { environment.chromePalette }
 }

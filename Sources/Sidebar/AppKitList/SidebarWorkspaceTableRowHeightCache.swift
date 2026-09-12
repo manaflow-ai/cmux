@@ -187,6 +187,7 @@ final class SidebarWorkspaceTableRowHeightCache {
             prototypeRowView.configure(
                 model: rowModel,
                 actions: actions,
+                chromePalette: row.chromePalette,
                 isPointerHovering: false,
                 contextMenuDidOpen: {},
                 contextMenuDidClose: {}

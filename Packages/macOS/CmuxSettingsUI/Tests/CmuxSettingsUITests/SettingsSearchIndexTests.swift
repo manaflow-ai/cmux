@@ -249,6 +249,31 @@ struct SettingsSearchIndexTests {
         #expect(index.anchorID(forSettingsPath: "automation.autoNamingAgent") == nil)
     }
 
+    @Test func chromeSearchEntriesIncludeTheirLocalizedAliasResources() throws {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let matcher = SettingsSearchMatcher()
+        let section = try #require(index.entries.first { $0.id == "section:chrome" })
+        let theme = try #require(index.entries.first { $0.id == "setting:chrome:theme" })
+        let overrides = try #require(index.entries.first { $0.id == "setting:chrome:token-overrides" })
+
+        let sectionAliases = String(
+            localized: "settings.search.alias.section.chrome",
+            defaultValue: "chrome app chrome theme palette colors accent surfaces text borders agent status catppuccin gruvbox solarized overrides"
+        )
+        let themeAliases = String(
+            localized: "settings.search.alias.setting.chrome.theme",
+            defaultValue: "chrome.theme chrome palette app chrome sidebar tab strip agent panel notification colors catppuccin gruvbox solarized light dark system"
+        )
+        let overrideAliases = String(
+            localized: "settings.search.alias.setting.chrome.token-overrides",
+            defaultValue: "chrome.overrides token color accent surface text border status agent hex custom color override"
+        )
+
+        #expect(section.normalizedSearchText.contains(matcher.normalize(sectionAliases)))
+        #expect(theme.normalizedSearchText.contains(matcher.normalize(themeAliases)))
+        #expect(overrides.normalizedSearchText.contains(matcher.normalize(overrideAliases)))
+    }
+
     @Test func unknownPathHasNoAnchor() {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         #expect(index.anchorID(forSettingsPath: "totally.bogus.path") == nil)

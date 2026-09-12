@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import Testing
 @testable import cmux_DEV
 
@@ -131,6 +132,7 @@ struct SidebarWorkspaceRowHeightCacheRegressionTests {
         cell.configure(
             model: tailModel,
             actions: SidebarWorkspaceRowSuspensionTests.makeActions(model: tailModel),
+            chromePalette: ChromePalette.builtIn(theme: .default, colorScheme: .light),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}

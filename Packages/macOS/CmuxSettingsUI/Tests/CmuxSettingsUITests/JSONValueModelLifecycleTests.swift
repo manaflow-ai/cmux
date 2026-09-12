@@ -81,4 +81,63 @@ import Testing
 
         #expect(streamCreations == 0)
     }
+
+    @Test func queuedUpdatesSurviveModelTeardown() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("json-value-model-write-queue-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let store = JSONConfigStore(fileURL: tempDir.appendingPathComponent("cmux.json"))
+        let key = JSONKey<ChromeTokenOverrides>(id: "chrome.overrides", defaultValue: .empty)
+        let errorLog = SettingsErrorLog()
+        let accent = try #require(ChromeColor(hex: "#123456"))
+        let surface = try #require(ChromeColor(hex: "#ABCDEF"))
+
+        var model: JSONValueModel<ChromeTokenOverrides>? = JSONValueModel(
+            store: store,
+            key: key,
+            errorLog: errorLog
+        )
+        let firstWrite = model!.update { current in
+            var values = current.values
+            values[.accent] = accent
+            return ChromeTokenOverrides(values)
+        }
+        let secondWrite = model!.update { current in
+            var values = current.values
+            values[.surface] = surface
+            return ChromeTokenOverrides(values)
+        }
+
+        model = nil
+        await firstWrite.value
+        await secondWrite.value
+
+        let persisted = await store.value(for: key)
+        #expect(persisted[.accent] == accent)
+        #expect(persisted[.surface] == surface)
+    }
+
+    @Test func queuedWriteFailureIsLoggedAfterModelTeardown() async {
+        let blockedParent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("json-value-model-write-error-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: blockedParent) }
+        try? Data().write(to: blockedParent)
+
+        let store = JSONConfigStore(fileURL: blockedParent.appendingPathComponent("cmux.json"))
+        let key = JSONKey<String>(id: "automation.socketPassword", defaultValue: "")
+        let errorLog = SettingsErrorLog()
+        var model: JSONValueModel<String>? = JSONValueModel(
+            store: store,
+            key: key,
+            errorLog: errorLog
+        )
+
+        let write = model!.set("persisted")
+        model = nil
+        await write.value
+
+        #expect(errorLog.entries.count == 1)
+        #expect(errorLog.entries.first?.keyID == key.id)
+    }
 }

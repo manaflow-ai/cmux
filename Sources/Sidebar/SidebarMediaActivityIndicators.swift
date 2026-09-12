@@ -1,9 +1,12 @@
+import CmuxSettings
+import CmuxSettingsUI
 import SwiftUI
 
 struct SidebarMediaActivityIndicators: View {
     let mediaActivity: BrowserMediaActivity
     let symbolPointSize: CGFloat
     let audioColor: Color
+    @Environment(\.chromePalette) private var chromePalette
 
     var body: some View {
         if mediaActivity.isPlayingAudio {
@@ -21,7 +24,8 @@ struct SidebarMediaActivityIndicators: View {
                 localized: "sidebar.mediaActivity.microphone.tooltip",
                 defaultValue: "Microphone in use"
             )
-            CmuxSystemSymbolImage(magnified: "mic.fill", pointSize: symbolPointSize, weight: .semibold, tint: .orange)
+            CmuxSystemSymbolImage(magnified: "mic.fill", pointSize: symbolPointSize, weight: .semibold, tint: chromePalette.agentWarning.swiftUIColor)
+                .foregroundColor((chromePalette[.agentWarning]).cmuxColor)
                 .safeHelp(microphoneInUseTooltip)
                 .accessibilityLabel(microphoneInUseTooltip)
         }
@@ -31,7 +35,8 @@ struct SidebarMediaActivityIndicators: View {
                 localized: "sidebar.mediaActivity.camera.tooltip",
                 defaultValue: "Camera in use"
             )
-            CmuxSystemSymbolImage(magnified: "video.fill", pointSize: symbolPointSize, weight: .semibold, tint: .green)
+            CmuxSystemSymbolImage(magnified: "video.fill", pointSize: symbolPointSize, weight: .semibold, tint: chromePalette.agentSuccess.swiftUIColor)
+                .foregroundColor((chromePalette[.agentSuccess]).cmuxColor)
                 .safeHelp(cameraInUseTooltip)
                 .accessibilityLabel(cameraInUseTooltip)
         }

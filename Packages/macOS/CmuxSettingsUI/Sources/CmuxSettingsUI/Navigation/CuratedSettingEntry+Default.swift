@@ -234,6 +234,28 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .sidebarAppearance, id: "show-ports", title: String(localized: "settings.app.showPorts", defaultValue: "Show Listening Ports in Sidebar"), synonyms: "Show Listening Ports in Sidebar sidebar.showPorts localhost port listener dev server url"),
             .init(section: .sidebarAppearance, id: "show-log", title: String(localized: "settings.app.showLog", defaultValue: "Show Latest Log in Sidebar"), synonyms: "Show Latest Log in Sidebar sidebar.showLog log status latest message imperative"),
             .init(section: .sidebarAppearance, id: "show-progress", title: String(localized: "settings.app.showProgress", defaultValue: "Show Progress in Sidebar"), synonyms: "Show Progress in Sidebar sidebar.showProgress progress bar percent status set_progress"),
+
+            // Chrome palette
+            .init(
+                section: .chrome,
+                id: "theme",
+                title: String(localized: "settings.chrome.theme", defaultValue: "Chrome Theme"),
+                paths: ["chrome.theme"],
+                synonyms: String(
+                    localized: "settings.search.alias.setting.chrome.theme",
+                    defaultValue: "chrome.theme chrome palette app chrome sidebar tab strip agent panel notification colors catppuccin gruvbox solarized light dark system"
+                )
+            ),
+            .init(
+                section: .chrome,
+                id: "token-overrides",
+                title: String(localized: "settings.chrome.overrides.title", defaultValue: "Token overrides"),
+                paths: ["chrome.overrides"],
+                synonyms: String(
+                    localized: "settings.search.alias.setting.chrome.token-overrides",
+                    defaultValue: "chrome.overrides token color accent surface text border status agent hex custom color override"
+                )
+            ),
             .init(
                 section: .sidebarAppearance,
                 id: "show-agent-activity",

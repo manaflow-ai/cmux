@@ -138,12 +138,13 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
             isMultiSelected: false,
             customColorHex: workspace.customColor,
             colorScheme: .light,
-            sidebarSelectionColorHex: nil
+            sidebarSelectionColorHex: nil,
+            chromePalette: ChromePalette.resolve(theme: .default, colorScheme: .light)
         )
 
         XCTAssertEqual(
             background.color?.hexString(),
-            sidebarSelectedWorkspaceBackgroundNSColor(for: .light).hexString()
+            ChromePalette.resolve(theme: .default, colorScheme: .light).surfaceSelected.cmuxNSColor.hexString()
         )
         XCTAssertEqual(background.opacity, 1.0, accuracy: 0.001)
         withExtendedLifetime(cancellable) {}
@@ -174,12 +175,13 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
             isMultiSelected: false,
             customColorHex: workspace.customColor,
             colorScheme: .light,
-            sidebarSelectionColorHex: nil
+            sidebarSelectionColorHex: nil,
+            chromePalette: ChromePalette.resolve(theme: .default, colorScheme: .light)
         )
 
         XCTAssertEqual(
             background.color?.hexString(),
-            sidebarSelectedWorkspaceBackgroundNSColor(for: .light).hexString()
+            ChromePalette.resolve(theme: .default, colorScheme: .light).surfaceSelected.cmuxNSColor.hexString()
         )
         XCTAssertEqual(background.opacity, 1.0, accuracy: 0.001)
         withExtendedLifetime(cancellable) {}
@@ -201,7 +203,8 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
             isMultiSelected: false,
             customColorHex: workspace.customColor,
             colorScheme: .light,
-            sidebarSelectionColorHex: nil
+            sidebarSelectionColorHex: nil,
+            chromePalette: ChromePalette.resolve(theme: .default, colorScheme: .light)
         )
 
         XCTAssertNil(background.color)
@@ -244,7 +247,8 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
             isMultiSelected: false,
             customColorHex: workspace.customColor,
             colorScheme: .light,
-            sidebarSelectionColorHex: nil
+            sidebarSelectionColorHex: nil,
+            chromePalette: ChromePalette.resolve(theme: .default, colorScheme: .light)
         )
 
         XCTAssertEqual(background.color?.hexString(), "#C0392B")
@@ -4961,6 +4965,9 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
 
         var sawFirstResponderNotification = false
         var observedFirstResponderTransactions: [UUID] = []
+        let firstResponderExpectation = expectation(
+            description: "terminal first responder notification"
+        )
         let firstResponderToken = NotificationCenter.default.addObserver(
             forName: .ghosttyDidBecomeFirstResponderSurface,
             object: nil,
@@ -4969,6 +4976,9 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             guard notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID == workspace.id,
                   notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID == leftPanel.id else {
                 return
+            }
+            if !sawFirstResponderNotification {
+                firstResponderExpectation.fulfill()
             }
             sawFirstResponderNotification = true
             if let transactionId = notification.userInfo?[GhosttyNotificationKey.focusTransactionId] as? UUID {
@@ -4984,6 +4994,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             inPane: leftPaneId,
             focusTransactionId: transactionId
         )
+        wait(for: [firstResponderExpectation], timeout: 1)
         FocusSurfaceBroadcaster.shared.flush()
 
         XCTAssertGreaterThan(
@@ -6495,7 +6506,11 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
     func testForkAgentWorkspaceLaunchInRemoteWorkspacePreservesRemoteContext() throws {
         let workspace = Workspace()
-        let agentSocketPath = "/tmp/cmux-fork-agent.sock"
+        let agentSocketURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-fork-agent-\(UUID().uuidString).sock")
+        XCTAssertTrue(FileManager.default.createFile(atPath: agentSocketURL.path, contents: Data()))
+        defer { try? FileManager.default.removeItem(at: agentSocketURL) }
+        let agentSocketPath = agentSocketURL.path
         workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
@@ -6539,7 +6554,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertNil(launch.terminalWorkingDirectory)
         XCTAssertEqual(
             launch.initialTerminalCommand,
-            "ssh -p 2222 -i /Users/example/.ssh/cmux -o ServerAliveInterval=30 -o ForwardAgent=yes -tt cmux-macmini"
+            "/usr/bin/ssh -p 2222 -i /Users/example/.ssh/cmux -o ServerAliveInterval=30 -o ForwardAgent=yes -tt cmux-macmini"
         )
         XCTAssertEqual(launch.initialTerminalInput, snapshot.forkCommand.map { $0 + "\n" })
         XCTAssertEqual(launch.initialTerminalEnvironment["SSH_AUTH_SOCK"], agentSocketPath)
@@ -6610,7 +6625,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertFalse(startupCommand.contains("ssh-pty-attach"), startupCommand)
         XCTAssertEqual(
             startupCommand,
-            "ssh -p 2222 -i /Users/example/.ssh/cmux -tt cmux-macmini"
+            "/usr/bin/ssh -p 2222 -i /Users/example/.ssh/cmux -tt cmux-macmini"
         )
     }
 
@@ -6657,7 +6672,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
         XCTAssertEqual(launch.workingDirectory, "/Users/cmux/fallback repo")
         XCTAssertNil(launch.terminalWorkingDirectory)
-        XCTAssertEqual(launch.initialTerminalCommand, "ssh -tt cmux-macmini")
+        XCTAssertEqual(launch.initialTerminalCommand, "/usr/bin/ssh -tt cmux-macmini")
         XCTAssertEqual(
             launch.initialTerminalInput,
             "cd -- '/Users/cmux/fallback repo' 2>/dev/null || [ ! -d '/Users/cmux/fallback repo' ] && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"

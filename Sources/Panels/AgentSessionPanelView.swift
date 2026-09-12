@@ -1,5 +1,7 @@
+import AppKit
 import SwiftUI
 import CmuxSettings
+import CmuxSettingsUI
 
 struct AgentSessionPanelView: View {
     @AppStorage(SessionContentWidthSettings.maxWidthKey)
@@ -12,6 +14,7 @@ struct AgentSessionPanelView: View {
     let portalPriority: Int
     let appearance: PanelAppearance
     let onRequestPanelFocus: () -> Void
+    @Environment(\.chromePalette) private var chromePalette
 
     var body: some View {
         Group {
@@ -19,8 +22,8 @@ struct AgentSessionPanelView: View {
                 AgentSessionWebRenderer(
                     panel: panel,
                     isFocused: isFocused,
-                    backgroundColor: appearance.contentBackgroundColor,
-                    theme: AgentSessionWebTheme.resolve(appearance: appearance),
+                    backgroundColor: chromeBackgroundColor,
+                    theme: AgentSessionWebTheme.resolve(appearance: appearance, chromePalette: chromePalette),
                     sessionContentWidthPresentation: sessionContentWidthPresentation,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
@@ -31,7 +34,14 @@ struct AgentSessionPanelView: View {
                 Color.clear
             }
         }
-        .background(Color(nsColor: appearance.contentBackgroundColor))
+        .background(Color(nsColor: chromeBackgroundColor))
+    }
+
+    private var chromeBackgroundColor: NSColor {
+        guard appearance.contentBackgroundColor.alphaComponent > 0.001 else {
+            return appearance.contentBackgroundColor
+        }
+        return (chromePalette.surface).cmuxNSColor
     }
 
     private var sessionContentWidthPresentation: SessionContentWidthPresentation {

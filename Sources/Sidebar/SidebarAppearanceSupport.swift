@@ -1,9 +1,9 @@
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxSettings
 import Foundation
 import SwiftUI
-import CmuxSettings
 
 enum SidebarMatchTerminalBackgroundSettings {
     static let userDefaultsKey = "sidebarMatchTerminalBackground"
@@ -134,18 +134,60 @@ func cmuxAccentNSColor(for colorScheme: ColorScheme) -> NSColor {
     }
 }
 
+extension ChromeColor {
+    /// AppKit representation of this platform-neutral token color.
+    var cmuxNSColor: NSColor {
+        NSColor(
+            srgbRed: red,
+            green: green,
+            blue: blue,
+            alpha: alpha
+        )
+    }
+
+    /// SwiftUI representation of this platform-neutral token color.
+    var cmuxColor: Color {
+        Color(red: red, green: green, blue: blue, opacity: alpha)
+    }
+}
+
+extension ChromePalette {
+    /// AppKit representation of the palette's primary accent.
+    var cmuxAccentNSColor: NSColor { self[.accent].cmuxNSColor }
+
+    /// SwiftUI representation of the palette's primary accent.
+    var cmuxAccentColor: Color { self[.accent].cmuxColor }
+}
+
 func cmuxAccentNSColor(for appAppearance: NSAppearance?) -> NSColor {
     let bestMatch = appAppearance?.bestMatch(from: [.darkAqua, .aqua])
     let scheme: ColorScheme = (bestMatch == .darkAqua) ? .dark : .light
     return cmuxAccentNSColor(for: scheme)
 }
 
-func cmuxAccentNSColor() -> NSColor {
-    cmuxAccentNSColor(for: SidebarAppearanceColorResolver().currentColorScheme())
+/// Resolves the accent from an explicit palette when one is available.
+///
+/// Callers that participate in the chrome environment should pass their
+/// immutable snapshot here. The no-argument helper below remains only as a
+/// system-appearance fallback for legacy AppKit/WebKit construction paths.
+func cmuxAccentNSColor(
+    palette: ChromePalette?,
+    appAppearance: NSAppearance? = nil
+) -> NSColor {
+    palette?.cmuxAccentNSColor ?? cmuxAccentNSColor(for: appAppearance)
 }
 
-func cmuxAccentColor() -> Color {
-    Color(nsColor: cmuxAccentNSColor())
+func cmuxAccentNSColor() -> NSColor {
+    NSColor(name: nil) { appearance in
+        return cmuxAccentNSColor(for: appearance)
+    }
+}
+
+func cmuxAccentColor(palette: ChromePalette? = nil) -> Color {
+    if let palette {
+        return palette.cmuxAccentColor
+    }
+    return Color(nsColor: cmuxAccentNSColor())
 }
 
 func cmuxReadableColorScheme(for backgroundColor: NSColor) -> ColorScheme {
@@ -275,13 +317,14 @@ enum SidebarRemoteErrorCopySupport {
 
 func sidebarSelectedWorkspaceBackgroundNSColor(
     for colorScheme: ColorScheme,
-    sidebarSelectionColorHex: String? = UserDefaults.standard.string(forKey: "sidebarSelectionColorHex")
+    sidebarSelectionColorHex: String? = UserDefaults.standard.string(forKey: "sidebarSelectionColorHex"),
+    chromePalette: ChromePalette? = nil
 ) -> NSColor {
     if let hex = sidebarSelectionColorHex,
        let parsed = NSColor(hex: hex) {
         return parsed
     }
-    return cmuxAccentNSColor(for: colorScheme)
+    return chromePalette?.surfaceSelected.cmuxNSColor ?? cmuxAccentNSColor(for: colorScheme)
 }
 
 func sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
@@ -332,13 +375,15 @@ func sidebarWorkspaceRowBackgroundStyle(
     isMultiSelected: Bool,
     customColorHex: String?,
     colorScheme: ColorScheme,
-    sidebarSelectionColorHex: String?
+    sidebarSelectionColorHex: String?,
+    chromePalette: ChromePalette
 ) -> SidebarWorkspaceRowBackgroundStyle {
     let selectedBackground = sidebarSelectedWorkspaceBackgroundNSColor(
         for: colorScheme,
-        sidebarSelectionColorHex: sidebarSelectionColorHex
+        sidebarSelectionColorHex: sidebarSelectionColorHex,
+        chromePalette: chromePalette
     )
-    let accentBackground = cmuxAccentNSColor(for: colorScheme)
+    let accentBackground = chromePalette.cmuxAccentNSColor
     let customBackground = customColorHex.flatMap {
         WorkspaceTabColorSettings.displayNSColor(
             hex: $0,

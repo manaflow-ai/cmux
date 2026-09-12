@@ -7,7 +7,7 @@ import SwiftUI
 public struct AutomationSection: View {
     private let catalog: SettingCatalog
     private let hostActions: any SettingsHostActions
-
+    @Environment(\.chromePalette) private var chromePalette
     @State private var socketPasswordModel: SecretValueModel
     @State private var modeModel: DefaultsValueModel<SocketControlMode>
     @State private var claudeCodeModel: DefaultsValueModel<Bool>
@@ -206,7 +206,7 @@ public struct AutomationSection: View {
                 if let status = socketPasswordStatus {
                     Text(status.message)
                         .cmuxFont(.caption)
-                        .foregroundStyle(status.isError ? Color.red : Color.secondary)
+                        .foregroundStyle(status.isError ? chromePalette.agentError.swiftUIColor : chromePalette.textSecondary.swiftUIColor)
                         .padding(.horizontal, 14)
                         .padding(.bottom, 8)
                 }
@@ -216,7 +216,7 @@ public struct AutomationSection: View {
                 SettingsCardDivider()
                 Text(String(localized: "settings.automation.openAccessWarning", defaultValue: "Warning: Full open access makes the control socket world-readable/writable on this Mac and disables auth checks. Use only for local debugging."))
                     .cmuxFont(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(chromePalette.agentError.swiftUIColor)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
             }
@@ -342,7 +342,7 @@ public struct AutomationSection: View {
     private func autoNamingFootnote(_ text: String) -> some View {
         Text(text)
             .cmuxFont(.caption)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(chromePalette.textSecondary.swiftUIColor)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 14)
             .padding(.bottom, 8)

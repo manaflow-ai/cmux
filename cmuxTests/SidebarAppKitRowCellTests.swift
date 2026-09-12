@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import CmuxSidebar
 import SwiftUI
 import Testing
@@ -9,6 +10,31 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct SidebarAppKitRowCellTests {
+    @Test
+    func activeRowBackgroundUsesAndTracksInjectedChromePalette() throws {
+        let model = Self.makeModel(isActive: true)
+        let cell = Self.configuredCell(model: model)
+        let window = Self.layoutCell(cell, model: model)
+
+        for selectionHex in ["#243346", "#FEDCBA"] {
+            let selection = try #require(ChromeColor(hex: selectionHex))
+            let palette = ChromePalette.resolve(
+                theme: .catppuccin,
+                colorScheme: .dark,
+                overrides: ChromeTokenOverrides([.surfaceSelected: selection])
+            )
+            cell.setChromePalette(palette)
+            let paintedBackgrounds = cell.subviews.compactMap { view -> String? in
+                guard let color = view.layer?.backgroundColor else { return nil }
+                return NSColor(cgColor: color)?.hexString()
+            }
+
+            #expect(paintedBackgrounds.contains(selectionHex))
+            #expect(SidebarRowPalette(model: model, chromePalette: palette).selectedBackground.hexString() == selectionHex)
+        }
+        _ = window
+    }
+
     private static func makeSnapshot(
         title: String = "Workspace",
         customDescription: String? = nil,
@@ -237,11 +263,19 @@ struct SidebarAppKitRowCellTests {
                 onOpenWorkspaceDescriptionURL: onOpenWorkspaceDescriptionURL,
                 onOpenStatusURL: onOpenStatusURL
             ),
+            chromePalette: defaultChromePalette(for: model),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
         )
         return cell
+    }
+
+    fileprivate static func defaultChromePalette(for model: SidebarWorkspaceRowModel) -> ChromePalette {
+        ChromePalette.resolve(
+            theme: .default,
+            colorScheme: model.colorSchemeIsDark ? .dark : .light
+        )
     }
 
     fileprivate static func descendants(of view: NSView) -> [NSView] {
@@ -803,6 +837,7 @@ struct SidebarAppKitRowCellTests {
                 model: selectedModel,
                 onOpenWorkspaceDescriptionURL: { openedURL = $0 }
             ),
+            chromePalette: Self.defaultChromePalette(for: selectedModel),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
@@ -861,6 +896,7 @@ struct SidebarAppKitRowCellTests {
                 model: secondModel,
                 onOpenWorkspaceDescriptionURL: { openedURL = $0 }
             ),
+            chromePalette: Self.defaultChromePalette(for: secondModel),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
@@ -1207,6 +1243,7 @@ struct SidebarAppKitRowCellTests {
                 model: replacementModel,
                 onOpenWorkspaceDescriptionURL: { openedURL = $0 }
             ),
+            chromePalette: Self.defaultChromePalette(for: replacementModel),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
@@ -1237,6 +1274,7 @@ struct SidebarAppKitRowCellTests {
                 model: clearedModel,
                 onOpenWorkspaceDescriptionURL: { openedURL = $0 }
             ),
+            chromePalette: Self.defaultChromePalette(for: clearedModel),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
@@ -1298,6 +1336,7 @@ struct SidebarAppKitRowCellTests {
         cell.configure(
             model: shrunkModel,
             actions: Self.makeActions(model: shrunkModel, onOpenStatusURL: { openedURL = $0 }),
+            chromePalette: Self.defaultChromePalette(for: shrunkModel),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
@@ -1873,6 +1912,7 @@ struct SidebarAppKitRowCellTests {
         cell.configure(
             model: replacement,
             actions: Self.makeActions(model: replacement),
+            chromePalette: Self.defaultChromePalette(for: replacement),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}

@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxSettings
 import SwiftUI
 
 /// Small caption-style note rendered inside a ``SettingsCard`` —
@@ -7,6 +8,7 @@ import SwiftUI
 @MainActor
 public struct SettingsCardNote: View {
     let text: String
+    @Environment(\.chromePalette) private var chromePalette
 
     public init(_ text: String) {
         self.text = text
@@ -15,7 +17,7 @@ public struct SettingsCardNote: View {
     public var body: some View {
         Text(text)
             .cmuxFont(.caption)
-            .foregroundColor(.secondary)
+            .foregroundColor(chromePalette.textSecondary.swiftUIColor)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)

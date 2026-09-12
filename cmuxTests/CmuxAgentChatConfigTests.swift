@@ -356,6 +356,17 @@ struct CmuxAgentChatConfigTests {
         #expect(payload.source == "cmux")
     }
 
+    @Test func agentChatThemePayloadSchemeMatchesTerminalColorsWhenChromeDiffers() throws {
+        var config = GhosttyConfig()
+        config.backgroundColor = try #require(NSColor(hex: "#101010"))
+        config.foregroundColor = try #require(NSColor(hex: "#F0F0F0"))
+        let payload = AgentChatThemePayload(config: config)
+
+        #expect(payload.background == "#101010")
+        #expect(payload.foreground == "#F0F0F0")
+        #expect(payload.isLight == false)
+    }
+
     @Test func agentChatThemeEndpointIsRootAnchoredLikeHealthURL() throws {
         let url = try #require(URL(string: "http://127.0.0.1:7739/chat?ignored=1"))
         #expect(AgentChatThemeSync.themeURL(for: url).absoluteString == "http://127.0.0.1:7739/api/theme")

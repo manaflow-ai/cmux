@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxSettings
 import SwiftUI
 import Testing
 
@@ -11,6 +12,7 @@ import Testing
 @Suite
 @MainActor
 struct SidebarMarkdownRendererTests {
+    private static let chromePalette = ChromePalette.builtIn(theme: .default, colorScheme: .light)
     @Test
     func renderWorkspaceDescriptionPreservesLineBreaks() throws {
         let rendered = try #require(
@@ -40,7 +42,8 @@ struct SidebarMarkdownRendererTests {
             markdown: "Read [cmux](\(url.absoluteString))",
             isActive: true,
             activeForegroundColor: .white,
-            fontScale: 1
+            fontScale: 1,
+            chromePalette: Self.chromePalette
         ).renderedContent
         let rendered = try #require(content.renderedMarkdown)
         let linkRun = try #require(rendered.runs.first { $0.link == url })
@@ -56,7 +59,8 @@ struct SidebarMarkdownRendererTests {
             markdown: "Read [cmux](\(url.absoluteString))",
             isActive: false,
             activeForegroundColor: .white,
-            fontScale: 1
+            fontScale: 1,
+            chromePalette: Self.chromePalette
         ).renderedContent
         let rendered = try #require(content.renderedMarkdown)
         let linkRun = try #require(rendered.runs.first { $0.link == url })
@@ -71,7 +75,8 @@ struct SidebarMarkdownRendererTests {
             markdown: "Open [local](file:///tmp/private.txt)",
             isActive: true,
             activeForegroundColor: .white,
-            fontScale: 1
+            fontScale: 1,
+            chromePalette: Self.chromePalette
         ).renderedContent
         let rendered = try #require(content.renderedMarkdown)
 
@@ -88,7 +93,8 @@ struct SidebarMarkdownRendererTests {
                 "[local](file:///tmp/private.txt) [plain](\(plainURL.absoluteString))",
             isActive: true,
             activeForegroundColor: .white,
-            fontScale: 1
+            fontScale: 1,
+            chromePalette: Self.chromePalette
         ).renderedContent
         let rendered = try #require(content.renderedMarkdown)
         let linkRuns = rendered.runs.filter { $0.link != nil }

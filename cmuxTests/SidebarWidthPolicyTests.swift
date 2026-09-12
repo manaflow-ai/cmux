@@ -1,6 +1,7 @@
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxSettings
 import SwiftUI
 import Testing
 import XCTest
@@ -347,7 +348,8 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
                 isMultiSelected: false,
                 customColorHex: "#E85D75",
                 colorScheme: colorScheme,
-                sidebarSelectionColorHex: nil
+                sidebarSelectionColorHex: nil,
+                chromePalette: ChromePalette.resolve(theme: .default, colorScheme: colorScheme == .dark ? .dark : .light)
             )
             let standardSelected = sidebarWorkspaceRowBackgroundStyle(
                 activeTabIndicatorStyle: .solidFill,
@@ -355,7 +357,8 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
                 isMultiSelected: false,
                 customColorHex: nil,
                 colorScheme: colorScheme,
-                sidebarSelectionColorHex: nil
+                sidebarSelectionColorHex: nil,
+                chromePalette: ChromePalette.resolve(theme: .default, colorScheme: colorScheme == .dark ? .dark : .light)
             )
 
             XCTAssertEqual(coloredSelected.opacity, standardSelected.opacity, accuracy: 0.001)
@@ -368,7 +371,8 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
                 isMultiSelected: false,
                 customColorHex: "#E85D75",
                 colorScheme: colorScheme,
-                sidebarSelectionColorHex: nil
+                sidebarSelectionColorHex: nil,
+                chromePalette: ChromePalette.resolve(theme: .default, colorScheme: colorScheme == .dark ? .dark : .light)
             )
             XCTAssertEqual(unselectedColored.opacity, 0.7, accuracy: 0.001)
             XCTAssertFalse(
@@ -386,7 +390,8 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
             isMultiSelected: false,
             customColorHex: "#E85D75",
             colorScheme: .light,
-            sidebarSelectionColorHex: selectionHex
+            sidebarSelectionColorHex: selectionHex,
+            chromePalette: ChromePalette.resolve(theme: .default, colorScheme: .light)
         )
         let standardSelected = sidebarWorkspaceRowBackgroundStyle(
             activeTabIndicatorStyle: .solidFill,
@@ -394,7 +399,8 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
             isMultiSelected: false,
             customColorHex: nil,
             colorScheme: .light,
-            sidebarSelectionColorHex: selectionHex
+            sidebarSelectionColorHex: selectionHex,
+            chromePalette: ChromePalette.resolve(theme: .default, colorScheme: .light)
         )
 
         XCTAssertEqual(coloredSelected.opacity, 1, accuracy: 0.001)
@@ -486,9 +492,9 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
             terminalRenderingMode: .windowHostBackdrop,
             unifySurfaceBackdrops: true,
             sidebarSettings: SidebarBackdropSettingsSnapshot(
-                materialRawValue: SidebarMaterialOption.sidebar.rawValue,
-                blendModeRawValue: SidebarBlendModeOption.withinWindow.rawValue,
-                stateRawValue: SidebarStateOption.followWindow.rawValue,
+                materialRawValue: CmuxSettings.SidebarMaterialOption.sidebar.rawValue,
+                blendModeRawValue: CmuxSettings.SidebarBlendModeOption.withinWindow.rawValue,
+                stateRawValue: CmuxSettings.SidebarStateOption.followWindow.rawValue,
                 tintHex: SidebarTintDefaults().hex,
                 tintHexLight: nil,
                 tintHexDark: nil,
@@ -498,7 +504,7 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
                 colorScheme: .light
             ),
             windowGlassSettings: WindowGlassSettingsSnapshot(
-                sidebarBlendModeRawValue: SidebarBlendModeOption.withinWindow.rawValue,
+                sidebarBlendModeRawValue: CmuxSettings.SidebarBlendModeOption.withinWindow.rawValue,
                 isEnabled: false,
                 tintHex: "#000000",
                 tintOpacity: 0,

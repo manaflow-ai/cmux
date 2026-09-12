@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import CmuxWorkspaces
 import SwiftUI
 
@@ -29,16 +30,27 @@ final class SidebarRowTaskStatusGlyphButton: NSControl {
     private var model: Model?
     private var monochromeColor: NSColor = .secondaryLabelColor
     private var neutralColor: NSColor = .secondaryLabelColor
+    private var chromePalette = ChromePaletteRuntimeResolver(runtime: nil).resolve()
 
     override var isFlipped: Bool { true }
 
-    func configure(model: Model, monochromeColor: NSColor, neutralColor: NSColor) {
+    func configure(
+        model: Model,
+        monochromeColor: NSColor,
+        neutralColor: NSColor,
+        chromePalette: ChromePalette? = nil
+    ) {
+        let chromePalette = chromePalette
+            ?? AppDelegate.shared?.chromePaletteSnapshot()
+            ?? ChromePaletteRuntimeResolver(runtime: AppDelegate.shared?.settingsRuntime).resolve()
         let changed = self.model != model
             || self.monochromeColor != monochromeColor
             || self.neutralColor != neutralColor
+            || self.chromePalette != chromePalette
         self.model = model
         self.monochromeColor = monochromeColor
         self.neutralColor = neutralColor
+        self.chromePalette = chromePalette
         toolTip = SidebarWorkspaceTaskStatusGlyphModel.tooltip(
             status: model.status,
             hasOverride: model.hasOverride
@@ -70,15 +82,15 @@ final class SidebarRowTaskStatusGlyphButton: NSControl {
         case .neutral:
             return neutralColor
         case .working:
-            return cmuxAccentNSColor(for: model.colorScheme)
+            return chromePalette[.agentWorking].cmuxNSColor
         case .attention:
             // Loudest lane: full-strength attention accent between orange and red.
-            return NSColor(srgbRed: 1.0, green: 0.42, blue: 0.2, alpha: 1)
+            return (chromePalette[.agentWarning]).cmuxNSColor
         case .review:
-            return .systemGreen
+            return (chromePalette[.agentSuccess]).cmuxNSColor
         case .done:
             // Muted gray-green so finished rows read as settled, not celebratory.
-            return NSColor(srgbRed: 0.45, green: 0.62, blue: 0.5, alpha: 1)
+            return (chromePalette[.agentIdle]).cmuxNSColor
         }
     }
 
@@ -139,9 +151,10 @@ final class SidebarRowTaskStatusGlyphButton: NSControl {
                 y: circleRect.minY + circleRect.height * 0.34
             ))
             context.addPath(checkmark)
-            context.setStrokeColor(
-                (model.usesMonochrome ? NSColor.black.withAlphaComponent(0.7) : .white).cgColor
-            )
+            let checkmarkColor = model.usesMonochrome
+                ? NSColor.black.withAlphaComponent(0.7)
+                : chromePalette.readableForeground(for: chromePalette.agentIdle).cmuxNSColor
+            context.setStrokeColor(checkmarkColor.cgColor)
             context.setLineWidth(1.2)
             context.setLineCap(.round)
             context.setLineJoin(.round)

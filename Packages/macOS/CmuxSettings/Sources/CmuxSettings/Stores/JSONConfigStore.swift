@@ -120,6 +120,42 @@ public actor JSONConfigStore {
         }
     }
 
+    /// Reads, transforms, and writes one key as one actor-serialized mutation.
+    ///
+    /// Use this when a caller must merge with the latest persisted value. A
+    /// separate `value` followed by `set` can lose another writer's update
+    /// between the two actor hops; this operation keeps the read and write in
+    /// the same isolated turn.
+    ///
+    /// - Parameters:
+    ///   - key: The JSON setting to update.
+    ///   - transform: A pure transformation applied to the latest stored value.
+    /// - Returns: The value written to the store.
+    /// - Throws: A ``JSONConfigStoreReadError`` when the existing value cannot
+    ///   be decoded, or errors from the underlying JSON write.
+    public func update<Value: SettingCodable>(
+        _ key: JSONKey<Value>,
+        transform: @Sendable (Value) -> Value
+    ) throws -> Value {
+        var updatedValue: Value?
+        try mutateRoot(forceReload: true) { root in
+            let raw = key.path.lookup(in: root)
+            let current: Value
+            if key.path.contains(in: root) {
+                guard let decoded = Value.decodeFromJSON(raw) else {
+                    throw JSONConfigStoreReadError.valueNotDecodable(key: key.id)
+                }
+                current = decoded
+            } else {
+                current = key.defaultValue
+            }
+            let updated = transform(current)
+            key.path.assign(updated.encodeForJSON(), in: &root)
+            updatedValue = updated
+        }
+        return updatedValue!
+    }
+
     /// Removes the key's entry from the file. Parent objects that become
     /// empty are pruned. The file itself is not deleted even when no entries
     /// remain.
@@ -334,13 +370,18 @@ public actor JSONConfigStore {
     /// target's data. A single mutation reads and writes through one resolution
     /// snapshot, so a concurrent retarget serializes against the write instead
     /// of splitting the operation across two targets.
-    private func mutateRoot(_ mutate: (inout [String: Any]) -> Void) throws {
+    private func mutateRoot(
+        forceReload: Bool = false,
+        _ mutate: (inout [String: Any]) throws -> Void
+    ) throws {
         // Write through a symlink to its target rather than at the link path:
         // an atomic write is a temp-file + `rename()`, which would replace the
         // link itself with a regular file and break a dotfiles-managed config.
         let writeURL = Self.resolvedWriteURL(for: fileURL)
-        var root = cacheIsCurrent(for: writeURL.path) ? cachedRoot : try readFromDisk(at: writeURL)
-        mutate(&root)
+        var root = !forceReload && cacheIsCurrent(for: writeURL.path)
+            ? cachedRoot
+            : try readFromDisk(at: writeURL)
+        try mutate(&root)
 
         let parent = writeURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)

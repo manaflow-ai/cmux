@@ -60,6 +60,11 @@ public struct SettingsWindowRoot: View {
 
     @State private var cloudDisabledByPolicy = ManagedDevicePolicy().isEnforced(.disableCloud)
     @State private var searchText: String = ""
+
+    /// Read-only accessors used by the sidebar extension without exposing
+    /// SwiftUI's backing state storage to package-internal callers.
+    var settingsSearchText: String { searchText }
+    var settingsSearchTextBinding: Binding<String> { $searchText }
     // Legacy SettingsRootView persists two distinct pieces of state:
     // `selectedSettingsSection` (the top-level section pane shown in
     // the detail) and `selectedSettingsSidebarEntry` (the specific
@@ -71,7 +76,7 @@ public struct SettingsWindowRoot: View {
     // @AppStorage (not @SceneStorage): the window is AppKit-hosted, so
     // there is no SwiftUI scene to store into (cmux issue #7777).
     @AppStorage(SettingsWindowRoot.selectedSectionDefaultsKey) private var selectedSectionRaw: String = SettingsSectionID.account.rawValue
-    @AppStorage("selectedSettingsSidebarEntry") private var selectedSidebarEntryID: String = "section:\(SettingsSectionID.account.rawValue)"
+    @AppStorage("selectedSettingsSidebarEntry") var selectedSidebarEntryID: String = "section:\(SettingsSectionID.account.rawValue)"
     // Mirrors BetaFeaturesCatalogSection.cloudMachines so flipping the Beta
     // Features toggle shows/hides the Cloud sidebar row without reopening
     // Settings; the host folds in the remote rollout flag.
@@ -105,6 +110,7 @@ public struct SettingsWindowRoot: View {
     // seeds the row's `TimelineView` fade. Read by every
     // `SettingsCardRow` through `\.settingsSearchHighlightState`.
     @State private var searchHighlight = SettingsSearchHighlightState(anchorID: nil, token: 0, startedAt: nil)
+    @Environment(\.chromePalette) var chromePalette
 
     var defaultsStore: UserDefaultsSettingsStore { runtime.userDefaultsStore }
     var jsonStore: JSONConfigStore { runtime.jsonStore }
@@ -137,7 +143,7 @@ public struct SettingsWindowRoot: View {
     // identically — particularly that clicking the same row again
     // doesn't transiently nil-out the selection and break SceneStorage
     // round-trips.
-    private var sidebarSelectionBinding: Binding<String> {
+    var sidebarSelectionBinding: Binding<String> {
         Binding<String>(
             get: { self.selectedSidebarEntryID },
             set: { newValue in
@@ -158,6 +164,8 @@ public struct SettingsWindowRoot: View {
         // and publish the active highlight so the matching row pulses.
         .environment(\.settingsSearchIndex, searchIndex)
         .environment(\.settingsSearchHighlightState, searchHighlight)
+        .foregroundStyle(chromePalette.textPrimary.swiftUIColor)
+        .background(chromePalette.surface.swiftUIColor)
         // Legacy SettingsRootView pins the window minimum to
         // SettingsWindowPresenter.minimumSize (820 x 540); mirror that
         // so the package window can shrink to the same lower bound.
@@ -222,6 +230,19 @@ public struct SettingsWindowRoot: View {
         navigate(to: target, preferSectionSelection: !shouldPreserveSearchSelection)
     }
 
+    /// The Cloud section stays out of the sidebar (and search) until the
+    /// remote rollout flag or the Beta Features opt-in makes its surfaces
+    /// real; its pane already renders nothing while unavailable.
+    func isEntryVisible(_ entry: SettingsSearchIndex.Entry) -> Bool {
+        guard !isCloudSectionAvailable else { return true }
+        switch entry.kind {
+        case .section:
+            return entry.id != "section:\(SettingsSectionID.cloudMachines.rawValue)"
+        case .setting(let parent):
+            return parent != .cloudMachines
+        }
+    }
+
     /// Moves a selection that rests on the Cloud section (hidden under
     /// `DisableCloud`) to Account, both at first render and on a transition.
     private func leaveCloudSectionIfDisabledByPolicy() {
@@ -236,40 +257,6 @@ public struct SettingsWindowRoot: View {
         }
     }
 
-    private func isEntryVisible(_ entry: SettingsSearchIndex.Entry) -> Bool {
-        guard !isCloudSectionAvailable else { return true }
-        switch entry.kind {
-        case .section:
-            return entry.id != "section:\(SettingsSectionID.cloudMachines.rawValue)"
-        case .setting(let parent):
-            return parent != .cloudMachines
-        }
-    }
-
-    @ViewBuilder
-    private var sidebar: some View {
-        List(selection: sidebarSelectionBinding) {
-            let matches = sidebarEntries(matching: searchText).filter { isEntryVisible($0) }
-            if matches.isEmpty {
-                Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(matches) { entry in
-                    SettingsSidebarEntryRow(
-                        title: entry.title,
-                        symbolName: entry.symbolName,
-                        subtitle: subtitle(for: entry)
-                    )
-                    .tag(entry.id)
-                }
-            }
-        }
-        .listStyle(.sidebar)
-        .navigationTitle(String(localized: "settings.title", defaultValue: "Settings"))
-        .searchable(text: $searchText, placement: .sidebar, prompt: Text(String(localized: "settings.search.prompt", defaultValue: "Search")))
-        .navigationSplitViewColumnWidth(210)
-    }
-
     func sidebarEntries(matching query: String) -> [SettingsSearchIndex.Entry] { searchIndex.match(query) }
 
     /// Legacy `SettingsSearchEntry` populates `subtitle` with the
@@ -277,7 +264,7 @@ public struct SettingsWindowRoot: View {
     /// section-type hits, so `SettingsSidebarEntryRow` renders the
     /// section name underneath each search hit but keeps section
     /// rows single-line. Mirror that here.
-    private func subtitle(for entry: SettingsSearchIndex.Entry) -> String? {
+    func subtitle(for entry: SettingsSearchIndex.Entry) -> String? {
         switch entry.kind {
         case .section:
             return nil
@@ -445,6 +432,7 @@ public struct SettingsWindowRoot: View {
                 .onReceive(NotificationCenter.default.publisher(for: Self.navigationRequestName)) { notification in
                     applyScrollNavigation(notification, proxy: proxy)
                 }
+                .background(chromePalette.surface.swiftUIColor)
             }
         }
     }
@@ -519,4 +507,5 @@ public struct SettingsWindowRoot: View {
             proxy.scrollTo(anchorID, anchor: anchor)
         }
     }
+
 }

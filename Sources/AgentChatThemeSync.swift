@@ -1,6 +1,7 @@
 import AppKit
 import CMUXMobileCore
 import CmuxFoundation
+import CmuxSettings
 import Foundation
 import os
 

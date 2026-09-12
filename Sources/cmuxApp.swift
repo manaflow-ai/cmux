@@ -58,6 +58,8 @@ struct cmuxApp: App {
     /// hosted-browser sign-in flow). Constructed once at app launch and
     /// injected into AppDelegate and the auth-consuming services.
     private let authComposition: MacAuthComposition
+    /// Owns palette resolution and update streams at the app composition root.
+    private let chromePaletteRuntimeCoordinator: ChromePaletteRuntimeCoordinator
     /// Composition-root owner for the config-backed automation bridge.
     private let automationEngine: AutomationEngine
     @StateObject private var tabManager: TabManager
@@ -234,9 +236,7 @@ struct cmuxApp: App {
         Self.applyAppearance(startupAppearance, duringLaunch: true)
         StartupBreadcrumbLog.append("app.init.appearance.applied", fields: ["mode": startupAppearance.rawValue])
         let defaults = UserDefaults.standard
-        let workspaceCustomizationStore = WorkspaceCustomizationStore(
-            defaults: defaults
-        )
+        let workspaceCustomizationStore = WorkspaceCustomizationStore(defaults: defaults)
         AppBundleIconPersistencePolicy.updateDisableDefault(
             defaults: defaults,
             launchArguments: ProcessInfo.processInfo.arguments
@@ -246,8 +246,11 @@ struct cmuxApp: App {
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
         let tabManager = TabManager(
             workspaceCustomizationStore: workspaceCustomizationStore,
-            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
+            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
+            chromePalette: ChromePaletteRuntimeResolver(runtime: settingsRuntime).resolve()
         )
+        let chromePaletteRuntimeCoordinator = ChromePaletteRuntimeCoordinator(runtime: settingsRuntime)
+        self.chromePaletteRuntimeCoordinator = chromePaletteRuntimeCoordinator
         let historyMenuCoordinator = HistoryMenuCoordinator(
             closedItemHistoryStore: closedItemHistoryStore,
             managerProvider: {
@@ -328,6 +331,12 @@ struct cmuxApp: App {
             automationEngine: automationEngine,
             computerUseRuntimeService: computerUseRuntimeService
         )
+        let configuredAppDelegate = appDelegate
+        chromePaletteRuntimeCoordinator.setPaletteChangeHandler { [weak configuredAppDelegate] palette in
+            configuredAppDelegate?.applyChromePaletteToOpenWindows(palette)
+        }
+        appDelegate.configureChromePaletteRuntime(chromePaletteRuntimeCoordinator)
+        chromePaletteRuntimeCoordinator.start()
         historyMenuCoordinator.refreshIfNeeded()
         StartupBreadcrumbLog.append("app.init.delegate.configured")
     }
@@ -1016,10 +1025,15 @@ struct cmuxApp: App {
         // SettingsWindowFactory), not a SwiftUI Window scene: openWindow(id:)
         // could silently no-op and leave menu/⌘,/CLI opens dead until app
         // restart (https://github.com/manaflow-ai/cmux/issues/7777).
-
         Window(String(localized: "settings.config.windowTitle", defaultValue: "Config"), id: ConfigSettingsView.windowID) {
             ConfigSettingsView()
-                .settingsRuntime(settingsRuntime)
+                .chromePaletteHost(
+                    initialPalette: appDelegate.chromePaletteSnapshot(),
+                    settingsRuntime: settingsRuntime,
+                    updates: ChromePaletteUpdateSource(streamFactory: {
+                        chromePaletteRuntimeCoordinator.makeUpdateStream()
+                    })
+                )
                 .cmuxFontMagnificationEnvironment()
                 .cmuxAppearanceColorScheme(appearanceMode)
         }
@@ -2594,7 +2608,15 @@ private final class SidebarDebugWindowController: ReleasingWindowController {
         window.isMovableByWindowBackground = true
         window.identifier = NSUserInterfaceItemIdentifier("cmux.sidebarDebug")
         window.center()
-        window.contentView = NSHostingView(rootView: SidebarDebugView())
+        let runtime = AppDelegate.shared?.settingsRuntime
+        window.contentView = NSHostingView(
+            rootView: SidebarDebugView().chromePaletteHost(
+                initialPalette: AppDelegate.shared?.chromePaletteSnapshot()
+                    ?? ChromePaletteRuntimeResolver(runtime: runtime).resolve(),
+                settingsRuntime: runtime,
+                updates: AppDelegate.shared?.makeChromePaletteUpdateSource()
+            )
+        )
         AppDelegate.shared?.applyWindowDecorations(to: window)
         return window
     }
@@ -3467,6 +3489,7 @@ private struct AboutPanelView: View {
 }
 
 private struct SidebarDebugView: View {
+    @Environment(\.chromePalette) private var chromePalette
     @AppStorage("sidebarMatchTerminalBackground") private var matchTerminalBackground = false
     @AppStorage("sidebarPreset") private var sidebarPreset = SidebarPresetOption.nativeSidebar.rawValue
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults().opacity
@@ -3508,7 +3531,7 @@ private struct SidebarDebugView: View {
                 if let hex = sidebarSelectionColorHex, let nsColor = NSColor(hex: hex) {
                     return Color(nsColor: nsColor)
                 }
-                return cmuxAccentColor()
+                return chromePalette.accent.swiftUIColor
             },
             set: { newColor in
                 let nsColor = NSColor(newColor)

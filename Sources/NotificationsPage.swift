@@ -1,4 +1,6 @@
 import CmuxFoundation
+import CmuxSettings
+import CmuxSettingsUI
 import Bonsplit
 import SwiftUI
 
@@ -8,9 +10,9 @@ struct NotificationsPage: View {
 
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @EnvironmentObject var tabManager: TabManager
+    @Environment(\.chromePalette) private var chromePalette
     @FocusState private var focusedNotificationId: UUID?
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
-    @State private var ghosttyBackgroundColor = Color(nsColor: GhosttyBackgroundTheme.currentColor())
     @State private var phonePushConfigurationState =
         PhonePushClient.shared.configurationState
 
@@ -21,9 +23,9 @@ struct NotificationsPage: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
+            Divider().overlay((chromePalette[.borderSubtle]).cmuxColor)
             phoneForwardingRow
-            Divider()
+            Divider().overlay((chromePalette[.borderSubtle]).cmuxColor)
 
             if !notificationStore.notificationMenuSnapshot.hasNotifications {
                 emptyState
@@ -34,17 +36,9 @@ struct NotificationsPage: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(ghosttyBackgroundColor)
-        .onAppear {
-            refreshGhosttyBackground()
-            setInitialFocus()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            refreshGhosttyBackground()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
-            refreshGhosttyBackground()
-        }
+        .foregroundStyle((chromePalette[.textPrimary]).cmuxColor)
+        .background((chromePalette[.surface]).cmuxColor)
+        .onAppear(perform: setInitialFocus)
         .onChange(of: notificationStore.notifications.first?.id) {
             setInitialFocus()
         }
@@ -54,10 +48,6 @@ struct NotificationsPage: View {
         .onChange(of: isVisibleInUI) {
             setInitialFocus()
         }
-    }
-
-    private func refreshGhosttyBackground() {
-        ghosttyBackgroundColor = Color(nsColor: GhosttyBackgroundTheme.currentColor())
     }
 
     private var notificationsList: some View {
@@ -83,7 +73,8 @@ struct NotificationsPage: View {
                         onClear: {
                             notificationStore.remove(id: notification.id)
                         },
-                        focusedNotificationId: $focusedNotificationId
+                        focusedNotificationId: $focusedNotificationId,
+                        chromePalette: chromePalette
                     )
                     // Each NotificationRow renders heavily-modified nested stacks.
                     // Equatable + .equatable() lets a NotificationStore publish that
@@ -136,7 +127,7 @@ struct NotificationsPage: View {
                     Text(String(localized: "notifications.forwardToPhone.title", defaultValue: "Forward notifications to my iPhone"))
                     Text(String(localized: "notifications.forwardToPhone.subtitle", defaultValue: "Send local agent notifications to cmux on your iPhone. Enabled by default; turn this off to stop this Mac from forwarding them."))
                         .cmuxFont(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
                 }
             }
             .accessibilityIdentifier("notificationsPage.forwardToPhone")
@@ -157,7 +148,7 @@ struct NotificationsPage: View {
                     if phonePushConfiguration.mode == .onlyWhenAway {
                         Text(awayModeExplanation)
                             .cmuxFont(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
                     }
                 }
                 .padding(.leading, 20)
@@ -218,19 +209,21 @@ struct NotificationsPage: View {
 
     private var emptyState: some View {
         VStack(spacing: 8) {
-            CmuxSystemSymbolImage(magnified: "bell.slash", pointSize: 32, tint: .secondary)
+            CmuxSystemSymbolImage(magnified: "bell.slash", pointSize: 32, tint: chromePalette.textSecondary.swiftUIColor)
+                .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
             Text(String(localized: "notifications.empty.title", defaultValue: "No notifications yet"))
                 .cmuxFont(.headline)
             Text(String(localized: "notifications.empty.description", defaultValue: "Desktop notifications will appear here for quick review."))
                 .cmuxFont(.subheadline)
-                .foregroundColor(.secondary)
+                .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var workspaceUnreadIndicatorState: some View {
         VStack(spacing: 8) {
-            CmuxSystemSymbolImage(magnified: "bell.badge", pointSize: 32, tint: .secondary)
+            CmuxSystemSymbolImage(magnified: "bell.badge", pointSize: 32, tint: chromePalette.textSecondary.swiftUIColor)
+                .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
             Text(notificationStore.notificationMenuSnapshot.stateHintTitle)
                 .cmuxFont(.headline)
         }
@@ -284,6 +277,7 @@ struct NotificationsPage: View {
 struct ShortcutAnnotation: View {
     let text: String
     var accessibilityIdentifier: String? = nil
+    @Environment(\.chromePalette) private var chromePalette
 
     @ViewBuilder
     var body: some View {
@@ -297,12 +291,12 @@ struct ShortcutAnnotation: View {
     private var badge: some View {
         Text(text)
             .cmuxFont(size: 10, weight: .semibold, design: .rounded)
-            .foregroundStyle(.primary)
+            .foregroundStyle((chromePalette[.textPrimary]).cmuxColor)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(
                 RoundedRectangle(cornerRadius: 5)
-                    .fill(Color(nsColor: .controlBackgroundColor))
+                    .fill((chromePalette[.surfaceRaised]).cmuxColor)
             )
     }
 }
@@ -318,7 +312,8 @@ struct NotificationRow: View, Equatable {
     nonisolated static func == (lhs: NotificationRow, rhs: NotificationRow) -> Bool {
         lhs.notification == rhs.notification &&
             lhs.tabTitle == rhs.tabTitle &&
-            lhs.isFocused == rhs.isFocused
+            lhs.isFocused == rhs.isFocused &&
+            lhs.chromePalette == rhs.chromePalette
     }
 
     let notification: TerminalNotification
@@ -327,17 +322,18 @@ struct NotificationRow: View, Equatable {
     let onOpen: () -> Void
     let onClear: () -> Void
     let focusedNotificationId: FocusState<UUID?>.Binding
+    let chromePalette: ChromePalette
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Button(action: onOpen) {
                 HStack(alignment: .top, spacing: 12) {
                     Circle()
-                        .fill(notification.isRead ? Color.clear : cmuxAccentColor())
+                        .fill(notification.isRead ? Color.clear : chromePalette.cmuxAccentColor)
                         .frame(width: 8, height: 8)
                         .overlay(
                             Circle()
-                                .stroke(cmuxAccentColor().opacity(notification.isRead ? 0.2 : 1), lineWidth: 1)
+                                .stroke(chromePalette.cmuxAccentColor.opacity(notification.isRead ? 0.2 : 1), lineWidth: 1)
                         )
                         .padding(.top, 6)
 
@@ -345,24 +341,24 @@ struct NotificationRow: View, Equatable {
                         HStack {
                             Text(notification.title)
                                 .cmuxFont(.headline)
-                                .foregroundColor(.primary)
+                                .foregroundColor((chromePalette[.textPrimary]).cmuxColor)
                             Spacer()
                             Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
                                 .cmuxFont(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
                         }
 
                         if !notification.body.isEmpty {
                             Text(notification.body)
                                 .cmuxFont(.subheadline)
-                                .foregroundColor(.secondary)
+                                .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
                                 .lineLimit(3)
                         }
 
                         if let tabTitle {
                             Text(tabTitle)
                                 .cmuxFont(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
                         }
                     }
 
@@ -379,7 +375,8 @@ struct NotificationRow: View, Equatable {
             .modifier(DefaultActionModifier(isActive: isFocused))
 
             Button(action: onClear) {
-                CmuxSystemSymbolImage(systemName: "xmark.circle.fill", pointSize: 14, tint: .secondary)
+                CmuxSystemSymbolImage(systemName: "xmark.circle.fill", pointSize: 14, tint: chromePalette.textSecondary.swiftUIColor)
+                    .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
             }
             .buttonStyle(.plain)
             // CmuxSystemSymbolImage renders an AppKit NSImage with no accessibility
@@ -390,7 +387,7 @@ struct NotificationRow: View, Equatable {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 10)
-                .fill(Color(nsColor: .controlBackgroundColor))
+                .fill((chromePalette[.surfaceRaised]).cmuxColor)
         )
         .contextMenu {
             Button(String(localized: "notifications.open", defaultValue: "Open")) {
