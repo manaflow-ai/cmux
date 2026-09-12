@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import CMUXMobileCore
 import CmuxMobileDiagnostics
+import CmuxMobileTerminalKit
 import Foundation
 import GhosttyKit
 import OSLog
@@ -462,9 +463,16 @@ private extension GhosttyRuntime {
         // Screen-anchored sessions scroll a deep LOCAL scrollback: replays
         // hydrate up to the user-configurable 20k-row window and live deltas
         // keep appending, so the byte limit must hold that even at wide iPad
-        // grids (bytes, not rows).
+        // grids (bytes, not rows). Every mounted surface allocates up to this
+        // limit independently, so the budget scales down with device RAM
+        // (16MB ceiling, 8MB floor — see `TerminalScrollbackByteBudget`) to
+        // keep many-surface sessions inside the jetsam envelope on low-RAM
+        // devices.
+        let scrollbackLimitBytes = TerminalScrollbackByteBudget.scrollbackLimitBytes(
+            physicalMemoryBytes: ProcessInfo.processInfo.physicalMemory
+        )
         let defaults = """
-        scrollback-limit = 16000000
+        scrollback-limit = \(scrollbackLimitBytes)
         scroll-to-bottom = keystroke, no-output
         font-family = Menlo
         font-size = 10

@@ -10,6 +10,9 @@ public import CmuxMobileTransport
 public import Foundation
 import Observation
 internal import OSLog
+#if canImport(UIKit)
+internal import UIKit
+#endif
 
 private let mobileShellLog = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
@@ -479,6 +482,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// stateless infrastructure, not observed state.
     @ObservationIgnored
     private let routePinger: any CmxRoutePinging
+
+    #if canImport(UIKit)
+    /// System memory-warning observation (iOS only): drops backlogged terminal
+    /// output queues through ``reclaimTerminalOutputBacklogsForMemoryPressure()``
+    /// so the process gives reclaimable buffers back before jetsam kills it.
+    /// Registered at init, removed in `deinit`. `@ObservationIgnored`: an
+    /// observer token, not observed state.
+    @ObservationIgnored
+    private var memoryWarningObserver: (any NSObjectProtocol)?
+    #endif
 
     /// Probe whether the phone can reach this route right now (a direct TCP
     /// connect, independent of the live subscription). See ``CmxRoutePinging``.
@@ -2018,9 +2031,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         selectedTerminalID = nil
         selectedMacSurfaceID = nil
         syncSelectedTerminalForWorkspace()
+        #if canImport(UIKit)
+        // `queue: .main` keeps the callback on the main actor this store is
+        // isolated to; `assumeIsolated` makes that explicit to the compiler.
+        memoryWarningObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.reclaimTerminalOutputBacklogsForMemoryPressure()
+            }
+        }
+        #endif
     }
 
     isolated deinit {
+        #if canImport(UIKit)
+        if let memoryWarningObserver {
+            NotificationCenter.default.removeObserver(memoryWarningObserver)
+        }
+        #endif
         connectionRecoveryOwner.cancel()
         connectionRecoveryAttemptDeadlineTask?.cancel()
         automaticReconnectRetryTask?.cancel()
