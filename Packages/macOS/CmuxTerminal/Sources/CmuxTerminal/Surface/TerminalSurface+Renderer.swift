@@ -119,6 +119,10 @@ extension TerminalSurface {
                 ensureRendererPresented()
             }
         } else {
+            rendererPresentationState.recoveryAttempted = false
+            if renderHealth != .shellExited {
+                renderHealth = .notStarted
+            }
             setOcclusion(false)
         }
     }
@@ -311,7 +315,10 @@ extension TerminalSurface {
         let shellExited = renderHealth == .shellExited
 
         if rendererPresentationPhase == .presented {
-            guard !shellExited,
+            // Occlusion is a visibility fact even when the previous recovery
+            // attempt was exhausted. Restore it before any health guard.
+            setOcclusion(true)
+            guard renderHealth != .shellExited,
                   !(renderHealth == .notRendering && rendererPresentationState.recoveryAttempted) else {
                 return
             }
@@ -400,6 +407,7 @@ extension TerminalSurface {
     func rendererFrameDidPresent(token: UInt64) {
         guard rendererPresentationState.inFlightToken == token,
               rendererPortalVisible,
+              rendererWindowVisible,
               rendererPresentationPhase != .released else { return }
         rendererPresentationState.inFlightToken = nil
         rendererPresentationState.recoveryAttempted = false
@@ -424,6 +432,13 @@ extension TerminalSurface {
         status: ghostty_render_presentation_status_e
     ) {
         guard rendererPresentationState.inFlightToken == token else { return }
+        guard rendererWindowVisible else {
+            rendererPresentationState.inFlightToken = nil
+            if renderHealth != .shellExited {
+                renderHealth = .notStarted
+            }
+            return
+        }
         rendererPresentationState.inFlightToken = nil
         guard rendererPortalVisible else {
             if renderHealth != .shellExited {
