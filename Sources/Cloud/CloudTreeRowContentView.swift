@@ -69,6 +69,8 @@ struct CloudTreeRowContentView: View {
             CloudTreeMachineRowContent(machine: machine, style: style)
         case .localMachine(let row):
             CloudTreeLocalMachineRowContent(row: row, style: style)
+        case .pendingMachine(let operation):
+            CloudTreeLeafRow(style: style, icon: "hourglass", tint: .secondary, title: operation.request.displayName, detail: "Creating…")
         case .terminalsPool(_, let count):
             groupRow(title: String(localized: "cloudTree.group.terminals", defaultValue: "Terminals"), count: count)
         case .displaysPool(_, let count):
@@ -147,6 +149,8 @@ struct CloudTreeRowContentView: View {
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
             }
+        case .pendingMachine:
+            EmptyView()
             .padding(.trailing, CloudTreeRowGrid.trailingPadding)
         }
     }
@@ -701,7 +705,7 @@ struct CloudTreeRowHoverButtons: View {
             plus(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) {
                 nodeActions.newWorkspace(machine)
             }
-        case .workspace(let machine, let workspace, _):
+        case .workspace(let machine, let workspace, _, _, _):
             HStack(spacing: 4) {
                 plus(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) {
                     nodeActions.newTerminal(machine, workspace.id)
@@ -726,7 +730,7 @@ struct CloudTreeRowHoverButtons: View {
     /// True when this row kind renders any hover button at all.
     static func hasButtons(for kind: CloudTreeNode.Kind) -> Bool {
         switch kind {
-        case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace:
+        case .machine, .localMachine, .pendingMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace:
             return true
         case .terminal(let row):
             return !row.resource.machine.isLocal
