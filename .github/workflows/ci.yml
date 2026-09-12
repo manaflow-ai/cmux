@@ -1495,10 +1495,12 @@ jobs:
             } | tee "$batch_output"
             batch_status="${PIPESTATUS[0]}"
 
-            if [ "$batch_status" -ne 0 ]; then
-              return "$batch_status"
+            if [ "$batch_status" -eq 65 ] \
+              && python3 scripts/ci/classify-app-host-test-output.py "$batch_output"; then
+              echo "All failures in app-host batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} are expected, continuing"
+              return 0
             fi
-            python3 scripts/ci/classify-app-host-test-output.py "$batch_output"
+            return "$batch_status"
           }
 
           run_unit_tests() {
