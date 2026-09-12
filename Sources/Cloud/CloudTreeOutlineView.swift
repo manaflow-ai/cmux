@@ -659,27 +659,21 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                   let context = organizationStore.siblings(of: id, in: nodes),
                   let sourceIndex = context.nodes.firstIndex(where: { $0.id == id }),
                   context.nodes[sourceIndex].canOrganize else { return nil }
-            // NSOutlineView proposes the previous sibling as `item` for an
-            // expanded outline. The source sibling collection is authoritative;
-            // using that parent keeps drops valid across both leaf gaps and
-            // expanded rows without reparenting the placement.
             let proposedNode = item as? CloudTreeNode
-            let proposedParent = proposedNode.flatMap { organizationStore.siblings(of: $0.id, in: nodes)?.parentID }
-            // AppKit uses an expanded container as the proposed item when the
-            // pointer is inside it, and a previous sibling for a gap. Preserve
-            // the source parent for sibling gaps; use the container only when
-            // its child index is the actual target collection.
-            let parent: String
-            if let proposedNode, proposedNode.isExpandable, index >= 0,
-               proposedNode.id != id,
-               index <= proposedNode.children.count {
-                parent = proposedNode.id
+            let proposedIndex = proposedNode.flatMap { context.nodes.firstIndex(where: { $0.id == $0.id }) }
+            let targetIndex: Int
+            if let proposedNode,
+               let siblingIndex = context.nodes.firstIndex(where: { $0.id == proposedNode.id }),
+               proposedNode.id != id {
+                // For expanded rows AppKit reports the previous sibling as the
+                // item and a child index. Convert that pointer to a gap in the
+                // source sibling collection; never reinterpret it as reparenting.
+                targetIndex = siblingIndex + (index > 0 ? 1 : 0)
             } else {
-                parent = proposedParent == context.parentID ? context.parentID : context.parentID
+                targetIndex = index > sourceIndex ? index - 1 : index
             }
-            let targetCount = parent == context.parentID ? context.nodes.count : (proposedNode?.children.count ?? 0)
-            guard index <= targetCount else { return nil }
-            return (id, parent, index > sourceIndex && parent == context.parentID ? index - 1 : index)
+            guard targetIndex <= context.nodes.count else { return nil }
+            return (id, context.parentID, targetIndex)
         }
 
         private func menuItems(for node: CloudTreeNode) -> [NSMenuItem] {
