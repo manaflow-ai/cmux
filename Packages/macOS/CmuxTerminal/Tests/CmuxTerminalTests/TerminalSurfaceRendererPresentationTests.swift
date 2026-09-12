@@ -90,16 +90,14 @@ private func rendererReleaseWasOccluded() -> Bool
         surface.setRendererPortalVisible(true, presentationReady: false)
 
         #expect(surface.isRendererPortalVisible)
-        #expect(surface.renderHealth == .awaitingFrame)
         #expect(!surface.isRendererPresented)
-        acknowledgePresentation(on: surface)
-        #expect(surface.renderHealth == .rendering)
-        #expect(surface.isRendererPresented)
         #expect(rendererRealizedCalls() == [false])
 
         surface.ensureRendererPresented(presentationReady: true)
+        #expect(surface.renderHealth == .awaitingFrame)
         acknowledgePresentation(on: surface)
 
+        #expect(surface.renderHealth == .rendering)
         #expect(surface.isRendererPresented)
         #expect(rendererRealizedCalls() == [false])
         #expect(rendererRebuildCallCount() == 1)
