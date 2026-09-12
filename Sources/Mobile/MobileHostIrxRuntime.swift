@@ -15,6 +15,24 @@ import OSLog
 final class MobileHostIrxRuntime {
     static let shared = MobileHostIrxRuntime()
 
+    static let maximumActivationRetryDelay: TimeInterval = 120
+
+    static func activationRetryDelay(
+        after error: any Error,
+        failureCount: Int,
+        jitterUnitInterval: Double
+    ) -> TimeInterval {
+        CmxIrohRetrySchedule(
+            initialDelay: 5,
+            maximumDelay: maximumActivationRetryDelay,
+            jitterFraction: 0.25
+        ).delay(
+            failureCount: failureCount,
+            retryAfterSeconds: (error as? any CmxRetryAfterProviding)?.retryAfterSeconds,
+            jitterUnitInterval: jitterUnitInterval
+        )
+    }
+
     private let managedDevicePolicy: ManagedDevicePolicy
 
     init(managedDevicePolicy: ManagedDevicePolicy = ManagedDevicePolicy()) {
