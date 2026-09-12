@@ -46,6 +46,88 @@ final class TerminalNotificationPolicyEngineTests: XCTestCase {
         )
     }
 
+    func testHookCancellationKillsADescendantThatOutlivesTheLeader() async throws {
+        // The hook's own shell dies on SIGTERM while the descendant it left behind
+        // ignores it. Reaping the shell at that point would end the run and cancel the
+        // escalation, leaving the descendant running.
+        //
+        // Cancelling the evaluation is what starts the teardown here, rather than the
+        // hook's timeout. The descendant has to exist before there is anything to
+        // prove, and a one second budget can expire on a loaded machine before the
+        // shell is ever scheduled; the test would then fail having tested nothing.
+        // Both paths run the same termination code, so the regression is still
+        // covered. The timeout is only a backstop.
+        let pidPath = NSTemporaryDirectory() + "cmux-hook-teardown-\(UUID().uuidString).pid"
+        defer { try? FileManager.default.removeItem(atPath: pidPath) }
+
+        let request = TerminalNotificationPolicyRequest(
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "Title",
+            subtitle: "Subtitle",
+            body: "Body",
+            cwd: FileManager.default.temporaryDirectory.path,
+            isAppFocused: false,
+            isFocusedPanel: false
+        )
+        let hook = CmuxResolvedNotificationHook(
+            id: "teardown",
+            command: "/bin/sh -c 'trap \"\" TERM; echo $$ > \(pidPath); exec /bin/sleep 30' & wait",
+            timeoutSeconds: 60,
+            sourcePath: nil,
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+
+        let evaluation = Task {
+            await TerminalNotificationPolicyEngine.evaluate(request: request, hooks: [hook])
+        }
+        let recorded = await Self.waitForRecordedPID(atPath: pidPath, within: 20)
+        evaluation.cancel()
+
+        let result = await evaluation.value
+        guard case .failure = result else {
+            XCTFail("a cancelled hook must fail closed")
+            return
+        }
+
+        guard let descendant = recorded else {
+            XCTFail("the descendant never recorded its pid, so this proved nothing")
+            return
+        }
+        let died = Self.waitForExit(descendant, within: 5)
+        if !died { kill(descendant, SIGKILL) }
+        XCTAssertTrue(died, "a descendant that ignores SIGTERM must not survive teardown")
+    }
+
+    private static func recordedPID(atPath path: String) -> pid_t? {
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+        return pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// The pid the spawned descendant wrote to `path`, waiting up to `seconds` for it
+    /// to appear. A partially written file reads back as nil, so keep polling. Sleeps
+    /// rather than spinning: the evaluation it is waiting on runs on the same pool.
+    private static func waitForRecordedPID(atPath path: String, within seconds: TimeInterval) async -> pid_t? {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if let pid = recordedPID(atPath: path) { return pid }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return recordedPID(atPath: path)
+    }
+
+    /// Whether `pid` is gone within `seconds`. Polled rather than waited on: it is not
+    /// our child, so there is no exit to wait for — the reparented process is reaped by
+    /// launchd and `kill(pid, 0)` starts failing.
+    private static func waitForExit(_ pid: pid_t, within seconds: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if kill(pid, 0) != 0 { return true }
+            usleep(20_000)
+        }
+        return kill(pid, 0) != 0
+    }
+
     func testHookCanDisableDesktopAndTransformBody() async throws {
         let request = TerminalNotificationPolicyRequest(
             tabId: UUID(),
