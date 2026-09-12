@@ -56,7 +56,7 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
                 nightly: nightly,
                 buildKinds: [
                     MobileBuildType.dev.token: Requirement(stableMinVersion: devMin),
-                    MobileBuildType.beta.token: Requirement(stableMinVersion: legacyStableMin),
+                    MobileBuildType.beta.token: Requirement(stableMinVersion: legacyStableMin, nightly: nightly),
                     MobileBuildType.internal.token: Requirement(stableMinVersion: legacyStableMin, nightly: nightly),
                     MobileBuildType.demo.token: Requirement(stableMinVersion: legacyStableMin),
                     MobileBuildType.prod.token: Requirement(stableMinVersion: stableMin, nightly: nightly),
@@ -69,7 +69,7 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
                 nightly: nightly,
                 buildKinds: [
                     MobileBuildType.dev.token: Requirement(stableMinVersion: devMin),
-                    MobileBuildType.beta.token: Requirement(stableMinVersion: irohStableMin),
+                    MobileBuildType.beta.token: Requirement(stableMinVersion: irohStableMin, nightly: nightly),
                     MobileBuildType.internal.token: Requirement(stableMinVersion: stableMin, nightly: nightly),
                     MobileBuildType.demo.token: Requirement(stableMinVersion: irohStableMin),
                     MobileBuildType.prod.token: Requirement(stableMinVersion: stableMin, nightly: nightly),
