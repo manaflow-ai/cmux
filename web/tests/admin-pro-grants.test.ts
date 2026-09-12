@@ -133,6 +133,8 @@ function fakeApp(
 const noStripe: StripeBillingStatus = {
   customerId: null,
   subscriptionStatus: null,
+  subscriptionId: null,
+  activePlanId: null,
   cancelAtPeriodEnd: false,
   hasCustomer: false,
   hasActiveSubscription: false,
@@ -140,6 +142,8 @@ const noStripe: StripeBillingStatus = {
 const activeStripe: StripeBillingStatus = {
   customerId: "cus_1",
   subscriptionStatus: "active",
+  subscriptionId: "sub_1",
+  activePlanId: "pro",
   cancelAtPeriodEnd: false,
   hasCustomer: true,
   hasActiveSubscription: true,
