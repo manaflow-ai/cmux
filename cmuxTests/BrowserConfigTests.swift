@@ -6023,3 +6023,122 @@ final class BrowserOmnibarFocusPolicyTests: XCTestCase {
         )
     }
 }
+
+
+@MainActor
+final class BrowserLocalFileTextEncodingTests: XCTestCase {
+    private func makeTemporaryDirectory() throws -> URL {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("BrowserLocalFileTextEncodingTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        return directory
+    }
+
+    private func waitForBrowserPanel(
+        _ panel: BrowserPanel,
+        url: URL,
+        timeout: TimeInterval = 10.0,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+            if panel.webView.url?.absoluteString == url.absoluteString,
+               !panel.webView.isLoading,
+               panel.webView.backForwardList.currentItem?.url.absoluteString == url.absoluteString,
+               !panel.isLoading {
+                return
+            }
+        }
+
+        XCTFail(
+            "Timed out waiting for browser panel to load \(url.absoluteString). "
+                + "Live=\(panel.webView.url?.absoluteString ?? "nil") "
+                + "webViewLoading=\(panel.webView.isLoading) panelLoading=\(panel.isLoading)",
+            file: file,
+            line: line
+        )
+    }
+
+    private func evaluateString(
+        _ script: String,
+        in panel: BrowserPanel,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> String {
+        var value: String?
+        var failure: (any Error)?
+        let finished = expectation(description: "evaluate \(script)")
+        panel.webView.evaluateJavaScript(script) { result, error in
+            if let error {
+                failure = error
+            } else {
+                value = result as? String
+            }
+            finished.fulfill()
+        }
+        wait(for: [finished], timeout: 5.0)
+        if let failure {
+            XCTFail("JavaScript failed: \(failure)", file: file, line: line)
+            throw failure
+        }
+        return try XCTUnwrap(value, file: file, line: line)
+    }
+
+    /// A local Markdown file declares no charset, so WebKit fell back to the
+    /// locale's legacy encoding and rendered UTF-8 text as mojibake.
+    func testUTF8MarkdownFileRendersAsUTF8() throws {
+        let directory = try makeTemporaryDirectory()
+        let file = directory.appendingPathComponent("notes.md")
+        let contents = "# 산책의 즐거움"
+        try contents.write(to: file, atomically: true, encoding: .utf8)
+
+        let panel = BrowserPanel(workspaceId: UUID(), initialURL: file)
+        defer { panel.close() }
+        waitForBrowserPanel(panel, url: file)
+
+        XCTAssertEqual(try evaluateString("document.characterSet", in: panel), "UTF-8")
+        XCTAssertEqual(
+            try evaluateString("document.body.innerText.trim()", in: panel),
+            contents
+        )
+    }
+
+    func testUTF8PlainTextFileRendersAsUTF8() throws {
+        let directory = try makeTemporaryDirectory()
+        let file = directory.appendingPathComponent("notes.txt")
+        let contents = "日本語とハングル 한글"
+        try contents.write(to: file, atomically: true, encoding: .utf8)
+
+        let panel = BrowserPanel(workspaceId: UUID(), initialURL: file)
+        defer { panel.close() }
+        waitForBrowserPanel(panel, url: file)
+
+        XCTAssertEqual(try evaluateString("document.characterSet", in: panel), "UTF-8")
+        XCTAssertEqual(
+            try evaluateString("document.body.innerText.trim()", in: panel),
+            contents
+        )
+    }
+
+    /// An HTML page that declares its own charset must keep it: the fallback
+    /// only fills in for documents that declare nothing.
+    func testDeclaredCharsetStillWinsForLocalHTML() throws {
+        let directory = try makeTemporaryDirectory()
+        let file = directory.appendingPathComponent("legacy.html")
+        // "한글" in EUC-KR, which is not valid UTF-8.
+        var bytes = Data("<html><head><meta charset=\"euc-kr\"></head><body>".utf8)
+        bytes.append(contentsOf: [0xC7, 0xD1, 0xB1, 0xDB])
+        bytes.append(contentsOf: Data("</body></html>".utf8))
+        try bytes.write(to: file)
+
+        let panel = BrowserPanel(workspaceId: UUID(), initialURL: file)
+        defer { panel.close() }
+        waitForBrowserPanel(panel, url: file)
+
+        XCTAssertEqual(try evaluateString("document.characterSet", in: panel), "EUC-KR")
+        XCTAssertEqual(try evaluateString("document.body.innerText.trim()", in: panel), "한글")
+    }
+}
