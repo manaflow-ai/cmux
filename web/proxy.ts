@@ -26,6 +26,7 @@ import {
 
 const intlMiddleware = createMiddleware(routing);
 const localeSet = new Set<string>(routing.locales);
+const DASHBOARD_REWRITE_MARKER = "x-cmux-dashboard-rewrite";
 
 export default function middleware(incomingRequest: NextRequest) {
   return responseWithInternalRewrite(routeRequest(incomingRequest), incomingRequest);
@@ -40,6 +41,17 @@ function routeRequest(incomingRequest: NextRequest) {
   );
   const host = request.headers.get("host") ?? "";
   const { pathname } = request.nextUrl;
+
+  if (
+    dashboardReturnPath &&
+    request.headers.get(DASHBOARD_REWRITE_MARKER) === "1"
+  ) {
+    return dashboardResponse(
+      request,
+      NextResponse.next({ request: { headers: new Headers(request.headers) } }),
+      dashboardReturnPath,
+    );
+  }
 
   // A cmux Cloud machine dialing its reflection alias
   // (`https://reflection.cmux.internal/<path>`): the platform edge marks the
@@ -129,8 +141,10 @@ function isUnprefixedDashboardPath(pathname: string): boolean {
 }
 
 function dashboardRewrite(url: URL, request: NextRequest): NextResponse {
+  const headers = new Headers(request.headers);
+  headers.set(DASHBOARD_REWRITE_MARKER, "1");
   return NextResponse.rewrite(url, {
-    request: { headers: new Headers(request.headers) },
+    request: { headers },
   });
 }
 
