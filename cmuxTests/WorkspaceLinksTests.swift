@@ -396,8 +396,8 @@ struct WorkspaceLinksTests {
 
         #expect(state.artifactRecords.contains(saved))
         #expect(state.artifactRecords.filter { !$0.isUserOwned }.count == 9)
-        #expect(state.artifactRecords.contains { $0.url == "https://example.com/automatic-9" })
-        #expect(!state.artifactRecords.contains { $0.url == "https://example.com/automatic-0" })
+        #expect(state.artifactRecords.contains(where: { $0.url == "https://example.com/automatic-9" }))
+        #expect(!state.artifactRecords.contains(where: { $0.url == "https://example.com/automatic-0" }))
     }
 
     @MainActor
