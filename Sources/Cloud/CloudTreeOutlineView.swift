@@ -590,6 +590,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             for item in menuItems(for: node) {
                 menu.addItem(item)
             }
+            if let error = node.errorCopyText {
+                if !menu.items.isEmpty { menu.addItem(.separator()) }
+                menu.addItem(item(CloudErrorCopy.title) { CloudErrorCopy.copy(error) })
+            }
             #if DEBUG
             cmuxDebugLog("cloudTree.menu.build row=\(resolvedRow) items=\(menu.items.count)")
             #endif

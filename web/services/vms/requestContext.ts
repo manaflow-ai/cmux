@@ -1,3 +1,4 @@
+import type { CloudOperationProgress } from "../observability/cloudOperationProgress";
 import { AsyncLocalStorage } from "node:async_hooks";
 
 import type { VmErrorResponseInput } from "./routeHelpers";
@@ -11,6 +12,7 @@ export type VmClientIdentity = {
   readonly version?: string;
   readonly build?: string;
   readonly channel?: string;
+  readonly revision?: string;
   readonly userAgent?: string;
   /** Client-minted id for one logical request (echoed back, spans, PostHog). */
   readonly requestId?: string;
@@ -37,6 +39,8 @@ export type VmRequestContext = {
   traceId?: string;
   spanId?: string;
   userId?: string;
+  operationId?: string;
+  progress?: CloudOperationProgress;
   /**
    * The machine a `/api/vm/[id]/...` route addresses (the provider vm id the
    * client uses), read from the URL so every per-machine event joins to it.
@@ -128,6 +132,7 @@ export function vmClientIdentityFromRequest(request: Request): VmClientIdentity 
     version: header("x-cmux-app-version"),
     build: header("x-cmux-app-build"),
     channel: header("x-cmux-channel"),
+    ...(header("x-cmux-app-revision")?.match(/^[0-9a-f]{7,64}$/) ? { revision: header("x-cmux-app-revision") } : {}),
     userAgent: header("user-agent"),
     requestId: requestIdRaw && /^[A-Za-z0-9._:-]{1,80}$/.test(requestIdRaw) ? requestIdRaw : undefined,
     traceId: traceIdFromTraceparent(request.headers.get("traceparent")),

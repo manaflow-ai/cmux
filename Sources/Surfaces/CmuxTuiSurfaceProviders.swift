@@ -278,21 +278,25 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
-            // Listening ports come from the machine itself over the private link: a
-            // failed probe keeps the cached rows, a successful scan is authoritative.
-            if let refreshedPorts = await ports(
+            // The port scan and graph snapshot use independent daemon requests.
+            // Start both after the link is ready, so refresh latency is the slower
+            // request rather than their sum. Each result remains guarded by the
+            // same generation fence before it publishes.
+            async let refreshedPorts = ports(
                 link: link,
                 socketPath: connected.socketPath,
                 force: force,
                 generation: generation,
                 privateAddress: privateAddress
-            ) {
+            )
+            async let snapshotData = link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: connected.socketPath))
+            if let refreshedPorts = await refreshedPorts {
                 guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
                 scannedPorts = refreshedPorts
                 currentPorts = refreshedPorts
             }
             watchChanges(link: link, generation: lifecycle)
-            let data = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: connected.socketPath))
+            let data = try await snapshotData
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let incoming = CmuxTuiSnapshotParser.state(fromSnapshot: object, machine: machine)

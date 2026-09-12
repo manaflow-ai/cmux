@@ -2046,3 +2046,40 @@ export const rateLimitAlertReports = pgTable("rate_limit_alert_reports", {
   alertKey: text("alert_key").primaryKey(),
   reportedAt: timestamp("reported_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/** Sanitized Cloud diagnostics. The receipt and export lease survive server restarts. */
+export const cloudDiagnosticEvents = pgTable("cloud_diagnostic_events", {
+  userId: text("user_id").notNull(),
+  eventId: uuid("event_id").notNull(),
+  payload: jsonb("payload").notNull(),
+  payloadHash: text("payload_hash").notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+  leaseId: uuid("lease_id"),
+  attempts: integer("attempts").notNull().default(0),
+}, (table) => [
+  primaryKey({ columns: [table.userId, table.eventId] }),
+  index("cloud_diagnostic_events_pending_idx").on(table.nextAttemptAt).where(sql`${table.deliveredAt} is null`),
+  index("cloud_diagnostic_events_retention_idx").on(table.receivedAt),
+]);
+
+export const cloudDiagnosticBudgets = pgTable("cloud_diagnostic_budgets", {
+  userId: text("user_id").notNull(),
+  minute: bigint("minute", { mode: "number" }).notNull(),
+  bytes: integer("bytes").notNull(),
+}, (table) => [primaryKey({ columns: [table.userId, table.minute] })]);
+
+export const cloudOperationSteps = pgTable("cloud_operation_steps", {
+  userId: text("user_id").notNull(),
+  operationId: uuid("operation_id").notNull(),
+  stepId: uuid("step_id").notNull(),
+  phase: text("phase").notNull(),
+  outcome: text("outcome").notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull().default(sql`now() + interval '1 day'`),
+}, (table) => [
+  primaryKey({ columns: [table.userId, table.operationId, table.stepId] }),
+  index("cloud_operation_steps_expiry_idx").on(table.expiresAt),
+]);
