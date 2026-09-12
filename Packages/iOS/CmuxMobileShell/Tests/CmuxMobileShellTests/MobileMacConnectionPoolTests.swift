@@ -5547,6 +5547,99 @@ import Testing
         await client.disconnect()
     }
 
+    @Test func foregroundSnapshotStaysPutWhenPreviousKeyIsStillForeground()
+        async throws {
+        let route = try CmxAttachRoute(
+            id: "foreground-snapshot-stays-put",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-a",
+            terminalID: "terminal-a",
+            macDeviceID: "mac-a",
+            macDisplayName: "Mac A",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: LivenessHostRouter(),
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            connectionState: .connected
+        )
+        let storedOwnerKey = MacPairingKey(
+            macDeviceID: "mac-a",
+            instanceTag: "stored-tag"
+        )
+        let foregroundKey = MacPairingKey(
+            macDeviceID: "mac-a",
+            instanceTag: "authenticated-tag"
+        )
+        let connection = MacConnection(
+            macDeviceID: "mac-a",
+            ticket: ticket,
+            route: route,
+            client: client,
+            generation: UUID(),
+            displayName: "Mac A",
+            storedInstanceTag: "stored-tag",
+            authenticatedInstanceTag: "authenticated-tag",
+            supportedHostCapabilities: [],
+            actionCapabilities: .none
+        )
+        let subscription = SecondaryMacSubscription(
+            macDeviceID: "mac-a",
+            client: client,
+            route: route,
+            ticket: ticket,
+            storedInstanceTag: "stored-tag",
+            authenticatedInstanceTag: "authenticated-tag",
+            supportedHostCapabilities: [],
+            actionCapabilities: .none,
+            displayName: "Mac A"
+        )
+        let workspace = MobileWorkspacePreview(
+            id: .init(rawValue: "workspace-a"),
+            macDeviceID: "mac-a",
+            name: "Workspace A",
+            terminals: []
+        )
+        shell.foregroundMacDeviceID = "mac-a"
+        shell.activeMacInstanceTag = "authenticated-tag"
+        shell.secondaryMacSubscriptions[storedOwnerKey] = subscription
+        shell.workspacesByMac[foregroundKey] = MacWorkspaceState(
+            macDeviceID: "mac-a",
+            instanceTag: "authenticated-tag",
+            displayName: "Mac A",
+            workspaces: [workspace],
+            status: .connected
+        )
+
+        shell.dropStalePreviousForeground(
+            foregroundKey,
+            retainingConnection: connection
+        )
+
+        #expect(shell.workspacesByMac[foregroundKey]?.workspaces == [workspace])
+        #expect(shell.workspacesByMac[foregroundKey]?.instanceTag
+            == "authenticated-tag")
+        #expect(shell.workspacesByMac[storedOwnerKey] == nil)
+        await client.disconnect()
+    }
+
     @Test func taggedForegroundReplacementRetiresExactFocusedOwner()
         async throws {
         let runtime = LivenessTestRuntime(
