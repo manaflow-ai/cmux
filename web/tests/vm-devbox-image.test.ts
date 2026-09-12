@@ -765,7 +765,18 @@ describe("devbox image template", () => {
       expect(parsed.model_provider).toBe("cmux");
       expect(parsed.hooks).toEqual({ state: { "/home/cmux/.codex/hooks.json:Stop:0:0": { trusted_hash: "3f0c" } } });
       expect(parsed.model_providers).toEqual({
-        cmux: { name: "cmux", base_url: "https://example.invalid/v1", env_key: "OPENAI_API_KEY", wire_api: "responses", requires_openai_auth: false, supports_websockets: false },
+        cmux: {
+          name: "cmux",
+          base_url: "https://example.invalid/v1",
+          env_key: "OPENAI_API_KEY",
+          wire_api: "responses",
+          requires_openai_auth: false,
+          supports_websockets: false,
+          env_http_headers: {
+            "x-cmux-surface-id": "CMUX_SURFACE_ID",
+            "x-cmux-workspace-id": "CMUX_WORKSPACE_ID",
+          },
+        },
       });
       expect(parsed.history).toEqual({ persistence: "save-all" });
       // The bare key precedes the first table header, or TOML would file it under [hooks].
