@@ -169,9 +169,9 @@ extension CMUXCLI {
     ///   --enable\0hooks\0--dangerously-bypass-hook-trust\0
     ///   -c\0hooks.SessionStart=[{hooks=[{type="command",command='''<hook>''',timeout=10000}]}]\0
     ///   -c\0hooks.UserPromptSubmit=...\0 ... (one `-c` pair per event)
-    /// Turn/status hooks use `codexFireAndForgetAgentHookShellCommand(...)`;
-    /// native child lifecycle hooks synchronously commit their ledger event and
-    /// then return. All larger socket delivery remains non-blocking.
+    /// Queued hooks use bounded ordered admission; native child lifecycle hooks
+    /// synchronously commit their ledger event and then return. All larger
+    /// socket delivery remains non-blocking.
     ///
     /// Layering contract (verified against codex-cli 0.146.0 and 0.153.4;
     /// tests/test_codex_wrapper_hook_append.py repeats it against the
@@ -342,10 +342,15 @@ extension CMUXCLI {
         for def: AgentHookDef
     ) -> String {
         let command = "cmux hooks codex \(event.cmuxSubcommand)"
-        if event.isSynchronous {
-            return codexSynchronousAgentHookShellCommand(command, for: def)
+        if event.delivery == .queued {
+            return queuedAgentHookShellCommand(
+                agent: def.name,
+                subcommand: event.cmuxSubcommand,
+                disableEnvironmentVariable: def.disableEnvVar,
+                identityMarker: "cmux-codex-hook"
+            )
         }
-        return codexFireAndForgetAgentHookShellCommand(command, for: def)
+        return codexSynchronousAgentHookShellCommand(command, for: def)
     }
 
     /// Cmux-generated script names referenced by the active persistent config.
