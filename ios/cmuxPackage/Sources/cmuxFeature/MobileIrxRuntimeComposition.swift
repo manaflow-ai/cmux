@@ -121,10 +121,22 @@ public actor MobileIrxRuntimeComposition {
     /// Identity donor (identity adoption): the legacy composition owns the
     /// Keychain identity, app-instance scope, and durable device ID.
     private weak var legacyComposition: MobileIrohRuntimeComposition?
-    private var broker: IrxBrokerService?
-    private var endpointSupervisor: IrxEndpointSupervisor?
-    private var autopilot: IrxRelayCredentialAutopilot?
-    private var identity: IrxIdentity?
+    var broker: IrxBrokerService?
+    var endpointSupervisor: IrxEndpointSupervisor?
+    var autopilot: IrxRelayCredentialAutopilot?
+    var identity: IrxIdentity?
+    /// Lifecycle owner token used to fence broker/auth work that can outlive
+    /// task cancellation or an AuthCoordinator sign-out publication.
+    var provisioningOwnerToken = UUID()
+    /// Retains the rejected authenticated owner until the matching broker
+    /// refresh callback records the definitive reauthentication state.
+    var pendingBrokerAuthenticationRefreshOwnerToken: UUID?
+    var provisionedAccountID: String?
+    var provisionedSessionGeneration: UInt64?
+    var reauthenticationRequired = false
+    var authenticationStatusContinuations: [
+        UUID: AsyncStream<CmxIrxAuthenticationState>.Continuation
+    ] = [:]
     /// The always-on fact channel to the per-account control-plane DO.
     /// Never on the dial path; delivers pushed passes, hint updates, and the
     /// device-list directory (the dial-gate authority).
@@ -133,21 +145,21 @@ public actor MobileIrxRuntimeComposition {
     /// The current device-list lease: consulted by the dial gate. nil until
     /// a directory has EVER been received or restored (the bootstrap
     /// exception: a fresh install may dial before its first directory).
-    private let deviceListBox = IrxDeviceListCurrent()
+    let deviceListBox = IrxDeviceListCurrent()
     /// Durable lease storage (Keychain in Release, dev file store in DEBUG).
-    private var deviceListStore: IrxDeviceListStore?
-    private var provisioningTask: Task<Void, Never>?
-    private var provisionInFlight: Task<IrxBrokerService, any Error>?
+    var deviceListStore: IrxDeviceListStore?
+    var provisioningTask: Task<Void, Never>?
+    var provisionInFlight: Task<IrxBrokerService, any Error>?
     /// Auth observation stays alive for the lifetime of the composition. A
     /// successful first provision must not terminate it, otherwise an
     /// implicit token clear or account switch leaves the endpoint running.
-    private var authObservationTask: Task<Void, Never>?
-    private var activeAccountID: String?
-    private var lifecycleEpoch: UInt64 = 0
+    var authObservationTask: Task<Void, Never>?
+    var activeAccountID: String?
+    var lifecycleEpoch: UInt64 = 0
     /// One reconnect owner per Mac endpoint (contract: the single dialer).
-    private var enginesByPeer: [String: IrxPeerEngine] = [:]
+    var enginesByPeer: [String: IrxPeerEngine] = [:]
     /// Route material per peer, refreshed on every transport request.
-    private var routesByPeer: [String: (relayURL: String?, directAddresses: [String])] = [:]
+    var routesByPeer: [String: (relayURL: String?, directAddresses: [String])] = [:]
     /// The latest path intent for each peer. Direct is an exclusive,
     /// fail-closed allowlist; automatic permits broker and LAN discovery.
     private var dialIntentByPeer: [String: IrxDialIntent] = [:]
@@ -162,9 +174,9 @@ public actor MobileIrxRuntimeComposition {
     /// admitted session. A second RPC client must not force a QUIC replacement
     /// just to obtain the same lane, because foreground recovery and secondary
     /// aggregation can overlap briefly.
-    private var controlLaneClaims = MobileIrxControlLaneClaims()
+    var controlLaneClaims = MobileIrxControlLaneClaims()
     /// The events uni-lane accept is single-consumer per session too.
-    private var claimedEventSessions: Set<String> = []
+    var claimedEventSessions: Set<String> = []
     /// Change-only stream consumed by the MainActor settings adapter.
     private var settingsContinuations: [UUID: AsyncStream<Void>.Continuation] = [:]
 
@@ -284,6 +296,12 @@ public actor MobileIrxRuntimeComposition {
         _ sessionIdentity: AuthenticatedSessionIdentity?
     ) async {
         guard let sessionIdentity else {
+            if pendingBrokerAuthenticationRefreshOwnerToken == provisioningOwnerToken {
+                // A force-refresh rejection can publish nil before its typed
+                // broker callback records the definitive reauthentication
+                // state. Keep the rejected owner fenced until that callback.
+                return
+            }
             await handleSignOut()
             return
         }
@@ -300,6 +318,20 @@ public actor MobileIrxRuntimeComposition {
         }
         activeAccountID = sessionIdentity.accountID
         startProvisioning(for: sessionIdentity)
+    }
+
+    /// Compatibility entry point for the branch lifecycle extension. The
+    /// current mainline observer uses the session-identity overload above.
+    func provisionIfPossible() async -> Bool {
+        guard let auth,
+              let current = try? await auth.authenticatedSessionSnapshot(),
+              let identity = await auth.authenticatedSessionIdentity else {
+            return false
+        }
+        return await provisionIfPossible(
+            sessionIdentity: identity,
+            epoch: lifecycleEpoch
+        )
     }
 
     private func isCurrent(_ epoch: UInt64) -> Bool {
@@ -536,9 +568,15 @@ public actor MobileIrxRuntimeComposition {
     /// Sign-out: drop the lease everywhere (memory, durable store, UI), so
     /// the next account starts from its own directory.
     public func handleSignOut() async {
+        provisioningOwnerToken = UUID()
+        pendingBrokerAuthenticationRefreshOwnerToken = nil
         lifecycleEpoch &+= 1
         await networkPathState.stop()
         activeAccountID = nil
+        provisionedAccountID = nil
+        provisionedSessionGeneration = nil
+        reauthenticationRequired = false
+        publishAuthenticationState()
         provisioningTask?.cancel()
         provisioningTask = nil
         provisionInFlight?.cancel()
@@ -672,12 +710,16 @@ public actor MobileIrxRuntimeComposition {
               session.accountID == sessionIdentity.accountID else {
             return false
         }
-        _ = session
+        provisionedAccountID = session.accountID
+        provisionedSessionGeneration = session.generation
         do {
             _ = try await provisionedBroker(epoch: epoch)
             Self.journal.record("client-runtime", "provisioned")
             return true
         } catch {
+            if await handleProvisioningFailure(error, session: session) {
+                return true
+            }
             Self.journal.record(
                 "client-runtime", "provisioning-retry",
                 ["error": String(describing: error)]
@@ -749,11 +791,20 @@ public actor MobileIrxRuntimeComposition {
                 keychainAccessGroup: keychainAccessGroup
             ),
             identity: identity,
-            accessTokenPair: { [weak auth] in
-                guard let auth else { return nil }
-                let session = try await auth.authenticatedSessionSnapshot()
-                return (session.accessToken, session.refreshToken)
-            },
+            tokenSource: auth.accountPinnedIrohBrokerTokenSource(
+                accountID: session.accountID,
+                onForceRefreshStart: { [weak self] in
+                    await self?.markBrokerAuthenticationRefreshStarted(
+                        session: session
+                    )
+                },
+                onForceRefreshCompletion: { [weak self] requiresReauthentication in
+                    await self?.completeBrokerAuthenticationRefresh(
+                        session: session,
+                        requiresReauthentication: requiresReauthentication
+                    )
+                }
+            ),
             journal: Self.journal
         )
         let supervisor = IrxEndpointSupervisor(
@@ -769,7 +820,38 @@ public actor MobileIrxRuntimeComposition {
             journal: Self.journal
         )
         let pilot = IrxRelayCredentialAutopilot(
-            broker: broker, endpoint: supervisor, journal: Self.journal)
+            broker: broker,
+            endpoint: supervisor,
+            journal: Self.journal,
+            retryPolicy: IrxHostActivationPolicy(
+                retrySchedule: .foregroundClient,
+                postRecoveryUnauthorizedFailureLimit: 4
+            )
+        )
+        await pilot.setOnCredentialRotation { [weak self, broker, supervisor] in
+            await self?.handleAutopilotRotation(
+                session: session,
+                broker: broker,
+                endpoint: supervisor
+            )
+        }
+        await pilot.setOnFailure { [weak self] failure, disposition in
+            await self?.handleAutopilotFailure(
+                failure,
+                disposition: disposition,
+                session: session,
+                broker: broker,
+                endpoint: supervisor
+            )
+        }
+        await pilot.setOnRotation { [weak broker, weak supervisor] in
+            guard let broker, let supervisor else { throw CancellationError() }
+            let relay = await supervisor.homeRelayURL()
+            try await broker.registerHintIfNeeded(
+                pairingEnabled: false,
+                relayURLHint: relay
+            )
+        }
         // Launch-latency shape (measured on device: registration 636ms +
         // discovery 445ms + lazy bind-to-online 1186ms serialized into a
         // 3.3s first connect): when the binding and trust snapshot are
@@ -817,6 +899,9 @@ public actor MobileIrxRuntimeComposition {
             throw CancellationError()
         }
         self.identity = identity
+        self.activeAccountID = session.accountID
+        self.provisionedAccountID = session.accountID
+        self.provisionedSessionGeneration = session.generation
         self.broker = broker
         endpointSupervisor = supervisor
         autopilot = pilot

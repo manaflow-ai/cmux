@@ -1,80 +1,19 @@
-public import CMUXMobileCore
+import CMUXMobileCore
 public import CmuxIrohTransport
 public import Foundation
 
 public enum IrxBrokerServiceError: Error, Sendable {
+    /// The operation requires a binding that has not been registered yet.
     case notRegistered
+    /// The configured endpoint identity is invalid.
     case invalidIdentity
+    /// The endpoint binding cannot be used for this operation.
+    case invalidEndpointBinding
+    /// The broker returned no usable relay credentials.
     case noCredentialsIssued
+    /// A returned relay URL is outside the trusted fleet.
     case unknownRelayURL(String)
     case deactivated
-}
-
-/// Persisted registration receipt: the full binding tuple, so the host can
-/// build its exact acceptor identity for grant verification with the backend
-/// unreachable.
-public struct IrxBindingSnapshot: Codable, Equatable, Sendable {
-    public var bindingID: String
-    public var deviceID: String
-    public var tag: String
-    public var endpointIDHex: String
-    public var identityGeneration: Int
-    public var registeredAt: Date
-
-    public init(
-        bindingID: String,
-        deviceID: String,
-        tag: String,
-        endpointIDHex: String,
-        identityGeneration: Int,
-        registeredAt: Date
-    ) {
-        self.bindingID = bindingID
-        self.deviceID = deviceID
-        self.tag = tag
-        self.endpointIDHex = endpointIDHex
-        self.identityGeneration = identityGeneration
-        self.registeredAt = registeredAt
-    }
-}
-
-/// Persisted grant-verification material and peer directory from the last
-/// authenticated discovery. Admission verifies OFFLINE against this; a stale
-/// copy is refreshed opportunistically in the background, never on the
-/// admission or dial path.
-public struct IrxTrustSnapshot: Codable, Equatable, Sendable {
-    public var verificationKeys: CmxIrohGrantVerificationKeySet
-    public var relayFleet: [String]
-    public var fetchedAt: Date
-
-    public init(
-        verificationKeys: CmxIrohGrantVerificationKeySet,
-        relayFleet: [String],
-        fetchedAt: Date
-    ) {
-        self.verificationKeys = verificationKeys
-        self.relayFleet = relayFleet
-        self.fetchedAt = fetchedAt
-    }
-}
-
-/// Persisted pair grant for one acceptor binding.
-public struct IrxGrantSnapshot: Codable, Equatable, Sendable {
-    public var acceptorBindingID: String
-    public var grantJWS: String
-    public var expiresAt: Date
-
-    public init(acceptorBindingID: String, grantJWS: String, expiresAt: Date) {
-        self.acceptorBindingID = acceptorBindingID
-        self.grantJWS = grantJWS
-        self.expiresAt = expiresAt
-    }
-
-    /// Grants live 7 days; treat the last 24h as stale so renewal always has
-    /// days of margin and can never cause a connect-time flurry.
-    public func isFresh(at now: Date) -> Bool {
-        expiresAt.timeIntervalSince(now) > 24 * 3600
-    }
 }
 
 /// Orchestrates the existing trust-broker HTTP client (reused as pure wire
@@ -166,35 +105,30 @@ public actor IrxBrokerService {
     private var lifecycleEpoch: UInt64 = 0
     private var deactivated = false
 
+    /// Creates a broker service with the shared token-source policy. Both the
+    /// legacy and irx hosts pass their account-pinned source here so every
+    /// broker operation gets the same one-refresh-on-401 behavior.
     public init(
         configuration: Configuration,
         identity: IrxIdentity,
-        accessTokenPair: @escaping @Sendable () async throws -> (access: String, refresh: String)?,
+        tokenSource: CmxIrohBrokerTokenSource,
         journal: IrxJournal
     ) throws {
         self.configuration = configuration
         self.identity = identity
         self.journal = journal
-        let tokenSource = CmxIrohBrokerTokenSource(credentialPair: {
-            guard let pair = try await accessTokenPair() else { return nil }
-            return CmxIrohBrokerCredentials(
-                accessToken: pair.access,
-                refreshToken: pair.refresh
-            )
-        })
         let dir = configuration.cacheDirectory
         let scope = configuration.cacheScope
-        bindingCache = IrxBrokerCacheFactory.make(
-            kind: "binding",
-            fileURL: dir.appendingPathComponent("binding.json"),
-            scope: scope
-        )
+        let bindingCache: any IrxJSONCache<IrxBindingSnapshot> =
+            IrxBrokerCacheFactory.make(
+                kind: "binding",
+                fileURL: dir.appendingPathComponent("binding.json"),
+                scope: scope
+            )
+        self.bindingCache = bindingCache
         // Warm launches skip register() for speed, but register() is what
-        // arms per-request binding-proof signing; an unarmed client sends
-        // proofless mints that the broker 403s (binding_request_proof_required)
-        // - the 08-27 INTERNAL wedge. Reconstruct the authorization offline
-        // from the cached binding and the identity key, so every request is
-        // signed from the first call regardless of registration order.
+        // arms per-request binding-proof signing. Reconstruct that proof from
+        // the cached binding so the first request is signed as well.
         var retainedAuthorization: CmxIrohBindingRequestAuthorization?
         if let snapshot = bindingCache.load(),
             snapshot.endpointIDHex == identity.endpointIDHex,
@@ -210,23 +144,23 @@ public actor IrxBrokerService {
                 endpointID: endpointID
             )
         }
-        client = try CmxIrohTrustBrokerClient(
+        self.client = try CmxIrohTrustBrokerClient(
             baseURL: configuration.baseURL,
             tokenSource: tokenSource,
             clientNamespace: configuration.clientNamespace,
             bindingAuthorization: retainedAuthorization
         )
-        trustCache = IrxBrokerCacheFactory.make(
+        self.trustCache = IrxBrokerCacheFactory.make(
             kind: "trust",
             fileURL: dir.appendingPathComponent("trust.json"),
             scope: scope
         )
-        credentialCache = IrxBrokerCacheFactory.make(
+        self.credentialCache = IrxBrokerCacheFactory.make(
             kind: "relay-credentials",
             fileURL: dir.appendingPathComponent("relay-credentials.json"),
             scope: scope
         )
-        grantCache = IrxBrokerCacheFactory.make(
+        self.grantCache = IrxBrokerCacheFactory.make(
             kind: "grants",
             fileURL: dir.appendingPathComponent("grants.json"),
             scope: scope
@@ -267,12 +201,14 @@ public actor IrxBrokerService {
         {
             return
         }
-        _ = try await register(
-            pairingEnabled: pairingEnabled,
-            relayURLHint: relayURLHint,
-            directAddresses: publicDirectAddresses,
-            directPorts: directPorts
-        )
+        _ = try await withBrokerOperation(.hintRefresh) {
+            try await self.register(
+                pairingEnabled: pairingEnabled,
+                relayURLHint: relayURLHint,
+                directAddresses: publicDirectAddresses,
+                directPorts: directPorts
+            )
+        }
     }
 
     /// Registers (or refreshes) this endpoint's binding. Single-flight;
@@ -288,13 +224,15 @@ public actor IrxBrokerService {
             return try await registrationInFlight.value
         }
         let task = Task<IrxBindingSnapshot, any Error> {
-            try await self.registerOnce(
-                pairingEnabled: pairingEnabled,
-                relayURLHint: relayURLHint,
-                directAddresses: directAddresses,
-                directPorts: directPorts,
-                epoch: epoch
-            )
+            try await self.withBrokerOperation(.register) {
+                try await self.registerOnce(
+                    pairingEnabled: pairingEnabled,
+                    relayURLHint: relayURLHint,
+                    directAddresses: directAddresses,
+                    directPorts: directPorts,
+                    epoch: epoch
+                )
+            }
         }
         registrationInFlight = task
         defer { registrationInFlight = nil }
@@ -328,14 +266,15 @@ public actor IrxBrokerService {
         let expiresAt = now.addingTimeInterval(30 * 60)
         for address in publicDirectAddresses {
             guard hints.count < 16,
-                  let hint = try? CmxIrohPathHint(
-                      kind: .directAddress,
-                      value: address,
-                      source: .native,
-                      privacyScope: .publicInternet,
-                      observedAt: now,
-                      expiresAt: expiresAt
-                  ) else { continue }
+                let hint = try? CmxIrohPathHint(
+                    kind: .directAddress,
+                    value: address,
+                    source: .native,
+                    privacyScope: .publicInternet,
+                    observedAt: now,
+                    expiresAt: expiresAt
+                )
+            else { continue }
             hints.append(hint)
         }
         let secretKey = try CmxIrohSecretKey(bytes: identity.privateKeyData)
@@ -372,12 +311,7 @@ public actor IrxBrokerService {
         )
         try requireCurrent(epoch)
         bindingCache.save(snapshot)
-        lastHintRegistered = (
-            relayURLHint,
-            publicDirectAddresses,
-            directPorts,
-            Date()
-        )
+        lastHintRegistered = (relayURLHint, publicDirectAddresses, directPorts, Date())
         let elapsedMs =
             (DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000
         journal.record(
@@ -409,35 +343,37 @@ public actor IrxBrokerService {
     /// Fresh-enough discovery, from memory or the wire. Never called on the
     /// admission path; admission uses `cachedTrust()`.
     public func discover(maximumAge: TimeInterval = 30) async throws -> CmxIrohDiscoveryResponse {
-        let epoch = try beginOperation()
-        if let lastDiscovery, let lastDiscoveryAt,
-            Date().timeIntervalSince(lastDiscoveryAt) < maximumAge
-        {
-            return lastDiscovery
-        }
-        let startedAt = DispatchTime.now()
-        let response = try await client.discover()
-        try requireCurrent(epoch)
-        lastDiscovery = response
-        lastDiscoveryAt = Date()
-        trustCache.save(
-            IrxTrustSnapshot(
-                verificationKeys: response.grantVerificationKeys,
-                relayFleet: response.relayFleet,
-                fetchedAt: Date()
+        try await withBrokerOperation(.discover) {
+            let epoch = try self.beginOperation()
+            if let lastDiscovery, let lastDiscoveryAt,
+                Date().timeIntervalSince(lastDiscoveryAt) < maximumAge
+            {
+                return lastDiscovery
+            }
+            let startedAt = DispatchTime.now()
+            let response = try await self.client.discover()
+            try self.requireCurrent(epoch)
+            self.lastDiscovery = response
+            self.lastDiscoveryAt = Date()
+            self.trustCache.save(
+                IrxTrustSnapshot(
+                    verificationKeys: response.grantVerificationKeys,
+                    relayFleet: response.relayFleet,
+                    fetchedAt: Date()
+                )
             )
-        )
-        let elapsedMs =
-            (DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000
-        journal.record(
-            "broker", "discovered",
-            [
-                "bindings": String(response.bindings.count),
-                "revision": response.revision.map(String.init) ?? "-",
-                "elapsed_ms": String(elapsedMs),
-            ]
-        )
-        return response
+            let elapsedMs =
+                (DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000
+            self.journal.record(
+                "broker", "discovered",
+                [
+                    "bindings": String(response.bindings.count),
+                    "revision": response.revision.map(String.init) ?? "-",
+                    "elapsed_ms": String(elapsedMs),
+                ]
+            )
+            return response
+        }
     }
 
     /// Drops the in-memory discovery snapshot after a presence push proves it
@@ -450,10 +386,12 @@ public actor IrxBrokerService {
 
     /// Revokes one account-owned binding (the "forget computer" server leg).
     public func revoke(bindingID: String) async throws {
-        let epoch = try beginOperation()
-        try await client.revoke(bindingID: bindingID)
-        try requireCurrent(epoch)
-        journal.record("broker", "binding-revoked", ["binding": bindingID])
+        try await withBrokerOperation(.revoke) {
+            let epoch = try self.beginOperation()
+            try await self.client.revoke(bindingID: bindingID)
+            try self.requireCurrent(epoch)
+            self.journal.record("broker", "binding-revoked", ["binding": bindingID])
+        }
     }
 
     // MARK: - Relay credentials
@@ -472,10 +410,22 @@ public actor IrxBrokerService {
     /// re-arms signing on this client) instead of retrying into the same
     /// rejection forever.
     private func invalidateBindingOnProofRejection(_ error: any Error) {
-        guard case let .rejected(statusCode, code)? = error as? CmxIrohTrustBrokerClientError,
-            statusCode == 403,
-            code == "binding_request_proof_required" || code == "invalid_binding_request_proof"
-        else { return }
+        let statusCode: Int?
+        let code: String?
+        switch error {
+        case let brokerError as CmxIrohTrustBrokerClientError:
+            guard case let .rejected(status, brokerCode) = brokerError else { return }
+            statusCode = status
+            code = brokerCode
+        case let failure as IrxBrokerFailure:
+            statusCode = failure.statusCode
+            code = failure.errorCode
+        default:
+            return
+        }
+        guard statusCode == 403,
+              code == "binding_request_proof_required"
+                || code == "invalid_binding_request_proof" else { return }
         bindingCache.clear()
         journal.record(
             "broker", "binding-invalidated-on-proof-rejection",
@@ -495,14 +445,15 @@ public actor IrxBrokerService {
         // call, and a proof rejection still invalidates the cached binding so
         // the next attempt re-registers instead of looping unsigned.
         let bootstrap: CmxIrohRelayBootstrapResponse
-        do {
-            bootstrap = try await issueRelayBootstrapRetryingStaleConnection(
+        bootstrap = try await withBrokerOperation(
+            .mint,
+            onError: { error in self.invalidateBindingOnProofRejection(error) }
+        ) {
+            let response = try await self.issueRelayBootstrapRetryingStaleConnection(
                 endpointID: endpointID
             )
-            try requireCurrent(epoch)
-        } catch {
-            invalidateBindingOnProofRejection(error)
-            throw error
+            try self.requireCurrent(epoch)
+            return response
         }
         guard let tokenResponse = bootstrap.relayToken else {
             journal.record("broker", "relay-mint-empty")
@@ -686,15 +637,16 @@ public actor IrxBrokerService {
             throw IrxBrokerServiceError.notRegistered
         }
         let response: CmxIrohPairGrantResponse
-        do {
-            response = try await client.issuePairGrant(
+        response = try await withBrokerOperation(
+            .pairGrant,
+            onError: { error in self.invalidateBindingOnProofRejection(error) }
+        ) {
+            let response = try await self.client.issuePairGrant(
                 initiatorBindingID: binding.bindingID,
                 acceptorBindingID: acceptorBindingID
             )
-            try requireCurrent(epoch)
-        } catch {
-            invalidateBindingOnProofRejection(error)
-            throw error
+            try self.requireCurrent(epoch)
+            return response
         }
         let iso = ISO8601DateFormatter()
         let fractional = ISO8601DateFormatter()

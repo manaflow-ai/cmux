@@ -185,6 +185,7 @@ struct MacAuthComposition {
                 // usable remote surface.
                 AppDelegate.shared?.prepareCloudVMAccessForSignOut()
                 browserAppSession.beginAuthTransition()
+                MobileHostIrxRuntime.shared.beginSignOutPreparation()
                 MobileHostIrohRuntime.shared.beginSignOutPreparation()
             },
             localSignOut: {

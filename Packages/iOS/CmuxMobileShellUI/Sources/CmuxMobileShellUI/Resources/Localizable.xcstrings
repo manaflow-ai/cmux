@@ -8009,6 +8009,34 @@
         }
       }
     },
+    "mobile.settings.iroh.reauth.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Networking Needs Sign-In" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ネットワークにサインインが必要です" } }
+      }
+    },
+    "mobile.settings.iroh.reauth.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sign in again to reconnect this device." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このデバイスを再接続するには、もう一度サインインしてください。" } }
+      }
+    },
+    "mobile.settings.iroh.reauth.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sign Out and Sign In Again" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サインアウトして再度サインイン" } }
+      }
+    },
+    "mobile.settings.iroh.reauth.fallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open the account section above and sign in again to reconnect." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "上のアカウントセクションを開き、再接続するためにもう一度サインインしてください。" } }
+      }
+    },
     "mobile.iroh.saveFailed": {
       "extractionState": "manual",
       "localizations": {

@@ -64,7 +64,6 @@ struct cmuxApp: App {
         let irxEnabled = MobileIrxRuntimeComposition.isEnabled
         let irx = MobileIrxRuntimeComposition(
             apiBaseURL: auth.config.apiBaseURL,
-            reachability: reachability,
             appNamespace: auth.appNamespace,
             keychainAccessGroup: auth.keychainAccessGroup
         )
@@ -233,6 +232,7 @@ struct cmuxApp: App {
             #endif
         }
         .environment(\.irohSettingsController, Self.root.irohSettingsController)
+        .environment(\.irxAuthenticationStatusProvider, Self.root.irx)
         .environment(\.mobileKeyboardFrameTracker, Self.root.keyboardFrameTracker)
         .environment(
             \.dogfoodAttachPreparation,
@@ -268,8 +268,7 @@ struct cmuxApp: App {
             personalIrohForget: Self.root.irxDiscovery ?? Self.root.iroh,
             buildCompatibilityPolicy: Self.root.buildCompatibilityPolicy,
             signOutHook: Self.root.signOutHook,
-            diagnosticLog: Self.root.diagnosticLog,
-            appLog: Self.root.appLog
+            diagnosticLog: Self.root.diagnosticLog
         )
     }
 }

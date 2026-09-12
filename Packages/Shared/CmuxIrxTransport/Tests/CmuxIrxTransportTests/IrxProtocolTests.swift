@@ -81,6 +81,8 @@ struct IrxProtocolTests {
 
 @Suite("relay credential policy")
 struct IrxRelayCredentialPolicyTests {
+    private let policy = IrxRelayCredentialPolicy()
+
     private func credential(expiresIn: TimeInterval, refreshLead: TimeInterval) -> IrxRelayCredential {
         let now = Date(timeIntervalSince1970: 1_000_000)
         return IrxRelayCredential(
@@ -96,24 +98,24 @@ struct IrxRelayCredentialPolicyTests {
         // 300s credential, server suggests refresh at expiry-60s. Ours wins
         // at expiry-120s (60s earlier than the legacy stack).
         let credential = credential(expiresIn: 300, refreshLead: 60)
-        let refresh = IrxRelayCredentialPolicy.refreshDate(for: credential, jitter: 0)
+        let refresh = policy.refreshDate(for: credential, jitter: 0)
         #expect(refresh == credential.expiresAt.addingTimeInterval(-120))
         // Server-suggested earlier refresh is respected.
         let eager = self.credential(expiresIn: 300, refreshLead: 200)
-        let eagerRefresh = IrxRelayCredentialPolicy.refreshDate(for: eager, jitter: 0)
+        let eagerRefresh = policy.refreshDate(for: eager, jitter: 0)
         #expect(eagerRefresh == eager.refreshAfter)
     }
 
     @Test("mint-failure retry backs off independently of expiry")
     func retryDelay() {
         let now = Date(timeIntervalSince1970: 2_000_000)
-        let far = IrxRelayCredentialPolicy.retryDelay(
+        let far = policy.retryDelay(
             expiresAt: now.addingTimeInterval(200), now: now)
         #expect(far == .seconds(5))
         let near = IrxRelayCredentialPolicy.retryDelay(
             expiresAt: now.addingTimeInterval(1), now: now)
         #expect(near == .seconds(5))
-        let past = IrxRelayCredentialPolicy.retryDelay(
+        let past = policy.retryDelay(
             expiresAt: now.addingTimeInterval(-5), now: now)
         #expect(past == .seconds(5))
         let later = IrxRelayCredentialPolicy.retryDelay(
@@ -141,6 +143,50 @@ struct IrxRelayCredentialPolicyTests {
             #expect(base >= .seconds(serverFloor))
             #expect(jittered == base + .seconds(30))
         }
+    }
+
+    @Test("retry-after floor survives expiry acceleration")
+    func boundedRetryDelayHonorsServerFloor() {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let delay = policy.boundedRetryDelay(
+            expiresAt: now.addingTimeInterval(10),
+            now: now,
+            policyDelay: 30,
+            retryAfterSeconds: 300
+        )
+        #expect(delay == 300)
+    }
+
+    @Test("expired credentials retain the urgent retry floor")
+    func boundedRetryDelayAcceleratesExpiredCredentials() {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let delay = policy.boundedRetryDelay(
+            expiresAt: now.addingTimeInterval(-1),
+            now: now,
+            policyDelay: 30,
+            retryAfterSeconds: nil
+        )
+        #expect(delay == 1)
+        let backedOff = policy.boundedRetryDelay(
+            expiresAt: now.addingTimeInterval(-1),
+            now: now,
+            policyDelay: 30,
+            retryAfterSeconds: nil,
+            failureCount: 1
+        )
+        #expect(backedOff == 30)
+    }
+
+    @Test("expiry acceleration remains within the lifecycle cap without a floor")
+    func boundedRetryDelayHonorsPolicyCap() {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let delay = policy.boundedRetryDelay(
+            expiresAt: now.addingTimeInterval(1_000),
+            now: now,
+            policyDelay: 30,
+            retryAfterSeconds: nil
+        )
+        #expect(delay == 30)
     }
 
     @Test("usability requires margin over expiry")

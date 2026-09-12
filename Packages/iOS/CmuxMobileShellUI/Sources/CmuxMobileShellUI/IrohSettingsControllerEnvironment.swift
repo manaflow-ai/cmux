@@ -4,6 +4,8 @@ import SwiftUI
 
 /// SwiftUI copies environment values across concurrency domains. The wrapped
 /// controller remains main-actor isolated by `CmxIrohSettingsControlling`.
+// SAFETY: the wrapper carries only a reference; all controller methods remain
+// isolated by the @MainActor protocol boundary.
 private struct IrohSettingsControllerReference: @unchecked Sendable {
     let controller: (any CmxIrohSettingsControlling)?
 }
@@ -22,5 +24,6 @@ extension EnvironmentValues {
             )
         }
     }
+
 }
 #endif

@@ -116,7 +116,12 @@ struct IrxBrokerMintRetryTests {
                 cacheDirectory: cacheDirectory
             ),
             identity: testIdentity,
-            accessTokenPair: { ("test-access-token", "test-refresh-token") },
+            tokenSource: CmxIrohBrokerTokenSource(credentialPair: {
+                CmxIrohBrokerCredentials(
+                    accessToken: "test-access-token",
+                    refreshToken: "test-refresh-token"
+                )
+            }),
             journal: journal
         )
     }

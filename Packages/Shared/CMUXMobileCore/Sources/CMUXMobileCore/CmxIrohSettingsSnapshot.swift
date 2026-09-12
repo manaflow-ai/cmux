@@ -5,6 +5,9 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
     public enum RuntimeStatus: Equatable, Sendable {
         case inactive
         case starting
+        /// The endpoint remains available while a transient broker operation
+        /// waits on its bounded retry delay.
+        case retrying
         /// Endpoint is active, but no live peer path is currently attributable.
         case active
         case direct
@@ -166,6 +169,13 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
     public let policyExpiresAt: Date?
     public let staleRelayIDs: Set<String>
     public let failureDescription: String?
+    /// True when the broker rejected the session after the one refresh attempt.
+    /// This is distinct from a transient degraded relay-policy state.
+    public let requiresReauthentication: Bool
+    /// Whether this runtime supports editing account relay definitions.
+    /// Unsupported runtimes expose status and diagnostics but keep inert
+    /// preference controls out of the settings surface.
+    public let supportsRelayConfiguration: Bool
     /// Debug-only path constraint, or `nil` when the current app cannot control it.
     public let debugTransportVerificationMode: CmxIrohTransportVerificationMode?
 
@@ -188,6 +198,8 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
         policyExpiresAt: Date? = nil,
         staleRelayIDs: Set<String> = [],
         failureDescription: String? = nil,
+        requiresReauthentication: Bool = false,
+        supportsRelayConfiguration: Bool = true,
         debugTransportVerificationMode: CmxIrohTransportVerificationMode? = nil
     ) {
         self.runtimeStatus = runtimeStatus
@@ -203,6 +215,8 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
         self.policyExpiresAt = policyExpiresAt
         self.staleRelayIDs = staleRelayIDs
         self.failureDescription = failureDescription
+        self.requiresReauthentication = requiresReauthentication
+        self.supportsRelayConfiguration = supportsRelayConfiguration
         self.debugTransportVerificationMode = debugTransportVerificationMode
     }
 

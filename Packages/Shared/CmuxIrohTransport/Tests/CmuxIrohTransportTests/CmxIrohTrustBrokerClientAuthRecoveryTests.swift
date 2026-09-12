@@ -128,6 +128,67 @@ struct CmxIrohTrustBrokerClientAuthRecoveryTests {
     }
 
     @Test
+    func accountPinnedRefreshRejectionIsObservableToTheHost() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 401, body: #"{"error":"unauthorized"}"#),
+        ])
+        let client = try CmxIrohTrustBrokerClient(
+            baseURL: #require(URL(string: "https://cmux.example")),
+            tokenSource: .accountPinned(
+                to: "account-a",
+                snapshot: {
+                    CmxIrohAccountCredentialSnapshot(
+                        accountID: "account-a",
+                        credentials: CmxIrohBrokerCredentials(
+                            accessToken: "stale-access",
+                            refreshToken: "stale-refresh"
+                        )
+                    )
+                },
+                forceRefresh: {
+                    throw CmxIrohBrokerTokenRecoveryError.authenticationRequired
+                }
+            ),
+            clientNamespace: "legacy",
+            transport: transport
+        )
+
+        await #expect(throws: CmxIrohBrokerTokenRecoveryError.authenticationRequired) {
+            _ = try await client.issueChallenge(try Self.challengeRequest)
+        }
+        #expect(await transport.requests().count == 1)
+    }
+
+    @Test
+    func accountPinnedTransientRefreshFailureStaysRetryable() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 401, body: #"{"error":"unauthorized"}"#),
+        ])
+        let client = try CmxIrohTrustBrokerClient(
+            baseURL: #require(URL(string: "https://cmux.example")),
+            tokenSource: .accountPinned(
+                to: "account-a",
+                snapshot: {
+                    Self.accountSnapshot(
+                        accountID: "account-a",
+                        accessToken: "stale-access"
+                    )
+                },
+                forceRefresh: {
+                    throw CmxIrohBrokerTokenRecoveryError.transient
+                }
+            ),
+            clientNamespace: "legacy",
+            transport: transport
+        )
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity(nil)) {
+            _ = try await client.issueChallenge(try Self.challengeRequest)
+        }
+        #expect(await transport.requests().count == 1)
+    }
+
+    @Test
     func forbiddenRejectionDoesNotInvokeRecovery() async throws {
         let transport = RecordingBrokerTransport(responses: [
             .json(status: 403, body: #"{"error":"forbidden"}"#),
@@ -210,6 +271,74 @@ struct CmxIrohTrustBrokerClientAuthRecoveryTests {
 
         #expect(await snapshots.forceRefreshCount == 1)
         #expect(await transport.requests().count == 2)
+    }
+
+    @Test
+    func transientSnapshotReadStillUsesOneForceRefresh() async throws {
+        let source = FlakyAccountSnapshotSource(
+            stale: Self.accountSnapshot(
+                accountID: "account-a",
+                accessToken: "stale-access"
+            ),
+            fresh: Self.accountSnapshot(
+                accountID: "account-a",
+                accessToken: "fresh-access"
+            )
+        )
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 401, body: #"{"error":"unauthorized"}"#),
+            .json(status: 201, body: Self.challengeBody),
+        ])
+        let client = try CmxIrohTrustBrokerClient(
+            baseURL: #require(URL(string: "https://cmux.example")),
+            tokenSource: .accountPinned(
+                to: "account-a",
+                snapshot: { try await source.snapshot() },
+                forceRefresh: { await source.forceRefresh() }
+            ),
+            clientNamespace: "legacy",
+            transport: transport
+        )
+
+        _ = try await client.issueChallenge(try Self.challengeRequest)
+
+        #expect(await source.forceRefreshCount == 1)
+        let requests = await transport.requests()
+        #expect(requests.count == 2)
+        #expect(
+            requests.last?.value(
+                forHTTPHeaderField: "Authorization"
+            ) == "Bearer fresh-access"
+        )
+    }
+
+    @Test
+    func postRefreshSnapshotFailureRemainsTransient() async throws {
+        let source = PostRefreshFailingSnapshotSource(
+            snapshot: Self.accountSnapshot(
+                accountID: "account-a",
+                accessToken: "stale-access"
+            )
+        )
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 401, body: #"{"error":"unauthorized"}"#),
+        ])
+        let client = try CmxIrohTrustBrokerClient(
+            baseURL: #require(URL(string: "https://cmux.example")),
+            tokenSource: .accountPinned(
+                to: "account-a",
+                snapshot: { try await source.snapshot() },
+                forceRefresh: { await source.forceRefresh() }
+            ),
+            clientNamespace: "legacy",
+            transport: transport
+        )
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity(nil)) {
+            _ = try await client.issueChallenge(try Self.challengeRequest)
+        }
+        #expect(await source.forceRefreshCount == 1)
+        #expect(await transport.requests().count == 1)
     }
 
     @Test
@@ -302,5 +431,25 @@ struct CmxIrohTrustBrokerClientAuthRecoveryTests {
                 refreshToken: "\(accessToken)-refresh"
             )
         )
+    }
+}
+
+private actor PostRefreshFailingSnapshotSource {
+    private let value: CmxIrohAccountCredentialSnapshot
+    private var reads = 0
+    private(set) var forceRefreshCount = 0
+
+    init(snapshot: CmxIrohAccountCredentialSnapshot) {
+        value = snapshot
+    }
+
+    func snapshot() throws -> CmxIrohAccountCredentialSnapshot? {
+        reads += 1
+        if reads == 3 { throw CmxIrohBrokerTokenRecoveryError.transient }
+        return value
+    }
+
+    func forceRefresh() {
+        forceRefreshCount += 1
     }
 }

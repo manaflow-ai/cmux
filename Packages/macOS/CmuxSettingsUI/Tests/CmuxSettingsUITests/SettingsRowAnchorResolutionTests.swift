@@ -167,6 +167,7 @@ struct SettingsRowAnchorResolutionTests {
         "setting:mobile:phone-push-forwarding",
         "setting:mobile:phone-push-mode",
         "setting:mobile:phone-push-hide-content",
+        "setting:mobile:irohStatus",
         "setting:mobile:iOSPairingHost",
         "setting:mobile:iOSPairingPort",
         "setting:mobile:iOSPairingDisplayName",

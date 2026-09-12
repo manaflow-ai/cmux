@@ -261,6 +261,10 @@ final class AppCompositionRoot {
                         }
                     }
                 }
+                // Auth has cleared the local session before this teardown
+                // runs, so the provisioning loop cannot start a replacement
+                // broker while the old account is being retired.
+                await irx?.resetForSignOut()
                 await diagnosticLog.clear()
             }
         }
