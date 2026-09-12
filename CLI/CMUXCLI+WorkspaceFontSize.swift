@@ -22,7 +22,10 @@ extension CMUXCLI {
         guard let firstLine = workspaceFontSizeCommandUsage.components(separatedBy: .newlines).first else {
             return ""
         }
-        return firstLine.split(separator: " ", maxSplits: 1).dropFirst().joined(separator: " ")
+        guard let commandStart = firstLine.range(of: "cmux ") else {
+            return firstLine
+        }
+        return String(firstLine[commandStart.upperBound...])
     }
 
     private enum WorkspaceFontSizeAction: String {
