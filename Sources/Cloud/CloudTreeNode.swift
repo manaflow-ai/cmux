@@ -878,7 +878,24 @@ enum CloudTreeNodeBuilder {
                 projectionIndex: projectionIndex
             ))
         }
-        return children
+        let groupForTag: [String: CloudTreeGroupPreferences.Group] = [
+            "workspacesGroup": .workspaces,
+            "terminalsPool": .terminals,
+            "browsersGroup": .browsers,
+            "displaysPool": .displays,
+            "portsGroup": .ports,
+        ]
+        let hidden = CloudTreeGroupPreferences.hidden()
+        let visible = children.filter { node in
+            guard let group = groupForTag[node.structureTag] else { return true }
+            return !hidden.contains(group)
+        }
+        let rank = Dictionary(uniqueKeysWithValues: CloudTreeGroupPreferences.ordered().enumerated().map { ($1, $0) })
+        return visible.sorted { lhs, rhs in
+            let l = groupForTag[lhs.structureTag].flatMap { rank[$0] } ?? Int.max
+            let r = groupForTag[rhs.structureTag].flatMap { rank[$0] } ?? Int.max
+            return l == r ? lhs.id < rhs.id : l < r
+        }
     }
 
     /// The Workspaces group is a placement projection of the daemon graph. A
