@@ -236,8 +236,7 @@ struct PanelContentView: View {
                 CloudVPNSetupPanelView(
                     appearance: appearance,
                     onRequestPanelFocus: onRequestPanelFocus,
-                    model: vpnPanel.model,
-                    portAccessStore: CmuxTuiSurfaceProviderRegistry.shared.portAccess
+                    model: vpnPanel.model
                 )
             }
         }
