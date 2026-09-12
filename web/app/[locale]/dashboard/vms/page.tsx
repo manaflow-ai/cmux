@@ -5,6 +5,10 @@ import { isStackConfigured } from "@/app/lib/stack";
 import { redirect } from "next/navigation";
 import { VmsDashboard } from "./vms-dashboard";
 
+// The dashboard session is request-scoped. Opt this route out of Next's
+// instant prerender path so the session read stays behind the page boundary.
+export const instant = false;
+
 export default async function VmsDashboardPage({
   params,
 }: { readonly params: Promise<{ locale: string }> }) {
