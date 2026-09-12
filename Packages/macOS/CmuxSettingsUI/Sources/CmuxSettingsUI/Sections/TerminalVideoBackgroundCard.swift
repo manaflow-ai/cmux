@@ -25,6 +25,7 @@ struct TerminalVideoBackgroundCard: View {
     @State private var showGhosttySetupConfirmation = false
     @State private var showGhosttySetupFailure = false
     @State private var pendingEnableAfterSetup = false
+    @State private var pendingEnableRequestGeneration: Int?
     @State private var isSettingUpGhostty = false
     @State private var enableRequestGeneration = 0
 
@@ -98,6 +99,7 @@ struct TerminalVideoBackgroundCard: View {
             }
             Button(String(localized: "settings.terminal.videoBackground.ghostty.confirm.cancel", defaultValue: "Cancel"), role: .cancel) {
                 pendingEnableAfterSetup = false
+                pendingEnableRequestGeneration = nil
             }
         } message: {
             Text(ghosttyConfirmationMessage)
@@ -134,6 +136,7 @@ struct TerminalVideoBackgroundCard: View {
                 if opacityStatus.isAvailable {
                     Button(String(localized: "settings.terminal.videoBackground.ghostty.setup", defaultValue: "Set to 80%")) {
                         pendingEnableAfterSetup = false
+                        pendingEnableRequestGeneration = nil
                         showGhosttySetupConfirmation = true
                     }
                     .controlSize(.small)
@@ -296,6 +299,8 @@ struct TerminalVideoBackgroundCard: View {
         enableRequestGeneration += 1
         let generation = enableRequestGeneration
         guard requested else {
+            pendingEnableAfterSetup = false
+            pendingEnableRequestGeneration = nil
             enabled.set(false)
             return
         }
@@ -304,24 +309,31 @@ struct TerminalVideoBackgroundCard: View {
             guard generation == enableRequestGeneration else { return }
             opacityStatus = status
             guard status.isAvailable, !status.isUsable else {
+                pendingEnableAfterSetup = false
+                pendingEnableRequestGeneration = nil
                 enabled.set(true)
                 return
             }
             pendingEnableAfterSetup = true
+            pendingEnableRequestGeneration = generation
             showGhosttySetupConfirmation = true
         }
     }
 
     private func setupGhosttyOpacity() {
+        let setupGeneration = enableRequestGeneration
         isSettingUpGhostty = true
         Task { @MainActor in
             let succeeded = await hostActions.setVideoBackgroundGhosttyOpacity()
             isSettingUpGhostty = false
             opacityStatus = await hostActions.videoBackgroundGhosttyOpacityStatus()
             if succeeded {
-                if pendingEnableAfterSetup { enabled.set(true) }
-                pendingEnableAfterSetup = false
-            } else {
+                if pendingEnableAfterSetup && pendingEnableRequestGeneration == setupGeneration {
+                    enabled.set(true)
+                    pendingEnableAfterSetup = false
+                    pendingEnableRequestGeneration = nil
+                }
+            } else if setupGeneration == enableRequestGeneration {
                 showGhosttySetupFailure = true
             }
         }

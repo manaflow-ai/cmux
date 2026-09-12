@@ -310,6 +310,12 @@ public struct VideoBackgroundEmbedPage: Sendable {
                       if (playlistHasFinished(event.target)) {
                         postToHost({ event: 'ended' });
                       }
+                    } else if (isPlaylist) {
+                      if (typeof event.target.nextVideo === 'function') {
+                        event.target.nextVideo();
+                      } else {
+                        event.target.playVideo();
+                      }
                     } else {
                       // `loop` handles wrap-around; this covers edge cases
                       // where the player lands in ENDED anyway.
