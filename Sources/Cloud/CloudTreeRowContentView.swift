@@ -57,7 +57,7 @@ struct CloudTreeRowContentView: View {
     /// draw the ledger hairline.
     private var showsSeparator: Bool {
         switch kind {
-        case .machine, .localMachine, .placeholder: return false
+        case .machine, .localMachine, .pendingMachine, .placeholder: return false
         default: return true
         }
     }
@@ -75,7 +75,7 @@ struct CloudTreeRowContentView: View {
             groupRow(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count)
         case .workspacesGroup:
             groupRow(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"))
-        case .workspace(_, let workspace, let terminalCount):
+        case .workspace(_, let workspace, let terminalCount, _, _):
             CloudTreeLeafRow(
                 style: style,
                 icon: "folder.fill",
@@ -95,7 +95,7 @@ struct CloudTreeRowContentView: View {
             )
         case .terminal(let row):
             CloudTreeTerminalRowContent(row: row, style: style)
-        case .display(let resource):
+        case .display(let resource, _, _):
             CloudTreeLeafRow(
                 style: style,
                 icon: "display",
@@ -115,7 +115,7 @@ struct CloudTreeRowContentView: View {
             )
         case .portsGroup:
             groupRow(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"))
-        case .port(let resource):
+        case .port(let resource, _, _):
             CloudTreeLeafRow(
                 style: style,
                 icon: "network",
