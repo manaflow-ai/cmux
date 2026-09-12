@@ -11,23 +11,25 @@ struct CloudBrowserAccessView<Content: View>: View {
         let state = panel.cloudAccess
         Group {
             if let model = state.model {
-                if state.showsPage { content() } else {
-                    CloudBrowserConnectionCard(
-                        address: state.remoteURL?.absoluteString ?? "",
-                        phase: model.phase,
-                        message: state.error ?? model.failureMessage ?? (model.phase == .needsVPN ? model.vpn.unavailableMessage : nil),
-                        setupTitle: model.vpn.state == .awaitingApproval
-                            ? String(localized: "cloud.vpn.setup.openSettings", defaultValue: "Open System Settings")
-                            : String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…"),
-                        onSetup: {
-                            if model.vpn.state == .awaitingApproval { SystemExtensionSettingsLink.open() }
-                            else { Task { await model.vpn.connect() } }
-                        },
-                        onRetry: {
-                            state.retry()
-                            navigateIfReady()
-                        }
-                    )
+                Group {
+                    if state.showsPage { content() } else {
+                        CloudBrowserConnectionCard(
+                            address: state.remoteURL?.absoluteString ?? "",
+                            phase: model.phase,
+                            message: state.error ?? model.failureMessage ?? (model.phase == .needsVPN ? model.vpn.unavailableMessage : nil),
+                            setupTitle: model.vpn.state == .awaitingApproval
+                                ? String(localized: "cloud.vpn.setup.openSettings", defaultValue: "Open System Settings")
+                                : String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…"),
+                            onSetup: {
+                                if model.vpn.state == .awaitingApproval { SystemExtensionSettingsLink.open() }
+                                else { Task { await model.vpn.connect() } }
+                            },
+                            onRetry: {
+                                state.retry()
+                                navigateIfReady()
+                            }
+                        )
+                    }
                 }
                 .task(id: model.phase) { navigateIfReady() }
                 .task(id: state.remoteURL) { navigateIfReady() }
@@ -49,7 +51,7 @@ struct CloudBrowserAccessView<Content: View>: View {
 
     private var showsNativeContent: Bool {
         panel.cloudAccess.unavailable != nil ||
-            (panel.cloudAccess.model != nil && (showsVPNSetup || !panel.cloudAccess.showsPage))
+            (panel.cloudAccess.model != nil && !panel.cloudAccess.showsPage)
     }
 
     private func navigateIfReady() {
