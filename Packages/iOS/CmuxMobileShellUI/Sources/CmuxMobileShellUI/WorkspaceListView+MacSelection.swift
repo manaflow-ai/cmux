@@ -14,6 +14,14 @@ enum WorkspaceMacSelection: Hashable {
 }
 
 extension WorkspaceListView {
+    private var isStoreFreeWorkspacePreview: Bool {
+        #if canImport(UIKit) && DEBUG
+        store == nil && UITestConfig.workspaceListLayoutPreviewEnabled
+        #else
+        false
+        #endif
+    }
+
     var displayPairedMacsForPicker: [MobilePairedMac] {
         if let store {
             return store.displayPairedMacs
@@ -40,14 +48,26 @@ extension WorkspaceListView {
     }
 
     var activeFilter: MobileWorkspaceListFilter {
-        macSelectionScope.activeFilter(base: filter)
+        if isStoreFreeWorkspacePreview { return filter }
+        return macSelectionScope.activeFilter(base: filter)
     }
 
     var visibleMacSelection: WorkspaceMacSelection {
-        macSelectionScope.visibleSelection
+        if isStoreFreeWorkspacePreview { return macSelection }
+        return macSelectionScope.visibleSelection
     }
 
     var liveMachineSnapshots: WorkspaceMachineSnapshots {
+        if isStoreFreeWorkspacePreview {
+            return WorkspaceMachineSnapshots(
+                workspaces: workspaces,
+                filterMachineIDFor: { _ in nil },
+                macPickerMachineIDs: [],
+                namesByID: [:],
+                buildLabelsByID: [:],
+                fallbackName: fallbackMacPickerName
+            )
+        }
         let scope = macSelectionScope
         return WorkspaceMachineSnapshots(
             workspaces: workspaces,
@@ -104,6 +124,7 @@ extension WorkspaceListView {
     }
 
     var filterMenuPresentMachineIDs: [String] {
+        if isStoreFreeWorkspacePreview { return [] }
         let aliasIndex = macSelectionScope.aliasIndex
         var seen = Set<String>()
         var present: [String] = []
