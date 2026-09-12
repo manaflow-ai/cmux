@@ -342,6 +342,7 @@ public actor ChromiumBrowserSession {
                 parameters: .object(["enabled": .bool(true)])
             )
             await refreshMainFrame(using: cdp)
+            await refreshTitle(using: cdp)
             // Frame delivery is demand-driven by the AppKit host. Hidden
             // panes do not start a screencast, which avoids retaining and
             // decoding viewport images while a tab is offscreen.
@@ -432,11 +433,12 @@ public actor ChromiumBrowserSession {
                 // completing a newer operation.
                 owlNavigationSawLoadingEvent = true
                 isLoading = true
-                if owlNavigationIntent == nil, let eventURL, !Self.matches(url: currentURL, target: eventURL) {
+                if owlNavigationIntent == nil, let eventURL {
                     // Renderer-started navigations have no caller to start
                     // the fallback monitor. The loading callback is the
                     // operation's start edge; readiness still verifies the
-                    // complete document before committing it.
+                    // complete document before committing it. This applies to
+                    // same-URL reloads and form submissions as well as URL changes.
                     beginOwlNavigation(
                         .rendererDestination(eventURL),
                         baselineDocumentEpoch: owlCurrentDocumentEpoch
@@ -801,8 +803,7 @@ public actor ChromiumBrowserSession {
         if let url = frame["url"]?.stringValue, let parsedURL = URL(string: url) {
             currentURL = parsedURL
         }
-        if let frameTitle = frame["name"]?.stringValue, !frameTitle.isEmpty {
-            title = frameTitle
-        }
+        // Frame.name is the target/window name, not the document title. Read
+        // the actual title through Runtime.evaluate after the frame snapshot.
     }
 }

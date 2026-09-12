@@ -136,10 +136,11 @@ extension ChromiumBrowserSession {
         let quotedToken = "\"\(token)\""
         let isExpression: Bool
         do {
-            // Parse in a short-circuited expression without executing the
-            // caller's source. This lets the await wrapper embed source
-            // directly, so page CSP never has to permit eval/new Function.
-            _ = try runtime.evaluate("0 && (\(script))")
+            // Parse in a short-circuited expression inside an async arrow
+            // without executing the caller's source. The async context keeps
+            // top-level `await` valid in the probe while page CSP never has to
+            // permit eval/new Function.
+            _ = try runtime.evaluate("(async () => 0 && (\(script)))")
             isExpression = true
         } catch {
             isExpression = false

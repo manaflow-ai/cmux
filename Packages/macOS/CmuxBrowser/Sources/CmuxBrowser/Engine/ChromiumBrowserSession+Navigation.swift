@@ -193,7 +193,7 @@ extension ChromiumBrowserSession {
         after revision: UInt64
     ) async throws {
         let targetMatchesCurrent = targetURL.map { matchesCurrentURL($0) } ?? true
-        var sawNavigationEvent = navigationRevision > revision &+ 1
+        var sawNavigationEvent = navigationRevision > revision
         if ChromiumNavigationCompletionPredicate.accepts(
             revisionAdvanced: navigationRevision > revision,
             loading: isLoading,
@@ -205,7 +205,7 @@ extension ChromiumBrowserSession {
         let stream = snapshots()
         for await value in stream {
             try Task.checkCancellation()
-            sawNavigationEvent = sawNavigationEvent || value.navigationRevision > revision &+ 1
+            sawNavigationEvent = sawNavigationEvent || value.navigationRevision > revision
             switch value.state {
             case .crashed(let status):
                 throw CDPError.disconnected(ChromiumBrowserDiagnostic.rendererExited(status).message)
