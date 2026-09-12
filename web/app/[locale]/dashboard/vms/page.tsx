@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 import { loadDashboardSection } from "@/app/lib/dashboard-auth";
 import { isStackConfigured } from "@/app/lib/stack";
@@ -22,7 +23,9 @@ export default async function VmsDashboardPage({
         <h1 className="text-sm font-medium">{t("title")}</h1>
         <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
       </div>
-      <VmsDashboard userId={section.user.id} userEmail={section.user.primaryEmail ?? ""} />
+      <Suspense fallback={<p className="text-muted">{t("loading")}</p>}>
+        <VmsDashboard userId={section.user.id} userEmail={section.user.primaryEmail ?? ""} />
+      </Suspense>
     </div>
   );
 }
