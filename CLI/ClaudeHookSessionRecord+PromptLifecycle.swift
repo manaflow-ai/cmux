@@ -37,16 +37,22 @@ extension ClaudeHookSessionRecord {
             ? (previousActiveTurnId ?? lastPromptTurnId)
             : nil
         let previousInvocationNumber = activePromptInvocationNumber
+        let isExplicitlyNewTurn = turnId != nil && turnId != previousObservedTurnId
         var state = promptLifecycleState
         state.beginAuthoritativePrompt(
             turnID: turnId,
             invocationNumber: invocationNumber
         )
         promptLifecycleState = state
+        if isExplicitlyNewTurn, invocationNumber == nil {
+            // A new explicit turn without an invocation number must not inherit
+            // the previous turn's counter and misclassify invocation zero as a
+            // second generation reset.
+            activePromptInvocationNumber = nil
+        }
         // Antigravity emits PreInvocation once per model invocation within a
         // single turn. Keep those repeated callbacks in one generation, while
         // still fencing a new turn when it has an explicit, changed ID.
-        let isExplicitlyNewTurn = turnId != nil && turnId != previousObservedTurnId
         let isResetInvocation: Bool = {
             guard turnId == nil,
                   let invocationNumber,

@@ -804,6 +804,103 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(finalRecord["runtimeStatus"] as? String, "idle")
     }
 
+    func testAntigravityNewTurnWithoutInvocationDoesNotDoubleAdvanceGeneration() throws {
+        let context = try makeClaudeHookContext(name: "antigravity-invocation-reset")
+        defer { context.cleanup() }
+
+        startAgentHookMockServerAccepting(context: context)
+        let sessionId = "antigravity-invocation-reset-session"
+        func run(
+            _ subcommand: String,
+            payload: String,
+            extraEnvironment: [String: String] = [:]
+        ) -> ProcessRunResult {
+            runAgentHook(
+                context: context,
+                agent: "antigravity",
+                subcommand: subcommand,
+                standardInput: payload,
+                extraEnvironment: extraEnvironment
+            )
+        }
+
+        XCTAssertEqual(
+            run(
+                "session-start",
+                payload: #"{"conversationId":"\#(sessionId)","workspacePaths":["\#(context.root.path)"],"hook_event_name":"SessionStart"}"#
+            ).status,
+            0
+        )
+        XCTAssertEqual(
+            run(
+                "prompt-submit",
+                payload: #"{"conversationId":"\#(sessionId)","turn_id":"turn-1","invocationNum":2,"workspacePaths":["\#(context.root.path)"],"hook_event_name":"PreInvocation"}"#
+            ).status,
+            0
+        )
+        let firstRecord = try readAntigravityHookSession(sessionId, context: context)
+        assertActivePromptState(firstRecord)
+        let firstRevision = try XCTUnwrap(
+            (firstRecord["promptLifecycleRevision"] as? NSNumber)?.int64Value
+        )
+
+        XCTAssertEqual(
+            run(
+                "prompt-submit",
+                payload: #"{"conversationId":"\#(sessionId)","turn_id":"turn-2","workspacePaths":["\#(context.root.path)"],"hook_event_name":"PreInvocation"}"#
+            ).status,
+            0
+        )
+        let secondRecord = try readAntigravityHookSession(sessionId, context: context)
+        assertActivePromptState(secondRecord)
+        let secondRevision = try XCTUnwrap(
+            (secondRecord["promptLifecycleRevision"] as? NSNumber)?.int64Value
+        )
+        XCTAssertGreaterThan(secondRevision, firstRevision)
+
+        let barrier = context.root.appendingPathComponent("invocation-reset-stop.barrier").path
+        FileManager.default.createFile(atPath: barrier, contents: Data())
+        let delayedStopFinished = expectation(description: "delayed invocation-reset Stop finishes")
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = self.runAgentHook(
+                context: context,
+                agent: "antigravity",
+                subcommand: "stop",
+                standardInput: #"{"conversationId":"\#(sessionId)","turn_id":"turn-2","fullyIdle":true,"terminationReason":"model_stop","workspacePaths":["\#(context.root.path)"],"hook_event_name":"Stop"}"#,
+                extraEnvironment: ["CMUX_TEST_AGENT_HOOK_STOP_BARRIER": barrier]
+            )
+            delayedStopFinished.fulfill()
+        }
+
+        let readyPath = barrier + ".ready"
+        let readyDeadline = Date().addingTimeInterval(5)
+        while !FileManager.default.fileExists(atPath: readyPath), Date() < readyDeadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: readyPath))
+
+        let firstInvocationOfNewTurn = run(
+            "prompt-submit",
+            payload: #"{"conversationId":"\#(sessionId)","invocationNum":0,"workspacePaths":["\#(context.root.path)"],"hook_event_name":"PreInvocation"}"#
+        )
+        XCTAssertEqual(firstInvocationOfNewTurn.status, 0, firstInvocationOfNewTurn.stderr)
+        let resetRecord = try readAntigravityHookSession(sessionId, context: context)
+        assertActivePromptState(resetRecord)
+        XCTAssertEqual(
+            (resetRecord["promptLifecycleRevision"] as? NSNumber)?.int64Value,
+            secondRevision,
+            "Invocation zero on the new turn must not double-advance after the explicit turn reset"
+        )
+
+        try FileManager.default.removeItem(atPath: barrier)
+        wait(for: [delayedStopFinished], timeout: 5)
+
+        let finalRecord = try readAntigravityHookSession(sessionId, context: context)
+        XCTAssertNil(finalRecord["activePromptDepth"])
+        XCTAssertEqual(finalRecord["agentLifecycle"] as? String, "idle")
+        XCTAssertEqual(finalRecord["runtimeStatus"] as? String, "idle")
+    }
+
     func testAntigravityConcurrentStopsRetainSamePromptRevision() throws {
         let context = try makeClaudeHookContext(name: "antigravity-concurrent-completions")
         defer { context.cleanup() }
