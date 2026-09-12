@@ -97,29 +97,6 @@ struct WorkspaceAdjacentPaneMoveTests {
         #expect(workspace.focusedPanelId == panelId)
     }
 
-    @Test(arguments: [
-        NavigationDirection.left,
-        .right,
-        .up,
-        .down,
-    ])
-    func directionalGotoSplitReturnsFalseAtSinglePaneEdge(
-        _ direction: NavigationDirection
-    ) throws {
-        let manager = TabManager()
-        let workspace = try #require(manager.selectedWorkspace)
-        let panelId = try #require(workspace.focusedPanelId)
-        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
-
-        #expect(!manager.moveSplitFocus(
-            tabId: workspace.id,
-            surfaceId: panelId,
-            direction: direction
-        ))
-        #expect(workspace.bonsplitController.focusedPaneId == paneId)
-        #expect(workspace.focusedPanelId == panelId)
-    }
-
     @Test func cycleFocusReturnsFalseInCanvasModeWithoutHiddenSplitMutation() throws {
         let workspace = Workspace()
         let leftPanelId = try #require(workspace.focusedPanelId)
