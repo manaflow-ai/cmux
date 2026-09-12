@@ -1756,6 +1756,7 @@ else
   cmux_tui_install_args=(
     "$APP_PATH"
     --require-capability wireguard-hub
+    --require-capability exit-with-parent
   )
   if [[ -n "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" ]]; then
     cmux_tui_install_args+=(

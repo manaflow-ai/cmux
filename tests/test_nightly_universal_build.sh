@@ -335,8 +335,9 @@ for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
     exit 1
   fi
   if ! grep -Fq -- '--expected-commit "$cmux_tui_commit"' "$workflow" ||
-     ! grep -Fq -- '--require-capability wireguard-hub' "$workflow"; then
-    echo "FAIL: $(basename "$workflow") must reject a stale cmux-tui client without WireGuard hub support"
+     ! grep -Fq -- '--require-capability wireguard-hub' "$workflow" ||
+     ! grep -Fq -- '--require-capability exit-with-parent' "$workflow"; then
+    echo "FAIL: $(basename "$workflow") must reject a stale cmux-tui client without required Cloud helper support"
     exit 1
   fi
 done
@@ -357,8 +358,10 @@ for expected in '--expected-commit' '--require-capability' 'required cmux-tui ca
 done
 
 if ! grep -A8 -F 'cmux_tui_install_args=(' "$ROOT_DIR/scripts/reload.sh" |
-   grep -Fq -- '--require-capability wireguard-hub'; then
-  echo "FAIL: tagged reloads must reject a cmux-tui client without WireGuard hub support"
+   grep -Fq -- '--require-capability wireguard-hub' ||
+   ! grep -A8 -F 'cmux_tui_install_args=(' "$ROOT_DIR/scripts/reload.sh" |
+   grep -Fq -- '--require-capability exit-with-parent'; then
+  echo "FAIL: tagged reloads must reject a cmux-tui client without required Cloud helper support"
   exit 1
 fi
 

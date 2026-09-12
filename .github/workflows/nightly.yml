@@ -428,8 +428,9 @@ jobs:
               raise SystemExit(
                   f"cmux-tui build identity {probe.get('build_identity')!r} != {expected!r}"
               )
-          if "wireguard-hub" not in probe.get("capabilities", []):
-              raise SystemExit("fast cmux-tui client lacks wireguard-hub capability")
+          for capability in ("wireguard-hub", "exit-with-parent"):
+              if capability not in probe.get("capabilities", []):
+                  raise SystemExit(f"fast cmux-tui client lacks {capability} capability")
           PY
 
       - name: Cache Swift packages
@@ -524,7 +525,8 @@ jobs:
             test -x "$local_client"
             CMUX_TUI_CLIENT_LOCAL="$local_client" \
               ./scripts/install-cmux-tui-client.sh "$app" \
-              --require-capability wireguard-hub
+              --require-capability wireguard-hub \
+              --require-capability exit-with-parent
           else
             # actions/checkout is depth 1 here, so a bare `git log -1 -- cmux-tui` would answer
             # HEAD. The resolver deepens as needed and may bundle the newest *published*
@@ -535,7 +537,8 @@ jobs:
               "$app" \
               --manifest-url "https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json" \
               --expected-commit "$cmux_tui_commit" \
-              --require-capability wireguard-hub
+              --require-capability wireguard-hub \
+              --require-capability exit-with-parent
           fi
 
       - name: Strip unsigned nightly app before transfer

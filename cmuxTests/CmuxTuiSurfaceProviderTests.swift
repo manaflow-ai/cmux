@@ -857,6 +857,18 @@ import Testing
         }
     }
 
+    @Test func synchronizableStateRejectsHeterogeneousGraphRowsWithoutCrashing() {
+        var snapshot = Self.sessionSnapshot
+        snapshot["cursor"] = ["generation": "g1", "revision": "1"]
+        snapshot["workspaces"] = [
+            ["id": "workspace_1"] as [String: Any],
+            "malformed row" as Any,
+        ]
+
+        #expect(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: Self.machine) == nil)
+        #expect(CmuxTuiSnapshotParser.terminalProjectionTarget(from: snapshot) == nil)
+    }
+
     @Test func resourceKindWireFormAcceptsTheOldScreenName() throws {
         #expect(SurfaceResourceKind(wire: "display") == .display)
         #expect(SurfaceResourceKind(wire: "screen") == .display, "pre-rename apps and persisted sessions say screen")

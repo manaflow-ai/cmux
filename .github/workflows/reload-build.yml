@@ -143,8 +143,9 @@ jobs:
               raise SystemExit(
                   f"cmux-tui build identity {probe.get('build_identity')!r} != {expected!r}"
               )
-          if "wireguard-hub" not in probe.get("capabilities", []):
-              raise SystemExit("cmux-tui client lacks wireguard-hub capability")
+          for capability in ("wireguard-hub", "exit-with-parent"):
+              if capability not in probe.get("capabilities", []):
+                  raise SystemExit(f"cmux-tui client lacks {capability} capability")
           if expected_ghostty not in version:
               raise SystemExit("cmux-tui client does not carry the checked-out Ghostty identity")
           PY
