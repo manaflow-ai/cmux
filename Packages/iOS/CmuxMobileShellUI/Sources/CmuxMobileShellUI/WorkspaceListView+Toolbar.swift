@@ -90,11 +90,9 @@ extension WorkspaceListView {
                                 )
                             }
                             viewOptionsButton(
-                                orderMachines: setWorkspaceSortMode == nil
-                                    ? []
-                                    : computerOrderSheetMachines(
-                                        machineSnapshots: machineSnapshots
-                                    )
+                                orderMachines: computerOrderSheetMachines(
+                                    machineSnapshots: machineSnapshots
+                                )
                             )
                             if canCreateWorkspace {
                                 newWorkspaceButton.equatable()
