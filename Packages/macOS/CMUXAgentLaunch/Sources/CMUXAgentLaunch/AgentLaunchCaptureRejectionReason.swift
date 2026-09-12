@@ -67,6 +67,17 @@ public struct AgentLaunchCaptureRejectionReason: RawRepresentable, Codable, Hash
     /// the ground behind a stored `source: "rejected"`.
     public static let sanitizerRejectedArgv = Self(rawValue: "sanitizerRejectedArgv")
 
+    /// Whether this ground invalidates the replay-safe environment/default
+    /// fallback. A PID mismatch or shell-wrapper argv only says that the
+    /// fallback PID was not the agent; it does not reject the launch
+    /// environment that the hook itself carried. Unknown future grounds fail
+    /// closed and are treated as positive capture rejections.
+    public var isPositiveCaptureRejection: Bool {
+        self != .argvUnavailable
+            && self != .nativeProcessDoesNotDescribeKind
+            && self != .argvLooksLikeShellWrapper
+    }
+
     /// Chooses the ground a record names when a hook had two argv candidates and
     /// discarded both: the `CMUX_AGENT_LAUNCH_*` capture cmux wrote at launch,
     /// and the argv read back from the hook's PID.

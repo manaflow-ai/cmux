@@ -31796,9 +31796,11 @@ struct CMUXCLI {
         }
         let arguments = envArguments ?? processArguments
         let launcher = envCaptureIsTrusted ? (envLauncher ?? fallbackKind) : fallbackKind
-        let hasRejectedCandidate = [cmuxCaptureRejectionReason, processFallbackRejectionReason]
-            .compactMap { $0 }
-            .contains { $0 != .argvUnavailable }
+        // A PID-only mismatch or shell-wrapper is diagnostic fallback evidence,
+        // not a rejected cmux launch capture: the hook's replay-safe environment
+        // or default verb remains valid. Only a positive cmux capture rejection
+        // quarantines the argv-less record.
+        let hasRejectedCandidate = cmuxCaptureRejectionReason?.isPositiveCaptureRejection == true
         let workingDirectory = (envCaptureIsTrusted ? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"]) : nil)
             ?? normalizedHookValue(cwd)
             ?? normalizedHookValue(env["PWD"])

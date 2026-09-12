@@ -52,12 +52,14 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
     ///
     /// ``AgentLaunchCaptureRejectionReason/argvUnavailable`` describes an absent
     /// candidate and intentionally does not invalidate the historical environment
-    /// or default fallback. Every other reason, and the legacy `source` verdict,
-    /// is a positive rejection that must fail closed for resume and fork.
+    /// or default fallback. PID-only mismatch and shell-wrapper grounds are also
+    /// diagnostic fallback failures rather than positive launch-capture
+    /// rejections. Explicit capture failures, sanitizer rejection, unknown
+    /// grounds, and the legacy `source` verdict fail closed for resume and fork.
     public var isRejectedCapture: Bool {
         guard arguments.isEmpty else { return false }
         if let rejectionReason {
-            return rejectionReason != .argvUnavailable
+            return rejectionReason.isPositiveCaptureRejection
         }
         if source?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "rejected" {
             return true
