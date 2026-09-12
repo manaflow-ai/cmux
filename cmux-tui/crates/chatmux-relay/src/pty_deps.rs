@@ -36,6 +36,8 @@ const THREAD_OUTPUT_BACKLOG_CAP: usize = 1024 * 1024;
 const THREAD_OUTPUT_OVERFLOW_EXIT: i64 = 75;
 const PIPE_OUTPUT_DRAIN_GRACE: Duration = Duration::from_millis(250);
 const PIPE_READ_POLL_MS: i32 = 100;
+const PTY_REAP_RETRY: Duration = Duration::from_millis(100);
+const PTY_REAP_MAX_RETRY: Duration = Duration::from_secs(5);
 // `lifecycle_ready` was added to the cmux-tui control protocol at version 12.
 // This is distinct from the relay's lower-level CONTROL_MIN_PROTOCOL floor.
 const DAEMON_LIFECYCLE_PROTOCOL_MIN: u64 = 12;
@@ -480,11 +482,168 @@ impl Drop for SpawnedChildCleanup {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum ChildLifecycleState {
+    #[default]
+    Running,
+    ReapPending,
+    Exited,
+}
+
+struct ChildLifecycle {
+    state: Mutex<(ChildLifecycleState, bool)>,
+}
+
+impl ChildLifecycle {
+    fn new() -> Arc<Self> {
+        Arc::new(Self { state: Mutex::new((ChildLifecycleState::default(), false)) })
+    }
+
+    fn mark_reap_pending(&self) {
+        let mut state = self.state.lock().expect("child lifecycle lock");
+        if state.0 != ChildLifecycleState::Exited {
+            state.0 = ChildLifecycleState::ReapPending;
+        }
+    }
+
+    fn mark_exited(&self) {
+        self.state.lock().expect("child lifecycle lock").0 = ChildLifecycleState::Exited;
+    }
+
+    fn begin_termination(&self) -> bool {
+        let mut state = self.state.lock().expect("child lifecycle lock");
+        if state.0 == ChildLifecycleState::Exited || state.1 {
+            return false;
+        }
+        state.1 = true;
+        true
+    }
+
+    fn termination_requested(&self) -> bool {
+        self.state.lock().expect("child lifecycle lock").1
+    }
+}
+
+fn force_kill_process_group(pid: libc::pid_t, process_group: libc::pid_t) {
+    if pid <= 0 {
+        return;
+    }
+    // The child remains waitable, and therefore its PID remains reserved,
+    // until the wait owner reaps it. Validate group membership before the
+    // negative-PID signal so a stale group ID cannot target an unrelated group.
+    if process_group > 0 {
+        let current_group = unsafe { libc::getpgid(pid) };
+        if current_group == process_group {
+            unsafe {
+                let _ = libc::kill(-process_group, libc::SIGKILL);
+            }
+        }
+    }
+    // Always signal the primary child independently. It may have moved out of
+    // the original group while descendants remain in that group.
+    unsafe {
+        let _ = libc::kill(pid, libc::SIGKILL);
+    }
+}
+
+enum PtyChildCommand {
+    Kill,
+    ExitReady,
+    ObserveFailed,
+    ObserveUnavailable,
+}
+
+const PTY_OBSERVER_MAX_FAILURES: usize = 8;
+const PTY_REAP_MAX_FAILURES: usize = 8;
+
+/// Own the PTY child and serialize commands with the final reap. If exit
+/// observation becomes unavailable, poll `try_wait` while still receiving
+/// kill requests. A successful poll always falls through to `wait`, so the
+/// child cannot remain an unreaped zombie merely because the observer failed.
+fn run_pty_wait_owner(
+    mut child: Box<dyn cmux_pty::Child + Send + Sync>,
+    pid: libc::pid_t,
+    process_group: libc::pid_t,
+    command_rx: mpsc::Receiver<PtyChildCommand>,
+    lifecycle: Arc<ChildLifecycle>,
+) -> i64 {
+    let mut observer_unavailable = false;
+    let mut reap_failures = 0;
+    let mut reap_retry = PTY_REAP_RETRY;
+    loop {
+        let command = if observer_unavailable {
+            match command_rx.recv_timeout(reap_retry) {
+                Ok(command) => command,
+                Err(mpsc::RecvTimeoutError::Timeout) => match child.try_wait() {
+                    Ok(Some(_)) => break,
+                    Ok(None) => {
+                        reap_failures = 0;
+                        reap_retry = PTY_REAP_RETRY;
+                        continue;
+                    }
+                    Err(_) => {
+                        reap_failures += 1;
+                        if reap_failures >= PTY_REAP_MAX_FAILURES {
+                            reap_failures = 0;
+                        }
+                        reap_retry = (reap_retry * 2).min(PTY_REAP_MAX_RETRY);
+                        continue;
+                    }
+                },
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        } else {
+            match command_rx.recv() {
+                Ok(command) => command,
+                Err(_) => {
+                    if lifecycle.begin_termination() {
+                        force_kill_process_group(pid, process_group);
+                        let _ = child.kill();
+                    }
+                    break;
+                }
+            }
+        };
+
+        match command {
+            PtyChildCommand::ExitReady => break,
+            PtyChildCommand::ObserveFailed => lifecycle.mark_reap_pending(),
+            PtyChildCommand::ObserveUnavailable => {
+                if lifecycle.termination_requested() {
+                    force_kill_process_group(pid, process_group);
+                    let _ = child.kill();
+                    break;
+                }
+                lifecycle.mark_reap_pending();
+                observer_unavailable = true;
+            }
+            PtyChildCommand::Kill => {
+                force_kill_process_group(pid, process_group);
+                let _ = child.kill();
+                break;
+            }
+        }
+    }
+
+    let code = child.wait().map(|status| i64::from(status.exit_code() as i32)).unwrap_or(0);
+    lifecycle.mark_exited();
+    code
+}
+
 /// A real PTY master behind a mutex; write/resize block briefly.
 struct MasterControl {
     master: Mutex<Box<dyn MasterPty + Send>>,
     writer: Mutex<Box<dyn Write + Send>>,
-    killer: Mutex<Box<dyn cmux_pty::ChildKiller + Send + Sync>>,
+    lifecycle: Arc<ChildLifecycle>,
+    command_tx: mpsc::Sender<PtyChildCommand>,
+}
+
+impl Drop for MasterControl {
+    fn drop(&mut self) {
+        if self.lifecycle.begin_termination() {
+            let _ = self.command_tx.send(PtyChildCommand::Kill);
+        }
+    }
 }
 
 impl PtyControl for MasterControl {
@@ -502,8 +661,8 @@ impl PtyControl for MasterControl {
     fn pause(&self) {}
     fn resume(&self) {}
     fn kill(&self) {
-        if let Ok(mut killer) = self.killer.lock() {
-            let _ = killer.kill();
+        if self.lifecycle.begin_termination() {
+            let _ = self.command_tx.send(PtyChildCommand::Kill);
         }
     }
 }
@@ -602,11 +761,20 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     let cmux_pty::SpawnedPty { master, child } = spawned;
     let mut child_cleanup = SpawnedChildCleanup::new(child);
     let writer = master.take_writer()?;
-    let killer = child_cleanup.child().clone_killer();
+    let pid = child_cleanup
+        .child()
+        .process_id()
+        .filter(|pid| *pid > 0)
+        .map(|pid| pid as libc::pid_t)
+        .ok_or_else(|| anyhow::anyhow!("PTY child did not provide a valid process ID"))?;
+    let process_group = master.process_group_leader().filter(|group| *group > 0).unwrap_or(pid);
+    let lifecycle = ChildLifecycle::new();
+    let (command_tx, command_rx) = mpsc::channel();
     let control = Arc::new(MasterControl {
         master: Mutex::new(master),
         writer: Mutex::new(writer),
-        killer: Mutex::new(killer),
+        lifecycle: Arc::clone(&lifecycle),
+        command_tx: command_tx.clone(),
     });
     output.set_overflow_control(&control);
     // Use the same bounded post-exit grace as pipe fallback. A background
@@ -619,10 +787,37 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
         pump_pty(reader, cancel_reader, data_output, data_completion);
     });
     // Blocking wait thread -> exit.
-    let mut child = child_cleanup.take();
+    let child = child_cleanup.take();
     let exit_completion = Arc::clone(&completion);
+    let wait_lifecycle = Arc::clone(&lifecycle);
+    let observer_tx = command_tx;
     std::thread::spawn(move || {
-        let code = child.wait().map(|status| i64::from(status.exit_code() as i32)).unwrap_or(0);
+        let mut failures = 0;
+        loop {
+            match wait_for_child_exit_without_reaping(pid) {
+                Ok(()) => {
+                    if observer_tx.send(PtyChildCommand::ExitReady).is_err() {
+                        break;
+                    }
+                    break;
+                }
+                Err(error) => {
+                    failures += 1;
+                    if failures >= PTY_OBSERVER_MAX_FAILURES {
+                        let _ = observer_tx.send(PtyChildCommand::ObserveUnavailable);
+                        break;
+                    }
+                    let _ = error;
+                    if observer_tx.send(PtyChildCommand::ObserveFailed).is_err() {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+            }
+        }
+    });
+    std::thread::spawn(move || {
+        let code = run_pty_wait_owner(child, pid, process_group, command_rx, wait_lifecycle);
         exit_completion.child_exited(code);
     });
 
@@ -1068,10 +1263,45 @@ pub fn valid_session(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cmux_pty::MasterPty;
+    use std::os::fd::RawFd;
     use std::os::unix::net::UnixStream;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::{Arc as TestArc, Barrier, Mutex as TestMutex, mpsc};
     use std::thread;
+
+    #[derive(Debug)]
+    struct TestMasterPty;
+
+    impl MasterPty for TestMasterPty {
+        fn resize(&self, _size: PtySize) -> Result<(), anyhow::Error> {
+            Ok(())
+        }
+
+        fn get_size(&self) -> Result<PtySize, anyhow::Error> {
+            Ok(PtySize::default())
+        }
+
+        fn try_clone_reader(&self) -> Result<Box<dyn Read + Send>, anyhow::Error> {
+            Ok(Box::new(std::io::empty()))
+        }
+
+        fn take_writer(&self) -> Result<Box<dyn Write + Send>, anyhow::Error> {
+            Ok(Box::new(Vec::<u8>::new()))
+        }
+
+        fn process_group_leader(&self) -> Option<libc::pid_t> {
+            None
+        }
+
+        fn as_raw_fd(&self) -> Option<RawFd> {
+            None
+        }
+
+        fn tty_name(&self) -> Option<PathBuf> {
+            None
+        }
+    }
 
     struct TestControl {
         kills: TestArc<AtomicUsize>,
@@ -1290,6 +1520,155 @@ mod tests {
 
         assert!(matches!(command_rx.recv(), Ok(PipeChildCommand::Kill)));
         assert!(command_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn master_control_kill_is_nonblocking_and_eventually_reaps() {
+        let mut child = std::process::Command::new("/bin/sh");
+        child.args(["-c", "sleep 30"]);
+        unsafe {
+            child.pre_exec(|| {
+                if libc::setsid() == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let mut child = child.spawn().expect("test child");
+        let pid = child.id() as libc::pid_t;
+        let (command_tx, command_rx) = mpsc::channel();
+        thread::spawn(move || {
+            if matches!(command_rx.recv(), Ok(PtyChildCommand::Kill)) {
+                force_kill_process_group(pid, pid);
+            }
+        });
+        let control = TestArc::new(MasterControl {
+            master: TestMutex::new(Box::new(TestMasterPty) as Box<dyn MasterPty + Send>),
+            writer: TestMutex::new(Box::new(Vec::<u8>::new()) as Box<dyn Write + Send>),
+            lifecycle: ChildLifecycle::new(),
+            command_tx,
+        });
+        let (done_tx, done_rx) = mpsc::channel();
+        let kill_control = TestArc::clone(&control);
+        thread::spawn(move || {
+            kill_control.kill();
+            done_tx.send(()).expect("kill completion");
+        });
+
+        assert!(
+            done_rx.recv_timeout(Duration::from_millis(100)).is_ok(),
+            "PTY kill must not wait for child cleanup"
+        );
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            if child.try_wait().expect("test child status").is_some() {
+                break;
+            }
+            assert!(Instant::now() < deadline, "PTY kill must eventually terminate the child");
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn master_control_drop_eventually_reaps_child() {
+        let mut child = std::process::Command::new("/bin/sh");
+        child.args(["-c", "sleep 30"]);
+        unsafe {
+            child.pre_exec(|| {
+                if libc::setsid() == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let mut child = child.spawn().expect("test child");
+        let pid = child.id() as libc::pid_t;
+        let (command_tx, command_rx) = mpsc::channel();
+        thread::spawn(move || {
+            if matches!(command_rx.recv(), Ok(PtyChildCommand::Kill)) {
+                force_kill_process_group(pid, pid);
+            }
+        });
+        let control = MasterControl {
+            master: TestMutex::new(Box::new(TestMasterPty) as Box<dyn MasterPty + Send>),
+            writer: TestMutex::new(Box::new(Vec::<u8>::new()) as Box<dyn Write + Send>),
+            lifecycle: ChildLifecycle::new(),
+            command_tx,
+        };
+        drop(control);
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            if child.try_wait().expect("test child status").is_some() {
+                break;
+            }
+            assert!(Instant::now() < deadline, "dropping PTY control must terminate the child");
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn observer_error_keeps_termination_available_while_reaping() {
+        let lifecycle = ChildLifecycle::new();
+        lifecycle.mark_reap_pending();
+
+        assert!(lifecycle.begin_termination());
+        assert!(!lifecycle.begin_termination());
+    }
+
+    #[derive(Debug)]
+    struct FakeReapChild {
+        try_wait_calls: TestArc<AtomicUsize>,
+        wait_calls: TestArc<AtomicUsize>,
+    }
+
+    impl cmux_pty::ChildKiller for FakeReapChild {
+        fn kill(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+
+        fn clone_killer(&self) -> Box<dyn cmux_pty::ChildKiller + Send + Sync> {
+            Box::new(Self {
+                try_wait_calls: TestArc::clone(&self.try_wait_calls),
+                wait_calls: TestArc::clone(&self.wait_calls),
+            })
+        }
+    }
+
+    impl cmux_pty::Child for FakeReapChild {
+        fn try_wait(&mut self) -> std::io::Result<Option<cmux_pty::ExitStatus>> {
+            self.try_wait_calls.fetch_add(1, AtomicOrdering::SeqCst);
+            Ok(Some(cmux_pty::ExitStatus::with_exit_code(23)))
+        }
+
+        fn wait(&mut self) -> std::io::Result<cmux_pty::ExitStatus> {
+            self.wait_calls.fetch_add(1, AtomicOrdering::SeqCst);
+            Ok(cmux_pty::ExitStatus::with_exit_code(23))
+        }
+
+        fn process_id(&self) -> Option<u32> {
+            None
+        }
+    }
+
+    #[test]
+    fn observer_unavailable_fallback_reaps_without_a_later_command() {
+        let try_wait_calls = TestArc::new(AtomicUsize::new(0));
+        let wait_calls = TestArc::new(AtomicUsize::new(0));
+        let child = Box::new(FakeReapChild {
+            try_wait_calls: TestArc::clone(&try_wait_calls),
+            wait_calls: TestArc::clone(&wait_calls),
+        }) as Box<dyn cmux_pty::Child + Send + Sync>;
+        let lifecycle = ChildLifecycle::new();
+        let (command_tx, command_rx) = mpsc::channel();
+        command_tx.send(PtyChildCommand::ObserveUnavailable).expect("observer event");
+
+        let code = run_pty_wait_owner(child, 0, 0, command_rx, Arc::clone(&lifecycle));
+
+        assert_eq!(code, 23);
+        assert_eq!(try_wait_calls.load(AtomicOrdering::SeqCst), 1);
+        assert_eq!(wait_calls.load(AtomicOrdering::SeqCst), 1);
+        assert_eq!(lifecycle.state.lock().expect("lifecycle lock").0, ChildLifecycleState::Exited);
     }
 
     #[test]
