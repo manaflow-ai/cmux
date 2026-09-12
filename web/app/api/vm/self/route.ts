@@ -7,8 +7,8 @@ import {
   authenticateRequestRouteToken,
   type RouteTokenAuthFailure,
 } from "../../../../services/coderouter/routeTokenAuth";
-import { findTeamMachine, listTeamMachines } from "../../../../services/coderouter/teamMachines";
-import { vmSelfResponse } from "../../../../services/vms/selfDiscovery";
+import { runVmRoute } from "../../../../services/vms/routeWorkflow";
+import { discoverVmSelf } from "../../../../services/vms/workflows";
 
 const JSON_HEADERS = {
   "cache-control": "no-store",
@@ -40,22 +40,21 @@ export async function GET(request: Request): Promise<Response> {
       { status: 403, headers: JSON_HEADERS },
     );
   }
-  let self;
-  let owned;
-  try {
-    [self, owned] = await Promise.all([
-      findTeamMachine(teamId, vmId),
-      listTeamMachines(teamId, { liveOnly: true }),
-    ]);
-  } catch {
-    return Response.json(
-      { error: "machine_lookup_unavailable", retryable: true },
-      { status: 503, headers: { ...JSON_HEADERS, "retry-after": "5" } },
-    );
-  }
-  const body = vmSelfResponse({ teamId, vmId }, self, owned);
-  if (!body) {
-    return Response.json({ error: "vm_not_found", retryable: false }, { status: 404, headers: JSON_HEADERS });
-  }
+  const run = await runVmRoute(discoverVmSelf({ teamId, vmId }), {
+    request,
+    onError: {
+      // The guest contract predates the shared VM error shape: keep its flat
+      // bodies and no-store header so the in-VM `cmux self` shim stays stable.
+      VmDatabaseError: () =>
+        Response.json(
+          { error: "machine_lookup_unavailable", retryable: true },
+          { status: 503, headers: { ...JSON_HEADERS, "retry-after": "5" } },
+        ),
+      VmNotFoundError: () =>
+        Response.json({ error: "vm_not_found", retryable: false }, { status: 404, headers: JSON_HEADERS }),
+    },
+  });
+  if (!run.ok) return run.response;
+  const body = run.value;
   return Response.json(body, { headers: JSON_HEADERS });
 }

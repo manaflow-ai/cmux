@@ -233,6 +233,14 @@
         "web/app/sitemap.ts",
         "web/app/lib/agent-page-paths.ts"
       ]
+    },
+    {
+      "path": ".github/review-bot-rules/cloud-vm-effect-boundary.md",
+      "description": "Source-of-truth cmux lint rule for the Cloud VM Effect boundary in web routes and services.",
+      "scope": [
+        "web/app/api/vm/**",
+        "web/services/vms/**"
+      ]
     }
   ]
 }

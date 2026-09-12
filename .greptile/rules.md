@@ -146,3 +146,11 @@ Flag a new `(landing)` page (or a new path added to `web/app/sitemap.ts`) when i
 Localization of the new page copy into every locale is covered by the internationalization rule, not this one.
 
 Pass for routes intentionally kept out of the sitemap (legal, deeplink, redirect-only) when excluded consistently and not added to `agentReadablePages` either, non-landing routes, edits to existing landing pages, and existing registry drift the PR does not introduce or worsen.
+
+## Cloud VM Effect Boundary
+
+For web changes under `web/app/api/vm/**` and `web/services/vms/**`, the Cloud VM control plane is an Effect boundary: business logic is an Effect program over `VmRepository`, `VmProviderGateway`, and `VmBillingGateway`, failures are tagged errors in `VmWorkflowError`, and routes run programs through `runVmRoute` with a route-local `onError` overrides table.
+
+Flag a VM route that awaits Drizzle, `cloudDb()`, `services/coderouter/teamMachines`, or a provider SDK directly; `Effect.runPromise`, `Effect.provide`, or `runVmWorkflow` inside a route handler; `isVm*Error` predicate chains in a route; a new tagged error missing from `VmWorkflowError` or from `vmWorkflowErrorResponders` in `web/services/vms/routeHelpers.ts`; a workflow failure modeled as a thrown Error or a null return; a new repository query written as a plain Promise and wrapped at the call site; and a PR that adds a VM endpoint in plain code and defers the migration to a follow-up.
+
+Pass for routes that parse input and resolve auth with the existing helpers then call `runVmRoute(program, { request, onError })`, cron and account-deletion callers on `runVmWorkflow`, plain TypeScript outside the VM control plane (billing, coderouter, subrouter, vault, pages, scripts), and existing code only touched incidentally.

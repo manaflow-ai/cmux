@@ -2547,6 +2547,8 @@ describe("VM Effect workflows", () => {
     let usageEventAttempts = 0;
     const repo: VmRepositoryShape = {
       listUserVms: () => Effect.succeed([]),
+      findTeamMachine: () => Effect.succeed(null),
+      listTeamMachines: () => Effect.succeed([]),
       claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" }),
       markBillingGrantApplied: () => Effect.void,
       deleteBillingGrant: () => Effect.void,
@@ -6369,6 +6371,8 @@ function testWorkflowRepo(input: {
   return {
     listUserVms: () => Effect.succeed([]),
     setDisplayName: () => Effect.succeed(true),
+    findTeamMachine: () => Effect.succeed(null),
+    listTeamMachines: () => Effect.succeed([]),
     claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" }),
     markBillingGrantApplied: () => Effect.void,
     deleteBillingGrant: () => Effect.void,

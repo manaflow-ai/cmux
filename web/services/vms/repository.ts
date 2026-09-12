@@ -4,6 +4,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { cloudDb } from "../../db/client";
+import { findTeamMachine, listTeamMachines, type TeamMachine } from "../coderouter/teamMachines";
 import {
   accountDeletionTombstones,
   cloudVmBaseEvents,
@@ -121,6 +122,16 @@ export type BillingGrantClaim =
 
 export type VmRepositoryShape = {
   readonly listUserVms: (userId: string, billingTeamId?: string | null) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  /**
+   * Guest self-discovery reads, scoped by the team the edge-injected route
+   * token names. `findTeamMachine` looks the caller up by id so a capped
+   * team list can never drop it; `listTeamMachines` is the team's live set.
+   */
+  readonly findTeamMachine: (teamId: string, vmId: string) => Effect.Effect<TeamMachine | null, VmDatabaseError>;
+  readonly listTeamMachines: (
+    teamId: string,
+    options?: { readonly liveOnly?: boolean },
+  ) => Effect.Effect<readonly TeamMachine[], VmDatabaseError>;
   /**
    * Private-network and tunnel bookkeeping. Optional as a group so test
    * doubles built before the feature keep compiling; the live layer always
@@ -1295,6 +1306,12 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         })
         .where(eq(cloudVms.id, input.id));
     }),
+
+  findTeamMachine: (teamId, vmId) =>
+    dbEffect("findTeamMachine", () => findTeamMachine(teamId, vmId)),
+
+  listTeamMachines: (teamId, options) =>
+    dbEffect("listTeamMachines", () => listTeamMachines(teamId, options)),
 
   listUserVms: (userId, billingTeamId) =>
     dbEffect("listUserVms", async () => {

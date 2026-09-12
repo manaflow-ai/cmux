@@ -78,6 +78,7 @@ import { networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwor
 import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import { withVmProductAnalytics } from "./productAnalytics";
+import { vmSelfResponse } from "./selfDiscovery";
 import {
   PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
   VmRepository,
@@ -271,6 +272,28 @@ export function vmWorkflowExitError(cause: Cause.Cause<VmWorkflowError>): unknow
  */
 export function isRetiredProviderRow(row: Pick<CloudVmRow, "provider">): boolean {
   return !isProviderId(row.provider);
+}
+
+/**
+ * What a process inside a Cloud VM learns about itself and its siblings. The
+ * identity comes from the edge-injected route token (team plus the caller's
+ * `cloud_vms` row); the rows come from the repository. A caller whose row is
+ * gone, destroyed, or mis-bound fails with VmNotFoundError.
+ */
+export function discoverVmSelf(identity: { readonly teamId: string; readonly vmId: string }) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const [self, owned] = yield* Effect.all(
+      [
+        repo.findTeamMachine(identity.teamId, identity.vmId),
+        repo.listTeamMachines(identity.teamId, { liveOnly: true }),
+      ],
+      { concurrency: "unbounded" },
+    );
+    const body = vmSelfResponse(identity, self, owned);
+    if (!body) return yield* Effect.fail(new VmNotFoundError({ vmId: identity.vmId }));
+    return body;
+  });
 }
 
 export function listUserVms(userId: string, billingTeamId?: string | null) {
