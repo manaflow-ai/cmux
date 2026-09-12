@@ -740,8 +740,9 @@ describe("billing checkout route", () => {
       status: "past_due",
       cancelAtPeriodEnd: false,
     }];
-    stripeActiveSubscriptionRows = stripeSubscriptionRows;
-    userResponses = [{ ...signedInUser, clientReadOnlyMetadata: { cmuxPlan: "pro" } }];
+    stripeActiveSubscriptionRows = [];
+    const pastDueUser = { ...signedInUser, clientReadOnlyMetadata: { cmuxPlan: "pro" } };
+    userResponses = [pastDueUser, pastDueUser];
 
     const response = await GET(
       new NextRequest("https://cmux.test/api/billing/checkout"),
