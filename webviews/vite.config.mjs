@@ -33,10 +33,10 @@ export default defineConfig({
     // load grants read access to the whole output directory.
     modulePreload: false,
     rollupOptions: {
-      input: { main: "src/main.tsx" },
+      input: { main: "src/main.tsx", "terminal-latex": "src/terminal-latex/main.ts" },
       output: {
         format: "es",
-        entryFileNames: "main.mjs",
+        entryFileNames: "[name].mjs",
         // Stable (un-hashed) chunk names. The diff viewer copies these into its
         // long-lived `/tmp/cmux-diff-viewer-$uid/assets/cmux-webviews-app`
         // cache and overwrites in place via a size+mtime check; content hashes

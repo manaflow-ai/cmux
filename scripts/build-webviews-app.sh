@@ -35,9 +35,23 @@ strip_trailing_line_whitespace() {
   /usr/bin/perl -0pi -e 's/[ \t]+(?=\r?\n)//g; s/[ \t]+\z//' "$@"
 }
 
+# Normalizes output and embeds assets needed by file-loaded web views.
 normalize_webviews_output() {
   out_dir="$1"
   strip_trailing_line_whitespace "$out_dir/main.mjs" "$out_dir/agent-session.html"
+  # Inline the isolated math renderer: app packaging deflates standalone JS,
+  # while this file-loaded WebKit surface has no custom URL scheme handler.
+  python3 - "$SRC_DIR/terminal-latex.html" "$out_dir" <<'PY'
+from pathlib import Path
+import base64, hashlib, re, sys
+template, output = Path(sys.argv[1]), Path(sys.argv[2])
+script_path = output / "terminal-latex.mjs"
+script = re.sub(r"</script", r"<\\/script", script_path.read_text(), flags=re.I).replace("<!--", "<\\!--")
+digest = base64.b64encode(hashlib.sha256(script.encode()).digest()).decode()
+html = template.read_text().replace("{{terminalLatexHash}}", "sha256-" + digest).replace("{{terminalLatexJS}}", script)
+(output / "terminal-latex.html").write_text(html)
+script_path.unlink()
+PY
 }
 
 if [ "${1:-}" = "--check" ]; then
