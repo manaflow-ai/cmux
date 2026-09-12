@@ -9,7 +9,7 @@ public struct CmxIrohBrokerFailure: Equatable, Sendable, CustomStringConvertible
 
     public init(statusCode: Int, code: String?, requestID: String?) {
         self.statusCode = statusCode
-        self.code = Self.bounded(code)
+        self.code = Self.safeCode(code)
         self.requestID = Self.bounded(requestID)
     }
 
@@ -38,5 +38,20 @@ public struct CmxIrohBrokerFailure: Equatable, Sendable, CustomStringConvertible
             return nil
         }
         return value
+    }
+
+    private static func safeCode(_ value: String?) -> String? {
+        guard let value,
+              let category = value.split(separator: ":", maxSplits: 1).first
+        else { return nil }
+        switch category {
+        case "relay_policy_unavailable", "rate_limited",
+             "authentication_unavailable", "preference_conflict":
+            return String(category)
+        case "invalid_binding_request_proof", "binding_request_proof_required":
+            return "authorization_failed"
+        default:
+            return nil
+        }
     }
 }

@@ -509940,7 +509940,73 @@
         "es": { "stringUnit": { "state": "translated", "value": "Respuesta del intermediario: HTTP %1$d (%2$@)" } },
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "中繼回應：HTTP %1$d (%2$@)" } },
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "中继响应：HTTP %1$d (%2$@)" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "브로커 응답: HTTP %1$d (%2$@)" } }
+        "ko": { "stringUnit": { "state": "translated", "value": "브로커 응답: HTTP %1$d (%2$@)" } },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odgovor posrednika: HTTP %1$d (%2$@)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Svar fra broker: HTTP %1$d (%2$@)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risposta del broker: HTTP %1$d (%2$@)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការឆ្លើយតបពីប្រូកស៊ី៖ HTTP %1$d (%2$@)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Svar fra meglingstjener: HTTP %1$d (%2$@)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odpowiedź brokera: HTTP %1$d (%2$@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resposta do broker: HTTP %1$d (%2$@)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ответ брокера: HTTP %1$d (%2$@)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การตอบกลับจากโบรกเกอร์: HTTP %1$d (%2$@)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aracı yanıtı: HTTP %1$d (%2$@)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відповідь брокера: HTTP %1$d (%2$@)"
+          }
+        }
       }
     },
     "settings.networking.policy.requestID": {
@@ -509954,7 +510020,73 @@
         "es": { "stringUnit": { "state": "translated", "value": "ID de solicitud de soporte: %@" } },
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "支援請求 ID：%@" } },
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "支持请求 ID：%@" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "지원 요청 ID: %@" } }
+        "ko": { "stringUnit": { "state": "translated", "value": "지원 요청 ID: %@" } },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID zahtjeva za podršku: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supportanmodnings-id: %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID richiesta di supporto: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លេខសម្គាល់សំណើជំនួយ៖ %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID for støtteforespørsel: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Identyfikator zgłoszenia do pomocy: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID da solicitação de suporte: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Идентификатор запроса в поддержку: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รหัสคำขอการสนับสนุน: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destek istek kimliği: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ідентифікатор запиту до служби підтримки: %@"
+          }
+        }
       }
     }
   },

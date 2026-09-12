@@ -79,6 +79,24 @@ struct CmxIrohConnectionCheckReportTests {
     }
 
     @Test
+    func brokerFailureRedactsProviderSpecificCodes() {
+        let failure = CmxIrohBrokerFailure(
+            statusCode: 429,
+            code: "rate_limited:auth_provider",
+            requestID: "req-safe"
+        )
+
+        #expect(failure.code == "rate_limited")
+        #expect(
+            CmxIrohBrokerFailure(
+                statusCode: 503,
+                code: "signing_key_invalid",
+                requestID: "req-safe"
+            ).code == nil
+        )
+    }
+
+    @Test
     func missingMacIsDistinguishedFromAReachableRelay() {
         let report = CmxIrohConnectionCheckReport(
             role: .mobileClient,

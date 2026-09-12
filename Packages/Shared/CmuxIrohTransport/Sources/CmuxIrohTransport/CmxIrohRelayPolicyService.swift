@@ -12,7 +12,6 @@ public actor CmxIrohRelayPolicyService {
     private let broker: (any CmxIrohRelayPolicyServing)?
     private var currentEffective: CmxIrohEffectiveRelayPolicy?
     private var currentDiagnostics = CmxIrohRelayDiagnosticsSnapshot.inactive
-    private var lastBrokerFailure: CmxIrohBrokerFailure?
     private var continuations: [UUID: AsyncStream<CmxIrohRelayDiagnosticsSnapshot>.Continuation] = [:]
     private var operationRevision: UInt64 = 0
 
@@ -528,7 +527,6 @@ public actor CmxIrohRelayPolicyService {
         brokerFailure: CmxIrohBrokerFailure? = nil
     ) {
         currentEffective = effective
-        lastBrokerFailure = brokerFailure
         currentDiagnostics = Resolver.diagnostics(
             for: effective,
             failure: failure,
@@ -543,10 +541,7 @@ public actor CmxIrohRelayPolicyService {
         _ failure: CmxIrohRelayPolicyFailure,
         brokerFailure: CmxIrohBrokerFailure? = nil
     ) {
-        if let brokerFailure {
-            lastBrokerFailure = brokerFailure
-        }
-        let diagnosticBrokerFailure = brokerFailure ?? lastBrokerFailure
+        let diagnosticBrokerFailure = brokerFailure ?? currentDiagnostics.brokerFailure
         guard let effective = currentEffective else {
             currentDiagnostics = CmxIrohRelayDiagnosticsSnapshot(
                 source: .inactive,
