@@ -1,7 +1,7 @@
 import { PricingAudienceSelector } from "../components/pricing-audience-selector";
 import type { ReactNode } from "react";
 import { headers } from "next/headers";
-import { NextRequest } from "next/server";
+import { connection, NextRequest } from "next/server";
 import { redirect } from "next/navigation";
 import { getStackServerApp, isStackConfigured } from "../lib/stack";
 import { validatedNativeCallbackScheme } from "../lib/native-callback";
@@ -75,7 +75,6 @@ export default async function AppPricingPage({
   const params = await searchParams;
   if (firstParam(params.cmux_app) !== "1") redirect("/pricing");
 
-  // Establish request-time rendering before Stack reads its session clock.
   const headersList = await headers();
   const snapshot = await currentPlanSnapshot();
   const canManageBilling = snapshot.billingManagement === "stripe";
@@ -467,6 +466,8 @@ async function currentPlanSnapshot(): Promise<AppPlanSnapshot> {
     };
   }
 
+  // Stack uses a clock internally; this account lookup belongs to the live request.
+  await connection();
   const user = await getStackServerApp().getUser({ or: ANONYMOUS_IF_EXISTS });
   if (!user) {
     const developmentPro = isDevelopmentProAccessEnabled();
