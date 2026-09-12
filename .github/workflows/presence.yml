@@ -22,6 +22,11 @@
 name: presence
 
 on:
+  pull_request:
+    paths:
+      - 'workers/presence/**'
+      - 'config/iroh/**'
+      - '.github/workflows/presence.yml'
   workflow_dispatch:
     inputs:
       target:
@@ -67,6 +72,9 @@ jobs:
 
       - name: Unit tests
         run: bun test
+
+      - name: SQLite and Durable Object sandbox tests
+        run: bun run test:e2e
 
       - name: Wrangler dry-run build
         run: bunx wrangler deploy --dry-run --outdir dist
