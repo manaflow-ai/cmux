@@ -5,8 +5,6 @@ import { redirect } from "next/navigation";
 import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
-import { hostedSubrouterCutoverReadyForTeam } from "@/services/subrouter/cutover";
-import { createHostedSubrouterClient } from "@/services/subrouter/hostedClient";
 import {
   authorizedSubrouterTeams,
 } from "@/services/subrouter/routeHelpers";
@@ -24,14 +22,17 @@ import { loadMachineUsage, MachineUsageSection } from "./machine-usage";
 import {
   coderouterOrganizationFromCookieHeader,
 } from "@/services/coderouter/organizationScope";
-import { listClaudeAccounts } from "@/services/coderouter/claudeUpstream";
 import {
   CoderouterAccountsSection,
   type ClaudeAccountsState,
   type NativeAccountsState,
   type SharedAccountsState,
 } from "../components/coderouter-accounts";
-import { listAccounts as listNativeAccounts } from "@/services/coderouter/repository";
+import {
+  listTeamAccounts,
+  type TeamAccount,
+  type TeamAccountSourceStatus,
+} from "@/services/coderouter/teamAccounts";
 import { CoderouterPageHeader } from "../components/dashboard-page-headers";
 import { DashboardSectionSkeleton } from "../components/dashboard-skeleton";
 import { withPrioritySpan } from "@/services/telemetry";
@@ -111,9 +112,13 @@ type CoderouterAuthorizationResult =
 export async function CoderouterOverviewContent({
   locale,
   team,
+  // Injectable so a render test does not have to reach through the account
+  // stores; production always uses the one team-account read.
+  loadAccounts = listTeamAccounts,
 }: {
   locale: string;
   team?: string;
+  loadAccounts?: typeof listTeamAccounts;
 }) {
   // Team grants and the access token are resolved for every request, so a
   // revoked membership stops showing team data on the next render. The
@@ -136,31 +141,34 @@ export async function CoderouterOverviewContent({
   }
 
   const { selectedTeam, accessToken } = authorization.value;
-  const [tPage, sharedAccounts, metrics, claudeAccounts, nativeAccounts, machineUsage] = await Promise.all([
+  const [tPage, accounts, metrics, machineUsage] = await Promise.all([
     getTranslations({ locale, namespace: "dashboard.coderouter" }),
     withPrioritySpan(
       "cmux-coderouter-dashboard",
       "cmux.coderouter.accounts",
       { "cmux.team_scope": "selected" },
-      () => loadSharedAccounts(selectedTeam, accessToken),
+      // One read for all three account stores; it fans out concurrently and
+      // reports each store's status separately.
+      () =>
+        loadAccounts({
+          teamId: selectedTeam.id,
+          vault: {
+            kind: "session",
+            accessToken,
+            team: {
+              teamId: selectedTeam.id,
+              teamName: selectedTeam.name,
+              use: selectedTeam.use,
+              manageAccounts: selectedTeam.manageAccounts,
+            },
+          },
+        }),
     ),
     withPrioritySpan(
       "cmux-coderouter-dashboard",
       "cmux.coderouter.team_metrics",
       { "cmux.team_scope": "selected" },
       () => loadCoderouterTeamMetrics(selectedTeam.id),
-    ),
-    withPrioritySpan(
-      "cmux-coderouter-dashboard",
-      "cmux.coderouter.claude_upstream",
-      { "cmux.team_scope": "selected" },
-      () => loadClaudeAccounts(selectedTeam.id),
-    ),
-    withPrioritySpan(
-      "cmux-coderouter-dashboard",
-      "cmux.coderouter.native_accounts",
-      { "cmux.team_scope": "selected" },
-      () => loadNativeAccounts(selectedTeam.id),
     ),
     withPrioritySpan(
       "cmux-coderouter-dashboard",
@@ -182,9 +190,9 @@ export async function CoderouterOverviewContent({
         key={selectedTeam.id}
         teamId={selectedTeam.id}
         canManage={selectedTeam.manageAccounts}
-        claude={claudeAccounts}
-        native={nativeAccounts}
-        shared={sharedAccounts}
+        claude={claudeState(accounts)}
+        native={nativeState(accounts)}
+        shared={sharedState(accounts)}
       />
 
       <MachineUsageSection
@@ -474,43 +482,47 @@ function selectTeam(
   return teams[0];
 }
 
-async function loadSharedAccounts(
-  team: DashboardTeam,
-  accessToken: string,
-): Promise<SharedAccountsState> {
-  try {
-    if (!await hostedSubrouterCutoverReadyForTeam(team.id)) {
-      return { kind: "migrationPending" };
-    }
-    const client = createHostedSubrouterClient();
-    if (!client.tenantControlConfigured) {
-      return { kind: "notConfigured" };
-    }
-    const tenant = await client.exchangeTeam(accessToken, {
-      teamId: team.id,
-      teamName: team.name,
-      use: team.use,
-      manageAccounts: team.manageAccounts,
-    });
-    const accounts = await client.listAccounts(tenant.tenantKey);
-    return { kind: "ok", accounts };
-  } catch {
-    return { kind: "error" };
-  }
+/**
+ * The section renders one block per store, so the single result is split back
+ * into those three views here. Nothing re-reads: the narrowing is on `source`.
+ */
+function nativeState(result: TeamAccountsView): NativeAccountsState {
+  if (result.sources.native.kind !== "ok") return { kind: "error" };
+  return {
+    kind: "ok",
+    accounts: result.accounts.flatMap((account) =>
+      account.source === "native" ? [account.native] : []
+    ),
+  };
 }
 
-async function loadNativeAccounts(teamId: string): Promise<NativeAccountsState> {
-  try {
-    return { kind: "ok", accounts: await listNativeAccounts(teamId) };
-  } catch {
-    return { kind: "error" };
-  }
+function claudeState(result: TeamAccountsView): ClaudeAccountsState {
+  if (result.sources.claude.kind !== "ok") return { kind: "error" };
+  return {
+    kind: "ok",
+    accounts: result.accounts.flatMap((account) =>
+      account.source === "claude" ? [account.claude] : []
+    ),
+  };
 }
 
-async function loadClaudeAccounts(teamId: string): Promise<ClaudeAccountsState> {
-  try {
-    return { kind: "ok", accounts: await listClaudeAccounts(teamId) };
-  } catch {
-    return { kind: "error" };
+function sharedState(result: TeamAccountsView): SharedAccountsState {
+  const status = result.sources.shared;
+  if (status.kind === "error") return { kind: "error" };
+  if (status.kind === "unavailable") {
+    return status.reason === "migration_pending"
+      ? { kind: "migrationPending" }
+      : { kind: "notConfigured" };
   }
+  return {
+    kind: "ok",
+    accounts: result.accounts.flatMap((account) =>
+      account.source === "shared" ? [account.shared] : []
+    ),
+  };
 }
+
+type TeamAccountsView = {
+  readonly accounts: readonly TeamAccount[];
+  readonly sources: Readonly<Record<"native" | "claude" | "shared", TeamAccountSourceStatus>>;
+};

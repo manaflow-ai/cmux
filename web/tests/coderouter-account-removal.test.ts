@@ -26,6 +26,7 @@ describe("coderouter account removal", () => {
         removed = input;
         return {
           removed: true,
+          source: "native" as const,
           lastAccount: true,
           legacyCleanupPending: false,
         };
@@ -38,9 +39,11 @@ describe("coderouter account removal", () => {
       { params: Promise.resolve({ accountId }) },
     );
     expect(response.status).toBe(200);
-    expect(removed).toEqual({ teamId: "team-1", accountId });
+    expect(removed?.teamId).toBe("team-1");
+    expect(removed?.accountId).toBe(accountId);
     expect(await response.json()).toEqual({
       removed: true,
+      source: "native",
       lastAccount: true,
       legacyCleanupPending: false,
     });
@@ -65,6 +68,7 @@ describe("coderouter account removal", () => {
         called = true;
         return {
           removed: true,
+          source: "native" as const,
           lastAccount: false,
           legacyCleanupPending: false,
         };

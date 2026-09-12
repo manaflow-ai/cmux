@@ -1,5 +1,13 @@
 import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
 import { removeAccount } from "../../../../../services/coderouter/accounts";
+import { removeClaudeAccount } from "../../../../../services/coderouter/claudeUpstream";
+import {
+  isTeamAccountId,
+  removeTeamAccount,
+  type TeamAccountRemoval,
+} from "../../../../../services/coderouter/teamAccounts";
+import { vaultAccessFromStackHeaders } from "../../../../../services/coderouter/vaultAccess";
+import { normalizeAccountId } from "../../../../../services/subrouter/routeHelpers";
 import { resolveCodeRouterRequestContext } from "../../../../../services/coderouter/requestContext";
 import { captureCoderouterEvent } from "../../../../../services/coderouter/analytics";
 import {
@@ -8,15 +16,13 @@ import {
 } from "../../../../../services/coderouter/observability";
 
 
-const UUID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 export function createDeleteAccountHandler(dependencies: {
   readonly resolve: typeof resolveCodeRouterRequestContext;
   readonly remove: (input: {
     readonly teamId: string;
     readonly accountId: string;
-  }) => ReturnType<typeof removeAccount>;
+    readonly request: Request;
+  }) => Promise<TeamAccountRemoval>;
 }) {
   return async (
     request: Request,
@@ -24,8 +30,9 @@ export function createDeleteAccountHandler(dependencies: {
   ): Promise<Response> => {
     const resolved = await dependencies.resolve(request);
     if (!resolved.ok) return resolved.response;
-    const { accountId } = await context.params;
-    if (!UUID.test(accountId)) {
+    const { accountId: rawAccountId } = await context.params;
+    const accountId = normalizeAccountId(rawAccountId);
+    if (!accountId || !isTeamAccountId(accountId)) {
       return Response.json({ error: "invalid_request" }, { status: 400 });
     }
     let result;
@@ -33,6 +40,7 @@ export function createDeleteAccountHandler(dependencies: {
       result = await dependencies.remove({
         teamId: resolved.value.team.teamId,
         accountId,
+        request,
       });
     } catch (error) {
       reportCoderouterFailure("rds", error, { operation: "remove_account" });
@@ -66,11 +74,13 @@ export function createDeleteAccountHandler(dependencies: {
       teamId: resolved.value.team.teamId,
       properties: {
         source: "native_api",
+        account_source: result.source,
         last_account: result.lastAccount,
         legacy_cleanup_pending: result.legacyCleanupPending,
       },
     });
     addCoderouterBreadcrumb("account", "Provider account removed", {
+      account_source: result.source,
       last_account: result.lastAccount,
       legacy_cleanup_pending: result.legacyCleanupPending,
     });
@@ -82,6 +92,14 @@ export function createDeleteAccountHandler(dependencies: {
 
 export const DELETE = coderouterControlRoute("accounts", "/api/coderouter/accounts/[accountId]", createDeleteAccountHandler({
   resolve: resolveCodeRouterRequestContext,
-  remove: async ({ teamId, accountId }) =>
-    await removeAccount(teamId, accountId),
+  // One removal path for every store, so a client that read one account list
+  // does not have to know which store answered for each row.
+  remove: async ({ teamId, accountId, request }) =>
+    await removeTeamAccount({
+      teamId,
+      accountId,
+      vault: await vaultAccessFromStackHeaders(request, teamId),
+      removeNative: removeAccount,
+      removeClaude: removeClaudeAccount,
+    }),
 }));

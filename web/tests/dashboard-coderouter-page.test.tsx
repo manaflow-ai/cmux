@@ -16,6 +16,8 @@ afterAll(() => {
   }
 });
 
+import type { TeamAccountsResult } from "../services/coderouter/teamAccounts";
+
 const authorizationFailure = new Error("Stack authorization deadline exceeded");
 const pendingAuthorization = new Promise<never>(() => {});
 let authorizationAvailable = false;
@@ -269,11 +271,48 @@ mock.module("../services/coderouter/claudeUpstream", () => ({
 
 mock.module("../services/coderouter/repository", () => ({
   listAccounts: async () => [],
+  // The account read is injected below, but the page still imports the
+  // service that reads these stores.
+  listEncryptedCredentials: async () => [],
+  markAccountCooldown: async () => {},
+  encryptedCredentialForAccount: async () => null,
+  replaceAccountCredential: async () => {},
+  claimRefreshLease: async () => null,
+  completeRefreshLease: async () => {},
+  releaseRefreshLease: async () => {},
+  failRefreshLease: async () => {},
+  withVaultLease: async () => {},
 }));
+
+
 
 const { default: CoderouterOverviewPage, CoderouterOverviewContent } = await import(
   "../app/[locale]/dashboard/coderouter/page"
 );
+
+// The page takes its account read as a prop, so these renders supply the
+// result directly instead of reaching through the account stores. The service
+// itself is covered in coderouter-team-accounts.test.ts.
+const loadAccounts = async (): Promise<TeamAccountsResult> => {
+  const shared = !cutoverReady
+    ? ({ kind: "unavailable", reason: "migration_pending" } as const)
+    : !hostedControlConfigured
+    ? ({ kind: "unavailable", reason: "not_configured" } as const)
+    : ({ kind: "ok", count: 0 } as const);
+  if (cutoverReady && hostedControlConfigured) hostedExchangeCalls += 1;
+  return {
+    accounts: [],
+    sources: {
+      native: { kind: "ok", count: 0 },
+      claude: { kind: "ok", count: 0 },
+      shared,
+    },
+    usageAsOf: "2026-09-08T00:00:00.000Z",
+    usageGeneratedAtMs: Date.parse("2026-09-08T00:00:00.000Z"),
+    cacheMaxAgeSeconds: 0,
+    timing: { rdsMs: 0, providerMs: 0, vaultMs: 0 },
+  };
+};
 
 describe("coderouter dashboard", () => {
   beforeEach(() => {
@@ -315,6 +354,7 @@ describe("coderouter dashboard", () => {
   test("renders recovery UI when Stack authorization is unavailable", async () => {
     const page = await CoderouterOverviewContent({
       locale: "en",
+      loadAccounts,
     });
     const html = renderToStaticMarkup(page);
 
@@ -332,6 +372,7 @@ describe("coderouter dashboard", () => {
 
     const page = await CoderouterOverviewContent({
       locale: "en",
+      loadAccounts,
     });
     const html = renderToStaticMarkup(page);
 
@@ -347,6 +388,7 @@ describe("coderouter dashboard", () => {
 
     const page = await CoderouterOverviewContent({
       locale: "en",
+      loadAccounts,
     });
     const html = renderToStaticMarkup(page);
 
@@ -363,6 +405,7 @@ describe("coderouter dashboard", () => {
 
     const page = await CoderouterOverviewContent({
       locale: "en",
+      loadAccounts,
     });
     const html = renderToStaticMarkup(page);
 
@@ -375,6 +418,7 @@ describe("coderouter dashboard", () => {
 
     const page = await CoderouterOverviewContent({
       locale: "en",
+      loadAccounts,
       team: "team-1",
     });
     const html = renderToStaticMarkup(page);
@@ -397,7 +441,7 @@ describe("coderouter dashboard", () => {
       { teamId: "team-2", teamName: "Team Two", use: true, manageAccounts: false },
     ];
 
-    const page = await CoderouterOverviewContent({ locale: "en", team: "team-2" });
+    const page = await CoderouterOverviewContent({ locale: "en", team: "team-2", loadAccounts });
     const html = renderToStaticMarkup(page);
 
     expect(html.match(/data-testid="coderouter-accounts"/g)).toHaveLength(1);
@@ -412,6 +456,7 @@ describe("coderouter dashboard", () => {
 
     const page = await CoderouterOverviewContent({
       locale: "en",
+      loadAccounts,
       team: "team-1",
     });
     const html = renderToStaticMarkup(page);
@@ -431,6 +476,7 @@ describe("coderouter dashboard", () => {
 
     const page = await CoderouterOverviewContent({
       locale: "en",
+      loadAccounts,
       team: "team-1",
     });
     const html = renderToStaticMarkup(page);
@@ -459,6 +505,7 @@ describe("coderouter dashboard", () => {
 
     await CoderouterOverviewContent({
       locale: "en",
+      loadAccounts,
     });
 
     expect(metricsTeamIds).toEqual(["team-2"]);
@@ -485,6 +532,7 @@ describe("coderouter dashboard", () => {
 
     await CoderouterOverviewContent({
       locale: "en",
+      loadAccounts,
     });
 
     expect(metricsTeamIds).toEqual(["team-2"]);
@@ -512,6 +560,7 @@ describe("coderouter dashboard", () => {
 
     await CoderouterOverviewContent({
       locale: "en",
+      loadAccounts,
     });
 
     expect(metricsTeamIds).toEqual(["user-1"]);
@@ -539,6 +588,7 @@ describe("coderouter dashboard", () => {
 
     await CoderouterOverviewContent({
       locale: "en",
+      loadAccounts,
     });
 
     expect(metricsTeamIds).toEqual(["user-1"]);
@@ -549,6 +599,7 @@ describe("coderouter dashboard", () => {
 
     await CoderouterOverviewContent({
       locale: "en",
+      loadAccounts,
       team: "team-1",
     });
     expect(authorizationCalls).toBe(1);

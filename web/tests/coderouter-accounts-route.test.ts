@@ -1,6 +1,9 @@
 import { describe, expect, mock, test } from "bun:test";
 
-import { makeCoderouterAccountsPostHandler } from "../app/api/coderouter/accounts/route";
+import {
+  makeCoderouterAccountsGetHandler,
+  makeCoderouterAccountsPostHandler,
+} from "../app/api/coderouter/accounts/route";
 
 // Access is team membership only. There is no connected-account cap and no
 // plan read: a resolved member context goes straight to the account store.
@@ -89,5 +92,76 @@ describe("coderouter account addition", () => {
       error: "account_store_unavailable",
       retryable: true,
     });
+  });
+});
+
+describe("coderouter account listing", () => {
+  const listed = {
+    accounts: [
+      {
+        source: "native" as const,
+        id: "00000000-0000-4000-8000-000000000001",
+        provider: "codex" as const,
+        label: "codex@example.com",
+        state: "active" as const,
+        routable: true,
+        activeSessions: 0,
+        native: {} as never,
+      },
+    ],
+    sources: {
+      native: { kind: "ok" as const, count: 1 },
+      claude: { kind: "ok" as const, count: 0 },
+      shared: { kind: "unavailable" as const, reason: "no_session" as const },
+    },
+    usageAsOf: "2026-09-08T00:00:00.000Z",
+    usageGeneratedAtMs: Date.now(),
+    cacheMaxAgeSeconds: 0,
+    timing: { rdsMs: 1, providerMs: 2, vaultMs: 3 },
+  };
+
+  test("answers a route token with one list and the status of every store", async () => {
+    const handler = makeCoderouterAccountsGetHandler({
+      resolveTeam: async () => ({
+        ok: true as const,
+        teamId: "team_1",
+        stackUserId: "user_1",
+      }),
+      vaultAccess: async () => ({ kind: "none" as const }),
+      list: async () => listed,
+    });
+    const response = await handler(
+      new Request("https://coderouter.dev/api/coderouter/accounts", {
+        headers: { authorization: "Bearer crt_route" },
+      }),
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.accounts).toHaveLength(1);
+    expect(body.sources.shared).toEqual({ kind: "unavailable", reason: "no_session" });
+    expect(response.headers.get("server-timing")).toContain("vault;dur=");
+  });
+
+  test("a caller with no Stack session still gets the stores a route token can read", async () => {
+    let vaultAccess: unknown;
+    const handler = makeCoderouterAccountsGetHandler({
+      resolveTeam: async () => ({
+        ok: true as const,
+        teamId: "team_1",
+        stackUserId: "user_1",
+      }),
+      vaultAccess: async () => ({ kind: "none" as const }),
+      list: async (input) => {
+        vaultAccess = input.vault;
+        return listed;
+      },
+    });
+    const response = await handler(
+      new Request("https://coderouter.dev/api/coderouter/accounts", {
+        headers: { authorization: "Bearer crt_route" },
+      }),
+    );
+    expect(vaultAccess).toEqual({ kind: "none" });
+    expect((await response.json()).accounts).toHaveLength(1);
   });
 });
