@@ -375,6 +375,10 @@ final class WindowDecorationsController {
             case .focusHistoryForward:
                 guard context.tabManager.canNavigateForward else { return }
                 context.tabManager.navigateForward()
+            #if DEBUG
+            case .captureScreenshot:
+                triggerTitlebarFullDesktopScreenshot()
+            #endif
             }
         }
     }
