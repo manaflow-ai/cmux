@@ -65,6 +65,9 @@ struct DevicesSidebarModeTests {
     @Test("The Beta setting is off by default, and a managed remote-control ban wins over it")
     func featureGate() {
         let defaults = makeDefaults()
+        // Cloud Machines defaults on in Debug builds; pin it off so this proves
+        // that the Devices beta alone brings the shared Cloud tab back.
+        defaults.set(false, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
         #expect(DevicesFeature.isEnabled(defaults: defaults) == false)
         #expect(DevicesFeature.localOptIn(defaults: defaults) == false)
         #expect(RightSidebarBetaFeatureSettings.isDevicesEnabled(defaults: defaults) == false)
