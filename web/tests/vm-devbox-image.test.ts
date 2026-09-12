@@ -407,7 +407,8 @@ describe("devbox image template", () => {
     expect(opener).toBe(GUEST_CMUX_OPEN_URL_SCRIPT);
     expect(spawnSync("sh", ["-n", path.join(templateDir, "cmux-open-url")]).status).toBe(0);
     expect(opener).toContain("command -v cmux");
-    expect(opener).toContain("Open this URL: %s");
+    expect(opener).toContain("Open this URL:");
+    expect(opener).toContain("この URL");
     expect(dockerfile).toContain("COPY cmux-open-url /usr/local/bin/cmux-open-url");
     for (const name of ["xdg-open", "x-www-browser", "sensible-browser"]) {
       expect(dockerfile).toContain(`ln -sfn cmux-open-url /usr/local/bin/${name}`);
@@ -426,7 +427,7 @@ describe("devbox image template", () => {
       symlinkSync(path.join(templateDir, "cmux-open-url"), path.join(fakeRoot, "xdg-open"));
       const result = spawnSync(path.join(fakeRoot, "xdg-open"), ["https://github.com/login/device"], {
         encoding: "utf8",
-        env: { NODE_ENV: "test", PATH: `${fakeRoot}:/usr/bin:/bin` },
+        env: { NODE_ENV: "test", LANG: "en_US.UTF-8", PATH: `${fakeRoot}:/usr/bin:/bin` },
       });
       expect({ status: result.status, stdout: result.stdout }).toEqual({
         status: 0,

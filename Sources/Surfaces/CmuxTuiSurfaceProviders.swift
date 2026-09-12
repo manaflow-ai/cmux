@@ -1772,8 +1772,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             resolveTarget: { [weak self] row in self?.notificationDeliveryTarget(for: row) },
             deliver: { [weak self] row, target in self?.deliverNotification(row, to: target) ?? false },
             send: { [weak self] batch in
-                // A vanished provider must not report success: the batch stays
-                // pending in the durable state for the replacement sync.
                 guard let self else { throw ProviderError.machineAsleep(machineID) }
                 let connected = try await self.links.connected(machineID: machineID)
                 guard let link = await self.links.link(machineID: machineID) else {
@@ -1834,6 +1832,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 return CloudNotificationDeliveryTarget(workspaceID: projection.workspaceID, panelID: projection.panelID)
             }
         }
+        if row.title == CloudBrowserOpenRequest.notificationTitle { return nil }
         let remoteWorkspaceID = row.terminalID.flatMap { terminalID -> String? in
             guard let state = cloudState else { return nil }
             for tab in state.tabs where tab.contentID == terminalID {
@@ -1855,7 +1854,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
 
     private func deliverNotification(_ row: CloudVMNotificationRow, to target: CloudNotificationDeliveryTarget) -> Bool {
-        guard let store = AppDelegate.shared?.notificationStore else { return false }
+        guard row.title != CloudBrowserOpenRequest.notificationTitle else { return false }; guard let store = AppDelegate.shared?.notificationStore else { return false }
         guard CloudNotificationSyncHub.shared.admit(row, machineID: machineID) else { return true }
         let terminalTitle = row.terminalID.flatMap { cloudState?.lookupIndex.terminal(id: $0)?.title } ?? ""
         let machineName = summary.preferredName
