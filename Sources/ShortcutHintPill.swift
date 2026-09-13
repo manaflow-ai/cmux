@@ -36,6 +36,7 @@ struct ShortcutHintPill: View {
     let text: String
     var fontSize: CGFloat = 9
     var emphasis: Double = 1.0
+    var fontFamily: String? = nil
 
     init(shortcut: StoredShortcut, fontSize: CGFloat = 9, emphasis: Double = 1.0) {
         self.text = shortcut.displayString
@@ -43,15 +44,16 @@ struct ShortcutHintPill: View {
         self.emphasis = emphasis
     }
 
-    init(text: String, fontSize: CGFloat = 9, emphasis: Double = 1.0) {
+    init(text: String, fontSize: CGFloat = 9, emphasis: Double = 1.0, fontFamily: String? = nil) {
         self.text = text
         self.fontSize = fontSize
         self.emphasis = emphasis
+        self.fontFamily = fontFamily
     }
 
     var body: some View {
         Text(text)
-            .cmuxFont(size: fontSize, weight: .semibold, design: .rounded)
+            .cmuxFont(size: fontSize, weight: .semibold, design: .rounded, family: fontFamily)
             .monospacedDigit()
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
@@ -73,11 +75,12 @@ extension View {
         emphasis: Double,
         offsetX: Double,
         offsetY: Double,
-        fontSize: CGFloat = 10
+        fontSize: CGFloat = 10,
+        fontFamily: String? = nil
     ) -> some View {
         overlay(alignment: .topTrailing) {
             if let text {
-                ShortcutHintPill(text: text, fontSize: fontSize, emphasis: emphasis)
+                ShortcutHintPill(text: text, fontSize: fontSize, emphasis: emphasis, fontFamily: fontFamily)
                     .offset(
                         x: ShortcutHintDebugSettings.clamped(offsetX),
                         y: ShortcutHintDebugSettings.clamped(offsetY)

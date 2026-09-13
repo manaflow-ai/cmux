@@ -2069,6 +2069,7 @@ struct SidebarPinnedIndicatorColorTests {
             shortcutHintXOffset: 0,
             shortcutHintYOffset: 0,
             fontScale: 1,
+            sidebarFontFamily: nil,
             globalFontMagnificationPercent: 100,
             cwdContextMenuItems: [],
             rowSpacing: 2,
@@ -2078,7 +2079,6 @@ struct SidebarPinnedIndicatorColorTests {
             bottomDropIndicatorVisible: false,
             colorSchemeIsDark: false
         ))
-
         let workspacePin = try #require(
             SidebarAppKitRowCellTests.descendants(of: workspaceCell)
                 .compactMap { $0 as? NSImageView }

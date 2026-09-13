@@ -1148,7 +1148,9 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebarAppearance": "Ustawienia wyglądu paska bocznego w Ustawienia > Wygląd paska bocznego.",
         "sidebar": {
+          "fontFamily": "Rodzina czcionek używana do tekstu we wbudowanym pasku bocznym. Pozostaw puste, aby użyć czcionki systemowej.",
           "notificationMessageLineLimit": "Maksymalna liczba wierszy wyświetlanych dla najnowszego powiadomienia pod tytułem każdego obszaru roboczego.",
           "rightMaxWidth": "Maksymalna szerokość prawego paska bocznego w punktach. Jeśli pominięta, obowiązuje wbudowany limit dynamiczny."
         },

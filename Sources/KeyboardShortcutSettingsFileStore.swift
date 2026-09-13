@@ -836,12 +836,12 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[WorkspaceTabColorSettings.paletteKey] = .stringDictionary(normalizedLegacyPalette)
         }
     }
-
     private func parseSidebarAppearanceSection(
         _ section: [String: Any],
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
+        if let raw = jsonString(section["fontFamily"]) { snapshot.managedUserDefaults["sidebarFontFamily"] = .string(raw.trimmingCharacters(in: .whitespacesAndNewlines)) }
         if let value = jsonBool(section["matchTerminalBackground"]) {
             snapshot.managedUserDefaults[SidebarMatchTerminalBackgroundSettings.userDefaultsKey] = .bool(value)
         }

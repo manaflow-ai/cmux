@@ -9,7 +9,8 @@ struct OptionalDSLFont: ViewModifier {
             content.cmuxFont(
                 size: spec.baseSize,
                 weight: spec.weight ?? .regular,
-                design: spec.design
+                design: spec.design,
+                family: spec.family
             )
         } else {
             content

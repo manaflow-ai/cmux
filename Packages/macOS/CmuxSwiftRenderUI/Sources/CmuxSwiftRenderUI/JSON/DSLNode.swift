@@ -19,6 +19,7 @@ struct DSLNode: Codable, Equatable, Sendable, Identifiable {
     var text: String?
     var title: String?
     var font: String?
+    var family: String?
     var weight: String?
     var color: String?
     var background: String?
@@ -28,6 +29,6 @@ struct DSLNode: Codable, Equatable, Sendable, Identifiable {
 
     enum CodingKeys: String, CodingKey {
         case type, children, spacing, alignment, padding
-        case text, title, font, weight, color, background, systemName, size, action
+        case text, title, font, family, weight, color, background, systemName, size, action
     }
 }

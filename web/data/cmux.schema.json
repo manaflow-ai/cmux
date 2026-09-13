@@ -1264,10 +1264,17 @@
     },
     "sidebarAppearance": {
       "title": "sidebarAppearance",
-      "description": "Sidebar tint settings from Settings > Sidebar Appearance.",
+      "description": "Sidebar appearance settings from Settings > Sidebar Appearance.",
+      "descriptionKey": "schemaDescriptions.sidebarAppearance",
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "fontFamily": {
+          "type": "string",
+          "default": "",
+          "description": "Font family used for built-in sidebar text. Leave empty for the system font.",
+          "descriptionKey": "schemaDescriptions.sidebar.fontFamily"
+        },
         "matchTerminalBackground": {
           "type": "boolean",
           "default": false,

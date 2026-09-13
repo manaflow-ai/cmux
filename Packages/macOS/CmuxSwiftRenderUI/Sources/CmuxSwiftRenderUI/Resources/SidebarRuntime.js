@@ -165,11 +165,23 @@
   function setProp(id, key, value) {
     if (typeof value === "function") {
       createEffect(() => {
-        pushOp({ op: "update", id, key, value: normalizeProp(value()) });
+        applyProp(id, key, value());
       });
     } else {
-      pushOp({ op: "update", id, key, value: normalizeProp(value) });
+      applyProp(id, key, value);
     }
+  }
+
+  function applyProp(id, key, value) {
+    if (key === "font" && value && typeof value === "object" && !Array.isArray(value)) {
+      pushOp({ op: "update", id, key: "font", value: normalizeProp(value.size) });
+      pushOp({ op: "update", id, key: "family", value: normalizeProp(value.family) });
+      return;
+    }
+    if (key === "font") {
+      pushOp({ op: "update", id, key: "family", value: null });
+    }
+    pushOp({ op: "update", id, key, value: normalizeProp(value) });
   }
 
   function normalizeProp(v) {

@@ -65,6 +65,7 @@ struct SidebarWorkspaceTableActions {
     let updateDragAutoscroll: () -> Void
     let setBonsplitDropTargetCollectionActive: (Bool) -> Void
     let setBonsplitDropIndicator: (SidebarDropIndicator?) -> Void
+    let sidebarFontFamily: String?
     /// Returns the live group-to-anchor map captured at the beginning of a
     /// native drag. The table controller caches it for the whole drag so a
     /// multi-row drag does not rescan all groups for every item.
@@ -99,6 +100,7 @@ struct SidebarWorkspaceTableActions {
         updateDragAutoscroll: @escaping () -> Void,
         setBonsplitDropTargetCollectionActive: @escaping (Bool) -> Void,
         setBonsplitDropIndicator: @escaping (SidebarDropIndicator?) -> Void,
+        sidebarFontFamily: String? = nil,
         workspaceIdForDrag: ((SidebarWorkspaceRenderItemID, UUID) -> UUID)? = nil,
         nativeWorkspaceDragLifecycle: NativeWorkspaceDragLifecycle? = nil
     ) {
@@ -124,6 +126,7 @@ struct SidebarWorkspaceTableActions {
         self.updateDragAutoscroll = updateDragAutoscroll
         self.setBonsplitDropTargetCollectionActive = setBonsplitDropTargetCollectionActive
         self.setBonsplitDropIndicator = setBonsplitDropIndicator
+        self.sidebarFontFamily = sidebarFontFamily
         self.workspaceIdForDrag = workspaceIdForDrag
         self.nativeWorkspaceDragLifecycle = nativeWorkspaceDragLifecycle
     }

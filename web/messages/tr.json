@@ -1147,7 +1147,9 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebarAppearance": "Ayarlar > Kenar Çubuğu Görünümü bölümündeki kenar çubuğu görünüm ayarları.",
         "sidebar": {
+          "fontFamily": "Yerleşik kenar çubuğu metni için kullanılan yazı tipi ailesi. Sistem yazı tipini kullanmak için boş bırakın.",
           "notificationMessageLineLimit": "Her çalışma alanı başlığının altında en son bildirim için gösterilen en fazla satır sayısı.",
           "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır."
         },

@@ -1148,7 +1148,9 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebarAppearance": "การตั้งค่าลักษณะแถบด้านข้างจาก การตั้งค่า > ลักษณะแถบด้านข้าง",
         "sidebar": {
+          "fontFamily": "ตระกูลแบบอักษรที่ใช้สำหรับข้อความในแถบด้านข้างในตัว เว้นว่างไว้เพื่อใช้แบบอักษรของระบบ",
           "notificationMessageLineLimit": "จำนวนบรรทัดสูงสุดที่แสดงสำหรับการแจ้งเตือนล่าสุดใต้ชื่อของแต่ละพื้นที่ทำงาน",
           "rightMaxWidth": "ความกว้างสูงสุดเป็นพอยต์สำหรับแถบด้านขวา หากเว้นไว้ จะใช้ขีดจำกัดแบบไดนามิกในตัว"
         },

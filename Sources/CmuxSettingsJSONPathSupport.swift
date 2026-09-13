@@ -492,7 +492,7 @@ extension CmuxSettingsFileStore {
         "workspaceColors.colors",
         "workspaceColors.paletteOverrides",
         "workspaceColors.customColors",
-        "sidebarAppearance.matchTerminalBackground",
+        "sidebarAppearance.matchTerminalBackground", "sidebarAppearance.fontFamily",
         "sidebarAppearance.tintColor",
         "sidebarAppearance.lightModeTintColor",
         "sidebarAppearance.darkModeTintColor",

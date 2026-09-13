@@ -1147,7 +1147,9 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebarAppearance": "إعدادات مظهر الشريط الجانبي من الإعدادات > مظهر الشريط الجانبي.",
         "sidebar": {
+          "fontFamily": "عائلة الخط المستخدمة لنص الشريط الجانبي المدمج. اتركها فارغة لاستخدام خط النظام.",
           "notificationMessageLineLimit": "الحد الأقصى لعدد الأسطر المعروضة لأحدث إشعار أسفل عنوان كل مساحة عمل.",
           "rightMaxWidth": "أقصى عرض بالنقاط للشريط الجانبي الأيمن. عند تركه فارغًا، يُطبّق الحد الديناميكي المضمن."
         },
