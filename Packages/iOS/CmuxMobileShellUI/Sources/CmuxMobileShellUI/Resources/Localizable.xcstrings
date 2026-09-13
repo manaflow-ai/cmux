@@ -12941,7 +12941,35 @@
         "ko": {"stringUnit": {"state": "translated", "value": "같은 cmux 계정으로 로그인"}}
       }
     },
-    "mobile.connectionsUpdate.pairingOptIn.title": {
+    "mobile.connectionsUpdate.tailscale.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Tailscale, on your terms"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Tailscaleは自分のペースで"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Tailscale, zu Ihren Bedingungen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Tailscale, selon vos conditions"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "Tailscale ، وفقًا لشروطك"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Tailscale, según tus condiciones"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Tailscale，依照您的條件"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Tailscale，按照您的条件"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Tailscale, 원하는 대로"}}
+      }
+    },
+    "mobile.connectionsUpdate.tailscale.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Choosing Tailscale Only shows exactly what's missing and offers the pairing-code scan right there. Nothing opens on its own."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "「Tailscaleのみ」を選ぶと、足りない設定とペアリングコードのスキャンをその場で案内します。勝手に画面が開くことはありません。"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Wenn Sie sich für „Nur Tailscale“ entscheiden, wird genau angezeigt, was fehlt, und der Pairing-Code-Scan wird direkt dort angeboten. Nichts öffnet sich von alleine."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Choisir Tailscale Only montre exactement ce qui manque et propose l'analyse du code d'appariement directement sur place. Rien ne s'ouvre tout seul."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يؤدي اختيار Tailscale فقط إلى عرض ما هو مفقود بالضبط ويوفر فحص رمز الاقتران هناك. لا شيء يفتح من تلقاء نفسه."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Elegir Tailscale Only muestra exactamente lo que falta y ofrece el escaneo del código de emparejamiento allí mismo. Nada se abre por sí solo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "選擇“Tailscale Only”會準確顯示缺少的內容，並在此處提供配對碼掃描。没有什么是可以自行打开的。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "选择“Tailscale Only”会准确显示缺少的内容，并在此处提供配对码扫描。没有什么是可以自行打开的。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Tailscale Only를 선택하면 누락된 내용이 정확히 표시되고 바로 페어링 코드 스캔이 제공됩니다. 저절로 열리는 것은 없습니다."}}
+      }
+    },
+    "mobile.pairingOptInUpdate.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {"stringUnit": {"state": "translated", "value": "Required: Enable iOS pairing on Mac"}},
@@ -12955,7 +12983,7 @@
         "ko": {"stringUnit": {"state": "translated", "value": "필수: Mac에서 iOS 페어링 켜기"}}
       }
     },
-    "mobile.connectionsUpdate.pairingOptIn.detail": {
+    "mobile.pairingOptInUpdate.detail": {
       "extractionState": "manual",
       "localizations": {
         "en": {"stringUnit": {"state": "translated", "value": "Before this iPhone can find a cmux Mac, open Settings > Mobile on that Mac and turn on Enable iOS pairing. While it is off, the Mac stays hidden and starts no iOS pairing networking."}},

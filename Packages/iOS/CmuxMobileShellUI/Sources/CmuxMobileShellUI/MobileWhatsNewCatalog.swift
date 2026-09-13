@@ -116,11 +116,11 @@ enum MobileWhatsNewCatalog {
                 .init(
                     symbol: "lock.shield",
                     title: L10n.string(
-                        "mobile.connectionsUpdate.pairingOptIn.title",
+                        "mobile.pairingOptInUpdate.title",
                         defaultValue: "Required: Enable iOS pairing on Mac"
                     ),
                     detail: L10n.string(
-                        "mobile.connectionsUpdate.pairingOptIn.detail",
+                        "mobile.pairingOptInUpdate.detail",
                         defaultValue: "Before this iPhone can find a cmux Mac, open Settings > Mobile on that Mac and turn on Enable iOS pairing. While it is off, the Mac stays hidden and starts no iOS pairing networking."
                     )
                 ),
@@ -179,14 +179,14 @@ enum MobileWhatsNewCatalog {
                     )
                 ),
                 .init(
-                    symbol: "lock.shield",
+                    symbol: "qrcode.viewfinder",
                     title: L10n.string(
-                        "mobile.connectionsUpdate.pairingOptIn.title",
-                        defaultValue: "Required: Enable iOS pairing on Mac"
+                        "mobile.connectionsUpdate.tailscale.title",
+                        defaultValue: "Tailscale, on your terms"
                     ),
                     detail: L10n.string(
-                        "mobile.connectionsUpdate.pairingOptIn.detail",
-                        defaultValue: "Before this iPhone can find a cmux Mac, open Settings > Mobile on that Mac and turn on Enable iOS pairing. While it is off, the Mac stays hidden and starts no iOS pairing networking."
+                        "mobile.connectionsUpdate.tailscale.detail",
+                        defaultValue: "Choosing Tailscale Only shows exactly what's missing and offers the pairing-code scan right there. Nothing opens on its own."
                     )
                 ),
             ]),

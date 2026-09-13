@@ -65,17 +65,17 @@ import Testing
         #expect(center.unseenPages.map(\.id) == ["pairing-opt-in.v1"])
     }
 
-    @Test func connectionsPageEmphasizesMacPairingToggleInsteadOfTailscale() throws {
+    @Test func connectionsPageKeepsReleasedConnectionNotesSeparateFromPairingRequirement() throws {
         guard case .features(let features) = MobileWhatsNewCatalog.connectionsUpdate.body else {
             Issue.record("connections.v1 should render native feature rows")
             return
         }
         let titles = features.map(\.title)
-        #expect(titles.contains("Required: Enable iOS pairing on Mac"))
-        #expect(!titles.contains("Tailscale, on your terms"))
-        #expect(features.last?.symbol == "lock.shield")
-        #expect(features.last?.detail.contains("Enable iOS pairing") == true)
-        #expect(features.last?.detail.contains("Settings > Mobile") == true)
+        #expect(titles.contains("Tailscale, on your terms"))
+        #expect(!titles.contains("Required: Enable iOS pairing on Mac"))
+        #expect(features.last?.symbol == "qrcode.viewfinder")
+        #expect(features.last?.detail.contains("Choosing Tailscale Only") == true)
+        #expect(features.allSatisfy { !$0.detail.contains("Enable iOS pairing") })
     }
 
     @Test func pairingPageMakesMacSettingRequirementProminent() throws {
@@ -83,7 +83,7 @@ import Testing
             Issue.record("pairing-opt-in.v1 should render native feature rows")
             return
         }
-        #expect(features.first?.title.contains("Required:") == true)
+        #expect(features.first?.title == "Required: Enable iOS pairing on Mac")
         #expect(features.first?.detail.contains("Settings > Mobile") == true)
         #expect(MobileWhatsNewCatalog.pairingOptInUpdate.footnote?.contains("Required before connecting") == true)
         #expect(MobileWhatsNewCatalog.pairingOptInUpdate.footnote?.contains("Enable iOS pairing") == true)
