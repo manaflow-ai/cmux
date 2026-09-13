@@ -47,7 +47,7 @@ final class CloudSidebarOrderingFixture {
             machineActions: MachineRowActions(
                 setupVPN: { _ in }, openShell: { _ in }, openDesktop: { _ in },
                 runCommand: { _, _ in }, confirmDelete: { _ in },
-                promptRename: { _, _ in }, promptUpgrade: {}
+                promptRename: { _, _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}
             ),
             nodeActions: CloudTreeNodeActions.bound(
                 catalog: { catalog }, selectedWorkspaceID: { nil },
