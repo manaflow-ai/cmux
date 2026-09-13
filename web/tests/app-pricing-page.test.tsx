@@ -93,15 +93,10 @@ describe("app pricing page", () => {
     });
     const html = renderToStaticMarkup(element);
 
-    expect(html).toContain(
-      "http://localhost:9210/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test",
-    );
-    expect(html).toContain(
-      "http://localhost:9210/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test",
-    );
-    expect(html).toContain(
-      "http://localhost:9210/api/billing/checkout?plan=max&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test&amp;cmux_source=app_pricing&amp;cmux_client=mac&amp;cmux_placement=app_pricing",
-    );
+    expect(html).toContain("/handler/native-sign-in?after_auth_return_to=");
+    expect(html).toContain("cmux_billing_plan%253Dpro");
+    expect(html).toContain("cmux_billing_plan%253Dteam");
+    expect(html).toContain("cmux_billing_plan%253Dmax");
     expect(html).not.toMatch(/plan=max[^"]*interval=/);
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
@@ -126,9 +121,9 @@ describe("app pricing page", () => {
     expect(html).toContain("Get Go");
     expect(html).toContain("For individuals");
     expect(html).toContain("For teams and businesses");
-    expect(html.split("api/billing/checkout?plan=pro")).toHaveLength(2);
-    expect(html.split("api/billing/checkout?plan=max")).toHaveLength(2);
-    expect(html.split("api/billing/checkout?plan=team")).toHaveLength(2);
+    expect(html).toContain("cmux_billing_plan%253Dpro");
+    expect(html).toContain("cmux_billing_plan%253Dmax");
+    expect(html).toContain("cmux_billing_plan%253Dteam");
     expect(html).toContain("Compare plans");
     expect(html).not.toContain("/api/billing/portal");
   });
@@ -147,12 +142,10 @@ describe("app pricing page", () => {
     });
     const html = renderToStaticMarkup(element);
 
-    expect(html).toContain(
-      "http://localhost:9210/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test&amp;interval=month&amp;cmux_source=mac_help_menu&amp;cmux_client=mac&amp;cmux_channel=nightly&amp;cmux_app_version=0.65.1&amp;cmux_app_build=2026090101&amp;cmux_placement=app_pricing",
-    );
-    expect(html).toContain(
-      "http://localhost:9210/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test&amp;interval=month&amp;cmux_source=mac_help_menu&amp;cmux_client=mac&amp;cmux_channel=nightly&amp;cmux_app_version=0.65.1&amp;cmux_app_build=2026090101&amp;cmux_placement=app_pricing",
-    );
+    expect(html).toContain("cmux_billing_plan%253Dpro");
+    expect(html).toContain("cmux_billing_plan%253Dteam");
+    expect(html).toContain("cmux_source%253Dmac_help_menu");
+    expect(html).toContain("cmux_app_build%253D2026090101");
   });
 
   test("renders signed-out recovery without claiming Free is the current plan", async () => {
@@ -216,12 +209,8 @@ describe("app pricing page", () => {
     expect(html).toContain("$200 /mo");
     expect(html).not.toContain("$200/mo, billed yearly");
     expect(html).not.toMatch(/plan=max[^"]*interval=/);
-    expect(html).toContain(
-      "http://localhost:9210/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test&amp;interval=month&amp;cmux_source=app_pricing&amp;cmux_client=mac&amp;cmux_placement=app_pricing",
-    );
-    expect(html).toContain(
-      "http://localhost:9210/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test&amp;interval=month&amp;cmux_source=app_pricing&amp;cmux_client=mac&amp;cmux_placement=app_pricing",
-    );
+    expect(html).toContain("cmux_billing_plan%253Dpro");
+    expect(html).toContain("cmux_billing_plan%253Dteam");
     expect(html).not.toContain('role="radiogroup"');
     expect(html).not.toContain('<button type="button" role="radio" aria-checked="true"');
     expect(html).not.toContain("appearance=dark&amp;interval=month");

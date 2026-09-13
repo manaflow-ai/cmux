@@ -121,6 +121,18 @@ export default async function AppPricingPage({
   );
   const maxComparePrice = `$${MAX_PRICING_USD.month.billedAmount} ${pricing.perMonth}`;
   const signInHref = appPricingSignInHref(cmuxScheme, params);
+  const signInCheckoutHref = (checkoutHref: string, plan: "go" | "pro" | "max" | "team") =>
+    snapshot.authenticated ? undefined : appPricingSignInHref(cmuxScheme, params, plan);
+  const pendingPlan = firstParam(params.cmux_billing_plan);
+  if (snapshot.authenticated && pendingPlan) {
+    const pendingCheckout = {
+      go: appPricingCheckoutURL("go", requestOrigin, cmuxScheme, "month", attribution),
+      pro: proCheckoutHref,
+      max: maxCheckoutHref,
+      team: teamCheckoutHref,
+    }[pendingPlan as "go" | "pro" | "max" | "team"];
+    if (pendingCheckout) redirect(pendingCheckout);
+  }
   const banner = appPricingBanner(params, snapshot, signInHref);
   const theme = appPricingTheme(params);
   const featureVisibility = {
@@ -223,6 +235,7 @@ export default async function AppPricingPage({
                 ) : (
                   <PricingCheckoutButton
                     href={appPricingCheckoutURL("go", requestOrigin, cmuxScheme, "month", attribution)}
+                    signInHref={signInCheckoutHref(appPricingCheckoutURL("go", requestOrigin, cmuxScheme, "month", attribution), "go")}
                     location="app_pricing"
                     plan="go"
                   >
@@ -249,6 +262,7 @@ export default async function AppPricingPage({
                   checkout={
                     <PricingCheckoutButton
                       href={proCheckoutHref}
+                      signInHref={signInCheckoutHref(proCheckoutHref, "pro")}
                       location="app_pricing"
                     >
                       {pricing.pro.cta}
@@ -278,6 +292,7 @@ export default async function AppPricingPage({
                   checkout={
                     <PricingCheckoutButton
                       href={maxCheckoutHref}
+                      signInHref={signInCheckoutHref(maxCheckoutHref, "max")}
                       location="app_pricing"
                       plan="max"
                     >
@@ -311,6 +326,7 @@ export default async function AppPricingPage({
                 ) : (
                   <PricingCheckoutButton
                     href={teamCheckoutHref}
+                    signInHref={signInCheckoutHref(teamCheckoutHref, "team")}
                     location="app_pricing"
                     plan="team"
                   >
@@ -516,6 +532,7 @@ type BillingBannerModel = {
 function appPricingSignInHref(
   cmuxScheme: string,
   params: Record<string, string | string[] | undefined>,
+  pendingPlan?: "go" | "pro" | "max" | "team",
 ): string {
   const search = new URLSearchParams();
   for (const [name, value] of Object.entries(params)) {
@@ -523,7 +540,10 @@ function appPricingSignInHref(
     if (first !== null) search.set(name, first);
   }
   const query = search.toString();
-  const webReturnTo = query ? `/app-pricing?${query}` : "/app-pricing";
+  const pending = pendingPlan ? `cmux_billing_plan=${pendingPlan}` : "";
+  const webReturnTo = query || pending
+    ? `/app-pricing?${[query, pending].filter(Boolean).join("&")}`
+    : "/app-pricing";
   const afterSignIn =
     `/handler/after-sign-in?native_app_return_to=${encodeURIComponent(
       `${cmuxScheme}://auth-callback`,
