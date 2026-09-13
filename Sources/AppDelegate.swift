@@ -2207,7 +2207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
                 )
                 ClosedItemHistoryStore.shared.flushPendingSaves()
-                await CloudNotificationSyncHub.shared.persistenceStore.flush()
+                await CloudNotificationSyncHub.shared.persistenceStore.drain()
                 self.terminationWatchdog.arm()
                 self.replyToTerminateOnce(true)
             }

@@ -9,6 +9,7 @@ final class CloudNotificationSyncStore {
     private let persistence: CloudNotificationSyncPersistence
     private var states: [String: CloudNotificationSyncState] = [:]
     private var pending: [String: CloudNotificationSyncPersistence.Mutation] = [:]
+    private var flushWaiters: [CheckedContinuation<Void, Never>] = []
     private var writeTask: Task<Void, Never>?
 
     init(defaults: UserDefaults = .standard) {
@@ -44,18 +45,28 @@ final class CloudNotificationSyncStore {
 
     var hasPendingWrites: Bool { writeTask != nil }
 
-    /// Used before sending acknowledgements and before normal app termination.
+    /// Checkpoints writes accepted before this call. Later machine updates must
+    /// not keep an acknowledgement waiting for the entire fleet to go quiet.
     func flush() async {
+        guard writeTask != nil else { return }
+        await withCheckedContinuation { flushWaiters.append($0) }
+    }
+
+    /// Joins all outstanding batches before normal app termination.
+    func drain() async {
         while let writeTask { await writeTask.value }
     }
 
     private func startWriterIfNeeded() {
         guard writeTask == nil else { return }
         writeTask = Task {
-            while !pending.isEmpty {
+            while !pending.isEmpty || !flushWaiters.isEmpty {
                 let batch = pending
+                let waiters = flushWaiters
                 pending.removeAll(keepingCapacity: true)
+                flushWaiters.removeAll(keepingCapacity: true)
                 await persistence.apply(batch)
+                for waiter in waiters { waiter.resume() }
             }
             writeTask = nil
         }
