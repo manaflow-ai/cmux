@@ -10,6 +10,22 @@ Updated 10 September 2026, revision 21. Accepted directions are recorded here; u
 - **Request and product usage allowances remain per user**, shared across that user’s devices/builds and teams within an environment. They are not divided between teammates. No application IP quota. Physical resource bounds still apply to individual payloads/connections and the shared DO.
 - **Development isolation.** The shared development Worker follows the latest main branch. A developer or agent can deploy a suffixed Worker with its own Durable Object namespaces and matching build origin using `workers/iroh-v2/scripts/deploy-dev.sh <slug>`. Shared and suffixed development uses the existing database only through explicitly isolated test scopes; production records and budgets are never used by development.
 
+### Database migration status
+
+The current implementation still points at the existing Aurora PostgreSQL
+database. We can migrate the v2 shared tables to PlanetScale PostgreSQL and
+then point `DATABASE_URL` at PlanetScale. That is a data migration and traffic
+cutover, not a code-only switch. The safe sequence is export and verify Aurora,
+apply the v2 migration on PlanetScale, copy only defined v2 records, verify
+counts and EndpointID uniqueness, canary one team, switch the Worker secret,
+and keep Aurora read-only during rollback. No migration has been run yet.
+
+PlanetScale is supported by the local tooling through
+`CMUX_DB_PROVIDER=planetscale` and `PLANETSCALE_DATABASE_URL`. The Worker uses
+PostgreSQL semantics, so the target must be PlanetScale PostgreSQL. A
+PlanetScale MySQL database would require a separate Drizzle schema and driver
+and is not interchangeable with the current adapter.
+
 | Area | Scope |
 | --- | --- |
 | Durable Object and SQLite | One per Stack Auth team in each environment; include Stack project in routing identity. |

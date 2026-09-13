@@ -32,12 +32,16 @@ esac
 name="cmux-iroh-v2-dev-${slug}"
 workers_subdomain="${CMUX_IROH_V2_WORKERS_SUBDOMAIN:-cmux-presence-worker}"
 required=(STACK_PROJECT_ID STACK_PUBLISHABLE_KEY STACK_SERVER_KEY API_TICKET_KEYS
-  API_TICKET_CURRENT_KEY_ID RELAY_SIGNING_KEY RELAY_KEY_ID RELAY_URLS)
-database_key=DATABASE_URL
-if [[ -z "$(read_value DATABASE_URL)" ]]; then database_key=PLANETSCALE_DATABASE_URL; fi
-required+=("$database_key")
+  API_TICKET_CURRENT_KEY_ID RELAY_SIGNING_KEY RELAY_KEY_ID RELAY_URLS DATABASE_URL)
+# PlanetScale is a supported shared Postgres provider. Accept its explicit
+# variable for local convenience, but always publish one canonical Worker
+# secret so runtime code and environments cannot drift.
+database_url="$(read_value DATABASE_URL)"
+if [[ -z "$database_url" ]]; then database_url="$(read_value PLANETSCALE_DATABASE_URL)"; fi
+[[ -n "$database_url" ]] || { echo "error: missing DATABASE_URL or PLANETSCALE_DATABASE_URL in environment or .dev.vars" >&2; exit 1; }
 for key in "${required[@]}"; do
   value="$(read_value "$key")"
+  [[ "$key" == DATABASE_URL ]] && value="$database_url"
   [[ -n "$value" ]] || { echo "error: missing $key in environment or .dev.vars" >&2; exit 1; }
 done
 
