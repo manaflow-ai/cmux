@@ -4667,7 +4667,7 @@ class TerminalController {
                 : workspace.panelIdFromSurfaceId(TabID(uuid: panelId))
             guard let resolvedPanelId else { return }
             found = true
-            applied = tabManager.updatePanelTitle(
+            applied = tabManager.syncAgentTerminalTitle(
                 tabId: workspaceId,
                 panelId: resolvedPanelId,
                 title: title

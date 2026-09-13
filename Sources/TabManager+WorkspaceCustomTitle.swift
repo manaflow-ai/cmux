@@ -27,10 +27,12 @@ extension TabManager {
         title: String?,
         source: Workspace.CustomTitleSource = .user,
         propagateToRemoteTmux: Bool = true,
-        propagateToCloud: Bool = true
+        propagateToCloud: Bool = true,
+        catalog: SurfaceCatalog = .shared
     ) -> Bool {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return false }
         let previousCustomTitle = tabs[index].customTitle
+        let previousSource = tabs[index].effectiveCustomTitleSource
         let previousDisplayTitle = resolvedWorkspaceDisplayTitle(for: tabs[index])
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let applied = tabs[index].setCustomTitle(title, source: source)
@@ -63,8 +65,9 @@ extension TabManager {
         // client). Auto titles never propagate. Workspace names stay non-empty,
         // so clearing remains a local title operation only.
         if applied, propagateToCloud, source == .user {
-            SurfaceCatalog.shared.propagateCloudWorkspaceRename(
-                workspace: tabs[index], localTitle: title, previousCustomTitle: previousCustomTitle
+            catalog.propagateCloudWorkspaceRename(
+                workspace: tabs[index], localTitle: title, previousCustomTitle: previousCustomTitle,
+                previousCustomTitleSource: previousSource
             )
         }
         return applied

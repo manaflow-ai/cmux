@@ -73,6 +73,7 @@ final class CloudRenameCoordinator {
     func enqueue(
         key: Key,
         pendingName: String,
+        onFailure: @escaping @MainActor (Error) -> Void = { _ in },
         operation: @escaping @MainActor () async throws -> Void
     ) -> Task<Void, Error> {
         let lane = key.machine
@@ -86,8 +87,13 @@ final class CloudRenameCoordinator {
                 // A failed or cancelled rename must not strand later edits.
                 _ = try? await previous.value
             }
-            try Task.checkCancellation()
-            try await operation()
+            do {
+                try Task.checkCancellation()
+                try await operation()
+            } catch {
+                if self?.pendingNames[key]?.generation == pendingGeneration { onFailure(error) }
+                throw error
+            }
         }
         entries[lane] = Entry(generation: generation, task: task)
         pendingNames[key] = PendingName(generation: pendingGeneration, value: pendingName, task: task)

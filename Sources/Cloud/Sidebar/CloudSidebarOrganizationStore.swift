@@ -27,8 +27,8 @@ final class CloudSidebarOrganizationStore {
         return true
     }
 
-    /// Raise unpinned placements and folders below the pins. Pinned rows retain
-    /// their chosen order, matching the left sidebar. Called only by the admitted notification effect, never by
+    /// Raise only containing workspace folders below the pins. Terminal rows and
+    /// pinned folders retain their chosen order, matching the left sidebar. Called only by the admitted notification effect, never by
     /// an unread-set refresh, so reconnect and clear cannot replay a move.
     func raiseNotification(resource: SurfaceResourceID, nodes: [CloudTreeNode]) {
         raiseNotifications(resources: [resource], nodes: nodes)
@@ -45,7 +45,7 @@ final class CloudSidebarOrganizationStore {
                 if let resource = child.dragResource, resource.kind == .terminal { resources = [resource.id] }
                 else { resources = visit(child) }
                 descendants.formUnion(resources)
-                if child.canOrganize {
+                if case .workspace = child.kind {
                     for resource in resources { placements[resource, default: [:]][parent.id, default: []].insert(child.id) }
                 }
             }

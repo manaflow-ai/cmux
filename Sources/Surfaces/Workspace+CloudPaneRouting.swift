@@ -61,6 +61,9 @@ final class CloudWorkspaceRenameService {
             if let explicit = projection.remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines),
                !explicit.isEmpty {
                 remoteID = explicit
+            } else if let tabID = projection.remoteTabID {
+                guard let view = resource.remoteViews?.first(where: { $0.tabID == tabID }) else { return nil }
+                remoteID = view.workspace.id
             } else if resource.remoteWorkspaces.isEmpty || (resource.kind == .display && projection.remoteTabID == nil) {
                 // A cloud display, port browser, or pool terminal may be projected
                 // without a daemon-workspace placement. It cannot establish a target,
@@ -159,6 +162,7 @@ final class CloudWorkspaceRenameService {
     func remoteTabID(for projection: SurfaceProjection?, resource: SurfaceResource) -> String? {
         if let explicit = projection?.remoteTabID?.trimmingCharacters(in: .whitespacesAndNewlines),
            !explicit.isEmpty {
+            guard resource.remoteViews?.contains(where: { $0.tabID == explicit }) == true else { return nil }
             return explicit
         }
         guard let views = resource.remoteViews, views.count == 1,
@@ -179,6 +183,7 @@ final class CloudWorkspaceRenameService {
         workspace: Workspace,
         localTitle: String?,
         previousCustomTitle: String?,
+        previousCustomTitleSource: Workspace.CustomTitleSource? = .user,
         catalog: SurfaceCatalog
     ) {
         guard let localTitle, !localTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -229,26 +234,11 @@ final class CloudWorkspaceRenameService {
               catalog.provider(for: target.machine) != nil else { return }
         let expectedTitle = workspace.customTitle
         let manager = workspace.owningTabManager ?? environment.tabManager(workspace.id)
-        let write = catalog.enqueueRemoteWorkspaceRename(on: target.machine, id: target.remoteWorkspaceID, name: name)
-        Task { @MainActor [weak workspace, weak manager] in
-            do {
-                try await write.value
-            } catch {
-                guard let workspace,
-                      workspace.customTitle == expectedTitle, workspace.effectiveCustomTitleSource == .user,
-                      catalog.cloudRenameCoordinator.pendingName(for: .workspace(machine: target.machine, id: target.remoteWorkspaceID)) == nil,
-                      let manager else { return }
-                _ = manager.setCustomTitle(
-                    tabId: workspace.id,
-                    title: previousCustomTitle,
-                    source: .user,
-                    propagateToRemoteTmux: false,
-                    propagateToCloud: false
-                )
-                #if DEBUG
-                cmuxDebugLog("cloud.rename.workspace.failed ws=\(workspace.id) error=\(String(describing: error))")
-                #endif
-            }
+        catalog.enqueueRemoteWorkspaceRename(on: target.machine, id: target.remoteWorkspaceID, name: name) { [weak workspace, weak manager] _ in
+            guard let workspace, workspace.customTitle == expectedTitle, let manager else { return }
+            _ = manager.setCustomTitle(tabId: workspace.id, title: previousCustomTitle,
+                source: .remote, propagateToRemoteTmux: false, propagateToCloud: false)
+            workspace.customTitleSource = previousCustomTitleSource ?? .user
         }
     }
 
@@ -272,6 +262,7 @@ final class CloudWorkspaceRenameService {
         resource: SurfaceResource,
         name: String,
         previousCustomTitle: String?,
+        previousCustomTitleSource: Workspace.CustomTitleSource? = .user,
         catalog: SurfaceCatalog
     ) {
         let name = CloudRemoteRenameName(rawValue: name).wireValue
@@ -288,25 +279,15 @@ final class CloudWorkspaceRenameService {
             return
         }
         guard catalog.provider(for: resource.machine) != nil else { return }
-        let write = catalog.enqueueRemoteTabRename(on: resource.machine, id: tabID, name: name)
-        Task { @MainActor [weak workspace] in
-            do {
-                try await write.value
-            } catch {
-                guard let workspace,
-                      workspace.panelCustomTitles[panelID] == expectedTitle, workspace.panelCustomTitleSources[panelID] == .user,
-                      catalog.cloudRenameCoordinator.pendingName(for: .tab(machine: resource.machine, id: tabID)) == nil else { return }
-                _ = workspace.setPanelCustomTitle(
-                    panelId: panelID,
-                    title: previousCustomTitle,
-                    source: .user,
-                    propagateToRemoteTmux: false,
-                    propagateToCloud: false
-                )
-                #if DEBUG
-                cmuxDebugLog("cloud.rename.terminal.failed panel=\(panelID) error=\(String(describing: error))")
-                #endif
-            }
+        let expectedName = workspace.panelCustomTitleSources[panelID] == .auto
+            ? catalog.pendingCloudRenameName(for: .tab(machine: resource.machine, id: tabID))
+                ?? resource.remoteViews?.first(where: { $0.tabID == tabID })?.name ?? ""
+            : nil
+        catalog.enqueueRemoteTabRename(on: resource.machine, id: tabID, name: name, expectedName: expectedName) { [weak workspace] _ in
+            guard let workspace, workspace.panelCustomTitles[panelID] == expectedTitle else { return }
+            _ = workspace.setPanelCustomTitle(panelId: panelID, title: previousCustomTitle,
+                source: .remote, propagateToRemoteTmux: false, propagateToCloud: false)
+            workspace.panelCustomTitleSources[panelID] = previousCustomTitleSource ?? .user
         }
     }
 
