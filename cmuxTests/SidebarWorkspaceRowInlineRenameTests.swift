@@ -82,6 +82,10 @@ struct SidebarWorkspaceRowInlineRenameTests {
         )
         let editor = try harness.renameFieldEditor()
         #expect(editor.string == "Workspace")
+        #expect(
+            editor.selectedRange() == NSRange(location: 0, length: (editor.string as NSString).length),
+            "Entering workspace rename must select the full existing title for replacement typing"
+        )
     }
 
     @Test

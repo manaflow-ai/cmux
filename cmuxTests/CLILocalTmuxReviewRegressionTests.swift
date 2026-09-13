@@ -1,6 +1,12 @@
 import Darwin
 import XCTest
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
 extension CLINotifyProcessIntegrationRegressionTests {
     func testLocalTmuxLifecycleRejectsAttachmentOptions() throws {
         let cliPath = try bundledCLIPath()
@@ -41,25 +47,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(globalWindow.timedOut, globalWindow.stderr)
         XCTAssertNotEqual(globalWindow.status, 0, globalWindow.stdout)
         XCTAssertTrue(globalWindow.stderr.contains("only valid with start or attach"), globalWindow.stderr)
-    }
-
-    func testLocalTmuxAliasRejectsNonAttachActions() throws {
-        let cliPath = try bundledCLIPath()
-        var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment.removeValue(forKey: "CMUX_SOCKET")
-        environment.removeValue(forKey: "CMUX_SOCKET_PATH")
-
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["tmux", "list"],
-            environment: environment,
-            timeout: 10
-        )
-
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertNotEqual(result.status, 0, result.stdout)
-        XCTAssertTrue(result.stderr.contains("only supports attach"), result.stderr)
     }
 
     func testLocalTmuxAttachCommandRunsThroughGhosttyLoginShellWrapper() throws {

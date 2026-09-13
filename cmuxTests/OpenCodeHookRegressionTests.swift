@@ -21,9 +21,15 @@ final class OpenCodeHookRegressionTests: XCTestCase {
             "cmux-opencode-feed-\(UUID().uuidString)", isDirectory: true
         )
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: root) }
+        // Keep the Unix socket path short enough for macOS's sockaddr_un limit.
+        // The runner's temporary-directory prefix is long enough to be
+        // truncated by the kernel and collide with a stale listener.
+        let socketPath = "/tmp/cmux-opencode-\(UUID().uuidString).sock"
+        defer {
+            try? fileManager.removeItem(at: root)
+            try? fileManager.removeItem(atPath: socketPath)
+        }
 
-        let socketPath = root.appendingPathComponent("cmux.sock").path
         let harnessURL = root.appendingPathComponent("harness.js")
         try Self.openCodeFeedEventHarness.write(to: harnessURL, atomically: true, encoding: .utf8)
         let bunURL = try Self.bunExecutableURL()

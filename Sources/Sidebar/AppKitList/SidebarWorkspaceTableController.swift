@@ -2050,7 +2050,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func createEmptyWorkspaceGroup() {
         actions?.createEmptyWorkspaceGroup()
     }
-
+    func menu(forRow row: Int, event: NSEvent) -> NSMenu? { SidebarWorkspaceContextMenuResolver.menu(forRow: row, event: event, rows: rows, table: containerView?.tableView) }
     func emptyAreaMenu() -> NSMenu {
         let menu = NSMenu()
         let item = NSMenuItem(

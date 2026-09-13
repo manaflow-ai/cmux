@@ -1,6 +1,12 @@
 import Darwin
 import XCTest
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
 extension CLINotifyProcessIntegrationRegressionTests {
     func testLocalTmuxOldUUIDCannotControlReplacementSession() throws {
         let cliPath = try bundledCLIPath()
