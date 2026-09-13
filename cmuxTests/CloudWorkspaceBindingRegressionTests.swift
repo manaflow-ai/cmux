@@ -40,6 +40,19 @@ struct CloudWorkspaceBindingRegressionTests {
         )
 
         #expect(coordinator.creationWorkspaceID(in: bound, near: resource) == "ws_api")
+
+        let detached = SurfaceResource(
+            id: resource.id,
+            title: resource.title,
+            detail: resource.detail,
+            lifecycle: resource.lifecycle,
+            agent: resource.agent,
+            remoteWorkspace: nil,
+            remoteViews: [],
+            port: nil,
+            url: nil
+        )
+        #expect(coordinator.creationWorkspaceID(in: bound, near: detached) == nil)
     }
 
     @Test func mixedRemotePlacementsUseTheSelectedAnchorAndNeverTheFocusedWorkspace() {
