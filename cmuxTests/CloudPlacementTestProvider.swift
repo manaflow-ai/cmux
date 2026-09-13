@@ -30,6 +30,9 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
 
     func refresh() async { refreshCount += 1 }
     func install(_ state: CloudVMState, in catalog: SurfaceCatalog) {
+        projectCursor = state.cursor.flatMap { cursor in
+            cursor.revision < UInt64.max ? CloudVMCursor(generation: cursor.generation, revision: cursor.revision + 1) : nil
+        }
         catalog.replaceCloudState(state, resources: CmuxTuiSnapshotParser.resources(from: state), info: info)
         catalog.reconcileCloudRemoteState(machine: machine, state: state, observation: .current)
     }
