@@ -368,7 +368,16 @@
       "revisionLabel": "revision {revision}",
       "focused": "focused",
       "noTerminals": "No terminals",
-      "saveRelaySettings": "Save relay settings"
+      "saveRelaySettings": "Save relay settings",
+      "connected": "connected",
+      "workspacesGroup": "Workspaces",
+      "portsGroup": "Ports",
+      "portsEmpty": "No reachable ports",
+      "displaysGroup": "Displays",
+      "desktop": "Desktop",
+      "terminalsGroup": "Terminals",
+      "terminalsEmpty": "No terminals",
+      "terminalCount": "{count, plural, one {# terminal} other {# terminals}}"
     }
   },
   "community": {
