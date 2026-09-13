@@ -3814,15 +3814,7 @@ final class SocketClient {
                 }
                 if descriptor.revents & Int16(POLLNVAL) != 0 {
                     close()
-                    let message = String(
-                        format: String(
-                            localized: "cli.socket.error.failedToWriteWithErrno",
-                            defaultValue: "Failed to write to socket (%1$@, errno %2$d)"
-                        ),
-                        String(cString: strerror(EBADF)),
-                        EBADF
-                    )
-                    throw CLIError(message: message)
+                    let message = String(format: String(localized: "cli.socket.error.failedToWriteWithErrno", defaultValue: "Failed to write to socket (%1$@, errno %2$d)"), String(cString: strerror(EBADF)), EBADF); throw CLIError(message: message)
                 }
                 // Let a protected write resolve HUP/ERR to errno for telemetry.
                 guard descriptor.revents & Int16(POLLOUT | POLLHUP | POLLERR) != 0 else {
