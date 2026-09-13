@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import Foundation
 import Testing
 import struct CmuxSettings.AppCatalogSection
