@@ -16,8 +16,8 @@ struct PaneResizeShortcutTests {
     func configuredShortcutAndRepeatMoveDivider(direction: String) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let delegate = try #require(AppDelegate.shared)
-            let originalStore = KeyboardShortcutSettings.installIsolatedTestFileStore(prefix: "pane-resize")
             let action = try #require(KeyboardShortcutSettings.Action(rawValue: "resize-pane-\(direction)"))
+            let originalStore = KeyboardShortcutSettings.installIsolatedTestFileStore(prefix: "pane-resize")
             let defaults = UserDefaults.standard
             let originalShortcut = defaults.object(forKey: action.defaultsKey)
             let originalStep = defaults.object(forKey: "paneResizeStepPixels")
