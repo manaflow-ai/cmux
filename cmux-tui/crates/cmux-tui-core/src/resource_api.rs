@@ -587,19 +587,8 @@ pub(crate) fn public_session_snapshot_with_journal_head(
                 let pane = panes_by_id
                     .get(&tab.pane_id)
                     .ok_or_else(|| anyhow::anyhow!("tab references a missing pane"))?;
-                let content_kind = match tab.content_id {
-                    ContentPublicId::Terminal(_) => "terminal",
-                    ContentPublicId::Browser(_) => "browser",
-                };
-                Ok(json!({
-                    "id": tab.public_id,
-                    "pane_id": tab.pane_id,
-                    "name": tab.name,
-                    "index": checked_index(tab.position)?,
-                    "focused": pane.active_tab.as_ref() == Some(&tab.public_id),
-                    "content_kind": content_kind,
-                    "content_id": tab.content_id.as_str(),
-                }))
+                checked_index(tab.position)?;
+                Ok(tab.public_value(pane.active_tab.as_ref() == Some(&tab.public_id)))
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
 
@@ -1273,6 +1262,8 @@ mod tests {
             },
         ];
         let tabs = vec![RegistryTab {
+            name_source: Default::default(),
+            name_revision: 0,
             public_id: tab_a.clone(),
             pane_id: pane_a,
             position: 0,

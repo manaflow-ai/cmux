@@ -18617,6 +18617,8 @@ mod tests {
             .map(|(index, tab)| {
                 let pane_index = index.min(4);
                 RegistryTab {
+                    name_source: Default::default(),
+                    name_revision: 0,
                     public_id: tab.clone(),
                     pane_id: panes[pane_index].clone(),
                     position: usize::from(index == 5),
@@ -28279,6 +28281,8 @@ mod tests {
                                 terminal,
                             },
                             ResourceChange::UpsertTab(RegistryTab {
+                                name_source: Default::default(),
+                                name_revision: 0,
                                 public_id: tab.clone(),
                                 pane_id: pane.clone(),
                                 position: 0,
@@ -28490,6 +28494,8 @@ mod tests {
                                 terminal,
                             },
                             ResourceChange::UpsertTab(RegistryTab {
+                                name_source: Default::default(),
+                                name_revision: 0,
                                 public_id: tab.clone(),
                                 pane_id: pane.clone(),
                                 position: 0,
