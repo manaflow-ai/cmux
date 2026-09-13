@@ -274,6 +274,8 @@ RUN curl -fsSL https://github.com/akinomyoga/ble.sh/releases/download/nightly/bl
   && rm -f /tmp/ble.tar.xz \
   && test -f /usr/local/share/blesh/ble.sh
 COPY cmux-bashrc /etc/cmux/bashrc
+COPY cmux-prompt.bash /etc/cmux/prompt.bash
+RUN echo cmux > /etc/cmux/vm-name
 COPY seed-history /etc/cmux/seed-history
 COPY cmux-terminfo.sh /etc/profile.d/cmux-terminfo.sh
 # The cmux app's terminfo overlay (Resources/terminfo-overlay as infocmp

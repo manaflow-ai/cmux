@@ -2636,7 +2636,12 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       const db = cloudDb();
       const updated = await db
         .update(cloudVms)
-        .set({ displayName: input.displayName, updatedAt: new Date() })
+        .set({
+          displayName: input.displayName,
+          // Date exposes milliseconds. Keep renames strictly ordered even
+          // when two writers arrive within the same millisecond.
+          updatedAt: sql`greatest(${cloudVms.updatedAt} + interval '1 millisecond', clock_timestamp())`,
+        })
         .where(and(eq(cloudVms.id, input.id), ne(cloudVms.status, "destroyed")))
         .returning({ id: cloudVms.id });
       return updated.length > 0;

@@ -102,9 +102,27 @@ contract, not decoration:
   away, and the verifier proves both that the refusal is gone and that a pane
   the daemon opens really reports `cmux@cmux`.
 
-`vm-devbox-image.test.ts` pins the shared files (`cmux-bashrc`,
-`agent-config.sh`, `seed-history`, `chrome-managed-policy.json`) to their
-chatmux counterparts, so edit both copies together.
+The default Bash prompt shows `cmux@<vm-name>`. It reads `/etc/cmux/vm-name`
+with Bash's built-in `read` before each prompt. Create and attach install
+the current name. Rename updates it on a running machine. A paused or
+unreachable machine gets the saved name on its next attach. The prompt name
+uses the display label in lowercase with hyphens, or the generated slug when
+there is no usable label. Routing ids do not change.
+
+Set `PS1` after the `/etc/cmux/bashrc` source line in `~/.bashrc` to customize
+the prompt. For example, `PS1='\u@${__cmux_vm_name}:\w\$ '` keeps the live
+name with a different layout. A fixed prompt or a prompt tool also works.
+The line editor attaches at the first prompt, after these user settings load.
+Remove the source line to replace the full cmux shell setup. Lifecycle updates
+only write system defaults, never user rc files or prompt settings. The
+name reader never rewrites `PS1`, runs Git, calls the network, or starts a
+child process. The shell variable is local scratch state, not exported
+configuration. After the first upgrade, open a new shell to load this setup. That shell then reads
+later name changes at its next prompt without a restart.
+
+The Dockerfile and Freestyle recipe use these same shell files.
+`vm-devbox-image.test.ts` checks the image contract; `vm-guest-prompt.test.ts`
+checks live prompt updates and user overrides.
 
 ## Desktop layer (`desktop/`)
 

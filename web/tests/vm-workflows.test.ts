@@ -61,6 +61,7 @@ import {
   revokeExpiredIdentityLeases,
   revokeUserIdentityLeasesForAccountDeletion,
   resetBaseVm,
+  renameVm,
   restoreVm,
   reconcileVmProviderStatuses,
   resizeVm,
@@ -74,6 +75,55 @@ const runDbTests = process.env.CMUX_DB_TEST === "1";
 // concurrent tests for this file.
 const serialTest = (test as typeof test & { serial: typeof test }).serial;
 const dbTest = runDbTests ? serialTest : test.skip;
+
+describe("Cloud prompt rename", () => {
+  test("publishes the committed name to the running guest", async () => {
+    let current = testCloudVmRow({ providerVmId: "vm-prompt", status: "running", slug: "brave-blue-otter" });
+    const calls: string[] = [];
+    const repo: VmRepositoryShape = {
+      ...testWorkflowRepo({ vm: current }),
+      findUserVm: () => Effect.succeed(current),
+      setDisplayName: ({ displayName }) => Effect.sync(() => {
+        current = { ...current, displayName, updatedAt: new Date(200) };
+        return true;
+      }),
+    };
+    const result = await Effect.runPromise(renameVm({
+      userId: current.userId, providerVmId: "vm-prompt", displayName: "My Build Box",
+    }).pipe(Effect.provide(Layer.merge(
+      Layer.succeed(VmRepository, repo),
+      Layer.succeed(VmProviderGateway, {
+        ...unusedProviderGateway(),
+        exec: (_provider, id, command) => Effect.sync(() => {
+          calls.push(id, command);
+          return { exitCode: 0, stdout: "", stderr: "" };
+        }),
+      }),
+    ))));
+    expect(result.displayName).toBe("My Build Box");
+    expect(result.slug).toBe("brave-blue-otter");
+    expect(calls[0]).toBe("vm-prompt");
+    expect(calls[1]).toContain('"name":"my-build-box","revision":200');
+  });
+
+  test("renames a paused machine without waking it", async () => {
+    let current = testCloudVmRow({ providerVmId: "vm-prompt", status: "paused" });
+    const repo: VmRepositoryShape = {
+      ...testWorkflowRepo({ vm: current }),
+      findUserVm: () => Effect.succeed(current),
+      setDisplayName: ({ displayName }) => Effect.sync(() => {
+        current = { ...current, displayName };
+        return true;
+      }),
+    };
+    // The provider rejects every guest operation, so a wake would fail here.
+    const result = await Effect.runPromise(renameVm({
+      userId: current.userId, providerVmId: "vm-prompt", displayName: "Paused Box",
+    }).pipe(Effect.provide(Layer.succeed(VmRepository, repo)), Effect.provide(Layer.succeed(VmProviderGateway, unusedProviderGateway()))));
+    expect(result.displayName).toBe("Paused Box");
+    expect(result.status).toBe("paused");
+  });
+});
 
 let sql: Sql | null = null;
 
@@ -144,6 +194,29 @@ afterAll(async () => {
 });
 
 describe("VM Effect workflows", () => {
+  dbTest("keeps prompt revisions ordered across rapid renames and clock skew", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const userId = "user-prompt-revisions";
+    const providerVmId = "provider-prompt-revisions";
+    await sql`delete from cloud_vms where user_id = ${userId}`;
+    const layer = providerLayer({
+      ...unusedProviderGateway(),
+      create: () => Effect.succeed({ provider: "freestyle", providerVmId, image: "prompt-test", status: "running", createdAt: Date.now() }),
+    });
+    await Effect.runPromise(createVm({
+      userId, billingCustomerType: "team", billingTeamId: userId, billingPlanId: "free", provider: "freestyle", image: "prompt-test", maxActiveVms: 1,
+    }).pipe(Effect.provide(layer)));
+    const [{ id }] = await sql<{ id: string }[]>`update cloud_vms set updated_at = '2100-01-01T00:00:00Z' where user_id = ${userId} returning id`;
+    const revisions: number[] = [];
+    for (const displayName of ["first", "second"]) {
+      await Effect.runPromise(vmRepositoryLiveShape.setDisplayName({ id, displayName }));
+      const row = await Effect.runPromise(vmRepositoryLiveShape.findUserVm({ userId, billingTeamId: userId, providerVmId }));
+      revisions.push(row!.updatedAt.getTime());
+    }
+    expect(revisions).toEqual([Date.parse("2100-01-01T00:00:00.001Z"), Date.parse("2100-01-01T00:00:00.002Z")]);
+    await sql`delete from cloud_vms where user_id = ${userId}`;
+  });
+
   test("repairs a legacy fork claim from provider CPU and memory stats", async () => {
     const source = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000151",

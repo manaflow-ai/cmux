@@ -101,6 +101,7 @@ import {
   type VmResizeReservation,
 } from "./repository";
 import { measureVmEffect, type VmTimingSink } from "./timings";
+import { guestPromptInstallCommand, vmPromptIdentity } from "./guestPrompt";
 
 export {
   homeVolumeNameForUser,
@@ -325,8 +326,7 @@ export function getVm(input: {
   });
 }
 
-/** Sets or clears the user-facing label on a machine the caller owns. The
- * provider VM id stays the machine's address; this is display-only. */
+/** Sets or clears the label and refreshes the guest prompt. Routing ids stay stable. */
 export function renameVm(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
@@ -338,7 +338,22 @@ export function renameVm(input: {
     const repo = yield* VmRepository;
     const vm = yield* requireUserVm(input);
     yield* repo.setDisplayName({ id: vm.id, displayName: input.displayName });
-    return vmEntryFromRow({ ...vm, displayName: input.displayName, updatedAt: new Date() });
+    // Read the committed row so a concurrent rename and attach carry the
+    // database's revision, not the request's start time.
+    const updated = yield* requireUserVm(input);
+    if (updated.status === "running") {
+      const providers = yield* VmProviderGateway;
+      yield* providers.exec(updated.provider, input.providerVmId, guestPromptInstallCommand(vmPromptIdentity(updated)), {
+        timeoutMs: 10_000,
+        providerMetadata: updated.providerMetadata,
+      }).pipe(
+        Effect.flatMap((result) => result.exitCode === 0 ? Effect.void : Effect.fail(new Error(`prompt update exited ${result.exitCode}`))),
+        // A saved rename must remain available when a guest is unreachable.
+        // The next attach repairs it; paused machines are never woken here.
+        Effect.catchAll((error) => Effect.logWarning("Cloud prompt update deferred until attach", { vmId: updated.id, error })),
+      );
+    }
+    return vmEntryFromRow(updated);
   });
 }
 
@@ -616,6 +631,7 @@ export function createVm(input: {
       providers.create(input.provider, {
         image: input.image,
         displayName: create.vm.slug ?? undefined,
+        promptIdentity: vmPromptIdentity(create.vm),
         providerMetadata: create.vm.providerMetadata,
         homeVolume: input.perMachineHome
           ? homeVolumeTemplateForUser(input.userId)
@@ -896,6 +912,7 @@ function finishBaseCreate(
       providers.create(input.provider, {
         image: input.image,
         displayName: create.vm.slug ?? undefined,
+        promptIdentity: vmPromptIdentity(create.vm),
         providerMetadata: create.vm.providerMetadata,
         edgeRules: materials?.edgeRules,
         network: { id: network.providerNetworkId },
@@ -3264,6 +3281,7 @@ export function openVmCmuxRemote(input: {
       input.providerVmId,
       "attach",
       providers.openCmuxRemote(vm.provider, input.providerVmId, {
+        promptIdentity: vmPromptIdentity(vm),
         deviceFingerprint: input.deviceFingerprint,
         clientCapabilities: input.clientCapabilities,
         providerMetadata: vm.providerMetadata,
