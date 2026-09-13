@@ -75,7 +75,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     let attachmentClock: any Clock<Duration>
     /// Terminal → tab from the last snapshot, so an exited terminal (whose own selector
     /// no longer resolves in cmux-tui) can still be closed through its tab.
-    var tabByTerminal: [String: String] = [:]
+    private var tabByTerminal: [String: String] = [:]
     /// Coalesces concurrent first opens of a zero-view terminal. `terminal.project` is a
     /// mutation, so two local panes racing on the same pool row must share one remote view.
     // Internal so the manual-mirror extension can share the provider-owned task map.
@@ -87,12 +87,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// the next snapshot can lag it. Keep the exact created row and placement
     /// until an accepted graph reaches that receipt. This is a transient view
     /// overlay, never a second remote-state store.
-    struct PendingRemoteCreation {
+    private struct PendingRemoteCreation {
         var resource: SurfaceResource
         var receipt: CloudVMCursor?
         let tabID: String?
     }
-    var pendingRemoteCreations: [SurfaceResourceID: PendingRemoteCreation] = [:]
+    private var pendingRemoteCreations: [SurfaceResourceID: PendingRemoteCreation] = [:]
     /// Rename receipts are transient read-your-write fences. They are keyed by
     /// daemon identity, not by a local title or projection, because one remote
     /// tab can be shown in several windows. The canonical graph remains the
@@ -913,6 +913,35 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let text = CloudMachineLink.errorText(error).lowercased()
         return text.contains("revision conflict") || text.contains("revision.conflict")
             || text.contains("revision_conflict") || text.contains("stale revision")
+    }
+
+    /// `terminal <id> close`; a terminal whose process already exited is gone from
+    /// cmux-tui's selectors, so its tab is closed instead. Either way the resource
+    /// leaves the catalog now and the next snapshot confirms.
+    func closeTerminal(_ id: SurfaceResourceID) async throws {
+        try await closeTerminal(id, fallbackTabID: nil)
+    }
+
+    func closeTerminal(_ id: SurfaceResourceID, fallbackTabID: String?) async throws {
+        pendingRemoteCreations.removeValue(forKey: id)
+        do {
+            _ = try await runCloseCommand { CloudTuiCommandLine.closeTerminalArguments(socketPath: $0, terminalID: id.key) }
+        } catch {
+            guard let tabID = fallbackTabID ?? tabByTerminal[id.key], Self.isSelectorNotFound(error) else { throw error }
+            _ = try await runCloseCommand { CloudTuiCommandLine.closeTabArguments(socketPath: $0, tabID: tabID) }
+        }
+        closeLocalPanes(showing: [id])
+        catalog.remove(id, from: self)
+        scheduleRefresh()
+    }
+
+    /// A closed terminal has no pane to show any more: every local pane that projected it
+    /// goes too, instead of lingering as a dead attach the person has to close by hand.
+    private func closeLocalPanes(showing ids: [SurfaceResourceID]) {
+        let wanted = Set(ids)
+        for projection in catalog.snapshot.projections where wanted.contains(projection.resource) {
+            SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
+        }
     }
 
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {

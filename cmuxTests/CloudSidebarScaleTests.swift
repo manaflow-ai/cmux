@@ -1,5 +1,4 @@
 import AppKit
-import Bonsplit
 import Foundation
 import Testing
 import os
@@ -61,11 +60,10 @@ struct CloudSidebarScaleTests {
         let suite = "CloudSidebarScaleTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let tabDragTransferRegistry = TabDragTransferRegistry()
         let coordinator = CloudTreeOutlineView.Coordinator(
             machineActions: Self.machineActions, nodeActions: Self.nodeActions,
             expansionStore: CloudTreeExpansionStore(defaults: defaults),
-            tabDragTransferRegistry: { tabDragTransferRegistry }
+            tabDragTransferRegistry: { nil }
         )
         let container = CloudTreeContainerView(coordinator: coordinator)
         container.frame = NSRect(x: 0, y: 0, width: 360, height: CGFloat(workspaceCount + 1) * 36)
