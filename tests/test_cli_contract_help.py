@@ -10,6 +10,7 @@ inspect Swift source.
 from __future__ import annotations
 
 import glob
+import json
 import os
 import re
 import shlex
@@ -156,6 +157,7 @@ def main() -> int:
         return 1
 
     failures: list[str] = []
+    failures.extend(check_guide_contract(cli_path))
     for probe in probes:
         try:
             result = run_probe(cli_path, probe)
@@ -269,6 +271,43 @@ def main() -> int:
 
     print(f"PASS: {len(probes)} CLI help contract probes and {len(negative_probes)} negative probes passed")
     return 0
+
+
+def check_guide_contract(cli_path: str) -> list[str]:
+    failures: list[str] = []
+    # An explicit missing socket and invalid window prove that guides do not
+    # connect, authenticate, or focus a window, even with ambient cmux context.
+    prefix = ["--socket", f"/tmp/cmux-guide-{uuid.uuid4().hex}.sock", "--window", "window:999999"]
+    topics = {
+        "cmux": [["guide"], ["--skill"]],
+        "cloud": [["cloud", "guide"], ["cloud", "--skill"], ["vm", "guide"], ["vm", "--skill"]],
+    }
+    for topic, aliases in topics.items():
+        expected_content = None
+        for invocation in aliases:
+            label = "cmux " + " ".join(invocation)
+            try:
+                plain = run_cli_args(cli_path, prefix + invocation)
+                if plain.returncode != 0 or plain.stderr or not plain.stdout.startswith("# cmux"):
+                    raise ValueError(f"guide failed: {plain}")
+                if expected_content is None:
+                    expected_content = plain.stdout
+                if plain.stdout != expected_content:
+                    raise ValueError("alias output differs from the canonical guide")
+                for arguments in (["--json", *invocation], [*invocation, "--json"]):
+                    result = run_cli_args(cli_path, prefix + arguments)
+                    payload = json.loads(result.stdout)
+                    if result.returncode != 0 or result.stderr or payload != {
+                        "topic": topic, "format": "markdown", "content": expected_content,
+                    }:
+                        raise ValueError(f"JSON guide differs from plain output: {result}")
+                for suffix in (["unexpected"], ["--", "--help"]):
+                    result = run_cli_args(cli_path, prefix + invocation + suffix)
+                    if result.returncode != 2 or result.stdout or "Usage:" not in result.stderr:
+                        raise ValueError(f"invalid arguments must fail before socket access: {result}")
+            except (subprocess.TimeoutExpired, OSError, ValueError) as exc:
+                failures.append(f"{label}: {exc}")
+    return failures
 
 
 if __name__ == "__main__":
