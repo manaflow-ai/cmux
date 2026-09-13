@@ -548,6 +548,20 @@ jobs:
           fi
           cargo test --workspace --locked "$TEST_FILTER"
 
+      - name: Optional Iroh route and auth tests
+        if: inputs.mode == 'full'
+        working-directory: cmux-tui
+        shell: bash
+        run: |
+          for test_name in \
+            remote_cli::tests::iroh_route_candidates_keep_query_hints_isolated \
+            remote_runtime::tests::route_auth_capability_is_derived_from_the_local_provider_registry
+          do
+            cargo test --locked -p cmux-tui --bin cmux-tui --features iroh-transport \
+              "$test_name" -- --exact --color never | tee "$RUNNER_TEMP/iroh-feature-test.log"
+            grep -Fq 'test result: ok. 1 passed;' "$RUNNER_TEMP/iroh-feature-test.log"
+          done
+
       - name: crossterm parser tests
         if: inputs.mode == 'full'
         working-directory: cmux-tui

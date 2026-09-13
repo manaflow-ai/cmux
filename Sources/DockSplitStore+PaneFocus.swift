@@ -34,7 +34,7 @@ extension DockSplitStore {
         if panels[sourceID] != nil {
             return sourceID
         }
-        if let mappedPanelID = surfaceIdToPanelId.first(where: { $0.key.uuid == sourceID })?.value,
+        if let mappedPanelID = surfaceIdToPanelId[TabID(uuid: sourceID)],
            panels[mappedPanelID] != nil {
             return mappedPanelID
         }
