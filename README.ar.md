@@ -69,7 +69,7 @@
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> ينشئ مساحة عمل لجهاز بعيد. تُوجَّه أجزاء المتصفح عبر الشبكة البعيدة بحيث يعمل localhost مباشرة. اسحب صورة إلى جلسة بعيدة لرفعها عبر scp.
+<code>cmux ssh user@remote</code> ينشئ مساحة عمل لجهاز بعيد. مرّر <code>--command 'omp "investigate auth"'</code> لتشغيل أمر أولي مرة واحدة في أول طرفية بعيدة لها. تُوجَّه أجزاء المتصفح عبر الشبكة البعيدة بحيث يعمل localhost مباشرة. اسحب صورة إلى جلسة بعيدة لرفعها عبر scp.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -119,6 +119,21 @@ brew upgrade --cask cmux
 ```
 
 عند التشغيل الأول، قد يطلب منك macOS تأكيد فتح تطبيق من مطور معروف. انقر **فتح** للمتابعة.
+
+### الإكمال التلقائي في الصدفة
+
+تثبّت حزمة Homebrew الإكمال التلقائي لـ zsh وbash وfish. ابدأ صدفة جديدة بعد التثبيت. إذا لم يعمل، فتأكد من أن أدلة الإكمال الخاصة بـ Homebrew مضبوطة في صدفتك (راجع [توثيق الإكمال التلقائي في Homebrew](https://docs.brew.sh/Shell-Completion)).
+
+إذا ثبّت cmux بطريقة أخرى، فأضف السطر المناسب إلى ملف بدء تشغيل صدفتك، ثم ابدأ صدفة جديدة:
+
+```bash
+# zsh
+eval "$(cmux completion zsh)"
+# bash
+eval "$(cmux completion bash)"
+# fish
+cmux completion fish | source
+```
 
 ## لماذا cmux؟
 
