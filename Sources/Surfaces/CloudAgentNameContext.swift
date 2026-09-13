@@ -33,4 +33,13 @@ struct CloudAgentNameContext: Hashable, Codable, Sendable {
         guard let data = try? JSONEncoder().encode(self) else { return nil }
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
+
+    /// Preserve this callback's identity and revision when encoding the daemon command.
+    func renameArguments(socketPath: String, name: String) -> [String] {
+        CloudTuiCommandLine.renameTabArguments(
+            socketPath: socketPath, tabID: projection.remoteTabID ?? "", name: name
+        ) + ["--workspace", projection.remoteWorkspaceID ?? "",
+             "--source", "auto", "--expected-generation", generation,
+             "--expected-name-revision", String(nameRevision)]
+    }
 }

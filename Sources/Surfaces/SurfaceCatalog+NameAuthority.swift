@@ -56,9 +56,9 @@ extension SurfaceCatalog {
         guard source == .user else { return false }
         let name = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !name.isEmpty else {
-            workspace.presentCloudRenameFailure(SurfaceCatalogError.unsupported(
+            workspace.presentCloudRenameFailure(message:
                 String(localized: "cloudTree.error.renameWorkspaceEmptyName", defaultValue: "A workspace name cannot be empty.")
-            ))
+            )
             return false
         }
         // Upgrade legacy projections before admitting the name. No display text
