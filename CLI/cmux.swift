@@ -14,7 +14,6 @@ import LocalAuthentication
 #if canImport(Security)
 import Security
 #endif
-
 struct WindowInfo {
     let index: Int
     let id: String
@@ -22,7 +21,6 @@ struct WindowInfo {
     let selectedWorkspaceId: String?
     let workspaceCount: Int
 }
-
 struct NotificationInfo {
     let id: String
     let workspaceId: String
@@ -34,7 +32,6 @@ struct NotificationInfo {
     let createdAt: String?
     let tabTitle: String?
 }
-
 struct ClaudeHookParsedInput {
     let rawObject: [String: Any]?
     let object: [String: Any]?
@@ -45,14 +42,12 @@ struct ClaudeHookParsedInput {
     let transcriptPath: String?
     let title: String?
 }
-
 enum AgentHookRuntimeStatus: String, Codable {
     case running
     case idle
     case needsInput
     case error
 }
-
 #if DEBUG
 private func agentHookDebugLog(
     _ message: @autoclosure () -> String,
@@ -63,7 +58,6 @@ private func agentHookDebugLog(
     let timestamp = String(format: "%.3f", Date().timeIntervalSince1970)
     let line = "\(timestamp) \(message())\n"
     guard let data = line.data(using: .utf8) else { return }
-
     if let handle = FileHandle(forWritingAtPath: logPath) {
         defer { try? handle.close() }
         guard (try? handle.seekToEnd()) != nil else { return }
@@ -72,7 +66,6 @@ private func agentHookDebugLog(
         FileManager.default.createFile(atPath: logPath, contents: data)
     }
 }
-
 private func agentHookDebugLogPath(socketPath: String?, env: [String: String]) -> String {
     if let explicit = agentHookDebugNonEmpty(env["CMUX_DEBUG_LOG"]) {
         return NSString(string: explicit).expandingTildeInPath
