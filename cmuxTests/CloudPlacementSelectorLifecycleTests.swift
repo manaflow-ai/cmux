@@ -82,6 +82,8 @@ struct CloudPlacementSelectorLifecycleTests {
         })
         let catalog = SurfaceCatalog(cloudPlacementCoordinator: coordinator)
         let provider = CloudPlacementTestProvider(machine: machine)
+        provider.moveCursor = CloudVMCursor(generation: "g", revision: 3)
+        provider.projectCursor = CloudVMCursor(generation: "g", revision: 4)
         catalog.register(provider)
         install(try graph(tabID: "tab_old"), catalog: catalog, provider: provider)
         let blocker = SurfaceProjection(
