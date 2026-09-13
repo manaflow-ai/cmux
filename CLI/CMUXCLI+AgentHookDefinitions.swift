@@ -390,7 +390,7 @@ extension CMUXCLI {
         noOpCommand: String = "echo '{}'",
         failOpen: Bool = false
     ) -> String {
-        guard case .pinned(let marker) = def.dispatch else {
+        guard case .pinned = def.dispatch else {
             return agentHookShellCommand(command, for: def, noOpCommand: noOpCommand)
         }
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
