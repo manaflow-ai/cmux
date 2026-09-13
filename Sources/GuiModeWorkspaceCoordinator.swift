@@ -32,7 +32,7 @@ final class GuiModeWorkspaceCoordinator {
             throw AgentSessionBridgeError.invalidRequest
         }
         let workspace = location.tabManager.addWorkspace(
-            title: taskWorkspaceTitle(prompt: trimmedPrompt),
+            title: Self.taskWorkspaceTitle(prompt: trimmedPrompt),
             workingDirectory: location.workspace.currentDirectory,
             select: true,
             autoRefreshMetadata: false
@@ -52,7 +52,8 @@ final class GuiModeWorkspaceCoordinator {
                 orientation: .horizontal,
                 insertFirst: false,
                 workingDirectory: location.workspace.currentDirectory,
-                initialInput: taskWorktreePRCommand(prompt: trimmedPrompt, providerID: providerID)
+                initialCommand: providerID.launchCommand,
+                initialInput: Self.taskWorktreePRInput(prompt: trimmedPrompt, providerID: providerID)
             ) != nil else {
                 throw AgentSessionBridgeError.invalidRequest
             }
@@ -82,7 +83,11 @@ final class GuiModeWorkspaceCoordinator {
     }
 
     static func taskWorktreePRCommand(prompt: String, providerID: GuiModeProviderID) -> String {
-        "/task-worktree-pr --provider \(providerID.rawValue) \(shellQuoted(prompt))"
+        "/task-worktree-pr --provider \(providerID.rawValue) \(Self.shellQuoted(prompt))"
+    }
+
+    static func taskWorktreePRInput(prompt: String, providerID: GuiModeProviderID) -> String {
+        Self.taskWorktreePRCommand(prompt: prompt, providerID: providerID) + "\n"
     }
 
     static func taskWorkspaceTitle(prompt: String) -> String {

@@ -63,6 +63,7 @@ struct GuiModeTests {
                 providerID: .claude
             ) == "/task-worktree-pr --provider claude 'Build $HOME'\\''s `thing`'"
         )
+        #expect(GuiModeWorkspaceCoordinator.taskWorktreePRInput(prompt: "Build it", providerID: .codex).hasSuffix("\n"))
         #expect(GuiModeWorkspaceCoordinator.taskWorkspaceTitle(prompt: "  build\n\tthe   UI  ") == "GUI: build the UI")
     }
 

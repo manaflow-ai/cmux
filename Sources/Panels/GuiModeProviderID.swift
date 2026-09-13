@@ -93,6 +93,14 @@ enum GuiModeProviderID: String, CaseIterable, Codable, Identifiable, Sendable {
     }
 
     var setupCommand: String { self == .claude ? "claude auth login" : "cmux hooks \(rawValue) install" }
+    var launchCommand: String {
+        switch self {
+        case .codex: return "codex --yolo"
+        case .claude: return "claude"
+        case .opencode: return "opencode"
+        default: return rawValue
+        }
+    }
     var taskCommandPreview: String { "/task-worktree-pr --provider \(rawValue)" }
 
     var capabilityLabels: [String] {

@@ -12,11 +12,10 @@ struct GuiModePanelState: Codable, Equatable, Sendable {
         Self(page: .taskWorktreePR, prompt: prompt, providerID: providerID)
     }
 
+}
+
+extension GuiModePanelState {
     init(snapshot: SessionAgentSessionPanelSnapshot) {
-        self.init(
-            page: snapshot.guiModePage ?? .home,
-            prompt: snapshot.guiModePrompt,
-            providerID: snapshot.guiModeProviderID ?? .codex
-        )
+        self.init(page: snapshot.guiModePage ?? .home, prompt: snapshot.guiModePrompt, providerID: snapshot.guiModeProviderID ?? .codex)
     }
 }

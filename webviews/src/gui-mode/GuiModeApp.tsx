@@ -260,7 +260,10 @@ function ProviderSelect({
 }) {
   const [query, setQuery] = useState("");
   const selectedProvider = providerForId(providers, selectedProviderId);
-  const visibleProviders = filterGuiModeProviders(providers, query);
+  const filteredProviders = filterGuiModeProviders(providers, query);
+  const visibleProviders = filteredProviders.some((provider) => provider.id === selectedProvider.id)
+    ? filteredProviders
+    : [selectedProvider, ...filteredProviders];
   return h("label", { className: "gui-mode-agent-select-shell", style: providerAccentStyle(selectedProvider) },
     h("span", { className: "gui-mode-provider-mark", "aria-hidden": "true" }),
     h("span", { className: "gui-mode-agent-select-label" }, label),

@@ -12845,34 +12845,34 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         workingDirectory: String?,
         initialInput: String?,
         startupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
-        remoteStartupCommand: String? = nil
+        remoteStartupCommand: String? = nil, initialCommand: String? = nil
     ) -> TerminalPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
         let requestedRemoteStartupCommand = remoteStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let startupCommand = requestedRemoteStartupCommand?.isEmpty == false ? requestedRemoteStartupCommand : nil
+        let effectiveCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines).flatMap { $0.isEmpty ? nil : $0 } ?? startupCommand
         let effectiveStartupEnvironment = terminalStartupEnvironment(
             base: startupEnvironmentMergingWorkspaceEnvironment([:]),
             remoteStartupCommand: startupCommand
         )
-        if startupCommand != nil {
+        if effectiveCommand != nil {
             var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
             template.waitAfterCommand = true
             inheritedConfig = template
         }
-
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
-            initialCommand: startupCommand,
+            initialCommand: effectiveCommand,
             initialInput: initialInput,
             additionalEnvironment: effectiveStartupEnvironment,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                 requestedPolicy: .immediate,
-                willRunStartupCommand: false,
+                willRunStartupCommand: effectiveCommand != nil,
                 willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
             )
         )
