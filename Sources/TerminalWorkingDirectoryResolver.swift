@@ -36,6 +36,34 @@ struct TerminalWorkingDirectoryResolver {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    /// Chooses between a terminal's shell-reported cwd and its foreground
+    /// job's cwd, preferring the foreground job.
+    ///
+    /// A process started from a different directory than the prompt — most
+    /// notably `claude --worktree`, which runs the agent inside a git worktree
+    /// while the prompt shell stays in the repository root — makes the shell's
+    /// OSC 7 report stale for "the directory being worked in".
+    ///
+    /// The foreground directory wins only when it resolves to a genuinely
+    /// different directory: at the prompt the two match, and returning the
+    /// shell's own reported path preserves a symlinked cwd verbatim instead of
+    /// swapping in its realpath. An empty `shellDirectory` means directory
+    /// provenance was deliberately withheld for that pane, so no foreground
+    /// value may resurrect one.
+    nonisolated static func preferringForegroundDirectory(
+        shellDirectory: String,
+        foregroundDirectory: String?
+    ) -> String {
+        guard !shellDirectory.isEmpty,
+              let foreground = normalized(foregroundDirectory),
+              foreground != shellDirectory else {
+            return shellDirectory
+        }
+        let foregroundReal = URL(fileURLWithPath: foreground).resolvingSymlinksInPath().path
+        let shellReal = URL(fileURLWithPath: shellDirectory).resolvingSymlinksInPath().path
+        return foregroundReal == shellReal ? shellDirectory : foreground
+    }
+
     /// The current working directory of `pid` via
     /// `proc_pidinfo(PROC_PIDVNODEPATHINFO)`, or nil when the process is gone
     /// or unreadable.

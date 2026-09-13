@@ -7144,3 +7144,59 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
     }
 
 }
+
+@Suite("Terminal foreground working directory preference")
+struct TerminalForegroundDirectoryPreferenceTests {
+    private func selector(_ shellDirectory: String, _ foregroundDirectory: String?) -> String {
+        TerminalWorkingDirectoryResolver.preferringForegroundDirectory(
+            shellDirectory: shellDirectory,
+            foregroundDirectory: foregroundDirectory
+        )
+    }
+
+    @Test("prefers the foreground worktree over the shell's repo root")
+    func prefersForegroundWorktree() {
+        #expect(
+            selector(
+                "/repo",
+                "/repo/.claude/worktrees/twinkly-kindling-bubble"
+            ) == "/repo/.claude/worktrees/twinkly-kindling-bubble"
+        )
+    }
+
+    @Test("keeps the shell directory at the prompt")
+    func keepsShellDirectoryAtPrompt() {
+        #expect(selector("/repo", "/repo") == "/repo")
+    }
+
+    @Test("keeps the shell directory when the foreground job is unavailable")
+    func keepsShellDirectoryWithoutForeground() {
+        #expect(selector("/repo", nil) == "/repo")
+    }
+
+    @Test("treats a blank foreground directory as unavailable")
+    func ignoresBlankForegroundDirectory() {
+        #expect(selector("/repo", "   ") == "/repo")
+    }
+
+    @Test("never resurrects a directory when provenance was withheld")
+    func doesNotResurrectWithheldDirectory() {
+        #expect(selector("", "/repo/.claude/worktrees/wt") == "")
+    }
+
+    @Test("preserves a symlinked shell cwd instead of its realpath")
+    func preservesSymlinkedShellDirectory() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-fg-dir-\(UUID().uuidString)", isDirectory: true)
+        let real = root.appendingPathComponent("real", isDirectory: true)
+        let link = root.appendingPathComponent("link", isDirectory: true)
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+
+        // The shell reports the symlinked path while the foreground job's cwd
+        // reads back as the realpath; they are the same directory, so the
+        // shell's own spelling must survive.
+        #expect(selector(link.path, real.path) == link.path)
+    }
+}

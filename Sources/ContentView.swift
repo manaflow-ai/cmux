@@ -10710,7 +10710,7 @@ struct ContentView: View {
 
     private func focusedTerminalDirectoryURL() -> URL? {
         guard let workspace = tabManager.selectedWorkspace else { return nil }
-        let rawDirectory: String = {
+        let rawShellDirectory: String = {
             if let focusedPanelId = workspace.focusedPanelId {
                 guard workspace.allowsLocalDirectoryFallback(panelId: focusedPanelId) else { return "" }
                 if let directory = workspace.reportedPanelDirectory(panelId: focusedPanelId) {
@@ -10723,10 +10723,27 @@ struct ContentView: View {
             guard !workspace.isRemoteWorkspace else { return "" }
             return workspace.currentDirectory
         }()
-        let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = TerminalWorkingDirectoryResolver.preferringForegroundDirectory(
+            shellDirectory: rawShellDirectory.trimmingCharacters(in: .whitespacesAndNewlines),
+            foregroundDirectory: focusedTerminalForegroundDirectory(in: workspace)
+        )
         guard !trimmed.isEmpty else { return nil }
         guard FileManager.default.fileExists(atPath: trimmed) else { return nil }
         return URL(fileURLWithPath: trimmed, isDirectory: true)
+    }
+
+    /// The live working directory of the focused terminal's foreground job, or
+    /// `nil` when unavailable. Honors the same local-directory provenance gate
+    /// as the shell cwd, and skips remote terminal surfaces, whose foreground
+    /// process is local (an ssh client) and so says nothing about the remote
+    /// directory being worked in.
+    private func focusedTerminalForegroundDirectory(in workspace: Workspace) -> String? {
+        guard let focusedPanelId = workspace.focusedPanelId,
+              workspace.allowsLocalDirectoryFallback(panelId: focusedPanelId),
+              !workspace.isRemoteTerminalSurface(focusedPanelId) else {
+            return nil
+        }
+        return workspace.liveForegroundProcessWorkingDirectory(panelId: focusedPanelId)
     }
 
 #if DEBUG

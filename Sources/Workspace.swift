@@ -8398,7 +8398,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return nil
     }
 
-    private func liveForegroundProcessWorkingDirectory(panelId: UUID) -> String? {
+    /// The working directory of the pane's foreground job, from libghostty's
+    /// `tcgetpgrp` read on the PTY master plus a `PROC_PIDVNODEPATHINFO` cwd
+    /// lookup. Callers outside the resume rescue (e.g. "Open Current
+    /// Directory") use this rather than the shell's reported OSC 7 cwd.
+    func liveForegroundProcessWorkingDirectory(panelId: UUID) -> String? {
         if let provider = foregroundProcessWorkingDirectoryProvider {
             return provider(panelId)
         }
