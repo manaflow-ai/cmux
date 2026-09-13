@@ -1157,6 +1157,27 @@ export const coderouterRouteTokens = pgTable(
   ],
 );
 
+/** Long-lived user-created credentials for direct CodeRouter API clients. */
+export const coderouterApiKeys = pgTable(
+  "coderouter_api_keys",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    teamId: text("team_id").notNull(),
+    stackUserId: text("stack_user_id").notNull(),
+    keyHash: text("key_hash").notNull(),
+    keyPrefix: text("key_prefix").notNull(),
+    label: text("label").notNull().default("default"),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("coderouter_api_keys_hash_unique").on(table.keyHash),
+    index("coderouter_api_keys_team_created_idx").on(table.teamId, table.createdAt),
+    index("coderouter_api_keys_user_created_idx").on(table.stackUserId, table.createdAt),
+  ],
+);
+
 /**
  * Envelope-encrypted provider credentials. Every secret-bearing field is
  * ciphertext; the plaintext data key exists only briefly in Vercel memory.

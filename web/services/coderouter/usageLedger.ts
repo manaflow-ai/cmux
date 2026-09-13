@@ -25,6 +25,8 @@ export type UsageEventInput = {
   readonly requestId: string;
   readonly teamId: string;
   readonly stackUserId: string;
+  /** Opaque API-key UUID; null for route-token and VM requests. */
+  readonly apiKeyId?: string | null;
   readonly vmId: string | null;
   readonly provider: string;
   /** Claude only; empty for every other provider. */
@@ -49,6 +51,7 @@ export type RouteEventInput = {
   readonly teamId?: string;
   /** Absent before route-token authentication succeeds. */
   readonly stackUserId?: string;
+  readonly apiKeyId?: string | null;
   readonly vmId?: string | null;
   readonly provider: string;
   readonly agent: string;
@@ -67,6 +70,7 @@ export type UsageEventRow = {
   readonly event_time: string;
   readonly team_id: string;
   readonly stack_user_id: string;
+  readonly api_key_id?: string | null;
   readonly vm_id: string | null;
   readonly provider: string;
   readonly upstream_kind: string;
@@ -91,6 +95,7 @@ export type RouteEventRow = {
   readonly event_time: string;
   readonly team_id: string;
   readonly stack_user_id: string | null;
+  readonly api_key_id?: string | null;
   readonly vm_id: string | null;
   readonly provider: string;
   readonly agent: string;
@@ -171,6 +176,7 @@ export function usageEventRow(
     event_time: clickHouseDateTime(now),
     team_id: boundedText(input.teamId, 128),
     stack_user_id: boundedText(input.stackUserId, 128),
+    ...(input.apiKeyId ? { api_key_id: ledgerApiKeyId(input.apiKeyId) } : {}),
     vm_id: ledgerVmId(input.vmId),
     provider: boundedText(input.provider, 64) || "unknown",
     upstream_kind: boundedText(input.upstreamKind, 64),
@@ -203,6 +209,7 @@ export function routeEventRow(input: RouteEventInput, now: Date): RouteEventRow 
     event_time: clickHouseDateTime(now),
     team_id: boundedText(input.teamId, 128),
     stack_user_id: ledgerUserId(input.stackUserId),
+    ...(input.apiKeyId ? { api_key_id: ledgerApiKeyId(input.apiKeyId) } : {}),
     vm_id: ledgerVmId(input.vmId ?? null),
     provider: boundedText(input.provider, 64) || "unknown",
     agent: boundedText(input.agent, 64) || "unknown",
@@ -258,6 +265,12 @@ function ledgerAccountId(value: string | undefined): string {
 
 function ledgerUserId(value: string | undefined): string | null {
   return typeof value === "string" && ID_PATTERN.test(value) ? value : null;
+}
+
+function ledgerApiKeyId(value: string | null | undefined): string | null {
+  return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    ? value
+    : null;
 }
 
 function boundedText(value: string | undefined, max: number): string {
