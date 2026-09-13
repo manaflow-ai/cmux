@@ -34,6 +34,17 @@ export class VmResizeInvalidError extends Data.TaggedError("VmResizeInvalidError
   readonly currentMb: number;
   readonly maxMb: number;
   readonly reason: "below_current" | "above_max";
+  readonly resource?: "cpu" | "memory" | "storage";
+}> {}
+
+/** A resize exceeds the caller's plan-specific resource ceiling. */
+export class VmResizePlanLimitError extends Data.TaggedError("VmResizePlanLimitError")<{
+  readonly vmId: string;
+  readonly resource: "cpu" | "memory" | "storage";
+  readonly requested: number;
+  readonly max: number;
+  readonly planId: string;
+  readonly upgradePlanId?: string;
 }> {}
 
 /** A grow-only disk resize is already running for this machine. */
@@ -192,6 +203,7 @@ export class VmModelPlaneError extends Data.TaggedError("VmModelPlaneError")<{
 }> {}
 
 export type VmWorkflowError =
+  | VmResizePlanLimitError
   | VmDatabaseError
   | VmProviderOperationError
   | VmOperationUnsupportedError
@@ -332,6 +344,7 @@ export function isVmOperationUnsupportedError(err: unknown): err is VmOperationU
 // snapshot into a generic 500 instead of 404), and the `const` object rejects
 // tags that are not in the union.
 const vmWorkflowErrorTagRecord = {
+  VmResizePlanLimitError: true,
   VmDatabaseError: true,
   VmProviderOperationError: true,
   VmOperationUnsupportedError: true,

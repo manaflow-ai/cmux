@@ -807,6 +807,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
                 items.append(item(String(localized: "cloudTree.menu.openFullClient", defaultValue: "Open Full cmux-tui Client")) { actions.runCommand(id, ["vm", "tui"]) })
             }
+            if machine.freeAccess != .expired, machine.capabilities.sizing {
+                items.append(CloudTreeResizeMenu.item(machine: machine, id: id, action: actions))
+            }
             items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { nodeActions.refresh() })
             items.append(.separator())
             items.append(item(String(localized: "machines.menu.rename", defaultValue: "Rename\u{2026}")) { actions.promptRename(id, machine.label) })
