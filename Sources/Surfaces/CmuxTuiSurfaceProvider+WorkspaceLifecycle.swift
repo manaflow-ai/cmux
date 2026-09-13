@@ -28,8 +28,7 @@ extension CmuxTuiSurfaceProvider {
             // unrelated terminal resources remain untouched.
             guard Self.isSelectorNotFound(error) else { throw error }
         }
-        removeRemoteWorkspaceFromInfo(id)
-        catalog.updateMachine(info, from: self)
+        reconcileRemovedRemoteWorkspace(id)
         scheduleRefresh()
     }
 }

@@ -2061,6 +2061,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         info.remoteWorkspaces = info.remoteWorkspaces?.filter { $0.id != id }
     }
 
+    func reconcileRemovedRemoteWorkspace(_ id: String) {
+        removeRemoteWorkspaceFromInfo(id)
+        catalog.updateMachine(info, from: self)
+    }
+
     func scheduleRefresh() {
         let lifecycle = lifecycleGeneration
         guard scheduledRefresh == nil else { return }
