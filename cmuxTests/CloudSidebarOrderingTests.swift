@@ -27,7 +27,13 @@ struct CloudSidebarOrderingTests {
         let group = try #require(outline.parent(forItem: folder) as? CloudTreeNode)
         #expect(group.children.map(\.id) == [folder.id, fixture.folderID("ws_1")])
         try fixture.attachScreenshot(named: "cloud-sidebar-after-move")
-        #expect(menu.items.contains { $0.title == String(localized: "cloudTree.menu.pin", defaultValue: "Pin") })
+        let pin = try #require(menu.items.first { $0.title == String(localized: "cloudTree.menu.pin", defaultValue: "Pin") })
+        #expect(NSApp.sendAction(try #require(pin.action), to: pin.target, from: pin))
+        let current = try #require(outline.item(atRow: outline.row(forItem: folder)) as? CloudTreeNode)
+        #expect(current.isPinned)
+        try fixture.attachScreenshot(named: "cloud-sidebar-after-pin")
+        #expect(fixture.provider.moved.isEmpty && fixture.provider.closedTabs.isEmpty && fixture.provider.projected.isEmpty)
+        #expect(fixture.provider.refreshCount == 0)
     }
     @Test("Pins and relative moves survive reconnect, restart, and renamed duplicate titles")
     func preferencesSurviveFreshSnapshots() throws {
@@ -97,9 +103,43 @@ struct CloudSidebarOrderingTests {
         #expect(drag.string(forType: CloudSidebarDragItem.type) == folder.id)
     }
 
+    @Test("A menu opened before a remote deletion cannot mutate the obsolete row")
+    func menuUsesLatestCatalogMembership() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        fixture.coordinator.apply(nodes: fixture.nodes())
+        let outline = try #require(fixture.coordinator.outlineView)
+        let folder = try #require(CloudTreeNodeBuilder.flattened(fixture.nodes()).first { $0.id == fixture.folderID("ws_2") })
+        let menu = try #require(fixture.coordinator.contextMenu(forRow: outline.row(forItem: folder)))
+        let pin = try #require(menu.items.first { $0.title == String(localized: "cloudTree.menu.pin", defaultValue: "Pin") })
+        _ = fixture.catalog.replaceResources([fixture.snapshot().resources[0]], on: fixture.machine, from: fixture.provider)
+        #expect(NSApp.sendAction(try #require(pin.action), to: pin.target, from: pin))
+        #expect(fixture.catalog.sidebarOrganization.state.groups.isEmpty)
+    }
+
+    @Test("Confirmed closed row preferences are pruned, while hidden live folders retain pins")
+    func pruneOnlyConfirmedClosedRows() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let owner = fixture.catalog.sidebarOrganization
+        let nodes = fixture.nodes()
+        #expect(owner.perform(.pin, id: fixture.folderID("ws_2"), nodes: nodes))
+        let second = try #require(CloudTreeNodeBuilder.flattened(nodes).first { $0.id == fixture.folderID("ws_2") }?.children.first)
+        #expect(owner.perform(.pin, id: second.id, nodes: nodes))
+        let remaining = nodes
+        let parent = try #require(CloudSidebarOrganizationTree(nodes: remaining).parent(of: fixture.folderID("ws_2")))
+        parent.children.removeAll { $0.id == fixture.folderID("ws_2") }
+        owner.reconcile(nodes: remaining, machine: fixture.machine, workspaceIDs: ["ws_1", "ws_2"])
+        #expect(owner.state.isPinned(fixture.folderID("ws_2"), parent: parent.id))
+        #expect(owner.state.isPinned(second.id, parent: fixture.folderID("ws_2")))
+        owner.reconcile(nodes: remaining, machine: fixture.machine, workspaceIDs: ["ws_1"])
+        #expect(!owner.state.isPinned(fixture.folderID("ws_2"), parent: parent.id))
+        #expect(owner.state.groups[fixture.folderID("ws_2")] == nil)
+    }
+
 }
 
-/// An isolated catalog rendered by the production NSOutlineView, with no provider,
+/// An isolated catalog rendered by the production NSOutlineView, with a fake provider,
 /// credentials, user defaults, network connection, or live terminal mutation.
 @MainActor
 final class CloudSidebarOrderingFixture {
@@ -107,12 +147,14 @@ final class CloudSidebarOrderingFixture {
     let defaults: UserDefaults
     let defaultsName = "cloud-sidebar-ordering-\(UUID().uuidString)"
     let catalog: SurfaceCatalog
+    let provider: CloudPlacementTestProvider
     let coordinator: CloudTreeOutlineView.Coordinator
     let container: CloudTreeContainerView
     let window: NSWindow
 
     init() {
         defaults = UserDefaults(suiteName: defaultsName)!
+        provider = CloudPlacementTestProvider(machine: machine)
         catalog = SurfaceCatalog(sidebarOrganization: CloudSidebarOrganizationStore(defaults: defaults))
         let catalog = catalog
         coordinator = CloudTreeOutlineView.Coordinator(
@@ -133,6 +175,10 @@ final class CloudSidebarOrderingFixture {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 380, height: 560), styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = container
         container.layoutSubtreeIfNeeded()
+        let initial = snapshot()
+        provider.info = initial.machines[0]
+        catalog.register(provider)
+        _ = catalog.replaceResources(initial.resources, on: machine, info: initial.machines[0], from: provider)
     }
 
     func close() {

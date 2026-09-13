@@ -406,7 +406,7 @@ final class CloudNotificationSync {
     /// the pass and leaves the batch for the next accepted state or reconnect;
     /// there is no timer and no backoff here because the link owns recovery.
     private func requestFlush() {
-        guard !state.pendingAcks.isEmpty else { return }
+        guard !retired, !state.pendingAcks.isEmpty else { return }
         if flushTask != nil {
             flushRequested = true
             return

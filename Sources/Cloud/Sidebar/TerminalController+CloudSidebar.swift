@@ -25,7 +25,7 @@ extension TerminalController {
                     guard let nodeID, CloudSidebarOrganizationTree(nodes: nodes).parent(of: nodeID) != nil else {
                         throw SurfaceCatalogError.destinationNotFound(Self.cloudSidebarInvalidAction)
                     }
-                    guard catalog.sidebarOrganization.perform(action, id: nodeID, nodes: nodes) else {
+                    guard catalog.organizeSidebar(action, nodeID: nodeID) else {
                         throw SurfaceCatalogError.destinationNotFound(Self.cloudSidebarInvalidAction)
                     }
                 }

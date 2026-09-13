@@ -367,7 +367,7 @@ struct CloudTreeNodeActions {
             },
             refresh: refresh
         )
-        actions.organize = { catalog().sidebarOrganization.perform($0, id: $1, nodes: $2) }
+        actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }
         actions.refreshMachine = refreshMachine
         return actions
     }

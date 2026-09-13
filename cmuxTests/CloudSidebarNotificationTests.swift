@@ -89,6 +89,10 @@ struct CloudSidebarNotificationTests {
         let parent = try #require(CloudSidebarOrganizationTree(nodes: arranged).parent(of: fixture.folderID("ws_1")))
         #expect(parent.children.map(\.id) == [fixture.folderID("ws_1"), fixture.folderID("ws_2")])
         #expect(parent.children[0].isPinned)
+        #expect(owner.perform(.pin, id: fixture.folderID("ws_2"), nodes: fixture.nodes()))
+        let pinnedOrder = owner.state
+        owner.raiseNotification(resource: SurfaceResourceID(machine: fixture.machine, kind: .terminal, key: "term_ws_2"), nodes: fixture.nodes())
+        #expect(owner.state == pinnedOrder, "Notifications preserve the manually chosen order of pinned folders")
     }
 
     private func notification(_ id: String, terminal: String) -> CloudVMNotificationRow {

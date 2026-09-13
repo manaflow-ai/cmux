@@ -27,8 +27,8 @@ final class CloudSidebarOrganizationStore {
         return true
     }
 
-    /// Move every placement of this terminal and its folder within their current
-    /// pin partition. Called only by the admitted notification effect, never by
+    /// Raise unpinned placements and folders below the pins. Pinned rows retain
+    /// their chosen order, matching the left sidebar. Called only by the admitted notification effect, never by
     /// an unread-set refresh, so reconnect and clear cannot replay a move.
     func raiseNotification(resource: SurfaceResourceID, nodes: [CloudTreeNode]) {
         guard !resource.machine.isLocal else { return }
@@ -39,7 +39,7 @@ final class CloudSidebarOrganizationStore {
                 let matches = child.dragResource?.id == resource || visit(child)
                 if matches {
                     containsTerminal = true
-                    if child.canOrganize {
+                    if child.canOrganize, !next.isPinned(child.id, parent: parent.id) {
                         _ = next.apply(.top, id: child.id,
                                        siblings: parent.children.filter(\.canOrganize).map(\.id), parent: parent.id)
                     }
@@ -48,6 +48,27 @@ final class CloudSidebarOrganizationStore {
             return containsTerminal
         }
         for node in nodes where node.machine == resource.machine { _ = visit(node) }
+        if next != state { commit(next) }
+    }
+
+    /// Prune only against a current accepted daemon graph, never a disconnect
+    /// placeholder. Hidden-but-existing folders retain their child preferences.
+    func reconcile(nodes: [CloudTreeNode], machine: SurfaceMachineID, workspaceIDs: Set<String>) {
+        let folderIDs = Set(workspaceIDs.map { CloudTreeNodeBuilder.nodeID(workspace: $0, machine: machine) })
+        let current = CloudTreeNodeBuilder.flattened(nodes).filter { $0.machine == machine }
+        var live = Dictionary(current.map { ($0.id, Set($0.children.filter(\.canOrganize).map(\.id))) }, uniquingKeysWith: { first, _ in first })
+        live[CloudTreeNodeBuilder.nodeID(workspacesGroup: machine)] = folderIDs
+        let prefix = CloudTreeNodeBuilder.nodeID(machine: machine) + "/"
+        var next = state
+        for parent in Array(next.groups.keys) where parent.hasPrefix(prefix) {
+            if let ids = live[parent], var group = next.groups[parent] {
+                group.order.removeAll { !ids.contains($0) }
+                group.pinned.formIntersection(ids)
+                next.groups[parent] = group.order.isEmpty ? nil : group
+            } else if !folderIDs.contains(parent) {
+                next.groups[parent] = nil
+            }
+        }
         if next != state { commit(next) }
     }
 
