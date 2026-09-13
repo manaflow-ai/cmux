@@ -56,6 +56,10 @@ final class CloudTuiManualMirrorSession {
     /// The last sidecar fed to the local surface; the next one is applied as a delta from it.
     private var appliedRemoteColors = CloudTuiRemoteColors()
     private var hasReceivedRemoteReplay = false
+    /// A replay can arrive while the portal is still installing its Metal layer.
+    /// Keep one deferred redraw for that transition so the first usable frame is
+    /// presented even when no later resize or focus event occurs.
+    private var replayRefreshScheduled = false
     private var lastRemoteGrid: CloudTuiManualIOGrid?
     private(set) var phase: CloudTuiManualMirrorPhase = .idle {
         didSet {
@@ -157,6 +161,7 @@ final class CloudTuiManualMirrorSession {
         }
         surface.flushPendingManualSizeReportIfAttached()
         runtimeReady()
+        scheduleReplayRenderRefresh()
     }
 
     /// Re-samples on reveal even without a frame-size delta. A valid grid in
@@ -223,6 +228,7 @@ final class CloudTuiManualMirrorSession {
             remoteLease = nil
             serverCapabilities.removeAll(keepingCapacity: true)
             resizeScheduler.resetForReconnect()
+            replayRefreshScheduled = false
             lastRemoteGrid = nil
             finishDiagnostics(error: CancellationError())
             phase = .disconnected
@@ -256,6 +262,7 @@ final class CloudTuiManualMirrorSession {
         remoteLease = nil
         serverCapabilities.removeAll(keepingCapacity: true)
         resizeScheduler.resetForReconnect()
+        replayRefreshScheduled = false
         lastRemoteGrid = nil
         diagnosticReplayReceived = false
         finishDiagnostics(error: error)
@@ -274,6 +281,7 @@ final class CloudTuiManualMirrorSession {
             await Task.yield()
             guard !Task.isCancelled else { return }
             self?.sampleRuntimeSize()
+            self?.scheduleReplayRenderRefresh()
         }
     }
 
@@ -336,6 +344,7 @@ final class CloudTuiManualMirrorSession {
         remoteLease = nil
         serverCapabilities.removeAll(keepingCapacity: true)
         resizeScheduler.resetForReconnect()
+        replayRefreshScheduled = false
         lastRemoteGrid = nil
         phase = .connecting
 
@@ -494,6 +503,7 @@ final class CloudTuiManualMirrorSession {
             if phase == .attached { finishDiagnostics() }
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
             reconcileRemoteGrid()
+            scheduleReplayRenderRefresh()
         case let .output(surfaceID, bytes, colors):
             guard surfaceID == remoteSurfaceID else { return }
             surface?.processRemoteOutput(bytes)
@@ -510,6 +520,7 @@ final class CloudTuiManualMirrorSession {
             if phase == .attached { finishDiagnostics() }
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
             reconcileRemoteGrid()
+            scheduleReplayRenderRefresh()
         case let .colorsChanged(surfaceID, colors):
             guard surfaceID == remoteSurfaceID else { return }
             applyColors(colors)
@@ -555,6 +566,34 @@ final class CloudTuiManualMirrorSession {
         appliedRemoteColors = colors
         guard !delta.isEmpty else { return }
         surface?.processRemoteOutput(delta)
+    }
+
+    /// Schedules one redraw after a replay reaches the local terminal parser.
+    /// The portal may still be completing its reparent/layout transaction when
+    /// the socket event is handled, so the redraw runs on the next common-mode
+    /// run-loop turn and is skipped if the pane is no longer present.
+    private func scheduleReplayRenderRefresh() {
+        guard hasReceivedRemoteReplay,
+              phase == .attached,
+              let surface,
+              surface.isNativeViewInRealWindow,
+              surface.isRendererPortalVisible,
+              !replayRefreshScheduled else { return }
+        replayRefreshScheduled = true
+        RunLoop.main.perform(inModes: [.common]) { [weak self] in
+            guard let self else { return }
+            self.replayRefreshScheduled = false
+            guard self.phase == .attached,
+                  self.hasReceivedRemoteReplay,
+                  let surface = self.surface,
+                  surface.isNativeViewInRealWindow,
+                  surface.isRendererPortalVisible else { return }
+            manualMirrorLogger.notice(
+                "replay.redraw terminal=\(self.terminalID, privacy: .private(mask: .hash)) " +
+                    "surface=\(self.remoteSurfaceID)"
+            )
+            surface.hostedView.refreshSurfaceNow(reason: "cloud.manualMirror.replay")
+        }
     }
 
     private func transitionToDisconnected(error: Error? = CloudDiagnosticFailure.network) {
