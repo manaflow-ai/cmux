@@ -39,18 +39,19 @@ final class SurfaceCatalog {
 
     private(set) var machines: [SurfaceMachineID: SurfaceMachineInfo] = [:]
     private(set) var resources: [SurfaceResourceID: SurfaceResource] = [:]
-    private(set) var projections: Set<SurfaceProjection> = []
-    /// Resource IDs grouped by machine so providers can answer presence checks
-    /// without sorting the full catalog snapshot on every refresh.
+    private struct CloudProjectionKey: Hashable { let panelID: UUID; let workspaceID: UUID }
+    private var cloudProjectionIndex = Set<CloudProjectionKey>()
+    private var cloudProjectionIndexDirty = true
+    private(set) var projections: Set<SurfaceProjection> = [] { didSet { cloudProjectionIndexDirty = true } }
     private var resourceIDsByMachine: [SurfaceMachineID: Set<SurfaceResourceID>] = [:]
 
     /// The last accepted, revisioned graph for each cloud machine. Resource rows
     /// are derived from this state by the provider; keeping it here makes the
     /// complete state available to socket and agent callers without another cache.
-    private(set) var cloudStates: [SurfaceMachineID: CloudVMState] = [:]
     /// Whether each retained graph was observed on a live link. This is separate
     /// from `CloudVMState` because freshness is local observation metadata, not
     /// part of the daemon document or its cursor.
+    private(set) var cloudStates: [SurfaceMachineID: CloudVMState] = [:]
     private(set) var cloudStateObservations: [SurfaceMachineID: CloudVMStateObservation] = [:]
     private var providers: [SurfaceMachineID: any SurfaceProvider] = [:]
     /// The process-wide ordering owner for remote rename intents. A remote identity can
@@ -59,8 +60,8 @@ final class SurfaceCatalog {
     let cloudWorkspaceProjectionCoordinator: CloudWorkspaceProjectionCoordinator
     /// Resolves local workspace owners for cloud rename write-through. The app installs
     /// its live environment at the composition root; tests keep the no-op environment.
-    private(set) var cloudWorkspaceRenameService: CloudWorkspaceRenameService
     /// Keeps a mirrored local workspace's panes and its machine workspace's tabs in step.
+    private(set) var cloudWorkspaceRenameService: CloudWorkspaceRenameService
     private(set) var cloudPlacementCoordinator: CloudPlacementCoordinator
     /// Materializations are asynchronous, so actor reentrancy can otherwise let two callers
     /// pass the reuse check before either provider has returned a projection.
@@ -154,6 +155,7 @@ final class SurfaceCatalog {
             generatedTitle: generatedTitle
         )
         requestCloudWorkspaceProjection(localWorkspaceID)
+        cloudWorkspaceRenameService.updateCloudDirectories(localWorkspaceID: localWorkspaceID, catalog: self)
     }
 
     // MARK: Providers
@@ -206,6 +208,7 @@ final class SurfaceCatalog {
         let pending = pendingRestoredProjections.keys.filter { $0.resource.machine == machine }
         for record in pending { pendingRestoredProjections[record] = nil }
         cloudWorkspaceProjectionCoordinator.cancel(machine: machine)
+        cloudProjectionIndexDirty = true
         cloudStates[machine] = nil
         cloudStateObservations[machine] = nil
         projections = projections.filter { $0.resource.machine != machine }
@@ -1070,6 +1073,11 @@ final class SurfaceCatalog {
         insertSupersedingLocalPlaceholder(cloudPlacementCoordinator.projectionInCurrentWorkspace(projection))
         reconcileCloudWorkspaceBinding(localWorkspaceID: projection.workspaceID)
         reconcileCloudProjection(projection)
+        if let resource = resources[projection.resource], !resource.machine.isLocal,
+           resource.kind == .terminal,
+           let workspace = cloudWorkspaceRenameService.environment.workspace(projection.workspaceID) {
+            workspace.updateCloudPanelDirectory(panelId: projection.panelID, directory: resource.detail)
+        }
         notifyChange()
     }
 
@@ -1257,6 +1265,20 @@ final class SurfaceCatalog {
         projections.first { $0.panelID == panelID }
     }
 
+    /// Returns whether the panel is backed by a non-local resource projection.
+    func hasCloudProjection(panelID: UUID, workspaceID: UUID) -> Bool {
+        if cloudProjectionIndexDirty {
+            cloudProjectionIndex = Set(projections.filter { !$0.resource.machine.isLocal }.map {
+                CloudProjectionKey(panelID: $0.panelID, workspaceID: $0.workspaceID)
+            })
+            cloudProjectionIndex.formUnion(pendingRestoredProjections.compactMap { record, workspaceID in
+                record.resource.machine.isLocal ? nil : CloudProjectionKey(panelID: record.panelID, workspaceID: workspaceID)
+            })
+            cloudProjectionIndexDirty = false
+        }
+        return cloudProjectionIndex.contains(CloudProjectionKey(panelID: panelID, workspaceID: workspaceID))
+    }
+
     func resource(forPanel panelID: UUID) -> SurfaceResource? {
         projection(forPanel: panelID).flatMap { resources[$0.resource] }
     }
@@ -1283,6 +1305,7 @@ final class SurfaceCatalog {
                 ))
             } else {
                 pendingRestoredProjections[record] = workspaceID
+                cloudProjectionIndexDirty = true
             }
         }
         reconcileCloudWorkspaceBinding(localWorkspaceID: workspaceID)
@@ -1339,6 +1362,7 @@ final class SurfaceCatalog {
                 remoteTabID: record.remoteTabID
             ))
             pendingRestoredProjections[record] = nil
+            cloudProjectionIndexDirty = true
             resolvedWorkspaceIDs.insert(workspaceID)
         }
         for workspaceID in resolvedWorkspaceIDs {
