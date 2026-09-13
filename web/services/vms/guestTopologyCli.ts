@@ -1,6 +1,6 @@
 // Shared local and peer topology grammar for the in-VM CLI.
-export const GUEST_CMUX_TOPOLOGY_SHELL = `# Verb-first topology commands share the current local/peer target. The daemon
-# validates selectors and destination flags before its authoritative mutation.
+export const GUEST_CMUX_TOPOLOGY_SHELL = `# Topology commands share the current local/peer target. The daemon validates
+# selectors and destination flags before its authoritative mutation.
 guest_topology_command() {
   cmux_tp_noun="\$1"; shift
   cmux_tp_verb="\${1:-help}"
@@ -29,6 +29,9 @@ guest_topology_command() {
       ;;
     show|focus|close|move|split|swap|zoom|resize)
       [ "\$#" -ge 1 ] && [ -n "\$1" ] || die_message 2 topologyUsage
+      if [ "\$cmux_tp_noun" = workspace ] && [ "\$cmux_tp_verb" = close ]; then
+        guest_workspace_close "\$@"
+      fi
       cmux_tp_id="\$1"; shift
       case "\$cmux_tp_noun:\$cmux_tp_verb" in
         pane:split)
@@ -49,6 +52,58 @@ guest_topology_command() {
       exec "\$CMUX_TUI_BIN" "\$TARGET_FLAG" "\$TARGET_VALUE" "\$cmux_tp_noun" "\$cmux_tp_verb" "\$@"
       ;;
   esac
+}
+
+# Remove only the wrapper's compatibility options. Leave daemon options such
+# as revision fences and idempotency keys intact for cmux-tui to validate
+# before opening its session socket. Rotate only original arguments so quoted
+# values retain their bytes and argument boundaries without eval or temp files.
+guest_workspace_close() {
+  cmux_wc_remaining=\$#
+  cmux_wc_workspace=""
+  cmux_wc_workspace_seen=0
+  cmux_wc_focus_seen=0
+  while [ "\$cmux_wc_remaining" -gt 0 ]; do
+    cmux_wc_arg="\$1"; shift
+    cmux_wc_remaining=\$((cmux_wc_remaining - 1))
+    case "\$cmux_wc_arg" in
+      --help|-h) cmux_message topologyHelp; exit 0 ;;
+      --idempotency-key|--expected-revision|--socket|--session|--machine)
+        # An option's value can itself resemble a compatibility option.
+        # Keep that pair opaque and let the daemon validate its value.
+        [ "\$cmux_wc_remaining" -gt 0 ] || die_message 2 topologyUsage
+        cmux_wc_value="\$1"; shift
+        cmux_wc_remaining=\$((cmux_wc_remaining - 1))
+        set -- "\$@" "\$cmux_wc_arg" "\$cmux_wc_value"
+        continue
+        ;;
+      --workspace|--focus)
+        [ "\$cmux_wc_remaining" -gt 0 ] || die_message 2 topologyUsage
+        cmux_wc_value="\$1"; shift
+        cmux_wc_remaining=\$((cmux_wc_remaining - 1))
+        case "\$cmux_wc_value" in ''|--*) die_message 2 topologyUsage ;; esac
+        ;;
+      --workspace=*|--focus=*) cmux_wc_value="\${cmux_wc_arg#*=}" ;;
+      *) set -- "\$@" "\$cmux_wc_arg"; continue ;;
+    esac
+    case "\$cmux_wc_arg" in
+      --workspace|--workspace=*)
+        [ "\$cmux_wc_workspace_seen" -eq 0 ] && [ -n "\$cmux_wc_value" ] || die_message 2 topologyUsage
+        cmux_wc_workspace_seen=1
+        cmux_wc_workspace="\$cmux_wc_value"
+        ;;
+      --focus|--focus=*)
+        [ "\$cmux_wc_focus_seen" -eq 0 ] || die_message 2 topologyUsage
+        [ "\$cmux_wc_value" = false ] || die_message 2 topologyCloseFocus
+        cmux_wc_focus_seen=1
+        ;;
+    esac
+  done
+  if [ "\$cmux_wc_workspace_seen" -eq 1 ]; then set -- "\$cmux_wc_workspace" "\$@"; fi
+  [ "\$#" -gt 0 ] || die_message 2 topologyUsage
+  case "\$1" in ''|--*) die_message 2 topologyUsage ;; esac
+  cmux_wc_workspace="\$1"; shift
+  exec "\$CMUX_TUI_BIN" "\$TARGET_FLAG" "\$TARGET_VALUE" workspace "\$cmux_wc_workspace" close "\$@"
 }
 
 # A terminal label is implemented by renaming its exact tab placements, like
