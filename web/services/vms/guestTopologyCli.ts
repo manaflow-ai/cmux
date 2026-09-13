@@ -67,6 +67,15 @@ guest_workspace_close() {
     cmux_wc_arg="\$1"; shift
     cmux_wc_remaining=\$((cmux_wc_remaining - 1))
     case "\$cmux_wc_arg" in
+      --idempotency-key|--expected-revision|--socket|--session|--machine)
+        # An option's value can itself resemble a compatibility option.
+        # Keep that pair opaque and let the daemon validate its value.
+        [ "\$cmux_wc_remaining" -gt 0 ] || die_message 2 topologyUsage
+        cmux_wc_value="\$1"; shift
+        cmux_wc_remaining=\$((cmux_wc_remaining - 1))
+        set -- "\$@" "\$cmux_wc_arg" "\$cmux_wc_value"
+        continue
+        ;;
       --workspace|--focus)
         [ "\$cmux_wc_remaining" -gt 0 ] || die_message 2 topologyUsage
         cmux_wc_value="\$1"; shift
