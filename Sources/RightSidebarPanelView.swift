@@ -323,7 +323,7 @@ struct RightSidebarPanelView: View {
                     )
                 }
                 Spacer(minLength: 0)
-                if fileExplorerState.mode.canOpenAsPane {
+                if fileExplorerState.mode.canOpenAsPane, fileExplorerState.mode.isAvailable() {
                     openAsPaneButton(mode: fileExplorerState.mode)
                 }
                 closeButton
