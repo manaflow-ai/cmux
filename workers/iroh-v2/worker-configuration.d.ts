@@ -16,7 +16,7 @@ interface __BaseEnv_Env {
 	RELAY_KEY_ID: string;
 	RELAY_URLS: string;
 	DATABASE_URL?: string;
-	PLANETSCALE_DATABASE_URL?: string;
+	DATABASE_URL?: string;
 	AXIOM_TOKEN: string;
 	SENTRY_DSN: string;
 	TEAM_CONTROL: DurableObjectNamespace<import("./src/index").TeamControl>;
@@ -41,7 +41,7 @@ declare namespace Cloudflare {
 		RELAY_SIGNING_KEY: string;
 		RELAY_KEY_ID: string;
 		RELAY_URLS: string;
-		PLANETSCALE_DATABASE_URL: string;
+		DATABASE_URL: string;
 		AXIOM_TOKEN: string;
 		SENTRY_DSN: string;
 		TEAM_CONTROL: DurableObjectNamespace<import("./src/index").TeamControl>;
@@ -61,7 +61,7 @@ declare namespace Cloudflare {
 		RELAY_SIGNING_KEY: string;
 		RELAY_KEY_ID: string;
 		RELAY_URLS: string;
-		PLANETSCALE_DATABASE_URL: string;
+		DATABASE_URL: string;
 		AXIOM_TOKEN: string;
 		SENTRY_DSN: string;
 		TEAM_CONTROL: DurableObjectNamespace<import("./src/index").TeamControl>;
@@ -81,7 +81,7 @@ declare namespace Cloudflare {
 		RELAY_SIGNING_KEY: string;
 		RELAY_KEY_ID: string;
 		RELAY_URLS: string;
-		PLANETSCALE_DATABASE_URL: string;
+		DATABASE_URL: string;
 		AXIOM_TOKEN: string;
 		SENTRY_DSN: string;
 		TEAM_CONTROL: DurableObjectNamespace<import("./src/index").TeamControl>;
@@ -94,7 +94,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "ENVIRONMENT" | "STACK_API_URL" | "AXIOM_DATASET" | "AXIOM_INGEST_URL" | "SENTRY_ENVIRONMENT" | "STACK_PROJECT_ID" | "STACK_PUBLISHABLE_KEY" | "STACK_SERVER_KEY" | "API_TICKET_KEYS" | "API_TICKET_CURRENT_KEY_ID" | "RELAY_SIGNING_KEY" | "RELAY_KEY_ID" | "RELAY_URLS" | "PLANETSCALE_DATABASE_URL" | "AXIOM_TOKEN" | "SENTRY_DSN">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "ENVIRONMENT" | "STACK_API_URL" | "AXIOM_DATASET" | "AXIOM_INGEST_URL" | "SENTRY_ENVIRONMENT" | "STACK_PROJECT_ID" | "STACK_PUBLISHABLE_KEY" | "STACK_SERVER_KEY" | "API_TICKET_KEYS" | "API_TICKET_CURRENT_KEY_ID" | "RELAY_SIGNING_KEY" | "RELAY_KEY_ID" | "RELAY_URLS" | "DATABASE_URL" | "AXIOM_TOKEN" | "SENTRY_DSN">> {}
 }
 
 // Begin runtime types

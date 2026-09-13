@@ -37,7 +37,7 @@
       "RELAY_SIGNING_KEY",
       "RELAY_KEY_ID",
       "RELAY_URLS",
-      "PLANETSCALE_DATABASE_URL",
+      "DATABASE_URL",
       "AXIOM_TOKEN",
       "SENTRY_DSN"
     ]
@@ -92,7 +92,7 @@
           "RELAY_SIGNING_KEY",
           "RELAY_KEY_ID",
           "RELAY_URLS",
-          "PLANETSCALE_DATABASE_URL",
+          "DATABASE_URL",
           "AXIOM_TOKEN",
           "SENTRY_DSN"
         ]
@@ -129,7 +129,7 @@
           "RELAY_SIGNING_KEY",
           "RELAY_KEY_ID",
           "RELAY_URLS",
-          "PLANETSCALE_DATABASE_URL",
+          "DATABASE_URL",
           "AXIOM_TOKEN",
           "SENTRY_DSN"
         ]
@@ -166,7 +166,7 @@
           "RELAY_SIGNING_KEY",
           "RELAY_KEY_ID",
           "RELAY_URLS",
-          "PLANETSCALE_DATABASE_URL",
+          "DATABASE_URL",
           "AXIOM_TOKEN",
           "SENTRY_DSN"
         ]
