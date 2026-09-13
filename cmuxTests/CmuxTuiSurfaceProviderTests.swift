@@ -1227,7 +1227,8 @@ import Testing
             try await link.connect(route: "ws://10.0.0.1:1337/v1/link", session: "main")
         }
         defer { task.cancel() }
-        let pid = try #require(Int32(try #require(await readyLines.next())))
+        let pidLine = try #require(await readyLines.next())
+        let pid = try #require(Int32(pidLine))
         defer { _ = Darwin.kill(pid, SIGKILL) }
 
         task.cancel()

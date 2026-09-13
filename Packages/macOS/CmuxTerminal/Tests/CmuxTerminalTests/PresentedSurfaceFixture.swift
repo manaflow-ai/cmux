@@ -75,6 +75,9 @@ struct PresentedSurfaceFixture {
         }
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate()
+        if let token = surface.rendererPresentationState.inFlightToken {
+            surface.rendererFrameDidPresent(token: token)
+        }
     }
 
     func tearDown() {
@@ -83,5 +86,11 @@ struct PresentedSurfaceFixture {
         resetRendererRealizedTracking()
         window.contentView = nil
         window.close()
+    }
+
+    func acknowledgePendingPresentation() {
+        if let token = surface.rendererPresentationState.inFlightToken {
+            surface.rendererFrameDidPresent(token: token)
+        }
     }
 }

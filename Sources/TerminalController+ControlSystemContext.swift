@@ -154,6 +154,7 @@ extension TerminalController: ControlSystemContext {
                 tty: workspace.surfaceTTYNames[surface.surfaceID],
                 isBrowser: browserPanel != nil,
                 url: browserPanel?.currentURL?.absoluteString,
+                renderHealthRawValue: (panel as? TerminalPanel)?.surface.renderHealth.rawValue,
                 dockScopeRawValue: surface.dockScopeRawValue
             )
             if let paneUUID = surface.paneID {

@@ -1,7 +1,6 @@
 public import CmuxCore
 public import Dispatch
 internal import Foundation
-
 /// Shares one daemon proxy tunnel per remote transport across all subscribers.
 /// Each subscriber holds a ``RemoteProxyLease``; the entry restarts its tunnel
 /// with exponential backoff until the last lease is released and its final
@@ -37,19 +36,16 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         var ptyLifecycleSnapshot: RemotePTYLifecycleSnapshot?
         var subscribers: [UUID: @Sendable (RemoteProxyBrokerUpdate) -> Void] = [:]
         var activeReadyTunnelOperationCount = 0
-
         init(configuration: WorkspaceRemoteConfiguration, remotePath: String) {
             self.configuration = configuration
             self.remotePath = remotePath
         }
     }
-
     private let tunnelProvider: any RemoteProxyTunnelProviding
     private let clock: any RemoteProxyRetryClock
     private let queue = DispatchQueue(label: "com.cmux.remote-ssh.proxy-broker", qos: .utility)
     private var entries: [String: Entry] = [:]
     private var ptyLifecycleOwnership = RemotePTYLifecycleOwnershipRegistry()
-
     var currentPTYLifecycleByAttachment: [RemotePTYAttachmentKey: RemotePTYLifecycleKey] {
         queue.sync { ptyLifecycleOwnership.currentByAttachment }
     }
@@ -67,13 +63,11 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         self.tunnelProvider = tunnelProvider
         self.clock = clock
     }
-
     /// Re-mints a managed Cloud VM daemon endpoint before a retry. Stored endpoints go stale
     /// when the machine's preview rotates (sandbox recreation, preview re-creation); without a
     /// refresh the broker would redial a dead URL on every backoff. Returning nil keeps the
     /// current configuration for that attempt.
     public var configurationRefresher: (@Sendable (WorkspaceRemoteConfiguration) async -> WorkspaceRemoteConfiguration?)?
-
     /// Subscribes to the shared tunnel for `configuration`; see
     /// ``RemoteProxyBrokering/acquire(configuration:remotePath:onUpdate:)``.
     public func acquire(
@@ -99,29 +93,24 @@ public final class RemoteProxyBroker: @unchecked Sendable {
                 entry = Entry(configuration: configuration, remotePath: remotePath)
                 entries[key] = entry
             }
-
             entry.subscribers[subscriberID] = onUpdate
             if let endpoint = entry.endpoint {
                 onUpdate(.ready(endpoint))
             } else {
                 onUpdate(.connecting)
             }
-
             if entry.tunnel == nil, entry.restartTask == nil {
                 startEntryLocked(key: key, entry: entry)
             }
-
             return RemoteProxyLease(key: key, subscriberID: subscriberID, broker: self)
         }
     }
-
     /// Lists persistent PTY sessions through the ready tunnel.
     public func listPTY(configuration: WorkspaceRemoteConfiguration) throws -> [[String: Any]] {
         try withReadyTunnel(configuration: configuration) { tunnel in
             try tunnel.listPTY()
         }
     }
-
     /// Closes a persistent PTY session through the ready tunnel.
     ///
     /// The broker queue is used only to pin the tunnel; the potentially
@@ -140,7 +129,6 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             try tunnel.closePTY(sessionID: sessionID, deadline: deadline)
         }
     }
-
     /// Returns the shared lifecycle for one logical PTY attach generation.
     public func ptySessionLifecycle(
         configuration: WorkspaceRemoteConfiguration,
@@ -157,7 +145,6 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             return snapshot.ptySessionLifecycle(sessionID: sessionID, lifecycleID: lifecycleID)
         }
     }
-
     /// Retires one logical PTY attach generation in either the live tunnel or
     /// the snapshot retained while an automatic replacement is pending.
     public func acknowledgePTYLifecycle(
@@ -184,7 +171,6 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             ptyLifecycleOwnership.acknowledge(lifecycleKey)
         }
     }
-
     /// Returns the broker-owned transport attachment for a current generation.
     public func currentPTYLifecycleOwner(
         sessionID: String,

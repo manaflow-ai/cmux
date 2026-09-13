@@ -26,4 +26,3 @@ struct CloudTuiCreationRecoveryPolicy: Equatable, Sendable {
     /// lost daemon response an unbounded task.
     var maximumResolutionAttempts: Int { delays.count + 2 }
 }
-

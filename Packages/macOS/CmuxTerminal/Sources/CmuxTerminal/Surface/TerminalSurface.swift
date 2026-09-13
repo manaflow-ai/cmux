@@ -25,7 +25,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public final class SearchState: ObservableObject {
         /// The current search needle.
         @Published public var needle: String
-
         /// The 1-based index of the selected match, if known.
         @Published public var selected: UInt?
 
@@ -93,12 +92,12 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let sessionPortRangeSize: Int
     let scrollbackReplayEnvironmentKey: String
     let globalFontMagnificationPercent: @Sendable () -> Int
-
-    /// Presentation state for the current runtime renderer. This distinguishes a
-    /// renderer Ghostty created from one cmux has actually presented in a real
-    /// window, while preserving Ghostty's native rebuild transaction.
     var rendererPresentationPhase = TerminalRendererPresentationPhase.awaitingFirstPresentation
-
+    @Published public internal(set) var renderHealth: TerminalSurfaceRenderHealth = .notStarted {
+        didSet { if oldValue != renderHealth { onRenderHealthChanged?(renderHealth) } }
+    }
+    var onRenderHealthChanged: (@Sendable (TerminalSurfaceRenderHealth) -> Void)?
+    let rendererPresentationState = TerminalRendererPresentationState()
     /// Wall-clock time (epoch seconds) this surface was last made visible in the
     /// UI. Used by `RendererRealizationController` as the LRU key so recently
     /// used tabs stay warm. Seeded at creation.
