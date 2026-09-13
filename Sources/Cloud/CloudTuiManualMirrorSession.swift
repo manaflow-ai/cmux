@@ -35,7 +35,7 @@ final class CloudTuiManualMirrorSession {
     private var connectTask: Task<Void, Never>?
     private var runtimeSampleTask: Task<Void, Never>?
     private var socketPath: String?
-    private var nextRequestID: UInt64 = 1
+    var nextRequestID: UInt64 = 1
     var pendingRequests: [UInt64: CloudTuiManualMirrorRequestKind] = [:]
     /// Capabilities belong to the current control connection. They must not
     /// survive a daemon restart because an older generation may not implement
@@ -569,15 +569,17 @@ final class CloudTuiManualMirrorSession {
               !replayRefreshScheduled else { return }
         replayRefreshScheduled = true
         RunLoop.main.perform(inModes: [.common]) { [weak self] in
-            guard let self else { return }
-            self.replayRefreshScheduled = false
-            guard self.phase == .attached,
-                  self.hasReceivedRemoteReplay,
-                  let surface = self.surface,
-                  surface.isNativeViewInRealWindow,
-                  surface.isRendererPortalVisible else { return }
-            manualMirrorLogger.notice("replay.redraw terminal=\(self.terminalID, privacy: .private(mask: .hash)) surface=\(self.remoteSurfaceID)")
-            surface.hostedView.refreshSurfaceNow(reason: "cloud.manualMirror.replay")
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.replayRefreshScheduled = false
+                guard self.phase == .attached,
+                      self.hasReceivedRemoteReplay,
+                      let surface = self.surface,
+                      surface.isNativeViewInRealWindow,
+                      surface.isRendererPortalVisible else { return }
+                manualMirrorLogger.notice("replay.redraw terminal=\(self.terminalID, privacy: .private(mask: .hash)) surface=\(self.remoteSurfaceID)")
+                surface.hostedView.refreshSurfaceNow(reason: "cloud.manualMirror.replay")
+            }
         }
     }
 
@@ -612,7 +614,7 @@ final class CloudTuiManualMirrorSession {
     }
 
     /// A watchdog deadline elapsed while the session was still in `expected`.
-    private func deadlineExpired(_ reason: CloudTerminalAttachmentInterruption, while expected: CloudTuiManualMirrorPhase) {
+    func deadlineExpired(_ reason: CloudTerminalAttachmentInterruption, while expected: CloudTuiManualMirrorPhase) {
         guard phase == expected else { return }
         transitionToDisconnected(reason: reason)
     }
