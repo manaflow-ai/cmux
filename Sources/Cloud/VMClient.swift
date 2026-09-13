@@ -619,12 +619,6 @@ struct VMPublicationDomain: Equatable, Sendable {
 }
 
 
-struct VMSnapshotResult {
-    let id: String
-    let name: String?
-    let createdAt: Int64
-}
-
 /// One reflection read (`GET /api/vm/<id>/reflection[/<path>]`): the HTTP status and the
 /// JSON body as sent. A 404 with `{error: "not_found", paths: […]}` is a normal result
 /// (an unknown reflection path), so the CLI can print the paths that do exist.
@@ -777,7 +771,7 @@ actor VMClient {
     /// the composition root.
     @MainActor
     static func bootstrap(auth: AuthCoordinator, session: URLSession = .shared, operations: CloudOperationRecorder? = nil) {
-        shared = VMClient(session: session, auth: auth, operations: operations)
+        shared = VMClient(session: session, auth: auth, checkpointRenames: SurfaceCatalog.shared.cloudRenameCoordinator, operations: operations)
     }
 
     /// Revoke endpoint credentials issued by the Cloud VM service during sign-out.
@@ -816,6 +810,7 @@ actor VMClient {
 
     private let session: URLSession
     private let auth: AuthCoordinator
+    private let checkpointRenames: CloudRenameCoordinator
     private let telemetry: VMClientTelemetry
     nonisolated let operations: CloudOperationRecorder?
     private let machineCache: CloudMachineCache
@@ -824,6 +819,7 @@ actor VMClient {
     init(
         session: URLSession = .shared,
         auth: AuthCoordinator,
+        checkpointRenames: CloudRenameCoordinator,
         telemetry: VMClientTelemetry = .shared,
         operations: CloudOperationRecorder? = nil,
         machineCache: CloudMachineCache = CloudMachineCache(),
@@ -831,6 +827,7 @@ actor VMClient {
     ) {
         self.session = session
         self.auth = auth
+        self.checkpointRenames = checkpointRenames
         self.telemetry = telemetry
         self.operations = operations
         self.machineCache = machineCache
@@ -1504,6 +1501,7 @@ actor VMClient {
 
     func snapshot(id: String, name: String? = nil) async throws -> VMSnapshotResult {
         return try await withOperation(.snapshot, foreground: true) {
+            try await checkpointRenames.waitForPendingRenames(on: .cloud(id))
             var body: [String: Any] = [:]
             if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 body["name"] = name
@@ -1531,6 +1529,7 @@ actor VMClient {
 
     func fork(id: String, name: String? = nil, idempotencyKey: String) async throws -> (snapshot: VMSnapshotResult?, vm: VMSummary) {
         return try await withOperation(.fork, foreground: true) {
+            try await checkpointRenames.waitForPendingRenames(on: .cloud(id))
             var body: [String: Any] = [:]
             if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 body["name"] = name
