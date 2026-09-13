@@ -1290,12 +1290,11 @@ fn install_provider(
             let marker_start = "# cmux hooks rovodev begin";
             let marker_end = "# cmux hooks rovodev end";
             let mut lines: Vec<&str> = existing.lines().collect();
-            if let Some(start) = lines.iter().position(|line| line.trim() == marker_start) {
-                if let Some(end_rel) =
+            if let Some(start) = lines.iter().position(|line| line.trim() == marker_start)
+                && let Some(end_rel) =
                     lines[start..].iter().position(|line| line.trim() == marker_end)
-                {
-                    lines.drain(start..=start + end_rel);
-                }
+            {
+                lines.drain(start..=start + end_rel);
             }
             if !lines.is_empty() {
                 lines.push("");
@@ -1306,9 +1305,9 @@ fn install_provider(
             let mut owned = lines.iter().map(|line| (*line).to_string()).collect::<Vec<_>>();
             for event in provider.events {
                 let command = helper_command(provider.id, event);
-                owned.push(format!("    - name: {}", event));
+                owned.push(format!("    - name: {event}"));
                 owned.push("      commands:".into());
-                owned.push(format!("        - command: {:?}", command));
+                owned.push(format!("        - command: {command:?}"));
             }
             owned.push(marker_end.into());
             let output = owned.join("\n") + "\n";
@@ -1323,10 +1322,10 @@ fn install_provider(
             let start = "# cmux-kimi-hooks-7c3a9f12-4e8b-4d2a-9f15-6b8c0d1e2a3f begin";
             let end = "# cmux-kimi-hooks-7c3a9f12-4e8b-4d2a-9f15-6b8c0d1e2a3f end";
             let mut lines = existing.lines().map(str::to_owned).collect::<Vec<_>>();
-            if let Some(index) = lines.iter().position(|line| line.trim() == start) {
-                if let Some(end_rel) = lines[index..].iter().position(|line| line.trim() == end) {
-                    lines.drain(index..=index + end_rel);
-                }
+            if let Some(index) = lines.iter().position(|line| line.trim() == start)
+                && let Some(end_rel) = lines[index..].iter().position(|line| line.trim() == end)
+            {
+                lines.drain(index..=index + end_rel);
             }
             if !lines.is_empty() && lines.last().is_some_and(|line| !line.is_empty()) {
                 lines.push(String::new());
@@ -1334,7 +1333,7 @@ fn install_provider(
             lines.push(start.into());
             for event in provider.events {
                 lines.push("[[hooks]]".into());
-                lines.push(format!("event = \"{}\"", event));
+                lines.push(format!("event = \"{event}\""));
                 lines.push(format!(
                     "command = \"{}\"",
                     helper_command(provider.id, event).replace('\\', "\\\\").replace('"', "\\\"")
@@ -1473,11 +1472,11 @@ fn uninstall_provider(
             };
             let mut lines = existing.lines().map(str::to_owned).collect::<Vec<_>>();
             let mut changed = false;
-            if let Some(index) = lines.iter().position(|line| line.trim() == start) {
-                if let Some(end_rel) = lines[index..].iter().position(|line| line.trim() == end) {
-                    lines.drain(index..=index + end_rel);
-                    changed = true;
-                }
+            if let Some(index) = lines.iter().position(|line| line.trim() == start)
+                && let Some(end_rel) = lines[index..].iter().position(|line| line.trim() == end)
+            {
+                lines.drain(index..=index + end_rel);
+                changed = true;
             }
             if changed {
                 let output = if lines.is_empty() { String::new() } else { lines.join("\n") + "\n" };
