@@ -79,12 +79,14 @@ final class CloudTerminalReadiness {
         onReady: @escaping @MainActor () -> Void,
         onEnded: (@MainActor () -> Void)? = nil
     ) {
+        let previousOnReady = phase == .waiting ? self.onReady : nil
+        let previousOnEnded = phase == .waiting ? self.onEnded : nil
         finishEnd(notify: false)
         self.surface = surface
         gate.begin(baselineFrame: surface.hostedView.surfaceView.renderedFrameSequence)
         self.condition = condition
-        self.onReady = onReady
-        self.onEnded = onEnded
+        self.onReady = Self.composed(previousOnReady, onReady)
+        self.onEnded = Self.composed(previousOnEnded, onEnded)
         phase = .waiting
         cloudTerminalReadinessLogger.info(
             "readiness surface=\(surface.id.uuidString, privacy: .private(mask: .hash)) phase=waiting baseline=\(self.gate.baselineFrame)"
@@ -161,5 +163,18 @@ final class CloudTerminalReadiness {
         runtimeObserver = nil
         releaseFrameDemand?()
         releaseFrameDemand = nil
+    }
+
+    private static func composed(
+        _ first: (@MainActor () -> Void)?,
+        _ second: (@MainActor () -> Void)?
+    ) -> (@MainActor () -> Void)? {
+        switch (first, second) {
+        case let (.some(first), .some(second)):
+            return { first(); second() }
+        case (.some, .none): return first
+        case (.none, .some): return second
+        case (.none, .none): return nil
+        }
     }
 }
