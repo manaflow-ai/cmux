@@ -3446,13 +3446,13 @@ mod tests {
 state="${0%/*}/hermes-enabled"
 case "$*" in
   'plugins list --enabled --user --no-bundled --json')
-    if [ -f "$state" ]; then
+    if [ -s "$state" ]; then
       printf '[{"name":"cmux-tui-journal"}]\n'
     else
       printf '[]\n'
     fi ;;
-  'plugins enable cmux-tui-journal') : > "$state" ;;
-  'plugins disable cmux-tui-journal') /bin/rm -f "$state" ;;
+  'plugins enable cmux-tui-journal') printf enabled > "$state" ;;
+  'plugins disable cmux-tui-journal') : > "$state" ;;
   *) exit 64 ;;
 esac
 "#,
@@ -3472,11 +3472,11 @@ esac
                 provider.id, result.value
             );
         }
-        assert!(root.path().join("hermes-enabled").exists());
+        assert_eq!(fs::read_to_string(root.path().join("hermes-enabled")).unwrap(), "enabled");
         let uninstall = Plan { action: Action::Uninstall, providers: vec!["hermes-agent".into()] };
         let result = run_with_context(&uninstall, &context);
         assert!(!result.failed, "{}", result.value);
-        assert!(!root.path().join("hermes-enabled").exists());
+        assert!(fs::read(root.path().join("hermes-enabled")).unwrap().is_empty());
     }
 
     #[test]
