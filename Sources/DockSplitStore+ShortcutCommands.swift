@@ -234,7 +234,10 @@ extension DockSplitStore {
             localized: "alert.renameTab.message",
             defaultValue: "Enter a custom name for this tab."
         )
-        let input = NSTextField(string: tab.title)
+        let input = NSTextField(
+            string: stableDockTerminalTabTitle(panelId: panel.id)?.title
+                ?? tab.title
+        )
         input.placeholderString = String(
             localized: "alert.renameTab.placeholder",
             defaultValue: "Tab name"
@@ -281,12 +284,21 @@ extension DockSplitStore {
         let customTitle = title?.trimmingCharacters(
             in: .whitespacesAndNewlines
         ) ?? ""
+        if customTitle.isEmpty {
+            panelCustomTitleSourcesByPanelId.removeValue(forKey: panelId)
+        } else {
+            panelCustomTitleSourcesByPanelId[panelId] = .user
+        }
         bonsplitController.updateTab(
             tabId,
             title: customTitle.isEmpty
                 ? panel.displayTitle
                 : customTitle,
             hasCustomTitle: !customTitle.isEmpty
+        )
+        _ = reconcileCodexTabTitlePresentation(
+            panelId: panelId,
+            fallback: panel.displayTitle
         )
         return true
     }

@@ -2346,13 +2346,7 @@ extension Workspace {
         // above never reach it (`setPanelCustomTitle` skips the sync when there is no
         // custom title), so push the restored title to the tab now, mirroring
         // `updatePanelTitle`, instead of waiting for the next OSC title update.
-        if let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) {
-            bonsplitController.updateTab(
-                tabId,
-                title: resolvedPanelTitle(panelId: panelId, fallback: panelTitles[panelId] ?? panel.displayTitle),
-                hasCustomTitle: panelCustomTitles[panelId] != nil
-            )
-        }
+        _ = reconcileTabTitlePresentation(panelId: panelId)
 
         if snapshot.isManuallyUnread {
             markPanelUnread(panelId)
@@ -4143,7 +4137,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 allowTextBoxFocusDefault: allowTextBoxFocusDefault
             )
             panels[terminalPanel.id] = terminalPanel
-            panelTitles[terminalPanel.id] = terminalPanel.displayTitle
+            panelTitles[terminalPanel.id] = title
 
             // Create initial tab in bonsplit and store the mapping
             if let tabId = bonsplitController.createTab(
@@ -4457,6 +4451,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Registers a bonsplit surface as the active owner for a panel.
     func bindSurface(_ surfaceId: TabID, toPanelId panelId: UUID) {
         paneTree.bindSurface(surfaceId, toPanelId: panelId)
+        _ = reconcileTabTitlePresentation(panelId: panelId)
     }
 
     /// Removes one bonsplit surface mapping.
@@ -5497,18 +5492,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         applyFocusedPanelTitle(panelId: panelId)
 
+        guard let panel = panels[panelId], surfaceIdFromPanelId(panelId) != nil else { return true }
+        let baseTitle = panelTitles[panelId] ?? panel.displayTitle
+        _ = reconcileTabTitlePresentation(panelId: panelId, fallback: baseTitle)
+
         // A repeated remote or automatic observation only changes provenance.
         // A repeated USER edit remains an idempotent intent and must still reach
         // the daemon, because the earlier request may have failed or been lost.
         if sameText, source != .user { return true }
 
-        guard let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) else { return true }
-        let baseTitle = panelTitles[panelId] ?? panel.displayTitle
-        bonsplitController.updateTab(
-            tabId,
-            title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
-            hasCustomTitle: panelCustomTitles[panelId] != nil
-        )
         // A remote tmux mirror tab rename propagates to `rename-window`.
         if propagateToRemoteTmux, isRemoteTmuxMirror {
             AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
@@ -9486,10 +9478,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Updates a mirrored remote tmux tab's title (e.g. after a tmux
     /// `%window-renamed`). No-ops if the panel is no longer mounted.
     func updateRemoteTmuxTabTitle(panelId: UUID, title: String) {
-        guard let tabId = surfaceIdFromPanelId(panelId) else { return }
+        guard surfaceIdFromPanelId(panelId) != nil else { return }
         panelTitles[panelId] = title
-        guard let existing = bonsplitController.tab(tabId), existing.title != title else { return }
-        bonsplitController.updateTab(tabId, title: title, icon: nil, isDirty: nil)
+        _ = reconcileTabTitlePresentation(panelId: panelId)
     }
 
     @discardableResult
@@ -11124,6 +11115,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             }
         }
         adoptDetachedAgentRuntimeState(detached.agentRuntime)
+        _ = reconcileTabTitlePresentation(panelId: detached.panelId)
         if let markdownPanel = detached.panel as? MarkdownPanel {
             markdownPanel.updateWorkspaceId(
                 id,

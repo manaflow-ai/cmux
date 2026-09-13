@@ -133,22 +133,11 @@ extension Workspace {
             didMutatePanelTitle = true
         }
 
-        if !isRemoteTmuxMirror,
-           let tabId = surfaceIdFromPanelId(panelId),
-           let panel = panels[panelId],
-           let existing = bonsplitController.tab(tabId) {
-            let baseTitle = panelTitles[panelId] ?? panel.displayTitle
-            let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
-            let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
-            let hasCustomTitle = panelCustomTitles[panelId] != nil
-            if titleUpdate != nil || existing.hasCustomTitle != hasCustomTitle {
-                bonsplitController.updateTab(
-                    tabId,
-                    title: titleUpdate,
-                    hasCustomTitle: hasCustomTitle
-                )
-                didMutate = true
-            }
+        if didMutatePanelTitle || isRemoteTmuxMirror {
+            didMutate = reconcileTabTitlePresentation(
+                panelId: panelId,
+                fallback: panelTitles[panelId]
+            ) || didMutate
         }
 
         let previousWorkspaceTitle = self.title
