@@ -251,6 +251,10 @@ pub enum CdpEvent {
     TargetInfoChanged(TargetInfo),
     DownloadWillBegin(DownloadWillBegin),
     DownloadProgress(DownloadProgress),
+    FrameAttached {
+        session_id: String,
+        frame_id: String,
+    },
     Other {
         method: String,
         params: Value,
@@ -551,6 +555,9 @@ pub fn event_retained_bytes(event: &CdpEvent) -> usize {
             .saturating_add(download.state.len())
             .saturating_add(download.file_path.as_ref().map_or(0, String::len))
             .saturating_add(size_of::<DownloadProgress>()),
+        CdpEvent::FrameAttached { session_id, frame_id } => {
+            session_id.len().saturating_add(frame_id.len()).saturating_add(size_of::<CdpEvent>())
+        }
         CdpEvent::Other { method, params, session_id } => method
             .len()
             .saturating_add(json_retained_bytes(params))
@@ -854,6 +861,23 @@ impl CdpClient {
 
     pub fn seed_main_frame(&self, session_id: &str) -> anyhow::Result<()> {
         self.snapshot_main_frame_with_retry(session_id).map(|_| ())
+    }
+
+    pub fn frame_tree_ids(&self, session_id: &str) -> anyhow::Result<Vec<String>> {
+        let result = self.call("Page.getFrameTree", json!({}), Some(session_id))?;
+        let mut ids = Vec::new();
+        let mut pending = vec![&result["frameTree"]];
+        while let Some(tree) = pending.pop() {
+            if let Some(id) =
+                tree.get("frame").and_then(|frame| frame.get("id")).and_then(Value::as_str)
+            {
+                ids.push(id.to_string());
+            }
+            if let Some(children) = tree.get("childFrames").and_then(Value::as_array) {
+                pending.extend(children);
+            }
+        }
+        Ok(ids)
     }
 
     pub fn snapshot_main_frame_with_retry(
@@ -1801,8 +1825,30 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                 }),
             );
         }
+        "Page.frameAttached" if session_id.is_some() => {
+            if let Some(frame_id) = params.get("frameId").and_then(Value::as_str) {
+                dispatch_event(
+                    inner,
+                    CdpEvent::FrameAttached {
+                        session_id: session_id.expect("guarded above"),
+                        frame_id: frame_id.to_string(),
+                    },
+                );
+            }
+        }
         "Page.frameNavigated" if session_id.is_some() => {
             let session_id = session_id.expect("guarded above");
+            if let Some(frame_id) =
+                params.get("frame").and_then(|frame| frame.get("id")).and_then(Value::as_str)
+            {
+                dispatch_event(
+                    inner,
+                    CdpEvent::FrameAttached {
+                        session_id: session_id.clone(),
+                        frame_id: frame_id.to_string(),
+                    },
+                );
+            }
             if let Some((frame_epoch, restored_document)) =
                 main_frame_navigation_epoch(inner, params, &session_id)
             {

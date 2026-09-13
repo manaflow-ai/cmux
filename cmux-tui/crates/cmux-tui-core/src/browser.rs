@@ -1192,6 +1192,9 @@ impl BrowserRuntime {
         self.client.set_lifecycle_events_enabled(session_id)?;
         let main_frame = self.client.snapshot_main_frame_with_retry(session_id)?;
         self.record_frame_session(&main_frame.frame_id, session_id);
+        for frame_id in self.client.frame_tree_ids(session_id)? {
+            self.record_frame_session(&frame_id, session_id);
+        }
         let (pixel_w, pixel_h) = browser.pixel_size();
         self.client.set_device_metrics(session_id, pixel_w, pixel_h)?;
         self.client.start_screencast(session_id, pixel_w, pixel_h)?;
@@ -1652,6 +1655,9 @@ fn start_router(runtime: Weak<BrowserRuntime>, events: Receiver<CdpEvent>) -> an
                     if let Some(tx) = tx {
                         let _ = tx.deliver(CdpEvent::DownloadProgress(event));
                     }
+                }
+                CdpEvent::FrameAttached { session_id, frame_id } => {
+                    runtime.record_frame_session(&frame_id, &session_id);
                 }
                 CdpEvent::Other { method, params, session_id: Some(session_id) } => {
                     let tx =
