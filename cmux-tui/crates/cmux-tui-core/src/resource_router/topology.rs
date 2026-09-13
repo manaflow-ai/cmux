@@ -1801,9 +1801,16 @@ mod tests {
         let created = terminal_workspace(&mux, "unversioned-name");
         let tab = created["value"]["tab_id"].as_str().unwrap();
         let before = public_session_snapshot(&mux).unwrap();
-        let error = dispatch(&mux, parsed(ResourceOperation::TabRename,
-            selectors(None, None, None, Some(tab)), json!({"name":"auto", "source":"auto"}),
-            Some("unversioned-auto"))).unwrap_err();
+        let error = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::TabRename,
+                selectors(None, None, None, Some(tab)),
+                json!({"name":"auto", "source":"auto"}),
+                Some("unversioned-auto"),
+            ),
+        )
+        .unwrap_err();
         assert_eq!(error.code, "validation.invalid");
         let after = public_session_snapshot(&mux).unwrap();
         assert_eq!(after["tabs"], before["tabs"]);

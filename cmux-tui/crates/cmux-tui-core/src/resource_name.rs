@@ -40,8 +40,10 @@ impl TabNameUpdate {
             .transpose()?;
         if source == NameSource::Auto && (generation.is_none() || name_revision.is_none()) {
             return Err(ResourceError::validation_invalid(
-                Some("source"), "automatic names require a generation and name revision",
-            ).into());
+                Some("source"),
+                "automatic names require a generation and name revision",
+            )
+            .into());
         }
         Ok(Self { source, generation, name_revision })
     }

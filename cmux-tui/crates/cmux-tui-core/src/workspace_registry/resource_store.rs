@@ -298,8 +298,12 @@ pub(super) fn migrate_tab_name_authority(connection: &Connection) -> anyhow::Res
         .collect::<Result<Vec<_>, _>>()?;
     if !columns.iter().any(|column| column == "name_source") {
         connection.execute_batch(
-            "ALTER TABLE resource_tabs ADD COLUMN name_source TEXT NOT NULL DEFAULT 'user';
-            ALTER TABLE resource_tabs ADD COLUMN name_revision INTEGER NOT NULL DEFAULT 0;",
+            "ALTER TABLE resource_tabs ADD COLUMN name_source TEXT NOT NULL DEFAULT 'user';",
+        )?;
+    }
+    if !columns.iter().any(|column| column == "name_revision") {
+        connection.execute_batch(
+            "ALTER TABLE resource_tabs ADD COLUMN name_revision INTEGER NOT NULL DEFAULT 0;",
         )?;
     }
     // Older daemons omit the new columns. Their actual name edits must claim

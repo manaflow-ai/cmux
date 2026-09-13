@@ -2678,6 +2678,31 @@ fn resource_order_is_exact_and_positions_are_contiguous() {
 }
 
 #[test]
+fn cloud_rename_authority_repairs_each_additive_column() {
+    for missing in ["name_source", "name_revision"] {
+        let root = temp_root("name-column-upgrade");
+        {
+            let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+            commit_terminal_topology(&mut registry, "create");
+            registry
+                .connection
+                .execute_batch(&format!(
+                    "DROP TRIGGER resource_tab_legacy_name_owner;
+                     ALTER TABLE resource_tabs DROP COLUMN {missing};"
+                ))
+                .unwrap();
+        }
+        let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        let snapshot = registry.resource_topology_snapshot().unwrap();
+        assert_eq!(snapshot.tabs.len(), 1);
+        assert_eq!(snapshot.tabs[0].name_source, crate::resource_name::NameSource::User);
+        assert_eq!(snapshot.tabs[0].name_revision, 0);
+        drop(registry);
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
 fn cloud_rename_authority_persists_across_registry_restart() {
     let root = temp_root("rename-authority-restart");
     let chosen = "API – 東京 🚀 / logs & tests";
