@@ -48,7 +48,8 @@ struct CloudPortsVPNAffordanceTests {
             #expect(callout.explanationLabel.stringValue == CloudPortsVPNWarning().explanation)
         }
         cell.configure(node: node, machineActions: machineActions(), nodeActions: nodeActions(), showsCloudVPNWarning: false)
-        #expect(descendants(of: cell).compactMap { $0 as? CloudPortsVPNEmptyStateContent }.allSatisfy(\.isHidden))
+        let allHidden = descendants(of: cell).compactMap { $0 as? CloudPortsVPNEmptyStateContent }.allSatisfy { $0.isHidden }
+        #expect(allHidden)
     }
 
     @Test("Reachable port rows keep their normal height and never allocate VPN controls")
