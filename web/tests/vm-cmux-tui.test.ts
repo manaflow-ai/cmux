@@ -7,7 +7,11 @@ import {
   CMUX_TUI_DAEMON_TERMINAL_ENV,
   CMUX_TUI_LAYOUT_MARKER_PATH,
   cmuxTuiDaemonCommand,
+  cmuxTuiAgentHooksInstallCommand,
+  cmuxTuiAsDaemonUser,
+  cmuxTuiHooksReadyCommand,
   cmuxTuiInstallCommand,
+  cmuxTuiPinnedManifestUrl,
   cmuxTuiLayoutSelector,
   cmuxTuiPinCheckCommand,
   cmuxTuiManifestUrl,
@@ -22,6 +26,8 @@ const SHA = "c7a3155341a85a2f10a873d69a041bdf1855ec059a802e58e0779a7a6bdec607";
 const COMMIT = "5a4780614cecd8e8ef040a24478f928ef31cc4ae";
 const MANIFEST = `https://files.cmux.com/cmux-tui/${COMMIT}/manifest.json`;
 const URL = `https://files.cmux.com/cmux-tui/${COMMIT}/cmux-tui-x86_64-unknown-linux-musl`;
+const HOOK_SHA = "9f2e4c1a7b3d5e6f0a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5a6b7";
+const HOOK_URL = `https://files.cmux.com/cmux-tui/${COMMIT}/cmux-tui-hook-x86_64-unknown-linux-musl`;
 
 function withEnv(values: Record<string, string | undefined>, run: () => void) {
   const previous: Record<string, string | undefined> = {};
@@ -53,21 +59,36 @@ describe("cmux-tui daemon source", () => {
     const source = parseCmuxTuiManifest(MANIFEST, {
       commit: COMMIT,
       builtAt: "2026-08-19T07:05:35Z",
-      binaries: { "cmux-tui-aarch64-apple-darwin": "a".repeat(64), "cmux-tui-x86_64-unknown-linux-musl": SHA.toUpperCase() },
+      binaries: {
+        "cmux-tui-aarch64-apple-darwin": "a".repeat(64),
+        "cmux-tui-x86_64-unknown-linux-musl": SHA.toUpperCase(),
+        "cmux-tui-hook-x86_64-unknown-linux-musl": HOOK_SHA.toUpperCase(),
+      },
     });
-    expect(source).toEqual({ url: URL, sha256: SHA, commit: COMMIT, builtAt: "2026-08-19T07:05:35Z" });
+    // The hook helper comes from the same commit as the daemon: a machine
+    // never pairs a daemon with a helper of another generation.
+    expect(source).toEqual({ url: URL, sha256: SHA, commit: COMMIT, builtAt: "2026-08-19T07:05:35Z", hookUrl: HOOK_URL, hookSha256: HOOK_SHA });
   });
 
-  test("fails closed on a manifest without a commit or without the musl build", () => {
-    expect(() => parseCmuxTuiManifest(MANIFEST, { binaries: { "cmux-tui-x86_64-unknown-linux-musl": SHA } })).toThrow(/commit/);
-    expect(() => parseCmuxTuiManifest(MANIFEST, { commit: COMMIT, binaries: { "cmux-tui-x86_64-unknown-linux-gnu": SHA } })).toThrow(/musl/);
+  test("fails closed on a manifest without a commit, without the musl build, or without the hook helper", () => {
+    const both = { "cmux-tui-x86_64-unknown-linux-musl": SHA, "cmux-tui-hook-x86_64-unknown-linux-musl": HOOK_SHA };
+    expect(() => parseCmuxTuiManifest(MANIFEST, { binaries: both })).toThrow(/commit/);
+    expect(() => parseCmuxTuiManifest(MANIFEST, { commit: COMMIT, binaries: { "cmux-tui-x86_64-unknown-linux-gnu": SHA, "cmux-tui-hook-x86_64-unknown-linux-musl": HOOK_SHA } })).toThrow(/musl/);
+    expect(() => parseCmuxTuiManifest(MANIFEST, { commit: COMMIT, binaries: { "cmux-tui-x86_64-unknown-linux-musl": SHA } })).toThrow(/cmux-tui-hook/);
     expect(() => parseCmuxTuiManifest(MANIFEST, "nonsense")).toThrow();
+  });
+
+  test("a pinned manifest is the commit's sibling of the rolling pointer", () => {
+    expect(cmuxTuiPinnedManifestUrl(COMMIT)).toBe(MANIFEST);
+    withEnv({ CMUX_VM_CMUX_TUI_MANIFEST_URL: "https://files.example/tui/deadbeef/manifest.json" }, () =>
+      expect(cmuxTuiPinnedManifestUrl(COMMIT)).toBe(`https://files.example/tui/${COMMIT}/manifest.json`));
+    expect(() => cmuxTuiPinnedManifestUrl("abc")).toThrow(/full sha/);
   });
 });
 
 describe("cmux-tui install and daemon commands", () => {
   test("installs into the daemon's own home, verifies the pin before and after download, and probes the binary", () => {
-    const command = cmuxTuiInstallCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null });
+    const command = cmuxTuiInstallCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null, hookUrl: "https://files.cmux.com/cmux-tui/test/cmux-tui-hook-x86_64-unknown-linux-musl", hookSha256: "1".repeat(64) });
     // One runtime selection, shared with the daemon launch, so install and
     // launch can never disagree about where the binary lives.
     expect(command).toContain(cmuxTuiLayoutSelector());
@@ -82,20 +103,66 @@ describe("cmux-tui install and daemon commands", () => {
     // Only the nodes the install created; never a walk of the state tree.
     expect(command).toContain('chown "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.cmux" "$CMUX_TUI_HOME/.cmux/bin" "$CMUX_TUI_BIN"');
     expect(command).not.toContain("chown -R");
-    expect(command.endsWith('"$CMUX_TUI_BIN" --version')).toBe(true);
+    expect(command).toContain('"$CMUX_TUI_BIN" --version');
+  });
+
+  test("installs the hook helper beside the daemon from the same pin and writes the Claude Code and Codex hooks as the daemon user", () => {
+    const source = { url: URL, sha256: SHA, commit: COMMIT, builtAt: null, hookUrl: HOOK_URL, hookSha256: HOOK_SHA };
+    const command = cmuxTuiInstallCommand(source);
+    // Beside the binary: the one place `agent hook install` finds it without a PATH search.
+    expect(command).toContain('CMUX_TUI_HOOK_BIN="$(dirname "$CMUX_TUI_BIN")/cmux-tui-hook"');
+    expect(command).toContain(`'${HOOK_SHA}' "$CMUX_TUI_HOOK_BIN" | sha256sum -c >/dev/null 2>&1; then :; else`);
+    expect(command).toContain(`curl -fsSL --retry 3 --retry-delay 2 -o "$CMUX_TUI_HOOK_TMP" '${HOOK_URL}'`);
+    expect(command).toContain(`'${HOOK_SHA}' "$CMUX_TUI_HOOK_TMP" | sha256sum -c >/dev/null 2>&1 && chmod 755`);
+    expect(command).toContain('"$CMUX_TUI_BIN" "$CMUX_TUI_HOOK_BIN" 2>/dev/null || true');
+    // The hooks are the daemon user's (HOME=/home/cmux), never root's: root's
+    // settings are invisible to the terminals the daemon spawns.
+    const install = cmuxTuiAsDaemonUser('"$CMUX_TUI_BIN" agent hook install claude codex >/dev/null');
+    expect(command).toContain(install);
+    expect(command.indexOf('"$CMUX_TUI_BIN" --version')).toBeLessThan(command.indexOf(install));
+    // And proven, not assumed: helper installed and byte-equal to the pin,
+    // every provider config carrying the cmux marker, codex trust state written.
+    expect(command).toContain('test -x "$CMUX_TUI_HOME/.local/share/cmux-tui/bin/cmux-tui-hook"');
+    expect(command).toContain('cmp -s "$CMUX_TUI_HOOK_BIN" "$CMUX_TUI_HOME/.local/share/cmux-tui/bin/cmux-tui-hook"');
+    // Structured status, not a text grep: a user-edited entry reports partial and is repaired.
+    expect(command).toContain(cmuxTuiAsDaemonUser('"$CMUX_TUI_BIN" --json agent hook status claude codex'));
+    expect(command).toContain('all(s.get(i) == "installed" for i in ["claude","codex"])');
+    expect(command).not.toContain("grep -q cmux-tui-journal-hook");
+  });
+
+  test("the pinned manifest URL keeps the mirror's origin and query and handles a root-level pointer", () => {
+    withEnv({ CMUX_VM_CMUX_TUI_MANIFEST_URL: "https://mirror.example/manifest.json?token=abc" }, () =>
+      expect(cmuxTuiPinnedManifestUrl(COMMIT)).toBe(`https://mirror.example/${COMMIT}/manifest.json?token=abc`));
+    withEnv({ CMUX_VM_CMUX_TUI_MANIFEST_URL: "https://files.example/tui/latest/manifest.json?x=1" }, () =>
+      expect(cmuxTuiPinnedManifestUrl(COMMIT)).toBe(`https://files.example/tui/${COMMIT}/manifest.json?x=1`));
+    withEnv({ CMUX_VM_CMUX_TUI_MANIFEST_URL: "https://files.example/tui/latest/index.json" }, () =>
+      expect(() => cmuxTuiPinnedManifestUrl(COMMIT)).toThrow(/manifest\.json/));
+  });
+
+  test("the hooks-only install never touches the daemon binary", () => {
+    const source = { url: URL, sha256: SHA, commit: COMMIT, builtAt: null, hookUrl: HOOK_URL, hookSha256: HOOK_SHA };
+    const command = cmuxTuiAgentHooksInstallCommand(source);
+    expect(command).toContain(cmuxTuiLayoutSelector());
+    expect(command).toContain(HOOK_URL);
+    expect(command).not.toContain(URL);
+    expect(command).not.toContain("ln -sfn");
+    expect(command).not.toContain("--version");
+    expect(command).toContain("agent hook install claude codex");
+    expect(cmuxTuiHooksReadyCommand()).toContain(cmuxTuiLayoutSelector());
+    expect(cmuxTuiHooksReadyCommand()).toContain('test -x "$CMUX_TUI_HOME/.local/share/cmux-tui/bin/cmux-tui-hook"');
   });
 
   // Regression: `sha256sum -c -s` is BusyBox-only. GNU coreutils (the xfce-vnc desktop
   // image) rejects `-s` ("invalid option -- 's'"), which failed every create with a 502.
   test("the pin check never uses the BusyBox-only sha256sum -s flag", () => {
-    const command = cmuxTuiInstallCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null });
+    const command = cmuxTuiInstallCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null, hookUrl: "https://files.cmux.com/cmux-tui/test/cmux-tui-hook-x86_64-unknown-linux-musl", hookSha256: "1".repeat(64) });
     expect(command).not.toMatch(/sha256sum[^|&;]*\s-s\b/);
     expect(command).not.toContain("--status");
     expect(command).toContain("sha256sum -c >/dev/null 2>&1");
   });
 
   test("the pin check reads the same binary the daemon runs", () => {
-    const command = cmuxTuiPinCheckCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null });
+    const command = cmuxTuiPinCheckCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null, hookUrl: "https://files.cmux.com/cmux-tui/test/cmux-tui-hook-x86_64-unknown-linux-musl", hookSha256: "1".repeat(64) });
     expect(command).toContain(cmuxTuiLayoutSelector());
     expect(command).toContain('test -x "$CMUX_TUI_BIN"');
     expect(command).toContain(`'${SHA}' "$CMUX_TUI_BIN" | sha256sum -c`);

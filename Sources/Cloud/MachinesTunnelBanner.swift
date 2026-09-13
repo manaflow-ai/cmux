@@ -62,8 +62,8 @@ struct MachinesTunnelBanner: View {
 
     private var helpText: String {
         String(
-            localized: "cloud.ports.explanation",
-            defaultValue: "Connect Cloud VPN, or choose Forward Port. Forwarding stays off until you start it. This table shows the address and lets you stop it."
+            localized: "cloud.vpn.setup.howItWorks.body",
+            defaultValue: "Connect Safari, Chrome, and other apps to your Cloud machines. Each machine keeps its private IP address and original ports. Only traffic to your Cloud network uses this encrypted connection."
         )
     }
 }

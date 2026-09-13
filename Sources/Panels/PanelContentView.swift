@@ -72,6 +72,8 @@ struct PanelContentView: View {
                     onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
                     onTriggerFlash: onTriggerFlash
                 )
+            } else {
+                TerminalPanelUnavailableView(appearance: appearance)
             }
         case .browser:
             if let browserPanel = panel as? BrowserPanel {
@@ -234,8 +236,7 @@ struct PanelContentView: View {
                 CloudVPNSetupPanelView(
                     appearance: appearance,
                     onRequestPanelFocus: onRequestPanelFocus,
-                    model: vpnPanel.model,
-                    portAccessStore: CmuxTuiSurfaceProviderRegistry.shared.portAccess
+                    model: vpnPanel.model
                 )
             }
         }
@@ -262,6 +263,8 @@ struct PanelContentView: View {
         }
     }
 }
+
+
 
 private struct CloudVMLoadingPanelView: View {
     @ObservedObject var panel: CloudVMLoadingPanel
