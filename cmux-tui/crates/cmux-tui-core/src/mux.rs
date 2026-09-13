@@ -8405,6 +8405,30 @@ impl Mux {
     }
 
     #[cfg(all(test, unix))]
+    pub(crate) fn seed_launching_terminal_for_test(
+        &self,
+        terminal_id: &str,
+        workspace_key: &str,
+    ) -> anyhow::Result<()> {
+        let mut registry = self.workspace_registry.lock().unwrap();
+        commit_terminal_transition(
+            &mut registry,
+            "terminal-reserved",
+            "seed-launching-terminal",
+            &RegistryTerminal {
+                terminal_id: terminal_id.to_string(),
+                workspace_key: workspace_key.to_string(),
+                incarnation: None,
+                lifecycle: TerminalLifecycle::Launching,
+                launch_spec: serde_json::json!({}),
+                exit: None,
+                on_exit: TerminalOnExit::Close,
+            },
+        )?;
+        Ok(())
+    }
+
+    #[cfg(all(test, unix))]
     pub(crate) fn seed_running_terminal_for_test(
         self: &Arc<Self>,
         terminal_id: &str,
@@ -18617,6 +18641,8 @@ mod tests {
             .map(|(index, tab)| {
                 let pane_index = index.min(4);
                 RegistryTab {
+                    name_source: Default::default(),
+                    name_revision: 0,
                     public_id: tab.clone(),
                     pane_id: panes[pane_index].clone(),
                     position: usize::from(index == 5),
@@ -28279,6 +28305,8 @@ mod tests {
                                 terminal,
                             },
                             ResourceChange::UpsertTab(RegistryTab {
+                                name_source: Default::default(),
+                                name_revision: 0,
                                 public_id: tab.clone(),
                                 pane_id: pane.clone(),
                                 position: 0,
@@ -28490,6 +28518,8 @@ mod tests {
                                 terminal,
                             },
                             ResourceChange::UpsertTab(RegistryTab {
+                                name_source: Default::default(),
+                                name_revision: 0,
                                 public_id: tab.clone(),
                                 pane_id: pane.clone(),
                                 position: 0,

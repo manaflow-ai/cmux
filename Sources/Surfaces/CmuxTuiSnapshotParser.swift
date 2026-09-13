@@ -135,18 +135,7 @@ struct CmuxTuiSnapshotParser: Sendable {
             )
         }
         let tabs = ((snapshot["tabs"] as? [[String: Any]]) ?? []).enumerated().compactMap { index, raw -> CloudVMTabState? in
-            guard let id = nonEmptyString(raw["id"]), let paneID = nonEmptyString(raw["pane_id"]) else { return nil }
-            guard let contentKind = nonEmptyString(raw["content_kind"]), let contentID = nonEmptyString(raw["content_id"]) else { return nil }
-            let name = nonEmptyString(raw["name"])
-            return CloudVMTabState(
-                id: id,
-                paneID: paneID,
-                name: name,
-                index: integer(raw["index"]) ?? index,
-                focused: raw["focused"] as? Bool ?? false,
-                contentKind: contentKind,
-                contentID: contentID
-            )
+            tabState(from: raw, fallbackIndex: index)
         }
         // The public daemon schema puts the relationship on `tabs[].pane_id`.
         // `panes[].tab_ids` is not part of that schema, so reading it would make
@@ -979,7 +968,8 @@ struct CmuxTuiSnapshotParser: Sendable {
             index: integer(value["index"]) ?? fallbackIndex,
             focused: value["focused"] as? Bool ?? false,
             contentKind: contentKind,
-            contentID: contentID
+            contentID: contentID,
+            nameAuthority: CloudTabNameAuthority(snapshot: value)
         )
     }
 
@@ -1620,7 +1610,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// The workspace and first terminal a `workspace create` mutation made
     /// (`{value: {workspace_id, terminal_id, …}}`).
     static func createdWorkspaceTerminal(fromResult result: [String: Any]) -> (workspaceID: String, terminalID: String?)? {
-        let path = (result["value"] as? [String: Any]) ?? result
+        let path = (result["value"] as? [String: Any]) ?? ((result["result"] as? [String: Any])?["value"] as? [String: Any]) ?? (result["result"] as? [String: Any]) ?? result
         guard let workspaceID = ((path["workspace_id"] as? String) ?? (path["id"] as? String)), !workspaceID.isEmpty else { return nil }
         return (workspaceID, (path["terminal_id"] as? String).flatMap { $0.isEmpty ? nil : $0 })
     }
