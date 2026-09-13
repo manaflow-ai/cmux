@@ -12851,7 +12851,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
         let requestedRemoteStartupCommand = remoteStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let startupCommand = requestedRemoteStartupCommand?.isEmpty == false ? requestedRemoteStartupCommand : nil
-        let effectiveCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines).flatMap { $0.isEmpty ? nil : $0 } ?? startupCommand
+        let trimmedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveCommand = trimmedInitialCommand?.isEmpty == false ? trimmedInitialCommand : startupCommand
         let effectiveStartupEnvironment = terminalStartupEnvironment(
             base: startupEnvironmentMergingWorkspaceEnvironment([:]),
             remoteStartupCommand: startupCommand
