@@ -364,7 +364,10 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
             if let permissionMode, !permissionMode.isEmpty {
                 parts.append("--permission-mode \(Self.shellQuote(permissionMode))")
             }
-            let environment = configDirectoryForResume.map {
+            let environment = AgentLaunchEnvironmentPolicy().sanitizedValue(
+                key: "CLAUDE_CONFIG_DIR",
+                value: configDirectoryForResume
+            ).map {
                 ["CLAUDE_CONFIG_DIR": $0, "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV": "1", "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS": "CLAUDE_CONFIG_DIR"]
             } ?? [:]
             return AgentResumeArgv.portableClaudeResumeShellCommand(

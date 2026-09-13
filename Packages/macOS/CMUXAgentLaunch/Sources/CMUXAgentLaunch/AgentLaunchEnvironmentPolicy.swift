@@ -32,8 +32,14 @@ public struct ClaudeConfigDirectoryPath: Sendable {
 
 /// Selects the non-secret launch environment values that are safe to replay when restoring agents.
 public struct AgentLaunchEnvironmentPolicy: Sendable {
+    private let homeDirectory: String
+
     /// Creates a launch environment policy.
-    public init() {}
+    ///
+    /// - Parameter homeDirectory: The home used to identify Claude's default config directory.
+    public init(homeDirectory: String = NSHomeDirectory()) {
+        self.homeDirectory = ((homeDirectory as NSString).expandingTildeInPath as NSString).standardizingPath
+    }
 
     private static let hermesAgentEnvironmentKeys: Set<String> = [
         "CUSTOM_BASE_URL",
@@ -176,11 +182,15 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
     }
 
     /// Returns a replay-safe value for a single environment variable, or `nil` when it should drop.
+    /// Claude's default config directory is omitted because explicitly exporting it changes auth selection.
     public func sanitizedValue(key: String, value: String?) -> String? {
         guard Self.safeEnvironmentKeys.contains(key) else { return nil }
         switch key {
         case "CLAUDE_CONFIG_DIR":
-            return value.map { ClaudeConfigDirectoryPath.preferredPath($0) }
+            guard let value else { return nil }
+            let path = ClaudeConfigDirectoryPath.preferredPath(value, homeDirectory: homeDirectory)
+            let defaultPath = (homeDirectory as NSString).appendingPathComponent(".claude")
+            return path == defaultPath ? nil : path
         case "NODE_OPTIONS":
             return sanitizedNodeOptions(value)
         default:
