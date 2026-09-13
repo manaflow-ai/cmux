@@ -175,3 +175,24 @@ tasks.replace("search", priority: .userInitiated) {
     await rebuildSearchIndex()
 }
 ```
+
+## Cloud tree organization
+
+`CloudTreeOrganizationStore<Node>` persists presentation preferences using an
+injected `UserDefaults` domain. `Node` conforms to `CloudTreeOrganizationNode` and
+copies its payload when applying child order and pin state. The package does not
+open sessions or change notification identities. Arrangement walks catalog and
+saved identities in linear time; absent identities keep their saved slots.
+
+Tests use value nodes and a disposable preferences domain without launching the app:
+
+```swift
+let suite = "cloud-tree-test-\(UUID().uuidString)"
+let defaults = UserDefaults(suiteName: suite)!
+defer { defaults.removePersistentDomain(forName: suite) }
+let store = CloudTreeOrganizationStore<TestNode>(defaults: defaults)
+let displayed = store.arranged(catalogNodes)
+```
+
+See `CloudTreeOrganizationStoreTests` for the value-node fixture, pending creation
+replacement, persistence, and a thousand-item nested tree.

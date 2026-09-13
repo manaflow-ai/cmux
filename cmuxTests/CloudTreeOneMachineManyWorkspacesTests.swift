@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -28,6 +29,69 @@ private struct CloudTreeCLIResult {
 /// "this machine is one workspace".
 @Suite("Cloud tree: one machine, many workspaces")
 struct CloudTreeOneMachineManyWorkspacesTests {
+    @MainActor
+    @Test("Notifications and exact placements survive organization and reconnect")
+    func organizationPreservesNotifications() throws {
+        let suite = "cloud-organization-notifications-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = CloudTreeOrganizationStore<CloudTreeNode>(defaults: defaults)
+        let main = workspace("ws_main", "main", index: 0)
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [info(workspaces: [main])],
+            resources: [terminal("term_a", in: [main]), terminal("term_b", in: [main])],
+            projections: []
+        )
+        let notification = CloudVMNotificationRow(
+            id: "notification_a", title: "Done", subtitle: nil, body: "", level: "info",
+            createdAtMs: 1, terminalID: "term_b", readBy: []
+        )
+        var sync = CloudNotificationSyncReducer.plan(
+            rows: [notification], clientID: "mac", state: CloudNotificationSyncState()
+        ).state
+        func tree() -> [CloudTreeNode] {
+            CloudTreeNodeBuilder.nodes(
+                machines: [fleetRow()], snapshot: snapshot, localWorkspaces: [],
+                unreadTerminalIDs: [machineID: CloudNotificationSyncReducer.unreadTerminalIDs(
+                    rows: [notification], clientID: "mac", state: sync
+                )], includeLocalMachine: false
+            )
+        }
+        let original = tree()
+        let before = CloudTreeNodeBuilder.flattened(original)
+        let target = try #require(before.first { node in
+            if case .terminal(let row) = node.kind { return row.resource.id.key == "term_b" && row.remoteView != nil }
+            return false
+        })
+        let group = try #require(target.dragGroup)
+        #expect(store.move(target.id, by: -1, in: original))
+        store.togglePin(target.id, in: original)
+        let restored = CloudTreeOrganizationStore<CloudTreeNode>(defaults: defaults)
+        let after = CloudTreeNodeBuilder.flattened(restored.arranged(tree()))
+        #expect(Set(after.map(\.id)) == Set(before.map(\.id)))
+        #expect(after.count == before.count)
+        let moved = try #require(after.first { $0.id == target.id })
+        #expect(moved.isPinned)
+        #expect(moved.dragGroup == group, "Opening retains the exact daemon tab, not its new row index")
+        #expect(after.filter { node in
+            if case .terminal(let row) = node.kind { return row.hasUnreadNotification }
+            return false
+        }.count == 2, "Pool and workspace placement show the same terminal's unread state")
+        #expect(CloudNotificationSyncReducer.plan(rows: [notification], clientID: "mac", state: sync).deliver.isEmpty)
+
+        sync = CloudNotificationSyncReducer.recordRead(
+            ids: [notification.id], rows: [notification], clientID: "mac", state: sync, newKey: { "ack" }
+        )
+        #expect(CloudTreeNodeBuilder.flattened(restored.arranged(tree())).allSatisfy { node in
+            if case .terminal(let row) = node.kind { return !row.hasUnreadNotification }
+            return true
+        })
+        #expect(sync.pendingAcks.map(\.ids) == [[notification.id]])
+        let cleared = CloudNotificationSyncReducer.plan(rows: [], clientID: "mac", state: sync)
+        #expect(cleared.removed == [notification.id])
+        #expect(CloudTreeNodeBuilder.flattened(restored.arranged(tree())).map(\.id) == after.map(\.id))
+    }
+
     private let machineID = "brave-otter"
     private var machine: SurfaceMachineID { .cloud(machineID) }
     private func fleetRow() -> MachineSnapshot {

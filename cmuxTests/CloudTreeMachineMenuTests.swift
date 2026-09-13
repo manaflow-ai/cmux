@@ -34,6 +34,31 @@ struct CloudTreeMachineMenuTests {
         #expect(!workspaceGroup.kind.refreshesOnExpansion)
     }
 
+    @Test("Cloud folders expose organization controls")
+    func folderOrganizationControls() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let suite = "cloud-tree-organization-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(defaults: defaults),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        defer { withExtendedLifetime(container) {} }
+        coordinator.apply(nodes: [
+            CloudTreeNode(id: "workspaces", kind: .workspacesGroup(machine: .cloud(Self.machineID))),
+            CloudTreeNode(id: "ports", kind: .portsGroup(machine: .cloud(Self.machineID)))
+        ])
+        let menu = try #require(coordinator.contextMenu(forRow: 1))
+        let up = try #require(menu.items.first { $0.title == Self.title("contextMenu.moveUp", "Move Up") })
+        #expect(up.isEnabled)
+        try Self.choose(up.title, in: menu)
+        #expect((coordinator.outlineView?.item(atRow: 0) as? CloudTreeNode)?.id == "ports")
+    }
+
     @Test("A machine's menu lists its verbs with no disk resize item or submenu")
     func machineMenuOffersOnlySupportedVerbs() throws {
         let recorder = CloudTreeMenuVerbRecorder()
@@ -67,6 +92,9 @@ struct CloudTreeMachineMenuTests {
             Self.title("machines.menu.checkpoint", "Checkpoint"),
             Self.title("machines.menu.fork", "Fork"),
             Self.title("machines.menu.delete", "Delete\u{2026}"),
+            Self.title("contextMenu.moveUp", "Move Up"),
+            Self.title("contextMenu.moveDown", "Move Down"),
+            Self.title("cloudTree.menu.pin", "Pin"),
         ])
         try Self.choose(Self.title("machines.menu.privateNetwork", "Private Network Access…"), in: menu)
         #expect(recorder.vpnSetupCount == 1)

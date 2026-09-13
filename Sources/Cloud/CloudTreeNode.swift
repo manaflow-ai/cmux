@@ -11,7 +11,7 @@ import Foundation
 /// the stable `id` (machine id, workspace id, resource id, …), which lets
 /// expansion and selection survive a rebuild. Rows below the outline receive
 /// only the node's values plus a closure bundle (snapshot-boundary rule).
-final class CloudTreeNode: NSObject {
+final class CloudTreeNode: NSObject, CloudTreeOrganizationNode {
     enum Kind: Equatable {
         /// A cloud machine: the fleet row (plan/free-access state) plus what the catalog knows.
         case machine(MachineSnapshot, SurfaceMachineInfo?)
@@ -62,6 +62,7 @@ final class CloudTreeNode: NSObject {
     }
 
     let id: String
+    private(set) var isPinned = false
     private(set) var kind: Kind
     private(set) var children: [CloudTreeNode]
     /// For workspace rows: everything the workspace holds, in the order it opens.
@@ -72,6 +73,23 @@ final class CloudTreeNode: NSObject {
         self.kind = kind
         self.children = children
         self.explicitDragGroup = dragGroup
+    }
+
+    /// A newly discovered machine remains prominent after replacing a pending row.
+    var prefersLeadingPlacement: Bool { isMachineRow }
+
+    var canOrganize: Bool {
+        switch kind {
+        case .pendingMachine, .placeholder: return false
+        default: return true
+        }
+    }
+
+    /// Copies presentation state while retaining the exact remote placement payload.
+    func organized(children: [CloudTreeNode], isPinned: Bool) -> CloudTreeNode {
+        let node = CloudTreeNode(id: id, kind: kind, children: children, dragGroup: explicitDragGroup)
+        node.isPinned = isPinned
+        return node
     }
 
     var isExpandable: Bool { !children.isEmpty }
@@ -104,6 +122,7 @@ final class CloudTreeNode: NSObject {
     /// structure signature matched first.
     func adopt(from other: CloudTreeNode) {
         kind = other.kind
+        isPinned = other.isPinned
         explicitDragGroup = other.explicitDragGroup
         for (child, replacement) in zip(children, other.children) {
             child.adopt(from: replacement)
