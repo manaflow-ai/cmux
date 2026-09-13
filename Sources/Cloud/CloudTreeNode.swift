@@ -198,9 +198,9 @@ final class CloudTreeNode: NSObject {
         return dragResource.map { SurfaceResourceGroup(single: $0) }
     }
 
-    /// Whether this row may start a native drag. Only terminals and displays
-    /// leave the tree by drag; workspaces, browsers, ports, machines, and
-    /// headers do not (their `dragGroup` still feeds open verbs and menus).
+    /// Whether a native drag may export a pane projection. Only terminals and
+    /// displays leave the tree; `canOrganize` also admits internal-only row
+    /// drags without granting an external projection capability.
     var isDragSource: Bool {
         switch kind {
         case .terminal, .display: return true

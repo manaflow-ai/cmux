@@ -32,6 +32,8 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
         self.coordinator = coordinator
         self.provisionalToken = provisionalToken
         super.init()
+        // Organization-only sources must not expose a pane-opening capability.
+        // They still use this writer so provisional/native ownership is shared.
         if exposesProjection { materializeRegistrationPayload() }
         if let nodeID { setString(nodeID, forType: .cloudSidebarRow) }
     }
@@ -46,10 +48,13 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
 
     override func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
         _ = pasteboard
-        return super.writableTypes(for: pasteboard)
+        // materializeRegistrationPayload copies onto self with setString/setData.
+        // Advertise this item's actual storage, including the sidebar-only case.
+        return types
     }
 
     override func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
+        guard types.contains(type) else { return nil }
         if type == .cloudSidebarRow { return string(forType: type) }
         // `TabDragTransferRegistration` stores its capability as a raw string
         // and the surface record as raw JSON bytes. `propertyList(forType:)`
