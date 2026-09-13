@@ -66,7 +66,7 @@ enum IrxLiveTestSupport {
 
 @Suite("live QUIC", .serialized)
 struct IrxLiveQUICTests {
-    @Test("closing a control transport releases its owner without closing the session")
+    @Test("closing a control transport terminates its admitted session")
     func controlTransportReleasesOwner() async throws {
         let journal = IrxLiveTestSupport.journal()
         let server = try await IrxLiveTestSupport.bindLoopback(
@@ -98,7 +98,12 @@ struct IrxLiveQUICTests {
         let transport = IrxControlByteTransport(
             closeCode: .explicitRedial,
             establish: { (irx, control) },
-            onClose: { await releaseProbe.record() }
+            onClose: { _, closeCode, retiresConnection in
+                await releaseProbe.record(
+                    closeCode: closeCode,
+                    retiresConnection: retiresConnection
+                )
+            }
         )
 
         try await transport.connect()
@@ -106,9 +111,163 @@ struct IrxLiveQUICTests {
         await transport.close()
 
         #expect(await releaseProbe.count == 1)
-        #expect(await !irx.isClosed)
+        #expect(await releaseProbe.closeCodes == [.explicitRedial])
+        #expect(await releaseProbe.retiresConnections == [true])
+        #expect(await irx.isClosed)
+        #expect(
+            await irx.termination()
+                == IrxTermination(origin: .local, code: IrxCloseCode.explicitRedial.rawValue)
+        )
 
         let serverConnection = try #require(try await serverTask.value)
+        await irx.close(code: .userRequested, origin: .local)
+        await serverConnection.close(code: .userRequested, origin: .local)
+        try? await server.close()
+        try? await client.close()
+    }
+
+    @Test("remote control EOF terminates the transport and preserves host shutdown")
+    func remoteControlEOFTerminatesTransport() async throws {
+        let journal = IrxLiveTestSupport.journal()
+        let server = try await IrxLiveTestSupport.bindLoopback(
+            seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 1)
+        let client = try await IrxLiveTestSupport.bindLoopback(
+            seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 0)
+        let serverTask = Task { () -> (IrxConnection, IrxLaneStream)? in
+            guard let incoming = await server.acceptNext() else { return nil }
+            let accepting = try await incoming.accept()
+            let connection = try await accepting.connect()
+            let irx = IrxConnection(
+                connection: connection, role: .acceptor, journal: journal)
+            guard let result = await IrxAdmission.performServer(
+                connection: irx,
+                judgment: IrxLiveTestSupport.fixedJudgment(accepting: "good-grant"),
+                journal: journal
+            ) else {
+                return nil
+            }
+            return (irx, result.1)
+        }
+
+        let connection = try await client.connect(
+            addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol.alpnData)
+        let irx = IrxConnection(connection: connection, role: .dialer, journal: journal)
+        let (_, control) = try await IrxAdmission.performClient(
+            connection: irx, grantJWS: "good-grant", journal: journal)
+        let releaseProbe = IrxControlReleaseProbe()
+        let transport = IrxControlByteTransport(
+            closeCode: .explicitRedial,
+            establish: { (irx, control) },
+            onClose: { _, closeCode, retiresConnection in
+                await releaseProbe.record(
+                    closeCode: closeCode,
+                    retiresConnection: retiresConnection
+                )
+            }
+        )
+
+        try await transport.connect()
+        let (serverConnection, serverControl) =
+            try #require(try await serverTask.value)
+        let receiveTask = Task { try await transport.receive() }
+        await serverControl.writer.finish()
+        #expect(try await receiveTask.value == nil)
+
+        #expect(await releaseProbe.count == 1)
+        #expect(await releaseProbe.closeCodes == [.hostShutdown])
+        #expect(await releaseProbe.retiresConnections == [false])
+        #expect(await irx.isClosed)
+        #expect(
+            await irx.termination()
+                == IrxTermination(origin: .remote, code: IrxCloseCode.hostShutdown.rawValue)
+        )
+
+        do {
+            try await transport.send(Data("finished control stream".utf8))
+            Issue.record("transport reused a control stream after remote EOF")
+        } catch let error as IrxConnectionError {
+            guard case .closed = error else {
+                Issue.record("unexpected error after remote EOF: \(error)")
+                return
+            }
+        } catch {
+            Issue.record("unexpected error after remote EOF: \(error)")
+        }
+
+        await transport.close()
+        await serverConnection.close(code: .userRequested, origin: .local)
+        await irx.close(code: .userRequested, origin: .local)
+        try? await server.close()
+        try? await client.close()
+    }
+
+    @Test("cancelling a control read retires the owner locally")
+    func cancelledControlReadRetiresLocally() async throws {
+        let journal = IrxLiveTestSupport.journal()
+        let server = try await IrxLiveTestSupport.bindLoopback(
+            seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 1)
+        let client = try await IrxLiveTestSupport.bindLoopback(
+            seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 0)
+        let serverTask = Task { () -> IrxConnection? in
+            guard let incoming = await server.acceptNext() else { return nil }
+            let accepting = try await incoming.accept()
+            let connection = try await accepting.connect()
+            let irx = IrxConnection(
+                connection: connection, role: .acceptor, journal: journal)
+            guard await IrxAdmission.performServer(
+                connection: irx,
+                judgment: IrxLiveTestSupport.fixedJudgment(accepting: "good-grant"),
+                journal: journal
+            ) != nil else {
+                return nil
+            }
+            return irx
+        }
+
+        let connection = try await client.connect(
+            addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol.alpnData)
+        let irx = IrxConnection(connection: connection, role: .dialer, journal: journal)
+        let (_, control) = try await IrxAdmission.performClient(
+            connection: irx, grantJWS: "good-grant", journal: journal)
+        let establishmentStarted = IrxAsyncLatch()
+        let releaseEstablishment = IrxAsyncLatch()
+        let releaseProbe = IrxControlReleaseProbe()
+        let transport = IrxControlByteTransport(
+            closeCode: .explicitRedial,
+            establish: {
+                await establishmentStarted.signal()
+                await releaseEstablishment.wait()
+                return (irx, control)
+            },
+            onClose: { _, closeCode, retiresConnection in
+                await releaseProbe.record(
+                    closeCode: closeCode,
+                    retiresConnection: retiresConnection
+                )
+            }
+        )
+
+        let receiveTask = Task { try await transport.receive() }
+        await establishmentStarted.wait()
+        receiveTask.cancel()
+        await releaseEstablishment.signal()
+
+        do {
+            _ = try await receiveTask.value
+            Issue.record("cancelled control read unexpectedly succeeded")
+        } catch is CancellationError {
+        } catch {
+            // The native stream may surface cancellation as an Iroh transport
+            // error; the owner classification is the behavior under test.
+        }
+
+        #expect(await releaseProbe.count == 1)
+        #expect(await releaseProbe.closeCodes == [.explicitRedial])
+        #expect(await releaseProbe.retiresConnections == [true])
+        #expect(await irx.isClosed)
+
+        let serverConnection = try #require(try await serverTask.value)
+        await transport.close()
         await irx.close(code: .userRequested, origin: .local)
         await serverConnection.close(code: .userRequested, origin: .local)
         try? await server.close()
@@ -153,7 +312,12 @@ struct IrxLiveQUICTests {
                 await releaseEstablishment.wait()
                 return (irx, control)
             },
-            onClose: { await releaseProbe.record() }
+            onClose: { _, closeCode, retiresConnection in
+                await releaseProbe.record(
+                    closeCode: closeCode,
+                    retiresConnection: retiresConnection
+                )
+            }
         )
 
         let connectTask = Task { try await transport.connect() }
@@ -175,6 +339,8 @@ struct IrxLiveQUICTests {
             Issue.record("unexpected error: \(error)")
         }
         #expect(await releaseProbe.count == 1)
+        #expect(await releaseProbe.retiresConnections == [true])
+        #expect(await irx.isClosed)
 
         let serverConnection = try #require(try await serverTask.value)
         await irx.close(code: .userRequested, origin: .local)
@@ -272,6 +438,50 @@ struct IrxLiveQUICTests {
         try? await client.close()
     }
 
+    @Test("lifecycle close during admission stays a retryable transport failure")
+    func lifecycleCloseDuringAdmissionStaysTransportFailure() async throws {
+        let journal = IrxLiveTestSupport.journal()
+        let server = try await IrxLiveTestSupport.bindLoopback(
+            seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 1)
+        let client = try await IrxLiveTestSupport.bindLoopback(
+            seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 0)
+        let serverTask = Task { () throws -> IrxConnection? in
+            guard let incoming = await server.acceptNext() else { return nil }
+            let accepting = try await incoming.accept()
+            let connection = try await accepting.connect()
+            let irx = IrxConnection(
+                connection: connection, role: .acceptor, journal: journal)
+            guard let control = await irx.acceptLane() else { return nil }
+            _ = try await control.reader.readControlFrame(IrxHello.self)
+            await irx.close(code: .hostShutdown, origin: .local)
+            return irx
+        }
+
+        let connection = try await client.connect(
+            addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol.alpnData)
+        let irx = IrxConnection(connection: connection, role: .dialer, journal: journal)
+        do {
+            _ = try await IrxAdmission.performClient(
+                connection: irx, grantJWS: "good-grant", journal: journal)
+            Issue.record("admission unexpectedly succeeded")
+        } catch let denial as IrxAdmissionDenied {
+            Issue.record("lifecycle close was parked as \(denial.code.rawValue)")
+        } catch let error as IrxConnectionError {
+            guard case let .closed(termination) = error else {
+                Issue.record("unexpected connection error: \(error)")
+                return
+            }
+            #expect(termination?.code == IrxCloseCode.hostShutdown.rawValue)
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+
+        _ = try await serverTask.value
+        await irx.close(code: .userRequested, origin: .local)
+        try? await server.close()
+        try? await client.close()
+    }
+
     @Test("keepalive ping/pong flows and death triggers the engine's instant redial")
     func keepaliveAndAutoRedial() async throws {
         let journal = IrxLiveTestSupport.journal()
@@ -365,6 +575,23 @@ struct IrxLiveQUICTests {
         // Supersession: a second dial from the same device replaces the first
         // session on the server registry.
         #expect(await registry.activeSessionCount == 1)
+
+        let retired = try #require(recovered)
+        let dialStartsBeforeRetirement =
+            journal.counterSnapshot()["dial-started"] ?? 0
+        #expect(
+            await engine.retire(
+                connection: retired.connection,
+                code: .explicitRedial
+            )
+        )
+        await retired.connection.close(code: .explicitRedial, origin: .local)
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(await engine.currentSession() == nil)
+        #expect(
+            journal.counterSnapshot()["dial-started"] ?? 0
+                == dialStartsBeforeRetirement
+        )
 
         await engine.stop()
         serverLoop.cancel()
