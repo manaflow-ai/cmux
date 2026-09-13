@@ -3,7 +3,6 @@ import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import SwiftUI
-
 /// The Finder-like Cloud tree over the surface catalog: This Mac (local
 /// workspaces → terminals; Browsers) then every machine (Workspaces → cmux-tui
 /// workspace → terminals; Ports; Displays; Terminals), as an `NSOutlineView`. Rows are pure
@@ -29,9 +28,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     /// Fires when a row drag starts (true) and ends (false); the panel freezes catalog
     /// re-reads while a drag is in flight.
     var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
+    var showsCloudVPNWarning = false
     @Environment(\.tabDragTransferRegistry) private var tabDragTransferRegistry
     @Environment(\.colorScheme) private var colorScheme
-
     /// A terminal rename needs a stable daemon tab placement. A terminal row
     /// with only a legacy workspace hint is not enough, because the same
     /// terminal can have zero or many tab placements.
@@ -41,7 +40,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     ) -> Bool {
         remoteView != nil || resource.remoteViews?.isEmpty == false
     }
-
     func makeCoordinator() -> Coordinator {
         Coordinator(
             machineActions: machineActions,
@@ -52,18 +50,17 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
         )
     }
-
     func makeNSView(context: Context) -> CloudTreeContainerView {
         let container = CloudTreeContainerView(coordinator: context.coordinator)
         container.appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
         return container
     }
-
     func updateNSView(_ container: CloudTreeContainerView, context: Context) {
         container.appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
         context.coordinator.machineActions = machineActions
         context.coordinator.nodeActions = nodeActions
         context.coordinator.onDragStateChange = onDragStateChange
+        context.coordinator.showsCloudVPNWarning = showsCloudVPNWarning
         context.coordinator.apply(style: style)
         context.coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(
             machines: machines,
@@ -73,9 +70,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             unreadTerminalIDs: unreadTerminalIDs
         ))
     }
-
     // MARK: - Coordinator
-
     @MainActor
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
         var machineActions: MachineRowActions
@@ -104,12 +99,17 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         private lazy var dragWriterOwnership = ProvisionalDragWriterOwnership { [weak self] tokenID in
             self?.pendingDragWriterDidDeallocate(tokenID: tokenID)
         }
-        /// A drag session owns the outline until it ends: no reloads, no in-place
-        /// updates. The latest tree handed in meanwhile is applied once at drag end.
         private(set) var isDragging = false
         var deferredNodes: [CloudTreeNode]?
+        private var deferredReload = false
         var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
-
+        var showsCloudVPNWarning = false {
+            didSet {
+                guard oldValue != showsCloudVPNWarning else { return }
+                if isDragging { deferredReload = true }
+                else if let outlineView { reloadDataAndRestoreState(in: outlineView) }
+            }
+        }
         init(
             machineActions: MachineRowActions,
             nodeActions: CloudTreeNodeActions,
@@ -123,12 +123,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             self.organization = organization ?? CloudSidebarOrganizationStore()
             self.tabDragTransferRegistry = tabDragTransferRegistry
         }
-
         private func discardPendingDrag(_ pending: PendingDrag) {
             pending.transferRegistry.end(pending.registration)
             SurfaceResourceDragRegistry.shared.discard(id: pending.dragID)
         }
-
         private func discardAllPendingDrags(
             preserving preservedWriter: CloudTreeSurfaceDragPasteboardWriter? = nil
         ) {
@@ -146,7 +144,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 discardPendingDrag(pending)
             }
         }
-
         private func pendingDragWriterDidDeallocate(tokenID: UUID) {
             guard let pending = pendingDrags.removeValue(forKey: tokenID) else { return }
             if latestPendingDragWriter?.provisionalToken.id == tokenID {
@@ -163,7 +160,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 setDragging(false)
             }
         }
-
         private func reclaimSupersededNativeDragIfNeeded() {
             guard activeDrag != nil || isDragging else { return }
             supersededDragSession = activeDragSession ?? outlineView?.activeNativeDragSession
@@ -188,7 +184,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             activeDragSourceView = nil
         }
-
         /// Reclaims a native Cloud drag after AppKit has crossed a new pointer
         /// boundary without delivering the older source's `endedAt` callback.
         /// The boundary is safe because AppKit does not dispatch a new
@@ -225,30 +220,22 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             activeDragSourceView = nil
             setDragging(false)
         }
-
         // MARK: Snapshot application
-
-        /// Three outcomes, cheapest first: nothing changed → no work; only row contents
-        /// changed (titles, cwd, open markers, stats) → the existing node objects adopt the
-        /// new values and the visible rows re-render in place, keeping expansion and the
-        /// selection; the structure changed (rows added/removed/reordered/re-kinded) →
-        /// `reloadData` plus expansion/selection restore. During a drag everything is
-        /// deferred until the session ends.
-        /// Switch the visual preset: every row's height, indent and content
-        /// change, so this is always a full reload (cheap — the tree is small).
+        /// Applies a visual preset, changing each row's geometry and content.
         func apply(style: CloudTreeStyle) {
             guard style != self.style else { return }
             self.style = style
             guard let outlineView else { return }
+            if isDragging {
+                deferredReload = true
+                return
+            }
             outlineView.treeStyle = style
             outlineView.indentationPerLevel = style.indentPerLevel
-            withProgrammaticUpdate {
-                outlineView.reloadData()
-                restoreExpansion(in: outlineView)
-                restoreSelection(in: outlineView)
-            }
+            reloadDataAndRestoreState(in: outlineView)
         }
 
+        /// Applies the latest catalog snapshot, coalescing updates during a native drag.
         func apply(nodes: [CloudTreeNode]) {
             if isDragging {
                 deferredNodes = nodes
@@ -289,16 +276,31 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
         }
 
+        /// Ends a native drag and drains the latest deferred snapshot exactly once.
         private func setDragging(_ dragging: Bool) {
             guard isDragging != dragging else { return }
             isDragging = dragging
             onDragStateChange(dragging)
-            if !dragging, let deferred = deferredNodes {
+            guard !dragging else { return }
+            let shouldReload = deferredReload
+            deferredReload = false
+            guard shouldReload || deferredNodes != nil else { return }
+            if let deferred = deferredNodes {
                 deferredNodes = nil
+                if shouldReload {
+                    structureSignature.removeAll(keepingCapacity: true)
+                    contentSignature.removeAll(keepingCapacity: true)
+                    outlineView?.treeStyle = style
+                    outlineView?.indentationPerLevel = style.indentPerLevel
+                }
                 apply(nodes: deferred)
+            } else if shouldReload, let outlineView {
+                outlineView.treeStyle = style
+                outlineView.indentationPerLevel = style.indentPerLevel
+                reloadDataAndRestoreState(in: outlineView)
             }
         }
-
+        private func reloadDataAndRestoreState(in outlineView: NSOutlineView) { withProgrammaticUpdate { outlineView.reloadData(); restoreExpansion(in: outlineView); restoreSelection(in: outlineView) } }
         private func restoreExpansion(in outlineView: NSOutlineView) {
             var row = 0
             while row < outlineView.numberOfRows {
@@ -310,7 +312,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 row += 1
             }
         }
-
         private func restoreSelection(in outlineView: NSOutlineView) {
             guard let selectedNodeID else { return }
             for row in 0..<outlineView.numberOfRows {
@@ -320,13 +321,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
             }
         }
-
         private func withProgrammaticUpdate(_ body: () -> Void) {
             isUpdatingProgrammatically = true
             body()
             isUpdatingProgrammatically = false
         }
-
         // MARK: NSOutlineViewDataSource
 
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
@@ -345,11 +344,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         // MARK: NSOutlineViewDelegate
 
+        /// Creates or reuses a cell for one immutable Cloud tree node.
         func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
             guard let node = item as? CloudTreeNode else { return nil }
             let cell = (outlineView.makeView(withIdentifier: CloudTreeCellView.identifier, owner: nil) as? CloudTreeCellView)
                 ?? CloudTreeCellView(frame: .zero)
-            cell.configure(node: node, machineActions: machineActions, nodeActions: nodeActions, style: style)
+            cell.configure(node: node, machineActions: machineActions, nodeActions: nodeActions, style: style, showsCloudVPNWarning: showsCloudVPNWarning)
             return cell
         }
 
