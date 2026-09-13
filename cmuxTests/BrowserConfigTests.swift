@@ -2940,29 +2940,12 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         )
     }
 
-    func testWebViewReplacementAfterProcessTerminationUpdatesInstanceIdentity() {
-        let panel = BrowserPanel(
-            workspaceId: UUID(),
-            initialURL: URL(string: "https://example.com")
-        )
-        defer { panel.close() }
-        let oldWebView = panel.webView
-        let oldInstanceID = panel.webViewInstanceID
-
-        panel.debugSimulateWebContentProcessTermination()
-
-        XCTAssertFalse(panel.webView === oldWebView)
-        XCTAssertNotEqual(panel.webViewInstanceID, oldInstanceID)
-        XCTAssertNotNil(panel.webView.navigationDelegate)
-        XCTAssertNotNil(panel.webView.uiDelegate)
-    }
-
     func testWebViewReplacementPreservesEmptyNewTabRenderState() {
         let panel = BrowserPanel(workspaceId: UUID())
         defer { panel.close() }
         XCTAssertFalse(panel.shouldRenderWebView)
 
-        panel.debugSimulateWebContentProcessTermination()
+        panel.webView.navigationDelegate?.webViewWebContentProcessDidTerminate?(panel.webView)
 
         XCTAssertFalse(panel.shouldRenderWebView)
     }
