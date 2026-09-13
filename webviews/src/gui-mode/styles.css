@@ -183,7 +183,8 @@
 }
 
 .gui-mode-provider-option:hover,
-.gui-mode-provider-option:focus-visible {
+.gui-mode-provider-option:focus-visible,
+.gui-mode-provider-option-highlighted {
   outline: none;
   background: var(--agent-control-hover);
 }

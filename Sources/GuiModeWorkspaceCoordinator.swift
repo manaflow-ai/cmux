@@ -59,8 +59,8 @@ final class GuiModeWorkspaceCoordinator {
                 orientation: .horizontal,
                 insertFirst: false,
                 workingDirectory: location.workspace.currentDirectory,
-                initialInput: nil,
-                initialCommand: Self.taskWorktreePRCommand(prompt: trimmedPrompt, providerID: providerID)
+                initialInput: Self.taskWorktreePRInput(prompt: trimmedPrompt, providerID: providerID),
+                initialCommand: providerID.launchCommand
             ) != nil else {
                 throw AgentSessionBridgeError.invalidRequest
             }

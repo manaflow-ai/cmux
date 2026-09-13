@@ -261,6 +261,7 @@ function ProviderSelect({
 }) {
   const [query, setQuery] = useState("");
   const [isOpen, setIsOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
   const selectedProvider = providerForId(providers, selectedProviderId);
   const filteredProviders = filterGuiModeProviders(providers, query);
   const selectProviders = filteredProviders.length === 0
@@ -268,6 +269,12 @@ function ProviderSelect({
     : filteredProviders.some((provider) => provider.id === selectedProvider.id)
     ? filteredProviders
     : [selectedProvider, ...filteredProviders];
+  const chooseProvider = (provider: GuiModeProvider) => {
+    onSelectProvider(provider.id);
+    setIsOpen(false);
+    setQuery("");
+    setHighlightedIndex(0);
+  };
   return h("div", {
     className: "model-picker-root gui-mode-provider-picker",
     style: providerAccentStyle(selectedProvider),
@@ -279,6 +286,16 @@ function ProviderSelect({
       "aria-haspopup": "menu",
       "aria-label": label,
       onClick: () => setIsOpen((open) => !open),
+      onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => {
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          setIsOpen(true);
+          setHighlightedIndex((index) => {
+            const next = event.key === "ArrowDown" ? index + 1 : index - 1;
+            return (next + selectProviders.length) % selectProviders.length;
+          });
+        }
+      },
     },
       h("span", { className: "model-icon gui-mode-provider-icon", "aria-hidden": true }, selectedProvider.displayName.slice(0, 1)),
       h("span", { className: "model-picker-content flex min-w-0 items-center gap-1.5" },
@@ -308,19 +325,34 @@ function ProviderSelect({
           className: "gui-mode-agent-search",
           onChange: (event: React.ChangeEvent<HTMLInputElement>) => setQuery(event.currentTarget.value),
           placeholder: searchPlaceholder,
+          onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              setIsOpen(false);
+              setQuery("");
+              setHighlightedIndex(0);
+            } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              setHighlightedIndex((index) => {
+                const next = event.key === "ArrowDown" ? index + 1 : index - 1;
+                return filteredProviders.length === 0 ? 0 : (next + filteredProviders.length) % filteredProviders.length;
+              });
+            } else if (event.key === "Enter") {
+              event.preventDefault();
+              const provider = filteredProviders[highlightedIndex];
+              if (provider) chooseProvider(provider);
+            }
+          },
           type: "search",
           value: query,
         }),
         filteredProviders.length === 0
           ? h("div", { className: "gui-mode-provider-no-results", role: "status" }, noResultsLabel)
-          : filteredProviders.map((provider) => h("button", {
-            className: "provider-dropdown-item gui-mode-provider-option",
+          : filteredProviders.map((provider, index) => h("button", {
+            "aria-selected": index === highlightedIndex,
+            className: `provider-dropdown-item gui-mode-provider-option${index === highlightedIndex ? " gui-mode-provider-option-highlighted" : ""}`,
             key: provider.id,
-            onClick: () => {
-              onSelectProvider(provider.id);
-              setIsOpen(false);
-              setQuery("");
-            },
+            onClick: () => chooseProvider(provider),
             role: "menuitem",
             type: "button",
           },
