@@ -307,8 +307,8 @@
     },
     {
       "path": "ColorsChangedEvent.java",
-      "sha256": "3ffeb925757611be3469a23e1207e52e8d10c88badecbd324f8e275ecffe658c",
-      "size": 7860
+      "sha256": "9c57d9e802c017a7b4d69d0f7dd6b0058c47a4d78f38ea50393f386d6c4508f4",
+      "size": 8564
     },
     {
       "path": "CommandMetadata.java",
@@ -872,7 +872,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "72984a8d885f7e58d10a3f5d96dee3b3309f78b13ac34e80649ef042e2e1f727",
+      "sha256": "a42c14f55a55fd67b099973b61d3429fbb788c5b2a6f122abcfa131afef3af8d",
       "size": 4199
     },
     {
@@ -1361,9 +1361,14 @@
       "size": 4943
     },
     {
+      "path": "TerminalColorOverrides.java",
+      "sha256": "24c400ecfca88246b64e13df44b3660d8463d94af76a8382ca5753065e7ddd08",
+      "size": 3158
+    },
+    {
       "path": "TerminalColors.java",
-      "sha256": "cd7512a60de651d72d10b669ace04571dc4d84861ef3952596fb1575b5b4d3e4",
-      "size": 6853
+      "sha256": "42edd591b7ca51546872e2d02a1f851b02052e613f667507eb5fb8c91a7bee41",
+      "size": 7557
     },
     {
       "path": "TerminalEventsRequest.java",
@@ -1557,7 +1562,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "567d1717b69de4a77dde2b72bfea5dc25e89d84caee83502c24cf968f7ae299d",
+  "ir_sha256": "3e8a21a3080c830d3765698c21641715ff9592b480170c4c7e6a7a764d362543",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

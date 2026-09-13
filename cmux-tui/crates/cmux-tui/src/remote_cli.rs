@@ -2989,6 +2989,7 @@ mod tests {
         assert_eq!(routing[ROUTING_DIRECT_ADDRS], "127.0.0.1:1234");
     }
 
+    #[cfg(feature = "iroh-transport")]
     #[test]
     fn iroh_route_candidates_keep_query_hints_isolated() {
         let routes = [
