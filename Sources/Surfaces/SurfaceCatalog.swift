@@ -1278,11 +1278,12 @@ final class SurfaceCatalog {
 
     /// Persisted identity remains available for presentation before discovery.
     func projectionIdentity(forPanel panelID: UUID, in workspaceID: UUID) -> SurfaceProjectionRecord? {
+        if let pending = pendingRestoredProjections.first(where: { $0.key.panelID == panelID && $0.value == workspaceID }) { return pending.key }
         if let live = projection(forPanel: panelID), live.workspaceID == workspaceID {
             return SurfaceProjectionRecord(panelID: panelID, resource: live.resource,
                 remoteWorkspaceID: live.remoteWorkspaceID, remoteTabID: live.remoteTabID)
         }
-        return pendingRestoredProjections.first { $0.key.panelID == panelID && $0.value == workspaceID }?.key
+        return nil
     }
 
     func machineInfo(for machine: SurfaceMachineID) -> SurfaceMachineInfo? {
@@ -1290,7 +1291,6 @@ final class SurfaceCatalog {
     }
 
     // MARK: Restore
-
     /// Records persisted projections for panes the session restore recreated. The projection
     /// becomes live as soon as the provider reports the resource again (a cloud terminal
     /// after the link reconnects); local resources are re-registered by the local provider
