@@ -270,13 +270,30 @@ extension MobileShellComposite {
         // without its exact base can mix dimensions or screen state with a
         // newer local grid. Skipped while a replay barrier is active for the
         // same reason as the history chain.
+        let deliveredRevisionContinuity =
+            terminalRenderGridRevisionContinuityBySurfaceID[renderGrid.surfaceID]
+        let replaceablePatchShapeMatches: Bool
+        if renderGrid.isReplaceableViewportPatchForMobileDelivery,
+           terminalReplayBarrierTokensBySurfaceID[renderGrid.surfaceID] == nil {
+            guard let deliveredRevisionContinuity,
+                  let deliveredColumns = deliveredRevisionContinuity.columns,
+                  let deliveredRows = deliveredRevisionContinuity.rows else {
+                terminalOutputNeedsReplay(surfaceID: renderGrid.surfaceID)
+                return
+            }
+            replaceablePatchShapeMatches = deliveredColumns == renderGrid.columns
+                && deliveredRows == renderGrid.rows
+        } else {
+            replaceablePatchShapeMatches = true
+        }
         if !renderGrid.full,
            terminalReplayBarrierTokensBySurfaceID[renderGrid.surfaceID] == nil,
-           !MobileTerminalRenderGridRevisionContinuity.admits(
-               renderGrid,
-               delivered: terminalRenderGridRevisionContinuityBySurfaceID[renderGrid.surfaceID]
-           ) {
-            let delivered = terminalRenderGridRevisionContinuityBySurfaceID[renderGrid.surfaceID]
+           (!replaceablePatchShapeMatches
+                || !MobileTerminalRenderGridRevisionContinuity.admits(
+                    renderGrid,
+                    delivered: deliveredRevisionContinuity
+                )) {
+            let delivered = deliveredRevisionContinuity
             let baseText = renderGrid.deltaBaseRenderRevision.map(String.init) ?? "nil"
             let deliveredText: String
             if let delivered {
