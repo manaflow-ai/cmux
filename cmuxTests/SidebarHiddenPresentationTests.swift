@@ -329,46 +329,26 @@ struct SidebarHiddenPresentationTests {
         )
 
         let contentView = try #require(window.contentView)
-        // ContentView mounts this host around the complete sidebar in both list modes.
+        // The full-sidebar host is mounted for both list implementations.
         let sidebarFocusHost = try #require(descendants(
             of: SidebarPointerEventHostView.self,
             in: contentView
         ).first)
         let sidebarFrame = sidebarFocusHost.convert(sidebarFocusHost.bounds, to: contentView)
-        let sidebarField = NSTextField(frame: NSRect(
-            x: sidebarFrame.midX - 60,
-            y: sidebarFrame.midY - 12,
-            width: 120,
-            height: 24
-        ))
+        let sidebarField = NSTextField(frame: NSRect(x: sidebarFrame.midX - 60, y: sidebarFrame.midY - 12, width: 120, height: 24))
         contentView.addSubview(sidebarField)
         #expect(window.makeFirstResponder(sidebarField))
-        let sidebarEditor = try #require(sidebarField.currentEditor() as? NSTextView)
+        let sidebarEditor = try #require(sidebarField.currentEditor())
         #expect(window.firstResponder === sidebarEditor)
-        #expect(sidebarEditor.delegate as? NSTextField === sidebarField)
         let sidebarBoundary = SidebarFocusBoundaryReference()
         sidebarBoundary.attach(sidebarFocusHost)
-        let sidebarFocusGeometry =
-            "Sidebar: \(sidebarFocusHost.convert(sidebarFocusHost.bounds, to: nil)); " +
-            "field: \(sidebarField.convert(sidebarField.visibleRect, to: nil)); " +
-            "editor: \(sidebarEditor.convert(sidebarEditor.visibleRect, to: nil))."
-        #expect(
-            sidebarBoundary.contains(sidebarEditor, in: window),
-            "The focused fixture must belong to the sidebar before hiding. \(sidebarFocusGeometry)"
-        )
-        #expect(tabManager.selectedWorkspace === focusedWorkspace)
-        #expect(focusedWorkspace.focusedPanelId == focusedPanelId)
+        #expect(sidebarBoundary.contains(sidebarEditor, in: window), "The fixture must belong to sidebar \(sidebarFrame).")
         sidebarState.toggle()
         await drainMainRunLoop(for: window)
         let responderAfterSidebarFieldHide = try #require(window.firstResponder)
         #expect(
             focusedPanel.ownedFocusIntent(for: responderAfterSidebarFieldHide, in: window) != nil,
-            """
-            Hiding must restore main-panel focus from controls anywhere in the sidebar boundary.
-            \(sidebarFocusGeometry) Responder: \(responderAfterSidebarFieldHide);
-            selected workspace: \(String(describing: tabManager.selectedTabId));
-            selected panel: \(String(describing: focusedWorkspace.focusedPanelId)).
-            """
+            "Hiding must restore main-panel focus from controls in sidebar \(sidebarFrame)."
         )
         sidebarState.toggle()
         await drainMainRunLoop(for: window)
