@@ -261,7 +261,9 @@ function ProviderSelect({
   const [query, setQuery] = useState("");
   const selectedProvider = providerForId(providers, selectedProviderId);
   const filteredProviders = filterGuiModeProviders(providers, query);
-  const visibleProviders = filteredProviders.some((provider) => provider.id === selectedProvider.id)
+  const selectProviders = filteredProviders.length === 0
+    ? [selectedProvider]
+    : filteredProviders.some((provider) => provider.id === selectedProvider.id)
     ? filteredProviders
     : [selectedProvider, ...filteredProviders];
   return h("label", { className: "gui-mode-agent-select-shell", style: providerAccentStyle(selectedProvider) },
@@ -281,12 +283,12 @@ function ProviderSelect({
       onChange: (event: React.ChangeEvent<HTMLSelectElement>) => onSelectProvider(event.currentTarget.value),
       value: selectedProvider.id,
     },
-      visibleProviders.map((provider) => h("option", {
+      selectProviders.map((provider) => h("option", {
         key: provider.id,
         value: provider.id,
       }, provider.displayName)),
     ),
-    visibleProviders.length === 0
+    filteredProviders.length === 0
       ? h("span", { className: "gui-mode-provider-no-results", role: "status" }, noResultsLabel)
       : null,
   );

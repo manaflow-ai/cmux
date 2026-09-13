@@ -385,7 +385,6 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
                 return ["cancelled": false]
             }
             guiModeSubmitRequestID = nil
-            isGuiModeSubmitPending = false
             return ["cancelled": true]
         case "app.pickFiles":
             return await pickLocalFiles()
