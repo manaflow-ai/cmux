@@ -1666,8 +1666,8 @@ class TerminalController {
                 )
             }
             return v2Ok(id: request.id, result: ["completed": true])
-        case "browser.download.wait":
-            return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
+        case "browser.download.list", "browser.download.wait":
+            return v2Result(id: request.id, request.method == "browser.download.list" ? v2BrowserDownloadListOnSocketWorker(params: request.params) : v2BrowserDownloadWaitOnSocketWorker(params: request.params))
         case "browser.navigate", "browser.back", "browser.forward", "browser.reload",
              "browser.design_mode.set", "browser.design_mode.status",
              "browser.snapshot", "browser.eval", "browser.wait", "browser.screenshot",
@@ -3368,7 +3368,7 @@ class TerminalController {
             "browser.frame.main",
             "browser.dialog.accept",
             "browser.dialog.dismiss",
-            "browser.download.wait",
+            "browser.download.list", "browser.download.wait",
             "browser.cookies.get",
             "browser.cookies.set",
             "browser.cookies.clear",

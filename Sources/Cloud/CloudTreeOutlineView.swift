@@ -79,7 +79,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         weak var outlineView: CloudTreeNSOutlineView?
         private var nodes: [CloudTreeNode] = []
         private var structureSignature: [String] = []
-        private var contentSignature: [String] = []
+        private var contentSignature: [CloudTreeNodeContentSnapshot] = []
         private var selectedNodeID: String?
         private var isUpdatingProgrammatically = false
         private var activeDrag: ActiveDrag?
@@ -246,17 +246,17 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             cmuxDebugLog("cloudTree.apply structureChanged=\(nextStructure != structureSignature) contentChanged=\(nextContent != contentSignature) unreadRows=\(unreadRows) rows=\(outlineView?.numberOfRows ?? -1)")
             #endif
             guard nextStructure != structureSignature || nextContent != contentSignature else { return }
+            let update = CloudTreeRowUpdate(previous: contentSignature, next: nextContent)
             contentSignature = nextContent
             if nextStructure == structureSignature, !self.nodes.isEmpty {
                 for (existing, replacement) in zip(self.nodes, nodes) {
                     existing.adopt(from: replacement)
                 }
-                guard let outlineView, outlineView.numberOfRows > 0 else { return }
+                guard let outlineView else { return }
+                let changedRows = update.rowIndexes(in: outlineView)
+                guard !changedRows.isEmpty else { return }
                 withProgrammaticUpdate {
-                    outlineView.reloadData(
-                        forRowIndexes: IndexSet(integersIn: 0..<outlineView.numberOfRows),
-                        columnIndexes: IndexSet(integer: 0)
-                    )
+                    outlineView.reloadData(forRowIndexes: changedRows, columnIndexes: IndexSet(integer: 0))
                 }
                 return
             }
@@ -354,11 +354,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
             guard let node = item as? CloudTreeNode else { return GlobalFontMagnification.scaledSize(style.rowHeight) }
             switch node.kind {
-            case .machine(let machine, _):
-                let hasStats = machine.stats.flatMap(CloudTreeMachineRowContent.statsLine) != nil
-                // Same rule as usageLine (nil for empty totals), without formatting text per row.
-                let hasUsage = machine.usage.map { !$0.totals.isEmpty } ?? false
-                return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: hasStats, hasUsage: hasUsage))
+            case .machine:
+                return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: true))
             case .localMachine, .pendingMachine:
                 return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
             case .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup, .workspace, .localWorkspace, .terminal, .display, .browser, .port, .placeholder:
@@ -464,13 +461,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             case .localWorkspace(let row):
                 nodeActions.selectLocalWorkspace(row.workspaceID)
             case .terminal(let row):
-                if let view = row.remoteView {
-                    nodeActions.projectRemoteView(row.resource.id, view, .tab, true)
-                } else {
-                    // A terminal opens as a tab, not a new column: it joins the
-                    // existing layout instead of widening it every time.
-                    nodeActions.project(row.resource.id, .tab, true)
-                }
+                openTerminalRow(node, row: row)
             case .display(let resource, let openIn, let remoteView):
                 // A workspace's Desktop row opens INSIDE the local workspace showing
                 // that remote workspace — never a jump to a VNC pane in a different

@@ -7,6 +7,7 @@ import Foundation
 struct RemoteTmuxMirrorMutationSnapshot {
     let selectedTabs: [(paneId: PaneID, tabId: TabID)]
     let focusedPaneId: PaneID?
+    let focusedTabId: TabID?
     let tabManager: TabManager?
     let selectedWorkspaceId: UUID?
     let window: NSWindow?
@@ -20,6 +21,7 @@ struct RemoteTmuxMirrorMutationSnapshot {
             workspace.bonsplitController.selectedTab(inPane: paneId).map { (paneId, $0.id) }
         }
         focusedPaneId = workspace.bonsplitController.focusedPaneId
+        focusedTabId = focusedPaneId.flatMap { workspace.bonsplitController.selectedTab(inPane: $0)?.id }
         tabManager = workspace.owningTabManager
         selectedWorkspaceId = tabManager?.selectedTabId
         window = tabManager?.window
@@ -41,8 +43,15 @@ struct RemoteTmuxMirrorMutationSnapshot {
         where workspace.bonsplitController.tabs(inPane: selection.paneId).contains(where: { $0.id == selection.tabId }) {
             workspace.bonsplitController.selectTab(selection.tabId)
         }
-        if let focusedPaneId,
-           workspace.bonsplitController.allPaneIds.contains(focusedPaneId) {
+        if let focusedTabId,
+           let focusedPane = workspace.bonsplitController.allPaneIds.first(where: {
+               workspace.bonsplitController.tabs(inPane: $0).contains { $0.id == focusedTabId }
+           }) {
+            // Topology may move the selected tab into a different pane. Preserve
+            // that identity rather than focusing the old pane's replacement tab.
+            workspace.bonsplitController.focusPane(focusedPane)
+            workspace.bonsplitController.selectTab(focusedTabId)
+        } else if let focusedPaneId, workspace.bonsplitController.allPaneIds.contains(focusedPaneId) {
             workspace.bonsplitController.focusPane(focusedPaneId)
         }
 
@@ -79,8 +88,6 @@ struct RemoteTmuxMirrorMutationSnapshot {
               let focusedPaneId,
               let selectedTabId = selectedTabs.first(where: { $0.paneId == focusedPaneId })?.tabId
         else { return false }
-        return !workspace.bonsplitController.tabs(inPane: focusedPaneId).contains {
-            $0.id == selectedTabId
-        }
+        return workspace.bonsplitController.tab(selectedTabId) == nil
     }
 }

@@ -6,10 +6,10 @@ extension CmuxTuiSurfaceProvider {
         case notSignedIn
         case machineAsleep(String)
         case noWorkspaceOnMachine(String)
-        /// The daemon could not prove whether a correlated creation committed.
-        case terminalCreationOutcomeUnknown(String)
-        /// The daemon predates the durable creation-resolution contract.
-        case terminalCreationUnsupported(String)
+        case remoteWorkspaceNotFound(String)
+        case remotePlacementUnavailable(String)
+        case remoteTabNotFound(String)
+        case terminalNotCreated(String)
         /// The terminal's process already ended on the machine.
         case terminalExited(String)
         /// The daemon did not answer the resolver within the bounded retries.
@@ -32,16 +32,32 @@ extension CmuxTuiSurfaceProvider {
                 return "\(id) is asleep; open it (`cmux vm shell \(id)`) to wake it before listing its terminals."
             case .noWorkspaceOnMachine(let id):
                 return "\(id) has no cmux-tui workspace yet."
-            case .terminalCreationOutcomeUnknown:
+            case .remoteWorkspaceNotFound(let id):
                 return String(
-                    localized: "cloudTree.error.terminalCreationOutcomeUnknown",
-                    defaultValue: "Cloud could not confirm whether the terminal was created. Refresh the machine before retrying."
+                    format: String(
+                        localized: "cloudTree.error.remoteWorkspaceNotFound",
+                        defaultValue: "Remote workspace %@ is no longer available. Refresh and retry."
+                    ),
+                    id
                 )
-            case .terminalCreationUnsupported:
+            case .remotePlacementUnavailable(let id):
                 return String(
-                    localized: "cloudTree.error.terminalCreationUnsupported",
-                    defaultValue: "This machine does not support safe Cloud terminal recovery. Update its cmux-tui daemon before retrying."
+                    format: String(
+                        localized: "cloudTree.error.remotePlacementUnavailable",
+                        defaultValue: "Remote workspace %@ has no available terminal placement. Refresh and retry."
+                    ),
+                    id
                 )
+            case .remoteTabNotFound(let id):
+                return String(
+                    format: String(
+                        localized: "cloudTree.error.remoteTabNotFound",
+                        defaultValue: "Remote tab %@ is no longer available. Refresh and retry."
+                    ),
+                    id
+                )
+            case .terminalNotCreated(let detail):
+                return "cmux-tui did not report the new terminal: \(detail)"
             case .terminalExited(let id):
                 return String(
                     format: String(

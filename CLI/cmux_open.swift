@@ -1,4 +1,5 @@
 import CryptoKit
+import CmuxTerminalCore
 import Darwin
 import Foundation
 
@@ -1469,8 +1470,7 @@ extension CMUXCLI {
            scheme == "http" || scheme == "https" {
             return .url(url.absoluteString, defaultFocus: true)
         }
-
-        let resolved = resolvePath(raw)
+        let resolved = TerminalPathResolver().resolveOpenURLFileReference(raw, cwd: FileManager.default.currentDirectoryPath)?.path ?? resolvePath(raw)
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: resolved, isDirectory: &isDir) else {
             throw CLIError(message: "Path does not exist: \(resolved)")

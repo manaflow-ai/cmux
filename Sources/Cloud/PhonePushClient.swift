@@ -128,9 +128,10 @@ final class PhonePushClient {
             configuration: PhonePushConfiguration(defaults: defaults)
         )
     }
-
+    /// Starts auth-scoped phone push observation after warming host identity.
     func configure(auth: AuthCoordinator) {
         self.auth = auth
+        _ = MobileHostIdentity.deviceID()
         authLifecycleTask?.cancel()
         cancelInMemoryQueue()
         activeIdentity = nil
@@ -139,7 +140,6 @@ final class PhonePushClient {
             await self.bootstrapQueueAndObserve(auth: auth)
         }
     }
-
     func configuration(
         defaults settingsDefaults: UserDefaults? = nil
     ) -> PhonePushConfiguration {

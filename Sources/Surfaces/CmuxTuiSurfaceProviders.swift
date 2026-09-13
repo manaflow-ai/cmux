@@ -267,7 +267,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 info: info,
                 pendingWrites: pendingMutationMetadata()
             )
-            if !manualMirrorSessions.isEmpty { scheduleAttachmentRetry() }
             return false
         }
         // Publish the display before the terminal link is ready: a slow or hanging
@@ -352,7 +351,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             linkState = eventsFeedWarning == nil ? (status?.state ?? .error) : .error
             let text = eventsFeedWarning ?? status?.error ?? CloudMachineLink.errorText(error)
             linkError = text
-            if !manualMirrorSessions.isEmpty { scheduleAttachmentRetry() }
             #if DEBUG
             cmuxDebugLog("cloud.provider.refreshFailed machine=\(machineID) state=\(linkState) error=\(String(reflecting: error))")
             #endif
@@ -429,7 +427,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 #endif
                 return false
             }
+            guard requestVersion == nil || requestVersion == cloudStateInstallVersion || incoming == current else {
+                return false
+            }
             cloudState = incoming
+            cloudStateInstallVersion &+= 1
             retirePendingRemoteRenames(observed: incoming)
             return true
         }
@@ -550,10 +552,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         reconcileTitles: Bool = true,
         observation: CloudVMStateObservation = .current
     ) {
-        guard canPublishCloudState(state) else { return }
+        guard cloudState == state, canPublishCloudState(state) else { return }
         var pool: [SurfaceResource] = []
         // The control plane's resolved kind is authoritative. Freestyle snapshot
-        // ids are opaque and cannot tell us whether the machine has a desktop.
         if summary.resolvedKind.hasDesktop {
             pool.append(desktopDisplayResource())
         }
@@ -567,43 +568,35 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             tabByTerminal = CmuxTuiSnapshotParser.tabByTerminal(fromSnapshot: snapshot)
         }
         info.remoteWorkspaces = remoteWorkspaces(for: state)
+        let acceptedObservation = observationWithPendingWrites(observation)
         catalog.replaceCloudState(
             state,
             resources: resources,
             info: info,
-            observation: observationWithPendingWrites(observation)
+            observation: acceptedObservation
         )
         if reconcileTitles {
-            catalog.reconcileCloudRemoteState(machine: machine, state: state)
+            catalog.reconcileCloudRemoteState(machine: machine, state: state, observation: acceptedObservation)
         }
         closePanesForVanishedRemoteTerminals(observation: observation)
     }
 
-    /// Applies a contiguous event to the catalog's canonical graph. Row-local changes rebuild
-    /// only their affected terminal, browser, or display rows. A topology change crosses a
-    /// relationship boundary and uses the authoritative complete publication path.
     func publishDelta(
         _ state: CloudVMState,
         impact: CloudVMStateDeltaImpact,
         ports: [Int],
         reconcileTitles: Bool
     ) {
-        guard canPublishCloudState(state) else { return }
+        guard cloudState == state, canPublishCloudState(state) else { return }
         if impact.requiresFullResourceRebuild {
             publish(state, ports: ports, reconcileTitles: reconcileTitles)
             return
         }
 
         var affected = impact.resourceIDs
-        // A full publish can erase an optimistic create while its receipt is
-        // still ahead of the accepted graph. Include those identities in a
-        // delta patch as well, so every publication path applies the same
-        // read-your-write overlay atomically.
         affected.formUnion(pendingRemoteCreations.keys)
         var resources = CmuxTuiSnapshotParser.resources(from: state, matching: affected)
         resources = resourcesWithPendingCreations(resources, state: state)
-        // A desktop is a machine capability even when no workspace currently points at it.
-        // Include that pool row only when the delta actually touched a display identity.
         if summary.resolvedKind.hasDesktop,
            affected.contains(SurfaceResourceID(machine: machine, kind: .display, key: "display:1")) {
             resources = CmuxTuiSnapshotParser.mergingDisplays(
@@ -613,18 +606,24 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         info.remoteWorkspaces = remoteWorkspaces(for: state)
         let previousIDs = Set(catalog.snapshot.resources(on: machine).map(\.id))
+        let acceptedObservation = observationWithPendingWrites()
         let changed = catalog.applyCloudStateResourcePatch(
             state,
             resources: resources,
             affectedResourceIDs: affected,
             info: info,
-            observation: observationWithPendingWrites()
+            observation: acceptedObservation
         )
         if reconcileTitles {
-            catalog.reconcileCloudRemoteState(machine: machine, state: state)
+            catalog.cloudWorkspaceRenameService.reconcileRemoteState(
+                machine: machine,
+                state: state,
+                catalog: catalog,
+                observation: acceptedObservation,
+                affectedResources: affected,
+                workspaceNamesChanged: false
+            )
         }
-        // A newly restored terminal may need its attach pane materialized. Existing rows do not
-        // need a full projection scan for every title event.
         if changed.contains(where: { $0.kind == .terminal && !previousIDs.contains($0) }) {
             reprojectRestoredPanes(generation: lifecycleGeneration)
         }
@@ -701,15 +700,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         for (resourceID, pending) in pendingRemoteCreations where resourceID.machine == machine {
             if let state {
                 if let receipt = pending.receipt {
-                    guard let cursor = state.cursor else {
-                        mergePendingCreation(pending, into: &merged)
+                    guard let cursor = state.cursor,
+                          cursor.generation == receipt.generation else {
+                        completed.append(resourceID)
                         continue
                     }
-                    if cursor.generation != receipt.generation
-                        || cursor.revision >= receipt.revision {
-                        // The accepted graph is authoritative at or beyond the
-                        // receipt. Before that fence, keep the exact optimistic
-                        // path so a delayed snapshot cannot erase a live create.
+                    if cursor.revision >= receipt.revision {
+                        // At or beyond the commit, the accepted graph is the
+                        // source of truth, including an intentional close.
                         completed.append(resourceID)
                         continue
                     }
@@ -838,14 +836,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         pendingRemoteCreations[resourceID]
     }
 
-    func pendingCreationReceipt(forTerminalID terminalID: String) -> CloudVMCursor? {
-        pendingRemoteCreations.values.first { $0.resource.id.key == terminalID }?.receipt
-    }
-
-    func hasPendingCreation(forTerminalID terminalID: String) -> Bool {
-        pendingRemoteCreations.values.contains { $0.resource.id.key == terminalID }
-    }
-
     private func pendingCreation(forTabID tabID: String) -> PendingRemoteCreation? {
         pendingRemoteCreations.values.first { $0.tabID == tabID }
     }
@@ -910,121 +900,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         )
     }
 
-    /// Runs one close-family command, reconnecting and retrying ONCE when the attempt
-    /// died with the link ("cmux-tui link exited with status …": a dropped tunnel kills
-    /// the whole client run). Safe here because every close verb is idempotent — a
-    /// second attempt against an already-closed target is `selector.not_found`, which
-    /// the callers already tolerate. Non-idempotent verbs (create, run) must not use it.
-    private func runCloseCommand(_ arguments: (_ socketPath: String) -> [String]) async throws -> Data {
-        let connected = try await links.connected(machineID: machineID)
-        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        do {
-            return try await link.run(arguments: arguments(connected.socketPath))
-        } catch {
-            // selector.not_found is a real answer, not a transport failure.
-            if Self.isSelectorNotFound(error) { throw error }
-            let reconnected = try await links.connected(machineID: machineID)
-            guard let fresh = await links.link(machineID: machineID) else { throw error }
-            return try await fresh.run(arguments: arguments(reconnected.socketPath))
-        }
-    }
-
-    // MARK: Headless terminal I/O (agent primitives; no pane involved)
-
-    /// Type `text` into the remote terminal exactly as given (no newline appended).
-    func sendText(terminalID: String, text: String) async throws {
-        let connected = try await links.connected(machineID: machineID)
-        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        _ = try await link.run(arguments: CloudTuiCommandLine.writeArguments(socketPath: connected.socketPath, terminalID: terminalID, text: text))
-    }
-
-    /// Press named keys (`enter`, `ctrl+c`, …) in the remote terminal, in order.
-    func sendKeys(terminalID: String, keys: [String]) async throws {
-        let connected = try await links.connected(machineID: machineID)
-        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        _ = try await link.run(arguments: CloudTuiCommandLine.keysArguments(socketPath: connected.socketPath, terminalID: terminalID, keys: keys))
-    }
-
-    /// The remote terminal's visible screen, as the daemon reports it
-    /// (`cols`, `rows`, `cursor_row`, `cursor_col`, `cursor_visible`, `text`).
-    func readScreen(terminalID: String) async throws -> [String: Any] {
-        let connected = try await links.connected(machineID: machineID)
-        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        let data = try await link.run(arguments: CloudTuiCommandLine.screenReadArguments(socketPath: connected.socketPath, terminalID: terminalID))
-        return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
-    }
-
-    /// Block until the screen matches `pattern` (or the daemon-side timeout elapses):
-    /// `{matched, text}`. The link call itself is given headroom beyond the timeout.
-    func waitForScreen(terminalID: String, pattern: String, timeoutMs: Int?) async throws -> [String: Any] {
-        let connected = try await links.connected(machineID: machineID)
-        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        // Non-positive requests mean the daemon default, so the link headroom is computed
-        // from the same value the daemon will use; huge requests are clamped so the
-        // Duration math cannot overflow.
-        let effectiveMs = Self.clampedWaitTimeoutMs(timeoutMs)
-        let linkTimeout = Duration.milliseconds(effectiveMs + 5_000)
-        let data = try await link.run(
-            arguments: CloudTuiCommandLine.screenWaitArguments(socketPath: connected.socketPath, terminalID: terminalID, pattern: pattern, timeoutMs: effectiveMs),
-            timeout: linkTimeout
-        )
-        return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
-    }
-
-    /// `screen wait` default when the caller gives no (or a non-positive) timeout.
-    nonisolated static let defaultWaitTimeoutMs = 30_000
-    /// Upper bound for one `screen wait` (an hour): long enough for any build, short
-    /// enough that the link call and the socket call stay finite.
-    nonisolated static let maxWaitTimeoutMs = 3_600_000
-
-    /// Pure, so the nonisolated socket handler can normalize before hopping actors.
-    nonisolated static func clampedWaitTimeoutMs(_ requested: Int?) -> Int {
-        guard let requested, requested > 0 else { return defaultWaitTimeoutMs }
-        return min(requested, maxWaitTimeoutMs)
-    }
-
-    /// `terminal <id> close`; a terminal whose process already exited is gone from
-    /// cmux-tui's selectors, so its tab is closed instead. Either way the resource
-    /// leaves the catalog now and the next snapshot confirms.
-    func closeTerminal(_ id: SurfaceResourceID) async throws {
-        try await closeTerminal(id, fallbackTabID: nil)
-    }
-
-    func closeTerminal(_ id: SurfaceResourceID, fallbackTabID: String?) async throws {
-        pendingRemoteCreations.removeValue(forKey: id)
-        do {
-            _ = try await runCloseCommand { CloudTuiCommandLine.closeTerminalArguments(socketPath: $0, terminalID: id.key) }
-        } catch {
-            guard let tabID = fallbackTabID ?? tabByTerminal[id.key], Self.isSelectorNotFound(error) else { throw error }
-            _ = try await runCloseCommand { CloudTuiCommandLine.closeTabArguments(socketPath: $0, tabID: tabID) }
-        }
-        closeLocalPanes(showing: [id])
-        catalog.remove(id, from: self)
-        scheduleRefresh()
-    }
-
-    /// A closed terminal has no pane to show any more: every local pane that projected it
-    /// goes too, instead of lingering as a dead attach the person has to close by hand.
-    private func closeLocalPanes(showing ids: [SurfaceResourceID]) {
-        let wanted = Set(ids)
-        for projection in catalog.snapshot.projections where wanted.contains(projection.resource) {
-            SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
-        }
-    }
-
-    /// `workspace <id> close`: its tabs go with it, its terminals detach into the pool
-    /// (`spec/cli.md`: only `terminal close` kills) — the protocol contract, and what
-    /// the sidebar's "Close Workspace (Keep Terminals)" promises. Callers wanting the
-    /// full delete (`vm.workspace_delete`, the sidebar's "Delete Workspace and
-    /// Terminals…") go through `CloudTreeNodeActions.deleteWorkspaceAndTerminals`,
-    /// which closes each terminal first.
-    func closeRemoteWorkspace(id: String) async throws {
-        _ = try await runCloseCommand { CloudTuiCommandLine.closeWorkspaceArguments(socketPath: $0, workspaceID: id) }
-        info.remoteWorkspaces = info.remoteWorkspaces?.filter { $0.id != id }
-        catalog.updateMachine(info, from: self)
-        scheduleRefresh()
-    }
-
     /// cmux-tui's `selector.not_found` error body, surfaced by `link.run` as the
     /// command's output text.
     static func isSelectorNotFound(_ error: Error) -> Bool {
@@ -1056,7 +931,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         case .terminal:
             let manual = try await materializeManualMirrorTerminal(
                 resource,
-                remoteView: remoteView,
+                remoteTabID: (remoteView ?? Self.defaultRemoteView(for: resource))?.tabID,
                 at: destination,
                 focus: focus
             )
@@ -1090,13 +965,25 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// screen after the process exits (a sender that reads the process's last lines as
     /// its result needs that); nil is the daemon default, `close`.
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, onExit: String?) async throws -> SurfaceResource {
-        try await createTerminalWithRecovery(
-            command: command,
+        let connected = try await links.connected(machineID: machineID)
+        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
+        // Resolve the active workspace inside the daemon mutation. A stale Mac
+        // catalog must never bootstrap a second workspace during concurrent creates.
+        let requestedWorkspace = remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let workspaceID = requestedWorkspace.flatMap { $0.isEmpty ? nil : $0 } ?? "current"
+        let argv = CloudTuiCommandLine.commandStartingIn(
             cwd: cwd,
-            name: name,
-            remoteWorkspaceID: remoteWorkspaceID,
-            onExit: onExit
+            command: (command?.isEmpty == false ? command : nil) ?? CloudTuiCommandLine.defaultTerminalCommand
         )
+        let data = try await link.run(arguments: CloudTuiCommandLine.runArguments(socketPath: connected.socketPath, workspaceID: workspaceID, command: argv, onExit: onExit))
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let created = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) else {
+            throw ProviderError.terminalNotCreated(String(data: data, encoding: .utf8) ?? "")
+        }
+        guard let resolvedWorkspaceID = created.workspaceID ?? (workspaceID == "current" ? nil : workspaceID) else {
+            throw ProviderError.noWorkspaceOnMachine(machineID)
+        }
+        return recordCreatedTerminal(created, workspaceID: resolvedWorkspaceID, name: name, cwd: cwd)
     }
 
     func recordCreatedTerminal(
@@ -1747,7 +1634,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let clientID = CloudTuiClientPaths().notificationClientID()
         let sync = CloudNotificationSync(
             machineID: machineID,
-            clientID: clientID,
+            clientID: clientID, store: CloudNotificationSyncHub.shared.persistenceStore,
             resolveTarget: { [weak self] row in self?.notificationDeliveryTarget(for: row) },
             deliver: { [weak self] row, target in self?.deliverNotification(row, to: target) ?? false },
             send: { [weak self] batch in
@@ -2051,6 +1938,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     /// Mutations also request a snapshot as a safety check. One main-actor yield
     /// coalesces calls made in the same transaction without adding a time guess.
+    func reconcileRemovedRemoteWorkspace(_ id: String) { info.remoteWorkspaces = info.remoteWorkspaces?.filter { $0.id != id }; catalog.updateMachine(info, from: self) }
+
     func scheduleRefresh() {
         let lifecycle = lifecycleGeneration
         guard scheduledRefresh == nil else { return }
@@ -2073,7 +1962,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let terminals = catalog.snapshot.resources(on: machine).filter { $0.kind == .terminal }
         for terminal in terminals {
             for projection in catalog.projections(of: terminal.id) where !materializedPanels.contains(projection.panelID) {
-                guard AppDelegate.shared?.workspace(containingSurfaceID: projection.panelID) != nil,
+                guard cloudState.map({ catalog.cloudWorkspaceProjectionCoordinator.retainsProjection(projection, in: $0) }) != false,
+                      AppDelegate.shared?.workspace(containingSurfaceID: projection.panelID) != nil,
                       let paneID = SurfacePaneFactory.paneID(ofPanel: projection.panelID, in: projection.workspaceID) else {
                     continue
                 }

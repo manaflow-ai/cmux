@@ -11,19 +11,35 @@ extension CmuxTuiSurfaceProvider {
     /// attach stream.
     func materializeManualMirrorTerminal(
         _ resource: SurfaceResource,
-        remoteView: SurfaceRemoteView? = nil,
+        remoteTabID: String? = nil,
         at destination: SurfaceDestination,
         focus: Bool
     ) async throws -> CloudManualMirrorMaterialization {
-        guard isAwake else { throw ProviderError.machineAsleep(machineID) }
+        let connected = try await links.connected(machineID: machineID)
+        guard let link = await links.link(machineID: machineID) else {
+            throw ProviderError.machineAsleep(machineID)
+        }
+        // A pool terminal opened into a mirrored workspace takes its tab there, not in
+        // whichever workspace the daemon happens to focus.
+        let resolved = try await resolveSurfaceIDForMaterialization(
+            terminalID: resource.id.key,
+            socketPath: connected.socketPath,
+            link: link,
+            requiresExistingView: remoteTabID != nil,
+            // A newly-created terminal carries the workspace selected by the
+            // creation request even before its first tab receipt arrives. Keep
+            // that identity ahead of the local binding or daemon focus so a
+            // missing tab_id cannot redirect projection to another workspace.
+            preferredWorkspaceID: resource.remoteWorkspace?.id
+                ?? catalog.cloudPlacementCoordinator.boundRemoteWorkspaceID(
+                    forLocalWorkspace: destination.workspaceID, on: machine
+                )
+        )
+
         let session = CloudTuiManualMirrorSession(
             machineID: machineID,
             terminalID: resource.id.key,
-            // The numeric surface is process-local and may not be discoverable
-            // yet. The session stays disconnected until the provider's ordinary
-            // refresh/recovery pass resolves it authoritatively.
-            remoteSurfaceID: 0,
-            initiallyClaimsGeometry: focus,
+            remoteSurfaceID: resolved.surfaceID,
             operations: links.operations,
             onNeedsReconnect: { [weak self] in
                 self?.scheduleRefresh()
@@ -58,23 +74,76 @@ extension CmuxTuiSurfaceProvider {
                 session?.claimGeometry()
             }
             manualMirrorSessions[created.panelID] = session
-            // Insert the pane before resolution. A delayed snapshot or a
-            // transiently missing cloud.sock now leaves one visible pane with
-            // the normal attachment status, and the provider can recover it
-            // through the same session owner as an already-open pane.
-            scheduleRefresh()
+            session.reconnect(socketPath: connected.socketPath)
             return CloudManualMirrorMaterialization(
                 workspaceID: created.workspaceID,
                 panelID: created.panelID,
                 surface: created.surface,
                 session: session,
-                remotePlacement: remoteView.map {
-                    SurfaceRemotePlacement(workspaceID: $0.workspace.id, tabID: $0.tabID)
-                }
+                remotePlacement: resolved.placement
             )
         } catch {
             session.stop()
             throw error
+        }
+    }
+
+    /// Resolves the daemon-local surface needed by a byte attachment.
+    ///
+    /// A live terminal with zero remote views resolves to `noPlacement`; one
+    /// unfocused remote tab is projected before resolving again. A daemon that
+    /// does not answer in time is retried on the bounded materialize schedule
+    /// and then reported as "did not answer", never as "not created": the
+    /// terminal keeps running on the machine either way.
+    private func resolveSurfaceIDForMaterialization(
+        terminalID: String,
+        socketPath: String,
+        link: CloudMachineLink,
+        requiresExistingView: Bool,
+        preferredWorkspaceID: String? = nil
+    ) async throws -> (surfaceID: UInt64, placement: SurfaceRemotePlacement?) {
+        let resolver = CloudTerminalAttachmentResolver(machineID: machineID, commandRunner: link, socketPath: socketPath)
+        var failures = 0
+        var lastReason = ""
+        var lastFailure = CloudTuiSurfaceIDResolution.Failure.notReady
+        var projectedPlacement: SurfaceRemotePlacement?
+        while true {
+            try Task.checkCancellation()
+            var resolution = await resolver.resolve(terminalID: terminalID)
+            attachmentLog.resolution(machineID: machineID, terminalID: terminalID, attempt: failures + 1, outcome: resolution)
+            if resolution == .noPlacement {
+                guard !requiresExistingView else { throw ProviderError.terminalNotCreated(terminalID) }
+                let projected = try await ensureRemoteTerminalView(
+                    terminalID: terminalID,
+                    socketPath: socketPath,
+                    link: link,
+                    preferredWorkspaceID: preferredWorkspaceID
+                )
+                projectedPlacement = projected
+                attachmentLog.projection(machineID: machineID, terminalID: terminalID, placement: projected)
+                resolution = await resolver.resolve(terminalID: terminalID)
+                attachmentLog.resolution(machineID: machineID, terminalID: terminalID, attempt: failures + 1, outcome: resolution)
+            }
+            // Initial and post-projection answers share the same lifecycle/error handling.
+            switch resolution {
+            case let .resolved(surfaceID):
+                return (surfaceID, projectedPlacement)
+            case .exited:
+                // The remote shell already ended, including during projection.
+                throw ProviderError.terminalExited(terminalID)
+            case .noPlacement:
+                lastReason = "the projected view did not resolve"
+                lastFailure = .notReady
+            case let .retryable(reason, failure):
+                lastReason = reason
+                lastFailure = failure
+            }
+            failures += 1
+            guard let delay = CloudTerminalAttachmentRetryPolicy.materialize.boundedDelay(afterFailures: failures) else {
+                attachmentLog.giveUp(machineID: machineID, terminalID: terminalID, attempts: failures, reason: lastReason)
+                throw ProviderError.terminalAttachTimedOut(terminalID: terminalID, failure: lastFailure)
+            }
+            try await attachmentClock.sleep(for: delay)
         }
     }
 
@@ -93,7 +162,7 @@ extension CmuxTuiSurfaceProvider {
         let key = socketPath + "\u{0}" + terminalID
         if let task = remoteTerminalProjectionTasks[key] { return try await task.value }
         let task = Task<SurfaceRemotePlacement, Error> { @MainActor [weak self] in
-            guard let self else { throw CancellationError() }
+            guard let self else { throw ProviderError.terminalNotCreated(terminalID) }
             let snapshot = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: socketPath))
             guard let destination = await CmuxTuiSnapshotParser.terminalProjectionTarget(from: snapshot, preferringWorkspace: preferredWorkspaceID) else {
                 throw ProviderError.noWorkspaceOnMachine(self.machineID)
@@ -128,6 +197,12 @@ extension CmuxTuiSurfaceProvider {
         )
         for terminalID in terminalsWithoutPlacement {
             guard !Task.isCancelled else { break }
+            if let state = cloudState {
+                let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)
+                guard catalog.projections(of: resourceID).contains(where: {
+                    catalog.cloudWorkspaceProjectionCoordinator.retainsProjection($0, in: state)
+                }) else { continue }
+            }
             for session in sessionsByTerminal[terminalID] ?? [] {
                 session.markSurfaceResolutionUnavailable()
             }
@@ -158,7 +233,7 @@ extension CmuxTuiSurfaceProvider {
         do {
             let materialized = try await materializeManualMirrorTerminal(
                 resource,
-                remoteView: restoredRemoteView(for: projection, resource: resource),
+                remoteTabID: projection.remoteTabID,
                 at: .tab(workspaceID: projection.workspaceID, paneID: paneID, index: nil),
                 focus: false
             )
@@ -198,11 +273,5 @@ extension CmuxTuiSurfaceProvider {
                 )
             }
         }
-    }
-
-    private func restoredRemoteView(for projection: SurfaceProjection, resource: SurfaceResource) -> SurfaceRemoteView? {
-        guard let views = resource.remoteViews else { return nil }
-        if let tabID = projection.remoteTabID { return views.first { $0.tabID == tabID } }
-        return views.count == 1 ? views.first : nil
     }
 }
