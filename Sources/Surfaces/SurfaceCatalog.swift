@@ -568,10 +568,13 @@ final class SurfaceCatalog {
             SurfaceRemoteWorkspace(id: $0.id, name: $0.name, index: $0.index, focused: $0.focused)
         }
         var seen = Set(canonical.map(\.id))
-        // A create response can expose a new empty workspace before the next
-        // journal snapshot. Keep such genuinely new rows, but never retain an
-        // incoming row whose id the accepted graph removed.
-        let pending = (info.remoteWorkspaces ?? []).filter { seen.insert($0.id).inserted }
+        // Only resource overlays attest to a creation ahead of the graph.
+        // A machine summary has no mutation receipt and may contain deleted rows.
+        let pending = (resourceIDsByMachine[info.id] ?? [])
+            .compactMap { resources[$0] }
+            .flatMap(\.remoteWorkspaces)
+            .filter { seen.insert($0.id).inserted }
+            .sorted { ($0.index, $0.id) < ($1.index, $1.id) }
         adjusted.remoteWorkspaces = canonical + pending
         return adjusted
     }

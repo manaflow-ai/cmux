@@ -81,7 +81,8 @@ extension SetAutoTitleSocketTests {
             #expect(restored.panelTitle(panelId: panel) == "Logs & tests / 本番")
             let native = try #require(restored.surfaceIdFromPanelId(panel))
             #expect(restored.bonsplitController.tab(native)?.title == "Logs & tests / 本番")
-            #expect(fixture.catalog.resources[.init(machine: fixture.provider.machine, kind: .terminal, key: "term_a")]?.remoteViews?.first?.name == "Logs & tests / 本番")
+            let resource = fixture.catalog.resources[.init(machine: fixture.provider.machine, kind: .terminal, key: "term_a")]
+            #expect(resource?.remoteViews?.first(where: { $0.tabID == "tab_a" })?.name == "Logs & tests / 本番")
             fixture.catalog.endProjections(panelID: panel, reason: .replaced)
         }
     }
