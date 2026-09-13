@@ -59,9 +59,11 @@ final class CloudTerminalReadiness {
     private var gate = CloudTerminalReadinessGate()
     private var condition: (@MainActor () -> Bool)?
     private var onReady: (@MainActor () -> Void)?
-    private var frameObserver: NSObjectProtocol?
-    private var runtimeObserver: NSObjectProtocol?
-    private var releaseFrameDemand: (() -> Void)?
+    // Notification tokens are only touched on the main actor; the unsafe
+    // annotation permits the nonisolated ARC deinit to release them safely.
+    private nonisolated(unsafe) var frameObserver: NSObjectProtocol?
+    private nonisolated(unsafe) var runtimeObserver: NSObjectProtocol?
+    private nonisolated(unsafe) var releaseFrameDemand: (() -> Void)?
 
     deinit {
         if let frameObserver { NotificationCenter.default.removeObserver(frameObserver) }
@@ -82,7 +84,7 @@ final class CloudTerminalReadiness {
         self.onReady = onReady
         phase = .waiting
         cloudTerminalReadinessLogger.info(
-            "readiness surface=\(surface.id.uuidString, privacy: .private(mask: .hash)) phase=waiting baseline=\(gate.baselineFrame)"
+            "readiness surface=\(surface.id.uuidString, privacy: .private(mask: .hash)) phase=waiting baseline=\(self.gate.baselineFrame)"
         )
         let view = surface.hostedView.surfaceView
         releaseFrameDemand = view.retainLocalRenderedFrameNotifications()
