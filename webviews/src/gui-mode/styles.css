@@ -66,7 +66,7 @@
 
 .gui-mode-composer-footer {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--h-token-button-composer-gap);
   min-height: var(--spacing-token-button-composer);
@@ -85,9 +85,6 @@
   line-height: 20px;
 }
 
-.gui-mode-add-context {
-  flex: 0 0 auto;
-}
 
 .gui-mode-action-cluster {
   min-width: 0;

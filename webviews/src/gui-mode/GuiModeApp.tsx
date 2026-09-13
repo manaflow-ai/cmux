@@ -161,14 +161,6 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
             },
               h("div", { className: CODEX_COMPOSER_INNER },
                 h("div", { className: "composer-footer gui-mode-composer-footer" },
-                  h("div", { className: "codex-left-rail" },
-                    h("button", {
-                      className: `${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full gui-mode-add-context`,
-                      type: "button",
-                      "aria-label": context.copy.setupCommandLabel,
-                      title: context.copy.setupCommandLabel,
-                    }, guiModePlusIcon("icon-sm")),
-                  ),
                   h("div", { className: "min-w-0 gui-mode-editor-shell" },
                     h(PromptEditor, {
                       ref: editorRef,
@@ -335,15 +327,6 @@ function guiModeSendIcon(className = "icon-sm") {
   return h("svg", { className, width: "20", height: "20", viewBox: "0 0 20 20", fill: "none", "aria-hidden": true },
     h("path", {
       d: "M9.33467 16.6663V4.93978L4.6374 9.63704L3.69599 8.69661L9.52998 2.86263C9.78968 2.60314 10.2107 2.60314 10.4704 2.86263L16.3034 8.69661L15.363 9.63704L10.6647 4.9388V16.6663C10.6647 17.0336 10.367 17.3314 9.99971 17.3314C9.63259 17.3312 9.33467 17.0335 9.33467 16.6663Z",
-      fill: "currentColor",
-    }),
-  );
-}
-
-function guiModePlusIcon(className = "icon-sm") {
-  return h("svg", { className, width: "20", height: "20", viewBox: "0 0 20 20", fill: "none", "aria-hidden": true },
-    h("path", {
-      d: "M9.33496 16.5V10.665H3.5C3.13273 10.665 2.83496 10.3673 2.83496 10C2.83496 9.63273 3.13273 9.33496 3.5 9.33496H9.33496V3.5C9.33496 3.13273 9.63273 2.83496 10 2.83496C10.3673 2.83496 10.665 3.13273 10.665 3.5V9.33496H16.5V10.665H10.665V16.5C10.665 16.8673 10.367 17.165 10 17.165C9.63273 17.165 9.33496 16.8673 9.33496 16.5Z",
       fill: "currentColor",
     }),
   );
