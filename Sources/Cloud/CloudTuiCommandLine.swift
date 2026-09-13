@@ -260,8 +260,11 @@ struct CloudTuiCommandLine: Sendable {
     /// Resolves a stable terminal resource ID to the current generation's
     /// numeric surface handle. This is preferred over walking the legacy tree
     /// because it also works while a terminal has no visible tab placement.
-    /// The private command accepts the 32-character payload without the
-    /// public `term_` prefix.
+    ///
+    /// The full public `term_…` id is sent. A current daemon maps it through
+    /// its registry; a daemon that only knows UUIDv4 host ids rejects both
+    /// spellings the same way (`invalid_terminal_id`), and the resolver then
+    /// reads the authoritative snapshot instead.
     static func resolveTerminalArguments(socketPath: String, terminalID: String) -> [String]? {
         let payload = terminalID.hasPrefix("term_")
             ? String(terminalID.dropFirst("term_".count))
@@ -275,7 +278,7 @@ struct CloudTuiCommandLine: Sendable {
         let request: [String: Any] = [
             "id": 1,
             "cmd": "resolve-terminal",
-            "terminal_id": payload,
+            "terminal_id": "term_" + payload,
         ]
         return rawCommandArguments(socketPath: socketPath, request: request)
     }
