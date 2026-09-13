@@ -94,8 +94,9 @@ extension Workspace {
             guard let provider = catalog.provider(for: machine) else {
                 throw SurfaceCatalogError.noProvider(machine)
             }
+            let workingDirectory = await provider.currentWorkingDirectory(of: resource)
             return try await provider.createTerminal(
-                command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID
+                command: nil, cwd: workingDirectory, name: nil, remoteWorkspaceID: remoteWorkspaceID
             )
         }
         let project: CloudTerminalCreationCoordinator.Project = { [weak self, weak pendingPanel] resource in
