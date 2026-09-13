@@ -480,6 +480,12 @@ jobs:
             ${{ env.IOS_DERIVED_DATA }}/logs/*.log
           retention-days: 7
 
+      - name: Remove compatibility simulator
+        if: ${{ always() && inputs.ios_version != '' && env.SIMULATOR_ID != '' }}
+        run: |
+          xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
+          xcrun simctl delete "$SIMULATOR_ID"
+
   ios-tests:
     name: ios-tests
     # Aggregate gate for this workflow's iOS suites. Add this check to the branch
