@@ -125470,6 +125470,124 @@
         }
       }
     },
+    "cloudPane.newTerminalFailed.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check that the machine is connected, then try Cmd+D or Cmd+T again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンが接続されていることを確認してから、もう一度 Cmd+D または Cmd+T を試してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfen Sie, ob der Rechner verbunden ist, und versuchen Sie Cmd+D oder Cmd+T erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérifiez que la machine est connectée, puis réessayez avec Cmd+D ou Cmd+T."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحقق من اتصال الجهاز، ثم جرّب Cmd+D أو Cmd+T مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprueba que la máquina esté conectada y vuelve a intentarlo con Cmd+D o Cmd+T."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認機器已連線，然後再次嘗試 Cmd+D 或 Cmd+T。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请确认机器已连接，然后再次尝试 Cmd+D 或 Cmd+T。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신이 연결되어 있는지 확인한 다음 Cmd+D 또는 Cmd+T를 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "cloudPane.newTerminalFailed.unknownError": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine returned an unknown error."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンから不明なエラーが返されました。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Rechner hat einen unbekannten Fehler zurückgegeben."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La machine a renvoyé une erreur inconnue."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أعاد الجهاز خطأ غير معروف."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La máquina devolvió un error desconocido."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器傳回未知錯誤。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器返回了未知错误。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신에서 알 수 없는 오류를 반환했습니다."
+          }
+        }
+      }
+    },
     "cloudNotification.subtitle.machine": {
       "extractionState": "manual",
       "localizations": {

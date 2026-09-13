@@ -83,18 +83,44 @@ import Testing
     }
 
     @Test("Failed cloud pane creation does not enter a process-modal run loop")
-    func failedCloudPaneCreationStaysInWorkspaceState() throws {
+    func failedCloudPaneCreationStaysInWorkspaceState() async throws {
         let harness = try Harness()
         defer { harness.tearDown() }
         let workspace = harness.workspace
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let sourcePanelID = try #require(workspace.focusedPanelId)
         let machine = SurfaceMachineID.cloud("failed-pane-\(UUID().uuidString)")
         let error = NSError(
             domain: "CloudPaneCreationFailureTests",
             code: 1,
             userInfo: [NSLocalizedDescriptionKey: "connection refused"]
         )
+        let provider = CloudCreationProvider(machine: machine, workingDirectory: nil, creationError: error)
+        let catalog = SurfaceCatalog.shared
+        catalog.register(provider)
+        defer { catalog.unregister(machine: machine) }
 
-        workspace.presentCloudPaneCreationFailure(machine: machine, error: error)
+        let resource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term-source"),
+            title: "shell",
+            detail: "/remote/home",
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: nil,
+            port: nil,
+            url: nil
+        )
+        catalog.upsert(resource, from: provider)
+        catalog.record(SurfaceProjection(
+            resource: resource.id,
+            workspaceID: workspace.id,
+            panelID: sourcePanelID
+        ))
+
+        #expect(workspace.routeCloudPaneTerminalTab(inPane: paneID, focus: false))
+        for _ in 0..<20 where workspace.cloudPaneCreationFailure == nil {
+            await Task.yield()
+        }
 
         #expect(NSApp.modalWindow == nil)
         let failure = try #require(workspace.cloudPaneCreationFailure)
@@ -128,9 +154,12 @@ import Testing
         private(set) var createdWorkingDirectory: String?
         private(set) var createdRemoteWorkspaceID: String?
 
-        init(machine: SurfaceMachineID, workingDirectory: String?) {
+        let creationError: Error?
+
+        init(machine: SurfaceMachineID, workingDirectory: String?, creationError: Error? = nil) {
             self.machine = machine
             self.workingDirectory = workingDirectory
+            self.creationError = creationError
             info = SurfaceMachineInfo(
                 id: machine, name: machine.rawValue, status: "running", image: nil,
                 hasDesktop: false, memoryMb: nil, diskMb: nil, linkState: .connected,
@@ -145,6 +174,7 @@ import Testing
         }
 
         func createTerminal(command _: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
+            if let creationError { throw creationError }
             createdWorkingDirectory = cwd
             createdRemoteWorkspaceID = remoteWorkspaceID
             return SurfaceResource(

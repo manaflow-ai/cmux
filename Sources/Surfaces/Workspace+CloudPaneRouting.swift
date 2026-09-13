@@ -1,4 +1,3 @@
-import AppKit
 import Bonsplit
 import Foundation
 
@@ -84,6 +83,7 @@ extension Workspace {
         guard let provider = catalog.provider(for: resource.machine) else { return false }
         let remoteWorkspaceID = catalog.cloudPlacementCoordinator.creationWorkspaceID(in: id, near: resource)
         let machine = resource.machine
+        cloudPaneCreationFailure = nil
         let scope = catalog.beginProjectionMutation(for: [resource.id])
         Task { @MainActor in
             defer { catalog.endProjectionMutation(scope) }
@@ -109,30 +109,24 @@ extension Workspace {
                     remoteView: created.remoteViews?.count == 1 ? created.remoteViews?.first : nil
                 )
             } catch {
-                Self.presentCloudPaneCreationFailure(machine: machine, error: error)
+                self.presentCloudPaneCreationFailure(machine: machine, error: error)
             }
         }
         return true
     }
 
     @MainActor
-    private static func presentCloudPaneCreationFailure(machine: SurfaceMachineID, error: Error) {
-        #if DEBUG
+    func presentCloudPaneCreationFailure(machine: SurfaceMachineID, error: Error) {
+#if DEBUG
         cmuxDebugLog("cloud.pane.createFailed machine=\(machine.rawValue) error=\(String(reflecting: error))")
-        #endif
-        let alert = NSAlert()
-        alert.messageText = String(
-            format: String(
-                localized: "cloudPane.newTerminalFailed.title",
-                defaultValue: "Couldn’t start a terminal on %@"
-            ),
-            machine.rawValue
-        )
-        alert.informativeText = CloudMachineLink.errorText(error)
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: String(localized: "cloudPane.newTerminalFailed.ok", defaultValue: "OK"))
-        CloudErrorCopy.install(in: alert, text: "\(alert.messageText)\n\(alert.informativeText)")
-        alert.runModal()
+#endif
+        cloudPaneCreationFailure = CloudPaneCreationFailure(machine: machine, error: error)
+    }
+
+    @MainActor
+    func dismissCloudPaneCreationFailure(id: UUID) {
+        guard cloudPaneCreationFailure?.id == id else { return }
+        cloudPaneCreationFailure = nil
     }
 }
 

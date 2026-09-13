@@ -2566,8 +2566,6 @@ extension Workspace {
     }
 
 }
-
-
 /// Lifted to `CmuxBrowser.ClosedBrowserPanelRestoreSnapshot` (Workspace
 /// decomposition, Wave 3). This typealias keeps call sites byte-identical.
 typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRestoreSnapshot
@@ -3079,6 +3077,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         get { cloudBindingState.binding }
         set { cloudBindingState.binding = newValue }
     }
+    /// The latest failed cloud terminal creation request, presented inline by the
+    /// workspace that received the user's split or tab gesture.
+    @Published private(set) var cloudPaneCreationFailure: CloudPaneCreationFailure?
     @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
     @Published var remoteConnectionDetail: String?
     // Unsuppressed controller truth retained while live terminal liveness
@@ -13170,7 +13171,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 }
 
 // MARK: - BonsplitDelegate
-
 // MARK: - PaneTreeHosting (legacy @Published observer hooks)
 
 extension Workspace: PaneTreeHosting {
