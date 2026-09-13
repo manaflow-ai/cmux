@@ -576,10 +576,7 @@ final class CloudTuiManualMirrorSession {
                   let surface = self.surface,
                   surface.isNativeViewInRealWindow,
                   surface.isRendererPortalVisible else { return }
-            manualMirrorLogger.notice(
-                "replay.redraw terminal=\(self.terminalID, privacy: .private(mask: .hash)) " +
-                    "surface=\(self.remoteSurfaceID)"
-            )
+            manualMirrorLogger.notice("replay.redraw terminal=\(self.terminalID, privacy: .private(mask: .hash)) surface=\(self.remoteSurfaceID)")
             surface.hostedView.refreshSurfaceNow(reason: "cloud.manualMirror.replay")
         }
     }
