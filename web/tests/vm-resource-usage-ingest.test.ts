@@ -47,10 +47,10 @@ test("rejects oversized streamed bodies", async () => {
   expect((await handler(request({ padding: "x".repeat(2000), cpuPercent: 1 }))).status).toBe(413);
   expect(writes).toEqual([]);
 });
-test("coalesces frequent reports without another write", async () => {
+test("delegates throttle eligibility to storage rather than the auth snapshot", async () => {
   const { handler, writes } = harness({ [VM_RESOURCE_USAGE_KEY]: { receivedAt: 99000 } });
   expect((await handler(request({ cpuPercent: 0 }))).status).toBe(204);
-  expect(writes).toEqual([]);
+  expect(writes).toHaveLength(1);
 });
 test("a failed durable write is retryable and never acknowledged", async () => {
   const { handler } = harness({}, true);

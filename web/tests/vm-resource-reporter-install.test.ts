@@ -7,7 +7,7 @@ function fixture(cliFails = false) {
   const commands: string[] = [];
   const vmId = "vm-resource-reporter-test";
   const data = { id: vmId, state: "running", snapshotId: "sh-test", publicIpv6: "2602:f75c:0:1::2a",
-    resources: { cpu: 64, memory: 131072, storage: 1048576 }, vpcs: [] };
+    resources: { cpu: 64, memory: 131072, storage: 1048576 }, vpcs: [{ ipv4: "10.16.0.2", ipv6: "fd00::2" }] };
   const vm = {
     exec: async ({ command }: { command: string }) => {
       commands.push(command);
@@ -25,7 +25,8 @@ function fixture(cliFails = false) {
 describe("advisory resource reporter installation", () => {
   test.each(["create", "restore"])("reporter failure does not roll back %s", async (operation) => {
     const { provider, deleted, commands } = fixture();
-    const handle = operation === "create" ? await provider.create({ image: "sh-test" }) : await provider.restore("sh-test");
+    const network = { id: "vpc-resource-test" };
+    const handle = operation === "create" ? await provider.create({ image: "sh-test", network }) : await provider.restore("sh-test", { network });
     expect(handle.providerVmId).toBe("vm-resource-reporter-test");
     expect(commands.some(command => command.includes("cmux-resource-stats.service"))).toBe(true);
     expect(deleted).toEqual([]);

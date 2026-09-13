@@ -965,7 +965,7 @@ export class FreestyleProvider implements VMProvider {
 
             // The in-VM shim is a separate convenience layer over the baked
             // daemon and is installed idempotently for agents and peer links.
-            await this.installGuestCli(vm);
+            await this.installGuestCli(vm, vmId);
             await this.announcePrivateAddresses(vm, data);
           } catch (err) {
             // A VM that failed to size or configure must not survive as an
@@ -1154,7 +1154,7 @@ export class FreestyleProvider implements VMProvider {
           const vm = fs.vms.ref(vmId);
           const expected = createHash("sha256").update(GUEST_CMUX_SHIM).digest("hex");
           const current = await this.execResult(vm, `test "$(sha256sum '${GUEST_CMUX_SHIM_PATH}' 2>/dev/null | cut -d ' ' -f 1)" = '${expected}'`);
-          if (current?.exitCode !== 0) await this.installGuestCli(vm);
+          if (current?.exitCode !== 0) await this.installGuestCli(vm, vmId);
           const r = await vm.exec({ command, timeoutMs, linuxUser: GUEST_LINUX_USER });
           // statusCode is null when the guest killed the command at its timeout.
           const exitCode = r.statusCode ?? 124;
@@ -1329,7 +1329,7 @@ export class FreestyleProvider implements VMProvider {
           // remains best-effort for a transient resume race. The new machine's
           // edge rule is supplied inline, so its route is still fail-closed.
           try {
-            await this.installGuestCli(vm);
+            await this.installGuestCli(vm, vmId);
             await this.ensureCmuxTuiRunning(vm, vmId, false).catch(() => undefined);
             await this.announcePrivateAddresses(vm, data);
           } catch (err) {
@@ -1400,7 +1400,7 @@ export class FreestyleProvider implements VMProvider {
             // that predates hook installation gets its Claude Code and Codex
             // hooks (best effort inside).
             await this.ensureAgentHooks(vm, vmId);
-            await this.execResult(vm, guestResourceReporterInstallCommand(), 5_000);
+            await this.ensureResourceReporter(vm, vmId);
           }
           if (!bundleResult || bundleResult.exitCode !== 0) {
             throw new ProviderError(
@@ -1582,7 +1582,7 @@ export class FreestyleProvider implements VMProvider {
    */
   private async ensureCmuxTuiRunning(vm: Vm, vmId: string, installGuestCli = true): Promise<void> {
     // Keep the shim present even when the baked daemon is already healthy.
-    if (installGuestCli) await this.installGuestCli(vm);
+    if (installGuestCli) await this.installGuestCli(vm, vmId);
     const healthy = await this.execResult(vm, freestyleDaemonSettledCommand(), DAEMON_SETTLE_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS);
     if (healthy?.exitCode === 0) {
       await this.ensureAgentHooks(vm, vmId);
@@ -1637,6 +1637,15 @@ export class FreestyleProvider implements VMProvider {
     await this.execOrThrow(vm, vmId, cmuxTuiAgentHooksInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS);
   }
 
+  /** Advisory telemetry must not prevent the machine or its CLI from working. */
+  private async ensureResourceReporter(vm: Vm, vmId: string): Promise<void> {
+    try {
+      await this.execOrThrow(vm, vmId, guestResourceReporterInstallCommand(), 5_000);
+    } catch (error) {
+      console.warn(`[freestyle] ${vmId}: resource reporter not installed: ${errorMessage(error)}`);
+    }
+  }
+
   /**
    * Installs the in-VM `cmux` shim with an upload-then-rename. The temporary
    * path avoids following a pre-existing `/usr/local/bin/cmux` symlink and the
@@ -1644,12 +1653,12 @@ export class FreestyleProvider implements VMProvider {
    * the adapter on older images; create/attach callers treat a failed install
    * as a failed heal.
    */
-  private async installGuestCli(vm: Vm): Promise<void> {
+  private async installGuestCli(vm: Vm, vmId: string): Promise<void> {
     const temporaryPath = `${GUEST_CMUX_SHIM_PATH}.tmp-${randomBytes(12).toString("hex")}`;
     try {
       await vm.fs.writeTextFile(temporaryPath, GUEST_CMUX_SHIM, { mode: 0o755 });
       const result = await vm.exec({
-        command: `chmod 0755 '${temporaryPath}' && mv -f '${temporaryPath}' '${GUEST_CMUX_SHIM_PATH}' && ( ${guestResourceReporterInstallCommand()} )`,
+        command: `chmod 0755 '${temporaryPath}' && mv -f '${temporaryPath}' '${GUEST_CMUX_SHIM_PATH}'`,
         timeoutMs: 30_000,
         linuxUser: GUEST_LINUX_USER,
       });
@@ -1661,6 +1670,7 @@ export class FreestyleProvider implements VMProvider {
       await vm.fs.remove(temporaryPath).catch(() => undefined);
       throw error;
     }
+    await this.ensureResourceReporter(vm, vmId);
   }
 
   private async execResult(vm: Vm, command: string, timeoutMs = EXEC_DEFAULT_TIMEOUT_MS): Promise<ExecResult | null> {

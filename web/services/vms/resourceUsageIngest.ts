@@ -1,11 +1,11 @@
 import { Effect } from "effect";
 import { readBoundedJsonObject } from "../apns/routePolicy";
-import { parseVmResourceUsage, VM_RESOURCE_USAGE_KEY, type VmResourceUsage } from "./resourceUsage";
+import { parseVmResourceUsage, type VmResourceUsage } from "./resourceUsage";
 import { vmPrincipalFailureStatus, type VmPrincipalResult, type VmPrincipalRow } from "./vmPrincipalContract";
 
 export type VmResourceUsageIngestDependencies = {
   readonly authenticate: (request: Request) => Promise<VmPrincipalResult>;
-  readonly accept: (vm: VmPrincipalRow, usage: VmResourceUsage, receivedAt: number) => Promise<void>;
+  readonly accept: (vm: VmPrincipalRow & { readonly providerVmId: string }, usage: VmResourceUsage, receivedAt: number) => Promise<void>;
   readonly now: () => number;
 };
 
@@ -20,13 +20,12 @@ export function makeVmResourceUsageHandler(deps: VmResourceUsageIngestDependenci
       const usage = parseVmResourceUsage(body.value);
       if (!usage) return response(400, "invalid_resource_usage");
       const vm = auth.principal.vm;
-      if (!vm.providerVmId) return response(409, "vm_not_ready");
+      const providerVmId = vm.providerVmId;
+      if (!providerVmId) return response(409, "vm_not_ready");
       const now = deps.now();
-      const previous = vm.providerMetadata[VM_RESOURCE_USAGE_KEY] as { receivedAt?: unknown } | undefined;
-      if (typeof previous?.receivedAt === "number" && now >= previous.receivedAt && now - previous.receivedAt < 15_000) {
-        return response(204);
-      }
-      yield* Effect.tryPromise(() => deps.accept(vm, usage, now));
+      // The repository decides eligibility atomically against the current row,
+      // rather than this potentially concurrent authentication snapshot.
+      yield* Effect.tryPromise(() => deps.accept({ ...vm, providerVmId }, usage, now));
       return response(204);
     }).pipe(Effect.catchAll(() => Effect.succeed(response(503, "resource_usage_unavailable")))),
   );

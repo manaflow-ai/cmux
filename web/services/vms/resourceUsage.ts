@@ -2,6 +2,7 @@ import type { VMStats } from "./drivers/types";
 
 export const VM_RESOURCE_USAGE_KEY = "cmuxResourceUsage";
 export const VM_RESOURCE_USAGE_MAX_AGE_MS = 90_000;
+export const VM_RESOURCE_USAGE_MIN_INTERVAL_MS = 15_000;
 
 export type VmResourceUsage = Pick<VMStats, "cpuPercent" | "memoryUsedMb" | "diskUsedMb">;
 
