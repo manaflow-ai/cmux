@@ -6152,6 +6152,36 @@ final class BrowserLocalFileTextEncodingTests: XCTestCase {
         XCTAssertTrue(BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: file))
     }
 
+    /// A byte no scalar can start with means the file is not UTF-8. It must
+    /// never be mistaken for a scalar the sniff window cut in half.
+    func testSniffRejectsFileEndingInAnInvalidByte() throws {
+        let directory = try makeTemporaryDirectory()
+        let file = directory.appendingPathComponent("invalid-tail.txt")
+        try Data([0x41, 0xFF]).write(to: file)
+
+        XCTAssertFalse(BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: file))
+    }
+
+    func testSniffRejectsWindowFillingFileEndingInAnInvalidByte() throws {
+        let directory = try makeTemporaryDirectory()
+        let file = directory.appendingPathComponent("long-invalid-tail.md")
+        var contents = Data(repeating: UInt8(ascii: "a"), count: BrowserLocalFileTextEncoding.sniffedByteCount - 1)
+        contents.append(contentsOf: [0xFF, 0x61, 0x61])
+        try contents.write(to: file)
+
+        XCTAssertFalse(BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: file))
+    }
+
+    /// A file that ends mid-scalar within the sniff window is not truncated by
+    /// the window — it is simply not valid UTF-8.
+    func testSniffRejectsWholeFileEndingMidScalar() throws {
+        let directory = try makeTemporaryDirectory()
+        let file = directory.appendingPathComponent("cut-scalar.txt")
+        try (Data([0x41]) + Data("가".utf8).dropLast()).write(to: file)
+
+        XCTAssertFalse(BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: file))
+    }
+
     func testSniffRejectsEmptyMissingAndRemoteURLs() throws {
         let directory = try makeTemporaryDirectory()
         let empty = directory.appendingPathComponent("empty.md")
@@ -6169,9 +6199,9 @@ final class BrowserLocalFileTextEncodingTests: XCTestCase {
         XCTAssertFalse(BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: nil))
     }
 
-    /// An HTML page that declares its own charset must keep it: the fallback
-    /// only fills in for documents that declare nothing.
-    func testDeclaredCharsetStillWinsForLocalHTML() throws {
+    /// A local page whose bytes are not UTF-8 keeps decoding through the
+    /// charset it declares, exactly as it did before the fallback existed.
+    func testLocalHTMLThatIsNotUTF8KeepsItsDeclaredCharset() throws {
         let directory = try makeTemporaryDirectory()
         let file = directory.appendingPathComponent("legacy.html")
         // "한글" in EUC-KR, which is not valid UTF-8.
@@ -6186,5 +6216,26 @@ final class BrowserLocalFileTextEncodingTests: XCTestCase {
 
         XCTAssertEqual(try evaluateString("document.characterSet", in: panel), "EUC-KR")
         XCTAssertEqual(try evaluateString("document.body.innerText.trim()", in: panel), "한글")
+    }
+
+    /// The fallback only fills in for a document that declares nothing, so a
+    /// page that declares a charset keeps it even when its bytes would pass as
+    /// UTF-8 and the sniff selects the UTF-8 fallback.
+    func testDeclaredCharsetWinsOverTheUTF8Fallback() throws {
+        let directory = try makeTemporaryDirectory()
+        let file = directory.appendingPathComponent("declared.html")
+        // 0xC2 0xA3 is valid UTF-8 for "£", and windows-1252 for "Â£".
+        var bytes = Data("<html><head><meta charset=\"windows-1252\"></head><body>".utf8)
+        bytes.append(contentsOf: [0xC2, 0xA3])
+        bytes.append(contentsOf: Data("</body></html>".utf8))
+        try bytes.write(to: file)
+        XCTAssertTrue(BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: file))
+
+        let panel = BrowserPanel(workspaceId: UUID(), initialURL: file)
+        defer { panel.close() }
+        waitForBrowserPanel(panel, url: file)
+
+        XCTAssertEqual(try evaluateString("document.characterSet", in: panel), "windows-1252")
+        XCTAssertEqual(try evaluateString("document.body.innerText.trim()", in: panel), "Â£")
     }
 }
