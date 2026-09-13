@@ -10,11 +10,12 @@ final class AgentSessionPanel: Panel {
     let rendererKind: AgentSessionRendererKind
     let initialProviderID: AgentSessionProviderID
     private(set) var workingDirectory: String?
+    private(set) var guiModeState: GuiModePanelState
     let rendererSession = AgentSessionWebRendererSession()
 
     private(set) var currentProviderID: AgentSessionProviderID
     private(set) var displayTitle: String
-    var displayIcon: String? { "sparkles.rectangle.stack" }
+    var displayIcon: String? { rendererKind == .guiMode ? "macwindow" : "sparkles.rectangle.stack" }
     private(set) var isDirty: Bool = false
     var onDisplayStateChanged: ((String, Bool) -> Void)? {
         didSet {
@@ -26,7 +27,8 @@ final class AgentSessionPanel: Panel {
         workspaceId: UUID,
         rendererKind: AgentSessionRendererKind,
         initialProviderID: AgentSessionProviderID = .codex,
-        workingDirectory: String? = nil
+        workingDirectory: String? = nil,
+        guiModeState: GuiModePanelState = .home
     ) {
         self.id = UUID()
         self.workspaceId = workspaceId
@@ -34,7 +36,8 @@ final class AgentSessionPanel: Panel {
         self.initialProviderID = initialProviderID
         self.currentProviderID = initialProviderID
         self.workingDirectory = workingDirectory
-        self.displayTitle = Self.title(provider: initialProviderID, rendererKind: rendererKind)
+        self.guiModeState = guiModeState
+        self.displayTitle = Self.title(provider: initialProviderID, rendererKind: rendererKind, guiModePage: guiModeState.page)
         self.rendererSession.onHasActiveProviderChanged = { [weak self] hasActiveProvider in
             self?.setHasActiveProvider(hasActiveProvider)
         }
@@ -45,8 +48,14 @@ final class AgentSessionPanel: Panel {
 
     nonisolated static func title(
         provider: AgentSessionProviderID,
-        rendererKind: AgentSessionRendererKind
+        rendererKind: AgentSessionRendererKind,
+        guiModePage: GuiModePanelPage = .home
     ) -> String {
+        if rendererKind == .guiMode {
+            return guiModePage == .taskWorktreePR
+                ? String(localized: "guiMode.task.panel.title", defaultValue: "/task-worktree-pr")
+                : String(localized: "guiMode.panel.title", defaultValue: "GUI Mode")
+        }
         let format = String(localized: "agentSession.panel.title", defaultValue: "%@ · %@")
         return String(format: format, provider.displayName, rendererKind.displayName)
     }
@@ -71,6 +80,17 @@ final class AgentSessionPanel: Panel {
         workingDirectory = nil
     }
 
+    var guiModePage: GuiModePanelPage { guiModeState.page }
+    var guiModePrompt: String? { guiModeState.prompt }
+    var guiModeProviderID: GuiModeProviderID { guiModeState.providerID }
+
+    func configureGuiModeTask(prompt: String, providerID: GuiModeProviderID) {
+        guard rendererKind == .guiMode else { return }
+        guiModeState = .taskWorktreePR(prompt: prompt, providerID: providerID)
+        displayTitle = Self.title(provider: currentProviderID, rendererKind: rendererKind, guiModePage: guiModeState.page)
+        emitDisplayStateChanged()
+    }
+
     private func setHasActiveProvider(_ hasActiveProvider: Bool) {
         guard isDirty != hasActiveProvider else { return }
         isDirty = hasActiveProvider
@@ -80,7 +100,7 @@ final class AgentSessionPanel: Panel {
     private func setCurrentProviderID(_ providerID: AgentSessionProviderID) {
         guard currentProviderID != providerID else { return }
         currentProviderID = providerID
-        displayTitle = Self.title(provider: providerID, rendererKind: rendererKind)
+        displayTitle = Self.title(provider: providerID, rendererKind: rendererKind, guiModePage: guiModeState.page)
         emitDisplayStateChanged()
     }
 

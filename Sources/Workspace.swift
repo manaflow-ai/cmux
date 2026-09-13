@@ -805,7 +805,7 @@ extension Workspace {
             agentSessionSnapshot = SessionAgentSessionPanelSnapshot(
                 rendererKind: agentPanel.rendererKind,
                 providerID: agentPanel.currentProviderID,
-                workingDirectory: directory
+                workingDirectory: directory, guiModePage: agentPanel.guiModePage, guiModePrompt: agentPanel.guiModePrompt, guiModeProviderID: agentPanel.guiModeProviderID
             )
             projectSnapshot = nil
         case .project:
@@ -946,7 +946,6 @@ extension Workspace {
             fallbackSplitPlacement: fallbackSplitPlacement
         )
     }
-
     private func consumeCloseHistoryEligibility(tabId: TabID, panelId: UUID?) -> Bool {
         let eligibleByTab = closeHistoryEligibleTabIds.remove(tabId) != nil
         let eligibleByPanel = panelId.map { closeHistoryEligiblePanelIds.remove($0) != nil } ?? false
@@ -2309,7 +2308,7 @@ extension Workspace {
                     providerID: agentSession.providerID,
                     rendererKind: agentSession.rendererKind,
                     workingDirectory: restoresUntrustedSavedDirectory ? nil : (agentSession.workingDirectory ?? snapshot.directory),
-                    focus: false
+                    focus: false, guiModeState: GuiModePanelState(snapshot: agentSession)
                   ) else {
                 return nil
             }
@@ -10347,7 +10346,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         rendererKind: AgentSessionRendererKind,
         workingDirectory: String? = nil,
         focus: Bool? = nil,
-        targetIndex: Int? = nil
+        targetIndex: Int? = nil, guiModeState: GuiModePanelState = .home
     ) -> AgentSessionPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
@@ -10366,7 +10365,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             workspaceId: id,
             rendererKind: rendererKind,
             initialProviderID: providerID,
-            workingDirectory: directory
+            workingDirectory: directory, guiModeState: guiModeState
         )
         panels[agentPanel.id] = agentPanel
         panelTitles[agentPanel.id] = agentPanel.displayTitle
@@ -12814,34 +12813,34 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         workingDirectory: String?,
         initialInput: String?,
         startupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
-        remoteStartupCommand: String? = nil
+        remoteStartupCommand: String? = nil, initialCommand: String? = nil
     ) -> TerminalPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
         let requestedRemoteStartupCommand = remoteStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let startupCommand = requestedRemoteStartupCommand?.isEmpty == false ? requestedRemoteStartupCommand : nil
+        let effectiveCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? startupCommand
         let effectiveStartupEnvironment = terminalStartupEnvironment(
             base: startupEnvironmentMergingWorkspaceEnvironment([:]),
             remoteStartupCommand: startupCommand
         )
-        if startupCommand != nil {
+        if effectiveCommand != nil {
             var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
             template.waitAfterCommand = true
             inheritedConfig = template
         }
-
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
-            initialCommand: startupCommand,
+            initialCommand: effectiveCommand,
             initialInput: initialInput,
             additionalEnvironment: effectiveStartupEnvironment,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                 requestedPolicy: .immediate,
-                willRunStartupCommand: false,
+                willRunStartupCommand: effectiveCommand != nil,
                 willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
             )
         )
@@ -14542,6 +14541,7 @@ extension Workspace: BonsplitDelegate {
             case .newWorkspace:
                 owningTabManager?.addWorkspaceIfActive()
             case .newAgentChat: performSurfaceTabBarNewAgentChatAction(presentingWindow: presentingWindow)
+            case .newGuiMode: if let owningTabManager { _ = GuiModeWorkspaceCoordinator().createHomeWorkspace(in: owningTabManager) }
             case .cloudVM:
                 _ = AppDelegate.shared?.performCloudVMAction(tabManager: owningTabManager, preferredWindow: presentingWindow, debugSource: "surfaceTabBar.cloudVM")
             case .newCloudWorkspace:

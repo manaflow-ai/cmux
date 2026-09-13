@@ -10,6 +10,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
     case mobileConnect = "cmux.mobileconnect"
     case newTerminal = "cmux.newTerminal"
     case newBrowser = "cmux.newBrowser"
+    case newGuiMode = "cmux.newGuiMode"
     case newSimulator = "cmux.newSimulator"
     case splitRight = "cmux.splitRight"
     case splitDown = "cmux.splitDown"
@@ -35,6 +36,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             self = .newTerminal
         case "cmux.newBrowser", "newBrowser":
             self = .newBrowser
+        case "cmux.newGuiMode", "newGuiMode", "guiMode", "gui-mode":
+            self = .newGuiMode
         case "cmux.newSimulator", "newSimulator", "new-simulator", "simulator":
             self = .newSimulator
         case "cmux.splitRight", "splitRight":
@@ -71,6 +74,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return (String(localized: "command.newTerminalTab.title", defaultValue: "New Terminal Tab"), ["new", "terminal", "tab", "surface"])
         case .newBrowser:
             return (String(localized: "command.newBrowserTab.title", defaultValue: "New Browser Tab"), ["new", "browser", "tab", "surface"])
+        case .newGuiMode:
+            return (String(localized: "command.newGuiMode.title", defaultValue: "Open GUI Mode"), ["new", "gui", "mode", "agent", "codex"])
         case .newSimulator:
             return (String(localized: "command.newSimulatorPane.title", defaultValue: "New Simulator Pane"), ["new", "simulator", "iphone", "ipad", "ios", "surface"])
         case .splitRight:
@@ -98,6 +103,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return "terminal"
         case .newBrowser:
             return "globe"
+        case .newGuiMode:
+            return "macwindow"
         case .newSimulator:
             return "iphone.gen3"
         case .splitRight:
@@ -109,7 +116,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
 
     var bonsplitAction: BonsplitConfiguration.SplitActionButton.Action? {
         switch self {
-        case .newWorkspace, .newAgentChat, .cloudVM, .newCloudWorkspace, .newCloudMachine, .mobileConnect, .newSimulator:
+        case .newWorkspace, .newAgentChat, .cloudVM, .newGuiMode, .newCloudWorkspace, .newCloudMachine, .mobileConnect, .newSimulator:
             return nil
         case .newTerminal:
             return .newTerminal
@@ -136,6 +143,7 @@ extension CmuxSurfaceTabBarBuiltInAction {
         case .newCloudMachine: return .newCloudMachine
         case .newTerminal: return .newSurface
         case .newBrowser: return .openBrowser
+        case .newGuiMode: return .newGuiMode
         case .splitRight: return .splitRight
         case .splitDown: return .splitDown
         case .newAgentChat, .cloudVM, .mobileConnect, .newSimulator: return nil

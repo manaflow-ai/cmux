@@ -5,9 +5,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-mkdir -p "$TMP_DIR/markdown-viewer/chunks" "$TMP_DIR/markdown-viewer/nested"
+mkdir -p "$TMP_DIR/markdown-viewer/chunks" "$TMP_DIR/markdown-viewer/nested" "$TMP_DIR/markdown-viewer/webviews-app/chunks"
 printf 'const top = "top";\n' > "$TMP_DIR/markdown-viewer/top.js"
 printf 'export const chunk = "chunk";\n' > "$TMP_DIR/markdown-viewer/chunks/chunk.mjs"
+printf 'import "./chunks/runtime.mjs";\n' > "$TMP_DIR/markdown-viewer/webviews-app/main.mjs"
+printf 'export const runtime = true;\n' > "$TMP_DIR/markdown-viewer/webviews-app/chunks/runtime.mjs"
 printf 'already compressed\n' > "$TMP_DIR/markdown-viewer/nested/keep.js.deflate"
 printf 'body { color: red; }\n' > "$TMP_DIR/markdown-viewer/style.css"
 
@@ -37,6 +39,26 @@ if [ "$(cat "$TMP_DIR/markdown-viewer/nested/keep.js.deflate")" != "already comp
   echo "existing .deflate asset was rewritten" >&2
   exit 1
 fi
+
+for path in \
+  "$TMP_DIR/markdown-viewer/webviews-app/main.mjs" \
+  "$TMP_DIR/markdown-viewer/webviews-app/chunks/runtime.mjs"
+do
+  if [ ! -s "$path" ]; then
+    echo "webviews app module was compressed or removed: $path" >&2
+    exit 1
+  fi
+done
+
+for path in \
+  "$TMP_DIR/markdown-viewer/webviews-app/main.mjs.deflate" \
+  "$TMP_DIR/markdown-viewer/webviews-app/chunks/runtime.mjs.deflate"
+do
+  if [ -e "$path" ]; then
+    echo "webviews app module received an incompatible compressed sibling: $path" >&2
+    exit 1
+  fi
+done
 
 python3 - <<'PY' "$TMP_DIR/markdown-viewer"
 import pathlib

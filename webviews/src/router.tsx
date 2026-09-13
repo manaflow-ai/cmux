@@ -34,11 +34,23 @@ export function createWebviewsRouter(WebviewComponent: WebviewRouteComponent) {
     path: "/agent-session",
     component: WebviewComponent,
   });
+  const guiModeRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/gui-mode",
+    component: WebviewComponent,
+  });
+  const taskWorktreePrRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/task-worktree-pr",
+    component: WebviewComponent,
+  });
   const routeTree = rootRoute.addChildren([
     indexRoute,
     diffRoute,
     generatedDiffRoute,
     agentSessionRoute,
+    guiModeRoute,
+    taskWorktreePrRoute,
   ]);
   return createRouter({
     history: createHashHistory(),

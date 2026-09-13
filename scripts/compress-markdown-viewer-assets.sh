@@ -22,6 +22,11 @@ root = pathlib.Path(sys.argv[1])
 for path in sorted(root.rglob("*")):
     if path.suffix not in {".js", ".mjs"}:
         continue
+    # The bundled webviews app is loaded by WKWebView as a real local module
+    # graph. Keep its filenames and relative imports intact; unlike the
+    # legacy markdown viewer assets, these files are not inflated by Swift.
+    if "webviews-app" in path.relative_to(root).parts:
+        continue
     if path.name.endswith(".deflate"):
         continue
     raw = path.read_bytes()

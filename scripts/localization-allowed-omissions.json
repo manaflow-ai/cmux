@@ -3042,6 +3042,149 @@
       "nb": "Standard technical UI term with the same spelling in this language."
     }
   },
+  "guiMode.provider.kiro": {
+    "source": "Kiro",
+    "identityLocales": {
+      "de": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "fr": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "ar": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "es": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "zh-Hant": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "zh-Hans": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "ko": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "ja": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "bs": "Provider brand name is invariant across locales.",
+      "da": "Provider brand name is invariant across locales.",
+      "it": "Provider brand name is invariant across locales.",
+      "km": "Provider brand name is invariant across locales.",
+      "nb": "Provider brand name is invariant across locales.",
+      "pl": "Provider brand name is invariant across locales.",
+      "pt-BR": "Provider brand name is invariant across locales.",
+      "ru": "Provider brand name is invariant across locales.",
+      "th": "Provider brand name is invariant across locales.",
+      "tr": "Provider brand name is invariant across locales.",
+      "uk": "Provider brand name is invariant across locales."
+    }
+  },
+  "guiMode.provider.antigravity": {
+    "source": "Antigravity",
+    "identityLocales": {
+      "de": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "fr": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "ar": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "es": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "zh-Hant": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "zh-Hans": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "ko": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "ja": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "bs": "Provider brand name is invariant across locales.",
+      "da": "Provider brand name is invariant across locales.",
+      "it": "Provider brand name is invariant across locales.",
+      "km": "Provider brand name is invariant across locales.",
+      "nb": "Provider brand name is invariant across locales.",
+      "pl": "Provider brand name is invariant across locales.",
+      "pt-BR": "Provider brand name is invariant across locales.",
+      "ru": "Provider brand name is invariant across locales.",
+      "th": "Provider brand name is invariant across locales.",
+      "tr": "Provider brand name is invariant across locales.",
+      "uk": "Provider brand name is invariant across locales."
+    }
+  },
+  "guiMode.provider.omp": {
+    "source": "OMP",
+    "identityLocales": {
+      "de": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "fr": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "ar": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "es": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "zh-Hant": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "zh-Hans": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "ko": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "ja": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "bs": "Provider brand name is invariant across locales.",
+      "da": "Provider brand name is invariant across locales.",
+      "it": "Provider brand name is invariant across locales.",
+      "km": "Provider brand name is invariant across locales.",
+      "nb": "Provider brand name is invariant across locales.",
+      "pl": "Provider brand name is invariant across locales.",
+      "pt-BR": "Provider brand name is invariant across locales.",
+      "ru": "Provider brand name is invariant across locales.",
+      "th": "Provider brand name is invariant across locales.",
+      "tr": "Provider brand name is invariant across locales.",
+      "uk": "Provider brand name is invariant across locales."
+    }
+  },
+  "guiMode.provider.support.hooks": {
+    "source": "Hooks",
+    "identityLocales": {
+      "de": "Hooks is an established technical term; translated entry is still required.",
+      "fr": "Hooks is an established technical term; translated entry is still required.",
+      "ar": "Hooks is an established technical term; translated entry is still required.",
+      "es": "Hooks is an established technical term; translated entry is still required.",
+      "zh-Hant": "Hooks is an established technical term; translated entry is still required.",
+      "zh-Hans": "Hooks is an established technical term; translated entry is still required.",
+      "ko": "Hooks is an established technical term; translated entry is still required.",
+      "ja": "Hooks is an established technical term; translated entry is still required."
+    }
+  },
+  "guiMode.provider.support.vaultHooks": {
+    "source": "Vault + hooks",
+    "identityLocales": {
+      "de": "Vault is a product name and hooks is an established technical term; translated entry is still required.",
+      "fr": "Vault is a product name and hooks is an established technical term; translated entry is still required.",
+      "ar": "Vault is a product name and hooks is an established technical term; translated entry is still required.",
+      "es": "Vault is a product name and hooks is an established technical term; translated entry is still required.",
+      "zh-Hant": "Vault is a product name and hooks is an established technical term; translated entry is still required.",
+      "zh-Hans": "Vault is a product name and hooks is an established technical term; translated entry is still required.",
+      "ko": "Vault is a product name and hooks is an established technical term; translated entry is still required.",
+      "ja": "Vault is a product name and hooks is an established technical term; translated entry is still required."
+    }
+  },
+  "guiMode.task.panel.title": {
+    "source": "/task-worktree-pr",
+    "identityLocales": {
+      "de": "The task command is a stable user-facing command identifier; translated entry is still required.",
+      "fr": "The task command is a stable user-facing command identifier; translated entry is still required.",
+      "ar": "The task command is a stable user-facing command identifier; translated entry is still required.",
+      "es": "The task command is a stable user-facing command identifier; translated entry is still required.",
+      "zh-Hant": "The task command is a stable user-facing command identifier; translated entry is still required.",
+      "zh-Hans": "The task command is a stable user-facing command identifier; translated entry is still required.",
+      "ko": "The task command is a stable user-facing command identifier; translated entry is still required.",
+      "ja": "The task command is a stable user-facing command identifier; translated entry is still required."
+    }
+  },
+  "guiMode.web.task.title": {
+    "source": "/task-worktree-pr",
+    "identityLocales": {
+      "de": "The task command is a stable user-facing command identifier; translated entry is still required.",
+      "fr": "The task command is a stable user-facing command identifier; translated entry is still required.",
+      "ar": "The task command is a stable user-facing command identifier; translated entry is still required.",
+      "es": "The task command is a stable user-facing command identifier; translated entry is still required.",
+      "zh-Hant": "The task command is a stable user-facing command identifier; translated entry is still required.",
+      "zh-Hans": "The task command is a stable user-facing command identifier; translated entry is still required.",
+      "ko": "The task command is a stable user-facing command identifier; translated entry is still required.",
+      "ja": "The task command is a stable user-facing command identifier; translated entry is still required."
+    }
+  },
+  "guiMode.web.providerLabel": {
+    "source": "Agent",
+    "identityLocales": {
+      "fr": "Reviewed French term for an agent; translated entry remains required."
+    }
+  },
+  "guiMode.workspace.task.format": {
+    "source": "GUI: %@",
+    "identityLocales": {
+      "de": "GUI is a product abbreviation; translated entry is still required.",
+      "fr": "GUI is a product abbreviation; translated entry is still required.",
+      "ar": "GUI is a product abbreviation; translated entry is still required.",
+      "es": "GUI is a product abbreviation; translated entry is still required.",
+      "zh-Hant": "GUI is a product abbreviation; translated entry is still required.",
+      "zh-Hans": "GUI is a product abbreviation; translated entry is still required.",
+      "ko": "GUI is a product abbreviation; translated entry is still required.",
+      "ja": "GUI is a product abbreviation; translated entry is still required."
+    }
+  },
   "cloudTree.resources.missing": {
     "source": "—",
     "class": "format"

@@ -10,6 +10,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     private var rendererKind: AgentSessionRendererKind = .react
     private var initialProviderID: AgentSessionProviderID = .codex
     private var workingDirectory: String?
+    private var guiModeState: GuiModePanelState = .home
     private var theme: AgentSessionWebTheme = .resolve(
         appearance: .fromConfig(GhosttyConfig.loadForCmux())
     )
@@ -20,6 +21,8 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     private var isPanelFocused = false
     private var isClosed = false
     private var isProviderStartPending = false
+    private var isGuiModeSubmitPending = false
+    private var guiModeSubmitRequestID: String?
     private var processStore = AgentSessionProcessStore()
     nonisolated private static let imagePreviewMaxBytes = 512 * 1024
     nonisolated private static let imagePreviewTotalMaxBytes = 2 * 1024 * 1024
@@ -36,12 +39,13 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         rendererKind: AgentSessionRendererKind,
         initialProviderID: AgentSessionProviderID,
         workingDirectory: String?,
+        guiModeState: GuiModePanelState,
         theme: AgentSessionWebTheme,
         isFocused: Bool
     ) {
         self.panelId = panelId
         self.workspaceId = workspaceId
-        if self.rendererKind != rendererKind {
+        if self.rendererKind != rendererKind || self.guiModeState != guiModeState {
             loadedRendererKind = nil
             trustedShellURL = nil
             hasFinishedNavigation = false
@@ -50,6 +54,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         self.rendererKind = rendererKind
         self.initialProviderID = initialProviderID
         self.workingDirectory = workingDirectory
+        self.guiModeState = guiModeState
         isPanelFocused = isFocused
         let themeChanged = self.theme != theme
         self.theme = theme
@@ -117,6 +122,11 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             "index=\(indexURL.path)"
         )
 #endif
+        // This configuration owns only the renderer's document bootstrap scripts.
+        webView.configuration.userContentController.removeAllUserScripts()
+        if rendererKind == .guiMode, let script = Self.guiModeBootstrapScript(state: guiModeState) {
+            webView.configuration.userContentController.addUserScript(script)
+        }
         webView.loadFileURL(indexURL, allowingReadAccessTo: Bundle.main.resourceURL ?? resourceDirectoryURL)
         loadedRendererKind = rendererKind
         hasFinishedNavigation = false
@@ -322,237 +332,41 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         return Self.isTrustedShellURL(frameInfo.request.url, expected: trustedShellURL)
     }
 
-    nonisolated static func shellURL(
-        rendererKind: AgentSessionRendererKind,
-        resourceDirectoryURL: URL
-    ) -> URL {
-        rendererKind.resourceHTMLPathComponents.reduce(resourceDirectoryURL) {
-            $0.appendingPathComponent($1, isDirectory: false)
-        }
-    }
-
-    nonisolated static func isTrustedShellURL(_ candidate: URL?, expected: URL?) -> Bool {
-        guard let candidate = normalizedTrustedFileURL(candidate),
-              let expected = normalizedTrustedFileURL(expected) else {
-            return false
-        }
-        return candidate == expected
-    }
-
-    nonisolated static func normalizedTrustedFileURL(_ url: URL?) -> URL? {
-        guard let url, url.isFileURL else {
-            return nil
-        }
-        return url.standardizedFileURL.resolvingSymlinksInPath()
-    }
-
     private func handle(_ request: AgentSessionBridgeRequest) async throws -> Any {
         switch request.method {
         case "app.context":
-            var context: [String: Any] = [
-                "panelId": panelId.uuidString,
-                "workspaceId": workspaceId.uuidString,
-                "renderer": rendererKind.rawValue,
-                "initialProviderId": initialProviderID.rawValue,
-                "theme": theme.dictionary,
-                "rateLimitRows": [],
-                "copy": [
-                    "start": String(localized: "agentSession.web.start", defaultValue: "Start"),
-                    "stop": String(localized: "agentSession.web.stop", defaultValue: "Stop"),
-                    "send": String(localized: "agentSession.web.send", defaultValue: "Send"),
-                    "provider": String(localized: "agentSession.web.provider", defaultValue: "Provider"),
-                    "rateLimits": String(localized: "agentSession.web.rateLimits", defaultValue: "Rate limits"),
-                    "rateLimitUsageRemaining": String(
-                        localized: "agentSession.web.rateLimit.usageRemaining",
-                        defaultValue: "Usage remaining"
-                    ),
-                    "rateLimitPrimary": String(localized: "agentSession.web.rateLimit.primary", defaultValue: "Primary"),
-                    "rateLimitSecondary": String(localized: "agentSession.web.rateLimit.secondary", defaultValue: "Secondary"),
-                    "rateLimitWeekly": String(localized: "agentSession.web.rateLimit.weekly", defaultValue: "Weekly"),
-                    "rateLimitMonthly": String(localized: "agentSession.web.rateLimit.monthly", defaultValue: "Monthly"),
-                    "rateLimitDaysFormat": String(localized: "agentSession.web.rateLimit.daysFormat", defaultValue: "%@d"),
-                    "rateLimitHoursFormat": String(localized: "agentSession.web.rateLimit.hoursFormat", defaultValue: "%@h"),
-                    "rateLimitMinutesFormat": String(localized: "agentSession.web.rateLimit.minutesFormat", defaultValue: "%@m"),
-                    "rateLimitResets": String(localized: "agentSession.web.rateLimit.resets", defaultValue: "resets"),
-                    "voiceInput": String(localized: "agentSession.web.voiceInput", defaultValue: "Voice input"),
-                    "promptPlaceholder": String(
-                        localized: "agentSession.web.promptPlaceholder",
-                        defaultValue: "Ask anything"
-                    ),
-                    "attachFile": String(
-                        localized: "agentSession.web.attachFile",
-                        defaultValue: "Attach file"
-                    ),
-                    "addFilesAndMore": String(
-                        localized: "agentSession.web.addFilesAndMore",
-                        defaultValue: "Add files and more"
-                    ),
-                    "addPhotosAndFiles": String(
-                        localized: "agentSession.web.addPhotosAndFiles",
-                        defaultValue: "Add photos & files"
-                    ),
-                    "removeAttachment": String(
-                        localized: "agentSession.web.removeAttachment",
-                        defaultValue: "Remove attachment"
-                    ),
-                    "copyOutput": String(
-                        localized: "agentSession.web.copyOutput",
-                        defaultValue: "Copy output"
-                    ),
-                    "copyAssistantMessage": String(
-                        localized: "agentSession.web.copyAssistantMessage",
-                        defaultValue: "Copy"
-                    ),
-                    "copiedAssistantMessage": String(
-                        localized: "agentSession.web.copiedAssistantMessage",
-                        defaultValue: "Copied"
-                    ),
-                    "copyUserMessage": String(
-                        localized: "agentSession.web.copyUserMessage",
-                        defaultValue: "Copy message"
-                    ),
-                    "copiedUserMessage": String(
-                        localized: "agentSession.web.copiedUserMessage",
-                        defaultValue: "Copied"
-                    ),
-                    "shellLabel": String(
-                        localized: "agentSession.web.shellLabel",
-                        defaultValue: "Shell"
-                    ),
-                    "copyShellContents": String(
-                        localized: "agentSession.web.copyShellContents",
-                        defaultValue: "Copy shell contents"
-                    ),
-                    "copiedShellContents": String(
-                        localized: "agentSession.web.copiedShellContents",
-                        defaultValue: "Copied shell contents"
-                    ),
-                    "collapseShell": String(
-                        localized: "agentSession.web.collapseShell",
-                        defaultValue: "Collapse shell"
-                    ),
-                    "shellSuccess": String(
-                        localized: "agentSession.web.shellSuccess",
-                        defaultValue: "Success"
-                    ),
-                    "showMore": String(
-                        localized: "agentSession.web.showMore",
-                        defaultValue: "Show more"
-                    ),
-                    "showLess": String(
-                        localized: "agentSession.web.showLess",
-                        defaultValue: "Show less"
-                    ),
-                    "browseWeb": String(localized: "agentSession.web.browseWeb", defaultValue: "Browse web"),
-                    "autoContext": String(localized: "agentSession.web.autoContext", defaultValue: "Context"),
-                    "includeIdeContext": String(
-                        localized: "agentSession.web.includeIdeContext",
-                        defaultValue: "Include IDE context"
-                    ),
-                    "ideContext": String(
-                        localized: "agentSession.web.ideContext",
-                        defaultValue: "IDE context"
-                    ),
-                    "tools": String(localized: "agentSession.web.tools", defaultValue: "Tools"),
-                    "changePermissions": String(
-                        localized: "agentSession.web.changePermissions",
-                        defaultValue: "Change permissions"
-                    ),
-                    "permissionsDefault": String(
-                        localized: "agentSession.web.permissions.default",
-                        defaultValue: "Default permissions"
-                    ),
-                    "permissionsFullAccess": String(
-                        localized: "agentSession.web.permissions.fullAccess",
-                        defaultValue: "Full access"
-                    ),
-                    "permissionsAutoReview": String(
-                        localized: "agentSession.web.permissions.autoReview",
-                        defaultValue: "Auto-review"
-                    ),
-                    "permissionsCustom": String(
-                        localized: "agentSession.web.permissions.custom",
-                        defaultValue: "Custom (config.toml)"
-                    ),
-                    "reasoningEffortHigh": String(
-                        localized: "agentSession.web.reasoningEffort.high",
-                        defaultValue: "High"
-                    ),
-                    "mentionMenuTitle": String(
-                        localized: "agentSession.web.mentionMenuTitle",
-                        defaultValue: "Mention"
-                    ),
-                    "mentionCurrentWorkspace": String(
-                        localized: "agentSession.web.mentionCurrentWorkspace",
-                        defaultValue: "Current workspace"
-                    ),
-                    "skillMenuTitle": String(
-                        localized: "agentSession.web.skillMenuTitle",
-                        defaultValue: "Skills"
-                    ),
-                    "composerNoResults": String(
-                        localized: "agentSession.web.composerNoResults",
-                        defaultValue: "No results"
-                    ),
-                    "planMode": String(localized: "agentSession.web.planMode", defaultValue: "Plan mode"),
-                    "planSuggestionAction": String(
-                        localized: "agentSession.web.planSuggestion.action",
-                        defaultValue: "Use plan mode"
-                    ),
-                    "planSuggestionDismiss": String(
-                        localized: "agentSession.web.planSuggestion.dismiss",
-                        defaultValue: "Dismiss suggestion"
-                    ),
-                    "planSuggestionShortcut": String(
-                        localized: "agentSession.web.planSuggestion.shortcut",
-                        defaultValue: "Shift + Tab"
-                    ),
-                    "planSuggestionTitle": String(
-                        localized: "agentSession.web.planSuggestion.title",
-                        defaultValue: "Create a plan"
-                    ),
-                    "skillPlan": String(localized: "agentSession.web.skillPlan", defaultValue: "Plan"),
-                    "skillCodeReview": String(
-                        localized: "agentSession.web.skillCodeReview",
-                        defaultValue: "Code review"
-                    ),
-                    "skillResearch": String(
-                        localized: "agentSession.web.skillResearch",
-                        defaultValue: "Research"
-                    ),
-                    "loadingStatus": String(localized: "agentSession.web.status.loading", defaultValue: "Loading"),
-                    "idleStatus": String(localized: "agentSession.web.status.idle", defaultValue: "Idle"),
-                    "startingStatus": String(localized: "agentSession.web.status.starting", defaultValue: "Starting"),
-                    "runningStatus": String(localized: "agentSession.web.status.running", defaultValue: "Running"),
-                    "stoppingStatus": String(localized: "agentSession.web.status.stopping", defaultValue: "Stopping"),
-                    "failedStatus": String(localized: "agentSession.web.status.failed", defaultValue: "Failed"),
-                    "rendererReadyFormat": String(
-                        localized: "agentSession.web.log.rendererReadyFormat",
-                        defaultValue: "%@ ready"
-                    ),
-                    "stopped": String(localized: "agentSession.web.log.stopped", defaultValue: "Stopped"),
-                    "sentCharsFormat": String(
-                        localized: "agentSession.web.log.sentCharsFormat",
-                        defaultValue: "Sent %d chars"
-                    ),
-                    "providerStarted": String(
-                        localized: "agentSession.web.log.providerStarted",
-                        defaultValue: "Provider started"
-                    ),
-                    "providerExitedFormat": String(
-                        localized: "agentSession.web.log.providerExitedFormat",
-                        defaultValue: "Provider exited %d"
-                    ),
-                    "requestFailed": String(
-                        localized: "agentSession.web.error.requestFailed",
-                        defaultValue: "Native bridge request failed."
-                    )
-                ]
-            ]
-            if let workingDirectory {
-                context["workingDirectory"] = workingDirectory
+            return Self.appContextPayload(
+                panelId: panelId,
+                workspaceId: workspaceId,
+                rendererKind: rendererKind,
+                initialProviderID: initialProviderID,
+                theme: theme,
+                workingDirectory: workingDirectory,
+                guiModeState: guiModeState
+            )
+        case "guiMode.submit":
+            guard !isGuiModeSubmitPending else { throw AgentSessionBridgeError.sessionAlreadyRunning }
+            isGuiModeSubmitPending = true
+            let requestID = request.string("requestId") ?? request.id
+            guiModeSubmitRequestID = requestID
+            defer {
+                isGuiModeSubmitPending = false
+                if guiModeSubmitRequestID == requestID { guiModeSubmitRequestID = nil }
             }
-            return context
+            return try Self.handleGuiModeSubmit(
+                request,
+                rendererKind: rendererKind,
+                panelId: panelId,
+                workspaceId: workspaceId,
+                isCurrent: { [weak self] in self?.guiModeSubmitRequestID == requestID }
+            )
+        case "guiMode.cancel":
+            let requestID = request.string("requestId")
+            guard requestID == nil || requestID == guiModeSubmitRequestID else {
+                return ["cancelled": false]
+            }
+            guiModeSubmitRequestID = nil
+            return ["cancelled": true]
         case "app.pickFiles":
             return await pickLocalFiles()
         case "provider.list":

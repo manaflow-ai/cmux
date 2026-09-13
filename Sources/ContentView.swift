@@ -7542,6 +7542,7 @@ struct ContentView: View {
             )
         )
         contributions.append(contentsOf: Self.commandPaletteViewCommandContributions())
+        contributions.append(contentsOf: Self.commandPaletteGuiModeContributions())
         contributions.append(contentsOf: Self.commandPaletteCanvasCommandContributions())
         contributions.append(
             CommandPaletteCommandContribution(
@@ -7713,7 +7714,6 @@ struct ContentView: View {
             )
         )
         contributions.append(contentsOf: Self.commandPaletteSettingsToggleCommandContributions())
-
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.renameWorkspace",
@@ -8578,6 +8578,7 @@ struct ContentView: View {
     }
 
     private func registerCommandPaletteHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
+        registerGuiModeCommandPaletteHandler(&registry)
         let browserTarget = commandPaletteBrowserActionTarget
         let browserDispatcher = AppDelegate.shared.map {
             BrowserActionDispatcher(appDelegate: $0)
@@ -8593,7 +8594,6 @@ struct ContentView: View {
             }
             return browserDispatcher.perform(action, on: browserTarget)
         }
-
         registry.register(commandId: "palette.newWorkspace") {
             AppDelegate.shared?.performNewWorkspaceAction(
                 tabManager: tabManager,
