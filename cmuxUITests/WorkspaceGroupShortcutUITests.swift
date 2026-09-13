@@ -21,9 +21,9 @@ final class WorkspaceGroupShortcutUITests: XCTestCase {
 
         let sidebar = app.tables.firstMatch
         XCTAssertTrue(sidebar.waitForExistence(timeout: 10))
-        let workspace = sidebar.rows.firstMatch
+        let workspace = sidebar.tableRows.firstMatch
         XCTAssertTrue(workspace.waitForExistence(timeout: 10))
-        XCTAssertEqual(sidebar.rows.count, 1)
+        XCTAssertEqual(sidebar.tableRows.count, 1)
         let group = sidebar.staticTexts["Group 1"].firstMatch
         XCTAssertFalse(group.exists)
         let before = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: recorder))
@@ -41,7 +41,7 @@ final class WorkspaceGroupShortcutUITests: XCTestCase {
         // 3. Observe that no empty workspace group is created (the regression).
         // The fixed behavior must show a new header without adopting the row.
         XCTAssertTrue(group.waitForExistence(timeout: 8))
-        XCTAssertEqual(sidebar.rows.count, 2)
+        XCTAssertEqual(sidebar.tableRows.count, 2)
         let after = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: recorder))
         XCTAssertEqual(after["selectedTabId"], selectedWorkspaceId)
         XCTAssertEqual(after["tabCount"], "2", "The empty group owns one generated anchor")
