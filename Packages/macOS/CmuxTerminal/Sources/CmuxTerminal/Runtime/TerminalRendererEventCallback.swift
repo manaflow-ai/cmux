@@ -12,8 +12,6 @@ let terminalRendererEventCallback: @convention(c) (
     switch event {
     case GHOSTTY_RENDERER_EVENT_UPDATE_FRAME_END:
         context.rendererMailboxDidDrain()
-    case GHOSTTY_RENDERER_EVENT_DRAW_FRAME_END:
-        context.rendererDrawFrameDidEnd()
     default:
         break
     }

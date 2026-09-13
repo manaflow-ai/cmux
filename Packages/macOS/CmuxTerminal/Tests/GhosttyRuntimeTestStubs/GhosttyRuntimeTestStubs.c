@@ -52,6 +52,44 @@ static bool cmux_test_process_output_released = false;
 static bool cmux_test_process_output_called_on_main = false;
 static void* cmux_test_process_output_target = NULL;
 
+typedef void (*GhosttyRuntimeTestRenderPresentedCallback)(void*, uint64_t);
+typedef void (*GhosttyRuntimeTestRenderFailedCallback)(void*, uint64_t, int);
+typedef struct {
+    void* surface;
+    GhosttyRuntimeTestRenderPresentedCallback presented;
+    void* presented_userdata;
+    GhosttyRuntimeTestRenderFailedCallback failed;
+    void* failed_userdata;
+    uint64_t pending_token;
+    bool has_pending_token;
+} GhosttyRuntimeTestRenderCallbacks;
+
+static GhosttyRuntimeTestRenderCallbacks cmux_test_render_callbacks[32];
+
+static GhosttyRuntimeTestRenderCallbacks* cmux_test_render_callbacks_for(void* surface) {
+    for (size_t index = 0; index < sizeof(cmux_test_render_callbacks) / sizeof(cmux_test_render_callbacks[0]); index++) {
+        if (cmux_test_render_callbacks[index].surface == surface) {
+            return &cmux_test_render_callbacks[index];
+        }
+    }
+    for (size_t index = 0; index < sizeof(cmux_test_render_callbacks) / sizeof(cmux_test_render_callbacks[0]); index++) {
+        if (cmux_test_render_callbacks[index].surface == NULL) {
+            cmux_test_render_callbacks[index].surface = surface;
+            return &cmux_test_render_callbacks[index];
+        }
+    }
+    return NULL;
+}
+
+static void cmux_test_render_callbacks_clear(void* surface) {
+    for (size_t index = 0; index < sizeof(cmux_test_render_callbacks) / sizeof(cmux_test_render_callbacks[0]); index++) {
+        if (cmux_test_render_callbacks[index].surface == surface) {
+            memset(&cmux_test_render_callbacks[index], 0, sizeof(cmux_test_render_callbacks[index]));
+            return;
+        }
+    }
+}
+
 static struct timespec cmux_test_surface_free_timeout(void) {
     return (struct timespec) {
         .tv_sec = 5,
@@ -448,6 +486,7 @@ void ghostty_surface_free(void *surface) {
         cmux_test_font_callback = NULL;
         cmux_test_font_callback_userdata = NULL;
     }
+    cmux_test_render_callbacks_clear(surface);
 }
 void ghostty_surface_free_text(void) {}
 float ghostty_surface_font_size(void *surface) {
@@ -509,9 +548,11 @@ bool ghostty_surface_set_render_presented_callback(
     void (*callback)(void *, uint64_t),
     void *userdata
 ) {
-    (void)surface;
-    (void)callback;
-    (void)userdata;
+    if (surface == NULL || callback == NULL) return false;
+    GhosttyRuntimeTestRenderCallbacks* callbacks = cmux_test_render_callbacks_for(surface);
+    if (callbacks == NULL || callbacks->presented != NULL) return false;
+    callbacks->presented = callback;
+    callbacks->presented_userdata = userdata;
     return true;
 }
 bool ghostty_surface_set_render_failed_callback(
@@ -519,14 +560,38 @@ bool ghostty_surface_set_render_failed_callback(
     void (*callback)(void *, uint64_t, int),
     void *userdata
 ) {
-    (void)surface;
-    (void)callback;
-    (void)userdata;
+    if (surface == NULL || callback == NULL) return false;
+    GhosttyRuntimeTestRenderCallbacks* callbacks = cmux_test_render_callbacks_for(surface);
+    if (callbacks == NULL || callbacks->failed != NULL) return false;
+    callbacks->failed = callback;
+    callbacks->failed_userdata = userdata;
     return true;
 }
 bool ghostty_surface_request_render_with_token(void *surface, uint64_t token) {
-    (void)surface;
-    (void)token;
+    GhosttyRuntimeTestRenderCallbacks* callbacks = cmux_test_render_callbacks_for(surface);
+    if (callbacks != NULL && callbacks->presented != NULL) {
+        if (callbacks->has_pending_token) return false;
+        callbacks->pending_token = token;
+        callbacks->has_pending_token = true;
+    }
+    return true;
+}
+
+bool cmux_test_ghostty_renderer_present(void* surface) {
+    GhosttyRuntimeTestRenderCallbacks* callbacks = cmux_test_render_callbacks_for(surface);
+    if (callbacks == NULL || callbacks->presented == NULL || !callbacks->has_pending_token) return false;
+    const uint64_t token = callbacks->pending_token;
+    callbacks->has_pending_token = false;
+    callbacks->presented(callbacks->presented_userdata, token);
+    return true;
+}
+
+bool cmux_test_ghostty_renderer_fail(void* surface, int status) {
+    GhosttyRuntimeTestRenderCallbacks* callbacks = cmux_test_render_callbacks_for(surface);
+    if (callbacks == NULL || callbacks->failed == NULL || !callbacks->has_pending_token) return false;
+    const uint64_t token = callbacks->pending_token;
+    callbacks->has_pending_token = false;
+    callbacks->failed(callbacks->failed_userdata, token, status);
     return true;
 }
 void ghostty_surface_render_grid_json(void) {}

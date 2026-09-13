@@ -226,7 +226,8 @@ extension TerminalController {
                     ?? terminalPanel.surface.isViewInWindow,
                 socketBindingRawValue: terminalTarget?.bindingState.rawValue
                     ?? ControlTerminalSocketBindingState.unavailable.rawValue,
-                renderHealthRawValue: terminalPanel.surface.renderHealth.rawValue
+                renderHealthRawValue: terminalTarget?.surface.renderHealth.rawValue
+                    ?? terminalPanel.surface.renderHealth.rawValue
             )
         }
         let inWindow = (panel as? BrowserPanel).map { $0.webView.window != nil }
