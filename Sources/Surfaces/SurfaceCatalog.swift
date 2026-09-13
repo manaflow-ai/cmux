@@ -54,6 +54,7 @@ final class SurfaceCatalog {
     /// Remote rename intents shared by all local windows.
     let cloudRenameCoordinator = CloudRenameCoordinator()
     let sidebarOrganization: CloudSidebarOrganizationStore
+    @ObservationIgnored
     lazy var sidebarNotifications = CloudSidebarNotificationCoordinator { [weak self] machine, resources in
         self?.flushSidebarNotifications(on: machine, resources: resources)
     }
