@@ -22,7 +22,16 @@ enum RightSidebarModeDragPayload {
             return nil
         }
         if let registry = registry ?? AppDelegate.shared?.tabDragTransferRegistry {
-            RightSidebarToolDragPayload(mode: mode).register(with: registry)?.register(with: provider)
+            if let registration = RightSidebarToolDragPayload(mode: mode).register(with: registry),
+               let capability = registration.pasteboardItem.string(forType: TabDragTransferRegistry.pasteboardType) {
+                provider.registerDataRepresentation(
+                    forTypeIdentifier: TabDragTransferRegistry.pasteboardType.rawValue,
+                    visibility: .ownProcess
+                ) { completion in
+                    withExtendedLifetime(registration) { completion(Data(capability.utf8), nil) }
+                    return nil
+                }
+            }
         }
         return provider
     }
