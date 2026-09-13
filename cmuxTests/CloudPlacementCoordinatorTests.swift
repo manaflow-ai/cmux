@@ -28,7 +28,7 @@ struct CloudPlacementCoordinatorTests {
     private static func harness(bound: UUID) -> (SurfaceCatalog, CloudPlacementTestProvider) {
         let catalog = SurfaceCatalog(cloudPlacementCoordinator: CloudPlacementCoordinator(binding: { id in
             id == bound ? WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: false, remoteWorkspaceID: "ws_api") : nil
-        }))
+        }, workspaceExists: { _, remoteID in remoteID == "ws_api" ? true : nil }))
         let provider = CloudPlacementTestProvider(machine: machine)
         catalog.register(provider)
         return (catalog, provider)
@@ -314,9 +314,9 @@ struct CloudPlacementCoordinatorTests {
                 "browsers": [], "agents": []
             ], machine: Self.machine))
         }
-        catalog.reconcileCloudRemoteState(machine: Self.machine, state: try state(revision: "12"))
+        catalog.reconcileCloudRemoteState(machine: Self.machine, state: try state(revision: "12"), observation: .current)
         #expect(catalog.projection(forPanel: panel)?.remoteWorkspaceID == "ws_api")
-        catalog.reconcileCloudRemoteState(machine: Self.machine, state: try state(revision: "14"))
+        catalog.reconcileCloudRemoteState(machine: Self.machine, state: try state(revision: "14"), observation: .current)
         #expect(catalog.projection(forPanel: panel)?.remoteWorkspaceID == "ws_main")
         #expect(catalog.projection(forPanel: panel)?.workspaceID == bound)
     }
@@ -340,7 +340,7 @@ struct CloudPlacementCoordinatorTests {
             "screens": [], "panes": [], "tabs": [],
             "terminals": [["id": "term_1", "tab_ids": []]], "browsers": [], "agents": []
         ], machine: Self.machine))
-        catalog.reconcileCloudRemoteState(machine: Self.machine, state: state)
+        catalog.reconcileCloudRemoteState(machine: Self.machine, state: state, observation: .current)
         catalog.moveProjections(panelID: panel, to: bound)
         await catalog.cloudPlacementCoordinator.waitForPendingMutations()
         #expect(provider.moved.isEmpty)
@@ -575,7 +575,7 @@ struct CloudPlacementCoordinatorTests {
             "tabs": [["id": "tab_live", "pane_id": "pane", "content_kind": "terminal", "content_id": "term_1"]],
             "terminals": [["id": "term_1", "tab_ids": ["tab_live"]]], "browsers": [], "agents": []
         ], machine: Self.machine))
-        catalog.reconcileCloudRemoteState(machine: Self.machine, state: state)
+        catalog.reconcileCloudRemoteState(machine: Self.machine, state: state, observation: .current)
         #expect(catalog.projection(forPanel: panel)?.remoteTabID == nil)
         #expect(catalog.projection(forPanel: panel)?.remoteWorkspaceID == nil)
     }
