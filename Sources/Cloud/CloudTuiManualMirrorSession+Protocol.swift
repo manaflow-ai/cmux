@@ -7,7 +7,7 @@ import CmuxTerminal
 @MainActor
 extension CloudTuiManualMirrorSession {
 
-    private func handleResponse(
+    func handleResponse(
         requestID: UInt64,
         ok: Bool,
         lease: String?,
@@ -138,20 +138,20 @@ extension CloudTuiManualMirrorSession {
 
     // MARK: - Requests and sizing
 
-    private func sendPing() {
+    func sendPing() {
         guard let connection, phase == .attached else { return }
         let requestID = takeRequestID()
         pendingRequests[requestID] = .ping
         connection.send(commandBuilder.ping(requestID: requestID))
     }
 
-    private func sendIdentify(on connection: CloudTuiManualIOConnection) {
+    func sendIdentify(on connection: CloudTuiManualIOConnection) {
         let requestID = takeRequestID()
         pendingRequests[requestID] = .identify
         connection.send(commandBuilder.identify(requestID: requestID))
     }
 
-    private func sendClientInfo() {
+    func sendClientInfo() {
         guard let connection,
               phase != .stopped else { return }
         let requestID = takeRequestID()
@@ -165,7 +165,7 @@ extension CloudTuiManualMirrorSession {
         )
     }
 
-    private func sendAttach() {
+    func sendAttach() {
         guard let connection,
               phase != .stopped else { return }
         let requestID = takeRequestID()
@@ -188,7 +188,7 @@ extension CloudTuiManualMirrorSession {
         connection.send(command)
     }
 
-    private func resumeSizingIfNeeded() {
+    func resumeSizingIfNeeded() {
         guard attachResponseReceived else { return }
         if surface?.isRendererPortalVisible == true,
            let next = resizeScheduler.resume() {
@@ -197,7 +197,7 @@ extension CloudTuiManualMirrorSession {
         sendClaimIfNeeded()
     }
 
-    private func sendResize(_ grid: CloudTuiManualIOGrid) {
+    func sendResize(_ grid: CloudTuiManualIOGrid) {
         guard let connection, attachResponseReceived else { return }
         let requestID = takeRequestID()
         pendingRequests[requestID] = .resize(grid)
@@ -222,7 +222,7 @@ extension CloudTuiManualMirrorSession {
         }
     }
 
-    private func sendClaimIfNeeded() {
+    func sendClaimIfNeeded() {
         guard attachResponseReceived,
               surface?.isRendererPortalVisible == true,
               surface?.isNativeViewInRealWindow == true,
@@ -244,7 +244,7 @@ extension CloudTuiManualMirrorSession {
         )
     }
 
-    private func reconcileRemoteGrid() {
+    func reconcileRemoteGrid() {
         guard let remote = lastRemoteGrid,
               let desired = resizeScheduler.desired,
               remote != desired,
@@ -256,7 +256,7 @@ extension CloudTuiManualMirrorSession {
         }
     }
 
-    private func takeRequestID() -> UInt64 {
+    func takeRequestID() -> UInt64 {
         defer { nextRequestID = nextRequestID == UInt64.max ? 1 : nextRequestID + 1 }
         return nextRequestID
     }
@@ -264,7 +264,7 @@ extension CloudTuiManualMirrorSession {
     /// Removes size/claim responses that belong to a hidden projection. Their
     /// commands may still be processed remotely, but their acknowledgements
     /// must not retire a newer grid after the pane is revealed.
-    private func discardPendingSizingRequests() {
+    func discardPendingSizingRequests() {
         pendingRequests = pendingRequests.filter { _, kind in
             switch kind {
             case .resize(_), .claim:

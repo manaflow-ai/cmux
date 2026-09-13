@@ -27,32 +27,32 @@ final class CloudTuiManualMirrorSession {
     private var diagnosticDeadline: Task<Void, Never>?
     private(set) var diagnosticFailure: CloudDiagnosticFailure?
     private var diagnosticReference: String?
-    private weak var surface: TerminalSurface?
+    weak var surface: TerminalSurface?
     private let onNeedsReconnect: @MainActor () -> Void
-    private let commandBuilder: CloudTuiManualIOCommand
-    private var connection: CloudTuiManualIOConnection?
+    let commandBuilder: CloudTuiManualIOCommand
+    var connection: CloudTuiManualIOConnection?
     private var eventTask: Task<Void, Never>?
     private var connectTask: Task<Void, Never>?
     private var runtimeSampleTask: Task<Void, Never>?
     private var socketPath: String?
     private var nextRequestID: UInt64 = 1
-    private var pendingRequests: [UInt64: CloudTuiManualMirrorRequestKind] = [:]
+    var pendingRequests: [UInt64: CloudTuiManualMirrorRequestKind] = [:]
     /// Capabilities belong to the current control connection. They must not
     /// survive a daemon restart because an older generation may not implement
     /// lease-fenced sizing or initial attach dimensions.
-    private var serverCapabilities: Set<String> = []
-    private var resizeScheduler = CloudTuiManualIOResizeScheduler()
-    private var attachResponseReceived = false
-    private var claimInFlight = false
-    private var geometryClaimed = false
-    private var geometryClaimEligible: Bool
+    var serverCapabilities: Set<String> = []
+    var resizeScheduler = CloudTuiManualIOResizeScheduler()
+    var attachResponseReceived = false
+    var claimInFlight = false
+    var geometryClaimed = false
+    var geometryClaimEligible: Bool
     /// Older daemons do not know `set-client-sizing`. In that case the
     /// recorded `resize-surface` report is still useful, so the scheduler can
     /// continue sending it instead of being wedged behind a failed claim.
-    private var claimUnsupported = false
+    var claimUnsupported = false
     /// Retained for diagnostics and for a future targeted detach. Closing the
     /// socket is still the cleanup fence for peers without lease support.
-    private var remoteLease: String?
+    var remoteLease: String?
     private var replayNeedsReset = false
     /// The last sidecar fed to the local surface; the next one is applied as a delta from it.
     private var appliedRemoteColors = CloudTuiRemoteColors()
@@ -61,7 +61,7 @@ final class CloudTuiManualMirrorSession {
     /// Keep one deferred redraw for that transition so the first usable frame is
     /// presented even when no later resize or focus event occurs.
     private var replayRefreshScheduled = false
-    private var lastRemoteGrid: CloudTuiManualIOGrid?
+    var lastRemoteGrid: CloudTuiManualIOGrid?
     private(set) var phase: CloudTuiManualMirrorPhase = .idle {
         didSet {
             if phase == .disconnected, oldValue != .disconnected, diagnosticContext != nil {
@@ -80,7 +80,7 @@ final class CloudTuiManualMirrorSession {
     let clock: any Clock<Duration>
     /// What the pane shows about this attachment; written only by `transition`.
     let attachmentStatus: CloudTerminalAttachmentStatus
-    private let watchdog: CloudTuiManualMirrorWatchdog
+    let watchdog: CloudTuiManualMirrorWatchdog
     private let log = CloudTerminalAttachmentLog()
     private var attachAttempts = 0
     private var interruption: CloudTerminalAttachmentInterruption?
@@ -584,7 +584,7 @@ final class CloudTuiManualMirrorSession {
         }
     }
 
-    private func transitionToDisconnected(reason: CloudTerminalAttachmentInterruption) {
+    func transitionToDisconnected(reason: CloudTerminalAttachmentInterruption) {
         tearDownConnection()
         guard phase != .stopped else { return }
         let diagnosticError: CloudDiagnosticFailure
@@ -599,7 +599,7 @@ final class CloudTuiManualMirrorSession {
         onNeedsReconnect()
     }
 
-    private func transitionToDisconnected(error: Error? = CloudDiagnosticFailure.network) {
+    func transitionToDisconnected(error: Error? = CloudDiagnosticFailure.network) {
         tearDownConnection()
         guard phase != .stopped else { return }
         finishDiagnostics(error: error ?? CancellationError())
@@ -622,7 +622,7 @@ final class CloudTuiManualMirrorSession {
 
     /// Every phase change goes through here, so the unified log and the pane's
     /// status can never disagree with the session.
-    private func transition(to next: CloudTuiManualMirrorPhase, reason: CloudTerminalAttachmentInterruption? = nil) {
+    func transition(to next: CloudTuiManualMirrorPhase, reason: CloudTerminalAttachmentInterruption? = nil) {
         phase = next
         if let reason { interruption = reason }
         if next == .attached {
