@@ -6,7 +6,6 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
 /// The cmux-tui provider's pure parts: snapshot → resources, the argv it hands the
 /// client, the URLs it opens, and the client identity paths it shares with the CLI.
 @Suite struct CmuxTuiSurfaceProviderTests {
@@ -1227,7 +1226,8 @@ import Testing
             try await link.connect(route: "ws://10.0.0.1:1337/v1/link", session: "main")
         }
         defer { task.cancel() }
-        let readyLine = try #require(await readyLines.next()); let pid = try #require(Int32(readyLine))
+        let readyLine = try #require(await readyLines.next())
+        let pid = try #require(Int32(readyLine))
         defer { _ = Darwin.kill(pid, SIGKILL) }
 
         task.cancel()
