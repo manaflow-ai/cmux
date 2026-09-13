@@ -91,6 +91,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         var resource: SurfaceResource
         var receipt: CloudVMCursor?
         let tabID: String?
+        var generationMismatchSince: Date?
     }
     var pendingRemoteCreations: [SurfaceResourceID: PendingRemoteCreation] = [:]
     /// Rename receipts are transient read-your-write fences. They are keyed by
@@ -105,7 +106,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         var name: String
         var receipt: CloudVMCursor
     }
-    private var pendingRemoteRenames: [PendingRemoteRenameKey: PendingRemoteRename] = [:]
+    var pendingRemoteRenames: [PendingRemoteRenameKey: PendingRemoteRename] = [:]
     init(
         summary: VMSummary,
         links: CloudMachineLinkManager,
@@ -681,7 +682,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
     }
 
-    private static func remoteWorkspaces(_ state: CloudVMState) -> [SurfaceRemoteWorkspace] {
+    static func remoteWorkspaces(_ state: CloudVMState) -> [SurfaceRemoteWorkspace] {
         state.workspaces.map {
             SurfaceRemoteWorkspace(id: $0.id, name: $0.name, index: $0.index, focused: $0.focused)
         }
@@ -860,7 +861,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         publishPendingMutationMetadata()
     }
 
-    func recordPendingRemoteRename(
+    private func recordPendingRemoteRename(
         workspaceID: String,
         name: String,
         receipt: CloudVMCursor
@@ -923,13 +924,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
 
     func closeTerminal(_ id: SurfaceResourceID, fallbackTabID: String?) async throws {
-        pendingRemoteCreations.removeValue(forKey: id)
         do {
             _ = try await runCloseCommand { CloudTuiCommandLine.closeTerminalArguments(socketPath: $0, terminalID: id.key) }
         } catch {
             guard let tabID = fallbackTabID ?? tabByTerminal[id.key], Self.isSelectorNotFound(error) else { throw error }
             _ = try await runCloseCommand { CloudTuiCommandLine.closeTabArguments(socketPath: $0, tabID: tabID) }
         }
+        pendingRemoteCreations.removeValue(forKey: id)
         closeLocalPanes(showing: [id])
         catalog.remove(id, from: self)
         scheduleRefresh()
@@ -994,43 +995,25 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// screen after the process exits (a sender that reads the process's last lines as
     /// its result needs that); nil is the daemon default, `close`.
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, onExit: String?) async throws -> SurfaceResource {
-        let connected = try await links.connected(machineID: machineID)
-        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        // Resolve the active workspace inside the daemon mutation. A stale Mac
-        // catalog must never bootstrap a second workspace during concurrent creates.
-        let requestedWorkspace = remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let workspaceID = requestedWorkspace.flatMap { $0.isEmpty ? nil : $0 } ?? "current"
-        let argv = CloudTuiCommandLine.commandStartingIn(
+        try await createTerminalWithRecovery(
+            command: command,
             cwd: cwd,
-            command: (command?.isEmpty == false ? command : nil) ?? CloudTuiCommandLine.defaultTerminalCommand
+            name: name,
+            remoteWorkspaceID: remoteWorkspaceID,
+            onExit: onExit
         )
-        let data = try await link.run(arguments: CloudTuiCommandLine.runArguments(socketPath: connected.socketPath, workspaceID: workspaceID, command: argv, onExit: onExit))
-        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let created = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) else {
-            throw ProviderError.terminalNotCreated(String(data: data, encoding: .utf8) ?? "")
-        }
-        guard let resolvedWorkspaceID = created.workspaceID ?? (workspaceID == "current" ? nil : workspaceID) else {
-            throw ProviderError.noWorkspaceOnMachine(machineID)
-        }
-        return recordCreatedTerminal(created, workspaceID: resolvedWorkspaceID, name: name, cwd: cwd)
     }
 
     func recordCreatedTerminal(
         _ created: CmuxTuiSnapshotParser.CreatedTerminalPath,
-        workspaceID: String,
+        workspaceID: String?,
         name: String?,
         cwd: String?
     ) -> SurfaceResource {
         let resolvedWorkspaceID = created.workspaceID ?? workspaceID
-        let remoteWorkspace = cloudState?.workspaces.first(where: { $0.id == resolvedWorkspaceID }).map {
+        let remoteWorkspace = resolvedWorkspaceID.flatMap { id in cloudState?.workspaces.first(where: { $0.id == id }) }.map {
             SurfaceRemoteWorkspace(id: $0.id, name: $0.name, index: $0.index, focused: $0.focused)
-        } ?? info.remoteWorkspaces?.first(where: { $0.id == resolvedWorkspaceID })
-            ?? SurfaceRemoteWorkspace(
-                id: resolvedWorkspaceID,
-                name: resolvedWorkspaceID,
-                index: info.remoteWorkspaces?.count ?? 0,
-                focused: false
-            )
+        } ?? resolvedWorkspaceID.flatMap { id in info.remoteWorkspaces?.first(where: { $0.id == id }) }
         var resource = SurfaceResource(
             id: SurfaceResourceID(machine: machine, kind: .terminal, key: created.terminalID),
             title: name ?? "",
@@ -1041,7 +1024,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             port: nil,
             url: nil
         )
-        if let tabID = created.tabID {
+        if let tabID = created.tabID, let remoteWorkspace {
             resource.remoteViews = [SurfaceRemoteView(
                 tabID: tabID,
                 workspace: remoteWorkspace,
@@ -1056,7 +1039,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         pendingRemoteCreations[resource.id] = PendingRemoteCreation(
             resource: resource,
             receipt: created.cursor,
-            tabID: created.tabID
+            tabID: created.tabID,
+            generationMismatchSince: nil
         )
         catalog.upsert(resource, from: self)
         publishPendingMutationMetadata()
