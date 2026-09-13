@@ -78,6 +78,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         private let tabDragTransferRegistry: @MainActor () -> TabDragTransferRegistry?
         weak var outlineView: CloudTreeNSOutlineView?
         private var nodes: [CloudTreeNode] = []
+        private(set) var vpnEmptyPortsNodes: [CloudTreeNode] = []
         private var structureSignature: [String] = []
         private var contentSignature: [CloudTreeNodeContentSnapshot] = []
         private var selectedNodeID: String?
@@ -252,15 +253,18 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 for (existing, replacement) in zip(self.nodes, nodes) {
                     existing.adopt(from: replacement)
                 }
+                vpnEmptyPortsNodes = CloudTreeNodeBuilder.flattened(self.nodes).filter(\.isPortsEmptyPlaceholder)
                 guard let outlineView else { return }
                 let changedRows = update.rowIndexes(in: outlineView)
                 guard !changedRows.isEmpty else { return }
                 withProgrammaticUpdate {
                     outlineView.reloadData(forRowIndexes: changedRows, columnIndexes: IndexSet(integer: 0))
+                    outlineView.noteHeightOfRows(withIndexesChanged: changedRows)
                 }
                 return
             }
             self.nodes = nodes
+            vpnEmptyPortsNodes = CloudTreeNodeBuilder.flattened(self.nodes).filter(\.isPortsEmptyPlaceholder)
             structureSignature = nextStructure
             guard let outlineView else { return }
             withProgrammaticUpdate {
@@ -352,15 +356,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
-            guard let node = item as? CloudTreeNode else { return GlobalFontMagnification.scaledSize(style.rowHeight) }
-            switch node.kind {
-            case .machine:
-                return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: true))
-            case .localMachine, .pendingMachine:
-                return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
-            case .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup, .workspace, .localWorkspace, .terminal, .display, .browser, .port, .placeholder:
-                return GlobalFontMagnification.scaledSize(style.rowHeight)
-            }
+            CloudTreeRowHeight(style: style, showsVPNWarning: showsCloudVPNWarning).height(of: item, in: outlineView)
         }
 
         func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
@@ -419,6 +415,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         /// and the asleep placeholder still wakes, because those rows advertise
         /// exactly that).
         func open(_ node: CloudTreeNode) {
+            if showsCloudVPNWarning && node.isPortsEmptyPlaceholder {
+                machineActions.setupVPN(outlineView?.window)
+                return
+            }
             switch node.kind {
             case .machine(let machine, _):
                 if machine.freeAccess == .expired {
@@ -700,10 +700,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     openAction: { [weak self] in self?.open(node) },
                     portURL: url
                 )
-            case .browsersGroup, .portsGroup:
-                return [
-                    item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
-                ]
+            case .browsersGroup:
+                return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }]
+            case .portsGroup: return portsGroupMenuItems()
             case .placeholder(let machineID, _):
                 guard let machine = machine(id: machineID) else { return [] }
                 return machineMenuItems(machine)
@@ -844,7 +843,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             return items
         }
 
-        private func item(_ title: String, action: @escaping @MainActor () -> Void) -> NSMenuItem {
+        func item(_ title: String, action: @escaping @MainActor () -> Void) -> NSMenuItem {
             let item = CloudTreeMenuItem(title: title, action: action)
             item.target = item
             return item
