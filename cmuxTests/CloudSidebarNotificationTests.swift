@@ -95,6 +95,27 @@ struct CloudSidebarNotificationTests {
         #expect(owner.state == pinnedOrder, "Notifications preserve the manually chosen order of pinned folders")
     }
 
+    @Test("One terminal viewed in two folders does not reverse them on each notification")
+    func multiWorkspaceNotificationKeepsRelativeOrder() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let snapshot = fixture.snapshot()
+        var terminal = snapshot.resources[0]
+        let secondView = try #require(snapshot.resources[1].remoteViews?.first)
+        terminal.remoteViews?.append(secondView)
+        let shared = SurfaceCatalogSnapshot(machines: snapshot.machines, resources: [terminal], projections: [])
+        let owner = fixture.catalog.sidebarOrganization
+        for _ in 0..<3 {
+            let tree = CloudSidebarOrganizationTree(nodes: CloudTreeNodeBuilder.nodes(
+                machines: [], snapshot: shared, localWorkspaces: [], includeLocalMachine: false
+            )).arrange(using: owner.state)
+            owner.raiseNotification(resource: terminal.id, nodes: tree)
+            let arranged = CloudSidebarOrganizationTree(nodes: tree).arrange(using: owner.state)
+            let parent = try #require(CloudSidebarOrganizationTree(nodes: arranged).parent(of: fixture.folderID("ws_1")))
+            #expect(parent.children.map(\.id) == [fixture.folderID("ws_1"), fixture.folderID("ws_2")])
+        }
+    }
+
     private func notification(_ id: String, terminal: String) -> CloudVMNotificationRow {
         CloudVMNotificationRow(id: id, title: "Fixture notification", subtitle: nil, body: "", level: "info",
                                createdAtMs: 1, terminalID: terminal, readBy: [])

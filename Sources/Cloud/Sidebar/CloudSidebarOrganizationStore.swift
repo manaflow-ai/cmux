@@ -34,18 +34,17 @@ final class CloudSidebarOrganizationStore {
         guard !resource.machine.isLocal else { return }
         var next = state
         func visit(_ parent: CloudTreeNode) -> Bool {
-            var containsTerminal = false
-            for child in parent.children {
-                let matches = child.dragResource?.id == resource || visit(child)
-                if matches {
-                    containsTerminal = true
-                    if child.canOrganize, !next.isPinned(child.id, parent: parent.id) {
-                        _ = next.apply(.top, id: child.id,
-                                       siblings: parent.children.filter(\.canOrganize).map(\.id), parent: parent.id)
-                    }
-                }
+            let matching = Set(parent.children.filter { child in
+                child.dragResource?.id == resource || visit(child)
+            }.map(\.id))
+            let siblings = parent.children.filter(\.canOrganize).map(\.id)
+            // Lifting several views of one terminal must retain their relative
+            // order; repeated notifications must never flip the same folders.
+            for id in next.ordered(siblings, parent: parent.id).reversed()
+                where matching.contains(id) && !next.isPinned(id, parent: parent.id) {
+                _ = next.apply(.top, id: id, siblings: siblings, parent: parent.id)
             }
-            return containsTerminal
+            return !matching.isEmpty
         }
         for node in nodes where node.machine == resource.machine { _ = visit(node) }
         if next != state { commit(next) }
