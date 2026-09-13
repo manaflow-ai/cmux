@@ -10,12 +10,104 @@ SUMMARY_RE = re.compile(
     r"with\s+(?P<failures>\d+)\s+failures?\s+"
     r"\((?P<unexpected>\d+)\s+unexpected\)"
 )
+SWIFT_SUMMARY_RE = re.compile(
+    r"Test run with (?P<tests>\d+) tests? in \d+ suites? "
+    r"(?P<result>passed|failed) after "
+)
+
+_ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+_COMPILE_ERROR_RE = re.compile(
+    r"(?:\berror:\s+|Build input files cannot be found|"
+    r"cannot find .* in scope|Testing cancelled because the build failed|"
+    r"(?:CompileSwift|SwiftCompile).*failed)"
+)
+_APP_HOST_FAILURE_RE = re.compile(
+    r"(?:test runner .*?(?:timed out|hung|failed)|"
+    r"unexpected exit|communication with the test runner|"
+    r"testmanagerd.*invalidated|Couldn't communicate with a helper|"
+    r"Fatal error:|Idle timed out|Post-test timed out)",
+    re.IGNORECASE,
+)
+
+
+def _clean_line(line: str) -> str:
+    return " ".join(_ANSI_RE.sub("", line).split())[:500]
+
+
+def _first_matching_line(output: str, pattern: re.Pattern[str]) -> str | None:
+    for line in output.splitlines():
+        cleaned = _clean_line(line)
+        if pattern.search(cleaned):
+            # Compiler command lines contain many literal `error` flags. Keep
+            # diagnostics, not those command invocations, as the causal line.
+            if pattern is _COMPILE_ERROR_RE and "command line" in cleaned.lower():
+                continue
+            return cleaned
+    return None
+
+
+def diagnose(output: str, exit_code: int | None = None) -> dict[str, object]:
+    """Return a non-gating diagnosis for hosted test output."""
+    xctest_summaries = list(SUMMARY_RE.finditer(output))
+    swift_summaries = list(SWIFT_SUMMARY_RE.finditer(output))
+    xctest_executed = sum(int(match.group("tests")) for match in xctest_summaries)
+    swift_executed = sum(int(match.group("tests")) for match in swift_summaries)
+    executed = xctest_executed + swift_executed
+    xctest_unexpected = sum(int(match.group("unexpected")) for match in xctest_summaries)
+    swift_failed = any(match.group("result") == "failed" for match in swift_summaries)
+    compile_line = _first_matching_line(output, _COMPILE_ERROR_RE)
+    app_host_line = _first_matching_line(output, _APP_HOST_FAILURE_RE)
+    assertion_line = _first_matching_line(
+        output,
+        re.compile(
+            r"(?:✘ Test .* recorded an issue|Expectation failed|"
+            r"XCTAssert.*failed|Test run with .* failed|"
+            r"Executed \d+ tests?,\s+with [1-9]\d* failures?)",
+            re.IGNORECASE,
+        ),
+    )
+
+    failed = xctest_unexpected > 0 or swift_failed or assertion_line is not None
+    nonzero = exit_code is not None and exit_code != 0
+    if executed == 0:
+        if compile_line:
+            category = "pre-test build/setup failure"
+            first_causal_line = compile_line
+        elif app_host_line:
+            category = "pre-test app-host failure"
+            first_causal_line = app_host_line
+        else:
+            category = "pre-test incomplete run"
+            lines = output.splitlines()
+            first_causal_line = _clean_line(lines[-1]) if lines else None
+    elif failed:
+        category = "test assertion failure"
+        first_causal_line = assertion_line or app_host_line
+    elif nonzero:
+        category = "post-test app-host failure"
+        first_causal_line = app_host_line
+    else:
+        category = "tests passed"
+        first_causal_line = None
+
+    return {
+        "category": category,
+        "executed_tests": executed,
+        "summary_count": len(xctest_summaries) + len(swift_summaries),
+        "first_causal_line": first_causal_line,
+    }
 
 
 def classify(output: str) -> tuple[bool, str]:
     summaries = list(SUMMARY_RE.finditer(output))
     if not summaries:
-        return False, "no trustworthy XCTest summary was found"
+        diagnosis = diagnose(output)
+        return False, f"{diagnosis['category']}: no trustworthy XCTest summary was found"
+
+    executed = sum(int(match.group("tests")) for match in summaries)
+    if executed == 0:
+        diagnosis = diagnose(output)
+        return False, f"{diagnosis['category']}: XCTest reported zero executed tests"
 
     unexpected = sum(int(match.group("unexpected")) for match in summaries)
     if unexpected:
@@ -25,8 +117,12 @@ def classify(output: str) -> tuple[bool, str]:
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        print(f"usage: {Path(sys.argv[0]).name} <xcodebuild-output>", file=sys.stderr)
+    if len(sys.argv) < 2 or len(sys.argv) > 7:
+        print(
+            f"usage: {Path(sys.argv[0]).name} <xcodebuild-output> "
+            "[--suite NAME] [--exit-code CODE] [--diagnose]",
+            file=sys.stderr,
+        )
         return 2
 
     output_path = Path(sys.argv[1])
@@ -36,9 +132,40 @@ def main() -> int:
         print(f"could not read {output_path}: {error}", file=sys.stderr)
         return 2
 
-    passed, message = classify(output)
-    print(message, file=sys.stderr if not passed else sys.stdout)
-    return 0 if passed else 1
+    suite = ""
+    exit_code: int | None = None
+    diagnose_only = False
+    arguments = iter(sys.argv[2:])
+    for argument in arguments:
+        if argument == "--suite":
+            suite = next(arguments, "")
+        elif argument == "--exit-code":
+            try:
+                exit_code = int(next(arguments))
+            except (StopIteration, ValueError):
+                return 2
+        elif argument == "--diagnose":
+            diagnose_only = True
+        else:
+            return 2
+
+    if not diagnose_only:
+        passed, message = classify(output)
+        print(message, file=sys.stderr if not passed else sys.stdout)
+        return 0 if passed else 1
+
+    diagnosis = diagnose(output, exit_code)
+    details = [
+        f"category={diagnosis['category']}",
+        f"executed_tests={diagnosis['executed_tests']}",
+        f"summaries={diagnosis['summary_count']}",
+    ]
+    if suite:
+        details.insert(0, f"suite={suite}")
+    if diagnosis["first_causal_line"]:
+        details.append(f"first_causal_line={diagnosis['first_causal_line']}")
+    print("Test execution diagnosis: " + "; ".join(details))
+    return 0
 
 
 if __name__ == "__main__":
