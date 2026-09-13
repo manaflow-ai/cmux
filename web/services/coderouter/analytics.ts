@@ -23,6 +23,9 @@ export type CoderouterAnalyticsEvent =
   | "coderouter_auth_rejected"
   | "coderouter_route_session_issued"
   | "coderouter_route_session_revoked"
+  | "coderouter_api_key_created"
+  | "coderouter_api_key_revoked"
+  | "coderouter_api_key_listed"
   | "coderouter_organization_catalog_viewed"
   | "coderouter_metrics_loaded"
   | "coderouter_vm_usage_viewed"
@@ -201,7 +204,9 @@ export function captureCoderouterEvent(
   const config = dependencies.config();
   if (!config) return;
 
-  const properties = eventProperties(input.event, input.properties ?? {});
+  const properties = isApiKeyEvent(input.event)
+    ? apiKeyEventProperties(input.event, input.properties ?? {})
+    : eventProperties(input.event, input.properties ?? {});
   if (!properties) return;
 
   // Account lifecycle events describe one person's action and are dropped
@@ -269,6 +274,9 @@ function eventNeedsUser(event: CoderouterAnalyticsEvent): boolean {
     event === "coderouter_account_removed" ||
     event === "coderouter_route_session_issued" ||
     event === "coderouter_route_session_revoked" ||
+    event === "coderouter_api_key_created" ||
+    event === "coderouter_api_key_revoked" ||
+    event === "coderouter_api_key_listed" ||
     event === "coderouter_claude_upstream_set" ||
     event === "coderouter_claude_upstream_removed";
 }
@@ -358,6 +366,23 @@ function eventProperties(
     case "coderouter_claude_upstream_removed":
       return {};
   }
+}
+
+function apiKeyEventProperties(
+  event: Extract<CoderouterAnalyticsEvent, "coderouter_api_key_created" | "coderouter_api_key_revoked" | "coderouter_api_key_listed">,
+  input: Readonly<Record<string, AnalyticsScalar | null | undefined>>,
+): Record<string, AnalyticsScalar> {
+  if (event === "coderouter_api_key_revoked") return { self: input.self === true };
+  if (event === "coderouter_api_key_listed") return { key_count_bucket: countBucket(input.key_count) };
+  return {};
+}
+
+function isApiKeyEvent(
+  event: CoderouterAnalyticsEvent,
+): event is "coderouter_api_key_created" | "coderouter_api_key_revoked" | "coderouter_api_key_listed" {
+  return event === "coderouter_api_key_created" ||
+    event === "coderouter_api_key_revoked" ||
+    event === "coderouter_api_key_listed";
 }
 
 function cliCommandProperties(
