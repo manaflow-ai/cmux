@@ -353,7 +353,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
                 isGuiModeSubmitPending = false
                 if guiModeSubmitRequestID == requestID { guiModeSubmitRequestID = nil }
             }
-            return try Self.handleGuiModeSubmit(
+            return try await Self.handleGuiModeSubmit(
                 request,
                 rendererKind: rendererKind,
                 panelId: panelId,

@@ -69,7 +69,7 @@ extension AgentSessionWebRendererCoordinator {
         panelId: UUID,
         workspaceId: UUID,
         isCurrent: @MainActor @escaping () -> Bool
-    ) throws -> [String: String] {
+    ) async throws -> [String: String] {
         guard rendererKind == .guiMode else { throw AgentSessionBridgeError.unsupportedMethod(request.method) }
         let prompt = try request.requiredString("prompt").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty else { throw AgentSessionBridgeError.missingParameter("prompt") }
@@ -80,7 +80,9 @@ extension AgentSessionWebRendererCoordinator {
             return value
         } ?? .codex
         guard isCurrent() else { throw AgentSessionBridgeError.invalidRequest }
-        let workspace = try GuiModeWorkspaceCoordinator().createTaskWorkspace(
+        await Task.yield()
+        guard !Task.isCancelled, isCurrent() else { throw AgentSessionBridgeError.invalidRequest }
+        let workspace = try await GuiModeWorkspaceCoordinator().createTaskWorkspace(
             prompt: prompt,
             providerID: providerID,
             sourcePanelId: panelId,

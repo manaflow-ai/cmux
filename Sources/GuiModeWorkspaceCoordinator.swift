@@ -26,7 +26,7 @@ final class GuiModeWorkspaceCoordinator {
         sourcePanelId: UUID,
         preferredWorkspaceId: UUID,
         isRequestCurrent: @MainActor @escaping () -> Bool = { true }
-    ) throws -> Workspace {
+    ) async throws -> Workspace {
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPrompt.isEmpty else { throw AgentSessionBridgeError.missingParameter("prompt") }
         guard isRequestCurrent() else { throw AgentSessionBridgeError.invalidRequest }
@@ -34,6 +34,8 @@ final class GuiModeWorkspaceCoordinator {
               let location = app.workspaceContainingPanel(panelId: sourcePanelId, preferredWorkspaceId: preferredWorkspaceId) else {
             throw AgentSessionBridgeError.invalidRequest
         }
+        await Task.yield()
+        guard !Task.isCancelled, isRequestCurrent() else { throw AgentSessionBridgeError.invalidRequest }
         guard let workspace = location.tabManager.addWorkspaceIfActive(
             title: Self.taskWorkspaceTitle(prompt: trimmedPrompt),
             workingDirectory: location.workspace.currentDirectory,
@@ -41,7 +43,7 @@ final class GuiModeWorkspaceCoordinator {
             autoRefreshMetadata: false
         ) else { throw AgentSessionBridgeError.invalidRequest }
         do {
-            guard isRequestCurrent() else { throw AgentSessionBridgeError.invalidRequest }
+            guard !Task.isCancelled, isRequestCurrent() else { throw AgentSessionBridgeError.invalidRequest }
             guard let guiPanel = installGuiPanel(
                 in: workspace,
                 state: .taskWorktreePR(prompt: trimmedPrompt, providerID: providerID)
@@ -50,6 +52,8 @@ final class GuiModeWorkspaceCoordinator {
                 throw AgentSessionBridgeError.invalidRequest
             }
             guard isRequestCurrent() else { throw AgentSessionBridgeError.invalidRequest }
+            await Task.yield()
+            guard !Task.isCancelled, isRequestCurrent() else { throw AgentSessionBridgeError.invalidRequest }
             guard workspace.splitPaneWithNewTerminal(
                 targetPane: pane,
                 orientation: .horizontal,
@@ -60,7 +64,8 @@ final class GuiModeWorkspaceCoordinator {
             ) != nil else {
                 throw AgentSessionBridgeError.invalidRequest
             }
-            guard isRequestCurrent() else { throw AgentSessionBridgeError.invalidRequest }
+            await Task.yield()
+            guard !Task.isCancelled, isRequestCurrent() else { throw AgentSessionBridgeError.invalidRequest }
             return workspace
         } catch {
             location.tabManager.closeWorkspace(workspace, recordHistory: false)
