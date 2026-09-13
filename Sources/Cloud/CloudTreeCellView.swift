@@ -93,7 +93,7 @@ final class CloudTreeCellView: NSTableCellView {
             buttonsLeadingConstraint?.isActive = false
         }
         if case .machine(let machine, _) = node.kind {
-            toolTip = CloudTreeMachineRowContent.toolTip(machine)
+            toolTip = CloudTreeMachineRowContent(machine: machine).toolTip
         } else if case .pendingMachine(let operation) = node.kind {
             // The failure's first line rides along so a red row explains itself on hover.
             toolTip = operation.summaryLine
@@ -107,7 +107,7 @@ final class CloudTreeCellView: NSTableCellView {
             toolTip = nil
         }
         if case .machine(let machine, _) = node.kind {
-            setAccessibilityLabel(CloudTreeMachineRowContent.accessibilityLabel(machine))
+            setAccessibilityLabel(CloudTreeMachineRowContent(machine: machine).accessibilityLabel)
         } else {
             setAccessibilityLabel(node.searchableTitle)
         }

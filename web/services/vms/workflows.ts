@@ -61,6 +61,7 @@ import {
   VmNotFoundError,
   VmResizeInvalidError,
   VmResizePlanLimitError,
+  VmResizeInProgressError,
   VmOperationUnsupportedError,
   VmProviderOperationError,
   VmSnapshotNotFoundError,
@@ -1862,6 +1863,17 @@ function deferLegacyResourceCandidate(
 type ResourceReservationWriter = NonNullable<VmRepositoryShape["setResourceReservation"]>;
 type ResizeUnconfirmedWriter = NonNullable<VmRepositoryShape["markVmResizeUnconfirmed"]>;
 
+/** A provider resize is successful only if its resource claim is still current. */
+function confirmResizedResourceReservation(
+  write: ResourceReservationWriter,
+  input: Parameters<ResourceReservationWriter>[0],
+  providerVmId: string,
+): Effect.Effect<void, VmDatabaseError | VmResizeInProgressError> {
+  return write(input).pipe(Effect.flatMap((confirmed) => confirmed
+    ? Effect.void
+    : Effect.fail(new VmResizeInProgressError({ vmId: providerVmId }))));
+}
+
 function reservationFromLegacyProviderStats(
   stats: VMStats,
   existing: VmResourceReservation,
@@ -2923,7 +2935,7 @@ export function resizeVm(input: {
       const existingReservation = vmResourceReservationFromMetadata(vm.providerMetadata);
       const currentDiskMb = vmProviderResourceSize("diskMb", current.diskTotalMb) ?? existingReservation.diskMb;
       if (repo.setResourceReservation) {
-        yield* repo.setResourceReservation({
+        yield* confirmResizedResourceReservation(repo.setResourceReservation, {
           id: vm.id,
           reservation: reservationFromLegacyProviderStats(
             updated,
@@ -2934,7 +2946,7 @@ export function resizeVm(input: {
           ...(hasVmResourceReservationMetadata(vm.providerMetadata)
             ? { expectedReservation: existingReservation }
             : {}),
-        });
+        }, input.providerVmId);
       }
       yield* repo.recordUsageEvent({
         userId: input.userId,
@@ -3070,11 +3082,11 @@ export function resizeVm(input: {
         : hasVmResourceReservationMetadata(vm.providerMetadata)
           ? existingReservation
           : undefined;
-      yield* repo.setResourceReservation({
+      yield* confirmResizedResourceReservation(repo.setResourceReservation, {
         id: vm.id,
         reservation: confirmedReservation,
         ...(expectedReservation === undefined ? {} : { expectedReservation }),
-      }).pipe(Effect.asVoid);
+      }, input.providerVmId);
     }
     yield* repo.recordUsageEvent({
       userId: input.userId,

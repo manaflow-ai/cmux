@@ -68,4 +68,4 @@ dbTest("concurrent authenticated reports make one durable write per VM window", 
     expect(row.provider_metadata.networkId).toBe("preserved");
     expect(row.provider_metadata.cmuxResourceUsage.providerVmId).toBe(`provider-${id}`);
   } finally { active = false; }
-}, 10000);
+});

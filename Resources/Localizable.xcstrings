@@ -237519,6 +237519,72 @@
             "state": "translated",
             "value": "CPU"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CPU"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CPU"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CPU"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CPU"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CPU"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CPU"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CPU"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ЦП"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CPU"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CPU"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ЦП"
+          }
         }
       }
     },
@@ -397026,128 +397092,128 @@
         }
       }
     },
-    "sidebar.cloudWorkspace.label" : {
-      "comment" : "Tooltip and workspace-row accessibility label for a Cloud-bound workspace. The placeholder is the authoritative machine identifier.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cloud workspace on %@"
+    "sidebar.cloudWorkspace.label": {
+      "comment": "Tooltip and workspace-row accessibility label for a Cloud-bound workspace. The placeholder is the authoritative machine identifier.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud workspace on %@"
           }
         },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "مساحة عمل سحابية على %@"
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحة عمل سحابية على %@"
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cloud radni prostor na %@"
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud radni prostor na %@"
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cloud-arbejdsområde på %@"
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-arbejdsområde på %@"
           }
         },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cloud-Arbeitsbereich auf %@"
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Arbeitsbereich auf %@"
           }
         },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Espacio de trabajo en la nube en %@"
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espacio de trabajo en la nube en %@"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Espace de travail Cloud sur %@"
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espace de travail Cloud sur %@"
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Workspace Cloud su %@"
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace Cloud su %@"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "クラウドワークスペース（%@）"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドワークスペース（%@）"
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "កន្លែងធ្វើការលើ Cloud នៅលើ %@"
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការលើ Cloud នៅលើ %@"
           }
         },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@의 Cloud 워크스페이스"
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 Cloud 워크스페이스"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cloud-arbeidsområde på %@"
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-arbeidsområde på %@"
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Obszar roboczy Cloud na %@"
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obszar roboczy Cloud na %@"
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Workspace na nuvem em %@"
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace na nuvem em %@"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Облачное рабочее пространство на %@"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Облачное рабочее пространство на %@"
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "เวิร์กสเปซบนคลาวด์ที่ %@"
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เวิร์กสเปซบนคลาวด์ที่ %@"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ üzerindeki Cloud çalışma alanı"
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ üzerindeki Cloud çalışma alanı"
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Хмарний робочий простір на %@"
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хмарний робочий простір на %@"
           }
         },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 上的云工作区"
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上的云工作区"
           }
         },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 上的雲端工作區"
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上的雲端工作區"
           }
         }
       }
@@ -523724,6 +523790,72 @@
             "state": "translated",
             "value": "—"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "—"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "—"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "—"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "—"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "—"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "—"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "—"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "—"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "—"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "—"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "—"
+          }
         }
       }
     },
@@ -523782,6 +523914,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "スリープ中"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U stanju mirovanja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I dvale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In sospensione"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងដេក"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I dvale"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uśpiona"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Em suspensão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В спящем режиме"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พักการทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uykuda"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У режимі сну"
           }
         }
       }
@@ -523842,6 +524040,72 @@
             "state": "translated",
             "value": "取得不可"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nedostupno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke tilgængelig"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non disponibile"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចប្រើបាន"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilgjengelig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niedostępne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indisponível"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недоступно"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พร้อมใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanılamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недоступно"
+          }
         }
       }
     },
@@ -523901,6 +524165,72 @@
             "state": "translated",
             "value": "測定日時 %@"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uzorkovano %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Målt %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Campionato %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានវាស់ %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Målt %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pomiar: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amostra de %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Замер: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วัดเมื่อ %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ölçüm: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виміряно %@"
+          }
         }
       }
     },
@@ -523959,6 +524289,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "RAM"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ОЗУ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ОЗП"
           }
         }
       }

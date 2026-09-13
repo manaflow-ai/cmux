@@ -1,3 +1,4 @@
+import CmuxCloudMachines
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -31,7 +32,7 @@ struct CloudTreeMachineResourcesTests {
     }
 
     @Test func awakeReadingsUseUtilizationRatherThanProvisionedCapacity() {
-        let resources = CloudTreeMachineResources(machine: machine())
+        let resources = CloudMachineResourcePresentation(machine: machine())
         #expect(resources.cpu.percent == 9.4)
         #expect(resources.memory.percent == 50)
         #expect(resources.disk.percent == 75)
@@ -40,19 +41,9 @@ struct CloudTreeMachineResourcesTests {
         #expect(resources.disk.detail.contains("3/4"))
     }
 
-    @Test func zeroIsARealReadingAndPartialSamplesKeepAllThreeColumns() {
-        let resources = CloudTreeMachineResources(machine: machine(cpu: 0, memoryUsed: nil, diskUsed: 0))
-        #expect(resources.cpu.percent == 0)
-        #expect(resources.memory.percent == nil)
-        #expect(resources.disk.percent == 0)
-        #expect(resources.cpu.value != resources.memory.value)
-        #expect(!resources.memory.label.isEmpty)
-        #expect(!resources.memory.detail.isEmpty)
-    }
-
     @Test(arguments: [VMStats.State.asleep, .unknown])
     func inactiveSamplesNeverPresentOldValuesAsLive(state: VMStats.State) {
-        let resources = CloudTreeMachineResources(machine: machine(state: state))
+        let resources = CloudMachineResourcePresentation(machine: machine(state: state))
         #expect(resources.cpu.percent == nil)
         #expect(resources.memory.percent == nil)
         #expect(resources.disk.percent == nil)
@@ -61,39 +52,16 @@ struct CloudTreeMachineResourcesTests {
     @Test func missingAndUnsupportedStatsDoNotInventZeroUsage() {
         var snapshot = machine()
         snapshot.stats = nil
-        let missing = CloudTreeMachineResources(machine: snapshot)
+        let missing = CloudMachineResourcePresentation(machine: snapshot)
         #expect(missing.cpu.percent == nil)
         #expect(missing.memory.percent == nil)
         #expect(missing.disk.percent == nil)
         snapshot = machine()
         snapshot.capabilities.stats = false
-        let unsupported = CloudTreeMachineResources(machine: snapshot)
+        let unsupported = CloudMachineResourcePresentation(machine: snapshot)
         #expect(unsupported.cpu.percent == nil)
         #expect(unsupported.memory.percent == nil)
         #expect(unsupported.disk.percent == nil)
-    }
-
-    @Test(arguments: [Double.nan, .infinity, -.infinity, -1, 101, .greatestFiniteMagnitude])
-    func malformedCPUIsUnavailableWithoutTrapping(cpu: Double) {
-        let resources = CloudTreeMachineResources(machine: machine(cpu: cpu))
-        #expect(resources.cpu.percent == nil)
-        #expect(!resources.cpu.value.isEmpty)
-        #expect(resources.memory.percent == 50)
-    }
-
-    @Test(arguments: [(0, 0), (2, -1), (-1, 1024)])
-    func invalidCapacityIsUnavailable(counts: (Int, Int)) {
-        let resources = CloudTreeMachineResources(machine: machine(
-            memoryUsed: counts.0, memoryTotal: counts.1, diskUsed: counts.0, diskTotal: counts.1
-        ))
-        #expect(resources.memory.percent == nil)
-        #expect(resources.disk.percent == nil)
-    }
-
-    @Test func capacityCounterRacesStayBounded() {
-        let resources = CloudTreeMachineResources(machine: machine(memoryUsed: 4097, diskUsed: .max))
-        #expect(resources.memory.percent == 100)
-        #expect(resources.disk.percent == 100)
     }
 
     @Test @MainActor func refreshedSnapshotsUpdateReadingsWithoutReplacingRows() throws {
@@ -111,16 +79,16 @@ struct CloudTreeMachineResourcesTests {
             Issue.record("The refresh must retain the machine row")
             return
         }
-        #expect(CloudTreeMachineResources(machine: snapshot).cpu.percent == 83)
-        #expect(CloudTreeMachineRowContent.accessibilityLabel(snapshot).contains("83"))
-        #expect(CloudTreeMachineRowContent.toolTip(snapshot).contains("83"))
+        #expect(CloudMachineResourcePresentation(machine: snapshot).cpu.percent == 83)
+        #expect(CloudTreeMachineRowContent(machine: snapshot).accessibilityLabel.contains("83"))
+        #expect(CloudTreeMachineRowContent(machine: snapshot).toolTip.contains("83"))
     }
 
     @Test @MainActor func everyPresetReservesResourceSpaceAndKeepsNameClear() {
         for style in CloudTreeStyle.presets {
             #expect(style.showsMachineStats)
             #expect(style.machineRowHeight(hasStats: true) >= style.machineNameLineHeight + style.machineResourceHeight)
-            #expect(CloudTreeMachineRowContent.inlineFact(machine(), style: style) == nil)
+            #expect(CloudTreeMachineRowContent(machine: machine(), style: style).inlineFact == nil)
         }
     }
 }

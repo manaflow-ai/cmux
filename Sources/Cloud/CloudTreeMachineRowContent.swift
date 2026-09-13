@@ -1,3 +1,4 @@
+import CmuxCloudMachines
 import CmuxFoundation
 import SwiftUI
 
@@ -27,7 +28,7 @@ struct CloudTreeMachineRowContent: View {
                                 .foregroundStyle(.secondary)
                                 .help(String(localized: "machines.row.default.help", defaultValue: "Default machine for New Cloud Workspace"))
                         }
-                        if let fact = Self.inlineFact(machine, style: style) {
+                        if let fact = inlineFact {
                             Text(fact)
                                 .cmuxFont(size: style.detailSize, design: style.fontDesign)
                                 .foregroundStyle(.secondary)
@@ -37,11 +38,11 @@ struct CloudTreeMachineRowContent: View {
                     }
                     .frame(height: style.machineNameLineHeight)
                     if style.showsMachineStats {
-                        CloudTreeMachineResourceView(metrics: CloudTreeMachineResources(machine: machine), style: style)
+                        CloudTreeMachineResourceView(metrics: CloudMachineResourcePresentation(machine: machine), style: style)
                             .padding(.top, 3)
                     }
                     if style.machineRowLayout == .twoLine {
-                        Text(Self.subtitle(machine))
+                        Text(subtitle)
                             .cmuxFont(size: style.detailSize, design: style.fontDesign)
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
@@ -53,36 +54,38 @@ struct CloudTreeMachineRowContent: View {
             .padding(.vertical, style.machineVerticalPadding)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Self.accessibilityLabel(machine))
+        .accessibilityLabel(accessibilityLabel)
     }
 
-    static func accessibilityLabel(_ machine: MachineSnapshot) -> String {
-        var parts = [machine.displayName, machine.activityLabel, CloudTreeMachineResources(machine: machine).summary]
+    /// Combines this machine's identity, activity, and resource readings for assistive technology.
+    var accessibilityLabel: String {
+        var parts = [machine.displayName, machine.activityLabel, CloudMachineResourcePresentation(machine: machine).summary]
         if machine.isDefault {
             parts.append(String(localized: "machines.row.default.accessibilityLabel", defaultValue: "Default machine"))
         }
         return parts.joined(separator: ", ")
     }
 
-    static func toolTip(_ machine: MachineSnapshot) -> String {
-        var lines = [machine.displayName, machine.activityLabel, CloudTreeMachineResources(machine: machine).summary]
+    /// Expands the row with its sample time, machine details, and optional billing usage.
+    var toolTip: String {
+        var lines = [machine.displayName, machine.activityLabel, CloudMachineResourcePresentation(machine: machine).summary]
         if let stats = machine.stats {
             lines.append(String(
                 format: String(localized: "cloudTree.resources.sampled", defaultValue: "Sampled %@"),
                 stats.sampledAt.formatted(date: .abbreviated, time: .standard)
             ))
         }
-        lines.append(subtitle(machine))
+        lines.append(subtitle)
         lines.append(machine.image)
-        if let usage = machine.usage, let line = usageLine(usage) { lines.append(line) }
+        if let usageLine { lines.append(usageLine) }
         return lines.joined(separator: "\n")
     }
 
     /// "$1.23 · 41K tokens · 30d": coderouter spend over the usage window. Nil
     /// when the machine routed nothing, so an idle machine shows no spend row.
-    static func usageLine(_ usage: MachineUsageSnapshot) -> String? {
-        guard !usage.totals.isEmpty else { return nil }
-        let cost = usdFormatter.string(from: NSNumber(value: usage.totals.apiEquivalentUsd))
+    var usageLine: String? {
+        guard let usage = machine.usage, !usage.totals.isEmpty else { return nil }
+        let cost = Self.usdFormatter.string(from: NSNumber(value: usage.totals.apiEquivalentUsd))
             ?? String(format: "$%.2f", usage.totals.apiEquivalentUsd)
         let tokens = usage.totals.totalTokens.formatted(.number.notation(.compactName).precision(.fractionLength(0...1)))
         let period = String(
@@ -109,7 +112,7 @@ struct CloudTreeMachineRowContent: View {
     /// The two-line layout's second line. Deliberately excludes the free-access
     /// countdown: expiry is plan chrome (the panel header owns it), not a fact
     /// about the machine. "Locked" stays — it explains a dead machine row.
-    static func subtitle(_ machine: MachineSnapshot) -> String {
+    var subtitle: String {
         var parts: [String] = []
         if machine.showsName {
             // Named machines keep their address visible: the id is what CLI
@@ -127,16 +130,15 @@ struct CloudTreeMachineRowContent: View {
     }
 
     /// Locked explains access behavior; resource and billing details have their own homes.
-    static func inlineFact(_ machine: MachineSnapshot, style: CloudTreeStyle) -> String? {
+    var inlineFact: String? {
         machine.freeAccess == .expired
             ? String(localized: "machines.row.locked", defaultValue: "Locked")
             : nil
     }
 
-    static let relativeFormatter: RelativeDateTimeFormatter = {
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter
     }()
 }
-

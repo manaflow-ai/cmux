@@ -1,9 +1,10 @@
+import CmuxCloudMachines
 import CmuxFoundation
 import SwiftUI
 
 /// Equal-width columns prevent changing names or readings from shifting the metrics.
 struct CloudTreeMachineResourceView: View {
-    let metrics: CloudTreeMachineResources
+    let metrics: CloudMachineResourcePresentation
     let style: CloudTreeStyle
 
     var body: some View {
@@ -15,7 +16,7 @@ struct CloudTreeMachineResourceView: View {
         .frame(height: style.machineResourceHeight)
     }
 
-    private func column(_ reading: CloudTreeMachineResources.Reading) -> some View {
+    private func column(_ reading: CloudMachineResourcePresentation.Reading) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(reading.label)
                 .cmuxFont(size: style.detailSize, design: style.fontDesign)
