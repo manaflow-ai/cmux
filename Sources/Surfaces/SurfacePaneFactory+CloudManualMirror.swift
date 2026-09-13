@@ -17,7 +17,8 @@ extension SurfacePaneFactory {
         keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         onResize: @escaping @MainActor @Sendable (TerminalSurfaceRawSizingSample) -> Void,
         onRuntimeReady: @escaping @MainActor @Sendable () -> Void,
-        onFocus: @escaping @MainActor @Sendable () -> Void
+        onFocus: @escaping @MainActor @Sendable () -> Void,
+        attachment: CloudTerminalAttachmentStatus? = nil
     ) throws -> (workspaceID: UUID, panelID: UUID, surface: TerminalSurface) {
         guard let workspace = AppDelegate.shared?.tabManagerFor(tabId: destination.workspaceID)?.tabs.first(where: { $0.id == destination.workspaceID }) else {
             throw SurfaceCatalogError.destinationNotFound(destination.workspaceID.uuidString)
@@ -29,7 +30,8 @@ extension SurfacePaneFactory {
             keyNameResolver: keyNameResolver,
             onResize: onResize,
             onRuntimeReady: onRuntimeReady,
-            onFocus: onFocus
+            onFocus: onFocus,
+            attachment: attachment
         )
     }
 }

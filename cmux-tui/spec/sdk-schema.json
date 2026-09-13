@@ -6661,8 +6661,8 @@
       "nullable": false,
       "constraints": [
        {
-        "pattern": "^[0-9a-f]{32}$",
-        "format": "UUIDv4 hex without dashes"
+        "pattern": "^(term_)?[0-9a-f]{32}$",
+        "format": "terminal host id (UUIDv4 hex without dashes) or public term_ resource id"
        }
       ]
      }

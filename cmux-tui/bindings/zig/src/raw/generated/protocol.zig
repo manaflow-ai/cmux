@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "513863e548c07139778aa74778175088bd58c3c1bfb0e1125f3184d7d63fd970";
+pub const ir_sha256 = "3e8a21a3080c830d3765698c21641715ff9592b480170c4c7e6a7a764d362543";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),

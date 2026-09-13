@@ -132,6 +132,11 @@
     "expiredBody": "{machine} とその中身は無事です。このリンクのセッションだけが終了しました。cmux でマシンを右クリックし、「デスクトップを開く」から新しく開き直してください。"
   },
   "vmErrors": {
+    "artifactUnavailable": {
+      "title": "Cloud VM のセットアップを利用できません",
+      "message": "Cloud VM のセットアップを一時的に利用できません。",
+      "action": "しばらくしてから再試行してください。問題が続く場合はサポートにお問い合わせください。"
+    },
     "unsupported": {
       "title": "Cloud VM 操作を利用できません",
       "reason": "このマシン種別ではこの操作を利用できません。",
