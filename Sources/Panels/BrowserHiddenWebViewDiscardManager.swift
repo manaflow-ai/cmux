@@ -62,6 +62,7 @@ final class BrowserHiddenWebViewDiscardManager {
             isReactGrabActive: Bool,
             isDesignModeActive: Bool = false,
             isVisualAutomationCaptureActive: Bool,
+            isMobileBrowserStreamActive: Bool = false,
             hasPopups: Bool,
             isCapturingMedia: Bool,
             isPlayingMedia: Bool
@@ -83,6 +84,7 @@ final class BrowserHiddenWebViewDiscardManager {
             self.isReactGrabActive = isReactGrabActive
             self.isDesignModeActive = isDesignModeActive
             self.isVisualAutomationCaptureActive = isVisualAutomationCaptureActive
+            self.isMobileBrowserStreamActive = isMobileBrowserStreamActive
             self.hasPopups = hasPopups
             self.isCapturingMedia = isCapturingMedia
             self.isPlayingMedia = isPlayingMedia
