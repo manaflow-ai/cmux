@@ -358,7 +358,7 @@ extension Workspace {
            !isRemoteTmuxControlContainer(surfaceID) {
             return true
         }
-        focusedTerminalInputTarget()?.surfaceID == surfaceID
+        return focusedTerminalInputTarget()?.surfaceID == surfaceID
     }
 
     /// Resolves the selected terminal target. A mirror container projects its
