@@ -93,11 +93,15 @@ extension Workspace {
         guard let provider = catalog.provider(for: resource.machine) else { return false }
         let remoteWorkspaceID = catalog.cloudPlacementCoordinator.creationWorkspaceID(in: id, near: resource, preferredRemoteWorkspaceID: preferredRemoteWorkspaceID)
         let machine = resource.machine
-        cloudPaneCreationFailureStore.clear()
+        let requestID = cloudPaneCreationFailureStore.beginRequest()
         let sourceProjection = sourcePanelID.flatMap { catalog.projection(forPanel: $0) }
         if remoteWorkspaceID == nil, sourceProjection?.remoteTabID == nil {
             Task { @MainActor in
-                self.presentCloudPaneCreationFailure(machine: machine, error: SurfaceCatalogError.ambiguousRemotePlacement(resource.id, workspaceID: ""))
+                self.presentCloudPaneCreationFailure(
+                    machine: machine,
+                    error: SurfaceCatalogError.ambiguousRemotePlacement(resource.id, workspaceID: ""),
+                    requestID: requestID
+                )
             }
             return true
         }
@@ -196,7 +200,7 @@ extension Workspace {
                     let created = try await create()
                     _ = try await project(created)
                 } catch {
-                    self.presentCloudPaneCreationFailure(machine: machine, error: error)
+                    self.presentCloudPaneCreationFailure(machine: machine, error: error, requestID: requestID)
                 }
             }
         }
@@ -205,11 +209,11 @@ extension Workspace {
 
     /// Publishes a non-modal failure card for a cloud terminal request.
     @MainActor
-    func presentCloudPaneCreationFailure(machine: SurfaceMachineID, error: Error) {
+    func presentCloudPaneCreationFailure(machine: SurfaceMachineID, error: Error, requestID: UUID) {
         #if DEBUG
         cmuxDebugLog("cloud.pane.createFailed machine=\(machine.rawValue) error=\(String(reflecting: error))")
         #endif
-        cloudPaneCreationFailureStore.present(machine: machine, error: error)
+        cloudPaneCreationFailureStore.present(machine: machine, error: error, requestID: requestID)
     }
 
 }

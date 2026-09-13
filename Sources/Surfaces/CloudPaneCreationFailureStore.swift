@@ -6,9 +6,19 @@ import Observation
 @Observable
 final class CloudPaneCreationFailureStore {
     private(set) var failure: CloudPaneCreationFailure?
+    private var activeRequestID: UUID?
+
+    /// Starts a request and invalidates failures from every older request.
+    func beginRequest() -> UUID {
+        let requestID = UUID()
+        activeRequestID = requestID
+        failure = nil
+        return requestID
+    }
 
     /// Publishes a newly formatted failure, replacing any older card for this workspace.
-    func present(machine: SurfaceMachineID, error: Error) {
+    func present(machine: SurfaceMachineID, error: Error, requestID: UUID) {
+        guard activeRequestID == requestID else { return }
         failure = CloudPaneCreationFailure(machine: machine, error: error)
     }
 
@@ -16,10 +26,6 @@ final class CloudPaneCreationFailureStore {
     func dismiss(id: UUID) {
         guard failure?.id == id else { return }
         failure = nil
-    }
-
-    /// Clears a previous failure before a new creation request begins.
-    func clear() {
-        failure = nil
+        activeRequestID = nil
     }
 }

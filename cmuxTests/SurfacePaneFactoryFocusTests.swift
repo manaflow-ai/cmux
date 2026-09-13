@@ -135,6 +135,20 @@ import Testing
         #expect(workspace.cloudPaneCreationFailureStore.failure == nil)
     }
 
+    /// Ensures a suspended older request cannot replace a newer request's failure.
+    @Test("Superseded cloud pane failures are ignored")
+    func supersededCloudPaneFailureDoesNotReplaceCurrentRequest() throws {
+        let store = CloudPaneCreationFailureStore()
+        let first = store.beginRequest()
+        let second = store.beginRequest()
+        let error = NSError(domain: "CloudPaneCreationFailureTests", code: 1)
+
+        store.present(machine: .cloud("old"), error: error, requestID: first)
+        #expect(store.failure == nil)
+        store.present(machine: .cloud("new"), error: error, requestID: second)
+        #expect(store.failure?.machine == .cloud("new"))
+    }
+
     @Test("Cloud process cwd parsing ignores the recorded spawn directory")
     func cloudProcessCwdParsingIgnoresSpawnDirectory() {
         #expect(CloudTuiCommandLine.processInfoArguments(socketPath: "/tmp/cloud.sock", terminalID: "term-source") == [
