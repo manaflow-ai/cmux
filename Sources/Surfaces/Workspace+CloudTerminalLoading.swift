@@ -1,10 +1,11 @@
+import Bonsplit
 import Foundation
 
 extension Workspace {
     /// Ends the Cloud workspace handoff after the first presented frame of the
     /// replacement terminal, keeping the loader over blank runtime surfaces.
     @MainActor
-    func beginCloudTerminalStartupLoading(panel: TerminalPanel, tabID: UUID) {
+    func beginCloudTerminalStartupLoading(panel: TerminalPanel, tabID: TabID) {
         let setLoading: @MainActor (Bool) -> Void = { [weak self, weak panel] loading in
             guard let self, let panel,
                   let current = self.panels[panel.id] as? TerminalPanel,
@@ -25,9 +26,12 @@ extension Workspace {
         }
         panel.cloudStartupReadiness.begin(
             surface: panel.surface,
-            condition: {
-                guard let attachment = panel.cloudAttachment else { return true }
-                return attachment.state == .attached
+            condition: { [weak panel] in
+                guard let panel else { return false }
+                if let attachment = panel.cloudAttachment {
+                    return attachment.state == .attached
+                }
+                return panel.surface.hasLiveSurface && panel.surface.isRendererEffectivelyVisible
             },
             onReady: { setLoading(false) },
             onEnded: { setLoading(false) },

@@ -91,6 +91,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         var resource: SurfaceResource
         var receipt: CloudVMCursor?
         let tabID: String?
+        var generationMismatchSince: Date?
     }
     var pendingRemoteCreations: [SurfaceResourceID: PendingRemoteCreation] = [:]
     /// Rename receipts are transient read-your-write fences. They are keyed by
@@ -865,7 +866,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         pendingRemoteCreations[resource.id] = PendingRemoteCreation(
             resource: resource,
             receipt: created.cursor,
-            tabID: created.tabID
+            tabID: created.tabID,
+            generationMismatchSince: nil
         )
         catalog.upsert(resource, from: self)
         publishPendingMutationMetadata()
