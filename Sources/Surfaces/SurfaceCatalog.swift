@@ -1160,9 +1160,10 @@ final class SurfaceCatalog {
     /// A pane went away. Remote resources live on; a pane closed on purpose inside a
     /// mirrored workspace also closes its machine tab (`CloudPlacementCoordinator`).
     func endProjections(panelID: UUID, reason: SurfaceProjectionEndReason = .paneClosed) {
-        if pendingRestoredProjections.remove(panelID: panelID) { cloudProjectionIndexDirty = true }
+        let removedPending = pendingRestoredProjections.remove(panelID: panelID)
+        if removedPending { cloudProjectionIndexDirty = true }
         let ended = projections.filter { $0.panelID == panelID }
-        guard !ended.isEmpty else { return }
+        guard !ended.isEmpty || removedPending else { return }
         projections.subtract(ended)
         for projection in ended {
             cloudPlacementCoordinator.projectionDidEnd(projection, reason: projectionEndReasons[panelID] ?? reason, catalog: self)
@@ -1324,9 +1325,7 @@ final class SurfaceCatalog {
                     remoteTabID: $0.remoteTabID
                 )
             }
-        let pending = pendingRestoredProjections.records(for: workspaceID)
-        records.removeAll { live in pending.contains { pending in pending.panelID == live.panelID } }
-        records.append(contentsOf: pending)
+        pendingRestoredProjections.mergeRecords(into: &records, for: workspaceID)
         return records.sorted { $0.panelID.uuidString < $1.panelID.uuidString }
     }
 
