@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import Foundation
 import Testing
 import struct CmuxSettings.AppCatalogSection
@@ -88,7 +89,7 @@ struct TerminalLinkLocationAndDockTests {
         // Dock callbacks carry a surface identity. Keep an alias in the Dock's
         // tab-to-panel index to exercise resolution when those identities do
         // not equal the panel dictionary key.
-        let callbackSurfaceId = UUID()
+        let callbackSurfaceId = TabID()
         store.bindSurface(callbackSurfaceId, toPanelId: terminalPanel.id)
         #expect(store.surfaceIdToPanelId[callbackSurfaceId] == terminalPanel.id)
 
@@ -106,7 +107,7 @@ struct TerminalLinkLocationAndDockTests {
         #expect(coordinator.open(TerminalLinkOpenRequest(
             rawValue: url.absoluteString,
             sourceWorkspaceId: workspaceId,
-            sourcePanelId: callbackSurfaceId,
+            sourcePanelId: callbackSurfaceId.uuid,
             workingDirectory: baseDirectory
         )))
 
