@@ -2,7 +2,6 @@ import CMUXMobileCore
 internal import CmuxMobileDiagnostics
 import CmuxMobileShellModel
 public import Foundation
-
 extension MobileShellComposite {
     func claimTerminalReplayBarrierFollowUp(surfaceID: String) -> Bool {
         let followUpCount = terminalReplayBarrierFollowUpCountsBySurfaceID[surfaceID] ?? 0
@@ -16,7 +15,6 @@ extension MobileShellComposite {
         terminalReplayBarrierFollowUpCountsBySurfaceID[surfaceID] = followUpCount + 1
         return true
     }
-
     func recordTerminalRenderGridDelivery(_ renderGrid: MobileTerminalRenderGridFrame) {
         // The toolbar observes this dictionary via `isAlternateScreen`; same-value
         // writes would re-fire observers for every delivered render-grid frame.
@@ -34,7 +32,6 @@ extension MobileShellComposite {
             terminalAlternateRenderGridBaselineSurfaceIDs.remove(renderGrid.surfaceID)
         }
     }
-
     /// Record the screen-anchor history that the next live delta must link to.
     func recordTerminalRenderGridHistoryContinuity(
         _ renderGrid: MobileTerminalRenderGridFrame
@@ -422,11 +419,14 @@ extension MobileShellComposite {
                 revision: terminalThemeState.revisionsBySurfaceID[frame.surfaceID]
             )
         }
+        // Capture admission before continuity advances; queued deltas retain it.
+        let requiresVerifiedReplay = requiresVerifiedReplayApplication(for: deliveryFrame)
         return deliverTerminalOutput(
             TerminalOutputDelivery(
                 renderGrid: deliveryFrame,
                 replaceable: deliveryFrame.isReplaceableViewportPatchForMobileDelivery,
-                viewportPolicy: deliveryFrame.mobileViewportPolicy
+                viewportPolicy: deliveryFrame.mobileViewportPolicy,
+                requiresVerifiedReplay: requiresVerifiedReplay
             ),
             surfaceID: surfaceID,
             bypassReplayBarrier: bypassReplayBarrier
@@ -484,7 +484,7 @@ extension MobileShellComposite {
                 // Full replacements remain behind verified replay after a
                 // barrier failure. Streaming deltas stay on the direct queue
                 // so sustained output does not wait on a GPU fence.
-                guard !requiresVerifiedReplayApplication(for: delivery) else { return false }
+                guard !delivery.requiresVerifiedReplay else { return false }
                 return deliverTerminalOutput(delivery, surfaceID: surfaceID, bypassReplayBarrier: true)
             }
             if remoteClient != nil,
@@ -524,7 +524,7 @@ extension MobileShellComposite {
                     viewportPolicy: immediate.viewportPolicy,
                     sourceRenderGridFrame: immediate.sourceRenderGridFrame,
                     endSequence: immediate.endSequence,
-                    requiresVerifiedReplay: requiresVerifiedReplayApplication(for: immediate),
+                    requiresVerifiedReplay: immediate.requiresVerifiedReplay,
                     terminalConfigTheme: immediate.terminalConfigTheme
                 )
             )
@@ -653,7 +653,7 @@ extension MobileShellComposite {
             viewportPolicy: next.viewportPolicy,
             sourceRenderGridFrame: next.sourceRenderGridFrame,
             endSequence: next.endSequence,
-            requiresVerifiedReplay: requiresVerifiedReplayApplication(for: next),
+            requiresVerifiedReplay: next.requiresVerifiedReplay,
             terminalConfigTheme: next.terminalConfigTheme
         ))
     }

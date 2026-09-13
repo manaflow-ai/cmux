@@ -2,9 +2,7 @@ import CmuxTerminal
 import CmuxCore
 import Foundation
 import os
-
 nonisolated let manualMirrorLogger = Logger(subsystem: "com.cmuxterm.app", category: "CloudManualMirror")
-
 /// Owns one native attachment between a remote cmux-tui PTY and a local surface.
 @MainActor
 final class CloudTuiManualMirrorSession {
@@ -472,7 +470,7 @@ final class CloudTuiManualMirrorSession {
             diagnosticReplayReceived = true
             if firstReplay { startupTrace?.mark("first-replay-applied", surfaceID: remoteSurfaceID) }
             presentationReadiness.check()
-            refreshSurfaceAfterReplayIfNeeded()
+            if hasReceivedRemoteReplay, phase == .attached, let surface, surface.isNativeViewInRealWindow, surface.isRendererPortalVisible { surface.hostedView.refreshSurfaceNow(reason: "cloud.manualMirror.replay") }
             if phase == .attached { finishDiagnostics() }
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
             reconcileRemoteGrid()
@@ -492,7 +490,7 @@ final class CloudTuiManualMirrorSession {
             diagnosticReplayReceived = true
             if firstReplay { startupTrace?.mark("first-replay-applied", surfaceID: remoteSurfaceID, outcome: "resized") }
             presentationReadiness.check()
-            refreshSurfaceAfterReplayIfNeeded()
+            if hasReceivedRemoteReplay, phase == .attached, let surface, surface.isNativeViewInRealWindow, surface.isRendererPortalVisible { surface.hostedView.refreshSurfaceNow(reason: "cloud.manualMirror.replay") }
             if phase == .attached { finishDiagnostics() }
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
             reconcileRemoteGrid()
@@ -541,20 +539,6 @@ final class CloudTuiManualMirrorSession {
         appliedRemoteColors = colors
         guard !delta.isEmpty else { return }
         surface?.processRemoteOutput(delta)
-    }
-
-    /// Refreshes the hosted renderer after replay bytes reach the local parser.
-    /// The socket event is already delivered on MainActor, so the portal can
-    /// synchronously reconcile its current layout and request a drawable without
-    /// adding a second run-loop owner for presentation readiness.
-    private func refreshSurfaceAfterReplayIfNeeded() {
-        guard hasReceivedRemoteReplay,
-              phase == .attached,
-              let surface,
-              surface.isNativeViewInRealWindow,
-              surface.isRendererPortalVisible else { return }
-        manualMirrorLogger.notice("replay.redraw terminal=\(self.terminalID, privacy: .private(mask: .hash)) surface=\(self.remoteSurfaceID)")
-        surface.hostedView.refreshSurfaceNow(reason: "cloud.manualMirror.replay")
     }
 
     func transitionToDisconnected(reason: CloudTerminalAttachmentInterruption) {
