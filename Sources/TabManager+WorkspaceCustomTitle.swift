@@ -33,6 +33,10 @@ extension TabManager {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return false }
         let previousCustomTitle = tabs[index].customTitle
         let previousSource = tabs[index].effectiveCustomTitleSource
+        if propagateToCloud, source != .remote,
+           let submitted = catalog.submitCloudWorkspaceRename(
+               workspace: tabs[index], title: title, source: source
+           ) { return submitted }
         let previousDisplayTitle = resolvedWorkspaceDisplayTitle(for: tabs[index])
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let applied = tabs[index].setCustomTitle(title, source: source)

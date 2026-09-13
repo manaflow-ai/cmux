@@ -76,7 +76,11 @@ extension CloudWorkspaceRenameService {
                 if let pending = catalog.pendingCloudRenameName(for: key), pending != remote.name { continue }
                 // Equal confirmations preserve user/agent provenance across refresh.
                 // A different accepted explicit rename belongs to the daemon.
-                guard workspace.customTitle != remote.name else { continue }
+                if workspace.customTitle == remote.name, workspace.effectiveCustomTitleSource == .user { continue }
+                // Submission returns before local title setters run. Pending names
+                // are request metadata, not accepted UI values; both projections
+                // keep rendering this graph until the daemon acknowledges a write.
+                guard workspace.customTitle != remote.name || workspace.effectiveCustomTitleSource != .remote else { continue }
                 let manager = workspace.owningTabManager ?? environment.tabManager(workspace.id)
                 _ = manager?.setCustomTitle(tabId: workspace.id, title: remote.name, source: .remote,
                                            propagateToRemoteTmux: false, propagateToCloud: false)
@@ -95,6 +99,10 @@ extension CloudWorkspaceRenameService {
             let key = CloudRenameCoordinator.Key.tab(machine: machine, id: tabID)
             if let pending = catalog.pendingCloudRenameName(for: key), pending != (tab.name ?? "") { continue }
             guard workspace.panelCustomTitles[projection.panelID] != tab.name else { continue }
+            if workspace.panelCustomTitles[projection.panelID] == tab.name,
+               workspace.panelCustomTitleSources[projection.panelID] == .user { continue }
+            guard workspace.panelCustomTitles[projection.panelID] != tab.name
+                    || (tab.name != nil && workspace.panelCustomTitleSources[projection.panelID] != .remote) else { continue }
             _ = workspace.setPanelCustomTitle(panelId: projection.panelID, title: tab.name, source: .remote,
                                                propagateToRemoteTmux: false, propagateToCloud: false)
         }

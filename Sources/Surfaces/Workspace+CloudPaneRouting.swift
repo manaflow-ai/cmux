@@ -47,16 +47,17 @@ final class CloudWorkspaceRenameService {
     func inferredRemoteWorkspaceTarget(
         projections: [SurfaceProjection],
         resources: [SurfaceResource],
-        resourcesByID indexedResources: [SurfaceResourceID: SurfaceResource]? = nil
+        resourcesByID: [SurfaceResourceID: SurfaceResource]? = nil
     ) -> (machine: SurfaceMachineID, remoteWorkspaceID: String)? {
         guard !projections.isEmpty else { return nil }
-        let resourcesByID = indexedResources ?? Dictionary(
-            resources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }
+        let resourceIndex = resourcesByID ?? Dictionary(
+            resources.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
         )
         var targets = Set<CloudWorkspaceRemoteIdentity>()
         for projection in projections {
             guard !projection.resource.machine.isLocal,
-                  let resource = resourcesByID[projection.resource] else { return nil }
+                  let resource = resourceIndex[projection.resource] else { return nil }
             let remoteID: String?
             if let explicit = projection.remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines),
                !explicit.isEmpty {
@@ -137,21 +138,6 @@ final class CloudWorkspaceRenameService {
         }
         guard seen.count == 1, let found else { return nil }
         return (found.0, found.1)
-    }
-
-    /// The daemon-side name for a local title. Legacy projection fallback titles carry
-    /// a generated "<machine>: " prefix; a bound workspace preserves the exact user text.
-    func remoteName(
-        fromLocalTitle title: String,
-        machine: SurfaceMachineID,
-        stripGeneratedPrefix: Bool = true
-    ) -> String? {
-        var name = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let prefix = "\(machine.rawValue): "
-        if stripGeneratedPrefix, name.hasPrefix(prefix) {
-            name = String(name.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        return name.isEmpty ? nil : name
     }
 
     /// Resolves the daemon tab represented by one local projection. An explicit
