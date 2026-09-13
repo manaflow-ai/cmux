@@ -75,7 +75,9 @@ final class CloudTreeNode: NSObject {
     }
 
     var isExpandable: Bool { !children.isEmpty }
-
+    var contentSnapshot: CloudTreeNodeContentSnapshot {
+        .init(id: id, kind: kind, explicitDragGroup: explicitDragGroup)
+    }
     /// The case of `kind` without its payload: what decides row height, menus,
     /// expandability and drag-ability. Two trees with equal structure signatures
     /// can be updated in place; a content-only change never needs `reloadData`.
@@ -1164,8 +1166,7 @@ enum CloudTreeNodeBuilder {
         )
     }
 
-    /// Depth-first flattening in display order (every node expanded); used by
-    /// tests and by quick-search.
+    /// Depth-first display order, including collapsed descendants.
     static func flattened(_ nodes: [CloudTreeNode]) -> [CloudTreeNode] {
         nodes.flatMap { [$0] + flattened($0.children) }
     }
@@ -1175,9 +1176,8 @@ enum CloudTreeNodeBuilder {
         flattened(nodes).map { "\($0.id)|\($0.structureTag)|\($0.children.count)" }
     }
 
-    /// Everything a row displays — a change here with an equal structure signature is
-    /// applied to the existing rows in place.
-    static func contentSignature(_ nodes: [CloudTreeNode]) -> [String] {
-        flattened(nodes).map { "\($0.id)|\(String(describing: $0.kind))|\(String(describing: $0.dragGroup))" }
+    /// Typed content includes action payloads as well as displayed values.
+    static func contentSignature(_ nodes: [CloudTreeNode]) -> [CloudTreeNodeContentSnapshot] {
+        flattened(nodes).map(\.contentSnapshot)
     }
 }
