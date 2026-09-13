@@ -234,6 +234,9 @@ enum ClaudeHookLiveDeliveryHarness {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        let exitSignal = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exitSignal.signal() }
+
         do {
             try process.run()
         } catch {
@@ -242,15 +245,10 @@ enum ClaudeHookLiveDeliveryHarness {
         stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
         try? stdinPipe.fileHandleForWriting.close()
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
         let timedOut = exitSignal.wait(timeout: .now() + processWallBound) == .timedOut
         if timedOut {
             process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
+            if exitSignal.wait(timeout: .now() + 1) == .timedOut, process.isRunning {
                 kill(process.processIdentifier, SIGKILL)
                 _ = exitSignal.wait(timeout: .now() + 1)
             }

@@ -45,9 +45,7 @@ extension Workspace {
         )
     }
 
-    /// Routes a bonsplit UI split (the pane-divider split button) whose source pane
-    /// projects a cloud resource: the already-created empty pane receives the machine's
-    /// new terminal as its first tab. Returns false when the source is not cloud-anchored.
+    /// Routes a bonsplit UI split whose source pane projects a cloud resource.
     func routeCloudPaneUISplit(from sourcePanelID: UUID, into newPane: PaneID) -> Bool {
         guard let resource = cloudProjectedResource(forPanel: sourcePanelID) else { return false }
         return routeCloudPaneTerminalCreate(
@@ -84,8 +82,9 @@ extension Workspace {
         let machine = resource.machine
         Task { @MainActor in
             do {
+                let workingDirectory = await provider.currentWorkingDirectory(of: resource)
                 let created = try await provider.createTerminal(
-                    command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID
+                    command: nil, cwd: workingDirectory, name: nil, remoteWorkspaceID: remoteWorkspaceID
                 )
                 _ = try await catalog.project(
                     created.id,
