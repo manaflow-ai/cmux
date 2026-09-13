@@ -2157,9 +2157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let hasOwnedRuntimeCleanup = !markedForKill.isEmpty
             || !simulatorCleanupTasks.isEmpty
             || hasSudoApprovalRuntime
-        guard !markedForKill.isEmpty
-                || !simulatorCleanupTasks.isEmpty
-                || hasSudoApprovalRuntime else {
+        guard hasOwnedRuntimeCleanup || CloudNotificationSyncHub.shared.persistenceStore.hasPendingWrites else {
             return false
         }
         if !isAwaitingTerminateCleanup {
@@ -2209,6 +2207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
                 )
                 ClosedItemHistoryStore.shared.flushPendingSaves()
+                await CloudNotificationSyncHub.shared.persistenceStore.drain()
                 self.terminationWatchdog.arm()
                 self.replyToTerminateOnce(true)
             }
@@ -9407,7 +9406,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             destination: CloudWorkspaceGroupDestination(
                 tabManager: context.tabManager,
                 groupId: workspaceGroupTarget?.groupId,
-                placement: workspaceGroupTarget?.placement ?? context.tabManager.defaultNewWorkspacePlacementInGroup,
+                placement: workspaceGroupTarget?.placement ?? .end,
                 referenceWorkspaceId: workspaceGroupTarget?.referenceWorkspaceId,
                 initialWorkspaceId: initialWorkspaceId
             )
