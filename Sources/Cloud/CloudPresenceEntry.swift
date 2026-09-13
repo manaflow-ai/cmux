@@ -52,7 +52,7 @@ enum CloudPresenceAnchor: Equatable, Sendable {
         return Int(shifted)
     }
 
-    fileprivate func shiftedRow(viewerScrollOffset: UInt64) -> Int64? {
+    func shiftedRow(viewerScrollOffset: UInt64) -> Int64? {
         guard case let .cell(row, _, publisherOffset) = self,
               let row = Int64(exactly: row),
               let viewerOffset = Int64(exactly: viewerScrollOffset),
