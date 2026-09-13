@@ -46,10 +46,11 @@ final class CloudWorkspaceRenameService {
     /// is no honest remote owner for its title, and guessing would rename the wrong VM.
     func inferredRemoteWorkspaceTarget(
         projections: [SurfaceProjection],
-        resources: [SurfaceResource]
+        resources: [SurfaceResource],
+        resourcesByID indexedResources: [SurfaceResourceID: SurfaceResource]? = nil
     ) -> (machine: SurfaceMachineID, remoteWorkspaceID: String)? {
         guard !projections.isEmpty else { return nil }
-        let resourcesByID = Dictionary(
+        let resourcesByID = indexedResources ?? Dictionary(
             resources.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
