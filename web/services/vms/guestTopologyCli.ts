@@ -67,6 +67,7 @@ guest_workspace_close() {
     cmux_wc_arg="\$1"; shift
     cmux_wc_remaining=\$((cmux_wc_remaining - 1))
     case "\$cmux_wc_arg" in
+      --help|-h) cmux_message topologyHelp; exit 0 ;;
       --idempotency-key|--expected-revision|--socket|--session|--machine)
         # An option's value can itself resemble a compatibility option.
         # Keep that pair opaque and let the daemon validate its value.

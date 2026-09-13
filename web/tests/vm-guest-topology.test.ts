@@ -231,6 +231,16 @@ test("workspace close normalizes selector-first and safe host-compatible forms",
 });
 
 for (const peer of [false, true]) describe(`guest workspace close contract (peer=${peer})`, () => {
+  test("close help does not require a target or invoke the daemon", async () => {
+    const f = await fixture(peer);
+    try {
+      const result = f.run(["workspace", "close", "--help"]);
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("workspace close --workspace <selector>");
+      expect(f.calls()).toEqual([]);
+    } finally { await f.cleanup(); }
+  });
+
   test.each(["--focus", "--workspace"])("preserves option-like idempotency keys (%s)", async key => {
     const f = await fixture(peer);
     try {
