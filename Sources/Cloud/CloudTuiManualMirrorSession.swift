@@ -1,6 +1,5 @@
 import CmuxTerminal
 import CmuxCore
-import Bonsplit
 import Foundation
 import os
 
@@ -146,8 +145,7 @@ final class CloudTuiManualMirrorSession {
         }
         self.surface = surface
         if let workspace = surface.owningWorkspace(),
-           let panelID = workspace.panelIdFromSurfaceId(TabID(uuid: surface.tabId)),
-           let panel = workspace.panels[panelID] as? TerminalPanel {
+           let panel = workspace.panels[surface.id] as? TerminalPanel {
             presentationReadiness = panel.cloudStartupReadiness
         }
         surface.hostedView.cloudTerminalOverlay.session = self

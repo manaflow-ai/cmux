@@ -24,13 +24,15 @@ extension CmuxTuiSurfaceProvider {
         // this function leaves a blank Bonsplit slot or delays the user's split entirely. The
         // attachment owner resolves the numeric id after registration and keeps the loading
         // presentation alive until replay and a presented frame arrive.
-        let preferredWorkspaceID = resource.remoteWorkspace?.id
+        let selectedRemoteView = remoteTabID.flatMap { tabID in
+            resource.remoteViews?.first(where: { $0.tabID == tabID })
+        }
+        let preferredWorkspaceID = selectedRemoteView?.workspace.id ?? resource.remoteWorkspace?.id
             ?? catalog.cloudPlacementCoordinator.boundRemoteWorkspaceID(
                 forLocalWorkspace: destination.workspaceID, on: machine
             )
-        let initialPlacement: SurfaceRemotePlacement? = remoteTabID.flatMap { tabID in
-            guard let preferredWorkspaceID else { return nil }
-            return SurfaceRemotePlacement(workspaceID: preferredWorkspaceID, tabID: tabID)
+        let initialPlacement = selectedRemoteView.map {
+            SurfaceRemotePlacement(workspaceID: $0.workspace.id, tabID: $0.tabID)
         }
         let startupTrace = CloudTerminalStartupTrace(
             machineID: machineID,

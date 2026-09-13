@@ -82,6 +82,10 @@ final class CloudTerminalReadiness {
         deadlineTask = Task { @MainActor [weak self, clock = self.clock, deadline = self.deadline] in
             do { try await clock.sleep(for: deadline) } catch { return }
             guard let self, self.phase == .waiting else { return }
+            if self.surface?.isRendererEffectivelyVisible == false {
+                self.rearm()
+                return
+            }
             self.onTimedOut?()
             self.end()
         }
@@ -102,6 +106,10 @@ final class CloudTerminalReadiness {
         deadlineTask = Task { @MainActor [weak self, clock = self.clock, deadline = self.deadline] in
             do { try await clock.sleep(for: deadline) } catch { return }
             guard let self, self.phase == .waiting else { return }
+            if self.surface?.isRendererEffectivelyVisible == false {
+                self.rearm()
+                return
+            }
             self.onTimedOut?()
             self.end()
         }
