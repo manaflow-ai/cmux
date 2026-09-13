@@ -910,7 +910,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 self?.actions?.onOpenPullRequest(pr.url)
             }
         }
-        let ports = settings.visibleAuxiliaryDetails.showsPorts ? snapshot.listeningPorts : []
+        let allPorts = settings.visibleAuxiliaryDetails.showsPorts ? snapshot.listeningPorts : []
+        let maxDisplayPorts = 5
+        let ports = Array(allPorts.prefix(maxDisplayPorts))
         Self.pool(&portButtons, count: ports.count, parent: contentContainer) { SidebarRowLinkButton() }
         for (index, port) in ports.enumerated() {
             portButtons[index].configure(

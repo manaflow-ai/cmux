@@ -622,8 +622,12 @@ extension PortScanner {
                 guard portText.allSatisfy(\.isNumber),
                       let port = Int(portText),
                       port > 0,
-                      port <= 65_535 else {
-                    parseIncompletePIDs.insert(currentPID)
+                      port < 49_152 else {
+                    // Ignore invalid ports and ephemeral/dynamic port range (49152..65535)
+                    // which are typically OS ephemeral sockets or internal agent IPC/RPC listeners.
+                    if let port = Int(portText), (port <= 0 || port > 65_535) {
+                        parseIncompletePIDs.insert(currentPID)
+                    }
                     continue
                 }
                 portsByPID[currentPID, default: []].insert(port)
