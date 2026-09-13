@@ -143,11 +143,31 @@ test("GUI mode cancellation uses the native bridge", async () => {
     },
   };
   try {
-    await expect(cancelGuiModeSubmit("gui-test-request")).resolves.toBeUndefined();
+    await expect(cancelGuiModeSubmit("gui-test-request")).resolves.toEqual({ cancelled: true });
     expect(postedMessages).toHaveLength(1);
     expect(postedMessages[0]).toMatchObject({
       method: "guiMode.cancel",
       params: { requestId: "gui-test-request" },
+    });
+  } finally {
+    restoreGlobals();
+    dom.window.close();
+  }
+});
+
+test("GUI mode cancellation rejects a false native acknowledgement", async () => {
+  const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "file:///tmp/gui-mode.html" });
+  const restoreGlobals = installDomGlobals(dom);
+  (dom.window as any).webkit = {
+    messageHandlers: {
+      agentSession: {
+        postMessage: () => Promise.resolve({ ok: true, value: { cancelled: false } }),
+      },
+    },
+  };
+  try {
+    await expect(cancelGuiModeSubmit("gui-late-request")).rejects.toMatchObject({
+      code: "cancellationNotConfirmed",
     });
   } finally {
     restoreGlobals();

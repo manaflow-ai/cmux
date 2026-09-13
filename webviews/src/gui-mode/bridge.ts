@@ -1,4 +1,4 @@
-import { callNative } from "../agent-session/shared/bridge";
+import { callNative, NativeBridgeError } from "../agent-session/shared/bridge";
 
 export type GuiModeCopy = {
   cancel: string;
@@ -80,8 +80,12 @@ export async function submitGuiModePrompt(
   );
 }
 
-export async function cancelGuiModeSubmit(requestId: string): Promise<void> {
-  await callNativeWithTimeout("guiMode.cancel", { requestId }, 3000);
+export async function cancelGuiModeSubmit(requestId: string): Promise<{ cancelled: true }> {
+  const result = await callNativeWithTimeout<{ cancelled?: boolean }>("guiMode.cancel", { requestId }, 3000);
+  if (result.cancelled !== true) {
+    throw new NativeBridgeError("Native cancellation was not accepted.", "cancellationNotConfirmed");
+  }
+  return { cancelled: true };
 }
 
 export function makeGuiModeRequestId(): string {
