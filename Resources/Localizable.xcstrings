@@ -125880,6 +125880,72 @@
             "state": "translated",
             "value": "머신이 연결되어 있는지 확인한 다음 Cmd+D 또는 Cmd+T를 다시 시도하세요."
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provjerite je li mašina povezana, a zatim ponovo pokušajte Cmd+D ili Cmd+T."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrollér, at maskinen er tilsluttet, og prøv derefter Cmd+D eller Cmd+T igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verifica che la macchina sia connessa, quindi riprova con Cmd+D o Cmd+T."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពិនិត្យ​ម៉ាស៊ីន​ថា​បាន​តភ្ជាប់ រួច​សាកល្បង Cmd+D ឬ Cmd+T ម្តងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontroller at maskinen er tilkoblet, og prøv Cmd+D eller Cmd+T igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sprawdź, czy komputer jest połączony, a następnie spróbuj ponownie użyć Cmd+D lub Cmd+T."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verifique se a máquina está conectada e tente Cmd+D ou Cmd+T novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Убедитесь, что компьютер подключён, затем повторите попытку с Cmd+D или Cmd+T."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรวจสอบว่าเครื่องเชื่อมต่ออยู่ แล้วลอง Cmd+D หรือ Cmd+T อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Makinenin bağlı olduğunu kontrol edin, ardından Cmd+D veya Cmd+T tuşlarına tekrar basın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перевірте підключення комп’ютера, а потім знову спробуйте Cmd+D або Cmd+T."
+          }
         }
       }
     },
@@ -125938,6 +126004,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "머신에서 알 수 없는 오류를 반환했습니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mašina je vratila nepoznatu grešku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinen returnerede en ukendt fejl."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La macchina ha restituito un errore sconosciuto."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីន​បាន​ត្រឡប់​កំហុស​មិន​ស្គាល់។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinen returnerte en ukjent feil."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komputer zwrócił nieznany błąd."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A máquina retornou um erro desconhecido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Компьютер вернул неизвестную ошибку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องส่งคืนข้อผิดพลาดที่ไม่รู้จัก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Makine bilinmeyen bir hata döndürdü."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Комп’ютер повернув невідому помилку."
           }
         }
       }

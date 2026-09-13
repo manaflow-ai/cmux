@@ -435,7 +435,7 @@ struct WorkspaceContentView: View {
         // A workspace is a page: accept the parent proposal instead of
         // contributing a hidden child's content-derived ideal to its ZStack.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .modifier(CloudPaneCreationFailurePresentation(workspace: workspace))
+        .modifier(CloudPaneCreationFailurePresentation(failureStore: workspace.cloudPaneCreationFailureStore))
     }
     private func syncBonsplitNotificationBadges() {
         let manualUnread = workspace.manualUnreadPanelIds

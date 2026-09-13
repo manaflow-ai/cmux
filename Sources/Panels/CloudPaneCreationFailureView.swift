@@ -2,13 +2,14 @@ import SwiftUI
 
 /// Mounts the latest cloud pane creation failure above one workspace's content.
 struct CloudPaneCreationFailurePresentation: ViewModifier {
-    @ObservedObject var workspace: Workspace
+    let failureStore: CloudPaneCreationFailureStore
 
+    /// Adds the failure card above the workspace content when a failure exists.
     func body(content: Content) -> some View {
         content.overlay(alignment: .topTrailing) {
-            if let failure = workspace.cloudPaneCreationFailure {
+            if let failure = failureStore.failure {
                 CloudPaneCreationFailureView(failure: failure) {
-                    workspace.dismissCloudPaneCreationFailure(id: failure.id)
+                    failureStore.dismiss(id: failure.id)
                 }
                 .padding(.top, 12)
                 .padding(.trailing, 16)
@@ -23,6 +24,7 @@ struct CloudPaneCreationFailureView: View {
     let failure: CloudPaneCreationFailure
     let onDismiss: () -> Void
 
+    /// Renders the failure, recovery guidance, and dismissal action.
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: "exclamationmark.triangle.fill")

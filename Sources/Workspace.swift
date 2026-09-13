@@ -3077,9 +3077,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         get { cloudBindingState.binding }
         set { cloudBindingState.binding = newValue }
     }
-    /// The latest failed cloud terminal creation request, presented inline by the
-    /// workspace that received the user's split or tab gesture.
-    @Published private(set) var cloudPaneCreationFailure: CloudPaneCreationFailure?
+    /// The workspace-owned state for the latest failed cloud terminal creation request.
+    let cloudPaneCreationFailureStore = CloudPaneCreationFailureStore()
     @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
     @Published var remoteConnectionDetail: String?
     // Unsuppressed controller truth retained while live terminal liveness

@@ -748,6 +748,7 @@
 		287771C476C483CE2E40E0F6 /* CloudOperationRecorderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B7B816D0E6DDD18F2D66C77 /* CloudOperationRecorderTests.swift */; };
 		9388A8835050F026E577529B /* CloudOperationSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B075E56342F6BDFC316F50 /* CloudOperationSnapshot.swift */; };
 		A12480000000000000000001 /* CloudPaneCreationFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12480000000000000000002 /* CloudPaneCreationFailure.swift */; };
+		A12480000000000000000005 /* CloudPaneCreationFailureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12480000000000000000006 /* CloudPaneCreationFailureStore.swift */; };
 		A12480000000000000000003 /* CloudPaneCreationFailureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12480000000000000000004 /* CloudPaneCreationFailureView.swift */; };
 		118E574AA58D92C0A3FB893E /* CloudPlacementCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A22E92B91E0FFF066AE10237 /* CloudPlacementCoordinator.swift */; };
 		CB32AB7B7AB792F21B5C5B36 /* CloudPlacementCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0FD4E01EAF1B2F306A96F6F /* CloudPlacementCoordinatorTests.swift */; };
@@ -4473,6 +4474,7 @@
 		7B7B816D0E6DDD18F2D66C77 /* CloudOperationRecorderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudOperationRecorderTests.swift"; sourceTree = "<group>"; };
 		66B075E56342F6BDFC316F50 /* CloudOperationSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudOperationSnapshot.swift"; sourceTree = "<group>"; };
 		A12480000000000000000002 /* CloudPaneCreationFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudPaneCreationFailure.swift"; sourceTree = "<group>"; };
+		A12480000000000000000006 /* CloudPaneCreationFailureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudPaneCreationFailureStore.swift"; sourceTree = "<group>"; };
 		A12480000000000000000004 /* CloudPaneCreationFailureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CloudPaneCreationFailureView.swift; sourceTree = "<group>"; };
 		A22E92B91E0FFF066AE10237 /* CloudPlacementCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudPlacementCoordinator.swift; sourceTree = "<group>"; };
 		F0FD4E01EAF1B2F306A96F6F /* CloudPlacementCoordinatorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudPlacementCoordinatorTests.swift; sourceTree = "<group>"; };
@@ -7694,6 +7696,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B12438020000000000000002 /* CloudRenameCoordinator.swift */,
 				2B46AEF9309B83E909710517 /* Workspace+CloudPlacementFailure.swift */,
 				A12480000000000000000002 /* CloudPaneCreationFailure.swift */,
+				A12480000000000000000006 /* CloudPaneCreationFailureStore.swift */,
 				CA467FE5247EDFC122C88129 /* SurfaceRemotePlacement.swift */,
 				ECA8DF56A13E861D787CA4AE /* SurfaceProjectionEndReason.swift */,
 				A1E6488D5D32D552A9888D65 /* SurfacePlacementSyncing.swift */,
@@ -12103,6 +12106,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				2E7E3D0BC94B718A409955F3 /* CloudOperationRecorder.swift in Sources */,
 				9388A8835050F026E577529B /* CloudOperationSnapshot.swift in Sources */,
 				A12480000000000000000001 /* CloudPaneCreationFailure.swift in Sources */,
+				A12480000000000000000005 /* CloudPaneCreationFailureStore.swift in Sources */,
 				A12480000000000000000003 /* CloudPaneCreationFailureView.swift in Sources */,
 				118E574AA58D92C0A3FB893E /* CloudPlacementCoordinator.swift in Sources */,
 				462AE599482B727CBF10308F /* CloudPortAccessModel.swift in Sources */,

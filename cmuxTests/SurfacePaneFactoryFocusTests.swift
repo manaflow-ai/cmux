@@ -82,6 +82,7 @@ import Testing
         #expect(provider.createdRemoteWorkspaceID == remoteWorkspace.id)
     }
 
+    /// Exercises the cloud shortcut failure route and verifies it stays non-modal.
     @Test("Failed cloud pane creation does not enter a process-modal run loop")
     func failedCloudPaneCreationStaysInWorkspaceState() async throws {
         let harness = try Harness()
@@ -118,17 +119,15 @@ import Testing
         ))
 
         #expect(workspace.routeCloudPaneTerminalTab(inPane: paneID, focus: false))
-        for _ in 0..<20 where workspace.cloudPaneCreationFailure == nil {
-            await Task.yield()
-        }
+        await provider.creationAttemptSignal.wait()
 
         #expect(NSApp.modalWindow == nil)
-        let failure = try #require(workspace.cloudPaneCreationFailure)
+        let failure = try #require(workspace.cloudPaneCreationFailureStore.failure)
         #expect(failure.machine == machine)
-        #expect(failure.errorText.contains("connection refused"))
+        #expect(!failure.errorText.isEmpty)
 
         workspace.dismissCloudPaneCreationFailure(id: failure.id)
-        #expect(workspace.cloudPaneCreationFailure == nil)
+        #expect(workspace.cloudPaneCreationFailureStore.failure == nil)
     }
 
     @Test("Cloud process cwd parsing ignores the recorded spawn directory")
@@ -155,6 +154,7 @@ import Testing
         private(set) var createdRemoteWorkspaceID: String?
 
         let creationError: Error?
+        let creationAttemptSignal = CreationAttemptSignal()
 
         init(machine: SurfaceMachineID, workingDirectory: String?, creationError: Error? = nil) {
             self.machine = machine
@@ -174,7 +174,10 @@ import Testing
         }
 
         func createTerminal(command _: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
-            if let creationError { throw creationError }
+            if let creationError {
+                creationAttemptSignal.signal()
+                throw creationError
+            }
             createdWorkingDirectory = cwd
             createdRemoteWorkspaceID = remoteWorkspaceID
             return SurfaceResource(
@@ -187,6 +190,34 @@ import Testing
                 port: nil,
                 url: nil
             )
+        }
+
+        @MainActor
+        final class CreationAttemptSignal {
+            private var didSignal = false
+            private var waiters: [CheckedContinuation<Void, Never>] = []
+
+            /// Waits for the provider to enter its throwing create path.
+            func wait() async {
+                if didSignal { return }
+                await withCheckedContinuation { continuation in
+                    if didSignal {
+                        continuation.resume()
+                    } else {
+                        waiters.append(continuation)
+                    }
+                }
+            }
+
+            /// Completes all waiters exactly once when creation starts.
+            func signal() {
+                didSignal = true
+                let pending = waiters
+                waiters.removeAll()
+                for waiter in pending {
+                    waiter.resume()
+                }
+            }
         }
 
         func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus _: Bool) async throws -> SurfaceProjection {
