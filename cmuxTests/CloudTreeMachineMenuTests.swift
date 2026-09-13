@@ -80,6 +80,7 @@ struct CloudTreeMachineMenuTests {
         let menu = try #require(coordinator.contextMenu(forRow: 0))
         let titles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
         #expect(titles == [
+            Self.title("machines.menu.setDefaultMachine", "Set as Default Machine"),
             Self.title("machines.menu.openShell", "Open Shell"),
             Self.title("cloudTree.menu.newWorkspace", "New Workspace"),
             Self.title("cloudTree.menu.openFullClient", "Open Full cmux-tui Client"),
