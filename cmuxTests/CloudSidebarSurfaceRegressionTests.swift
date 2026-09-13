@@ -38,6 +38,29 @@ struct CloudSidebarSurfaceRegressionTests {
         #expect(snapshot.branchDirectoryLines.isEmpty)
         #expect(snapshot.pullRequestRows.isEmpty)
         #expect(snapshot.finderDirectoryPath == nil)
+        let accessibilityLabel = snapshot.accessibilityLabel(index: 0, workspaceCount: 1)
+        #expect(accessibilityLabel.contains("Cloud workspace on cloud-sidebar-vm"))
+        #expect(!accessibilityLabel.contains("local-checkout"))
+        let sidebarDecision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
+            current: nil,
+            next: snapshot,
+            force: false,
+            contextMenuVisible: false
+        )
+        #expect(sidebarDecision.workspaceSnapshotStorage == snapshot)
+        #expect(sidebarDecision.pendingWorkspaceSnapshot == nil)
+
+        let manager = TabManager(
+            initialWorkspaceTitle: "Cloud",
+            initialWorkingDirectory: "/Users/alice/local-checkout",
+            autoWelcomeIfNeeded: false
+        )
+        let managedWorkspace = try #require(manager.selectedWorkspace)
+        let managedPanelID = try #require(managedWorkspace.focusedPanelId)
+        managedWorkspace.cloudVMBinding = WorkspaceCloudVMBinding(
+            vmID: "cloud-sidebar-vm", isBase: false, remoteWorkspaceID: "ws_1"
+        )
+        #expect(manager.gitProbeDirectory(for: managedWorkspace, panelId: managedPanelID) == nil)
 
         let restored = Workspace()
         _ = restored.restoreSessionSnapshot(workspace.sessionSnapshot(includeScrollback: false))
@@ -90,14 +113,30 @@ struct CloudSidebarSurfaceRegressionTests {
         catalog.upsert(resource)
         catalog.record(SurfaceProjection(resource: resource.id, workspaceID: workspace.id, panelID: panelID))
         let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: [
-            "workspaces": [], "screens": [], "panes": [], "tabs": [],
+            "workspaces": [["id": "ws_1", "name": "Cloud", "index": 0, "focused": true]],
+            "screens": [], "panes": [], "tabs": [],
             "terminals": [["id": "term_1", "title": "terminal", "cwd": "/home/cloud/project", "lifecycle": "running"]],
             "browsers": [], "agents": []
         ], machine: machine))
+        let info = SurfaceMachineInfo(
+            id: machine,
+            name: machine.rawValue,
+            status: "running",
+            image: nil,
+            hasDesktop: false,
+            memoryMb: nil,
+            diskMb: nil,
+            linkState: .connected,
+            linkError: nil,
+            cpuPercent: nil,
+            memoryUsedMb: nil,
+            diskUsedMb: nil
+        )
+        catalog.replaceCloudState(state, resources: [resource], info: info)
         let service = CloudWorkspaceRenameService(
             environment: CloudWorkspaceRenameEnvironment(workspaces: { [workspace] })
         )
-        service.reconcileRemoteState(machine: machine, state: state, catalog: catalog)
+        service.reconcileRemoteState(machine: machine, state: state, catalog: catalog, observation: .current)
         #expect(workspace.reportedPanelDirectory(panelId: panelID) == "/home/cloud/project")
         #expect(workspace.presentedCurrentDirectory == "/home/cloud/project")
     }

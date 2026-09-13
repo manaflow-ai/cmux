@@ -3436,6 +3436,7 @@
 		CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */; };
 		4F2E42F6D7164832B891F079 /* Workspace+CloudLayoutProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 085BB53F552B4C6A8728941E /* Workspace+CloudLayoutProjection.swift */; };
 		C11323010000000000000001 /* Workspace+CloudManualMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11323020000000000000001 /* Workspace+CloudManualMirror.swift */; };
+		F3C1A7B40000000000000005 /* CloudWorkspaceRenameService+Directory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3C1A7B40000000000000006 /* CloudWorkspaceRenameService+Directory.swift */; };
 		65221C81A129236D52702D99 /* Workspace+CloudPaneRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5797FE9CD70513E4FFAC6EB /* Workspace+CloudPaneRouting.swift */; };
 		74ED9CE6230A97ED8BBCAB0C /* Workspace+CloudPlacementFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B46AEF9309B83E909710517 /* Workspace+CloudPlacementFailure.swift */; };
 		F1C91A5607ED4F70923F8F91 /* Workspace+CloudTerminalCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 380FC55EF1BE4EBC8E8352FC /* Workspace+CloudTerminalCreation.swift */; };
@@ -7035,6 +7036,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CanvasLayout.swift"; sourceTree = "<group>"; };
 		085BB53F552B4C6A8728941E /* Workspace+CloudLayoutProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudLayoutProjection.swift"; sourceTree = "<group>"; };
 		C11323020000000000000001 /* Workspace+CloudManualMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudManualMirror.swift"; sourceTree = "<group>"; };
+		F3C1A7B40000000000000006 /* CloudWorkspaceRenameService+Directory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceRenameService+Directory.swift"; sourceTree = "<group>"; };
 		C5797FE9CD70513E4FFAC6EB /* Workspace+CloudPaneRouting.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudPaneRouting.swift"; sourceTree = "<group>"; };
 		2B46AEF9309B83E909710517 /* Workspace+CloudPlacementFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudPlacementFailure.swift"; sourceTree = "<group>"; };
 		380FC55EF1BE4EBC8E8352FC /* Workspace+CloudTerminalCreation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudTerminalCreation.swift"; sourceTree = "<group>"; };
@@ -7701,6 +7703,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D01100800000000000000001 /* SurfaceCatalogQueryService.swift */,
 				278BEFB3583AED9627966DFF /* SurfaceSocketCommands.swift */,
 				47BBA1A8703756FDDFD53CF3 /* Workspace+SurfaceCatalog.swift */,
+				F3C1A7B40000000000000006 /* CloudWorkspaceRenameService+Directory.swift */,
 				C5797FE9CD70513E4FFAC6EB /* Workspace+CloudPaneRouting.swift */,
 				380FC55EF1BE4EBC8E8352FC /* Workspace+CloudTerminalCreation.swift */,
 				1EDD243C7C87A2AB78B12BAD /* LocalSurfaceProvider.swift */,
@@ -13795,6 +13798,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */,
 				4F2E42F6D7164832B891F079 /* Workspace+CloudLayoutProjection.swift in Sources */,
 				C11323010000000000000001 /* Workspace+CloudManualMirror.swift in Sources */,
+				F3C1A7B40000000000000005 /* CloudWorkspaceRenameService+Directory.swift in Sources */,
 				65221C81A129236D52702D99 /* Workspace+CloudPaneRouting.swift in Sources */,
 				74ED9CE6230A97ED8BBCAB0C /* Workspace+CloudPlacementFailure.swift in Sources */,
 				F1C91A5607ED4F70923F8F91 /* Workspace+CloudTerminalCreation.swift in Sources */,
