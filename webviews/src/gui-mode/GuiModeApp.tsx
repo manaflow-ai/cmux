@@ -19,6 +19,7 @@ import {
   readGuiModeBootstrap,
   cancelGuiModeSubmit,
   makeGuiModeRequestId,
+  isGuiModeBridgeTimeout,
   submitGuiModePrompt,
   type GuiModeContext,
   type GuiModeProvider,
@@ -99,8 +100,12 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
     const requestId = makeGuiModeRequestId();
     activeRequestId.current = requestId;
     void submitGuiModePrompt(trimmedPrompt, selectedProvider.id, requestId)
-      .catch(async () => {
+      .catch(async (error) => {
         if (confirmedCancellationRequestIds.current.has(requestId)) return;
+        if (!isGuiModeBridgeTimeout(error)) {
+          setError(context.copy.errorMessage);
+          return;
+        }
         if (!cancelledRequestIds.current.has(requestId)) setError(context.copy.errorMessage);
         try {
           await cancelGuiModeSubmit(requestId);

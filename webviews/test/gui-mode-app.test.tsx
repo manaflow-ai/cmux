@@ -175,6 +175,42 @@ test("GUI mode cancellation rejects a false native acknowledgement", async () =>
   }
 });
 
+test("normal native submit failures show an error and re-enable the composer", async () => {
+  const dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
+    url: "file:///tmp/gui-mode.html",
+  });
+  const restoreGlobals = installDomGlobals(dom);
+  const context = { ...taskContextForProvider(guiModeFallbackProviders[0]!), page: "home", prompt: "" };
+  let cancelCount = 0;
+  (dom.window as any).webkit = { messageHandlers: { agentSession: {
+    postMessage: (message: { method: string }) => {
+      if (message.method === "app.context") return Promise.resolve({ ok: true, value: { guiMode: context } });
+      if (message.method === "guiMode.cancel") {
+        cancelCount += 1;
+        return Promise.resolve({ ok: true, value: { cancelled: true } });
+      }
+      return Promise.resolve({ ok: false, error: { userMessage: "Native task creation failed." } });
+    },
+  } } };
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  try {
+    flushSync(() => root.render(<GuiModeApp />));
+    await waitFor(() => dom.window.document.querySelector(".gui-mode-editor") !== null);
+    pasteIntoPromptEditor(dom, "Build it");
+    const submit = dom.window.document.querySelector<HTMLButtonElement>(".gui-mode-submit")!;
+    await waitFor(() => !submit.disabled);
+    flushSync(() => submit.click());
+    await waitFor(() => dom.window.document.querySelector("[role=alert]")?.textContent === context.copy.errorMessage);
+    await waitFor(() => !submit.disabled);
+    expect(cancelCount).toBe(0);
+  } finally {
+    flushSync(() => root.unmount());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    restoreGlobals();
+    dom.window.close();
+  }
+}, 15000);
+
 test("GUI mode provider search matches every provider catalog entry", () => {
   for (const provider of guiModeFallbackProviders) {
     expect(filterGuiModeProviders(guiModeFallbackProviders, provider.displayName).map((item) => item.id))

@@ -58,6 +58,10 @@ export function readGuiModeBootstrap(): GuiModeBootstrap | undefined {
   return typeof window === "undefined" ? undefined : window.cmuxGuiModeBootstrap;
 }
 
+export function isGuiModeBridgeTimeout(error: unknown): boolean {
+  return error instanceof NativeBridgeError && error.code === "timeout";
+}
+
 export async function loadGuiModeContext(): Promise<GuiModeContext> {
   const bootstrap = readGuiModeBootstrap();
   if (bootstrap) return bootstrap.context;
@@ -99,7 +103,7 @@ function callNativeWithTimeout<T>(
 ): Promise<T> {
   let timeoutId: number | undefined;
   const timeout = new Promise<T>((_, reject) => {
-    timeoutId = window.setTimeout(() => reject(new Error("Native bridge timed out.")), timeoutMs);
+    timeoutId = window.setTimeout(() => reject(new NativeBridgeError("Native bridge timed out.", "timeout")), timeoutMs);
   });
   return Promise.race([callNative<T>(method, params), timeout]).finally(() => {
     if (timeoutId !== undefined) {
