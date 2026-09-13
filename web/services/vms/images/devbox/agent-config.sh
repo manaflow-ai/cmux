@@ -272,14 +272,4 @@ x-cmux-surface-id: $CMUX_SURFACE_ID"
 fi
 
 cmux_write_agent_configs
-
-# Hook events are the durable completion signal that cmux-tui turns into
-# Cloud notifications. Install them lazily in a real cmux-tui terminal, after
-# the model-plane configs above have been materialized. This keeps image builds
-# from creating a partial Codex config and also repairs machines created from
-# older snapshots as soon as their next terminal starts.
-if [ -n "${CMUX_TUI_SOCKET-}" ] && [ -n "${CMUX_TUI_HOOK-}" ] && command -v cmux >/dev/null 2>&1; then
-  cmux agent hook install >/dev/null 2>&1 || true
-fi
-
 unset -f cmux_write_agent_configs
