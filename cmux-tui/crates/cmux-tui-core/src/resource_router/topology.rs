@@ -1800,6 +1800,7 @@ mod tests {
         let mux = mux();
         let created = terminal_workspace(&mux, "rename-wire-contract");
         let tab = created["value"]["tab_id"].as_str().unwrap();
+        let before = mux.resource_event_epoch();
         let renamed = dispatch(
             &mux,
             parsed(
@@ -1823,7 +1824,11 @@ mod tests {
         let snapshot = public_session_snapshot(&mux).unwrap();
         let observed =
             snapshot["tabs"].as_array().unwrap().iter().find(|value| value["id"] == tab).unwrap();
-        for value in [&renamed["value"], observed] {
+        let events = mux.resource_events_after(before).unwrap();
+        let changes = events.batches.last().unwrap().changes.as_array().unwrap();
+        let delta = changes.iter().find(|value| value["id"] == tab).unwrap();
+        let journaled = &delta["value"];
+        for value in [&renamed["value"], observed, journaled] {
             assert!(validator.is_valid(value), "tab response broke a released SDK: {value}");
             assert_eq!(value["name"], "Logs / 東京");
             assert_eq!(value["extra"]["name_source"], "user");

@@ -27,6 +27,7 @@ mod resource_mutation;
 pub mod resource_name;
 mod resource_router;
 mod resource_selector;
+mod resource_tab;
 mod short_id;
 mod sidebar_resource;
 mod surface;

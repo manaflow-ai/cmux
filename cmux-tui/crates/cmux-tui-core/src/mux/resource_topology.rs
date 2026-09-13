@@ -5381,20 +5381,8 @@ fn pane_value_with_flags(
 
 fn tab_value(tab: &RegistryTab, topology: &ResourceTopologySnapshot) -> anyhow::Result<Value> {
     let pane = topology_pane(topology, &tab.pane_id)?;
-    Ok(json!({
-        "id":tab.public_id,
-        "pane_id":tab.pane_id,
-        "name":tab.name,
-        "name_source":tab.name_source,
-        "name_revision":tab.name_revision.to_string(),
-        "index":u32::try_from(tab.position).context("tab index exceeds uint32")?,
-        "focused":pane.active_tab.as_ref() == Some(&tab.public_id),
-        "content_kind":match tab.content_id {
-            ContentPublicId::Terminal(_) => "terminal",
-            ContentPublicId::Browser(_) => "browser",
-        },
-        "content_id":tab.content_id.as_str(),
-    }))
+    u32::try_from(tab.position).context("tab index exceeds uint32")?;
+    Ok(tab.public_value(pane.active_tab.as_ref() == Some(&tab.public_id)))
 }
 
 fn layout_document(
