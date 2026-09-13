@@ -86,6 +86,7 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
   const editorRef = useRef<PromptEditorHandle | null>(null);
   const activeRequestId = useRef<string | null>(null);
   const cancelledRequestIds = useRef(new Set<string>());
+  const confirmedCancellationRequestIds = useRef(new Set<string>());
   const blockedRequestIds = useRef(new Set<string>());
   const settledRequestIds = useRef(new Set<string>());
   const selectedProvider = providerForId(context.providers, selectedProviderId);
@@ -99,9 +100,11 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
     activeRequestId.current = requestId;
     void submitGuiModePrompt(trimmedPrompt, selectedProvider.id, requestId)
       .catch(async () => {
+        if (confirmedCancellationRequestIds.current.has(requestId)) return;
         if (!cancelledRequestIds.current.has(requestId)) setError(context.copy.errorMessage);
         try {
           await cancelGuiModeSubmit(requestId);
+          confirmedCancellationRequestIds.current.add(requestId);
         } catch {
           // Keep duplicate workspace creation blocked until native cancellation is confirmed.
           blockedRequestIds.current.add(requestId);
@@ -112,6 +115,7 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
         settledRequestIds.current.add(requestId);
         if (blockedRequestIds.current.has(requestId)) return;
         cancelledRequestIds.current.delete(requestId);
+        confirmedCancellationRequestIds.current.delete(requestId);
         if (activeRequestId.current === requestId) {
           activeRequestId.current = null;
           setIsSubmitting(false);
@@ -123,6 +127,7 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
     if (!requestId) return;
     cancelledRequestIds.current.add(requestId);
     void cancelGuiModeSubmit(requestId).then(() => {
+      confirmedCancellationRequestIds.current.add(requestId);
       blockedRequestIds.current.delete(requestId);
       if (settledRequestIds.current.has(requestId) && activeRequestId.current === requestId) {
         cancelledRequestIds.current.delete(requestId);

@@ -302,6 +302,45 @@ test("timed-out submit and cancel show recovery and unlock only after cancellati
   }
 });
 
+test("confirmed user cancellation does not issue a second cancellation", async () => {
+  const dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
+    url: "file:///tmp/gui-mode.html",
+  });
+  const restoreGlobals = installDomGlobals(dom);
+  const context = { ...taskContextForProvider(guiModeFallbackProviders[0]!), page: "home", prompt: "" };
+  let cancelCount = 0;
+  const nativeSetTimeout = dom.window.setTimeout.bind(dom.window);
+  dom.window.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) =>
+    nativeSetTimeout(handler, timeout === 30000 || timeout === 3000 ? 0 : timeout, ...args)) as typeof dom.window.setTimeout;
+  (dom.window as any).webkit = { messageHandlers: { agentSession: {
+    postMessage: (message: { method: string }) => {
+      if (message.method === "app.context") return Promise.resolve({ ok: true, value: { guiMode: context } });
+      if (message.method === "guiMode.submit") return new Promise(() => {});
+      cancelCount += 1;
+      return Promise.resolve({ ok: true, value: { cancelled: true } });
+    },
+  } } };
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  try {
+    flushSync(() => root.render(<GuiModeApp />));
+    await waitFor(() => dom.window.document.querySelector(".gui-mode-editor") !== null);
+    pasteIntoPromptEditor(dom, "Build it");
+    const submit = dom.window.document.querySelector<HTMLButtonElement>(".gui-mode-submit")!;
+    await waitFor(() => !submit.disabled);
+    flushSync(() => submit.click());
+    await waitFor(() => dom.window.document.querySelector(".gui-mode-cancel") !== null);
+    flushSync(() => dom.window.document.querySelector<HTMLButtonElement>(".gui-mode-cancel")!.click());
+    await waitFor(() => !submit.disabled);
+    expect(cancelCount).toBe(1);
+    expect(dom.window.document.querySelector("[role=alert]")?.textContent).toBe("");
+  } finally {
+    flushSync(() => root.unmount());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    restoreGlobals();
+    dom.window.close();
+  }
+}, 15000);
+
 test("GUI mode task page renders every provider from native context", async () => {
   for (const provider of guiModeFallbackProviders) {
     const dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
