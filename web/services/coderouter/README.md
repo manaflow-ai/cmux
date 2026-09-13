@@ -8,7 +8,21 @@ returned once. `GET` lists only safe
 metadata. `DELETE /api/coderouter/api-keys/:id` revokes a key, while
 `DELETE /api/coderouter/api-keys/self` lets the key holder revoke its own key.
 Every model and route ledger row stores the key's opaque UUID, so usage can be
-aggregated per key without storing the secret.
+aggregated per key without storing the secret. The `last_used_at` value in the
+control plane is display metadata and is written at most once per minute per
+key. The ClickHouse usage ledger remains exact for every request.
+Failures in this best-effort metadata write are rate-limited operational
+events, so a database problem is visible without creating one alert per
+request.
+
+Authentication uses an indexed, read-only hash lookup on the request hot path.
+Revocation updates one key row by primary key and does not take a process-wide
+lock. PostgreSQL row locks are held only for the affected update. Account
+deletion uses one short, team-scoped transaction advisory lock to serialize the
+last-account check with concurrent account creation or deletion; it is never
+taken by model requests. The auth span records `route_token` or `api_key`, and
+the route and usage ledger rows carry the opaque API-key UUID for joins. No key
+secret is logged or sent to telemetry.
 
 ## Telemetry
 

@@ -172,6 +172,7 @@ export function recordCoderouterIdentity(
     setSpanAttributes(span, {
       "cmux.coderouter.bound_to_vm": identity.vmId !== null,
       "cmux.coderouter.vm_id": identity.vmId ?? undefined,
+      "cmux.coderouter.auth_mode": identity.apiKeyId ? "api_key" : "route_token",
     });
   }
 }
@@ -317,6 +318,7 @@ export function traceEvents(
     ...(context.traceId ? { trace_id: context.traceId } : {}),
     ...(context.vercelRequestId ? { vercel_request_id: context.vercelRequestId } : {}),
     ...(context.identity?.vmId ? { coderouter_vm_id: context.identity.vmId } : {}),
+    coderouter_auth_mode: coderouterAuthMode(context.identity),
   };
   const traceIsError = input.status >= 400 || outcome.outcome !== "success";
   const events: CoderouterRawEvent[] = [
@@ -377,6 +379,14 @@ export function traceEvents(
     }));
   }
   return events;
+}
+
+function coderouterAuthMode(
+  identity: CoderouterRequestContext["identity"],
+): "api_key" | "route_token" | "none" {
+  if (identity?.apiKeyId) return "api_key";
+  if (identity) return "route_token";
+  return "none";
 }
 
 function derivedOutcome(
