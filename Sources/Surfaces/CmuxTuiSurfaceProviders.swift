@@ -1078,7 +1078,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         switch resource.kind {
         case .terminal:
             let manual = try await materializeManualMirrorTerminal(
-                resource,
+                resource, remoteTabID: (remoteView ?? Self.defaultRemoteView(for: resource))?.tabID,
                 at: destination,
                 focus: focus
             )
@@ -2103,7 +2103,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let terminals = catalog.snapshot.resources(on: machine).filter { $0.kind == .terminal }
         for terminal in terminals {
             for projection in catalog.projections(of: terminal.id) where !materializedPanels.contains(projection.panelID) {
-                guard AppDelegate.shared?.workspace(containingSurfaceID: projection.panelID) != nil,
+                guard cloudState.map({ catalog.cloudWorkspaceProjectionCoordinator.retainsProjection(projection, in: $0) }) != false,
+                      AppDelegate.shared?.workspace(containingSurfaceID: projection.panelID) != nil,
                       let paneID = SurfacePaneFactory.paneID(ofPanel: projection.panelID, in: projection.workspaceID) else {
                     continue
                 }

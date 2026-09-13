@@ -15,6 +15,7 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
     var closedTabs: [String] = []
     var events: [String] = []
     var beforeMutation: (() async throws -> Void)?
+    var beforeMaterialization: (() async throws -> Void)?
     var refreshCount = 0
     var moveCursor: CloudVMCursor?
     var workspaceRenames: [String] = []
@@ -30,7 +31,8 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
         SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID())
     }
     func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
-        SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID(),
+        try await beforeMaterialization?()
+        return SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID(),
                           remoteWorkspaceID: remoteView?.workspace.id, remoteTabID: remoteView?.tabID)
     }
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {

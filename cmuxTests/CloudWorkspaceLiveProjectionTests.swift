@@ -115,6 +115,46 @@ struct CloudWorkspaceLiveProjectionTests {
         #expect(catalog.projections == [native])
     }
 
+    @Test("Lifecycle cancellation is not retained as a projection failure")
+    func cancelledMaterializationIsNotAnError() async throws {
+        let local = UUID()
+        let coordinator = CloudWorkspaceProjectionCoordinator(environment: .init(bindings: {
+            [local: WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "a")]
+        }))
+        let catalog = SurfaceCatalog(cloudWorkspaceProjectionCoordinator: coordinator)
+        let provider = CloudPlacementTestProvider(machine: machine)
+        provider.beforeMaterialization = { throw CancellationError() }
+        catalog.register(provider)
+        install(try graph(["first": "a"], revision: 1), catalog: catalog)
+        await coordinator.waitForIdle()
+        #expect(coordinator.failures.isEmpty)
+        #expect(catalog.projections.isEmpty)
+    }
+
+    @Test("Reconnect does not recreate an explicitly closed daemon view")
+    func reconnectDoesNotUndoRemoteClose() async throws {
+        let local = UUID()
+        let binding = WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "a")
+        let coordinator = CloudWorkspaceProjectionCoordinator(environment: .init(bindings: { [local: binding] }))
+        let catalog = SurfaceCatalog(cloudPlacementCoordinator: CloudPlacementCoordinator(binding: { _ in binding }),
+                                     cloudWorkspaceProjectionCoordinator: coordinator)
+        catalog.register(CloudPlacementTestProvider(machine: machine))
+        install(try graph(["first": "a"], revision: 1), catalog: catalog)
+        await coordinator.waitForIdle()
+        let terminal = try #require(catalog.projections.first?.resource)
+        let token = coordinator.beginLocalMutation(on: machine)
+        install(try graph([:], revision: 2), catalog: catalog)
+        var repaired = false
+        await catalog.cloudPlacementCoordinator.repairPlacement(for: terminal, catalog: catalog) { _ in
+            repaired = true
+            return SurfaceRemotePlacement(workspaceID: "a", tabID: "resurrected")
+        }
+        #expect(!repaired, "a closed view is not an attachment fault")
+        coordinator.endLocalMutation(token, on: machine, catalog: catalog)
+        await coordinator.waitForIdle()
+        #expect(catalog.projections.isEmpty)
+    }
+
     @Test("An acknowledged local close cannot be reopened by a lagging graph")
     func localCloseReceipt() async throws {
         let local = UUID()

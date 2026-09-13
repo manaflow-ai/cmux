@@ -11,6 +11,7 @@ extension CmuxTuiSurfaceProvider {
     /// attach stream.
     func materializeManualMirrorTerminal(
         _ resource: SurfaceResource,
+        remoteTabID: String? = nil,
         at destination: SurfaceDestination,
         focus: Bool
     ) async throws -> CloudManualMirrorMaterialization {
@@ -24,6 +25,7 @@ extension CmuxTuiSurfaceProvider {
             terminalID: resource.id.key,
             socketPath: connected.socketPath,
             link: link,
+            requiresExistingView: remoteTabID != nil,
             preferredWorkspaceID: catalog.cloudPlacementCoordinator.boundRemoteWorkspaceID(
                 forLocalWorkspace: destination.workspaceID, on: machine
             )
@@ -89,6 +91,7 @@ extension CmuxTuiSurfaceProvider {
         terminalID: String,
         socketPath: String,
         link: CloudMachineLink,
+        requiresExistingView: Bool,
         preferredWorkspaceID: String? = nil
     ) async throws -> (surfaceID: UInt64, placement: SurfaceRemotePlacement?) {
         switch await Self.resolveModernSurfaceID(
@@ -114,6 +117,7 @@ extension CmuxTuiSurfaceProvider {
             // a frozen screen that never reconnects.
             throw ProviderError.terminalNotCreated(terminalID)
         case .noPlacement:
+            guard !requiresExistingView else { throw ProviderError.terminalNotCreated(terminalID) }
             let placement = try await ensureRemoteTerminalView(
                 terminalID: terminalID,
                 socketPath: socketPath,
@@ -183,6 +187,12 @@ extension CmuxTuiSurfaceProvider {
         )
         for terminalID in terminalsWithoutPlacement {
             guard !Task.isCancelled else { break }
+            if let state = cloudState {
+                let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)
+                guard catalog.projections(of: resourceID).contains(where: {
+                    catalog.cloudWorkspaceProjectionCoordinator.retainsProjection($0, in: state)
+                }) else { continue }
+            }
             for session in sessions where session.terminalID == terminalID {
                 session.markSurfaceResolutionUnavailable()
             }
@@ -214,7 +224,7 @@ extension CmuxTuiSurfaceProvider {
         guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { return }
         do {
             let materialized = try await materializeManualMirrorTerminal(
-                resource,
+                resource, remoteTabID: projection.remoteTabID,
                 at: .tab(workspaceID: projection.workspaceID, paneID: paneID, index: nil),
                 focus: false
             )

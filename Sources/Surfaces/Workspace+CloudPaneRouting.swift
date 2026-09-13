@@ -367,7 +367,8 @@ final class CloudWorkspaceRenameService {
                 try await write.value
             } catch {
                 guard let workspace,
-                      workspace.customTitle == expectedTitle,
+                      workspace.customTitle == expectedTitle, workspace.effectiveCustomTitleSource == .user,
+                      catalog.cloudRenameCoordinator.pendingName(for: .workspace(machine: target.machine, id: target.remoteWorkspaceID)) == nil,
                       let manager else { return }
                 _ = manager.setCustomTitle(
                     tabId: workspace.id,
@@ -425,7 +426,8 @@ final class CloudWorkspaceRenameService {
                 try await write.value
             } catch {
                 guard let workspace,
-                      workspace.panelCustomTitles[panelID] == expectedTitle else { return }
+                      workspace.panelCustomTitles[panelID] == expectedTitle, workspace.panelCustomTitleSources[panelID] == .user,
+                      catalog.cloudRenameCoordinator.pendingName(for: .tab(machine: resource.machine, id: tabID)) == nil else { return }
                 _ = workspace.setPanelCustomTitle(
                     panelId: panelID,
                     title: previousCustomTitle,

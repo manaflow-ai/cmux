@@ -54,10 +54,26 @@ final class CloudWorkspaceProjectionCoordinator {
         tasks[machine] = Entry(id: id, task: task)
     }
 
+    /// A bound mirror may not recreate a view that the accepted graph removed.
+    /// Unbound viewers retain their existing attachment-repair behavior.
+    func retainsProjection(_ projection: SurfaceProjection, in state: CloudVMState) -> Bool {
+        guard let binding = environment.bindings()[projection.workspaceID], binding.vmID == state.machine.rawValue,
+              let workspaceID = binding.remoteWorkspaceID else { return true }
+        let tabs = state.lookupIndex.tabs(contentKind: projection.resource.kind.rawValue, contentID: projection.resource.key)
+        return tabs.contains { tab in
+            guard projection.remoteTabID == nil || projection.remoteTabID == tab.id,
+                  let pane = state.lookupIndex.pane(id: tab.paneID),
+                  let screen = state.lookupIndex.screen(id: pane.screenID) else { return false }
+            return screen.workspaceID == workspaceID
+        }
+    }
+
     func cancel(machine: SurfaceMachineID) {
         tasks.removeValue(forKey: machine)?.task.cancel()
         requested.remove(machine)
         localMutations[machine] = nil
+        let bindings = environment.bindings()
+        failures = failures.filter { bindings[$0.key]?.vmID != machine.rawValue }
     }
 
     func waitForIdle() async {
@@ -102,7 +118,10 @@ final class CloudWorkspaceProjectionCoordinator {
                     environment.applyLayout(workspaceID, layout.includingMissingPlacements(desired), Array(live))
                 }
                 failures[workspaceID] = nil
+            } catch is CancellationError {
+                return
             } catch {
+                guard !Task.isCancelled else { return }
                 failures[workspaceID] = CloudMachineLink.errorText(error)
             }
         }

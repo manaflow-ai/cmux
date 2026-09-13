@@ -206,6 +206,9 @@ final class CloudPlacementCoordinator {
         let task = enqueue(projection, catalog: catalog, presentFailure: false) {
             let current = catalog.projections.filter { $0.resource == resourceID }
             guard !current.isEmpty else { return false }
+            if let state = catalog.cloudStates[resourceID.machine] {
+                guard current.contains(where: { catalog.cloudWorkspaceProjectionCoordinator.retainsProjection($0, in: state) }) else { return false }
+            }
             let targets = Set(current.compactMap {
                 self.boundRemoteWorkspaceID(forLocalWorkspace: $0.workspaceID, on: resourceID.machine)
             })
