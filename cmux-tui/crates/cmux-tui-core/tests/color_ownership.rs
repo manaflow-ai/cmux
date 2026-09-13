@@ -38,11 +38,36 @@ impl ColorFixture {
     }
 
     fn attach_surface(&self, surface: u64) -> BufReader<Box<dyn transport::Stream>> {
-        let mut stream = transport::connect(&self.socket).unwrap();
+        self.attach_with_capability(surface, true)
+    }
+
+    fn attach_with_capability(
+        &self,
+        surface: u64,
+        authored_colors: bool,
+    ) -> BufReader<Box<dyn transport::Stream>> {
+        let stream = transport::connect(&self.socket).unwrap();
         stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-        writeln!(stream, "{}", json!({"id": 1, "cmd": "attach-surface", "surface": surface}))
+        let mut reader = BufReader::new(stream);
+        if authored_colors {
+            writeln!(
+                reader.get_mut(),
+                "{}",
+                json!({
+                    "id": 0, "cmd": "set-client-info", "name": "color-fixture", "kind": "terminal",
+                    "capabilities": ["terminal-color-overrides-v1"]
+                })
+            )
             .unwrap();
-        BufReader::new(stream)
+            assert_eq!(Self::line(&mut reader)["ok"], true);
+        }
+        writeln!(
+            reader.get_mut(),
+            "{}",
+            json!({"id": 1, "cmd": "attach-surface", "surface": surface})
+        )
+        .unwrap();
+        reader
     }
 
     fn defaults(&self, light: bool) {
@@ -87,10 +112,17 @@ impl Drop for ColorFixture {
 #[test]
 fn color_ownership_shared_defaults_are_separate_on_live_resize_and_reattach() {
     let fixture = ColorFixture::new();
+    let mut legacy = fixture.attach_with_capability(fixture.surface.id, false);
+    let legacy_before = ColorFixture::event(&mut legacy, "vt-state");
     let mut viewer = fixture.attach();
     let before = ColorFixture::event(&mut viewer, "vt-state");
     fixture.defaults(true);
     let after = ColorFixture::event(&mut viewer, "colors-changed");
+    let legacy_after = ColorFixture::event(&mut legacy, "colors-changed");
+    assert!(legacy_before["colors"].get("overrides").is_none());
+    assert!(legacy_after.get("overrides").is_none());
+    assert_eq!(legacy_after["fg"], "#202020");
+    assert_eq!(legacy_after["bg"], "#ffffff");
     // The legacy effective-color contract stays intact for clients that use it.
     assert!(before["colors"]["bg"].is_null());
     assert_eq!(after["fg"], "#202020");
@@ -101,7 +133,14 @@ fn color_ownership_shared_defaults_are_separate_on_live_resize_and_reattach() {
 
     fixture.surface.resize(50, 10).unwrap();
     let resized = ColorFixture::event(&mut viewer, "resized");
+    let legacy_resized = ColorFixture::event(&mut legacy, "resized");
+    assert!(legacy_resized["colors"].get("overrides").is_none());
     let restored = ColorFixture::event(&mut fixture.attach(), "vt-state");
+    let legacy_restored = ColorFixture::event(
+        &mut fixture.attach_with_capability(fixture.surface.id, false),
+        "vt-state",
+    );
+    assert!(legacy_restored["colors"].get("overrides").is_none());
     for event in [&before, &resized, &restored] {
         assert_eq!(event["colors"]["overrides"], empty, "{event}");
         assert_eq!(event["colors"]["palette"], json!({}));

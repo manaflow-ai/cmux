@@ -938,6 +938,11 @@ shared default remains authored until OSC 104/110/111/112 or RIS resets it.
 Shared session-default changes never populate `overrides`. Older servers omit
 the object; their effective special colors do not expose this distinction.
 The same object travels on resize, output sidecars, and colors-changed events.
+It is emitted only for byte attachments whose connection advertised
+`terminal-color-overrides-v1` through `set-client-info` before attaching. The
+choice is captured for that attachment's lifetime. Other clients retain the
+previous exact color-object shape, including clients with strict SDK decoders.
+Older servers safely ignore the unknown client capability and omit the object.
 
 Example:
 

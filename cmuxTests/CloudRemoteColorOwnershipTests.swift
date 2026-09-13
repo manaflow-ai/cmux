@@ -10,6 +10,15 @@ import Testing
 /// Viewer themes and terminal-authored OSC state have separate ownership.
 @Suite
 struct CloudRemoteColorOwnershipTests {
+    @Test
+    func nativeHandshakeRequestsAuthoredColorState() throws {
+        let commands = CloudTuiManualIOCommand()
+        let wire = try #require(commands.line(commands.setClientInfo(name: "native", kind: "terminal")))
+        let request = try #require(JSONSerialization.jsonObject(with: wire) as? [String: Any])
+        let capabilities = try #require(request["capabilities"] as? [String])
+        #expect(capabilities.contains("terminal-color-overrides-v1"))
+    }
+
     @Test(arguments: ["vt-state", "resized", "output", "colors-changed"])
     func sharedDefaultsDoNotRecolorTheViewer(event: String) throws {
         let before = try colors(event: event, foreground: "#d0d0d0", background: "#202020")
