@@ -60,9 +60,4 @@ declare module "bun:test" {
   export const test: TestFunction;
 }
 
-// Minimal type for the TOML parser supplied by the Bun test runtime.
-declare namespace Bun {
-  namespace TOML {
-    function parse(input: string): Record<string, unknown>;
-  }
-}
+declare const Bun: { TOML: { parse(input: string): unknown } };
