@@ -3494,9 +3494,6 @@ class GhosttyApp {
             }
         case GHOSTTY_ACTION_OPEN_URL:
             let openUrl = action.action.open_url
-            // The pinned GhosttyKit exposes OSC 8 links as UNKNOWN. Keep this
-            // compatible with the checked-in SDK until the fork adds a named
-            // OSC8 enum value.
             let isTerminalLink = openUrl.kind == GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN
             guard let cstr = openUrl.url else { return false }
             let urlString = String(
