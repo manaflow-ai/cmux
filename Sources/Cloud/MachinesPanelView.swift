@@ -131,9 +131,6 @@ struct MachinesPanelView: View {
     private var authenticatedContent: some View {
         if includesCloud {
             controlBar
-            cloudStatus
-                .padding(.horizontal, 12)
-                .padding(.vertical, 4)
         }
         if includesCloud && tunnelStatus.status?.state != .up {
             Button {
@@ -241,17 +238,16 @@ struct MachinesPanelView: View {
 
     private var controlBar: some View {
         HStack(spacing: 6) {
-            Text(String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines"))
-                .cmuxFont(size: 12, weight: .semibold)
+            cloudStatus
                 .padding(.leading, 4)
             Spacer(minLength: 4)
             cloudAgentMenu
             MachinesChromeIconButton(
                 symbolName: "arrow.clockwise",
                 accessibilityLabel: String(localized: "machines.refresh", defaultValue: "Refresh Machines"),
-                isBusy: viewModel.isLoading
+                isBusy: viewModel.isLoading || devicesModel.isRefreshing
             ) {
-                viewModel.refresh(tree: true)
+                refreshMachines()
             }
             MachinesChromeIconButton(
                 symbolName: "plus",
