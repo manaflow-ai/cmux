@@ -205,7 +205,8 @@ extension CMUXCLI {
             observedPermissionMode: record.permissionMode
         )
         guard let invocation = AgentRestorePlanner(
-            executableFileResolver: AgentRestoreExecutableFileResolver()
+            executableFileResolver: AgentRestoreExecutableFileResolver(),
+            readableFileResolver: AgentRestoreReadableFileResolver()
         ).invocation(
             for: request,
             ambientEnvironment: processEnvironment

@@ -14,19 +14,37 @@ public struct AgentRestorePlanner: Sendable {
     ]
 
     private let isExecutableFile: @Sendable (String) -> Bool
+    private let isReadableFile: @Sendable (String) -> Bool
 
     /// Creates a restore planner.
     ///
-    /// - Parameter isExecutableFile: Executable-path lookup used for optional wrapper shims.
-    public init(isExecutableFile: @escaping @Sendable (String) -> Bool) {
+    /// - Parameters:
+    ///   - isExecutableFile: Executable-path lookup used for optional wrapper shims.
+    ///   - isReadableFile: Readable-file lookup used to drop captured file-valued
+    ///     options (Claude `--settings <path>`) whose file no longer exists.
+    ///     Defaults to the live filesystem.
+    public init(
+        isExecutableFile: @escaping @Sendable (String) -> Bool,
+        isReadableFile: @escaping @Sendable (String) -> Bool = AgentRestoreReadableFileResolver().isReadableFile(atPath:)
+    ) {
         self.isExecutableFile = isExecutableFile
+        self.isReadableFile = isReadableFile
     }
 
-    /// Creates a restore planner backed by an injected executable-file resolver.
+    /// Creates a restore planner backed by injected filesystem resolvers.
     ///
-    /// - Parameter executableFileResolver: The filesystem dependency used to resolve wrapper shims.
-    public init(executableFileResolver: AgentRestoreExecutableFileResolver) {
-        self.init(isExecutableFile: executableFileResolver.isExecutableFile(atPath:))
+    /// - Parameters:
+    ///   - executableFileResolver: The filesystem dependency used to resolve wrapper shims.
+    ///   - readableFileResolver: The filesystem dependency used to validate captured
+    ///     file-valued options at plan time. Defaults to the live filesystem.
+    public init(
+        executableFileResolver: AgentRestoreExecutableFileResolver,
+        readableFileResolver: AgentRestoreReadableFileResolver = AgentRestoreReadableFileResolver()
+    ) {
+        self.init(
+            isExecutableFile: executableFileResolver.isExecutableFile(atPath:),
+            isReadableFile: readableFileResolver.isReadableFile(atPath:)
+        )
     }
 
     /// Produces the final direct process invocation for a persisted restore or fork request.
@@ -74,6 +92,14 @@ public struct AgentRestorePlanner: Sendable {
         environment.merge(restoredEnvironment) { _, restored in restored }
 
         var routedArguments = sanitizedArguments
+        if kind == "claude", request.mode != .direct {
+            // A captured --settings path is checked here, not at capture: the file
+            // existed then, and only the restoring machine knows whether it still
+            // does. Claude refuses to start on a missing settings file.
+            routedArguments = ClaudeRestoreSettingsPathFilter(isReadableFile: isReadableFile)
+                .removingUnreadableSettingsPaths(from: routedArguments)
+            guard !routedArguments.isEmpty else { return nil }
+        }
         let hermesProfilePin: HermesAgentResumeProfilePin?
         if kind == "hermes-agent", request.mode != .direct {
             let pin = HermesAgentResumeProfilePin(
