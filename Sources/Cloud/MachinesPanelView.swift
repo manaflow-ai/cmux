@@ -92,7 +92,7 @@ struct MachinesPanelView: View {
                             ? String(localized: "cloud.vpn.setup.title", defaultValue: "Cloud VPN")
                             : String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…"))
                             .cmuxFont(size: 12, weight: .medium)
-                        Text(String(localized: "cloud.vpn.setup.entry.subtitle", defaultValue: "Optional private IP access for other apps"))
+                        Text(String(localized: "cloud.vpn.setup.entry.subtitle", defaultValue: "Open cmux VM ports in Chrome, Safari, and other apps"))
                             .cmuxFont(size: 11)
                             .foregroundStyle(.secondary)
                     }
