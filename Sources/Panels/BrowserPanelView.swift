@@ -1050,7 +1050,9 @@ struct BrowserPanelView: View {
         // container. Rendering it here can hide it behind the portal-hosted WKWebView.
         VStack(spacing: 0) {
             omnibarHeaderView
-            webView
+            CloudBrowserAccessView(panel: panel, backgroundColor: browserChromeBackgroundColor) {
+                webView
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay(browserFindOverlayView)
@@ -1313,7 +1315,6 @@ struct BrowserPanelView: View {
         #endif
         return panel.recentDownloads
     }
-
     @ViewBuilder
     private var browserScreenshotCopiedIndicator: some View {
         if screenshotPageCopied {
@@ -1554,6 +1555,7 @@ struct BrowserPanelView: View {
             }
             .disabled(!panel.shouldRenderWebView)
             .accessibilityIdentifier("BrowserScreenshotSectionButton")
+            BrowserLocalFileFinderMenu(fileURL: panel.currentURL)
             if isChromeCompact {
                 Divider()
                 BrowserDesignModeOverflowMenuButton(

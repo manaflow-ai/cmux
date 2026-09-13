@@ -33,7 +33,6 @@ extension CmuxTuiSurfaceProvider {
             machineID: machineID,
             terminalID: resource.id.key,
             remoteSurfaceID: resolved.surfaceID,
-            initiallyClaimsGeometry: focus,
             operations: links.operations,
             onNeedsReconnect: { [weak self] in
                 self?.scheduleRefresh()
@@ -54,7 +53,8 @@ extension CmuxTuiSurfaceProvider {
                 },
                 onFocus: { [weak session] in
                     session?.claimGeometry()
-                }
+                },
+                attachment: session.attachmentStatus
             )
             session.bind(surface: created.surface)
             // Preserve the workspace's existing notification-dismissal hook
@@ -81,54 +81,60 @@ extension CmuxTuiSurfaceProvider {
         }
     }
 
-    /// Resolves the daemon-local surface needed by a byte attachment. A live terminal with
-    /// zero remote views intentionally resolves to `surface:null`; create one unfocused remote
-    /// tab in the daemon's focused pane before resolving again. The operation is retried once
-    /// after the projection to cover the commit-to-snapshot handoff without ever selecting a
-    /// stale numeric id.
+    /// Resolves the daemon-local surface needed by a byte attachment.
+    ///
+    /// A live terminal with zero remote views resolves to `noPlacement`; one
+    /// unfocused remote tab is projected before resolving again. A daemon that
+    /// does not answer in time is retried on the bounded materialize schedule
+    /// and then reported as "did not answer", never as "not created": the
+    /// terminal keeps running on the machine either way.
     private func resolveSurfaceIDForMaterialization(
         terminalID: String,
         socketPath: String,
         link: CloudMachineLink,
         preferredWorkspaceID: String? = nil
     ) async throws -> (surfaceID: UInt64, placement: SurfaceRemotePlacement?) {
-        switch await Self.resolveModernSurfaceID(
-            terminalID: terminalID,
-            socketPath: socketPath,
-            link: link
-        ) {
-        case let .resolved(surfaceID):
-            return (surfaceID, nil)
-        case .unsupported:
-            if let surfaceID = await Self.resolveSurfaceID(
-                terminalID: terminalID,
-                socketPath: socketPath,
-                link: link
-            ) {
-                return (surfaceID, nil)
+        let resolver = CloudTerminalAttachmentResolver(machineID: machineID, commandRunner: link, socketPath: socketPath)
+        var failures = 0
+        var lastReason = ""
+        var lastFailure = CloudTuiSurfaceIDResolution.Failure.notReady
+        while true {
+            try Task.checkCancellation()
+            var resolution = await resolver.resolve(terminalID: terminalID)
+            attachmentLog.resolution(machineID: machineID, terminalID: terminalID, attempt: failures + 1, outcome: resolution)
+            var placement: SurfaceRemotePlacement?
+            if resolution == .noPlacement {
+                let projected = try await ensureRemoteTerminalView(
+                    terminalID: terminalID,
+                    socketPath: socketPath,
+                    link: link,
+                    preferredWorkspaceID: preferredWorkspaceID
+                )
+                placement = projected
+                attachmentLog.projection(machineID: machineID, terminalID: terminalID, placement: projected)
+                resolution = await resolver.resolve(terminalID: terminalID)
+                attachmentLog.resolution(machineID: machineID, terminalID: terminalID, attempt: failures + 1, outcome: resolution)
             }
-            throw ProviderError.terminalNotCreated(terminalID)
-        case .failed:
-            throw ProviderError.terminalNotCreated(terminalID)
-        case .exited:
-            // The remote shell already ended. Opening a pane for it would show
-            // a frozen screen that never reconnects.
-            throw ProviderError.terminalNotCreated(terminalID)
-        case .noPlacement:
-            let placement = try await ensureRemoteTerminalView(
-                terminalID: terminalID,
-                socketPath: socketPath,
-                link: link,
-                preferredWorkspaceID: preferredWorkspaceID
-            )
-            if case let .resolved(surfaceID) = await Self.resolveModernSurfaceID(
-                terminalID: terminalID,
-                socketPath: socketPath,
-                link: link
-            ) {
+            // Initial and post-projection answers share the same lifecycle/error handling.
+            switch resolution {
+            case let .resolved(surfaceID):
                 return (surfaceID, placement)
+            case .exited:
+                // The remote shell already ended, including during projection.
+                throw ProviderError.terminalExited(terminalID)
+            case .noPlacement:
+                lastReason = "the projected view did not resolve"
+                lastFailure = .notReady
+            case let .retryable(reason, failure):
+                lastReason = reason
+                lastFailure = failure
             }
-            throw ProviderError.terminalNotCreated(terminalID)
+            failures += 1
+            guard let delay = CloudTerminalAttachmentRetryPolicy.materialize.boundedDelay(afterFailures: failures) else {
+                attachmentLog.giveUp(machineID: machineID, terminalID: terminalID, attempts: failures, reason: lastReason)
+                throw ProviderError.terminalAttachTimedOut(terminalID: terminalID, failure: lastFailure)
+            }
+            try await attachmentClock.sleep(for: delay)
         }
     }
 
@@ -171,11 +177,9 @@ extension CmuxTuiSurfaceProvider {
         socketPath: String,
         link: CloudMachineLink
     ) async -> [String: CloudTuiSurfaceIDResolution] {
-        var resolutions = await Self.resolveSurfaceIDs(
-            terminalIDs: Set(sessions.map(\.terminalID)),
-            socketPath: socketPath,
-            link: link
-        )
+        let resolver = CloudTerminalAttachmentResolver(machineID: machineID, commandRunner: link, socketPath: socketPath)
+        let sessionsByTerminal = Dictionary(grouping: sessions, by: \.terminalID)
+        var resolutions = await resolver.resolve(terminalIDs: Set(sessionsByTerminal.keys))
         let terminalsWithoutPlacement: Set<String> = Set(
             sessions.compactMap { session in
                 guard resolutions[session.terminalID] == .noPlacement else { return nil }
@@ -184,7 +188,7 @@ extension CmuxTuiSurfaceProvider {
         )
         for terminalID in terminalsWithoutPlacement {
             guard !Task.isCancelled else { break }
-            for session in sessions where session.terminalID == terminalID {
+            for session in sessionsByTerminal[terminalID] ?? [] {
                 session.markSurfaceResolutionUnavailable()
             }
             await catalog.cloudPlacementCoordinator.repairPlacement(
@@ -198,9 +202,7 @@ extension CmuxTuiSurfaceProvider {
                     preferredWorkspaceID: preferredWorkspaceID
                 )
             }
-            resolutions[terminalID] = await Self.resolveModernSurfaceID(
-                terminalID: terminalID, socketPath: socketPath, link: link
-            )
+            resolutions[terminalID] = await resolver.resolve(terminalID: terminalID)
         }
         return resolutions
     }
@@ -233,160 +235,27 @@ extension CmuxTuiSurfaceProvider {
                 in: materialized.workspaceID,
                 remotePlacement: materialized.remotePlacement
             )
+            AppDelegate.shared?.workspace(containingSurfaceID: projection.panelID)?
+                .clearCloudMaterializationFailure(surfaceID: projection.panelID)
             SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
         } catch {
             materializedPanels.remove(projection.panelID)
-        }
-    }
-
-    /// Resolves one terminal for materialization, using the legacy tree only
-    /// when the daemon explicitly reports that the private resolver is not
-    /// supported. Other failures fail closed to prevent stale-id routing.
-#if compiler(>=6.2)
-    @concurrent
-#else
-    @Sendable
-#endif
-    nonisolated static func resolveSurfaceID(
-        terminalID: String,
-        socketPath: String,
-        link: CloudMachineLink
-    ) async -> UInt64? {
-        switch await resolveModernSurfaceID(
-            terminalID: terminalID,
-            socketPath: socketPath,
-            link: link
-        ) {
-        case let .resolved(surfaceID):
-            return surfaceID
-        case .unsupported:
-            let parser = CloudTuiLegacySnapshotParser()
-            guard let tree = try? await link.run(
-                arguments: CloudTuiCommandLine.legacyListWorkspacesArguments(socketPath: socketPath)
-            ) else { return nil }
-            return parser.surfaceID(from: tree, terminalID: terminalID)
-        case .noPlacement, .exited, .failed:
-            return nil
-        }
-    }
-
-    /// Resolves the private command without touching MainActor state or
-    /// performing a compatibility-tree traversal.
-#if compiler(>=6.2)
-    @concurrent
-#else
-    @Sendable
-#endif
-    nonisolated static func resolveModernSurfaceID(
-        terminalID: String,
-        socketPath: String,
-        link: CloudMachineLink
-    ) async -> CloudTuiSurfaceIDResolution {
-        guard let arguments = CloudTuiCommandLine.resolveTerminalArguments(
-            socketPath: socketPath,
-            terminalID: terminalID
-        ) else { return .failed }
-        let parser = CloudTuiLegacySnapshotParser()
-        do {
-            let resolved = try await link.run(arguments: arguments)
-            switch parser.resolvedSurface(from: resolved) {
-            case let .surface(surfaceID):
-                return .resolved(surfaceID)
-            case .noPlacement:
-                return .noPlacement
-            case .exited:
-                return .exited
-            case .malformed:
-                return .failed
+            let detail = CloudMachineLink.errorText(error).isEmpty
+                ? String(localized: "cloud.overlay.materializationFailed.detail", defaultValue: "The secure Cloud terminal endpoint is unavailable.")
+                : CloudMachineLink.errorText(error)
+            var reference: String?
+            if let recorder = links.operations {
+                let context = recorder.begin(.terminal)
+                reference = "operation=\(context.operationID.uuidString.lowercased()) trace=\(context.traceID)"
+                await recorder.finish(context, error: error)
             }
-        } catch {
-            if isExplicitUnsupportedResolverError(error) {
-                return .unsupported
-            }
-            // A pre-protocol-9 daemon has no generation-aware resolver. Probe
-            // the authoritative identify response before allowing the legacy
-            // tree fallback; all other failures remain fail-closed.
-            guard let identifyArguments = CloudTuiCommandLine.identifyArguments(socketPath: socketPath),
-                  let identify = try? await link.run(arguments: identifyArguments),
-                  let protocolVersion = parser.protocolVersion(from: identify) else {
-                return .failed
-            }
-            return protocolVersion < 9 ? .unsupported : .failed
-        }
-    }
-
-    /// Resolves a set of terminal IDs with one modern request per ID and at
-    /// most one legacy tree fallback. The compatibility parser performs one
-    /// O(N) traversal for all unresolved IDs.
-#if compiler(>=6.2)
-    @concurrent
-#else
-    @Sendable
-#endif
-    nonisolated static func resolveSurfaceIDs(
-        terminalIDs: Set<String>,
-        socketPath: String,
-        link: CloudMachineLink
-    ) async -> [String: CloudTuiSurfaceIDResolution] {
-        guard !terminalIDs.isEmpty else { return [:] }
-        var results: [String: CloudTuiSurfaceIDResolution] = [:]
-        var legacyIDs: Set<String> = []
-        for terminalID in terminalIDs {
-            let result = await resolveModernSurfaceID(
-                terminalID: terminalID,
-                socketPath: socketPath,
-                link: link
-            )
-            results[terminalID] = result
-            if result == .unsupported {
-                legacyIDs.insert(terminalID)
+            if let workspace = AppDelegate.shared?.workspace(containingSurfaceID: projection.panelID) {
+                workspace.setCloudMaterializationFailure(
+                    surfaceID: projection.panelID,
+                    detail: detail,
+                    reference: reference
+                )
             }
         }
-        if !legacyIDs.isEmpty,
-           let tree = try? await link.run(
-               arguments: CloudTuiCommandLine.legacyListWorkspacesArguments(socketPath: socketPath)
-           ) {
-            let parser = CloudTuiLegacySnapshotParser()
-            let legacy = parser.surfaceIDs(from: tree, terminalIDs: legacyIDs)
-            for terminalID in legacyIDs {
-                results[terminalID] = legacy[terminalID].map(CloudTuiSurfaceIDResolution.resolved)
-                    ?? .failed
-            }
-        }
-        return results
-    }
-
-    /// Whether the daemon's answer means "this resolver cannot serve me",
-    /// which sends the caller to the compatibility tree instead of failing
-    /// closed.
-    ///
-    /// Two answers qualify. `operation.unsupported` is a daemon that predates
-    /// the resolver. `invalid_terminal_id` is an id-space mismatch:
-    /// `resolve-terminal` takes a *terminal host* id (UUIDv4 hex, per
-    /// spec/sdk-schema.json), while everything the app holds is a public
-    /// `term_…` resource id whose hex is not a UUIDv4 and which no command maps
-    /// to a host id. So the modern resolver can never answer for the ids this
-    /// app has, and treating that as a hard failure made every cloud terminal
-    /// fail with "cmux-tui did not report the new terminal". The compatibility
-    /// tree does carry the mapping (`terminal_resource_id` beside `surface`),
-    /// so the fallback is the path that actually resolves.
-    nonisolated static func isExplicitUnsupportedResolverError(_ error: Error) -> Bool {
-        guard case let CloudMachineLink.LinkError.exited(_, output) = error else { return false }
-        let lines = output.split(whereSeparator: \.isNewline)
-        for line in lines {
-            guard let data = String(line).data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-            else { continue }
-            if object["code"] as? String == "operation.unsupported"
-                || object["error_code"] as? String == "operation.unsupported" {
-                return true
-            }
-            let detailError = (object["details"] as? [String: Any])?["error"] as? String
-            if object["message"] as? String == "invalid_terminal_id"
-                || detailError == "invalid_terminal_id" {
-                return true
-            }
-        }
-        return false
     }
 }

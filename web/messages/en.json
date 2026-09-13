@@ -132,6 +132,11 @@
     "expiredBody": "{machine} and everything on it are fine — only this link's session ended. Reopen the desktop from cmux (right-click the machine, then Open Desktop) to get a fresh one."
   },
   "vmErrors": {
+    "artifactUnavailable": {
+      "title": "Cloud VM setup unavailable",
+      "message": "Cloud VM setup is temporarily unavailable.",
+      "action": "Try again later. If the problem continues, contact support."
+    },
     "unsupported": {
       "title": "Cloud VM operation unavailable",
       "reason": "This machine kind does not provide this operation.",
@@ -2377,7 +2382,7 @@
       "plusButtonScreenshotAlt": "cmux plus button right-click menu showing Codex Worktree, New Terminal, and New Browser",
       "plusButtonScreenshotCaption": "The right-click menu follows the order from ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Custom plus button actions",
-      "newWorkspaceButtonDesc": "Use <action>ui.newWorkspace.action</action> to override what the plus button does. Use <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (or the <rightClick>rightClick</rightClick> alias) to define the ordered right-click menu. Menu entries can be action IDs, action objects, or <separator>{ \"type\": \"separator\" }</separator>.",
+      "newWorkspaceButtonDesc": "Use <action>ui.newWorkspace.action</action> to override what the plus button does. Use <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (or the <rightClick>rightClick</rightClick> alias) to define the ordered right-click menu. Menu entries can be action IDs, action objects, or <separator>{ \"type\": \"separator\" }</separator>. When it is not set, the menu lists cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), each showing its current shortcut. Cloud rows appear only when Cloud Machines is enabled.",
       "newWorkspaceWorktreeNote": "This example makes the normal plus click run the <action>worktree-agents</action> action. The workspace command from <commands>commands</commands> uses a visible setup terminal to create the Git <worktree>worktree</worktree> first. Codex and Claude start at the same time, wait for the workspace-specific state file, then cd into the created directory before exec.",
       "workspaceActions": "Workspace layouts",
       "workspaceActionsDesc": "A workspace layout is stored as a <workspace>workspace</workspace> action, embedding a full workspace definition directly in the action so it needs no separate <commands>commands</commands> entry. It supports the same workspace fields plus <setup>setup</setup>, a bootstrap command sent to the first terminal before that terminal's own command:",
