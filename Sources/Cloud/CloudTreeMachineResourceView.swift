@@ -24,6 +24,7 @@ struct CloudTreeMachineResourceView: View {
             Text(reading.value)
                 .cmuxFont(size: style.machineNameSize, weight: .semibold, design: style.fontDesign, monospacedDigit: true)
                 .foregroundStyle(reading.percent == nil ? .secondary : .primary)
+                .minimumScaleFactor(0.8)
                 .frame(height: style.machineNameLineHeight)
         }
         .lineLimit(1)
