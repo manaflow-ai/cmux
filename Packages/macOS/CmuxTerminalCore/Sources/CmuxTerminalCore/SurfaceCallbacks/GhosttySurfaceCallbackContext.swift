@@ -82,13 +82,6 @@ public final class GhosttySurfaceCallbackContext {
     private let rendererFrameFailedHandler:
         @Sendable (UUID, UInt64, ghostty_render_presentation_status_e) -> Void
 
-    /// Runs after the renderer finishes a draw attempt, before platform delivery.
-    private let rendererDrawFrameDidEndHandler: @Sendable (UUID) -> Void
-
-    /// Lock-free gate so ordinary steady-state draws do not hop to the main
-    /// actor unless a presentation probe is actually waiting for a result.
-    private let rendererDrawFrameObservationArmed = AtomicBooleanGate(false)
-
     /// Lock-free so the unarmed renderer callback path neither allocates nor locks.
     private let rendererPresentationRepairArmed = AtomicBooleanGate(false)
 
@@ -113,7 +106,6 @@ public final class GhosttySurfaceCallbackContext {
     ///     an armed repair observes renderer activity following a mailbox drain.
     ///   - rendererFramePresented: Called after a tokened frame reaches the host layer.
     ///   - rendererFrameFailed: Called when a tokened frame is discarded or fails.
-    ///   - rendererDrawFrameDidEnd: Called after a renderer draw attempt completes.
     ///   - maximumRuntimeClipboardRequests: Maximum simultaneous native
     ///     clipboard requests accepted for this surface.
     public init(
@@ -128,7 +120,6 @@ public final class GhosttySurfaceCallbackContext {
             UInt64,
             ghostty_render_presentation_status_e
         ) -> Void = { _, _, _ in },
-        rendererDrawFrameDidEnd: @escaping @Sendable (UUID) -> Void = { _ in },
         maximumRuntimeClipboardRequests: Int = 32
     ) {
         self.surfaceHost = surfaceHost
@@ -140,7 +131,6 @@ public final class GhosttySurfaceCallbackContext {
         self.rendererMailboxDidDrainHandler = rendererMailboxDidDrain
         self.rendererFramePresentedHandler = rendererFramePresented
         self.rendererFrameFailedHandler = rendererFrameFailed
-        self.rendererDrawFrameDidEndHandler = rendererDrawFrameDidEnd
         self.maximumRuntimeClipboardRequests = max(
             0,
             maximumRuntimeClipboardRequests
@@ -182,25 +172,6 @@ public final class GhosttySurfaceCallbackContext {
         status: ghostty_render_presentation_status_e
     ) {
         rendererFrameFailedHandler(surfaceId, token, status)
-    }
-
-    /// Delivers the renderer draw-end signal to the owning surface.
-    public func rendererDrawFrameDidEnd() {
-        guard rendererDrawFrameObservationArmed.compareExchange(
-            expected: true,
-            desired: false
-        ) else { return }
-        rendererDrawFrameDidEndHandler(surfaceId)
-    }
-
-    /// Arms one draw-end observation for the current presentation probe.
-    public func armRendererDrawFrameObservation() {
-        rendererDrawFrameObservationArmed.storeRelease(true)
-    }
-
-    /// Cancels the draw-end observation when the probe is presented, failed, or hidden.
-    public func cancelRendererDrawFrameObservation() {
-        rendererDrawFrameObservationArmed.storeRelease(false)
     }
 
     /// Binds this callback context to the native surface that owns its userdata.

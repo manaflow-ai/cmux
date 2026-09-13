@@ -3,6 +3,9 @@
 final class TerminalRendererPresentationState {
     var token: UInt64 = 0
     var inFlightToken: UInt64?
-    var baselineFrameSequence: UInt64 = 0
     var recoveryAttempted = false
+    /// Whether the current renderer lifetime has delivered at least one frame.
+    /// This remains true when a shell exits so diagnostics can coexist with
+    /// the last usable frame, including after renderer reclamation.
+    var didPresentFrame = false
 }

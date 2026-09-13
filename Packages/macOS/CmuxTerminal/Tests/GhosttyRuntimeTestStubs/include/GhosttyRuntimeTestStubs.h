@@ -135,6 +135,8 @@ bool cmux_test_ghostty_renderer_realized_call_value(uint32_t index);
 void cmux_test_ghostty_renderer_realized_set_result(bool result);
 bool cmux_test_ghostty_renderer_release_was_occluded(void);
 bool cmux_test_ghostty_renderer_occlusion_visible(void);
+bool cmux_test_ghostty_renderer_present(void *surface);
+bool cmux_test_ghostty_renderer_fail(void *surface, int status);
 bool cmux_test_ghostty_surface_was_updated(void *surface);
 void cmux_test_ghostty_font_state_begin(
     void *surface,

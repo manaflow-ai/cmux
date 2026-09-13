@@ -53,11 +53,6 @@ extension TerminalSurface {
                     callbackTarget.surface?.rendererFrameDidFail(token: token, status: status)
                 }
             },
-            rendererDrawFrameDidEnd: { _ in
-                Task { @MainActor in
-                    callbackTarget.surface?.rendererDrawFrameDidEnd()
-                }
-            }
         ))
         surfaceConfig.userdata = callbackContext.toOpaque()
         surfaceConfig.renderer_event_cb = terminalRendererEventCallback
