@@ -1031,9 +1031,7 @@ final class WindowTerminalPortal: NSObject {
 
     @discardableResult
     private func synchronizeLayoutHierarchy(allowSynchronousLayout: Bool = true) -> Bool {
-        // Idempotence choke point for window, anchor, deferred, and recovery
-        // paths. Identical signatures skip the pass; AppKit flushes pending
-        // inner layout before display on its own.
+        // Identical signatures skip the pass; AppKit flushes pending layout.
         let signature = externalGeometrySignature()
         if let last = lastHierarchySyncSignature, last == signature { return true }
 #if DEBUG
@@ -1131,8 +1129,11 @@ final class WindowTerminalPortal: NSObject {
         // consume committed geometry here and let AppKit flush pending layout
         // in its normal display turn (the stable 89/AZ/QJ hang shape).
         let hierarchyWasAlreadySettled = synchronizeLayoutHierarchy(allowSynchronousLayout: false)
-        synchronizeAllHostedViews(excluding: nil)
-        reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.externalGeometrySync")
+        synchronizeAllHostedViews(excluding: nil, syncLayout: false)
+        reconcileVisibleHostedViewsAfterGeometrySync(
+            reason: "portal.externalGeometrySync",
+            syncLayout: false
+        )
         if hierarchyWasAlreadySettled {
             finishVisibleEntryGeometrySettlements()
         } else if entriesByHostedId.values.contains(where: { $0.visibleInUI && $0.awaitingGeometrySettlement }) {
