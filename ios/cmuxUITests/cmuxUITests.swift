@@ -3740,9 +3740,15 @@ final class cmuxUITests: XCTestCase {
         let detail = app.descendants(matching: .any)["FixtureWorkspaceDetail"]
         XCTAssertTrue(detail.waitForExistence(timeout: 3))
         XCTAssertFalse(workspaces.isHittable, "Detail must hide the primary tab bar on every supported OS")
-        let back = app.navigationBars.buttons.firstMatch
-        XCTAssertTrue(waitForHittable(back, timeout: 3))
-        back.tap()
+        let detailScreenshot = XCTAttachment(screenshot: app.screenshot())
+        detailScreenshot.name = "primary-tabs-hidden-in-workspace"
+        detailScreenshot.lifetime = .keepAlways
+        add(detailScreenshot)
+
+        // iOS 17 can report an invalid navigation-bar ancestor frame even
+        // while Back is visible. The shared helper taps its measured frame;
+        // the assertions below still require a real pop and usable tabs.
+        tap(app.buttons["MobileWorkspaceBackButton"], in: app)
         XCTAssertTrue(workspaceRow.waitForExistence(timeout: 3))
         XCTAssertTrue(waitForHittable(notifications, timeout: 3))
 
