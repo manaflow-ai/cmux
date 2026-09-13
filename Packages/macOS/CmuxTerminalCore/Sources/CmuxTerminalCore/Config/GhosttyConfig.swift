@@ -788,7 +788,7 @@ public struct GhosttyConfig {
         }
 
         config.parse(
-            contents,
+            contentsByRepairingCmuxManagedTheme(in: contents),
             loadingThemesImmediatelyFor: preferredColorScheme
         )
 
@@ -968,9 +968,10 @@ public struct GhosttyConfig {
         recursiveConfigPaths: inout [String]
     ) {
         let resolved = (path as NSString).standardizingPath
-        guard let contents = try? String(contentsOfFile: resolved, encoding: .utf8) else {
+        guard let rawContents = try? String(contentsOfFile: resolved, encoding: .utf8) else {
             return
         }
+        let contents = contentsByRepairingCmuxManagedTheme(in: rawContents)
         let parentDir = (resolved as NSString).deletingLastPathComponent
 
         for line in contents.components(separatedBy: .newlines) {
@@ -1124,7 +1125,6 @@ public struct GhosttyConfig {
                 }
             }
         }
-
         switch preferredColorScheme {
         case .light:
             if let lightTheme {
