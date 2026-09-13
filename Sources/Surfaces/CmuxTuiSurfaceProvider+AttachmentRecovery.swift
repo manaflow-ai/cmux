@@ -117,7 +117,9 @@ extension CmuxTuiSurfaceProvider {
               projection.resource == SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID),
               let resource = catalog.resource(forPanel: projection.panelID),
               let views = resource.remoteViews,
-              let view = projection.remoteTabID.flatMap { tabID in views.first { $0.tabID == tabID } }
+              let view = projection.remoteTabID.flatMap { tabID in
+                  views.first(where: { $0.tabID == tabID })
+              }
                 ?? (projection.remoteTabID == nil && views.count == 1 ? views.first : nil) else {
             return
         }
