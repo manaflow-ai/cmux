@@ -66,7 +66,7 @@ final class CloudTerminalReadiness {
         let previousCondition = phase == .waiting ? self.condition : nil
         finishEnd(notify: false)
         self.surface = surface
-        gate.begin(baselineFrame: surface.hostedView.surfaceView.renderedFrameSequence)
+        gate.begin(baselineFrame: Self.frameSequence(for: surface))
         self.condition = previousCondition.map { previous in
             { previous() && condition() }
         } ?? condition
@@ -106,7 +106,7 @@ final class CloudTerminalReadiness {
     /// observer or retaining a second render-demand lease.
     func rearm() {
         guard let surface else { return }
-        gate.begin(baselineFrame: surface.hostedView.surfaceView.renderedFrameSequence)
+        gate.begin(baselineFrame: Self.frameSequence(for: surface))
         phase = .waiting
         if frameObserver == nil {
             releaseFrameDemand = surface.hostedView.surfaceView.retainLocalRenderedFrameNotifications()
@@ -124,7 +124,7 @@ final class CloudTerminalReadiness {
               surface.hasLiveSurface else {
             return
         }
-        let frame = surface.hostedView.surfaceView.renderedFrameSequence
+        let frame = Self.frameSequence(for: surface)
         guard gate.check(
             attachmentReady: condition?() == true,
             rendererPresented: surface.isRendererPresented && surface.isRendererEffectivelyVisible,
@@ -185,5 +185,14 @@ final class CloudTerminalReadiness {
         case (.none, .some): return second
         case (.none, .none): return nil
         }
+    }
+
+    /// Uses the tokened native callback as the fallback authority when AppKit
+    /// supplies an IOSurfaceLayer without the Metal layer's drawable counter.
+    private static func frameSequence(for surface: TerminalSurface) -> UInt64 {
+        max(
+            surface.hostedView.surfaceView.renderedFrameSequence,
+            surface.rendererPresentedFrameSequence
+        )
     }
 }

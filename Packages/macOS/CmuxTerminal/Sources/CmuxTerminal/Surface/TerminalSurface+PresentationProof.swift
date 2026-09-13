@@ -91,6 +91,7 @@ extension TerminalSurface {
             return
         }
         rendererPresentationState.acknowledge(probe)
+        rendererPresentedFrameSequence &+= 1
         rendererPresentationPhase = .presented
         if renderHealth != .shellExited { renderHealth = .rendering }
         surfaceCallbackContext?.takeUnretainedValue().cancelRendererPresentationRepair()

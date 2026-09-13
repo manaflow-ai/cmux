@@ -209,6 +209,13 @@ final class CloudTuiManualMirrorSession {
             return
         }
         if phase == .disconnected || phase == .idle { onNeedsReconnect() }
+        if diagnosticReplayReceived {
+            // A replay can arrive while the portal is still hidden or has no
+            // drawable. Re-submit the proof request on the visibility edge so
+            // the current native host, including IOSurface-backed hosts, gets
+            // one exact post-reveal acknowledgement.
+            _ = surface?.requestManualOutputPresentation()
+        }
         runtimeReady()
         presentationReadiness.resumeDeadline()
         presentationReadiness.check()
@@ -661,6 +668,10 @@ final class CloudTuiManualMirrorSession {
             remoteLease = lease
             startupTrace?.mark("attach-ack", surfaceID: remoteSurfaceID, outcome: "accepted")
             transition(to: .attached)
+            // Replay may precede the attach acknowledgement. The frame
+            // callback is an independent native event, so re-evaluate the
+            // combined lifecycle boundary after the phase becomes attached.
+            presentationReadiness.check()
             watchdog.armLiveness(
                 probe: { [weak self] in self?.sendPing() },
                 onExpiry: { [weak self] in self?.deadlineExpired(.livenessTimedOut, while: .attached) }
