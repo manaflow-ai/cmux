@@ -94,7 +94,8 @@ final class CloudTerminalReadiness {
         guard let surface else { return }
         gate.begin(baselineFrame: surface.hostedView.surfaceView.renderedFrameSequence)
         phase = .waiting
-        if let surface, frameObserver == nil {
+        if frameObserver == nil {
+            releaseFrameDemand = surface.hostedView.surfaceView.retainLocalRenderedFrameNotifications()
             installObservers(surface: surface, view: surface.hostedView.surfaceView)
         }
         deadlineTask?.cancel()

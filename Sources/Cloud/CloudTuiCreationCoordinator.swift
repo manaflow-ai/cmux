@@ -127,10 +127,20 @@ struct CloudTuiCreationCoordinator: Sendable {
                     )
                     switch resolution.recovery {
                     case .retrySameIdempotencyKey:
+                        resolutionAttempts += 1
+                        guard resolutionAttempts <= recoveryPolicy.maximumResolutionAttempts else {
+                            throw Failure.outcomeUnknown
+                        }
                         reconcile = false
+                        try await clock.sleep(for: recoveryPolicy.delay(afterAttempts: resolutionAttempts))
                     case .retryNewIdempotencyKey:
+                        resolutionAttempts += 1
+                        guard resolutionAttempts <= recoveryPolicy.maximumResolutionAttempts else {
+                            throw Failure.outcomeUnknown
+                        }
                         idempotencyKey = "cmux-cloud-terminal-attempt-\(UUID().uuidString.lowercased())"
                         reconcile = false
+                        try await clock.sleep(for: recoveryPolicy.delay(afterAttempts: resolutionAttempts))
                     case .wait, .none, .doNotRetry:
                         throw Failure.outcomeUnknown
                     }

@@ -198,7 +198,7 @@ extension CmuxTuiSurfaceProvider {
         return cursor.generation == receipt.generation && cursor.revision < receipt.revision
     }
 
-    private func pendingCreation(forTabID tabID: String) -> PendingRemoteCreation? {
+    func pendingCreation(forTabID tabID: String) -> PendingRemoteCreation? {
         pendingRemoteCreations.values.first { $0.tabID == tabID }
     }
 
