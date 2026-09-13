@@ -21,7 +21,7 @@ struct CloudWorkspaceBindingRegressionTests {
             "tabs": [["id": "tab", "pane_id": "pane", "content_kind": "terminal", "content_id": "term_1"]],
             "terminals": [["id": "term_1", "tab_ids": ["tab"]]],
             "browsers": [], "agents": [],
-        ], machine: machine))
+        ], machine: Self.machine))
     }
 
     @Test func aDeletedBoundWorkspaceCannotRouteCreationBackToItsStaleID() {
@@ -64,11 +64,11 @@ struct CloudWorkspaceBindingRegressionTests {
         }, workspaceExists: { _, _ in false })
         let other = SurfaceRemoteWorkspace(id: "ws_other", name: "other", index: 1, focused: false)
         let resource = SurfaceResource(
-            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_1"),
+            id: SurfaceResourceID(machine: Self.machine, kind: .terminal, key: "term_1"),
             title: "term_1", detail: "/root", lifecycle: .running, agent: nil,
-            remoteWorkspace: workspace,
+            remoteWorkspace: Self.workspace,
             remoteViews: [
-                SurfaceRemoteView(tabID: "tab_1", workspace: workspace),
+                SurfaceRemoteView(tabID: "tab_1", workspace: Self.workspace),
                 SurfaceRemoteView(tabID: "tab_2", workspace: other),
             ],
             port: nil, url: nil
@@ -82,10 +82,10 @@ struct CloudWorkspaceBindingRegressionTests {
         let service = CloudWorkspaceRenameService()
         let state = try Self.state(workspaces: [["id": "ws_api", "name": "api"]])
         let resource = SurfaceResource(
-            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_1"),
+            id: SurfaceResourceID(machine: Self.machine, kind: .terminal, key: "term_1"),
             title: "term_1", detail: nil, lifecycle: .running, agent: nil,
-            remoteWorkspace: workspace,
-            remoteViews: [SurfaceRemoteView(tabID: "tab_1", workspace: workspace)],
+            remoteWorkspace: Self.workspace,
+            remoteViews: [SurfaceRemoteView(tabID: "tab_1", workspace: Self.workspace)],
             port: nil, url: nil
         )
         let projection = SurfaceProjection(
@@ -99,12 +99,12 @@ struct CloudWorkspaceBindingRegressionTests {
         #expect(
             service.bindingReconciliation(
                 binding: WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: false, remoteWorkspaceID: "ws_deleted"),
-                machine: machine,
+                machine: Self.machine,
                 state: state,
                 observation: .current,
                 projections: [projection],
                 resources: [resource]
-            ) == .rebind(machine: machine, remoteWorkspaceID: "ws_api")
+            ) == .rebind(machine: Self.machine, remoteWorkspaceID: "ws_api")
         )
     }
 
@@ -115,14 +115,14 @@ struct CloudWorkspaceBindingRegressionTests {
             ["id": "ws_api", "name": "api"], ["id": "ws_other", "name": "other"],
         ])
         let first = SurfaceResource(
-            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_1"),
+            id: SurfaceResourceID(machine: Self.machine, kind: .terminal, key: "term_1"),
             title: "term_1", detail: nil, lifecycle: .running, agent: nil,
-            remoteWorkspace: workspace,
-            remoteViews: [SurfaceRemoteView(tabID: "tab_1", workspace: workspace)],
+            remoteWorkspace: Self.workspace,
+            remoteViews: [SurfaceRemoteView(tabID: "tab_1", workspace: Self.workspace)],
             port: nil, url: nil
         )
         let second = SurfaceResource(
-            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_2"),
+            id: SurfaceResourceID(machine: Self.machine, kind: .terminal, key: "term_2"),
             title: "term_2", detail: nil, lifecycle: .running, agent: nil,
             remoteWorkspace: other,
             remoteViews: [SurfaceRemoteView(tabID: "tab_2", workspace: other)],
@@ -137,7 +137,7 @@ struct CloudWorkspaceBindingRegressionTests {
         #expect(
             service.bindingReconciliation(
                 binding: WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: false, remoteWorkspaceID: "ws_deleted"),
-                machine: machine,
+                machine: Self.machine,
                 state: state,
                 observation: .current,
                 projections: projections,
@@ -147,7 +147,7 @@ struct CloudWorkspaceBindingRegressionTests {
         #expect(
             service.bindingReconciliation(
                 binding: WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: false, remoteWorkspaceID: "ws_deleted"),
-                machine: machine,
+                machine: Self.machine,
                 state: state,
                 observation: .stale(reason: "offline"),
                 projections: projections,
