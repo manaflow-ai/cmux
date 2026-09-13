@@ -7194,9 +7194,12 @@ struct ContentView: View {
             }
             // Markdown zoom only affects the rendered preview, so don't surface
             // the zoom commands when the panel is in raw text-edit mode.
+            let panelIsMarkdown = (panelContext.panel as? MarkdownPanel).map {
+                $0.displayMode == .preview || $0.displayMode == .edit
+            } ?? false
             snapshot.setBool(
                 CommandPaletteContextKeys.panelIsMarkdown,
-                (panelContext.panel as? MarkdownPanel)?.displayMode == .preview
+                panelIsMarkdown
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.panelIsFilePreviewTextEditor,
