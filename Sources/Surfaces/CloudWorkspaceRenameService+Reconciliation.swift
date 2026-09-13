@@ -18,6 +18,7 @@ extension CloudWorkspaceRenameService {
                       let id = binding.remoteWorkspaceID, let remote = state.lookupIndex.workspace(id: id) else { continue }
                 let key = CloudRenameCoordinator.Key.workspace(machine: machine, id: id)
                 if let pending = catalog.cloudRenameCoordinator.pendingName(for: key), pending != remote.name { continue }
+                if workspace.effectiveCustomTitleSource == .user { continue }
                 // Pending user edits are protected above. Confirmed names belong
                 // to the daemon; a generated prefix must not become a local alias.
                 guard workspace.customTitle != remote.name || workspace.effectiveCustomTitleSource != .remote else { continue }
@@ -38,6 +39,7 @@ extension CloudWorkspaceRenameService {
                   let tab = state.lookupIndex.tab(id: tabID) else { continue }
             let key = CloudRenameCoordinator.Key.tab(machine: machine, id: tabID)
             if let pending = catalog.cloudRenameCoordinator.pendingName(for: key), pending != (tab.name ?? "") { continue }
+            if workspace.panelCustomTitleSources[projection.panelID] == .user { continue }
             guard workspace.panelCustomTitles[projection.panelID] != tab.name
                     || (tab.name != nil && workspace.panelCustomTitleSources[projection.panelID] != .remote) else { continue }
             _ = workspace.setPanelCustomTitle(panelId: projection.panelID, title: tab.name, source: .remote,

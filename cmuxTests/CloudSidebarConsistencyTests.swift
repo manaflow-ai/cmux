@@ -208,6 +208,26 @@ struct CloudSidebarConsistencyTests {
         guard case .split(.right, _, _, _) = layout else { Issue.record("Each screen retains a pane"); return }
     }
 
+    @Test("A user title equal to the daemon name keeps user ownership")
+    func equalUserNamesRemainUserOwned() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelID = try #require(workspace.focusedPanelId)
+        let catalog = SurfaceCatalog(cloudWorkspaceRenameService: CloudWorkspaceRenameService(environment: .init(
+            workspace: { id in manager.workspacesById[id] }, tabManager: { _ in manager }, workspaces: { manager.tabs }
+        )))
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "ws_main")
+        let graph = try state(tabs: ["a"])
+        install(graph, in: catalog)
+        catalog.record(SurfaceProjection(resource: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_a"),
+            workspaceID: workspace.id, panelID: panelID, remoteWorkspaceID: "ws_main", remoteTabID: "tab_a"))
+        _ = manager.setCustomTitle(tabId: workspace.id, title: "GOD WORKSPACE", propagateToCloud: false)
+        _ = workspace.setPanelCustomTitle(panelId: panelID, title: "Explicit a", propagateToCloud: false)
+        catalog.reconcileCloudRemoteState(machine: machine, state: graph)
+        #expect(workspace.effectiveCustomTitleSource == .user)
+        #expect(workspace.panelCustomTitleSources[panelID] == .user)
+    }
+
     @Test("A bound native tab receives canonical names, process titles, and ignores delayed graph callbacks", arguments: [false, true])
     func nativeNameParity(named: Bool) throws {
         let manager = TabManager()
