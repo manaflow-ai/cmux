@@ -2,7 +2,6 @@ import CmuxSettings
 import CmuxSidebar
 import CmuxSidebarGit
 import Foundation
-
 typealias RightSidebarWidthSettings = CmuxSettings.RightSidebarWidthSettings
 
 enum SidebarWorkspaceDetailDefaults {
@@ -479,6 +478,7 @@ extension CmuxSettingsFileStore {
         "sidebar.openPortLinksInCmuxBrowser",
         "sidebar.showSSH",
         "sidebar.showPorts",
+        "sidebar.ignoredPorts",
         "sidebar.showLog",
         "sidebar.showProgress",
         "sidebar.showAgentActivity",

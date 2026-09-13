@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxSettings
 import CmuxSidebar
 import Foundation
 
@@ -28,7 +29,7 @@ extension Workspace {
             isPinned: isPinned,
             index: index,
             directory: presentedCurrentDirectory ?? "",
-            listeningPorts: listeningPorts,
+            listeningPorts: sidebarVisibleListeningPorts,
             unreadCount: unreadCount,
             surfaces: customSidebarSurfaceSnapshots(focusedPanelId: focusedPanelId),
             surfaceCount: bonsplitController.allPaneIds.reduce(0) {
@@ -144,7 +145,7 @@ extension Workspace {
                         directory: reportedPanelDirectory(panelId: panelId),
                         gitBranch: git?.branch,
                         gitIsDirty: git?.isDirty ?? false,
-                        listeningPorts: surfaceListeningPorts[panelId] ?? []
+                        listeningPorts: sidebarVisiblePorts(for: panelId)
                     )
                 )
             }

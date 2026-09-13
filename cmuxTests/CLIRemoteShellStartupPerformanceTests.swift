@@ -37,10 +37,11 @@ struct CLIRemoteShellStartupPerformanceTests {
 
     @Test
     func generatedSSHStartupDoesNotBlockOnRelayRPCWarmup() throws {
+        let generatedStartupCommand = try generatedSSHStartupCommandForShellPerformance()
         let root = try makeFakeRemoteShellRoot()
         defer { try? FileManager.default.removeItem(at: root.url) }
-        let startupCommand = try replacingPinnedSSH(
-            in: generatedSSHStartupCommandForShellPerformance(),
+        let startupCommand = try SSHStartupCommandTestSupport.replacingSystemSSH(
+            in: generatedStartupCommand,
             with: root.bin.appendingPathComponent("ssh").path
         )
         let shellMarker = root.url.appendingPathComponent("remote-shell-started")
@@ -131,12 +132,6 @@ struct CLIRemoteShellStartupPerformanceTests {
         let configure = try #require(requests.first { ($0["method"] as? String) == "workspace.remote.configure" })
         let params = try #require(configure["params"] as? [String: Any])
         return try #require(params["terminal_startup_command"] as? String)
-    }
-
-    private func replacingPinnedSSH(in command: String, with sshPath: String) throws -> String {
-        return try #require(SSHStartupCommandTestSupport.replacingPinnedSSH(
-            in: command, with: sshPath
-        ))
     }
 
     private func startMockServer(listenerFD: Int32, state: MockSocketServerState) -> DispatchSemaphore {

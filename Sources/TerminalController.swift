@@ -1113,28 +1113,6 @@ class TerminalController {
         scheduleSocketReadSnapshotRefresh()
     }
 
-    func applyPanelPortPublication(workspaceId: UUID, panelId: UUID, ports: [Int]) {
-        guard let workspace = portPublicationWorkspace(workspaceId: workspaceId),
-              workspace.panels[panelId] != nil else { return }
-        let nextPorts: [Int]? = ports.isEmpty ? nil : ports
-        guard workspace.surfaceListeningPorts[panelId] != nextPorts else { return }
-        workspace.surfaceListeningPorts[panelId] = nextPorts
-        workspace.recomputeListeningPorts()
-    }
-
-    func applyAgentPortPublication(workspaceId: UUID, ports: [Int]) -> Bool {
-        guard let workspace = portPublicationWorkspace(workspaceId: workspaceId) else { return false }
-        if workspace.agentListeningPorts != ports {
-            workspace.agentListeningPorts = ports
-            workspace.recomputeListeningPorts()
-        }
-        return true
-    }
-
-    private func portPublicationWorkspace(workspaceId: UUID) -> Workspace? {
-        AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?.tabs.first { $0.id == workspaceId }
-    }
-
     private func restartSocketListenerIfPathMissing(path: String, generation: UInt64) {
         let restartMode = socketServer.accessMode
         guard socketServer.shouldRestartForMissingPath(path: path, generation: generation) else { return }

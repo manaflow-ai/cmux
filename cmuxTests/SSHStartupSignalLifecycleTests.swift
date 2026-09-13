@@ -1355,7 +1355,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
         let configureParams = try XCTUnwrap(configureRequest["params"] as? [String: Any])
         let startupCommand = try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
-        return try rewritingSystemSSH(in: startupCommand, with: fakeSSH)
+        return try SSHStartupCommandTestSupport.replacingSystemSSH(
+            in: startupCommand,
+            with: fakeSSH.path
+        )
     }
 
     private func generatedVMSSHInitialStartupCommand(
@@ -1459,39 +1462,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
         let createParams = try XCTUnwrap(createRequest["params"] as? [String: Any])
         let startupCommand = try XCTUnwrap(createParams["initial_command"] as? String)
-        return try rewritingSystemSSH(in: startupCommand, with: fakeSSH)
-    }
-
-    private func rewritingSystemSSH(
-        in startupCommand: String,
-        with fakeSSH: URL
-    ) throws -> String {
-        let systemSSHPath = "/usr/bin/ssh"
-        let commandURL = URL(
-            fileURLWithPath: startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        return try SSHStartupCommandTestSupport.replacingSystemSSH(
+            in: startupCommand,
+            with: fakeSSH.path
         )
-        var isDirectory: ObjCBool = false
-        if FileManager.default.fileExists(atPath: commandURL.path, isDirectory: &isDirectory),
-           !isDirectory.boolValue {
-            let script = try String(contentsOf: commandURL, encoding: .utf8)
-            XCTAssertTrue(script.contains(systemSSHPath), script)
-            try script
-                .replacingOccurrences(of: systemSSHPath, with: fakeSSH.path)
-                .write(to: commandURL, atomically: true, encoding: .utf8)
-            try FileManager.default.setAttributes(
-                [.posixPermissions: 0o700],
-                ofItemAtPath: commandURL.path
-            )
-            return startupCommand
-        }
-
-        if startupCommand.contains(systemSSHPath) {
-            return startupCommand.replacingOccurrences(of: systemSSHPath, with: fakeSSH.path)
-        }
-
-        return try XCTUnwrap(SSHStartupCommandTestSupport.replacingPinnedSSH(
-            in: startupCommand, with: fakeSSH.path
-        ))
     }
 
     private func writeShellFile(at url: URL, lines: [String]) throws {

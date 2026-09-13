@@ -1148,6 +1148,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "ignoredPorts": "Ports, die in Seitenleisten-Badges ausgeblendet werden. Standardmäßig werden die Ports 49152-65535 ausgeblendet. Einträge können exakte Portnummern oder inklusive „start-end“-Bereiche sein; mit [] werden alle erkannten Ports angezeigt.",
           "notificationMessageLineLimit": "Maximale Anzahl der Zeilen, die für die neueste Benachrichtigung unter jedem Workspace-Titel angezeigt werden.",
           "rightMaxWidth": "Maximale Breite der rechten Seitenleiste in Punkten. Wenn weggelassen, gilt die integrierte dynamische Obergrenze."
         },

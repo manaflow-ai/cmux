@@ -2,6 +2,54 @@ import Foundation
 
 /// Locates the encoded script in current and historical CLI startup wrappers.
 enum SSHStartupCommandTestSupport {
+    static func replacingSystemSSH(
+        in startupCommand: String,
+        with sshExecutable: String
+    ) throws -> String {
+        let systemSSH = "/usr/bin/ssh"
+        let trimmedCommand = startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        let commandURL = URL(fileURLWithPath: trimmedCommand)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        var isDirectory: ObjCBool = false
+
+        if FileManager.default.fileExists(atPath: commandURL.path, isDirectory: &isDirectory),
+           !isDirectory.boolValue {
+            let contents = try String(contentsOf: commandURL, encoding: .utf8)
+            guard contents.contains(systemSSH) else {
+                throw missingSystemSSHError(startupCommand)
+            }
+            try contents
+                .replacingOccurrences(of: systemSSH, with: sshExecutable)
+                .write(to: commandURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: commandURL.path
+            )
+            return commandURL.path
+        }
+
+        if startupCommand.contains(systemSSH) {
+            return startupCommand.replacingOccurrences(of: systemSSH, with: sshExecutable)
+        }
+
+        if let rewritten = replacingPinnedSSH(in: startupCommand, with: sshExecutable) {
+            return rewritten
+        }
+        throw missingSystemSSHError(startupCommand)
+    }
+
+    private static func missingSystemSSHError(_ startupCommand: String) -> NSError {
+        NSError(
+            domain: "SSHStartupCommandTestSupport",
+            code: 1,
+            userInfo: [
+                NSLocalizedDescriptionKey:
+                    "Expected generated SSH startup command to contain /usr/bin/ssh: \(startupCommand)",
+            ]
+        )
+    }
+
     static func decodedScript(in command: String) -> String? {
         decodedPayload(in: command)?.script
     }

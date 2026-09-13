@@ -70,6 +70,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.openPortLinksInCmuxBrowser` | boolean | `true` | Open sidebar port links in the embedded cmux browser. |
 | `sidebar.showSSH` | boolean | `true` | Show SSH connection details. |
 | `sidebar.showPorts` | boolean | `true` | Show listening ports. |
+| `sidebar.ignoredPorts` | array<integer or string> | `["49152-65535"]` | Ports omitted from sidebar badges. Entries may be exact port numbers or inclusive `"start-end"` ranges; use an empty array to show every detected port. |
 | `sidebar.showLog` | boolean | `true` | Show recent log snippets. |
 | `sidebar.showProgress` | boolean | `true` | Show progress indicators. |
 | `sidebar.showCustomMetadata` | boolean | `true` | Show custom metadata pills. |

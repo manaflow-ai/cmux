@@ -120,6 +120,13 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowPorts"
     )
 
+    /// Exact ports and inclusive ranges omitted from sidebar port badges.
+    public let ignoredPorts = DefaultsKey<[SidebarIgnoredPortRule]>(
+        id: "sidebar.ignoredPorts",
+        defaultValue: SidebarPortVisibilityPolicy.defaultIgnoredRules,
+        userDefaultsKey: "sidebarIgnoredPorts"
+    )
+
     public let showLog = DefaultsKey<Bool>(
         id: "sidebar.showLog",
         defaultValue: true,

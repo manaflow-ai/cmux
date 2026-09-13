@@ -371,17 +371,6 @@ extension Workspace {
         PortScanner.shared.refreshAgentPorts(workspaceId: id, agentRoots: remainingAgentRoots)
     }
 
-    func recomputeListeningPorts() {
-        let unique = Set(surfaceListeningPorts.values.flatMap { $0 })
-            .union(agentListeningPorts)
-            .union(remoteDetectedPorts)
-            .union(remoteForwardedPorts)
-        let next = unique.sorted()
-        if listeningPorts != next {
-            listeningPorts = next
-        }
-    }
-
     @discardableResult
     private func discardAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) -> Bool {
         guard let runtimeState else { return false }
@@ -443,6 +432,7 @@ extension Workspace {
         discardAgentHibernationTracking: Bool = true,
         cleanupControllerSurfaceState: Bool = false,
         preservesTerminalForTransfer: Bool = false,
+        recomputePortProjection: Bool = true,
         preservesRemoteTerminalTracking: Bool = false
     ) -> WorkspaceRemoteConfiguration? {
         clearCloudMaterializationFailure(surfaceID: panelId)
@@ -539,7 +529,7 @@ extension Workspace {
         pendingPlainSSHRestorePanelIds.remove(panelId)
         observedPlainSSHPanelIds.remove(panelId)
         plainSSHDetectionMissesByPanelId.removeValue(forKey: panelId)
-        surfaceListeningPorts.removeValue(forKey: panelId)
+        removeSurfaceListeningPorts(for: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
 #if DEBUG
         debugSessionSnapshotScrollbackFallbackPanelIds.remove(panelId)
@@ -549,6 +539,9 @@ extension Workspace {
         clearRestoredAgentSnapshot(panelId: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
+        if recomputePortProjection {
+            recomputeListeningPorts()
+        }
         removeTerminalConfigInheritanceSource(panelId: panelId)
         if clearSurfaceNotifications {
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)

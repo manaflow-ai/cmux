@@ -171,13 +171,9 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         try fakeCLIScript.write(to: fakeCLI, atomically: true, encoding: .utf8)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
 
-        // Managed SSH startup artifacts pin the system OpenSSH executable. Keep
-        // that production security invariant, and substitute the fixture only
-        // in the generated test artifact rather than relying on PATH lookup.
-        let executableInitialCommand = try startupCommandUsingFakeSSH(
-            initialCommand,
-            fakeSSHPath: fakeSSH.path,
-            rewriteRoot: tempRoot
+        let injectedInitialCommand = try SSHStartupCommandTestSupport.replacingSystemSSH(
+            in: initialCommand,
+            with: fakeSSH.path
         )
 
         var startupEnvironment = ProcessInfo.processInfo.environment
@@ -231,7 +227,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         let startupResults = (0..<2).map { _ in
             runProcess(
                 executablePath: "/bin/sh",
-                arguments: ["-c", executableInitialCommand],
+                arguments: ["-c", injectedInitialCommand],
                 environment: startupEnvironment,
                 timeout: 5
             )
@@ -291,56 +287,6 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
     private func requireExecutable(_ candidates: [String], name: String) throws -> String {
         guard let path = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else { throw XCTSkip("\(name) is not installed") }
         return path
-    }
-
-    private func startupCommandUsingFakeSSH(
-        _ startupCommand: String,
-        fakeSSHPath: String,
-        rewriteRoot: URL
-    ) throws -> String {
-        let systemSSHPath = "/usr/bin/ssh"
-        let trimmedCommand = startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-        let commandURL = URL(fileURLWithPath: trimmedCommand)
-            .standardizedFileURL
-            .resolvingSymlinksInPath()
-        var isDirectory: ObjCBool = false
-
-        if FileManager.default.fileExists(atPath: commandURL.path, isDirectory: &isDirectory),
-           !isDirectory.boolValue {
-            let contents = try String(contentsOf: commandURL, encoding: .utf8)
-            guard contents.contains(systemSSHPath) else {
-                throw NSError(
-                    domain: "WorkspaceSSHFishShellTests",
-                    code: 1,
-                    userInfo: [NSLocalizedDescriptionKey: "Generated startup script did not pin (systemSSHPath)"]
-                )
-            }
-            let rewrittenURL = rewriteRoot.appendingPathComponent("startup-with-fake-ssh.sh")
-            try contents
-                .replacingOccurrences(of: systemSSHPath, with: fakeSSHPath)
-                .write(to: rewrittenURL, atomically: true, encoding: .utf8)
-            try FileManager.default.setAttributes(
-                [.posixPermissions: 0o700],
-                ofItemAtPath: rewrittenURL.path
-            )
-            return rewrittenURL.path
-        }
-
-        if startupCommand.contains(systemSSHPath) {
-            return startupCommand.replacingOccurrences(of: systemSSHPath, with: fakeSSHPath)
-        }
-
-        if let rewritten = SSHStartupCommandTestSupport.replacingPinnedSSH(
-            in: startupCommand, with: fakeSSHPath
-        ) {
-            return rewritten
-        }
-
-        throw NSError(
-            domain: "WorkspaceSSHFishShellTests",
-            code: 2,
-            userInfo: [NSLocalizedDescriptionKey: "Generated startup command did not pin (systemSSHPath)"]
-        )
     }
 
     private func runProcess(

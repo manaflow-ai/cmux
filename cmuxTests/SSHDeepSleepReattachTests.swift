@@ -351,11 +351,11 @@ struct SSHDeepSleepReattachTests {
         environment["CMUX_SSH_RECONNECT_LIMIT"] = reconnectLimit
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
         environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "5"
-
         let result = Self.runProcess(
             command: SSHPTYAttachStartupCommandBuilder.command(
                 sessionID: "ssh-test-session",
-                foregroundAuth: Self.foregroundAuth()
+                foregroundAuth: Self.foregroundAuth(),
+                sshExecutable: fakeSSH.path
             ),
             environment: environment
         )
@@ -460,11 +460,11 @@ struct SSHDeepSleepReattachTests {
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
         environment["CMUX_TEST_AUTH_ATTEMPT_FILE"] = authAttemptFile.path
         environment["CMUX_TEST_CLI_ATTEMPT_FILE"] = cliAttemptFile.path
-
         let result = Self.runProcess(
             command: SSHPTYAttachStartupCommandBuilder.command(
                 sessionID: "ssh-test-session",
-                foregroundAuth: Self.foregroundAuth()
+                foregroundAuth: Self.foregroundAuth(),
+                sshExecutable: fakeSSH.path
             ),
             environment: environment
         )

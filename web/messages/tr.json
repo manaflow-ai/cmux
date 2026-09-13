@@ -1148,6 +1148,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "ignoredPorts": "Kenar çubuğu rozetlerinde gösterilmeyen bağlantı noktaları. Varsayılan olarak 49152-65535 bağlantı noktaları gösterilmez. Girdiler tam bağlantı noktası numaraları veya uçları dahil \"start-end\" aralıkları olabilir; algılanan tüm bağlantı noktalarını göstermek için [] kullanın.",
           "notificationMessageLineLimit": "Her çalışma alanı başlığının altında en son bildirim için gösterilen en fazla satır sayısı.",
           "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır."
         },

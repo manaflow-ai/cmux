@@ -26,9 +26,7 @@ extension Int: SettingCodable {
         guard let number = raw as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else {
             return nil
         }
-        let double = number.doubleValue
-        guard double.rounded() == double else { return nil }
-        return number.intValue
+        return Int(exactly: number)
     }
 
     public func encodeForJSON() -> Any { self }

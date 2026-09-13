@@ -203,3 +203,14 @@ extension SidebarPullRequestState {
         )
     }
 }
+
+
+extension TabManager {
+    /// Refreshes sidebar metadata services and each workspace's port projection
+    /// after a sidebar setting changes.
+    func refreshSidebarMetadataSettings() {
+        sidebarGitMetadataService.sidebarGitMetadataWatchSettingsDidChange()
+        pullRequestProbing.sidebarPullRequestPollingSettingsDidChange()
+        tabs.forEach { $0.refreshSidebarPortVisibilityPolicy() }
+    }
+}
