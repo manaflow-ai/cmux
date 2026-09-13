@@ -14,6 +14,11 @@ private let rendererHealthLogger = Logger(
 // MARK: - Focus, occlusion, and renderer reclamation
 
 extension TerminalSurface {
+    /// Installs the host callback for render-health transitions.
+    public func setRenderHealthChangeHandler(_ handler: (@Sendable (TerminalSurfaceRenderHealth) -> Void)?) {
+        onRenderHealthChanged = handler
+    }
+
     /// Re-applies the active window background through the surface view.
     @MainActor
     public func applyWindowBackgroundIfActive() {
