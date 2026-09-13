@@ -688,7 +688,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
     }
 
-
     private func recordPendingRemoteRename(
         workspaceID: String,
         name: String,
@@ -713,7 +712,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         publishPendingMutationMetadata()
     }
 
-    func pendingRemoteRename(for key: PendingRemoteRenameKey) -> PendingRemoteRename? {
+    private func pendingRemoteRename(for key: PendingRemoteRenameKey) -> PendingRemoteRename? {
         pendingRemoteRenames[key]
     }
 
@@ -968,6 +967,93 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         _ = await refreshCurrentGraph(force: true)
     }
 
+    /// Rename one placement-local daemon tab. This is the canonical path used by a
+    /// cloud-tree workspace row and by a local pane that remembers its remote tab id.
+    func renameRemoteTab(id: String, name: String) async throws {
+        try Task.checkCancellation()
+        let normalizedName = CloudRemoteRenameName(rawValue: name).wireValue
+
+        // Creation and rename can arrive back-to-back. Refresh before validating the
+        // target, but use the creation receipt when the accepted snapshot still
+        // trails it. The receipt's revision is a CAS fence, not a timing guess.
+        let refreshEstablishedCurrentGraph = await refreshCurrentGraph(force: true)
+        try Task.checkCancellation()
+        let pendingCreation = pendingCreation(forTabID: id)
+        let pendingRename = pendingRemoteRename(for: .tab(id))
+        let observed = cloudState
+        let previous = observed?.tabs.first(where: { $0.id == id })
+        let observedCursor = observed?.cursor
+        let pendingReceipt = [pendingCreation?.receipt, pendingRename?.receipt]
+            .compactMap { $0 }
+            .filter { receipt in
+                guard let observedCursor else { return true }
+                return receipt.generation == observedCursor.generation
+            }
+            .max { $0.revision < $1.revision }
+        let authority = CloudVMRemoteMutationAuthority.resolve(
+            refreshEstablishedCurrentGraph: refreshEstablishedCurrentGraph,
+            hasAcceptedState: observed != nil,
+            targetVisible: previous != nil,
+            hasVersionedCursor: observedCursor != nil,
+            hasPendingReceipt: pendingReceipt != nil
+        )
+        switch authority {
+        case .currentGraph:
+            guard let previous, let observedCursor else {
+                throw ProviderError.stateUnavailable(machineID)
+            }
+            do {
+                let receipt = try await sendRenameTab(
+                    id: id,
+                    name: normalizedName,
+                    expectedRevision: observedCursor.revision
+                )
+                let validated = try validatedReceipt(receipt, against: observedCursor)
+                recordPendingRemoteRename(tabID: id, name: normalizedName, receipt: validated)
+                recordPendingRename(tabID: id, name: normalizedName, revision: validated.revision)
+            } catch {
+                guard Self.isRevisionConflict(error),
+                      await refreshCurrentGraph(force: true),
+                      let latest = cloudState,
+                      let current = latest.tabs.first(where: { $0.id == id }),
+                      let latestCursor = latest.cursor,
+                      (current.name ?? "") == (previous.name ?? "") else { throw error }
+                let receipt = try await sendRenameTab(
+                    id: id,
+                    name: normalizedName,
+                    expectedRevision: latestCursor.revision
+                )
+                let validated = try validatedReceipt(receipt, against: latestCursor)
+                recordPendingRemoteRename(tabID: id, name: normalizedName, receipt: validated)
+                recordPendingRename(tabID: id, name: normalizedName, revision: validated.revision)
+            }
+        case .pendingReceipt:
+            guard let receipt = pendingReceipt else {
+                throw ProviderError.stateUnavailable(machineID)
+            }
+            let committed = try await sendRenameTab(
+                id: id,
+                name: normalizedName,
+                expectedRevision: receipt.revision
+            )
+            let validated = try validatedReceipt(committed, against: receipt)
+            recordPendingRemoteRename(tabID: id, name: normalizedName, receipt: validated)
+            recordPendingRename(tabID: id, name: normalizedName, revision: validated.revision)
+        case .snapshotOnly:
+            throw ProviderError.snapshotOnly(machineID)
+        case .unavailable:
+            throw ProviderError.stateUnavailable(machineID)
+        case .targetMissing:
+            throw SurfaceCatalogError.unsupported(
+                String(localized: "cloudTree.error.renameTerminalNoView", defaultValue: "This terminal is not open in a remote workspace.")
+            )
+        }
+        // The daemon event normally installs this before the command exits. The
+        // explicit read is the barrier for older clients that do not stream deltas.
+        try Task.checkCancellation()
+        _ = await refreshCurrentGraph(force: true)
+    }
+
     /// Compatibility operation for callers that intentionally mean “all views”.
     /// It is kept separate from `renameRemoteTab` so an ambiguous terminal identity
     /// can never silently rename an arbitrary placement.
@@ -1128,7 +1214,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         return CmuxTuiSnapshotParser.mutationCursor(fromResult: object)
     }
 
-    func sendRenameTab(id: String, name: String, expectedRevision: UInt64? = nil) async throws -> CloudVMCursor {
+    private func sendRenameTab(id: String, name: String, expectedRevision: UInt64? = nil) async throws -> CloudVMCursor {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         let data = try await link.run(arguments: CloudTuiCommandLine.renameTabArguments(
@@ -1241,7 +1327,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             resources.append(resource)
         }
     }
-
 
     private func attachCommand(terminalID: String) async throws -> String {
         let connected = try await links.connected(machineID: machineID)
@@ -1407,6 +1492,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
 
     /// The pane showing the terminal when one is open on this Mac, else the
+    /// local workspace bound to the terminal's remote workspace, else any
+    /// local workspace bound to the machine. No local placement means the row
+    /// stays undelivered until one exists; the Cloud tree still shows the dot.
+    private func notificationDeliveryTarget(for row: CloudVMNotificationRow) -> CloudNotificationDeliveryTarget? {
+        if let terminalID = row.terminalID {
+            let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)
+            if let projection = catalog.projections(of: resourceID).first {
                 return CloudNotificationDeliveryTarget(workspaceID: projection.workspaceID, panelID: projection.panelID)
             }
         }
