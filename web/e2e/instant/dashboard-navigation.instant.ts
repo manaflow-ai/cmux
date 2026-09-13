@@ -4,9 +4,20 @@ import { expect, test } from "@playwright/test";
 // server never renders the dashboard shell for that request, and the browser
 // lands on sign-in with the exact destination preserved.
 for (const destination of [
+  "/dashboard",
   "/dashboard/coderouter",
   "/dashboard/testflight",
   "/dashboard/cloud",
+  "/dashboard/billing",
+  "/dashboard/billing/success",
+  "/dashboard/team",
+  "/dashboard/vault",
+  "/dashboard/vault/sessions",
+  "/dashboard/vault/sessions/not-a-uuid",
+  "/dashboard/vault/cli-auth",
+  "/dashboard/navigation-fixture",
+  "/dashboard/subrouter",
+  "/dashboard/ai-accounts",
 ] as const) {
   test(`${destination} redirects a signed-out visitor before the shell`, async ({
     page,

@@ -2,6 +2,7 @@
 
 import { Menu } from "@base-ui-components/react/menu";
 import { UserAvatar, useStackApp } from "@stackframe/stack";
+import { Link as TanStackLink } from "@tanstack/react-router";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
@@ -22,7 +23,13 @@ export function DashboardAccountMenuFallback() {
  * The identity row. The user arrives from the server session so the row
  * paints with the shell instead of after a second client fetch to Stack.
  */
-export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | null }) {
+export function DashboardAccountMenu({
+  user,
+  routerEnabled = false,
+}: {
+  user: DashboardSessionUser | null;
+  routerEnabled?: boolean;
+}) {
   const t = useTranslations("dashboard.accountMenu");
   const locale = useLocale();
   const router = useRouter();
@@ -77,7 +84,7 @@ export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | nu
                   <div className="truncate text-xs text-muted">{user.primaryEmail}</div>
                 ) : null}
               </div>
-              <Menu.Item render={<Link href="/dashboard/team" />} className={menuItemClass}>
+              <Menu.Item render={<DashboardMenuLink href="/dashboard/team" routerEnabled={routerEnabled} />} className={menuItemClass}>
                 <SettingsIcon />
                 <span>{t("settings")}</span>
               </Menu.Item>
@@ -92,7 +99,7 @@ export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | nu
                 <ThemeIcon dark={theme.resolvedTheme === "dark"} />
                 <span>{theme.resolvedTheme === "dark" ? t("themeLight") : t("themeDark")}</span>
               </Menu.Item>
-              <Menu.Item render={<Link href="/dashboard/billing" />} className={menuItemClass}>
+              <Menu.Item render={<DashboardMenuLink href="/dashboard/billing" routerEnabled={routerEnabled} />} className={menuItemClass}>
                 <BillingIcon />
                 <span>{t("billing")}</span>
               </Menu.Item>
@@ -137,6 +144,19 @@ export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | nu
       </Menu.Root>
     </div>
   );
+}
+
+function DashboardMenuLink({
+  href,
+  routerEnabled,
+}: {
+  href: string;
+  routerEnabled: boolean;
+}) {
+  if (routerEnabled) {
+    return <TanStackLink to={href.replace(/^\/dashboard/, "")}>{null}</TanStackLink>;
+  }
+  return <Link href={href} />;
 }
 
 /**

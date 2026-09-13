@@ -64,6 +64,936 @@
           }
         }
       }
+    },
+    "/dashboard/billing/status": {
+      "get": {
+        "operationId": "dashboard.billing.status",
+        "summary": "Get the authenticated user's billing status",
+        "tags": [
+          "Dashboard"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "billingAvailable": {
+                      "type": "boolean"
+                    },
+                    "personal": {
+                      "type": "object",
+                      "properties": {
+                        "planId": {
+                          "enum": [
+                            "free",
+                            "pro"
+                          ],
+                          "type": "string"
+                        },
+                        "isPro": {
+                          "type": "boolean"
+                        },
+                        "billingManagement": {
+                          "enum": [
+                            "stripe",
+                            "external",
+                            "none"
+                          ],
+                          "type": "string"
+                        },
+                        "hasPaidManualGrant": {
+                          "type": "boolean"
+                        },
+                        "subscription": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
+                                "status": {
+                                  "type": "string"
+                                },
+                                "priceId": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "seats": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "currentPeriodEnd": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "cancelAtPeriodEnd": {
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "status",
+                                "priceId",
+                                "seats",
+                                "currentPeriodEnd",
+                                "cancelAtPeriodEnd"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "planId",
+                        "isPro",
+                        "billingManagement",
+                        "hasPaidManualGrant",
+                        "subscription"
+                      ]
+                    },
+                    "team": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "subscription": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "status": {
+                                      "type": "string"
+                                    },
+                                    "priceId": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "seats": {
+                                      "anyOf": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "currentPeriodEnd": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "cancelAtPeriodEnd": {
+                                      "type": "boolean"
+                                    }
+                                  },
+                                  "required": [
+                                    "id",
+                                    "status",
+                                    "priceId",
+                                    "seats",
+                                    "currentPeriodEnd",
+                                    "cancelAtPeriodEnd"
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "hasCustomer": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "subscription",
+                            "hasCustomer"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "billingAvailable",
+                    "personal",
+                    "team"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/coderouter": {
+      "get": {
+        "operationId": "dashboard.coderouter.overview",
+        "summary": "Get the authenticated CodeRouter dashboard",
+        "tags": [
+          "Dashboard"
+        ],
+        "parameters": [
+          {
+            "name": "team",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "allowEmptyValue": true,
+            "allowReserved": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "authorized",
+                        "missing",
+                        "noTeams",
+                        "unavailable"
+                      ],
+                      "type": "string"
+                    },
+                    "team": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "manageAccounts": {
+                              "type": "boolean"
+                            },
+                            "personal": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "manageAccounts",
+                            "personal"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "claude": {
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {},
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "native": {
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {},
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "shared": {
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {},
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "sharedState": {
+                      "enum": [
+                        "ok",
+                        "migrationPending",
+                        "notConfigured",
+                        "error"
+                      ],
+                      "type": "string"
+                    },
+                    "metrics": {
+                      "anyOf": [
+                        {},
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "machineUsage": {
+                      "anyOf": [
+                        {},
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "team",
+                    "claude",
+                    "native",
+                    "shared",
+                    "sharedState"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/cloud/devices": {
+      "get": {
+        "operationId": "dashboard.cloud.devices",
+        "summary": "List the authenticated user's Cloud Macs",
+        "tags": [
+          "Dashboard"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "deviceId": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "reportedName": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "displayName": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "modelIdentifier": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "osVersion": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "architecture": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "cmuxVersion": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "cmuxBuild": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "cmuxChannel": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "createdAt": {
+                        "type": "number"
+                      },
+                      "lastControlPlaneAt": {
+                        "type": "number"
+                      },
+                      "tunnelPurposes": {
+                        "type": "array",
+                        "items": {
+                          "enum": [
+                            "terminal",
+                            "browser"
+                          ],
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "deviceId",
+                      "name",
+                      "reportedName",
+                      "displayName",
+                      "modelIdentifier",
+                      "osVersion",
+                      "architecture",
+                      "cmuxVersion",
+                      "cmuxBuild",
+                      "cmuxChannel",
+                      "createdAt",
+                      "lastControlPlaneAt",
+                      "tunnelPurposes"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/testflight/status": {
+      "get": {
+        "operationId": "dashboard.testflight.status",
+        "summary": "Get the authenticated user's TestFlight status",
+        "tags": [
+          "Dashboard"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "enum": [
+                        "ineligible",
+                        "needs_email",
+                        "unavailable",
+                        "joinable",
+                        "enrolled"
+                      ],
+                      "type": "string"
+                    },
+                    "email": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "state": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "email",
+                    "state"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/vault/overview": {
+      "get": {
+        "operationId": "dashboard.vault.overview",
+        "summary": "Get the authenticated user's Vault usage",
+        "tags": [
+          "Dashboard"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "rows": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "agent": {
+                            "type": "string"
+                          },
+                          "sessionCount": {
+                            "type": "number"
+                          },
+                          "rawBytes": {
+                            "type": "number"
+                          },
+                          "compressedBytes": {
+                            "type": "number"
+                          },
+                          "lastUploadedAt": {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "agent",
+                          "sessionCount",
+                          "rawBytes",
+                          "compressedBytes",
+                          "lastUploadedAt"
+                        ]
+                      }
+                    },
+                    "totals": {
+                      "type": "object",
+                      "properties": {
+                        "sessionCount": {
+                          "type": "number"
+                        },
+                        "rawBytes": {
+                          "type": "number"
+                        },
+                        "compressedBytes": {
+                          "type": "number"
+                        },
+                        "lastUploadedAt": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "sessionCount",
+                        "rawBytes",
+                        "compressedBytes",
+                        "lastUploadedAt"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "rows",
+                    "totals"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/vault/sessions": {
+      "get": {
+        "operationId": "dashboard.vault.sessions",
+        "summary": "List the authenticated user's Vault sessions",
+        "tags": [
+          "Dashboard"
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "allowEmptyValue": true,
+            "allowReserved": true
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "allowEmptyValue": true,
+            "allowReserved": true
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "allowEmptyValue": true,
+            "allowReserved": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sessions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "agent": {
+                            "type": "string"
+                          },
+                          "agentSessionId": {
+                            "type": "string"
+                          },
+                          "relPath": {
+                            "type": "string"
+                          },
+                          "cwd": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "latestSha256": {
+                            "type": "string"
+                          },
+                          "sizeBytes": {
+                            "type": "number"
+                          },
+                          "compressedSizeBytes": {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "snapshotCount": {
+                            "type": "number"
+                          },
+                          "firstUploadedAt": {
+                            "type": "string"
+                          },
+                          "lastUploadedAt": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "agent",
+                          "agentSessionId",
+                          "relPath",
+                          "cwd",
+                          "latestSha256",
+                          "sizeBytes",
+                          "compressedSizeBytes",
+                          "snapshotCount",
+                          "firstUploadedAt",
+                          "lastUploadedAt"
+                        ]
+                      }
+                    },
+                    "nextCursor": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "sessions"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/vault/sessions/{id}": {
+      "get": {
+        "operationId": "dashboard.vault.session",
+        "summary": "Get an authenticated Vault session",
+        "tags": [
+          "Dashboard"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "agent": {
+                      "type": "string"
+                    },
+                    "agentSessionId": {
+                      "type": "string"
+                    },
+                    "relPath": {
+                      "type": "string"
+                    },
+                    "cwd": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "latestSha256": {
+                      "type": "string"
+                    },
+                    "sizeBytes": {
+                      "type": "number"
+                    },
+                    "compressedSizeBytes": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "firstUploadedAt": {
+                      "type": "string"
+                    },
+                    "lastUploadedAt": {
+                      "type": "string"
+                    },
+                    "downloadUrl": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "snapshots": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "sha256": {
+                            "type": "string"
+                          },
+                          "sizeBytes": {
+                            "type": "number"
+                          },
+                          "compressedSizeBytes": {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "uploadedAt": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "sha256",
+                          "sizeBytes",
+                          "compressedSizeBytes",
+                          "uploadedAt"
+                        ]
+                      }
+                    },
+                    "messages": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "role": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "role",
+                          "text"
+                        ]
+                      }
+                    },
+                    "transcriptComplete": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "agent",
+                    "agentSessionId",
+                    "relPath",
+                    "cwd",
+                    "latestSha256",
+                    "sizeBytes",
+                    "compressedSizeBytes",
+                    "firstUploadedAt",
+                    "lastUploadedAt",
+                    "downloadUrl",
+                    "snapshots",
+                    "messages",
+                    "transcriptComplete"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }
