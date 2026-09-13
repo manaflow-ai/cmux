@@ -53,15 +53,7 @@ function pushPayloadFingerprint(
   const canonicalPayload = {
     targetBundleId,
     kind: payload.kind,
-    title: payload.title,
-    subtitle: payload.subtitle,
-    body: payload.body,
-    workspaceId: payload.workspaceId,
-    surfaceId: payload.surfaceId,
-    retargetsToLiveSurfaceOwner: payload.retargetsToLiveSurfaceOwner,
-    macDeviceId: payload.macDeviceId,
-    macInstanceTag: payload.macInstanceTag,
-    notificationId: payload.notificationId,
+    encryptedPayloads: payload.encryptedPayloads,
     expirationEpochSeconds: payload.expirationEpochSeconds,
     dismissedIds: payload.dismissedIds,
     badgeCount: payload.badgeCount,
@@ -134,6 +126,9 @@ async function sendPush(
 
   const payload = parsePushPayload(body.value);
   if (!payload.ok) return jsonResponse({ error: payload.error }, 400);
+  if (!Array.isArray(body.value.encryptedPayloads) || body.value.encryptedPayloads.length === 0) {
+    return jsonResponse({ error: "missing_encrypted_payloads" }, 400);
+  }
   // Macs from before the namespace rollout (0.64.x) never send this header.
   // They are the `legacy` namespace: deliver to every iOS token the account
   // registered, each on its own bundle topic, matching pre-namespace reach.

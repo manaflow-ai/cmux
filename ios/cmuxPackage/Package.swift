@@ -27,6 +27,7 @@ let package = Package(
     dependencies: [
         .package(path: "../../Packages/Shared/CMUXAuthCore"),
         .package(path: "../../Packages/Shared/CmuxAuthRuntime"),
+        .package(path: "../../Packages/macOS/CmuxPhonePush"),
         .package(path: "../../Packages/Shared/CmuxClientConfig"),
         .package(path: "../../Packages/Shared/CmuxIrohTransport"),
         .package(path: "../../Packages/Shared/CmuxIrxTransport"),
@@ -56,6 +57,7 @@ let package = Package(
             dependencies: [
                 "CMUXAuthCore",
                 "CmuxAuthRuntime",
+                "CmuxPhonePush",
                 "CmuxClientConfig",
                 "CmuxIrohTransport",
                 "CmuxIrxTransport",
@@ -109,6 +111,7 @@ let package = Package(
                 "CmuxIrohReleaseGateSupport",
                 "CMUXAuthCore",
                 "CmuxAuthRuntime",
+                "CmuxPhonePush",
                 "CmuxClientConfig",
                 "CmuxIrohTransport",
                 "CmuxIrxTransport",

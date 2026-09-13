@@ -56,6 +56,8 @@ export interface ApnsNotificationInput {
   readonly badgeCount?: number | null;
   /** When true, replace real terminal text with generic APNs localization keys. */
   readonly hideContent?: boolean;
+  readonly encryptedPayloads?: readonly Record<string, unknown>[];
+  readonly macPushPublicKey?: string | null;
 }
 
 /**
@@ -78,6 +80,18 @@ export const CMUX_APNS_REPLY_CATEGORY = "cmux.terminal.reply";
  */
 export function buildApnsPayload(input: ApnsNotificationInput): Record<string, unknown> {
   if (input.kind === "dismiss") return buildDismissPayload(input);
+  const encrypted = input.encryptedPayloads ?? [];
+  if (encrypted.length > 0) {
+    const aps: Record<string, unknown> = {
+      alert: { "title-loc-key": "push.generic.title", "loc-key": "push.generic.body" },
+      "mutable-content": 1,
+      "interruption-level": "time-sensitive",
+      sound: "default",
+    };
+    if (typeof input.badgeCount === "number") aps.badge = input.badgeCount;
+    if (input.replyShape === "text") aps.category = CMUX_APNS_REPLY_CATEGORY;
+    return { aps, cmux: { encryptedPayloads: encrypted, ...(input.macPushPublicKey ? { macPushPublicKey: input.macPushPublicKey } : {}) } };
+  }
   const hidden = input.hideContent === true;
   const title = input.title.trim() || "cmux";
   const body = input.body;
@@ -128,9 +142,9 @@ export function buildApnsPayload(input: ApnsNotificationInput): Record<string, u
 function buildDismissPayload(input: ApnsNotificationInput): Record<string, unknown> {
   const aps: Record<string, unknown> = { "content-available": 1 };
   if (typeof input.badgeCount === "number") aps.badge = input.badgeCount;
-  const cmux: Record<string, unknown> = {
-    dismissedIds: [...(input.dismissedIds ?? [])],
-  };
+  const cmux: Record<string, unknown> = input.encryptedPayloads?.length
+    ? { encryptedPayloads: input.encryptedPayloads, ...(input.macPushPublicKey ? { macPushPublicKey: input.macPushPublicKey } : {}) }
+    : { dismissedIds: [...(input.dismissedIds ?? [])] };
   if (input.macDeviceId) cmux.macDeviceId = input.macDeviceId;
   if (input.macInstanceTag) cmux.macInstanceTag = input.macInstanceTag;
   if (input.correlationId) cmux.correlationId = input.correlationId;

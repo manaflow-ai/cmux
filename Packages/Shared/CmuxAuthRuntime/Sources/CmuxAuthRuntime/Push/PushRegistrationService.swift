@@ -21,6 +21,9 @@ public actor PushRegistrationService: PushRegistering {
     private let apiBaseURL: String
     private let bundleID: String
     private let apnsEnvironment: String
+    private let pushInstallationID: String?
+    private let pushKeyID: String?
+    private let pushPublicKey: String?
     private let defaults: UserDefaults
     private let pendingUnregisterStoreURL: URL
     private var pendingUnregisterStore: PendingUnregisterStore?
@@ -108,6 +111,9 @@ public actor PushRegistrationService: PushRegistering {
         apiBaseURL: String,
         bundleID: String,
         apnsEnvironment: String,
+        pushInstallationID: String? = nil,
+        pushKeyID: String? = nil,
+        pushPublicKey: String? = nil,
         suiteName: String? = nil,
         pendingUnregisterStoreURL: URL? = nil,
         session: sending URLSession = .shared,
@@ -130,6 +136,9 @@ public actor PushRegistrationService: PushRegistering {
         self.apiBaseURL = apiBaseURL
         self.bundleID = bundleID
         self.apnsEnvironment = apnsEnvironment
+        self.pushInstallationID = pushInstallationID
+        self.pushKeyID = pushKeyID
+        self.pushPublicKey = pushPublicKey
         if let suiteName, let suite = UserDefaults(suiteName: suiteName) {
             self.defaults = suite
         } else {
@@ -623,7 +632,16 @@ public actor PushRegistrationService: PushRegistering {
                 "bundleId": bundleID,
                 "environment": apnsEnvironment,
                 "platform": "ios",
-            ],
+            ].merging(
+                pushInstallationID.map { ["installationId": $0] } ?? [:],
+                uniquingKeysWith: { _, new in new }
+            ).merging(
+                pushKeyID.map { ["pushKeyId": $0] } ?? [:],
+                uniquingKeysWith: { _, new in new }
+            ).merging(
+                pushPublicKey.map { ["pushPublicKey": $0] } ?? [:],
+                uniquingKeysWith: { _, new in new }
+            ),
             authPhase: .pushRegistrationSession
         )
         let result: RegistrationResult

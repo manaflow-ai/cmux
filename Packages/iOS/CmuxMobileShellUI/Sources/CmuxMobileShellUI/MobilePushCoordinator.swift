@@ -1365,6 +1365,7 @@ public final class MobilePushCoordinator {
         let accepted = await replyRelay.relay(RelayedReply(
             replyId: pending.replyId,
             macDeviceId: macDeviceId,
+            macInstanceTag: pending.macInstanceTag,
             workspaceId: pending.workspaceId,
             surfaceId: surfaceId,
             text: pending.text,

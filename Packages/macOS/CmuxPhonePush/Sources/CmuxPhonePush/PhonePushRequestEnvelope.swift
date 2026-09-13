@@ -135,6 +135,44 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
         )
     }
 
+    /// Builds the server request from ciphertext only. The logical payload is
+    /// never persisted in this envelope or sent to the web service.
+    public init(
+        encryptedPayloads: [PhonePushEncryptedPayload],
+        payload: PhonePushPayload,
+        correlationID: UUID = UUID(),
+        expirationEpochSeconds: Int,
+        expectedAccountID: String? = nil,
+        expectedSessionGeneration: UInt64? = nil,
+        targetBundleIdentifier: String? = nil,
+        macPushPublicKey: String? = nil
+    ) throws {
+        guard !encryptedPayloads.isEmpty else { throw EncodingError.requestTooLarge }
+        let canonicalCorrelation = correlationID.uuidString.lowercased()
+        var object: [String: Any] = [
+            "kind": payload.kind.rawValue,
+            "badgeCount": payload.badgeCount,
+            "replyShape": payload.replyShape,
+            "correlationId": canonicalCorrelation,
+            "expirationEpochSeconds": expirationEpochSeconds,
+            "encryptedPayloads": try encryptedPayloads.map { try JSONSerialization.jsonObject(with: JSONEncoder().encode($0)) },
+        ]
+        if let macDeviceId = payload.macDeviceId { object["macDeviceId"] = macDeviceId }
+        if let macInstanceTag = payload.macInstanceTag { object["macInstanceTag"] = macInstanceTag }
+        if let macPushPublicKey { object["macPushPublicKey"] = macPushPublicKey }
+        let encoded = try JSONSerialization.data(withJSONObject: object)
+        guard encoded.count <= Self.maximumRequestBytes else { throw EncodingError.requestTooLarge }
+        self.init(
+            correlationID: canonicalCorrelation,
+            expirationEpochSeconds: expirationEpochSeconds,
+            body: encoded,
+            coalescingID: payload.notificationId,
+            expectedAccountID: expectedAccountID,
+            expectedSessionGeneration: expectedSessionGeneration,
+            targetBundleIdentifier: targetBundleIdentifier
+        )
+    }
+
     /// Returns whether the authenticated session still owns the request.
     public func belongs(to session: AuthenticatedSessionSnapshot) -> Bool {
         guard expectedAccountID == nil

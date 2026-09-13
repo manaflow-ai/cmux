@@ -1,5 +1,6 @@
 #if os(iOS)
 import CMUXMobileCore
+import CmuxPhonePush
 import Foundation
 
 /// One inline notification reply handed to the server-side inbox.
@@ -17,6 +18,7 @@ public struct RelayedReply: Equatable, Sendable {
     public let surfaceId: String
     /// The user's reply text, without the submit return.
     public let text: String
+    public let macInstanceTag: String?
     /// Whether the notification may follow its surface to a new workspace.
     /// Workspace-confined notifications must keep their original claim when
     /// the Mac drains the parked reply.
@@ -29,6 +31,7 @@ public struct RelayedReply: Equatable, Sendable {
         workspaceId: String?,
         surfaceId: String,
         text: String,
+        macInstanceTag: String? = nil,
         retargetsToLiveSurfaceOwner: Bool = true
     ) {
         self.replyId = replyId
@@ -36,6 +39,7 @@ public struct RelayedReply: Equatable, Sendable {
         self.workspaceId = workspaceId
         self.surfaceId = surfaceId
         self.text = text
+        self.macInstanceTag = macInstanceTag
         self.retargetsToLiveSurfaceOwner = retargetsToLiveSurfaceOwner
     }
 }
@@ -98,16 +102,43 @@ public struct SystemReplyRelayClient: ReplyRelaying {
         comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path)
             + "/v1/replies"
         guard let url = comps.url else { return false }
-        var body: [String: Any] = [
+        guard let key = PhonePushPeerKeyStore.load(
+            macDeviceID: reply.macDeviceId,
+            instanceTag: reply.macInstanceTag
+        ), let identity = try? PhonePushKeyStore.current(
+            bundleID: Bundle.main.bundleIdentifier ?? "cmux"
+        ) else { return false }
+        let plaintext: [String: Any] = [
             "replyId": reply.replyId,
             "macDeviceId": reply.macDeviceId,
             "surfaceId": reply.surfaceId,
             "retargetsToLiveSurfaceOwner": reply.retargetsToLiveSurfaceOwner,
             "text": reply.text,
         ]
-        if let workspaceId = reply.workspaceId, !workspaceId.isEmpty {
-            body["workspaceId"] = workspaceId
-        }
+        var plaintextWithWorkspace = plaintext
+        if let workspaceId = reply.workspaceId, !workspaceId.isEmpty { plaintextWithWorkspace["workspaceId"] = workspaceId }
+        guard let plaintextData = try? JSONSerialization.data(withJSONObject: plaintextWithWorkspace),
+              let encrypted = try? PhonePushCrypto.encrypt(
+                  plaintext: plaintextData,
+                  tuple: PhonePushDeviceTuple(
+                      accountID: nil,
+                      teamID: nil,
+                      iosBuildID: Bundle.main.bundleIdentifier ?? "cmux",
+                      iosInstallationID: identity.installationID,
+                      macDeviceID: reply.macDeviceId,
+                      macInstanceTag: reply.macInstanceTag,
+                      macBuildID: nil
+                  ),
+                  recipientPublicKey: key,
+                  keyID: "reply-\(identity.keyID)",
+                  installationID: identity.installationID
+              ) else { return false }
+        var body: [String: Any] = [
+            "replyId": reply.replyId,
+            "macDeviceId": reply.macDeviceId,
+            "encryptedPayload": try! JSONSerialization.jsonObject(with: JSONEncoder().encode(encrypted)),
+        ]
+        if let macInstanceTag = reply.macInstanceTag { body["macInstanceTag"] = macInstanceTag }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         // Comfortably inside the reply lane's background window, long enough

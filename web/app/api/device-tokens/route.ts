@@ -26,6 +26,31 @@ import {
 
 
 const HEX_TOKEN = /^[0-9a-fA-F]{64,200}$/;
+const SAFE_KEY_ID = /^[A-Za-z0-9._:-]{1,128}$/;
+const SAFE_INSTALLATION_ID = /^[A-Za-z0-9-]{16,128}$/;
+const BASE64_KEY = /^[A-Za-z0-9+/]{43}=?$/;
+
+export async function GET(request: Request): Promise<Response> {
+  let user: Awaited<ReturnType<typeof verifyRequest>>;
+  try { user = await verifyRequest(request, { allowCookie: false }); }
+  catch (error) { return authProviderErrorResponse(error, "device-tokens.get.auth"); }
+  if (!user) return unauthorized();
+  const bundleId = request.headers.get("x-cmux-app-namespace")?.trim()
+    || new URL(request.url).searchParams.get("bundleId")?.trim() || "";
+  const bundle = normalizeApnsBundle(bundleId);
+  if (!bundle) return jsonResponse({ error: "invalid_bundle_id" }, 400);
+  const rows = await cloudDb().select({
+    installationID: deviceTokens.installationId,
+    keyID: deviceTokens.pushKeyId,
+    publicKey: deviceTokens.pushPublicKey,
+    bundleID: deviceTokens.bundleId,
+  }).from(deviceTokens).where(and(
+    eq(deviceTokens.userId, user.id),
+    eq(deviceTokens.bundleId, bundle.bundleId),
+    eq(deviceTokens.platform, "ios"),
+  ));
+  return jsonResponse({ recipients: rows.filter((row) => row.publicKey && row.installationID !== "legacy") });
+}
 
 export async function POST(request: Request): Promise<Response> {
   const rateLimitResponse = await enforceNativeIngressRateLimit({
@@ -53,6 +78,9 @@ async function registerDeviceToken(request: Request): Promise<Response> {
   const bundleId = typeof body.value.bundleId === "string" ? body.value.bundleId.trim() : "";
   const clientNamespace = request.headers.get("x-cmux-app-namespace") ?? "legacy";
   const platform = typeof body.value.platform === "string" ? body.value.platform.trim() || "ios" : "ios";
+  const installationId = typeof body.value.installationId === "string" ? body.value.installationId.trim() : "";
+  const pushKeyId = typeof body.value.pushKeyId === "string" ? body.value.pushKeyId.trim() : "";
+  const pushPublicKey = typeof body.value.pushPublicKey === "string" ? body.value.pushPublicKey.trim() : "";
   const bundle = normalizeApnsBundle(bundleId);
 
   if (!HEX_TOKEN.test(deviceToken)) {
@@ -69,6 +97,9 @@ async function registerDeviceToken(request: Request): Promise<Response> {
   }
   if (platform !== "ios") {
     return jsonResponse({ error: "invalid_platform" }, 400);
+  }
+  if (!SAFE_INSTALLATION_ID.test(installationId) || !SAFE_KEY_ID.test(pushKeyId) || !BASE64_KEY.test(pushPublicKey)) {
+    return jsonResponse({ error: "invalid_push_key" }, 400);
   }
 
   const db = cloudDb();
@@ -151,6 +182,9 @@ async function registerDeviceToken(request: Request): Promise<Response> {
           bundleId: bundle.bundleId,
           environment: bundle.environment,
           platform,
+          installationId,
+          pushKeyId,
+          pushPublicKey,
         })
         .onConflictDoUpdate({
           target: [
@@ -162,6 +196,9 @@ async function registerDeviceToken(request: Request): Promise<Response> {
             bundleId: bundle.bundleId,
             environment: bundle.environment,
             platform,
+            installationId,
+            pushKeyId,
+            pushPublicKey,
             updatedAt: new Date(),
           },
         });
