@@ -82,7 +82,7 @@ extension CMUXCLI {
 
         [cmux-cua](https://github.com/manaflow-ai/cmux/blob/main/skills/cmux-cua/SKILL.md#using-the-tools-agent-facing)
 
-        \(CMUXDiffViewerLocalization.string("cli.guide.overview.cloud", defaultValue: "## Use Cloud\n\nUse cmux Cloud when work needs a remote machine. List machines before choosing one. Use `exec` for a short command, `agent` for a coding agent, and `push` or `pull` for files. Use the Cloud guide for desktop, browser, port, and machine lifecycle methods."))
+        \(CMUXDiffViewerLocalization.string("cli.guide.overview.cloud", defaultValue: "## Use Cloud\n\nUse cmux Cloud when work needs a remote machine. List machines before choosing one. Use `exec` for a short command, `agent` for a coding agent, and `push` or `pull` for files. The default Cloud devbox includes Chrome and `cua-driver`; the Cloud guide explains how to verify and use them. Use the Cloud guide for desktop, browser, port, and machine lifecycle methods."))
 
         ```sh
         cmux cloud ls --json

@@ -301,8 +301,10 @@ def check_guide_contract(cli_path: str) -> list[str]:
                         "topic": topic, "format": "markdown", "content": expected_content,
                     }:
                         raise ValueError(f"JSON guide differs from plain output: {result}")
-                if topic == "cmux" and "cmux cloud" not in plain.stdout:
-                    raise ValueError("local guide must include the Cloud entry point")
+                if topic == "cmux":
+                    for needle in ("cmux cloud", "Chrome", "cua-driver"):
+                        if needle not in plain.stdout:
+                            raise ValueError(f"local guide must include the Cloud detail: {needle}")
                 expected = ["agent-browser.dev", "agent-browser --auto-connect", "agent-browser --cdp", "agent-browser --headed"]
                 if topic == "cloud":
                     expected += ["cua-driver --version", "cua-driver doctor", "DISPLAY=:1"]
