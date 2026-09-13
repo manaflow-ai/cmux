@@ -134,6 +134,7 @@ struct CommandPaletteInteractionMonitorTests {
         #expect(notificationCenter.addedObservers.map { $0.name } == [
             CommandPaletteInteractionMonitor.windowDidBecomeKeyNotification,
             CommandPaletteInteractionMonitor.windowDidResignKeyNotification,
+            CommandPaletteInteractionMonitor.windowWillCloseNotification,
             CommandPaletteInteractionMonitor.menuDidBeginTrackingNotification,
         ])
 
@@ -211,6 +212,33 @@ struct CommandPaletteInteractionMonitorTests {
         #expect(eventSource.addCount == 1)
         #expect(firstDismissCount == 0)
         #expect(secondDismissCount == 1)
+    }
+
+    @Test("closing a non-key window dismisses and removes every observer")
+    func windowCloseDismissesAndCleansUp() {
+        let notificationCenter = RecordingCommandPaletteNotificationCenter()
+        let eventSource = RecordingCommandPaletteEventMonitorSource()
+        let monitor = CommandPaletteInteractionMonitor(
+            notificationCenter: notificationCenter,
+            eventSource: eventSource
+        )
+        let window = NSObject()
+        var dismissals: [CommandPaletteInteractionDismissal] = []
+
+        monitor.activate(
+            for: window,
+            shouldDismiss: { _ in false },
+            onWindowStateChange: {},
+            onDismiss: { dismissals.append($0) }
+        )
+
+        notificationCenter.send(name: NSWindow.willCloseNotification, object: window)
+
+        #expect(dismissals.count == 1)
+        #expect(eventSource.removeCount == 1)
+        #expect(
+            notificationCenter.removedObserverIDs == notificationCenter.addedObservers.map { $0.token.id }
+        )
     }
 
     @Test("deinit removes pointer and key-window observation")

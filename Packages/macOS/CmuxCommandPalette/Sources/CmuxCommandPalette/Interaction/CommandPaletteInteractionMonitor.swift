@@ -4,11 +4,12 @@ import AppKit
 ///
 /// Activation is idempotent for a window: repeated render updates refresh the
 /// callbacks without installing duplicate monitors. Deactivation removes the
-/// local pointer monitor and both window-key observers as one lifecycle unit.
+/// local pointer monitor and every window-lifecycle observer as one unit.
 @MainActor
 public final class CommandPaletteInteractionMonitor {
     static let windowDidBecomeKeyNotification = NSWindow.didBecomeKeyNotification
     static let windowDidResignKeyNotification = NSWindow.didResignKeyNotification
+    static let windowWillCloseNotification = NSWindow.willCloseNotification
     static let menuDidBeginTrackingNotification = NSMenu.didBeginTrackingNotification
     private let notificationCenter: NotificationCenter
     private let eventSource: any CommandPaletteEventMonitorSource
@@ -85,6 +86,7 @@ public final class CommandPaletteInteractionMonitor {
         windowObserverTokens = [
             observe(Self.windowDidBecomeKeyNotification, window: window, dismissal: nil),
             observe(Self.windowDidResignKeyNotification, window: window, dismissal: .windowResignedKey),
+            observeWindowWillClose(window: window),
             observeMainMenuTracking(),
         ]
     }
@@ -121,6 +123,21 @@ public final class CommandPaletteInteractionMonitor {
                 if let dismissal {
                     self.onDismiss?(dismissal)
                 }
+            }
+        }
+    }
+
+    private func observeWindowWillClose(window: AnyObject) -> any NSObjectProtocol {
+        notificationCenter.addObserver(
+            forName: Self.windowWillCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let onDismiss = self.onDismiss
+                self.deactivate()
+                onDismiss?(.windowClosed)
             }
         }
     }
