@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Gates that every legacy top-level dispatch command and alias, and every
-command `cmux help` lists, is declared in the ArgumentParser facade tree, and
-that each hard-coded alias resolves to the same help output as its target.
+"""Gates that every legacy top-level dispatch command and alias, every command
+`cmux help` lists, and every `vm` verb the legacy runner dispatches or
+`cmux vm --help` lists is declared in the ArgumentParser facade tree; that the
+generated completion offers each documented flag spelling (`--skill`); and that
+each hard-coded alias resolves to the same help output as its target.
 
 This is the safety net for the family-by-family declaration tasks: it is easy
 to migrate a command name but silently drop one of its aliases, or declare an
@@ -61,9 +63,12 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def legacy_source_lines() -> list[str]:
+    return (repo_root() / "CLI" / "cmux.swift").read_text(encoding="utf-8").splitlines()
+
+
 def extract_legacy_dispatch_names() -> set[str]:
-    source = (repo_root() / "CLI" / "cmux.swift").read_text(encoding="utf-8")
-    lines = source.splitlines()
+    lines = legacy_source_lines()
 
     start = None
     for index, line in enumerate(lines):
@@ -73,6 +78,24 @@ def extract_legacy_dispatch_names() -> set[str]:
     if start is None:
         raise RuntimeError("could not locate the top-level dispatch switch in CLI/cmux.swift")
 
+    return switch_case_labels(lines, start, "the top-level dispatch switch")
+
+
+def extract_legacy_vm_verbs() -> set[str]:
+    """Verbs and aliases the legacy `vm`/`cloud` runner dispatches on."""
+    lines = legacy_source_lines()
+
+    arm = next((i for i, line in enumerate(lines) if line.strip() == 'case "vm", "cloud":'), None)
+    if arm is None:
+        raise RuntimeError('could not locate the `case "vm", "cloud":` arm in CLI/cmux.swift')
+    start = next((i for i in range(arm + 1, len(lines)) if lines[i].strip() == "switch sub {"), None)
+    if start is None:
+        raise RuntimeError("could not locate the vm verb switch in CLI/cmux.swift")
+
+    return switch_case_labels(lines, start, "the vm verb switch")
+
+
+def switch_case_labels(lines: list[str], start: int, description: str) -> set[str]:
     # Only case labels directly inside this switch count; a case arm's body
     # may contain its own nested switch (e.g. `auth`'s sub-verb dispatch),
     # whose case labels and default: arm are not part of the top-level
@@ -93,7 +116,7 @@ def extract_legacy_dispatch_names() -> set[str]:
                 names.update(string_pattern.findall(match.group(1)))
         depth += line.count("{") - line.count("}")
     if end is None:
-        raise RuntimeError("could not locate the default: arm closing the top-level dispatch switch")
+        raise RuntimeError(f"could not locate the default: arm closing {description}")
 
     return names
 
@@ -147,45 +170,97 @@ def extract_declared_aliases(cli: str) -> dict[str, set[str]]:
     return declared
 
 
-def extract_documented_command_names(cli: str) -> set[str]:
-    """Top-level command names advertised by the Commands section of `cmux help`.
+def extract_declared_subcommand_names(cli: str, parent: str) -> set[str]:
+    """Names and aliases of the subcommands declared directly under `parent`."""
+    proc = subprocess.run(
+        [cli, "__dump-command-tree"],
+        text=True, capture_output=True, check=False, timeout=30.0,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"__dump-command-tree exited {proc.returncode}\n{proc.stderr}")
 
-    The dispatch-switch scan cannot see commands the legacy parser handles
-    before that switch (`sudo`, `guide`, `sessions`, ...). They are still the
-    documented surface, and an undeclared one silently drops out of shell
-    completion and typo suggestions while still running, so nothing else
-    notices.
+    names: set[str] = set()
+    for line in proc.stdout.splitlines():
+        if not line.startswith("command  "):
+            continue
+        path, _, tail = line[len("command  "):].partition("  aliases=")
+        words = path.split(" ")
+        if len(words) != 2 or words[0] != parent:
+            continue
+        names.add(words[1])
+        aliases = tail.strip()
+        if aliases and aliases != "-":
+            names.update(alias.strip() for alias in aliases.split(","))
+
+    return names
+
+
+def extract_documented_entries(cli: str, argv: list[str], header: str) -> tuple[set[str], set[str]]:
+    """Command names and `--flag` spellings a help section advertises.
+
+    The dispatch-switch scans cannot see what the legacy parser handles before
+    those switches (`sudo`, `guide`, `sessions`, `vm guide`, `--skill`, ...).
+    That is still the documented surface, and an undeclared spelling silently
+    drops out of shell completion and typo suggestions while still running,
+    so nothing else notices.
     """
     proc = subprocess.run(
-        [cli, "help"],
+        [cli, *argv],
         text=True, capture_output=True, check=False, timeout=30.0,
         env={**os.environ, "CMUX_SOCKET_PATH": "/tmp/cmux-dispatch-parity-absent.sock"},
     )
     if proc.returncode != 0:
-        raise RuntimeError(f"`cmux help` exited {proc.returncode}\n{proc.stderr}")
-    _, found, section = proc.stdout.partition("\nCommands:\n")
+        raise RuntimeError(f"`cmux {' '.join(argv)}` exited {proc.returncode}\n{proc.stderr}")
+    _, found, section = proc.stdout.partition(f"\n{header}\n")
     if not found:
-        raise RuntimeError("could not locate the Commands: section in `cmux help`")
+        raise RuntimeError(f"could not locate the {header} section in `cmux {' '.join(argv)}`")
 
     name_pattern = re.compile(r"[a-z][a-z0-9-]*")
+    flag_pattern = re.compile(r"--([a-z][a-z0-9-]*)")
     names: set[str] = set()
+    flags: set[str] = set()
     for line in section.splitlines():
         if line and not line.startswith(" "):
-            break  # the next section (Environment:) starts unindented
+            break  # the next section (Environment:, Env:) starts unindented
+        if not line.startswith("  ") or line.startswith("   "):
+            continue  # blank, or a wrapped description continuing the entry above
         entry = line.strip()
-        if not entry or entry.startswith("#"):
+        if entry.startswith("#"):
             continue
-        # `a | b | c` lists sibling commands only when the first alternative is
-        # a bare word (`login | logout`). Otherwise the alternatives are forms of
-        # one command (`browser disable | enable | status`), so only the leading
-        # word is a top-level name.
+        # `a | b | c` lists sibling spellings only when the first alternative is
+        # a bare word (`login | logout`, `guide | --skill`). Otherwise the
+        # alternatives are forms of one command (`browser disable | enable |
+        # status`), so only the leading word is a name.
         alternatives = entry.split(" | ")
         heads = [alternatives[0].split(" ")[0]]
         if " " not in alternatives[0]:
             heads = [alternative.split(" ")[0] for alternative in alternatives]
-        names.update(head for head in heads if name_pattern.fullmatch(head))
+        for head in heads:
+            if name_pattern.fullmatch(head):
+                names.add(head)
+            elif flag_match := flag_pattern.fullmatch(head):
+                flags.add(flag_match.group(1))
 
-    return names
+    return names, flags
+
+
+def extract_offered_long_flags(cli: str, path: str) -> set[str]:
+    """Long flags the generated fish completion offers at exactly `path`.
+
+    The command-tree dump omits the root command's own options, so the
+    completion script is the one place both `cmux --skill` and
+    `cmux vm --skill` can be observed the way a user reaches them.
+    """
+    proc = subprocess.run(
+        [cli, "completion", "fish"],
+        text=True, capture_output=True, check=False, timeout=30.0,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"`cmux completion fish` exited {proc.returncode}\n{proc.stderr}")
+    pattern = re.compile(
+        rf"__cmux_should_offer_completions_for_flags_or_options \"{re.escape(path)}\" [^']*' -l '([^']+)'"
+    )
+    return {match.group(1) for match in pattern.finditer(proc.stdout)}
 
 
 def help_text(cli: str, command: str) -> str:
@@ -213,12 +288,34 @@ def main() -> int:
             print(f"  {name}")
         return 1
 
-    documented_names = extract_documented_command_names(cli)
+    documented_names, documented_flags = extract_documented_entries(cli, ["help"], "Commands:")
     undeclared_documented = sorted(documented_names - declared_names)
     if undeclared_documented:
         print("FAIL: commands listed by `cmux help` but not declared in the facade tree:")
         for name in undeclared_documented:
             print(f"  {name}")
+        return 1
+
+    legacy_vm_verbs = extract_legacy_vm_verbs()
+    documented_vm_verbs, documented_vm_flags = extract_documented_entries(cli, ["vm", "--help"], "Subcommands:")
+    declared_vm_verbs = extract_declared_subcommand_names(cli, "vm")
+    missing_vm = sorted((legacy_vm_verbs | documented_vm_verbs) - declared_vm_verbs)
+    if missing_vm:
+        print("FAIL: vm verbs dispatched by the legacy runner or listed by `cmux vm --help` "
+              "but not declared under vm in the facade tree:")
+        for name in missing_vm:
+            print(f"  {name}")
+        return 1
+
+    flag_failures = [
+        f"cmux --{flag}" for flag in sorted(documented_flags - extract_offered_long_flags(cli, "cmux"))
+    ] + [
+        f"cmux vm --{flag}" for flag in sorted(documented_vm_flags - extract_offered_long_flags(cli, "cmux vm"))
+    ]
+    if flag_failures:
+        print("FAIL: documented flag spellings the generated completion does not offer:")
+        for failure in flag_failures:
+            print(f"  {failure}")
         return 1
 
     alias_failures = []
@@ -285,6 +382,8 @@ def main() -> int:
     print(
         f"PASS: {len(legacy_names)} legacy dispatch names covered, "
         f"{len(documented_names)} documented commands declared, "
+        f"{len(legacy_vm_verbs | documented_vm_verbs)} vm verbs declared, "
+        f"{len(documented_flags) + len(documented_vm_flags)} documented flag spellings completed, "
         f"{len(ALIASES)} aliases resolve to their target, "
         f"{len(PASSTHROUGH_ALIASES)} passthrough aliases keep their contract"
     )
