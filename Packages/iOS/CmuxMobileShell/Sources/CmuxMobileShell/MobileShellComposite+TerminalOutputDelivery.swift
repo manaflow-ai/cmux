@@ -550,6 +550,20 @@ extension MobileShellComposite {
               usesScreenAnchoredRenderGrid,
               frame.anchor == .screen,
               frame.activeScreen == .primary else { return true }
+        // The direct fallback is safe only when this delta still links to the
+        // delivered grid. A rejected resize, stale base, or missing baseline
+        // must remain behind verified replay instead of bypassing that gate.
+        guard MobileTerminalRenderGridRevisionContinuity.admits(
+            frame,
+            delivered: terminalRenderGridRevisionContinuityBySurfaceID[frame.surfaceID]
+        ) else { return true }
+        if frame.isReplaceableViewportPatchForMobileDelivery {
+            guard let delivered = terminalRenderGridRevisionContinuityBySurfaceID[frame.surfaceID],
+                  let deliveredColumns = delivered.columns,
+                  let deliveredRows = delivered.rows,
+                  deliveredColumns == frame.columns,
+                  deliveredRows == frame.rows else { return true }
+        }
         return false
     }
 
