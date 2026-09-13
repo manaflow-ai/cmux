@@ -1,5 +1,6 @@
 import CmuxTerminal
 import CmuxCore
+import Bonsplit
 import Foundation
 import os
 
