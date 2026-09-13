@@ -28,7 +28,6 @@ enum CloudTreeIconPalette {
 struct CloudTreeRowContentView: View {
     let kind: CloudTreeNode.Kind
     var style: CloudTreeStyle = CloudTreeStyleStore.current
-    var showsCloudVPNWarning = false
 
     private static func nonEmptyTrimmed(_ value: String?) -> String? {
         guard let value else { return nil }
@@ -110,7 +109,7 @@ struct CloudTreeRowContentView: View {
                 detail: CloudTreeBrowserDetail.text(for: row)
             )
         case .portsGroup:
-            groupRow(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"), showsCloudVPNWarning: showsCloudVPNWarning)
+            groupRow(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"))
         case .port(let resource, let url, _):
             CloudTreeLeafRow(
                 style: style,
@@ -123,34 +122,11 @@ struct CloudTreeRowContentView: View {
                 detail: url == nil ? (resource.detail?.isEmpty == false ? resource.detail : nil) : nil
             )
         case .placeholder(_, let placeholder):
-            HStack(alignment: .center, spacing: style.iconGap) {
-                Group {
-                    switch placeholder.style {
-                    case .connecting:
-                        ProgressView().controlSize(.mini)
-                    case .error:
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.system(size: max(style.iconSize, 9), weight: .regular))
-                            .foregroundStyle(.secondary)
-                    case .dimmed:
-                        Image(systemName: "moon.zzz")
-                            .font(.system(size: max(style.iconSize, 9), weight: .regular))
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-                .frame(width: max(style.iconSlot, 12))
-                Text(placeholder.text)
-                    .cmuxFont(size: style.detailSize + 1, design: style.fontDesign)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 0)
-            }
-            .padding(.trailing, CloudTreeRowGrid.trailingPadding)
+            CloudTreePlaceholderContent(placeholder: placeholder, style: style)
         }
     }
-    /// Renders a section label and its optional count and VPN action.
-    private func groupRow(title: String, count: Int? = nil, showsCloudVPNWarning: Bool = false) -> some View {
+    /// Renders a section label and its optional count.
+    private func groupRow(title: String, count: Int? = nil) -> some View {
         HStack(alignment: .center, spacing: style.iconGap) {
             HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.detailGap) {
                 Text(style.groupLabelStyle == .uppercased ? title.uppercased() : title)
@@ -163,13 +139,6 @@ struct CloudTreeRowContentView: View {
                         .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
                         .foregroundStyle(.tertiary)
                 }
-            }
-            if showsCloudVPNWarning {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: max(style.detailSize - 1, 8), weight: .semibold))
-                    .foregroundStyle(.orange)
-                    .help(CloudPortsVPNWarning.projection(tunnelState: .off)?.help ?? "")
-                    .accessibilityLabel(CloudPortsVPNWarning.projection(tunnelState: .off)?.title ?? "")
             }
             Spacer(minLength: 0)
         }
@@ -409,23 +378,6 @@ struct CloudTreeTerminalRowContent: View {
             titleDimmed: terminal.lifecycle == .exited || showsDetachedState,
             detail: terminal.detail.flatMap { $0.isEmpty ? nil : Self.abbreviated($0) }
         ) {
-            // Per-client attention from the machine: this Mac has not read a
-            // notification for the terminal. Reading it here or on any pane
-            // showing the terminal acknowledges it on the machine. The dot is
-            // always in the layout and only its opacity changes: an in-place
-            // row refresh (reloadData(forRowIndexes:)) re-hosts the same
-            // SwiftUI tree, and a structural insert there is not repainted.
-            Circle()
-                .fill(Color.accentColor)
-                .frame(width: max(style.iconSize * 0.5, 6), height: max(style.iconSize * 0.5, 6))
-                .opacity(row.hasUnreadNotification ? 1 : 0)
-                .accessibilityHidden(!row.hasUnreadNotification)
-                .help(row.hasUnreadNotification
-                      ? String(localized: "cloudTree.terminal.unread.help", defaultValue: "This terminal has a notification you have not read on this Mac")
-                      : "")
-                .accessibilityLabel(row.hasUnreadNotification
-                                    ? String(localized: "cloudTree.terminal.unread.help", defaultValue: "This terminal has a notification you have not read on this Mac")
-                                    : "")
             if showsDetachedState {
                 // Zero views: still running on the machine, no daemon tab shows it.
                 // Greyed with a "detached" mark (austin, 2026-09-02 — reversing the
@@ -600,7 +552,6 @@ struct CloudTreeRowHoverButtons: View {
     let kind: CloudTreeNode.Kind
     let machineActions: MachineRowActions
     let nodeActions: CloudTreeNodeActions
-    var showsCloudVPNWarning = false
 
     var body: some View {
         switch kind {
@@ -658,18 +609,6 @@ struct CloudTreeRowHoverButtons: View {
                     }
                 }
             }
-        case .portsGroup:
-            if showsCloudVPNWarning {
-                MachinesChromeIconButton(
-                    symbolName: "chevron.right",
-                    accessibilityLabel: String(localized: "cloud.ports.vpnOff.setup", defaultValue: "Set Up Cloud VPN"),
-                    isBusy: false
-                ) {
-                    machineActions.setupVPN(nil)
-                }
-            } else {
-                EmptyView()
-            }
         case .terminal(let row):
             if !row.resource.machine.isLocal {
                 xmark(String(localized: "cloudTree.menu.killTerminal", defaultValue: "Kill Terminal\u{2026}")) {
@@ -681,14 +620,12 @@ struct CloudTreeRowHoverButtons: View {
         }
     }
     /// Returns whether the row kind has a hover action to lay out.
-    static func hasButtons(for kind: CloudTreeNode.Kind, showsCloudVPNWarning: Bool = false) -> Bool {
+    static func hasButtons(for kind: CloudTreeNode.Kind) -> Bool {
         switch kind {
         case .machine, .localMachine, .terminalsPool, .workspacesGroup, .workspace:
             return true
         case .pendingMachine:
             return true
-        case .portsGroup:
-            return showsCloudVPNWarning
         case .terminal(let row):
             return !row.resource.machine.isLocal
         default:

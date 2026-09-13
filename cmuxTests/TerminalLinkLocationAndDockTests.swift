@@ -88,12 +88,11 @@ struct TerminalLinkLocationAndDockTests {
         let terminalPanel = try #require(
             store.panels.values.compactMap { $0 as? TerminalPanel }.first
         )
-        // Dock callbacks carry a surface identity. Keep an alias in the Dock's
-        // tab-to-panel index to exercise resolution when those identities do
-        // not equal the panel dictionary key.
-        let callbackSurfaceId = UUID()
-        let callbackTabId = TabID(uuid: callbackSurfaceId)
-        store.bindSurface(callbackTabId, toPanelId: terminalPanel.id)
+        // Exercise a real tab identity that differs from the panel identity.
+        // Rebinding to an unmounted alias would remove the panel's live pane route.
+        let callbackTabId = try #require(store.surfaceId(forPanelId: terminalPanel.id))
+        let callbackSurfaceId = callbackTabId.uuid
+        #expect(callbackSurfaceId != terminalPanel.id)
         #expect(store.surfaceIdToPanelId[callbackTabId] == terminalPanel.id)
 
         var externallyOpened: [URL] = []
