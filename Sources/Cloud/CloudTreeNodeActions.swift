@@ -53,6 +53,16 @@ struct CloudTreeNodeActions {
     let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
     let refresh: @MainActor () -> Void
     var refreshMachine: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
+    /// Navigate a terminal row through its owning Cloud workspace. The row supplies
+    /// the complete workspace group so a closed workspace can restore its layout,
+    /// while `openIn` identifies an already-open local workspace when known.
+    var openRemoteTerminal: @MainActor (
+        _ machine: SurfaceMachineID,
+        _ group: SurfaceResourceGroup,
+        _ resource: SurfaceResourceID,
+        _ view: SurfaceRemoteView?,
+        _ openIn: UUID?
+    ) -> Void = { _, _, _, _, _ in }
 
     @MainActor
     static func bound(
