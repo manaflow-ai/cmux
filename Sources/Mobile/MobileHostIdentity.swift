@@ -2,42 +2,34 @@ import CMUXMobileCore
 import CmuxSettings
 import Foundation
 
-private final class MobileHostDeviceIDCache: @unchecked Sendable {
-    let lock = NSLock()
-    var value: String?
-}
-
 enum MobileHostIdentity {
     private static let deviceIDKey = "mobileHost.deviceID"
     private static let sharedDeviceIDFileName = "mobile-host-device-id"
     private static let stableBundleIdentifier = "com.cmuxterm.app"
     private static let maximumDisplayNameUTF16Length = 128
     private static let maximumDisplayedBuildTagUTF16Length = 64
-    private static let deviceIDCache = MobileHostDeviceIDCache()
 
-    static func deviceID() -> String {
-        deviceIDCache.lock.lock()
-        if let cachedDeviceID = deviceIDCache.value {
-            deviceIDCache.lock.unlock()
-            return cachedDeviceID
-        }
-        deviceIDCache.lock.unlock()
-
+    /// Process-stable host identity used by synchronous transport and terminal paths.
+    ///
+    /// Swift initializes this constant once, so the filesystem-backed migration
+    /// runs at most once per app process. After initialization, ``deviceID()``
+    /// returns the immutable snapshot without locking or disk access. The
+    /// overload below remains the testable resolver for persistence migration.
+    private static let cachedDeviceID: String = {
         let stableDefaults = Bundle.main.bundleIdentifier == stableBundleIdentifier
             ? nil
             : UserDefaults(suiteName: stableBundleIdentifier)
-        let resolvedDeviceID = deviceID(
+        return deviceID(
             defaults: .standard,
             sharedIDURL: defaultSharedDeviceIDURL(),
             stableDefaults: stableDefaults,
             bundleIdentifier: Bundle.main.bundleIdentifier
         )
+    }()
 
-        deviceIDCache.lock.lock()
-        deviceIDCache.value = deviceIDCache.value ?? resolvedDeviceID
-        let result = deviceIDCache.value ?? resolvedDeviceID
-        deviceIDCache.lock.unlock()
-        return result
+    /// Returns the process-stable host identity without repeating filesystem work.
+    static func deviceID() -> String {
+        cachedDeviceID
     }
 
     static func deviceID(

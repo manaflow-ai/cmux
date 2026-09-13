@@ -128,9 +128,9 @@ final class PhonePushClient {
             configuration: PhonePushConfiguration(defaults: defaults)
         )
     }
+    /// Starts auth-scoped phone push observation after warming host identity.
     func configure(auth: AuthCoordinator) {
         self.auth = auth
-        // Prewarm identity so terminal dismissal never performs disk I/O.
         _ = MobileHostIdentity.deviceID()
         authLifecycleTask?.cancel()
         cancelInMemoryQueue()
