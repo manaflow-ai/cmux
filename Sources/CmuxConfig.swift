@@ -935,19 +935,19 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
 
     static let newTerminal = actionReference(CmuxSurfaceTabBarBuiltInAction.newTerminal.configID)
     static let newBrowser = actionReference(CmuxSurfaceTabBarBuiltInAction.newBrowser.configID)
+    static let newGuiMode = actionReference(CmuxSurfaceTabBarBuiltInAction.newGuiMode.configID)
     static let newSimulator = actionReference(CmuxSurfaceTabBarBuiltInAction.newSimulator.configID)
     static let splitRight = actionReference(CmuxSurfaceTabBarBuiltInAction.splitRight.configID)
     static let splitDown = actionReference(CmuxSurfaceTabBarBuiltInAction.splitDown.configID)
-
     static let mobileConnect = actionReference(CmuxSurfaceTabBarBuiltInAction.mobileConnect.configID)
 
     static let defaults: [CmuxSurfaceTabBarButton] = [
         .newTerminal,
         .newBrowser,
+        .newGuiMode,
         .splitRight,
         .splitDown
     ]
-
     static func builtIn(
         _ action: CmuxSurfaceTabBarBuiltInAction,
         id: String? = nil,
@@ -2066,6 +2066,7 @@ final class CmuxConfigStore: ObservableObject {
         }) ?? [
             .builtIn(.newTerminal),
             .builtIn(.newBrowser),
+            .builtIn(.newGuiMode),
             .builtIn(.splitRight),
             .builtIn(.splitDown)
         ]
@@ -2155,7 +2156,6 @@ final class CmuxConfigStore: ObservableObject {
         applySurfaceTabBarButtonsToCurrentManager()
         configRevision &+= 1
     }
-
     private func resolvedLocalNotificationHookPaths(fallbackLocalPath: String?) -> [String] {
         if let searchDirectory = localConfigSearchDirectory {
             var paths = findCmuxConfigHierarchy(startingFrom: searchDirectory)

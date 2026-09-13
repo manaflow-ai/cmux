@@ -16,6 +16,8 @@ extension ShortcutAction {
         case .newTab: return "New Workspace"
         case .newBrowserWorkspace:
             return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")
+        case .newGuiMode:
+            return String(localized: "shortcut.newGuiMode.label", defaultValue: "Open GUI Mode")
         case .newCloudWorkspace:
             return String(localized: "shortcut.newCloudWorkspace.label", defaultValue: "New Cloud Workspace")
         case .newCloudMachine:

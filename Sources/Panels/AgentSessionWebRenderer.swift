@@ -18,6 +18,7 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
             rendererKind: panel.rendererKind,
             initialProviderID: panel.currentProviderID,
             workingDirectory: panel.workingDirectory,
+            guiModeState: panel.guiModeState,
             theme: theme,
             isFocused: isFocused
         )
@@ -38,6 +39,7 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
             rendererKind: panel.rendererKind,
             initialProviderID: panel.currentProviderID,
             workingDirectory: panel.workingDirectory,
+            guiModeState: panel.guiModeState,
             theme: theme,
             isFocused: isFocused
         )

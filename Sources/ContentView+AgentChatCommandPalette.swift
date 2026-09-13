@@ -12,6 +12,8 @@ extension ContentView {
             return CmuxSurfaceTabBarBuiltInAction.newSimulator.configID
         case "palette.newAgentChat":
             return CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID
+        case "palette.newGuiMode":
+            return CmuxSurfaceTabBarBuiltInAction.newGuiMode.configID
         case "palette.terminalSplitRight":
             return CmuxSurfaceTabBarBuiltInAction.splitRight.configID
         case "palette.terminalSplitDown":

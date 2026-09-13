@@ -93,7 +93,7 @@ enum KeyboardShortcutSettings {
         // Titlebar / primary UI
         case toggleSidebar
         case newTab
-        case newBrowserWorkspace
+        case newBrowserWorkspace, newGuiMode
         case newCloudWorkspace
         case newCloudMachine
         case saveLayoutTemplate
@@ -118,7 +118,6 @@ enum KeyboardShortcutSettings {
         case switchRightSidebarToDock
         case switchRightSidebarToMachines
         case triggerFlash
-
         // Navigation
         case nextSurface
         case prevSurface
@@ -245,6 +244,7 @@ enum KeyboardShortcutSettings {
             case .toggleSidebar: return String(localized: "shortcut.toggleLeftSidebar.label", defaultValue: "Toggle Left Sidebar")
             case .newTab: return String(localized: "shortcut.newWorkspace.label", defaultValue: "New Workspace")
             case .newBrowserWorkspace: return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")
+            case .newGuiMode: return String(localized: "shortcut.newGuiMode.label", defaultValue: "Open GUI Mode")
             case .newCloudWorkspace: return String(localized: "shortcut.newCloudWorkspace.label", defaultValue: "New Cloud Workspace")
             case .newCloudMachine: return String(localized: "shortcut.newCloudMachine.label", defaultValue: "New Cloud Machine")
             case .saveLayoutTemplate: return String(localized: "shortcut.saveLayoutTemplate.label", defaultValue: "Save Layout as Template…")
@@ -399,7 +399,6 @@ enum KeyboardShortcutSettings {
             case .diffViewerPreviousFile: return String(localized: "shortcut.diffViewerPreviousFile.label", defaultValue: "Diff Viewer: Previous File")
             }
         }
-
         var defaultsKey: String { "shortcut.\(rawValue)" }
 
         var defaultShortcut: StoredShortcut {
@@ -431,6 +430,7 @@ enum KeyboardShortcutSettings {
                 // Option+Cmd+N: sits next to New Workspace (Cmd+N) and New Window (Cmd+Shift+N)
                 // without colliding with any cmux default or an AppKit-reserved keystroke.
                 return StoredShortcut(key: "n", command: true, shift: false, option: true, control: false)
+            case .newGuiMode: return StoredShortcut(key: "g", command: true, shift: true, option: true, control: false)
             case .newCloudWorkspace:
                 // Cmd+Y: free in cmux and in AppKit's standard menus, so the
                 // plus menu, File menu, and palette can all advertise it.
