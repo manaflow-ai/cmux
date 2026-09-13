@@ -10,7 +10,8 @@ extension Workspace {
             condition: { panel.surface.hasLiveSurface && panel.surface.isRendererPresented },
             onReady: { [weak self, weak panel] in
                 guard let self, let panel,
-                      self.panels[panel.id] === panel else { return }
+                      let current = self.panels[panel.id] as? TerminalPanel,
+                      current === panel else { return }
                 self.bonsplitController.updateTab(
                     tabID,
                     title: nil,
