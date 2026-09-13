@@ -375,25 +375,11 @@ final class SurfaceCatalog {
     /// tree, socket, CLI, and local projection paths one ordering and pending-intent
     /// policy.
     func renameRemoteWorkspace(on machine: SurfaceMachineID, id: String, name: String) async throws {
-        guard let provider = providers[machine] else {
-            throw SurfaceCatalogError.noProvider(machine)
-        }
-        let key = CloudRenameCoordinator.Key.workspace(machine: machine, id: id)
-        let task = cloudRenameCoordinator.enqueue(key: key, pendingName: name) {
-            try await provider.renameRemoteWorkspace(id: id, name: name)
-        }
-        try await task.value
+        try await enqueueRemoteWorkspaceRename(on: machine, id: id, name: name).value
     }
 
     func renameRemoteTab(on machine: SurfaceMachineID, id: String, name: String) async throws {
-        guard let provider = providers[machine] else {
-            throw SurfaceCatalogError.noProvider(machine)
-        }
-        let key = CloudRenameCoordinator.Key.tab(machine: machine, id: id)
-        let task = cloudRenameCoordinator.enqueue(key: key, pendingName: name) {
-            try await provider.renameRemoteTab(id: id, name: name)
-        }
-        try await task.value
+        try await enqueueRemoteTabRename(on: machine, id: id, name: name).value
     }
 
     func renameTerminal(on machine: SurfaceMachineID, id: SurfaceResourceID, name: String) async throws {

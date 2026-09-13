@@ -78,7 +78,8 @@ extension SurfaceCatalog {
         return SurfaceResourceGroup(
             title: workspace.name,
             placements: placements,
-            remoteWorkspaceID: workspaceID
+            remoteWorkspaceID: workspaceID,
+            representsWorkspace: true
         )
     }
 }

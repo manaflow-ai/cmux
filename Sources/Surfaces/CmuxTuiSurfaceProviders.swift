@@ -453,9 +453,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             #endif
             return false
         }
-        // A snapshot with the exact installed cursor is a valid no-op only when
-        // its revisioned graph and every pending receipt agree. This is important after a
-        // rename: a delayed equal-cursor predecessor must not look current.
+        // Equal cursors must agree on graph/receipts; older reads cannot replace live titles.
         if let current = cloudState, current.cursor == incoming.cursor {
             guard current.hasSameRevisionedContent(as: incoming), incomingPassesPendingRenameFence(incoming) else {
                 #if DEBUG
@@ -463,7 +461,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 #endif
                 return false
             }
+            guard requestVersion == nil || requestVersion == cloudStateInstallVersion || incoming == current else { return false }
             cloudState = incoming
+            cloudStateInstallVersion &+= 1
             retirePendingRemoteRenames(observed: incoming)
             return true
         }

@@ -17,6 +17,8 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
     var beforeMutation: (() async throws -> Void)?
     var refreshCount = 0
     var moveCursor: CloudVMCursor?
+    var workspaceRenames: [String] = []
+    var tabRenames: [String] = []
 
     init(machine: SurfaceMachineID) {
         self.machine = machine
@@ -29,6 +31,14 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
     }
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
         throw SurfaceCatalogError.unsupported("createTerminal")
+    }
+    func renameRemoteWorkspace(id: String, name: String) async throws {
+        try await beforeMutation?()
+        workspaceRenames.append(name)
+    }
+    func renameRemoteTab(id: String, name: String) async throws {
+        try await beforeMutation?()
+        tabRenames.append(name)
     }
     func projectionDidEnd(_ projection: SurfaceProjection) {}
     func moveRemoteTab(id: String, intoRemoteWorkspace remoteWorkspaceID: String) async throws -> SurfaceRemotePlacement {

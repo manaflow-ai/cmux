@@ -108,6 +108,65 @@ struct CloudSidebarConsistencyTests {
         #expect(opened.projections.compactMap(\.remoteTabID) == ["tab_b", "tab_c"])
     }
 
+    @Test("Opening a tab selection does not expand it to the entire Cloud workspace")
+    func selectedTabsRemainASelection() async throws {
+        let catalog = SurfaceCatalog()
+        catalog.register(CloudPlacementTestProvider(machine: machine))
+        install(try state(), in: catalog)
+        let all = try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: "ws_main")
+        let selection = SurfaceResourceGroup(title: "Selection", placements: [all.placements[0]], remoteWorkspaceID: "ws_main")
+        let workspaceID = UUID()
+        let host = SurfaceCatalog.NewWorkspaceHost(
+            create: { _ in (workspaceID, nil) }, paneLookup: { _, _ in "pane" }, closeStarter: { _, _ in }
+        )
+        let opened = try await catalog.projectGroupAsNewLocalWorkspace(selection, title: selection.title, focus: false, host: host)
+        #expect(opened.projections.map(\.resource.key) == ["term_a"])
+    }
+
+    @Test("A browser-only workspace has the same row and layout membership")
+    func browserOnlyWorkspace() throws {
+        let catalog = SurfaceCatalog()
+        var document = try #require(state(tabs: ["a"]).snapshotObject())
+        document["tabs"] = [["id": "tab_a", "pane_id": "pane_main", "content_kind": "browser", "content_id": "browser_a"]]
+        document["browsers"] = [["id": "browser_a", "tab_id": "tab_a", "title": "Docs", "url": "https://cmux.com/docs"]]
+        let graph = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: document, machine: machine))
+        install(graph, in: catalog)
+        let row = try #require(workspaceRows(catalog).first)
+        #expect(row.dragGroup?.placements == catalog.cloudWorkspaceLayout(machine: machine, workspaceID: "ws_main")?.placements)
+        #expect(row.children.count == 1)
+    }
+
+    @Test("User workspace and terminal names are protected before the write task starts")
+    func synchronousUserIntent() async throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelID = try #require(workspace.focusedPanelId)
+        let service = CloudWorkspaceRenameService(environment: .init(
+            workspace: { manager.workspacesById[$0] }, tabManager: { _ in manager }, workspaces: { manager.tabs }
+        ))
+        let catalog = SurfaceCatalog(cloudWorkspaceRenameService: service)
+        let provider = CloudPlacementTestProvider(machine: machine)
+        catalog.register(provider)
+        let graph = try state(tabs: ["a"])
+        install(graph, in: catalog)
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "ws_main")
+        let resource = try #require(catalog.resources[SurfaceResourceID(machine: machine, kind: .terminal, key: "term_a")])
+        catalog.record(SurfaceProjection(resource: resource.id, workspaceID: workspace.id, panelID: panelID, remoteWorkspaceID: "ws_main", remoteTabID: "tab_a"))
+        _ = manager.setCustomTitle(tabId: workspace.id, title: "User workspace", propagateToCloud: false)
+        _ = workspace.setPanelCustomTitle(panelId: panelID, title: "User terminal", propagateToCloud: false)
+        service.propagate(workspace: workspace, localTitle: "User workspace", previousCustomTitle: "GOD WORKSPACE", catalog: catalog)
+        service.propagateTerminalRename(workspace: workspace, panelID: panelID, resource: resource, name: "User terminal", previousCustomTitle: "Explicit a", catalog: catalog)
+        #expect(catalog.cloudRenameCoordinator.pendingName(for: .workspace(machine: machine, id: "ws_main")) == "User workspace")
+        #expect(catalog.cloudRenameCoordinator.pendingName(for: .tab(machine: machine, id: "tab_a")) == "User terminal")
+        catalog.reconcileCloudRemoteState(machine: machine, state: graph)
+        #expect(workspace.title == "User workspace")
+        #expect(workspace.panelCustomTitles[panelID] == "User terminal")
+        // A barrier in the same lane completes both writes without a sleep.
+        try await catalog.cloudRenameCoordinator.enqueue(key: .workspace(machine: machine, id: "barrier"), pendingName: "") {}.value
+        #expect(provider.workspaceRenames == ["User workspace"])
+        #expect(provider.tabRenames == ["User terminal"])
+    }
+
     @Test("A bound native tab receives canonical names, process titles, and ignores delayed graph callbacks", arguments: [false, true])
     func nativeNameParity(named: Bool) throws {
         let manager = TabManager()

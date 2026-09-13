@@ -881,8 +881,8 @@ enum CloudTreeNodeBuilder {
         return children
     }
 
-    /// Builds terminal-backed Cloud workspace rows; empty daemon workspaces remain
-    /// available to lookup and persistence but are omitted from the sidebar.
+    /// Builds every nonempty Cloud workspace from its actual layout members.
+    /// Empty daemon records remain available to lookup and persistence.
     private static func workspacesGroupNode(
         machine: SurfaceMachineID,
         info: SurfaceMachineInfo,
@@ -910,7 +910,7 @@ enum CloudTreeNodeBuilder {
             rows.displays.append(RemoteResourcePlacement(resource: member.resource, workspace: rows.workspace, view: nil))
             byWorkspace[member.workspaceID] = rows
         }
-        let workspaces = byWorkspace.values.filter { !$0.terminals.isEmpty }.sorted { lhs, rhs in
+        let workspaces = byWorkspace.values.filter { !$0.terminals.isEmpty || !$0.browsers.isEmpty || !$0.displays.isEmpty }.sorted { lhs, rhs in
             lhs.workspace.index != rhs.workspace.index ? lhs.workspace.index < rhs.workspace.index : lhs.workspace.id < rhs.workspace.id
         }
         let workspaceNodes = workspaces.map { rows in
@@ -959,7 +959,7 @@ enum CloudTreeNodeBuilder {
                 dragGroup: SurfaceResourceGroup(
                     title: workspace.name,
                     placements: orderedRealPlacements,
-                    remoteWorkspaceID: workspace.id
+                    remoteWorkspaceID: workspace.id, representsWorkspace: true
                 )
             )
         }

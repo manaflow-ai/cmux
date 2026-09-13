@@ -350,13 +350,10 @@ final class CloudWorkspaceRenameService {
               catalog.provider(for: target.machine) != nil else { return }
         let expectedTitle = workspace.customTitle
         let manager = workspace.owningTabManager ?? environment.tabManager(workspace.id)
+        let write = catalog.enqueueRemoteWorkspaceRename(on: target.machine, id: target.remoteWorkspaceID, name: name)
         Task { @MainActor [weak workspace, weak manager] in
             do {
-                try await catalog.renameRemoteWorkspace(
-                    on: target.machine,
-                    id: target.remoteWorkspaceID,
-                    name: name
-                )
+                try await write.value
             } catch {
                 guard let workspace,
                       workspace.customTitle == expectedTitle,
@@ -411,9 +408,10 @@ final class CloudWorkspaceRenameService {
             return
         }
         guard catalog.provider(for: resource.machine) != nil else { return }
+        let write = catalog.enqueueRemoteTabRename(on: resource.machine, id: tabID, name: name)
         Task { @MainActor [weak workspace] in
             do {
-                try await catalog.renameRemoteTab(on: resource.machine, id: tabID, name: name)
+                try await write.value
             } catch {
                 guard let workspace,
                       workspace.panelCustomTitles[panelID] == expectedTitle else { return }
@@ -476,6 +474,8 @@ final class CloudWorkspaceRenameService {
             if let pending = catalog.cloudRenameCoordinator.pendingName(for: intentKey), pending != remote.name {
                 continue
             }
+            // Pending user edits are protected above; confirmed names belong to
+            // the daemon. A generated machine prefix must not become a local alias.
             let displayName = remote.name
             let manager = workspace.owningTabManager ?? environment.tabManager(workspace.id)
             _ = manager?.setCustomTitle(
