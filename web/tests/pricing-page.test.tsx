@@ -99,6 +99,17 @@ mock.module("../db/client", () => ({
 const { default: PricingPage } = await import("../app/[locale]/pricing/page");
 
 describe("localized pricing page", () => {
+  test("shows monthly prices only even for old annual pricing links", async () => {
+    const element = await PricingPage({ params: Promise.resolve({ locale: "en" }), searchParams: Promise.resolve({ interval: "year" }) });
+    const html = renderToStaticMarkup(element);
+    expect(html).toContain("$50");
+    expect(html).toContain("$200");
+    expect(html).not.toContain('role="radiogroup"');
+    expect(html).not.toContain("Save 20%");
+    expect(html).not.toContain("interval=year");
+    expect(html).not.toContain("billed annually");
+  });
+
   test("publishes pricing only in its fully authored English and Japanese catalogs", () => {
     expect(fallbackContentLocales).toEqual(["en", "ja"]);
   });

@@ -47,6 +47,16 @@ afterEach(() => {
 });
 
 describe("Stripe catalog provisioning", () => {
+  test("offers only monthly prices in the plan-switch portal", async () => {
+    const result = await runProvision("test", "portal-switch-exists");
+    expect(result.exitCode).toBe(0);
+    const update = result.calls.find((call) => call.args.includes("POST") && call.args.includes("https://api.stripe.com/v1/billing_portal/configurations/bpc_switch"));
+    expect(update).toBeDefined();
+    expect(update!.args.join("\n")).not.toContain("price_pro_year_480");
+    expect(update!.args.join("\n")).toContain("price_pro_month_50");
+    expect(update!.args.join("\n")).toContain("price_max_month_200");
+  });
+
   test("sends credentials through stdin instead of process arguments", async () => {
     const result = await runProvision("test", "valid");
 

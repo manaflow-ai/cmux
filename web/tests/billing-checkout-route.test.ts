@@ -170,6 +170,14 @@ afterAll(() => {
 });
 
 describe("billing checkout route", () => {
+  test.each(["go", "pro", "max", "team"])("refuses a new annual %s checkout without creating Stripe state", async (plan) => {
+    stripeConfigured = true;
+    const response = await GET(new NextRequest(`https://cmux.test/api/billing/checkout?plan=${plan}&interval=year`));
+    expect(response.headers.get("location")).toBe("https://cmux.test/pricing?billing=annual_unavailable");
+    expect(createStripeSession).not.toHaveBeenCalled();
+    expect(createStripeCustomer).not.toHaveBeenCalled();
+  });
+
   test("CLI checkout rejects cookie-only requests before creating a session", async () => {
     const response = await POST(new NextRequest("https://cmux.test/api/billing/checkout", { method: "POST", body: JSON.stringify({ plan: "max" }) }));
     expect(response.status).toBe(401);
