@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 567d1717b69de4a77dde2b72bfea5dc25e89d84caee83502c24cf968f7ae299d.
+// cmux-tui mux protocol 12, IR f78c8242ed878ed6fb1f0587e575ea58c6922faa6682b8192b28285fa317cedf.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -781,6 +781,30 @@ pub type PairingResponseResult = T::EmptyResult;
 pub struct PaneNeighborRequest {
     pub dir: T::PaneDirection,
     pub pane: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PasteImageRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub data: Optional<String>,
+    pub lease: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mime: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub offset: Optional<u64>,
+    pub op: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub size: Optional<u64>,
+    pub surface: T::Id,
+    pub terminal_id: String,
+    pub upload_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PasteImageResult {
+    pub accepted: bool,
 }
 
 #[rustfmt::skip]
@@ -1615,6 +1639,10 @@ impl CmuxClient {
 
     pub fn pane_neighbor(&mut self, request: PaneNeighborRequest) -> Result<T::PaneNeighborResult> {
         self.execute(&PANE_NEIGHBOR_METADATA, &request)
+    }
+
+    pub fn paste_image(&mut self, request: PasteImageRequest) -> Result<PasteImageResult> {
+        self.execute(&PASTE_IMAGE_METADATA, &request)
     }
 
     pub fn ping(&mut self, request: PingRequest) -> Result<T::PingResult> {

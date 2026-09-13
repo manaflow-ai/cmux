@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "567d1717b69de4a77dde2b72bfea5dc25e89d84caee83502c24cf968f7ae299d";
+inline constexpr std::string_view kProtocolIrSha256 = "f78c8242ed878ed6fb1f0587e575ea58c6922faa6682b8192b28285fa317cedf";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -193,6 +193,8 @@ struct NewWorkspaceRequest;
 struct NotifyRequest;
 struct PairingResponseRequest;
 struct PaneNeighborRequest;
+struct PasteImageRequest;
+struct PasteImageResult;
 struct PingRequest;
 struct ProcessInfoRequest;
 struct PutFrontendProjectionRequest;
@@ -1760,6 +1762,24 @@ struct PaneNeighborRequest {
 struct PaneNeighborResult {
     std::optional<Id> pane{};
     friend bool operator==(const PaneNeighborResult&, const PaneNeighborResult&) = default;
+};
+
+struct PasteImageRequest {
+    Field<std::string> data{};
+    std::string lease{};
+    Field<std::string> mime{};
+    Field<std::uint64_t> offset{};
+    std::string op{};
+    Field<std::uint64_t> size{};
+    Id surface{};
+    std::string terminal_id{};
+    std::string upload_id{};
+    friend bool operator==(const PasteImageRequest&, const PasteImageRequest&) = default;
+};
+
+struct PasteImageResult {
+    bool accepted{};
+    friend bool operator==(const PasteImageResult&, const PasteImageResult&) = default;
 };
 
 struct PingRequest {
@@ -3745,6 +3765,18 @@ template <>
 struct Codec<PaneNeighborRequest> {
     static Result<Json> encode(const PaneNeighborRequest& value);
     static Result<PaneNeighborRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<PasteImageRequest> {
+    static Result<Json> encode(const PasteImageRequest& value);
+    static Result<PasteImageRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<PasteImageResult> {
+    static Result<Json> encode(const PasteImageResult& value);
+    static Result<PasteImageResult> decode(const Json& value);
 };
 
 template <>

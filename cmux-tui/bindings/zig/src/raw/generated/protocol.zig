@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "567d1717b69de4a77dde2b72bfea5dc25e89d84caee83502c24cf968f7ae299d";
+pub const ir_sha256 = "f78c8242ed878ed6fb1f0587e575ea58c6922faa6682b8192b28285fa317cedf";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -3231,6 +3231,35 @@ pub fn paneNeighbor(client: anytype, request: PaneNeighborRequest) !wire.Decoded
     );
 }
 
+pub const PasteImageRequest = struct {
+    data: wire.Field([]const u8) = .absent,
+    lease: []const u8,
+    mime: wire.Field([]const u8) = .absent,
+    offset: wire.Field(u64) = .absent,
+    op: []const u8,
+    size: wire.Field(u64) = .absent,
+    surface: Id,
+    terminal_id: []const u8,
+    upload_id: []const u8,
+};
+
+pub const PasteImageResult = struct {
+    accepted: bool,
+};
+
+pub fn pasteImage(client: anytype, request: PasteImageRequest) !wire.Decoded(PasteImageResult) {
+    return client.callTyped(
+        PasteImageResult,
+        .{
+            .name = "paste-image",
+            .authority = "control",
+            .since = 12,
+            .capability = "terminal-image-paste-v1",
+        },
+        request,
+    );
+}
+
 pub const PingRequest = struct {};
 
 pub fn ping(client: anytype, request: PingRequest) !wire.Decoded(PingResult) {
@@ -5134,7 +5163,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 106;
+pub const command_count: usize = 107;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
@@ -5196,6 +5225,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "notify", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "pairing-response", .authority = "local-admin", .since = 7, .capability = null, .stream = null },
     .{ .name = "pane-neighbor", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "paste-image", .authority = "control", .since = 12, .capability = "terminal-image-paste-v1", .stream = null },
     .{ .name = "ping", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "process-info", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "put-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },

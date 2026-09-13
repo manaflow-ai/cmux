@@ -12,6 +12,39 @@ import Testing
 @Suite("Cloud clipboard image routing")
 struct CloudImagePasteRoutingTests {
     @Test @MainActor
+    func queuedImagePasteHoldsLaterInputAndReleasesItOnCompletion() {
+        let surface = TerminalSurface(tabId: UUID(), context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                                      configTemplate: nil, workingDirectory: nil)
+        let view = GhosttyNSView(frame: .zero)
+        view.terminalSurface = surface
+        let operation = TerminalImageTransferOperation()
+        let lease = CloudImagePasteInputLease(view: view, operation: operation)
+        var sent = false
+        #expect(view.deferRuntimeInputDuringClipboardRead(estimatedBytes: 1) { sent = true })
+        #expect(!sent)
+        lease.finish()
+        #expect(sent)
+        #expect(!view.hasClipboardInputDeferral)
+    }
+
+    @Test @MainActor
+    func queuedImagePasteDoesNotReplayInputIntoAReplacementSurface() {
+        let original = TerminalSurface(tabId: UUID(), context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                                       configTemplate: nil, workingDirectory: nil)
+        let replacement = TerminalSurface(tabId: UUID(), context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                                          configTemplate: nil, workingDirectory: nil)
+        let view = GhosttyNSView(frame: .zero)
+        view.terminalSurface = original
+        let lease = CloudImagePasteInputLease(view: view, operation: TerminalImageTransferOperation())
+        var sent = false
+        #expect(view.deferRuntimeInputDuringClipboardRead(estimatedBytes: 1) { sent = true })
+        view.terminalSurface = replacement
+        lease.finish()
+        #expect(!sent)
+        #expect(!view.hasClipboardInputDeferral)
+    }
+
+    @Test @MainActor
     func disconnectedManagedMirrorNeverPlansAMacPath() {
         let surface = TerminalSurface(
             tabId: UUID(), context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
@@ -46,5 +79,24 @@ struct CloudImagePasteRoutingTests {
             == .insertText(TerminalImageTransferPlanner.escapeForShell(url.path)))
         #expect(TerminalImageTransferPlanner.plan(fileURLs: [url], target: .remote(.workspaceRemote))
             == .uploadFiles([url], .workspaceRemote))
+        let ssh = DetectedSSHSession(
+            destination: "image-test-host", port: nil, identityFile: nil,
+            configFile: nil, jumpHost: nil, controlPath: nil,
+            useIPv4: false, useIPv6: false, forwardAgent: false,
+            compressionEnabled: false, sshOptions: []
+        )
+        // Detected SSH and manual tmux both resolve to this existing upload target.
+        #expect(TerminalImageTransferPlanner.plan(fileURLs: [url], target: .remote(.detectedSSH(ssh)))
+            == .uploadFiles([url], .detectedSSH(ssh)))
+        #expect(TerminalImageTransferPlanner.plan(fileURLs: [url], target: .local, mode: .drop)
+            == .insertText(TerminalImageTransferPlanner.escapeForShell(url.path)))
+    }
+
+    @Test
+    func cloudNeverFallsBackForMissingFilesOrNonImageTypes() {
+        for path in ["/var/folders/missing.png", "/Users/example/report.txt"] {
+            let urls = [URL(fileURLWithPath: path)]
+            #expect(TerminalImageTransferPlanner.plan(fileURLs: urls, target: .cloud) == .pasteCloudImages(urls))
+        }
     }
 }

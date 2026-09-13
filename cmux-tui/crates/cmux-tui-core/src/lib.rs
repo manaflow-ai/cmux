@@ -13,6 +13,10 @@ mod browser;
 mod browser_provider;
 pub mod diagnostics;
 mod event_bus;
+#[cfg(unix)]
+mod image_paste;
+#[cfg(unix)]
+mod image_paste_file;
 mod journal_checkpoint;
 mod journal_hooks;
 mod journal_ingress;

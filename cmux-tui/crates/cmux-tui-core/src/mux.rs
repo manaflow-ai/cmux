@@ -2358,6 +2358,8 @@ pub struct Mux {
     server_lifecycle_ready: AtomicBool,
     shutting_down: AtomicBool,
     pub(crate) control_clients: crate::server::ClientRegistry,
+    #[cfg(unix)]
+    pub(crate) image_pastes: crate::image_paste::ImagePasteStore,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
     pairing: PairingBroker,
     #[cfg(test)]
@@ -2754,6 +2756,8 @@ impl Mux {
             server_lifecycle_ready: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
             control_clients: crate::server::ClientRegistry::new(),
+            #[cfg(unix)]
+            image_pastes: crate::image_paste::ImagePasteStore::default(),
             surface_operation_admission: Arc::new(
                 crate::server::ServerSurfaceOperationAdmission::default(),
             ),
@@ -14314,6 +14318,8 @@ impl Mux {
     /// terminals preserve a durable exit receipt while all views detach;
     /// local surfaces are removed immediately.
     pub fn surface_exited(self: &Arc<Self>, id: SurfaceId) {
+        #[cfg(unix)]
+        self.image_pastes.close_surface(id);
         if self.sidebar_surface_exited(id) {
             self.emit(MuxEvent::SurfaceExited(id));
             return;

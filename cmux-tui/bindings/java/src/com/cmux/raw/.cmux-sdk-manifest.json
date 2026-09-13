@@ -317,8 +317,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "16f2a3bf258e3fa5f6b0c7362bc4794f33e0393aaba868e99c1f58cbaae676ef",
-      "size": 25709
+      "sha256": "05c137a6a094881540f68fdb9a3ea7492f64b8a3c539ec226ec080a94a27f3a3",
+      "size": 25934
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -507,8 +507,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "24d6586816090aaa943d5449e38bea85f104cda74334c47daf3c41bce063ff74",
-      "size": 24808
+      "sha256": "862f2757a98563e53792581c2b23288edadb464a0101d0f4164209d6c73a37a4",
+      "size": 25033
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -851,6 +851,16 @@
       "size": 1898
     },
     {
+      "path": "PasteImageRequest.java",
+      "sha256": "7f71d97f1b43065c70cbacab328f1bc2e98c8b5254bd7d64bf438dff956eb13e",
+      "size": 7148
+    },
+    {
+      "path": "PasteImageResult.java",
+      "sha256": "261c1b56f41aaee7d709d3c96a3ae0fc5daabe75f49160f3541fae73465e72e1",
+      "size": 1945
+    },
+    {
       "path": "PingRequest.java",
       "sha256": "b72e9b6c0587db901dac4d17967260db93f82d0abd7f992a68061381dcff0710",
       "size": 1285
@@ -872,7 +882,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "72984a8d885f7e58d10a3f5d96dee3b3309f78b13ac34e80649ef042e2e1f727",
+      "sha256": "941b51a38eb24a10e4680c909bce8bf667cfcff6a63c428e31b50999a465507a",
       "size": 4199
     },
     {
@@ -1557,7 +1567,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "567d1717b69de4a77dde2b72bfea5dc25e89d84caee83502c24cf968f7ae299d",
+  "ir_sha256": "f78c8242ed878ed6fb1f0587e575ea58c6922faa6682b8192b28285fa317cedf",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
