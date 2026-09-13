@@ -231,7 +231,9 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         let startupResults = (0..<2).map { _ in
             runProcess(
                 executablePath: "/bin/sh",
-                arguments: ["-c", executableInitialCommand],
+                // Execute the materialized script by path so the fixture does
+                // not re-parse a large reusable command through `sh -c`.
+                arguments: [executableInitialCommand],
                 environment: startupEnvironment,
                 timeout: 5
             )
@@ -327,13 +329,28 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         }
 
         if startupCommand.contains(systemSSHPath) {
-            return startupCommand.replacingOccurrences(of: systemSSHPath, with: fakeSSHPath)
+            let rewrittenURL = rewriteRoot.appendingPathComponent("startup-with-fake-ssh.sh")
+            let rewrittenCommand = startupCommand.replacingOccurrences(of: systemSSHPath, with: fakeSSHPath)
+            try "#!/bin/sh\n\(rewrittenCommand)\n".write(
+                to: rewrittenURL,
+                atomically: true,
+                encoding: .utf8
+            )
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: rewrittenURL.path)
+            return rewrittenURL.path
         }
 
         if let rewritten = SSHStartupCommandTestSupport.replacingPinnedSSH(
             in: startupCommand, with: fakeSSHPath
         ) {
-            return rewritten
+            let rewrittenURL = rewriteRoot.appendingPathComponent("startup-with-fake-ssh.sh")
+            try "#!/bin/sh\n\(rewritten)\n".write(
+                to: rewrittenURL,
+                atomically: true,
+                encoding: .utf8
+            )
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: rewrittenURL.path)
+            return rewrittenURL.path
         }
 
         throw NSError(
@@ -358,6 +375,8 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
+        let exitSignal = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exitSignal.signal() }
 
         do {
             try process.run()
@@ -367,12 +386,6 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
                 stderr: String(describing: error),
                 timedOut: false
             )
-        }
-
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
         }
 
         let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut

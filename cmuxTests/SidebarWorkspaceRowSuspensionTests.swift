@@ -177,7 +177,7 @@ struct SidebarWorkspaceRowSuspensionTests {
     }
 
     @Test
-    func suspendedCellReleasesWorkspaceOwnedByItsActions() {
+    func suspendedCellReleasesWorkspaceOwnedByItsActions() async {
         let model = Self.makeModel()
         let cell = SidebarWorkspaceRowTableCellView()
         var workspace: Workspace? = Workspace()
@@ -193,6 +193,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         workspace = nil
         #expect(retainedWorkspace != nil)
         cell.suspendPresentation()
+        await AppKitTestEventPump().drain()
         #expect(retainedWorkspace == nil)
     }
 
@@ -246,7 +247,7 @@ struct SidebarWorkspaceRowSuspensionTests {
     }
 
     @Test
-    func suspensionClosesVisibleStatusPopover() throws {
+    func suspensionClosesVisibleStatusPopover() async throws {
         let application = NSApplication.shared
         let model = Self.makeModel(manualTaskStatus: .working)
         let cell = SidebarWorkspaceRowTableCellView(
@@ -278,6 +279,7 @@ struct SidebarWorkspaceRowSuspensionTests {
                 .compactMap { $0 as? SidebarRowTaskStatusGlyphButton }
                 .first { !$0.isHidden }
         )
+        await AppKitTestEventPump().drain()
         let existingWindowIds = Set(application.windows.map(ObjectIdentifier.init))
 
         #expect(glyph.accessibilityPerformPress())
@@ -288,8 +290,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         )
 
         cell.suspendPresentation()
-
-        #expect(!popoverWindow.isVisible)
+        #expect(await AppKitTestEventPump().waitUntil { !popoverWindow.isVisible })
     }
 
     @Test
@@ -345,8 +346,8 @@ struct SidebarWorkspaceRowSuspensionTests {
     }
 
     @Test
-    func checklistDraftCommitsOnlyOnceWhenFocusEndsBeforeSuspension() throws {
-        let model = Self.makeModel(checklistAddFieldActivationToken: 1)
+    func checklistDraftCommitsOnlyOnceWhenFocusEndsBeforeSuspension() async throws {
+        let model = Self.makeModel(checklistAddFieldActivationToken: 1, checklistStyle: .inline)
         var additions: [String] = []
         var consumptions = 0
         let cell = SidebarWorkspaceRowTableCellView()
@@ -361,6 +362,7 @@ struct SidebarWorkspaceRowSuspensionTests {
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
         )
+        await AppKitTestEventPump().drain()
         let field = try #require(
             Self.descendants(of: cell)
                 .compactMap { $0 as? SidebarRowChecklistFocusField }
@@ -376,17 +378,17 @@ struct SidebarWorkspaceRowSuspensionTests {
     }
 
     @Test
-    func switchingChecklistEditorsCommitsPreviousDraft() throws {
+    func switchingChecklistEditorsCommitsPreviousDraft() async throws {
         let firstItem = WorkspaceChecklistItem(text: "First")
         let secondItem = WorkspaceChecklistItem(text: "Second")
         let workspaceId = UUID()
         let firstModel = Self.makeModel(
             checklistItems: [firstItem, secondItem], isChecklistExpanded: true,
-            editingChecklistItemId: firstItem.id, workspaceId: workspaceId
+            editingChecklistItemId: firstItem.id, checklistStyle: .inline, workspaceId: workspaceId
         )
         let secondModel = Self.makeModel(
             checklistItems: [firstItem, secondItem], isChecklistExpanded: true,
-            editingChecklistItemId: secondItem.id, workspaceId: workspaceId
+            editingChecklistItemId: secondItem.id, checklistStyle: .inline, workspaceId: workspaceId
         )
         var edits: [(UUID, String)] = []
         let actions = Self.makeActions(
@@ -403,6 +405,7 @@ struct SidebarWorkspaceRowSuspensionTests {
             model: firstModel, actions: actions, isPointerHovering: false,
             contextMenuDidOpen: {}, contextMenuDidClose: {}
         )
+        await AppKitTestEventPump().drain()
         let field = try #require(
             Self.descendants(of: cell)
                 .compactMap { $0 as? SidebarRowChecklistFocusField }
@@ -414,6 +417,7 @@ struct SidebarWorkspaceRowSuspensionTests {
             model: secondModel, actions: actions, isPointerHovering: false,
             contextMenuDidOpen: {}, contextMenuDidClose: {}
         )
+        await AppKitTestEventPump().drain()
 
         #expect(edits.count == 1)
         #expect(edits.first?.0 == firstItem.id)
@@ -421,12 +425,13 @@ struct SidebarWorkspaceRowSuspensionTests {
     }
 
     @Test
-    func checklistItemDraftCommitDefersUntilAfterDetachment() throws {
+    func checklistItemDraftCommitDefersUntilAfterDetachment() async throws {
         let item = WorkspaceChecklistItem(text: "Original checklist item")
         let model = Self.makeModel(
             checklistItems: [item],
             isChecklistExpanded: true,
-            editingChecklistItemId: item.id
+            editingChecklistItemId: item.id,
+            checklistStyle: .inline
         )
         var endedItemIds: [UUID] = []
         var edits: [(itemId: UUID, text: String)] = []
@@ -442,6 +447,7 @@ struct SidebarWorkspaceRowSuspensionTests {
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
         )
+        await AppKitTestEventPump().drain()
         let field = try #require(
             Self.descendants(of: cell)
                 .compactMap { $0 as? SidebarRowChecklistFocusField }
@@ -461,12 +467,13 @@ struct SidebarWorkspaceRowSuspensionTests {
     }
 
     @Test
-    func emptyChecklistItemDraftCancellationDefersUntilAfterDetachment() throws {
+    func emptyChecklistItemDraftCancellationDefersUntilAfterDetachment() async throws {
         let item = WorkspaceChecklistItem(text: "Original checklist item")
         let model = Self.makeModel(
             checklistItems: [item],
             isChecklistExpanded: true,
-            editingChecklistItemId: item.id
+            editingChecklistItemId: item.id,
+            checklistStyle: .inline
         )
         var endedItemIds: [UUID] = []
         var edits: [(UUID, String)] = []
@@ -482,6 +489,7 @@ struct SidebarWorkspaceRowSuspensionTests {
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
         )
+        await AppKitTestEventPump().drain()
         let field = try #require(
             Self.descendants(of: cell)
                 .compactMap { $0 as? SidebarRowChecklistFocusField }

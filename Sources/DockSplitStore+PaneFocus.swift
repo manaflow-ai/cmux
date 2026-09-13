@@ -278,14 +278,16 @@ extension DockSplitStore {
     }
 
     func applyFocusedDockSelection() {
-        guard let paneId = bonsplitController.focusedPaneId,
-              let tabId = bonsplitController.selectedTab(inPane: paneId)?.id else {
-            applyVisibilityToAllPanels()
-            scheduleDockPortalReconcile(reason: "dock.selection.empty")
-            return
+        withCoalescedTerminalViewReattach {
+            guard let paneId = bonsplitController.focusedPaneId,
+                  let tabId = bonsplitController.selectedTab(inPane: paneId)?.id else {
+                applyVisibilityToAllPanels()
+                scheduleDockPortalReconcile(reason: "dock.selection.empty")
+                return
+            }
+            applyDockSelection(tabId: tabId, inPane: paneId)
+            scheduleDockPortalReconcile(reason: "dock.selection.focused")
         }
-        applyDockSelection(tabId: tabId, inPane: paneId)
-        scheduleDockPortalReconcile(reason: "dock.selection.focused")
     }
 
     func applyDockSelection(
@@ -405,6 +407,13 @@ extension DockSplitStore {
         // without emitting `didClosePane`, so this callback must reconcile the
         // full ownership snapshot.
         synchronizeOwnedPaneIds(with: controller)
+        // Some Bonsplit paths retain an emptied source pane when a programmatic
+        // move completes. Keep Dock ownership aligned with the visible split
+        // tree by closing that pane explicitly once the move has landed.
+        if controller.tabs(inPane: source).isEmpty,
+           controller.allPaneIds.contains(source) {
+            _ = controller.closePane(source)
+        }
         let movedPanel = panel(for: tab.id)
         (movedPanel as? TerminalPanel)?.recordPortalHostOwnershipChange()
         if let movedPanel {

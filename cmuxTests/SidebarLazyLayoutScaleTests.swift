@@ -30,6 +30,7 @@ import SwiftUI
 @Suite(.serialized)
 final class SidebarLazyLayoutScaleTests {
     static let workspaceCount = 300
+    private static let groupedWorkspaceCount = 20
     /// Generous ceiling for "how many rows may be realized for one viewport".
     /// A 640pt window shows ~20 rows; LazyVStack prefetch and a second layout
     /// pass can multiply that, but a virtualization defeat realizes all 300.
@@ -129,7 +130,7 @@ final class SidebarLazyLayoutScaleTests {
         // group-header rows — assembled by sidebarWorkspaceGroupRow(...) in
         // VerticalTabsSidebar+WorkspaceGroups.swift, a historical regression
         // site (#4385) — are exercised by the same realization bounds.
-        let groupCandidates = Array(tabManager.tabs.prefix(20).map(\.id))
+        let groupCandidates = Array(tabManager.tabs.prefix(Self.groupedWorkspaceCount).map(\.id))
         for chunkStart in stride(from: 0, to: groupCandidates.count, by: 4) {
             let children = Array(groupCandidates[chunkStart..<min(chunkStart + 4, groupCandidates.count)])
             _ = tabManager.createWorkspaceGroup(
@@ -206,7 +207,10 @@ final class SidebarLazyLayoutScaleTests {
         // release]: message sent to deallocated instance"). That crash killed
         // the host before the pass was recorded, and CI masked it (#5641).
         window.isReleasedWhenClosed = false
+        window.acceptsMouseMovedEvents = true
         window.contentView = NSHostingView(rootView: root)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
 
         return Harness(
             tabManager: tabManager,
@@ -349,6 +353,11 @@ final class SidebarLazyLayoutScaleTests {
             stableInitialPasses == 4,
             "Initial workspace publishers did not quiesce before the batch measurement."
         )
+        // Group creation publishes a separate row-input pass that may trail
+        // the workspace snapshot publisher by one main-actor turn. Drain it
+        // before resetting the counter so setup churn cannot contaminate the
+        // measured burst.
+        await Self.drainMainRunLoop(for: harness.window, iterations: 4)
 
         harness.counter.reset()
         let targets = Array(harness.tabManager.tabs.suffix(80))

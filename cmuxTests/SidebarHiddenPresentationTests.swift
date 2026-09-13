@@ -203,7 +203,11 @@ struct SidebarHiddenPresentationTests {
 
         let tabManager = TabManager()
         for _ in 0..<3 {
-            tabManager.addWorkspace(autoWelcomeIfNeeded: false)
+            tabManager.addWorkspace(
+                select: false,
+                autoWelcomeIfNeeded: false,
+                autoRefreshMetadata: false
+            )
         }
         let sidebarState = SidebarState()
         let notificationStore = TerminalNotificationStore.shared
@@ -270,7 +274,13 @@ struct SidebarHiddenPresentationTests {
             focusedPanel.ownedFocusIntent(for: responderAfterHide, in: window) != nil,
             "Hiding the sidebar must return keyboard focus to the selected main panel."
         )
-        tabManager.addWorkspace(autoWelcomeIfNeeded: false)
+        // Isolate reveal reconciliation from a new terminal's activation and
+        // metadata publications, which independently invalidate row inputs.
+        tabManager.addWorkspace(
+            select: false,
+            autoWelcomeIfNeeded: false,
+            autoRefreshMetadata: false
+        )
         await drainMainRunLoop(for: window)
         #expect(
             initialContainer.tableView.numberOfRows == initialRowCount,
@@ -298,6 +308,10 @@ struct SidebarHiddenPresentationTests {
             "Reopening must project each current workspace row exactly once."
         )
 
+        // Resolve the authoritative main-panel target after reconciliation.
+        let selectedWorkspace = try #require(tabManager.selectedWorkspace)
+        let selectedPanelId = try #require(selectedWorkspace.focusedPanelId)
+        let selectedPanel = try #require(selectedWorkspace.panels[selectedPanelId])
         let sidebarField = NSTextField(frame: NSRect(x: 20, y: 40, width: 120, height: 24))
         window.contentView?.addSubview(sidebarField)
         #expect(window.makeFirstResponder(sidebarField))
@@ -305,7 +319,7 @@ struct SidebarHiddenPresentationTests {
         await drainMainRunLoop(for: window)
         let responderAfterSidebarFieldHide = try #require(window.firstResponder)
         #expect(
-            focusedPanel.ownedFocusIntent(for: responderAfterSidebarFieldHide, in: window) != nil,
+            selectedPanel.ownedFocusIntent(for: responderAfterSidebarFieldHide, in: window) != nil,
             "Hiding must restore main-panel focus from controls anywhere in the sidebar boundary."
         )
         sidebarState.toggle()
@@ -316,11 +330,12 @@ struct SidebarHiddenPresentationTests {
         window.contentView?.addSubview(foreignField)
         defer { foreignField.removeFromSuperview() }
         #expect(window.makeFirstResponder(foreignField))
-        #expect(window.firstResponder === foreignField)
+        let foreignResponder = try #require(window.firstResponder)
+        #expect(foreignResponder === foreignField || foreignResponder === foreignField.currentEditor())
         sidebarState.toggle()
         await drainMainRunLoop(for: window)
         #expect(
-            window.firstResponder === foreignField,
+            window.firstResponder === foreignResponder,
             "Hiding the sidebar must preserve focus owned by non-sidebar main content."
         )
     }

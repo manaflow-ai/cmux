@@ -811,12 +811,13 @@ import Testing
 
         // A repeated tab reference in one terminal is harmless to identity, but
         // it must not produce duplicate rename targets or duplicate tree rows.
+        // The graph also contributes tab_4, even when the terminal omits it.
         var repeatedReference = snapshot
         repeatedReference["terminals"] = [
             ["id": "term_build", "tab_ids": ["tab_1", "tab_1"], "title": "one", "lifecycle": "running"],
         ]
         let state = CmuxTuiSnapshotParser.state(fromSnapshot: repeatedReference, machine: Self.machine)
-        #expect(state?.terminals.first?.tabIDs == ["tab_1"])
+        #expect(state?.terminals.first?.tabIDs == ["tab_1", "tab_4"])
 
         // A tab that exists but claims another content identity is not a
         // recoverable placement error. Accepting it would route a rename to
@@ -841,7 +842,7 @@ import Testing
             ["id": "term_build", "tab_ids": NSNull(), "tab_id": "tab_1", "title": "build", "lifecycle": "running"],
         ]
         let nullTabIDsState = CmuxTuiSnapshotParser.state(fromSnapshot: nullTabIDs, machine: Self.machine)
-        #expect(nullTabIDsState?.terminals.first?.tabIDs == ["tab_1"])
+        #expect(nullTabIDsState?.terminals.first?.tabIDs == ["tab_1", "tab_4"])
     }
 
     @Test func synchronizableStateRejectsMissingGraphCollections() {
@@ -1246,14 +1247,19 @@ import Testing
         let link = CloudMachineLink(
             machineID: "test-machine",
             clientURL: client,
-            paths: CloudTuiClientPaths(home: root)
+            paths: CloudTuiClientPaths(home: root),
+            deviceName: "cmux-connect-cancellation-test"
         )
         let task = Task {
             try await link.connect(route: "ws://10.0.0.1:1337/v1/link", session: "main")
         }
-        for _ in 0..<200 where !FileManager.default.fileExists(atPath: pidFile.path) {
-            try await Task.sleep(for: .milliseconds(10))
+        defer { task.cancel() }
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(10))
+        while !FileManager.default.fileExists(atPath: pidFile.path), clock.now < deadline {
+            try await clock.sleep(for: .milliseconds(10))
         }
+        try #require(FileManager.default.fileExists(atPath: pidFile.path), "The link child did not start before the deadline")
         let pid = try #require(Int32(try String(contentsOf: pidFile, encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines)))
         defer { _ = Darwin.kill(pid, SIGKILL) }
@@ -1672,7 +1678,7 @@ import Testing
 
         #expect(state.cursor == nil)
         #expect(state.syncMode == .snapshotOnly)
-        #expect(state.workspaces.map(\.id) == ["ws_api"])
+        #expect(state.workspaces.map(\.id) == ["ws_main", "ws_api"])
         #expect(CmuxTuiSnapshotParser.resources(from: state).contains { $0.id.key == "term_build" })
 
         var malformed = snapshot
@@ -2223,9 +2229,14 @@ import Testing
         #expect(decoded == group)
         #expect(decoded.placements.first?.remoteTabID == "tab_4")
 
+        let legacyResources = try JSONSerialization.jsonObject(with: JSONEncoder().encode([resource]))
         let legacy = try JSONDecoder().decode(
             SurfaceResourceGroup.self,
-            from: Data(#"{"title":"api","resources":["vivid-newt/terminal/term_build"],"remoteWorkspaceID":"ws_api"}"#.utf8)
+            from: JSONSerialization.data(withJSONObject: [
+                "title": "api",
+                "resources": legacyResources,
+                "remoteWorkspaceID": "ws_api",
+            ])
         )
         #expect(legacy.placements.first?.remoteTabID == nil)
         #expect(legacy.placements.first?.remoteWorkspaceID == "ws_api")

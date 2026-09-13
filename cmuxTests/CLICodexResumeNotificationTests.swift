@@ -9,7 +9,7 @@ struct CLICodexResumeNotificationTests {
     private let workspaceID = "11111111-1111-1111-1111-111111111111"
     private let surfaceID = "22222222-2222-2222-2222-222222222222"
     private let resumedSessionID = "33333333-3333-4333-8333-333333333333"
-    private let fixtureTimestamp: TimeInterval = 1_778_888_888
+    private var fixtureTimestamp: TimeInterval { Date().timeIntervalSince1970 }
 
     @Test("A Stop hook rebinds a resumed session to its live PID and notifies")
     func resumedStopRebindsLivePIDAndNotifies() throws {
@@ -97,7 +97,7 @@ struct CLICodexResumeNotificationTests {
         resumedRecord["activePromptTurnIds"] = ["turn-resumed"]
         try writeState([resumedSessionID: resumedRecord], to: stateURL)
         try """
-        {"type":"session_meta","payload":{"id":"\(resumedSessionID)","cwd":"\(root.path)"}}
+        {"type":"session_meta","payload":{"id":"\(resumedSessionID)","cwd":"\(root.path)","source":"cli","originator":"codex-tui"}}
         {"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-resumed"}}
         {"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"resumed turn complete"}]}}
         {"type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-resumed","last_agent_message":"resumed turn complete"}}
@@ -158,6 +158,11 @@ struct CLICodexResumeNotificationTests {
         root: URL,
         sessionID: String
     ) throws -> (result: CodexHookProcessRunResult, commands: [String]) {
+        let transcriptURL = root.appendingPathComponent("rollout-\(sessionID).jsonl")
+        if !FileManager.default.fileExists(atPath: transcriptURL.path) {
+            try #"{"type":"session_meta","payload":{"id":"\#(sessionID)","source":"cli","originator":"codex-tui"}}"#
+                .write(to: transcriptURL, atomically: true, encoding: .utf8)
+        }
         let socketPath = makeCodexHookSocketPath("resume")
         let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
         let commands = CodexHookCapturedSocketCommands()
@@ -190,7 +195,7 @@ struct CLICodexResumeNotificationTests {
                 "CMUX_CODEX_PID": String(getpid()),
             ],
             standardInput: """
-            {"session_id":"\(sessionID)","turn_id":"turn-resumed","cwd":"\(root.path)","hook_event_name":"Stop","last_assistant_message":"resumed turn complete"}
+            {"session_id":"\(sessionID)","turn_id":"turn-resumed","cwd":"\(root.path)","transcript_path":"\(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"resumed turn complete"}
             """,
             timeout: 5
         )

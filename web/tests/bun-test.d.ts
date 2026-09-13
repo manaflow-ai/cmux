@@ -19,7 +19,7 @@ declare module "bun:test" {
     resolves: Matchers;
   };
   type MockFunction<T extends (...args: never[]) => unknown> = T & {
-    mock: { calls: Parameters<T>[] };
+    mock: { calls: Parameters<T> extends [] ? unknown[][] : Parameters<T>[] };
     mockClear: () => void;
     mockResolvedValue: (value: unknown) => void;
   };

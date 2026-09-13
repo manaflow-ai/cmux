@@ -18,20 +18,24 @@ struct WorkspaceSwitchPortalSignalRouterTests {
             contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
             styleMask: [.titled],
             backing: .buffered,
-            defer: true
+            defer: false
         )
         let otherWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
             styleMask: [.titled],
             backing: .buffered,
-            defer: true
+            defer: false
         )
         defer {
             window.orderOut(nil)
             otherWindow.orderOut(nil)
         }
-        window.contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
-        otherWindow.contentView = NSView(frame: otherWindow.contentRect(forFrameRect: otherWindow.frame))
+        // Use a concrete content rect instead of converting the deferred window's
+        // frame.  A deferred NSWindow has no realized frame on hosted runners;
+        // asking AppKit to convert that sentinel can trap while bridging a
+        // negative CGFloat to an unsigned backing-store dimension.
+        window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        otherWindow.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
         router.attach(to: window)
 
         var relayedCount = 0

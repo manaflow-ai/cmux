@@ -593,7 +593,7 @@ import Testing
                     "working_directory": root.path,
                 ],
             ],
-        ])
+        ], workspaceID: workspaceID, surfaceID: surfaceID)
         let socketPath = "/tmp/cmux-hermes-restore-recovery-\(UUID().uuidString.prefix(8)).sock"
         let responder = try UnixSocketResponder(path: socketPath, response: response)
         defer { responder.stop() }
@@ -607,6 +607,8 @@ import Testing
         environment["CMUX_SURFACE_ID"] = surfaceID
         environment["CMUX_WORKSPACE_ID"] = workspaceID
         environment["HOME"] = root.path
+        environment["CFFIXED_USER_HOME"] = root.path
+        environment["HERMES_HOME"] = root.appendingPathComponent(".hermes", isDirectory: true).path
         try writeHermesStateDatabase(
             homeDirectory: root,
             sessionID: realSessionID,
@@ -636,6 +638,8 @@ import Testing
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try """
         #!/bin/sh
+        # Resumed Hermes pins its profile before the config subcommand.
+        if [ "$1" = "--profile" ]; then shift 2; fi
         if [ "$1" = "config" ]; then
           printf 'preflight stdout chatter\\n'
           printf 'preflight stderr chatter\\n' >&2
@@ -681,6 +685,9 @@ import Testing
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_SURFACE_ID"] = UUID().uuidString
+        environment["HOME"] = root.path
+        environment["CFFIXED_USER_HOME"] = root.path
+        environment["HERMES_HOME"] = root.appendingPathComponent(".hermes", isDirectory: true).path
 
         let result = runProcess(
             executablePath: cliPath,
@@ -3836,8 +3843,27 @@ import Testing
         )
         guard kevent(queue, &event, 1, nil, 0, nil) == 0 else { return false }
 
+        var fileFD: Int32 = -1
+        defer { if fileFD >= 0 { close(fileFD) } }
         let deadline = Date.now.addingTimeInterval(max(timeout, 0))
         while true {
+            // A directory event observes file creation, not later appends.
+            // Watch the log itself before reading so a marker appended after
+            // its first line cannot be missed until the deadline.
+            if fileFD < 0 {
+                fileFD = open(url.path, O_EVTONLY)
+                if fileFD >= 0 {
+                    var fileEvent = kevent(
+                        ident: UInt(fileFD),
+                        filter: Int16(EVFILT_VNODE),
+                        flags: UInt16(EV_ADD | EV_ENABLE | EV_CLEAR),
+                        fflags: UInt32(NOTE_WRITE | NOTE_EXTEND | NOTE_DELETE | NOTE_RENAME),
+                        data: 0,
+                        udata: nil
+                    )
+                    guard kevent(queue, &fileEvent, 1, nil, 0, nil) == 0 else { return false }
+                }
+            }
             if let contents = try? String(contentsOf: url, encoding: .utf8),
                contents.contains(expected) {
                 return true

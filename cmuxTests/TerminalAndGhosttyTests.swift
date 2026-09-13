@@ -1536,129 +1536,171 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     }
 
     func testMobileAttachTicketCreateWithoutTerminalStaysWorkspaceScoped() async throws {
-        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let manager = TabManager()
-        TerminalController.shared.setActiveTabManager(manager)
-        defer {
-            TerminalController.shared.setActiveTabManager(previousManager)
-        }
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let manager = TabManager()
+            TerminalController.shared.setActiveTabManager(manager)
+            defer {
+                TerminalController.shared.setActiveTabManager(previousManager)
+            }
 
-        MobileHostService.shared.start()
-        defer {
-            MobileHostService.shared.stop()
-        }
-        guard await waitForMobileHostRoutesForTesting() else {
-            XCTFail("Expected mobile host to publish routes before creating attach ticket")
-            return
-        }
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+            // The route-only XCTest startup seam requires no persisted listener
+            // override; unrelated listener-policy tests may explicitly disable it.
+            let defaults = UserDefaults.standard
+            let listeningKeys = [MobileHostService.listeningEnabledDefaultsKey, "cmuxMobilePairingHostEnabled"]
+            let savedListeningValues = listeningKeys.map { defaults.object(forKey: $0) }
+            for key in listeningKeys { defaults.removeObject(forKey: key) }
+            defer {
+                for (key, value) in zip(listeningKeys, savedListeningValues) {
+                    if let value { defaults.set(value, forKey: key) }
+                    else { defaults.removeObject(forKey: key) }
+                }
+            }
+            MobileHostService.shared.start()
+            defer {
+                MobileHostService.shared.stop()
+            }
+            guard await waitForMobileHostRoutesForTesting() else {
+                XCTFail("Expected mobile host to publish routes before creating attach ticket")
+                return
+            }
+            let workspace = try XCTUnwrap(manager.selectedWorkspace)
 
-        let response = await TerminalController.shared.mobileHostHandleRPC(
-            MobileHostRPCRequest(
-                id: "attach-ticket",
-                method: "mobile.attach_ticket.create",
-                params: ["workspace_id": workspace.id.uuidString],
-                auth: nil
+            let response = await TerminalController.shared.mobileHostHandleRPC(
+                MobileHostRPCRequest(
+                    id: "attach-ticket",
+                    method: "mobile.attach_ticket.create",
+                    params: ["workspace_id": workspace.id.uuidString],
+                    auth: nil
+                )
             )
-        )
 
-        guard case let .ok(rawPayload) = response,
-              let payload = rawPayload as? [String: Any],
-              let ticket = payload["ticket"] as? [String: Any] else {
-            XCTFail("Expected workspace-scoped attach ticket payload")
-            return
+            guard case let .ok(rawPayload) = response,
+                  let payload = rawPayload as? [String: Any],
+                  let ticket = payload["ticket"] as? [String: Any] else {
+                XCTFail("Expected workspace-scoped attach ticket payload")
+                return
+            }
+            XCTAssertNil(ticket["terminalID"])
         }
-        XCTAssertNil(ticket["terminalID"])
     }
 
     func testMobileAttachTicketCreateResolvesTerminalIDAcrossWorkspaces() async throws {
-        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let manager = TabManager()
-        TerminalController.shared.setActiveTabManager(manager)
-        defer {
-            TerminalController.shared.setActiveTabManager(previousManager)
-        }
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let manager = TabManager()
+            TerminalController.shared.setActiveTabManager(manager)
+            defer {
+                TerminalController.shared.setActiveTabManager(previousManager)
+            }
 
-        MobileHostService.shared.start()
-        defer {
-            MobileHostService.shared.stop()
-        }
-        guard await waitForMobileHostRoutesForTesting() else {
-            XCTFail("Expected mobile host to publish routes before creating attach ticket")
-            return
-        }
+            // The route-only XCTest startup seam requires no persisted listener
+            // override; unrelated listener-policy tests may explicitly disable it.
+            let defaults = UserDefaults.standard
+            let listeningKeys = [MobileHostService.listeningEnabledDefaultsKey, "cmuxMobilePairingHostEnabled"]
+            let savedListeningValues = listeningKeys.map { defaults.object(forKey: $0) }
+            for key in listeningKeys { defaults.removeObject(forKey: key) }
+            defer {
+                for (key, value) in zip(listeningKeys, savedListeningValues) {
+                    if let value { defaults.set(value, forKey: key) }
+                    else { defaults.removeObject(forKey: key) }
+                }
+            }
+            MobileHostService.shared.start()
+            defer {
+                MobileHostService.shared.stop()
+            }
+            guard await waitForMobileHostRoutesForTesting() else {
+                XCTFail("Expected mobile host to publish routes before creating attach ticket")
+                return
+            }
 
-        let selectedWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        let backgroundWorkspace = manager.addWorkspace(
-            title: "Mobile Background",
-            select: false,
-            eagerLoadTerminal: false
-        )
-        let backgroundTerminal = try XCTUnwrap(backgroundWorkspace.focusedTerminalPanel)
-        XCTAssertEqual(manager.selectedWorkspace?.id, selectedWorkspace.id)
-        XCTAssertNotEqual(selectedWorkspace.id, backgroundWorkspace.id)
-
-        let response = await TerminalController.shared.mobileHostHandleRPC(
-            MobileHostRPCRequest(
-                id: "attach-ticket",
-                method: "mobile.attach_ticket.create",
-                params: ["terminal_id": backgroundTerminal.id.uuidString],
-                auth: nil
+            let selectedWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+            let backgroundWorkspace = manager.addWorkspace(
+                title: "Mobile Background",
+                select: false,
+                eagerLoadTerminal: false
             )
-        )
+            let backgroundTerminal = try XCTUnwrap(backgroundWorkspace.focusedTerminalPanel)
+            XCTAssertEqual(manager.selectedWorkspace?.id, selectedWorkspace.id)
+            XCTAssertNotEqual(selectedWorkspace.id, backgroundWorkspace.id)
 
-        guard case let .ok(rawPayload) = response,
-              let payload = rawPayload as? [String: Any],
-              let ticket = payload["ticket"] as? [String: Any] else {
-            XCTFail("Expected terminal-scoped attach ticket payload")
-            return
+            let response = await TerminalController.shared.mobileHostHandleRPC(
+                MobileHostRPCRequest(
+                    id: "attach-ticket",
+                    method: "mobile.attach_ticket.create",
+                    params: ["terminal_id": backgroundTerminal.id.uuidString],
+                    auth: nil
+                )
+            )
+
+            guard case let .ok(rawPayload) = response,
+                  let payload = rawPayload as? [String: Any],
+                  let ticket = payload["ticket"] as? [String: Any] else {
+                XCTFail("Expected terminal-scoped attach ticket payload")
+                return
+            }
+            XCTAssertEqual(ticket["workspaceID"] as? String, backgroundWorkspace.id.uuidString)
+            XCTAssertEqual(ticket["terminalID"] as? String, backgroundTerminal.id.uuidString)
         }
-        XCTAssertEqual(ticket["workspaceID"] as? String, backgroundWorkspace.id.uuidString)
-        XCTAssertEqual(ticket["terminalID"] as? String, backgroundTerminal.id.uuidString)
     }
 
     func testMobileAttachTicketCreateCanFilterRoutesForQRPairing() async throws {
-        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let manager = TabManager()
-        TerminalController.shared.setActiveTabManager(manager)
-        defer {
-            TerminalController.shared.setActiveTabManager(previousManager)
-        }
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let manager = TabManager()
+            TerminalController.shared.setActiveTabManager(manager)
+            defer {
+                TerminalController.shared.setActiveTabManager(previousManager)
+            }
 
-        MobileHostService.shared.start()
-        defer {
-            MobileHostService.shared.stop()
-        }
-        guard await waitForMobileHostRoutesForTesting() else {
-            XCTFail("Expected mobile host to publish routes before creating attach ticket")
-            return
-        }
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+            // The route-only XCTest startup seam requires no persisted listener
+            // override; unrelated listener-policy tests may explicitly disable it.
+            let defaults = UserDefaults.standard
+            let listeningKeys = [MobileHostService.listeningEnabledDefaultsKey, "cmuxMobilePairingHostEnabled"]
+            let savedListeningValues = listeningKeys.map { defaults.object(forKey: $0) }
+            for key in listeningKeys { defaults.removeObject(forKey: key) }
+            defer {
+                for (key, value) in zip(listeningKeys, savedListeningValues) {
+                    if let value { defaults.set(value, forKey: key) }
+                    else { defaults.removeObject(forKey: key) }
+                }
+            }
+            MobileHostService.shared.start()
+            defer {
+                MobileHostService.shared.stop()
+            }
+            guard await waitForMobileHostRoutesForTesting() else {
+                XCTFail("Expected mobile host to publish routes before creating attach ticket")
+                return
+            }
+            let workspace = try XCTUnwrap(manager.selectedWorkspace)
 
-        let response = await TerminalController.shared.mobileHostHandleRPC(
-            MobileHostRPCRequest(
-                id: "attach-ticket",
-                method: "mobile.attach_ticket.create",
-                params: [
-                    "workspace_id": workspace.id.uuidString,
-                    "route_id": "debug_loopback",
-                ],
-                auth: nil
+            let response = await TerminalController.shared.mobileHostHandleRPC(
+                MobileHostRPCRequest(
+                    id: "attach-ticket",
+                    method: "mobile.attach_ticket.create",
+                    params: [
+                        "workspace_id": workspace.id.uuidString,
+                        "route_id": "debug_loopback",
+                    ],
+                    auth: nil
+                )
             )
-        )
 
-        guard case let .ok(rawPayload) = response,
-              let payload = rawPayload as? [String: Any],
-              let ticket = payload["ticket"] as? [String: Any],
-              let routes = ticket["routes"] as? [[String: Any]] else {
-            XCTFail("Expected route-filtered attach ticket payload")
-            return
+            guard case let .ok(rawPayload) = response,
+                  let payload = rawPayload as? [String: Any],
+                  let ticket = payload["ticket"] as? [String: Any],
+                  let routes = ticket["routes"] as? [[String: Any]] else {
+                XCTFail("Expected route-filtered attach ticket payload")
+                return
+            }
+            XCTAssertFalse(routes.isEmpty)
+            XCTAssertTrue(routes.allSatisfy { $0["id"] as? String == "debug_loopback" })
+            let topLevelRoutes = try XCTUnwrap(payload["routes"] as? [[String: Any]])
+            XCTAssertEqual(topLevelRoutes.count, routes.count)
+            XCTAssertTrue(topLevelRoutes.allSatisfy { $0["id"] as? String == "debug_loopback" })
         }
-        XCTAssertFalse(routes.isEmpty)
-        XCTAssertTrue(routes.allSatisfy { $0["id"] as? String == "debug_loopback" })
-        let topLevelRoutes = try XCTUnwrap(payload["routes"] as? [[String: Any]])
-        XCTAssertEqual(topLevelRoutes.count, routes.count)
-        XCTAssertTrue(topLevelRoutes.allSatisfy { $0["id"] as? String == "debug_loopback" })
     }
 
     func testMobileTerminalCreateReturnsBeforeStartingGhostty() async throws {
@@ -3322,140 +3364,154 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 #endif
     }
 
-    func testKeyDownRecoveryDoesNotReplayFocusAfterResponderMovesAway() throws {
-#if DEBUG
-        let window = makeWindow()
-        defer { window.orderOut(nil) }
+    func testKeyDownRecoveryDoesNotReplayFocusAfterResponderMovesAway() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+    #if DEBUG
+            let window = makeWindow()
+            defer { window.orderOut(nil) }
 
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+            guard let contentView = window.contentView else {
+                XCTFail("Expected content view")
+                return
+            }
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        let hostedView = surface.hostedView
-        hostedView.frame = contentView.bounds
-        hostedView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostedView)
+            let surface = TerminalSurface(
+                tabId: UUID(),
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: nil,
+                workingDirectory: nil
+            )
+            let hostedView = surface.hostedView
+            hostedView.frame = contentView.bounds
+            hostedView.autoresizingMask = [.width, .height]
+            contentView.addSubview(hostedView)
 
-        let otherResponder = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
-        contentView.addSubview(otherResponder)
+            let otherResponder = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+            contentView.addSubview(otherResponder)
 
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            hostedView.setVisibleInUI(true)
+            hostedView.setActive(true)
+            contentView.layoutSubtreeIfNeeded()
+            hostedView.layoutSubtreeIfNeeded()
+            await AppKitTestEventPump().drain()
 
-        guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
-            XCTFail("Expected terminal surface view")
-            return
-        }
+            guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
+                XCTFail("Expected terminal surface view")
+                return
+            }
 
-        XCTAssertTrue(window.makeFirstResponder(surfaceView))
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        XCTAssertTrue(surface.debugDesiredFocusState(), "Focused terminal should start with desired Ghostty focus")
+            await AppKitTestEventPump().startSurface(surface)
+            hostedView.reconcileGeometryNow()
+            XCTAssertNotNil(surface.surface)
+            XCTAssertTrue(window.makeFirstResponder(nil))
+            XCTAssertTrue(window.makeFirstResponder(surfaceView))
+            await AppKitTestEventPump().drain()
+            XCTAssertTrue(surface.debugDesiredFocusState(), "Focused terminal should start with desired Ghostty focus")
 
-        surface.releaseSurfaceForTesting()
-        XCTAssertNil(surface.surface, "Expected runtime surface to be released for the regression setup")
+            surface.releaseSurfaceForTesting()
+            XCTAssertNil(surface.surface, "Expected runtime surface to be released for the regression setup")
 
-        hostedView.removeFromSuperview()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        XCTAssertNil(surfaceView.window, "Expected hosted terminal view to be detached from any window")
-        let detachedViewStillFirstResponder = (window.firstResponder as? NSView) === surfaceView
-        if !detachedViewStillFirstResponder {
-            // Some runners clear the window responder during detach without calling the view hook.
-            surface.recordExternalFocusState(false)
+            hostedView.removeFromSuperview()
+            await AppKitTestEventPump().drain()
+            XCTAssertNil(surfaceView.window, "Expected hosted terminal view to be detached from any window")
+            let detachedViewStillFirstResponder = (window.firstResponder as? NSView) === surfaceView
+            if !detachedViewStillFirstResponder {
+                // Some runners clear the window responder during detach without calling the view hook.
+                surface.recordExternalFocusState(false)
+                XCTAssertFalse(
+                    surface.debugDesiredFocusState(),
+                    "Runner already moved first responder away, so desired Ghostty focus should be cleared before recovery"
+                )
+            }
+
+            let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
+            surfaceView.keyDown(with: event)
+
+            XCTAssertTrue(window.makeFirstResponder(otherResponder))
+            await AppKitTestEventPump().drain()
+
+            XCTAssertTrue(
+                (window.firstResponder as? NSView) === otherResponder,
+                "Expected focus to move to the replacement responder"
+            )
             XCTAssertFalse(
                 surface.debugDesiredFocusState(),
-                "Runner already moved first responder away, so desired Ghostty focus should be cleared before recovery"
+                "Responder loss after a missing-surface keyDown should clear desired Ghostty focus before recovery completes"
             )
+            _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) { surface.surface != nil }
+
+            XCTAssertNotNil(surface.surface, "Expected missing-surface recovery to still recreate the runtime surface")
+            XCTAssertFalse(
+                surface.debugDesiredFocusState(),
+                "Recovered runtime surface should not restore focus after the pane already lost first responder"
+            )
+    #else
+            throw XCTSkip("Debug-only regression test")
+    #endif
         }
-
-        let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
-        surfaceView.keyDown(with: event)
-
-        XCTAssertTrue(window.makeFirstResponder(otherResponder))
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        XCTAssertTrue(
-            (window.firstResponder as? NSView) === otherResponder,
-            "Expected focus to move to the replacement responder"
-        )
-        XCTAssertFalse(
-            surface.debugDesiredFocusState(),
-            "Responder loss after a missing-surface keyDown should clear desired Ghostty focus before recovery completes"
-        )
-        waitForRuntimeSurface(surface)
-
-        XCTAssertNotNil(surface.surface, "Expected missing-surface recovery to still recreate the runtime surface")
-        XCTAssertFalse(
-            surface.debugDesiredFocusState(),
-            "Recovered runtime surface should not restore focus after the pane already lost first responder"
-        )
-#else
-        throw XCTSkip("Debug-only regression test")
-#endif
     }
 
-    func testKeyDownRecoveryDoesNotRecreateClosedSurface() throws {
-#if DEBUG
-        let window = makeWindow()
-        defer { window.orderOut(nil) }
+    func testKeyDownRecoveryDoesNotRecreateClosedSurface() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+    #if DEBUG
+            let window = makeWindow()
+            defer { window.orderOut(nil) }
 
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
+            guard let contentView = window.contentView else {
+                XCTFail("Expected content view")
+                return
+            }
+
+            let surface = TerminalSurface(
+                tabId: UUID(),
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: nil,
+                workingDirectory: nil
+            )
+            let hostedView = surface.hostedView
+            hostedView.frame = contentView.bounds
+            hostedView.autoresizingMask = [.width, .height]
+            contentView.addSubview(hostedView)
+
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            contentView.layoutSubtreeIfNeeded()
+            hostedView.layoutSubtreeIfNeeded()
+            await AppKitTestEventPump().drain()
+
+            guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
+                XCTFail("Expected terminal surface view")
+                return
+            }
+            hostedView.setVisibleInUI(true)
+            hostedView.setActive(true)
+            await AppKitTestEventPump().startSurface(surface)
+            hostedView.reconcileGeometryNow()
+            XCTAssertNotNil(surface.surface, "Expected runtime surface before simulating close lifecycle teardown")
+
+            surface.beginPortalCloseLifecycle(reason: "test.close")
+            surface.teardownSurface()
+            XCTAssertNil(surface.surface, "Teardown should release the runtime surface")
+            XCTAssertEqual(surface.portalBindingStateLabel(), "closed")
+
+            hostedView.removeFromSuperview()
+            await AppKitTestEventPump().drain()
+            XCTAssertNil(surfaceView.window, "Expected hosted terminal view to be detached from any window")
+
+            let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
+            surfaceView.keyDown(with: event)
+            await AppKitTestEventPump().drain()
+
+            XCTAssertNil(
+                surface.surface,
+                "Missing-surface keyDown should not recreate a Ghostty runtime surface after close lifecycle teardown"
+            )
+    #else
+            throw XCTSkip("Debug-only regression test")
+    #endif
         }
-
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        let hostedView = surface.hostedView
-        hostedView.frame = contentView.bounds
-        hostedView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostedView)
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
-            XCTFail("Expected terminal surface view")
-            return
-        }
-        XCTAssertNotNil(surface.surface, "Expected runtime surface before simulating close lifecycle teardown")
-
-        surface.beginPortalCloseLifecycle(reason: "test.close")
-        surface.teardownSurface()
-        XCTAssertNil(surface.surface, "Teardown should release the runtime surface")
-        XCTAssertEqual(surface.portalBindingStateLabel(), "closed")
-
-        hostedView.removeFromSuperview()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        XCTAssertNil(surfaceView.window, "Expected hosted terminal view to be detached from any window")
-
-        let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
-        surfaceView.keyDown(with: event)
-        drainMainQueue()
-
-        XCTAssertNil(
-            surface.surface,
-            "Missing-surface keyDown should not recreate a Ghostty runtime surface after close lifecycle teardown"
-        )
-#else
-        throw XCTSkip("Debug-only regression test")
-#endif
     }
 
     func testPrintableKeyRepeatDoesNotForceSurfaceRefresh() throws {
@@ -3635,107 +3691,118 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 #endif
     }
 
-    func testVisibilityRestoreRefreshesSurfaceWhileTerminalIsInactive() throws {
-#if DEBUG
-        let window = makeWindow()
-        defer { window.orderOut(nil) }
+    func testVisibilityRestoreRefreshesSurfaceWhileTerminalIsInactive() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+    #if DEBUG
+            let window = makeWindow()
+            defer { window.orderOut(nil) }
 
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
+            guard let contentView = window.contentView else {
+                XCTFail("Expected content view")
+                return
+            }
+
+            let surface = TerminalSurface(
+                tabId: UUID(),
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: nil,
+                workingDirectory: nil
+            )
+            let hostedView = surface.hostedView
+            hostedView.frame = contentView.bounds
+            hostedView.autoresizingMask = [.width, .height]
+            contentView.addSubview(hostedView)
+
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            hostedView.setVisibleInUI(true)
+            hostedView.setActive(true)
+            await AppKitTestEventPump().startSurface(surface)
+            contentView.layoutSubtreeIfNeeded()
+            hostedView.layoutSubtreeIfNeeded()
+            await AppKitTestEventPump().drain()
+
+            XCTAssertNotNil(
+                surface.surface,
+                "Expected runtime surface before measuring visibility-restore redraws"
+            )
+
+            hostedView.setActive(false)
+            hostedView.setVisibleInUI(false)
+            await AppKitTestEventPump().drain()
+
+            surface.resetDebugForceRefreshCount()
+            hostedView.setVisibleInUI(true)
+            await AppKitTestEventPump().drain()
+
+            XCTAssertEqual(
+                surface.debugForceRefreshCount(),
+                1,
+                "Restoring panel visibility should force a redraw even when focus recovery is inactive"
+            )
+    #else
+            throw XCTSkip("Debug-only regression test")
+    #endif
         }
-
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        let hostedView = surface.hostedView
-        hostedView.frame = contentView.bounds
-        hostedView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostedView)
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        XCTAssertNotNil(
-            surface.surface,
-            "Expected runtime surface before measuring visibility-restore redraws"
-        )
-
-        hostedView.setActive(false)
-        hostedView.setVisibleInUI(false)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        surface.resetDebugForceRefreshCount()
-        hostedView.setVisibleInUI(true)
-        drainMainQueue()
-
-        XCTAssertEqual(
-            surface.debugForceRefreshCount(),
-            1,
-            "Restoring panel visibility should force a redraw even when focus recovery is inactive"
-        )
-#else
-        throw XCTSkip("Debug-only regression test")
-#endif
     }
 
-    func testDirectFirstResponderFocusRefreshesCursorStateAfterForeignResponder() throws {
-#if DEBUG
-        let window = makeWindow()
-        defer { window.orderOut(nil) }
+    func testDirectFirstResponderFocusRefreshesCursorStateAfterForeignResponder() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+    #if DEBUG
+            let window = makeWindow()
+            defer { window.orderOut(nil) }
 
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
+            guard let contentView = window.contentView else {
+                XCTFail("Expected content view")
+                return
+            }
+
+            let surface = TerminalSurface(
+                tabId: UUID(),
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: nil,
+                workingDirectory: nil
+            )
+            let hostedView = surface.hostedView
+            hostedView.frame = contentView.bounds
+            hostedView.autoresizingMask = [.width, .height]
+            contentView.addSubview(hostedView)
+
+            let otherResponder = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+            contentView.addSubview(otherResponder)
+
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            hostedView.setVisibleInUI(true)
+            hostedView.setActive(true)
+            hostedView.setVisibleInUI(true)
+            hostedView.setActive(true)
+            contentView.layoutSubtreeIfNeeded()
+            hostedView.layoutSubtreeIfNeeded()
+            await AppKitTestEventPump().drain()
+
+            guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
+                XCTFail("Expected terminal surface view")
+                return
+            }
+            _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) { surface.surface != nil }
+            XCTAssertNotNil(surface.surface, "Expected runtime surface before measuring focus redraws")
+            _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) { surface.surface != nil }
+            XCTAssertTrue(window.makeFirstResponder(surfaceView))
+            XCTAssertTrue(window.makeFirstResponder(otherResponder))
+
+            surface.resetDebugForceRefreshCount()
+            XCTAssertTrue(window.makeFirstResponder(surfaceView))
+
+            XCTAssertGreaterThan(
+                surface.debugForceRefreshCount(),
+                0,
+                "Clicking back into the terminal should redraw immediately so the cursor reflects focused input"
+            )
+    #else
+            throw XCTSkip("Debug-only regression test")
+    #endif
         }
-
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        let hostedView = surface.hostedView
-        hostedView.frame = contentView.bounds
-        hostedView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostedView)
-
-        let otherResponder = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
-        contentView.addSubview(otherResponder)
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        hostedView.setVisibleInUI(true)
-        hostedView.setActive(true)
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
-            XCTFail("Expected terminal surface view")
-            return
-        }
-        XCTAssertNotNil(surface.surface, "Expected runtime surface before measuring focus redraws")
-        XCTAssertTrue(window.makeFirstResponder(surfaceView))
-        XCTAssertTrue(window.makeFirstResponder(otherResponder))
-
-        surface.resetDebugForceRefreshCount()
-        XCTAssertTrue(window.makeFirstResponder(surfaceView))
-
-        XCTAssertGreaterThan(
-            surface.debugForceRefreshCount(),
-            0,
-            "Clicking back into the terminal should redraw immediately so the cursor reflects focused input"
-        )
-#else
-        throw XCTSkip("Debug-only regression test")
-#endif
     }
 }
 
@@ -4031,7 +4098,7 @@ final class WindowTerminalHostViewTests: XCTestCase {
     }
 
     func testHostViewStopsSidebarPassThroughJustInsideTerminalContent() {
-        let terminalSideOverlapWidth: CGFloat = 2
+        let terminalSideOverlapWidth = SidebarResizeInteraction.contentSideHitWidth
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 300, height: 180),
             styleMask: [.titled, .closable],
@@ -4044,33 +4111,29 @@ final class WindowTerminalHostViewTests: XCTestCase {
             return
         }
 
-        let splitView = NSSplitView(frame: contentView.bounds)
-        splitView.autoresizingMask = [.width, .height]
-        splitView.isVertical = true
-        splitView.dividerStyle = .thin
-        let splitDelegate = BonsplitMockSplitDelegate()
-        splitView.delegate = splitDelegate
-        let first = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: contentView.bounds.height))
-        let second = NSView(frame: NSRect(x: 121, y: 0, width: 179, height: contentView.bounds.height))
-        splitView.addSubview(first)
-        splitView.addSubview(second)
-        contentView.addSubview(splitView)
-        splitView.setPosition(1, ofDividerAt: 0)
-        splitView.adjustSubviews()
-        contentView.layoutSubtreeIfNeeded()
+        let dividerX: CGFloat = 120
+        let sidebarDivider = SidebarDividerTrackingView(frame: NSRect(
+            x: SidebarResizeInteraction.Edge.leading.handleX(dividerX: dividerX),
+            y: 0,
+            width: SidebarResizeInteraction.totalHitWidth,
+            height: contentView.bounds.height
+        ))
+        contentView.addSubview(sidebarDivider)
 
         let host = WindowTerminalHostView(frame: contentView.bounds)
         host.autoresizingMask = [.width, .height]
-        let hostedView = makeHostedTerminalView(frame: host.bounds)
+        let hostedView = makeHostedTerminalView(frame: NSRect(
+            x: dividerX,
+            y: 0,
+            width: host.bounds.width - dividerX,
+            height: host.bounds.height
+        ))
         host.addSubview(hostedView)
         contentView.addSubview(host)
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
 
-        let dividerPointInSplit = NSPoint(
-            x: splitView.arrangedSubviews[0].frame.maxX + (splitView.dividerThickness * 0.5),
-            y: splitView.bounds.midY
-        )
-        let dividerPointInWindow = splitView.convert(dividerPointInSplit, to: nil)
-        let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
+        let dividerPointInHost = NSPoint(x: dividerX, y: host.bounds.midY)
 
         let resizeBandPoint = NSPoint(
             x: dividerPointInHost.x + terminalSideOverlapWidth,
@@ -6932,12 +6995,13 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         TerminalController.shared.stop(cleanupDiscoveryState: true)
         XCTAssertFalse(FileManager.default.fileExists(atPath: path + ".lock"))
         let listenerFD = try bindUnixSocket(at: path)
-        Darwin.close(listenerFD)
         defer {
+            Darwin.close(listenerFD)
             unlink(path)
             unlink(path + ".lock")
         }
         XCTAssertFalse(transport.pathCanBeReclaimedForStartup(path))
+        let claimedIdentity = try XCTUnwrap(transport.pathIdentity(at: path))
 
         TerminalController.shared.start(
             tabManager: TabManager(),
@@ -6945,7 +7009,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             accessMode: .allowAll
         )
 
-        XCTAssertFalse(transport.pathAcceptsConnections(path))
+        XCTAssertEqual(transport.pathIdentity(at: path), claimedIdentity)
     }
 
     @MainActor

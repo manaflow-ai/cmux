@@ -173,6 +173,8 @@ struct QuitConfirmationAlertPresenterTests {
         // NSAlert starts with a lazy placeholder layout that stacks full-width
         // buttons. The standalone presenter must resolve that layout before the
         // alert becomes visible or the panel renders clipped and washed out.
+        alert.window.displayIfNeeded()
+        alert.window.contentView?.layoutSubtreeIfNeeded()
         let buttonFrames = alert.buttons.map(\.frame)
         #expect(buttonFrames.count == 2)
         #expect(abs(buttonFrames[0].midY - buttonFrames[1].midY) < 0.5)

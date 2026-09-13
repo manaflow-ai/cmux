@@ -197,6 +197,16 @@ func codexHookMockSocketResponse(
           let id = payload["id"] as? String else {
         return "OK"
     }
+    if payload["method"] as? String == "agent.resolve_delivery_target" {
+        // This fixture models surface inventory, not a process-to-pane index.
+        // An empty successful resolution is authoritative absence, so expose
+        // the unsupported method and let the CLI validate the supplied pane.
+        let response: [String: Any] = [
+            "id": id, "ok": false,
+            "error": ["code": "unrecognized_method", "message": "process resolution unavailable in fixture"],
+        ]
+        return String(decoding: try! JSONSerialization.data(withJSONObject: response), as: UTF8.self)
+    }
     if payload["method"] as? String == "surface.list" {
         return codexHookV2Response(
             id: id,
@@ -258,77 +268,84 @@ func runCodexHookProcess(
     fileBackedStandardInput: Bool = false,
     timeout: TimeInterval
 ) -> CodexHookProcessRunResult {
-    let process = Process()
-    let stdoutPipe = Pipe()
-    let stderrPipe = Pipe()
-    let stdinPipe = standardInput == nil || fileBackedStandardInput ? nil : Pipe()
-    var standardInputURL: URL?
-    var standardInputHandle: FileHandle?
-    if let standardInput, fileBackedStandardInput {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "cmux-hook-input-\(UUID().uuidString).json",
-            isDirectory: false
+let result: CodexHookProcessRunResult
+    if !fileBackedStandardInput {
+        let shared = CLINotifyProcessIntegrationRegressionTests.runProcess(
+            executablePath: executablePath,
+            arguments: arguments,
+            environment: environment,
+            standardInput: standardInput,
+            timeout: timeout
         )
-        do {
-            try Data(standardInput.utf8).write(to: url, options: .atomic)
-            standardInputURL = url
-            standardInputHandle = try FileHandle(forReadingFrom: url)
-        } catch {
-            return CodexHookProcessRunResult(
-                status: -1,
-                stdout: "",
-                stderr: String(describing: error),
-                timedOut: false
-            )
-        }
-    }
-    defer {
-        try? standardInputHandle?.close()
-        if let standardInputURL {
-            try? FileManager.default.removeItem(at: standardInputURL)
-        }
-    }
-    process.executableURL = URL(fileURLWithPath: executablePath)
-    process.arguments = arguments
-    process.environment = environment
-    if let standardInputHandle {
-        process.standardInput = standardInputHandle
+        result = CodexHookProcessRunResult(
+            status: shared.status,
+            stdout: shared.stdout,
+            stderr: shared.stderr,
+            timedOut: shared.timedOut
+        )
     } else {
-        process.standardInput = stdinPipe ?? FileHandle.nullDevice
-    }
-    process.standardOutput = stdoutPipe
-    process.standardError = stderrPipe
-    let exitSignal = DispatchSemaphore(value: 0)
-    process.terminationHandler = { _ in
-        exitSignal.signal()
-    }
-
-    do {
-        try process.run()
-    } catch {
-        return CodexHookProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
-    }
-    if let standardInput, let stdinPipe {
-        stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
-        try? stdinPipe.fileHandleForWriting.close()
-    }
-
-    let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
-    if timedOut {
-        process.terminate()
-        if exitSignal.wait(timeout: .now() + 1) == .timedOut {
-            kill(process.processIdentifier, SIGKILL)
-            _ = exitSignal.wait(timeout: .now() + 1)
+        let process = Process()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        var standardInputURL: URL?
+        var standardInputHandle: FileHandle?
+        if let standardInput {
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "cmux-hook-input-\(UUID().uuidString).json",
+                isDirectory: false
+            )
+            do {
+                try Data(standardInput.utf8).write(to: url, options: .atomic)
+                standardInputURL = url
+                standardInputHandle = try FileHandle(forReadingFrom: url)
+            } catch {
+                return CodexHookProcessRunResult(
+                    status: -1,
+                    stdout: "",
+                    stderr: String(describing: error),
+                    timedOut: false
+                )
+            }
         }
+        defer {
+            try? standardInputHandle?.close()
+            if let standardInputURL { try? FileManager.default.removeItem(at: standardInputURL) }
+        }
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        process.environment = environment
+        process.standardInput = standardInputHandle ?? FileHandle.nullDevice
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        let exitSignal = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exitSignal.signal() }
+        do {
+            try process.run()
+        } catch {
+            return CodexHookProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
+        }
+        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        if timedOut {
+            process.terminate()
+            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                _ = exitSignal.wait(timeout: .now() + 1)
+            }
+        }
+        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        result = CodexHookProcessRunResult(
+            status: process.isRunning ? SIGKILL : process.terminationStatus,
+            stdout: String(data: stdoutData, encoding: .utf8) ?? "",
+            stderr: String(data: stderrData, encoding: .utf8) ?? "",
+            timedOut: timedOut
+        )
     }
-
-    let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-    let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
     return CodexHookProcessRunResult(
-        status: process.terminationStatus,
-        stdout: String(data: stdoutData, encoding: .utf8) ?? "",
-        stderr: String(data: stderrData, encoding: .utf8) ?? "",
-        timedOut: timedOut
+        status: result.status,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        timedOut: result.timedOut
     )
 }
 

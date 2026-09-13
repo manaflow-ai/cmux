@@ -136,7 +136,7 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
-    @Test func sidebarImmediateObservationPublisherCoalescesDescriptionBursts() {
+    @Test func sidebarImmediateObservationPublisherCoalescesDescriptionBursts() async {
         let workspace = Workspace()
 
         var publishCount = 0
@@ -155,8 +155,7 @@ struct WorkspaceSidebarObservationTests {
             "A synchronous burst of immediate fields must deliver only its leading edge immediately."
         )
 
-        // Generous pump so the 50ms trailing emission fires deterministically.
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        #expect(await AppKitTestEventPump().waitUntil { publishCount == 2 })
 
         #expect(
             publishCount == 2,

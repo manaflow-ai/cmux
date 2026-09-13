@@ -16,23 +16,15 @@ struct SurfaceResumeExitedAgentLivenessTests {
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-exited-agent-resume-\(UUID().uuidString)", isDirectory: true)
         let hookStateDirectory = root.appendingPathComponent("hook-state", isDirectory: true)
-        let previousHookStateDirectory = getenv("CMUX_AGENT_HOOK_STATE_DIR").map { String(cString: $0) }
-        setenv("CMUX_AGENT_HOOK_STATE_DIR", hookStateDirectory.path, 1)
-        defer {
-            if let previousHookStateDirectory {
-                setenv("CMUX_AGENT_HOOK_STATE_DIR", previousHookStateDirectory, 1)
-            } else {
-                unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
-            }
-            try? fileManager.removeItem(at: root)
-        }
+        let environment = ["CMUX_AGENT_HOOK_STATE_DIR": hookStateDirectory.path]
+        defer { try? fileManager.removeItem(at: root) }
 
         let defaultsName = "cmux-exited-agent-resume-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: defaultsName))
         defer { defaults.removePersistentDomain(forName: defaultsName) }
         defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
 
-        let source = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let source = Workspace(agentSessionAutoResumeDefaults: defaults, restorableAgentIndexProvider: { .empty })
         defer { source.teardownAllPanels() }
         let panelID = try #require(source.focusedPanelId)
         let sessionID = "codex-exited-agent-session"
@@ -49,6 +41,7 @@ struct SurfaceResumeExitedAgentLivenessTests {
             fileManager: fileManager,
             registry: CmuxVaultAgentRegistry(registrations: []),
             detectedSnapshots: [:],
+            environment: environment,
             processArgumentsProvider: { _ in nil },
             processPresenceProvider: { _ in .absent }
         )
@@ -70,7 +63,7 @@ struct SurfaceResumeExitedAgentLivenessTests {
 
         #expect(snapshot.panels.first?.terminal?.wasAgentRunning == false)
 
-        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let restored = Workspace(agentSessionAutoResumeDefaults: defaults, restorableAgentIndexProvider: { .empty })
         defer { restored.teardownAllPanels() }
         restored.restoreSessionSnapshot(snapshot)
         let restoredPanelID = try #require(restored.focusedPanelId)
@@ -91,23 +84,15 @@ struct SurfaceResumeExitedAgentLivenessTests {
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-newer-agent-binding-resume-\(UUID().uuidString)", isDirectory: true)
         let hookStateDirectory = root.appendingPathComponent("hook-state", isDirectory: true)
-        let previousHookStateDirectory = getenv("CMUX_AGENT_HOOK_STATE_DIR").map { String(cString: $0) }
-        setenv("CMUX_AGENT_HOOK_STATE_DIR", hookStateDirectory.path, 1)
-        defer {
-            if let previousHookStateDirectory {
-                setenv("CMUX_AGENT_HOOK_STATE_DIR", previousHookStateDirectory, 1)
-            } else {
-                unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
-            }
-            try? fileManager.removeItem(at: root)
-        }
+        let environment = ["CMUX_AGENT_HOOK_STATE_DIR": hookStateDirectory.path]
+        defer { try? fileManager.removeItem(at: root) }
 
         let defaultsName = "cmux-newer-agent-binding-resume-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: defaultsName))
         defer { defaults.removePersistentDomain(forName: defaultsName) }
         defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
 
-        let source = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let source = Workspace(agentSessionAutoResumeDefaults: defaults, restorableAgentIndexProvider: { .empty })
         defer { source.teardownAllPanels() }
         let panelID = try #require(source.focusedPanelId)
         let sessionID = "codex-newer-agent-binding-session"
@@ -124,6 +109,7 @@ struct SurfaceResumeExitedAgentLivenessTests {
             fileManager: fileManager,
             registry: CmuxVaultAgentRegistry(registrations: []),
             detectedSnapshots: [:],
+            environment: environment,
             processArgumentsProvider: { _ in nil },
             processPresenceProvider: { _ in .absent }
         )
@@ -144,7 +130,7 @@ struct SurfaceResumeExitedAgentLivenessTests {
         )
         #expect(snapshot.panels.first?.terminal?.wasAgentRunning == false)
 
-        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let restored = Workspace(agentSessionAutoResumeDefaults: defaults, restorableAgentIndexProvider: { .empty })
         defer { restored.teardownAllPanels() }
         restored.restoreSessionSnapshot(snapshot)
         let restoredPanelID = try #require(restored.focusedPanelId)
@@ -161,23 +147,15 @@ struct SurfaceResumeExitedAgentLivenessTests {
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-live-runtime-agent-resume-\(UUID().uuidString)", isDirectory: true)
         let hookStateDirectory = root.appendingPathComponent("hook-state", isDirectory: true)
-        let previousHookStateDirectory = getenv("CMUX_AGENT_HOOK_STATE_DIR").map { String(cString: $0) }
-        setenv("CMUX_AGENT_HOOK_STATE_DIR", hookStateDirectory.path, 1)
-        defer {
-            if let previousHookStateDirectory {
-                setenv("CMUX_AGENT_HOOK_STATE_DIR", previousHookStateDirectory, 1)
-            } else {
-                unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
-            }
-            try? fileManager.removeItem(at: root)
-        }
+        let environment = ["CMUX_AGENT_HOOK_STATE_DIR": hookStateDirectory.path]
+        defer { try? fileManager.removeItem(at: root) }
 
         let defaultsName = "cmux-live-runtime-agent-resume-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: defaultsName))
         defer { defaults.removePersistentDomain(forName: defaultsName) }
         defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
 
-        let source = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let source = Workspace(agentSessionAutoResumeDefaults: defaults, restorableAgentIndexProvider: { .empty })
         defer { source.teardownAllPanels() }
         let panelID = try #require(source.focusedPanelId)
         let sessionID = "codex-live-runtime-agent-session"
@@ -194,6 +172,7 @@ struct SurfaceResumeExitedAgentLivenessTests {
             fileManager: fileManager,
             registry: CmuxVaultAgentRegistry(registrations: []),
             detectedSnapshots: [:],
+            environment: environment,
             processArgumentsProvider: { _ in nil },
             processPresenceProvider: { _ in .absent }
         )
@@ -258,7 +237,7 @@ struct SurfaceResumeExitedAgentLivenessTests {
         )
         #expect(snapshot.panels.first?.terminal?.wasAgentRunning == true)
 
-        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let restored = Workspace(agentSessionAutoResumeDefaults: defaults, restorableAgentIndexProvider: { .empty })
         defer { restored.teardownAllPanels() }
         restored.restoreSessionSnapshot(snapshot)
         let restoredPanelID = try #require(restored.focusedPanelId)
@@ -275,23 +254,15 @@ struct SurfaceResumeExitedAgentLivenessTests {
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-cached-running-agent-resume-\(UUID().uuidString)", isDirectory: true)
         let hookStateDirectory = root.appendingPathComponent("hook-state", isDirectory: true)
-        let previousHookStateDirectory = getenv("CMUX_AGENT_HOOK_STATE_DIR").map { String(cString: $0) }
-        setenv("CMUX_AGENT_HOOK_STATE_DIR", hookStateDirectory.path, 1)
-        defer {
-            if let previousHookStateDirectory {
-                setenv("CMUX_AGENT_HOOK_STATE_DIR", previousHookStateDirectory, 1)
-            } else {
-                unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
-            }
-            try? fileManager.removeItem(at: root)
-        }
+        let environment = ["CMUX_AGENT_HOOK_STATE_DIR": hookStateDirectory.path]
+        defer { try? fileManager.removeItem(at: root) }
 
         let defaultsName = "cmux-cached-running-agent-resume-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: defaultsName))
         defer { defaults.removePersistentDomain(forName: defaultsName) }
         defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
 
-        let source = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let source = Workspace(agentSessionAutoResumeDefaults: defaults, restorableAgentIndexProvider: { .empty })
         defer { source.teardownAllPanels() }
         let panelID = try #require(source.focusedPanelId)
         let sessionID = "codex-cached-running-agent-session"
@@ -313,6 +284,7 @@ struct SurfaceResumeExitedAgentLivenessTests {
             fileManager: fileManager,
             registry: CmuxVaultAgentRegistry(registrations: []),
             detectedSnapshots: [:],
+            environment: environment,
             processArgumentsProvider: { processID in
                 processID == Int(recordedIdentity.pid)
                     ? self.codexProcessArguments(workspaceID: source.id, panelID: panelID)
@@ -342,7 +314,7 @@ struct SurfaceResumeExitedAgentLivenessTests {
 
         #expect(snapshot.panels.first?.terminal?.wasAgentRunning == false)
 
-        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let restored = Workspace(agentSessionAutoResumeDefaults: defaults, restorableAgentIndexProvider: { .empty })
         defer { restored.teardownAllPanels() }
         restored.restoreSessionSnapshot(snapshot)
         let restoredPanelID = try #require(restored.focusedPanelId)
@@ -359,16 +331,8 @@ struct SurfaceResumeExitedAgentLivenessTests {
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-agent-liveness-fingerprint-\(UUID().uuidString)", isDirectory: true)
         let hookStateDirectory = root.appendingPathComponent("hook-state", isDirectory: true)
-        let previousHookStateDirectory = getenv("CMUX_AGENT_HOOK_STATE_DIR").map { String(cString: $0) }
-        setenv("CMUX_AGENT_HOOK_STATE_DIR", hookStateDirectory.path, 1)
-        defer {
-            if let previousHookStateDirectory {
-                setenv("CMUX_AGENT_HOOK_STATE_DIR", previousHookStateDirectory, 1)
-            } else {
-                unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
-            }
-            try? fileManager.removeItem(at: root)
-        }
+        let environment = ["CMUX_AGENT_HOOK_STATE_DIR": hookStateDirectory.path]
+        defer { try? fileManager.removeItem(at: root) }
 
         let manager = TabManager()
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
@@ -393,6 +357,7 @@ struct SurfaceResumeExitedAgentLivenessTests {
             fileManager: fileManager,
             registry: CmuxVaultAgentRegistry(registrations: []),
             detectedSnapshots: [:],
+            environment: environment,
             processArgumentsProvider: { processID in
                 processID == Int(recordedIdentity.pid)
                     ? self.codexProcessArguments(workspaceID: workspace.id, panelID: panelID)
@@ -406,6 +371,7 @@ struct SurfaceResumeExitedAgentLivenessTests {
             fileManager: fileManager,
             registry: CmuxVaultAgentRegistry(registrations: []),
             detectedSnapshots: [:],
+            environment: environment,
             processArgumentsProvider: { _ in nil },
             processPresenceProvider: { _ in .absent }
         )
@@ -460,10 +426,22 @@ struct SurfaceResumeExitedAgentLivenessTests {
         root: URL,
         fileManager: FileManager
     ) throws {
-        let storeURL = RestorableAgentKind.codex.hookStoreFileURL(homeDirectory: root.path)
+        let storeURL = RestorableAgentKind.codex.hookStoreFileURL(
+            homeDirectory: root.path,
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": root.appendingPathComponent("hook-state").path]
+        )
         try fileManager.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let transcriptURL = root.appendingPathComponent(".codex/sessions/rollout-\(sessionID).jsonl")
+        try fileManager.createDirectory(at: transcriptURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let metadata: [String: Any] = [
+            "type": "session_meta",
+            "payload": ["id": sessionID, "cwd": "/tmp/repo", "source": "cli", "originator": "codex-tui"],
+        ]
+        try JSONSerialization.data(withJSONObject: metadata).write(to: transcriptURL)
+
         let record: [String: Any] = [
             "sessionId": sessionID,
+            "transcriptPath": transcriptURL.path,
             "workspaceId": workspaceID.uuidString,
             "surfaceId": panelID.uuidString,
             "cwd": "/tmp/repo",

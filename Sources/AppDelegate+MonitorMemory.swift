@@ -181,6 +181,7 @@ extension AppDelegate {
         // below because their frame is owned by AppKit's Space machinery.
         let mainWindows = mainWindowsForVisibilityController()
         for window in mainWindows {
+            guard let window = window as? CmuxMainWindow else { continue }
             // Native-fullscreen windows are owned by AppKit's Space machinery;
             // clamping them mid-transition fights the fullscreen teardown.
             guard !window.styleMask.contains(.fullScreen) else { continue }
@@ -196,13 +197,14 @@ extension AppDelegate {
                     "to={\(nsRectLogDescription(corrected))}"
             )
 #endif
-            window.setFrame(corrected, display: true)
+            window.setFrameForManagedPlacement(corrected, display: true)
         }
+        let fitCompleted = MainWindowFrameReconciler().repair(
+            displays: displays.available,
+            windows: mainWindows,
+            trigger: .displayTopology(changed: visibleFrameFitTopologyChanged)
+        )
         if visibleFrameFitTopologyChanged {
-            let fitCompleted = fitRestoredMainWindowFramesIfNeeded(
-                windows: mainWindows,
-                displays: displays.available
-            )
             if fitCompleted, let visibleFrameFitTopologySignature {
                 lastVisibleFrameFitTopologySignature = visibleFrameFitTopologySignature
                 didObserveUnknownVisibleFrameFitTopology = false
@@ -222,6 +224,7 @@ extension AppDelegate {
         displays: (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?)
     ) {
         for window in mainWindowsForVisibilityController() {
+            guard let window = window as? CmuxMainWindow else { continue }
             guard !window.styleMask.contains(.fullScreen) else { continue }
             guard let context = contextForMainTerminalWindow(window) else { continue }
             let windowTag = context.windowId.uuidString.prefix(8)
@@ -249,7 +252,7 @@ extension AppDelegate {
                     "applied={\(nsRectLogDescription(restored))}"
             )
 #endif
-            window.setFrame(restored, display: true)
+            window.setFrameForRestoredPlacement(restored, display: true)
         }
     }
 

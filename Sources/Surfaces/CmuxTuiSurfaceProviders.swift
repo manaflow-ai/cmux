@@ -1014,7 +1014,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     func closeRemoteWorkspace(id: String) async throws {
         _ = try await runCloseCommand { CloudTuiCommandLine.closeWorkspaceArguments(socketPath: $0, workspaceID: id) }
         info.remoteWorkspaces = info.remoteWorkspaces?.filter { $0.id != id }
-        catalog.updateMachine(info, from: self)
+        catalog.updateMachine(info, from: self, removedRemoteWorkspaceID: id)
         scheduleRefresh()
     }
 
@@ -1205,7 +1205,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let provisional = SurfaceRemoteWorkspace(id: id, name: provisionalName, index: info.remoteWorkspaces?.count ?? 0, focused: false)
         if info.remoteWorkspaces?.contains(where: { $0.id == id }) != true {
             info.remoteWorkspaces = (info.remoteWorkspaces ?? []) + [provisional]
-            catalog.updateMachine(info, from: self)
+            catalog.updateMachine(info, from: self, createdRemoteWorkspaceID: id)
         }
         if let starter = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) {
             _ = recordCreatedTerminal(starter, workspaceID: id, name: nil, cwd: nil)

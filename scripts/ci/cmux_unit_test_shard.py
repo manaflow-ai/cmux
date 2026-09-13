@@ -43,6 +43,7 @@ FOCUSED_GATE_SELECTORS = {
     "cmuxTests/GhosttyNumericLocaleTests",
     "cmuxTests/GlobalSearchShortcutBehaviorTests",
     "cmuxTests/KeyboardShortcutSettingsFileStoreNoOpPersistenceTests",
+    "cmuxTests/MainWindowZoomPlacementTests",
     "cmuxTests/RemoteTmuxMirrorLayoutIdentityTests",
     "cmuxTests/SidebarWorkspaceSwitchLayoutFaultTests",
 }

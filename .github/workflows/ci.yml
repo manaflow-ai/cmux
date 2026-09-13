@@ -240,6 +240,9 @@ jobs:
       - name: Validate app-host test failure classification
         run: python3 tests/test_ci_app_host_test_output.py
 
+      - name: Validate Ubuntu APT HTTPS setup
+        run: python3 tests/test_ci_ubuntu_apt_https.py
+
       - name: Validate app-host user configuration isolation
         run: python3 tests/test_ci_app_host_home_isolation.py
 
@@ -481,6 +484,10 @@ jobs:
 
       - name: Web tests
         run: bun run test
+
+      - name: Configure Ubuntu APT sources for HTTPS
+        working-directory: ${{ github.workspace }}
+        run: sudo python3 scripts/ci/ubuntu-apt-https.py
 
       - name: Install browser for instant navigation tests
         run: bunx playwright install --with-deps chromium
@@ -779,6 +786,25 @@ jobs:
           else
             echo "::warning::Passwordless sudo unavailable; XCTest will use its default automation-mode setup"
           fi
+
+      - name: Run main window zoom placement regressions
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # The bulk app-host classifier tolerates ordinary assertion failures.
+          # Window placement regressions must fail the shard directly.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            -only-testing:cmuxTests/MainWindowZoomPlacementTests \
+            -parallel-testing-enabled NO \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            test
 
       - name: Run bundled command PATH regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
@@ -1428,6 +1454,7 @@ jobs:
                 -disableAutomaticPackageResolution \
                 -destination "platform=macOS" \
                 "${only_testing_args[@]}" \
+                -parallel-testing-enabled NO \
                 -test-timeouts-enabled YES \
                 -default-test-execution-time-allowance "${CMUX_UNIT_TEST_CASE_TIMEOUT_SECONDS:-300}" \
                 -maximum-test-execution-time-allowance "${CMUX_UNIT_TEST_CASE_TIMEOUT_SECONDS:-300}" \
@@ -1470,24 +1497,26 @@ jobs:
 
             if [ "$batch_status" -eq 65 ] \
               && python3 scripts/ci/classify-app-host-test-output.py "$batch_output"; then
-                echo "All failures in app-host batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} are expected, continuing"
-                return 0
+              echo "All failures in app-host batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} are expected, continuing"
+              return 0
             fi
             return "$batch_status"
           }
 
           run_unit_tests() {
-            local logical_shard
+            local logical_shard combined_status=0
             for logical_shard in "${LOGICAL_SHARDS[@]}"; do
+              # Keep the other batch visible after a failure, without allowing
+              # a later successful batch to turn this worker green.
               run_unit_test_batch "$logical_shard" || {
-                local batch_status=$?
-                return "$batch_status"
+                combined_status=$?
               }
             done
+            return "$combined_status"
           }
 
           # Stream output via tee so CI logs are visible in real time, while still
-          # capturing for post-run analysis of expected vs unexpected failures.
+          # capturing every batch's test result for diagnosis.
           TEST_OUTPUT="$RUNNER_TEMP/cmux-unit-output-shard-${{ matrix.shard }}.txt"
           set +e
           run_unit_tests | tee "$TEST_OUTPUT"
@@ -1924,6 +1953,7 @@ jobs:
             CmuxTerminal
             CmuxTerminalCore
             CmuxUpdater
+            CmuxWindowing
             CMUXAgentLaunch
             CmuxAgentJournal
             CmuxFilePreviewCore

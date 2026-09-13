@@ -762,11 +762,24 @@ enum KeyboardShortcutSettings {
                 return .accepted(.unbound)
             }
 
-            let resolved = resolvedRecordedShortcutIgnoringConflicts(shortcut)
+            // Defer system-wide reservation checks for the global hotkey until
+            // cmux-owned bindings have had a chance to report their more useful
+            // conflict reason. The reservation helper includes those bindings
+            // so Carbon registration fails safely, but that must not hide a
+            // conflict with a cmux action from the recorder UI.
+            let resolved = resolvedRecordedShortcutIgnoringConflicts(
+                shortcut,
+                checkingSystemWideConflicts: self != .showHideAllWindows
+            )
             guard case .accepted = resolved else { return resolved }
 
             if let conflictingAction = KeyboardShortcutSettings.conflictingAction(for: shortcut, excluding: self) {
                 return .rejected(.conflictsWithAction(conflictingAction))
+            }
+
+            if self == .showHideAllWindows,
+               case let .rejected(reason) = resolvedRecordedShortcutIgnoringConflicts(shortcut) {
+                return .rejected(reason)
             }
 
             return resolved

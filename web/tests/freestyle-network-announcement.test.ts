@@ -58,7 +58,7 @@ describe("Freestyle private network readiness", () => {
     };
     const vm = {
       exec: async ({ command }: { command: string }) => {
-        events.push(command.startsWith("python3 -c ") ? "guest-network" : "guest-daemon");
+        events.push(command.startsWith("python3 -c ") ? "guest-network" : "guest-preparation");
         return { statusCode: 0, stdout: "", stderr: "" };
       },
       fs: {
@@ -79,16 +79,19 @@ describe("Freestyle private network readiness", () => {
     const allocation = operation === "create"
       ? provider.create({ image: "sh-fixture", network: { id: "vpc-fixture" } })
       : provider.restore("sh-fixture", { network: { id: "vpc-fixture" } });
-    const preparation = operation === "restore"
-      ? ["allocated", "guest-daemon", "guest-daemon"]
-      : ["allocated", "guest-daemon"];
+    // Readiness gates publication regardless of how many shim, daemon, or hook
+    // preparation commands a create or restore needs.
     if (hasAddresses) {
       await allocation;
       events.push("published");
-      expect(events).toEqual([...preparation, "guest-network", "published"]);
+      expect(events.filter((event) => event !== "guest-preparation"))
+        .toEqual(["allocated", "guest-network", "published"]);
+      expect(events.slice(-2)).toEqual(["guest-network", "published"]);
     } else {
       await expect(allocation).rejects.toThrow();
-      expect(events).toEqual([...preparation, "delete"]);
+      expect(events.filter((event) => event !== "guest-preparation"))
+        .toEqual(["allocated", "delete"]);
+      expect(events.at(-1)).toBe("delete");
     }
   });
 

@@ -763,7 +763,11 @@ struct SidebarAppKitRowCellTests {
             let light = try Self.resolvedColor(color, in: lightAppearance)
             let dark = try Self.resolvedColor(color, in: darkAppearance)
 
-            #expect(Self.distance(light, dark) > 1)
+            // SidebarRowPalette resolves semantic colors against the row's
+            // concrete cmux scheme before AppKit paints the detached cell.
+            // Ambient light/dark appearance must therefore not change the
+            // already-resolved color.
+            #expect(Self.distance(light, dark) < 0.001)
             #expect(abs(light.alphaComponent - expectedAlpha) < 0.001)
             #expect(abs(dark.alphaComponent - expectedAlpha) < 0.001)
         }
@@ -2100,7 +2104,7 @@ struct SidebarPinnedIndicatorColorTests {
             isBeingDragged: false,
             topDropIndicatorVisible: false,
             bottomDropIndicatorVisible: false,
-            colorSchemeIsDark: false
+            colorSchemeIsDark: true
         ))
 
         let workspacePin = try #require(

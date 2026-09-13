@@ -66,14 +66,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let root = makeLocalTmuxTestRoot("ghostty-attach-wrapper")
         let fakeTmuxURL = root.appendingPathComponent("fake-tmux", isDirectory: false)
         let outputURL = root.appendingPathComponent("invocation", isDirectory: false)
+        let actionOutputURL = root.appendingPathComponent("attach-action", isDirectory: false)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
         let fakeTmux = """
         #!/bin/sh
-        printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
-          "$TMUX" "$CMUX_LOCAL_TMUX" "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" \
-          > "$CMUX_TEST_OUTPUT"
+        printf '%s\\n' "$TMUX" "$CMUX_LOCAL_TMUX" "$@" > "$CMUX_TEST_OUTPUT"
+        eval "set -- $6"
+        printf '%s\\n' "$@" > "$CMUX_TEST_ACTION_OUTPUT"
         """
         try Data(fakeTmux.utf8).write(to: fakeTmuxURL)
         XCTAssertEqual(chmod(fakeTmuxURL.path, 0o755), 0)
@@ -91,6 +92,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_TEST_OUTPUT"] = outputURL.path
+        environment["CMUX_TEST_ACTION_OUTPUT"] = actionOutputURL.path
+        environment["TMUX"] = "inherited-tmux-must-be-cleared"
         let result = runProcess(
             executablePath: "/bin/bash",
             arguments: ["--noprofile", "--norc", "-c", "exec -l \(command)"],
@@ -101,8 +104,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         let invocation = try String(contentsOf: outputURL, encoding: .utf8)
-        XCTAssertTrue(invocation.hasPrefix("|1|-S|"), invocation)
-        XCTAssertTrue(invocation.contains("attach-session -t $7"), invocation)
+            .split(separator: "\n", omittingEmptySubsequences: false).dropLast().map(String.init)
+        XCTAssertEqual(Array(invocation.prefix(6)), [
+            "", "1", "-S", root.appendingPathComponent("server.sock").path, "if-shell", "-F",
+        ])
+        XCTAssertEqual(invocation.count, 9)
+        XCTAssertEqual(invocation.dropFirst(6).first, "#{==:#{@cmux_local_server_id},cccccccc-cccc-cccc-cccc-cccccccccccc}")
+        XCTAssertEqual(invocation.last, "run-shell false")
+        let action = try String(contentsOf: actionOutputURL, encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: false).dropLast().map(String.init)
+        XCTAssertEqual(action, ["attach-session", "-t", "$7"])
     }
 
     func testLocalTmuxClientListingUsesPopulatedTTYTarget() throws {
@@ -486,6 +497,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     ? [["id": firstWorkspaceID, "ref": "workspace:1"]]
                     : [["id": targetWorkspaceID, "ref": "workspace:2", "title": "target"]]
                 return self.v2Response(id: id, ok: true, result: ["workspaces": workspaces])
+            case "surface.list":
+                XCTAssertEqual(params["workspace_id"] as? String, targetWorkspaceID)
+                return self.v2Response(id: id, ok: true, result: ["surfaces": []])
             case "surface.create":
                 XCTAssertEqual(params["workspace_id"] as? String, targetWorkspaceID)
                 XCTAssertEqual(params["initial_command"] as? String, expectedCommand)

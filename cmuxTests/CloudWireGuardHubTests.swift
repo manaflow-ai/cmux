@@ -213,7 +213,7 @@ struct CloudWireGuardHubTests {
         #expect(first.ready == second.ready)
         #expect(first.ready.socketPath == h.socketPath)
         #expect(first.ready.routes == h.routes)
-        #expect(h.spawner.last?.arguments == ["wg", "hub", "--config", h.configPath, "--socket", h.socketPath])
+        #expect(h.spawner.last?.arguments == ["wg", "hub", "--config", h.configPath, "--socket", h.socketPath, "--exit-with-parent"])
         let status = await h.hub.status()
         #expect(status.running)
         #expect(status.leases == 2)

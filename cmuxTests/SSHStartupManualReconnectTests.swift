@@ -1,5 +1,6 @@
 import CmuxCore
 import CmuxFoundation
+import CmuxRemoteSession
 import Darwin
 import Foundation
 import Testing
@@ -48,10 +49,7 @@ struct SSHStartupManualReconnectTests {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        try Self.writeShellFile(at: fakeCLI, lines: [
-            "#!/bin/sh",
-            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_SESSION_END_LOG}\"",
-        ])
+        try Self.writeFakeSSHCLI(at: fakeCLI)
         try Self.writeShellFile(at: fakeSSH, lines: [
             "#!/bin/sh",
             "count=$(cat \"${CMUX_TEST_ATTEMPT_FILE}\" 2>/dev/null || printf 0)",
@@ -70,6 +68,8 @@ struct SSHStartupManualReconnectTests {
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_TEST_FAKE_SSH"] = fakeSSH.path
+        environment["CMUX_PERSISTENT_PTY_EXEC_HELPER"] = "/usr/bin/true"
         environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
         environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
@@ -106,7 +106,7 @@ struct SSHStartupManualReconnectTests {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        try Self.writeShellFile(at: fakeCLI, lines: ["#!/bin/sh", "exit 0"])
+        try Self.writeFakeSSHCLI(at: fakeCLI)
         try Self.writeShellFile(at: fakeSSH, lines: ["#!/bin/sh", "exit 7"])
         for executable in [fakeCLI, fakeSSH] {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
@@ -128,6 +128,8 @@ struct SSHStartupManualReconnectTests {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_TEST_FAKE_SSH"] = fakeSSH.path
+        environment["CMUX_PERSISTENT_PTY_EXEC_HELPER"] = "/usr/bin/true"
         environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
         environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
@@ -161,6 +163,9 @@ struct SSHStartupManualReconnectTests {
                 #expect(resetRange.lowerBound < closePrompt.lowerBound)
             }
         }
+        try prompt.standardInput.fileHandleForWriting.write(contentsOf: Data([0x0A]))
+        #expect(Self.waitForExit(prompt.process, timeout: 2), Comment(rawValue: transcript))
+        #expect(prompt.process.terminationStatus == 7, Comment(rawValue: transcript))
     }
 
     @Test func directSignalTerminatesPersistentAttachAuthenticationProcessTree() throws {
@@ -175,7 +180,7 @@ struct SSHStartupManualReconnectTests {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        try Self.writeShellFile(at: fakeCLI, lines: ["#!/bin/sh", "exit 0"])
+        try Self.writeFakeSSHCLI(at: fakeCLI)
         try Self.writeShellFile(at: fakeSSH, lines: [
             "#!/bin/sh",
             "trap '' HUP INT TERM",
@@ -192,6 +197,8 @@ struct SSHStartupManualReconnectTests {
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_TEST_FAKE_SSH"] = fakeSSH.path
+        environment["CMUX_PERSISTENT_PTY_EXEC_HELPER"] = "/usr/bin/true"
         environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
         environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
@@ -260,7 +267,7 @@ struct SSHStartupManualReconnectTests {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        try Self.writeShellFile(at: fakeCLI, lines: ["#!/bin/sh", "exit 0"])
+        try Self.writeFakeSSHCLI(at: fakeCLI)
         try Self.writeShellFile(at: fakeSSH, lines: [
             "#!/bin/sh",
             "trap 'exit 130' INT",
@@ -279,6 +286,8 @@ struct SSHStartupManualReconnectTests {
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_TEST_FAKE_SSH"] = fakeSSH.path
+        environment["CMUX_PERSISTENT_PTY_EXEC_HELPER"] = "/usr/bin/true"
         environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
         environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
@@ -339,7 +348,7 @@ struct SSHStartupManualReconnectTests {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        try Self.writeShellFile(at: fakeCLI, lines: ["#!/bin/sh", "exit 0"])
+        try Self.writeFakeSSHCLI(at: fakeCLI)
         try Self.writeShellFile(at: fakeSSH, lines: [
             "#!/bin/sh",
             "printf '%s\\n' 'ssh: connect to host boot-retry.example.test port 22: Network is unreachable' >&2",
@@ -359,6 +368,8 @@ struct SSHStartupManualReconnectTests {
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_TEST_FAKE_SSH"] = fakeSSH.path
+        environment["CMUX_PERSISTENT_PTY_EXEC_HELPER"] = "/usr/bin/true"
         environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
         environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
@@ -423,7 +434,7 @@ struct SSHStartupManualReconnectTests {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        try Self.writeShellFile(at: fakeCLI, lines: ["#!/bin/sh", "exit 0"])
+        try Self.writeFakeSSHCLI(at: fakeCLI)
         try Self.writeShellFile(at: fakeSSH, lines: [
             "#!/bin/sh",
             "count=$(cat \"${CMUX_TEST_ATTEMPT_FILE}\" 2>/dev/null || printf 0)",
@@ -445,6 +456,8 @@ struct SSHStartupManualReconnectTests {
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_TEST_FAKE_SSH"] = fakeSSH.path
+        environment["CMUX_PERSISTENT_PTY_EXEC_HELPER"] = "/usr/bin/true"
         environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
         environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
@@ -513,6 +526,8 @@ struct SSHStartupManualReconnectTests {
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_TEST_FAKE_SSH"] = fakeSSH.path
+        environment["CMUX_PERSISTENT_PTY_EXEC_HELPER"] = "/usr/bin/true"
         environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
         environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
@@ -588,7 +603,7 @@ struct SSHStartupManualReconnectTests {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        try Self.writeShellFile(at: fakeCLI, lines: ["#!/bin/sh", "exit 0"])
+        try Self.writeFakeSSHCLI(at: fakeCLI)
         try Self.writeShellFile(at: fakeSSH, lines: [
             "#!/bin/sh",
             "count=$(cat \"${CMUX_TEST_ATTEMPT_FILE}\" 2>/dev/null || printf 0)",
@@ -608,6 +623,8 @@ struct SSHStartupManualReconnectTests {
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_TEST_FAKE_SSH"] = fakeSSH.path
+        environment["CMUX_PERSISTENT_PTY_EXEC_HELPER"] = "/usr/bin/true"
         environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
         environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
@@ -686,15 +703,15 @@ struct SSHStartupManualReconnectTests {
         #expect(!workspace.isRemoteTerminalSurface(panel.id))
         #expect(workspace.remoteConnectionState == .connected)
 
-        workspace.reconnectRemoteConnection(surfaceId: panel.id)
+        #expect(!workspace.reconnectRemoteConnection(surfaceId: panel.id))
 
-        #expect(workspace.isRemoteTerminalSurface(panel.id))
-        #expect(!workspace.pendingRemoteTerminalChildExitSurfaceIds.contains(panel.id))
+        #expect(!workspace.isRemoteTerminalSurface(panel.id))
+        #expect(workspace.pendingRemoteTerminalChildExitSurfaceIds.contains(panel.id))
         #expect(workspace.remoteConnectionState == .connected)
     }
 
     @MainActor
-    @Test func reconnectingConfirmedSurfaceStartsANewLivenessGeneration() throws {
+    @Test func reconnectingConfirmedSurfaceStartsANewLivenessGeneration() async throws {
         let workspace = Workspace()
         defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
         let configuration = Self.makeRemoteConfiguration()
@@ -711,6 +728,10 @@ struct SSHStartupManualReconnectTests {
                 relayPort: configuration.relayPort
             )
         )
+        // The injected runner supplies a real coordinator but intentionally
+        // fails its network operation; model the already-ready owner boundary
+        // before exercising generation replacement.
+        workspace.remoteControllerConnectionState = .connected
         #expect(workspace.hasAuthoritativelyConnectedRemoteTerminal)
 
         #expect(workspace.reconnectRemoteConnection(surfaceId: panelId))
@@ -729,11 +750,14 @@ struct SSHStartupManualReconnectTests {
     }
 
     @MainActor
-    @Test func workspaceReconnectKeepsHealthyConnectedTerminal() throws {
+    @Test func workspaceReconnectKeepsHealthyConnectedTerminal() async throws {
         let workspace = Workspace()
         defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
         let configuration = Self.makeRemoteConfiguration()
-        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        #expect(workspace.configureRemoteConnection(configuration, autoConnect: true))
+        let transition = try #require(workspace.remoteSessionTransitionTask)
+        await transition.value
+        try #require(workspace.remoteSessionController)
         workspace.applyRemoteConnectionStateUpdate(
             .connected,
             detail: "Connected controller",
@@ -769,6 +793,9 @@ struct SSHStartupManualReconnectTests {
             detail: "Reconnecting to cmux-macmini via shared local proxy 127.0.0.1:64007",
             target: "cmux-macmini"
         )
+        // Preserve the controller-ready fact while the published connection
+        // state presents an in-flight reconnect.
+        workspace.remoteControllerConnectionState = .connected
 
         let panel = try #require(workspace.newTerminalSurfaceInFocusedPane(focus: false))
         workspace.untrackRemoteTerminalSurface(panel.id)
@@ -907,6 +934,23 @@ struct SSHStartupManualReconnectTests {
         try lines.joined(separator: "\n")
             .appending("\n")
             .write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    /// The persistent PTY launcher now delegates attach requests through the
+    /// bundled CLI. Keep these shell fixtures transport-focused by routing that
+    /// delegation to the fake SSH executable while retaining lifecycle logging
+    /// for the other CLI calls.
+    private static func writeFakeSSHCLI(at url: URL) throws {
+        try writeShellFile(at: url, lines: [
+            "#!/bin/sh",
+            "for arg in \"$@\"; do",
+            "  if [ \"$arg\" = \"ssh-pty-attach\" ]; then",
+            "    exec \"$CMUX_TEST_FAKE_SSH\"",
+            "  fi",
+            "done",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_SESSION_END_LOG:-/dev/null}\"",
+            "exit 0",
+        ])
     }
 
     private static func waitForFile(
@@ -1066,5 +1110,14 @@ struct SSHStartupManualReconnectTests {
 
     static func testError(_ message: String) -> NSError {
         NSError(domain: "cmux.tests", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+}
+
+private struct SSHStartupImmediateFailureRunner: RemoteSessionProcessRunning, Sendable {
+    func run(
+        _: RemoteProcessRequest,
+        operation _: (any RemoteTransferCancelling)?
+    ) throws -> RemoteCommandResult {
+        RemoteCommandResult(status: 1, stdout: "", stderr: "intentional reconnect-test stop")
     }
 }

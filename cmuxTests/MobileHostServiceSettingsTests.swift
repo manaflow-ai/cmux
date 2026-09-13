@@ -376,6 +376,7 @@ struct MobileHostTransportRouteCompositionTests {
     @Test func irohBindingLifecycleDoesNotRemoveTailscaleRoute() throws {
         defer { MobileHostPublicStatusCache.removeAll() }
         MobileHostPublicStatusCache.removeAll()
+        let hintObservedAt = Date().timeIntervalSinceReferenceDate
         let binding = try JSONDecoder().decode(
             CmxIrohBrokerBinding.self,
             from: Data(
@@ -395,7 +396,9 @@ struct MobileHostTransportRouteCompositionTests {
                     "kind":"relay_url",
                     "value":"https://relay.example.com/",
                     "source":"native",
-                    "privacy_scope":"public_internet"
+                    "privacy_scope":"public_internet",
+                    "observed_at":\(hintObservedAt),
+                    "expires_at":\(hintObservedAt + 300)
                   }],
                   "last_seen_at":"2026-07-09T12:00:00.000Z"
                 }

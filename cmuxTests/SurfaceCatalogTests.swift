@@ -315,7 +315,9 @@ struct SurfaceCatalogTests {
             info: provider.info
         )
 
-        #expect(catalog.snapshot.resources(on: machine).first { $0.id.key == "term_one" }?.title == "new")
+        let renamed = try #require(catalog.snapshot.resources(on: machine).first { $0.id.key == "term_one" })
+        #expect(renamed.title == "old")
+        #expect(renamed.remoteViews?.first { $0.tabID == "tab_one" }?.name == "new")
         #expect(catalog.snapshot.resources(on: machine).contains(termTwo))
         #expect(catalog.snapshot.resources(on: machine).contains(port))
         #expect(catalog.cloudStates[machine]?.cursor == CloudVMCursor(generation: "g1", revision: 2))
@@ -360,7 +362,7 @@ struct SurfaceCatalogTests {
         catalog.register(provider)
         let snapshot: [String: Any] = [
             "cursor": ["generation": "g1", "revision": "1"],
-            "workspaces": [["id": "ws", "name": "canonical"]],
+            "workspaces": [["id": "ws", "name": "canonical", "focused": true]],
             "screens": [],
             "panes": [],
             "tabs": [],
@@ -385,6 +387,34 @@ struct SurfaceCatalogTests {
         #expect(catalog.machines[machine]?.remoteWorkspaces == [
             SurfaceRemoteWorkspace(id: "ws", name: "canonical", index: 0, focused: true),
         ])
+
+        let created = SurfaceRemoteWorkspace(id: "created", name: "new", index: 1, focused: false)
+        var createdInfo = staleInfo
+        createdInfo.remoteWorkspaces?.append(created)
+        catalog.updateMachine(createdInfo, from: provider, createdRemoteWorkspaceID: created.id)
+        #expect(catalog.machines[machine]?.remoteWorkspaces?.map(\.id) == ["ws", "created"])
+
+        // A pre-create status response must not erase the committed receipt or
+        // its payload while the daemon graph still trails the create response.
+        catalog.updateMachine(staleInfo, from: provider)
+        #expect(catalog.machines[machine]?.remoteWorkspaces?.last == created)
+        catalog.replaceCloudState(state, resources: [], info: staleInfo)
+        #expect(catalog.machines[machine]?.remoteWorkspaces?.last == created)
+
+        var acknowledgedSnapshot = snapshot
+        acknowledgedSnapshot["cursor"] = ["generation": "g1", "revision": "2"]
+        acknowledgedSnapshot["workspaces"] = [
+            ["id": "ws", "name": "canonical", "focused": true],
+            ["id": "created", "name": "new", "focused": false],
+        ]
+        let acknowledged = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: acknowledgedSnapshot, machine: machine))
+        catalog.replaceCloudState(acknowledged, resources: [], info: createdInfo)
+        var removedSnapshot = snapshot
+        removedSnapshot["cursor"] = ["generation": "g1", "revision": "3"]
+        let removed = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: removedSnapshot, machine: machine))
+        catalog.replaceCloudState(removed, resources: [], info: createdInfo)
+        catalog.updateMachine(createdInfo, from: provider)
+        #expect(catalog.machines[machine]?.remoteWorkspaces?.map(\.id) == ["ws"])
     }
 
     @Test func `Resource ID round trips through the wire form`() {

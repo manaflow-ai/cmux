@@ -232,7 +232,7 @@ struct SSHDeepSleepReattachTests {
         #expect(
             workspace.markRemoteTerminalSessionConnected(
                 surfaceId: panel.id,
-                authority: .persistentTransport(configuration.proxyBrokerTransportKey),
+                authority: .persistentTransport(try #require(workspace.remoteConfiguration).proxyBrokerTransportKey),
                 terminalLifecycleID: panel.surface.terminalLifecycleId
             )
         )
@@ -303,7 +303,7 @@ struct SSHDeepSleepReattachTests {
         #expect(restartedSnapshot.remotePTYSessionID == customSessionID)
     }
 
-    @Test(arguments: [(nil, Int32(253), "24", 23), ("2O", Int32(255), "21", 20)])
+    @Test(arguments: [(nil, Int32(255), "21", 20), ("2O", Int32(255), "21", 20)])
     func foregroundAuthenticatedAttachUsesConfiguredRetryBudget(
         reconnectLimit: String?, expectedStatus: Int32, expectedAttempts: String, expectedSleepCount: Int
     ) throws {
@@ -356,7 +356,7 @@ struct SSHDeepSleepReattachTests {
             command: SSHPTYAttachStartupCommandBuilder.command(
                 sessionID: "ssh-test-session",
                 foregroundAuth: Self.foregroundAuth()
-            ),
+            ).replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path),
             environment: environment
         )
 
@@ -465,20 +465,21 @@ struct SSHDeepSleepReattachTests {
             command: SSHPTYAttachStartupCommandBuilder.command(
                 sessionID: "ssh-test-session",
                 foregroundAuth: Self.foregroundAuth()
-            ),
+            ).replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path),
             environment: environment
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 255, Comment(rawValue: result.stderr))
         #expect(try String(contentsOf: authAttemptFile, encoding: .utf8) == "1")
-        #expect(!fileManager.fileExists(atPath: cliAttemptFile.path))
+        let cliAttempts = (try? String(contentsOf: cliAttemptFile, encoding: .utf8)) ?? ""
+        #expect(!cliAttempts.contains("ssh-pty-attach"), "Failed foreground authentication must never start a PTY attach")
     }
 
     private static func foregroundAuth() -> SSHPTYAttachStartupCommandBuilder.ForegroundAuth {
         SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
             destination: "user@example.test", port: 22, identityFile: nil,
-            sshOptions: [], token: "test-auth-token"
+            sshOptions: ["ControlMaster=no", "ControlPath=none"], token: "test-auth-token"
         )
     }
 

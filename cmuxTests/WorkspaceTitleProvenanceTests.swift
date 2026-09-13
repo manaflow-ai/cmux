@@ -12,7 +12,7 @@ import Testing
 /// must round-trip through session snapshots (with legacy snapshots that
 /// predate provenance decoding as user-owned).
 @MainActor
-@Suite struct WorkspaceTitleProvenanceTests {
+@Suite(.serialized) struct WorkspaceTitleProvenanceTests {
 
     // MARK: - Workspace titles
 
@@ -161,6 +161,9 @@ import Testing
             url: nil
         )
         let catalog = SurfaceCatalog.shared
+        let provider = try CloudCatalogQueryTestProvider(machine: machine, catalog: catalog)
+        catalog.register(provider)
+        defer { catalog.unregister(machine: machine) }
         catalog.upsert(remote)
         catalog.record(SurfaceProjection(
             resource: remote.id,

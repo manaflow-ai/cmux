@@ -207,7 +207,11 @@ struct RendererRealizationPlannerTests {
         // reclaim batch, so the earliest timestamp cannot fan back out into an
         // app-wide evaluation before the batch's latest timestamp is eligible.
         await harness.advance(by: 4.984)
-        #expect(await harness.sleeper.isSleeping(for: 0.012))
+        // Wait for the exact coalesced deadline to be installed before moving
+        // the virtual clock. This observes scheduler readiness instead of
+        // relying on a task-yield race between the evaluation callback and
+        // deadline creation.
+        await harness.sleeper.waitUntilSleeping(for: 0.012)
         #expect(harness.surfaces.reduce(0) { $0 + $1.releaseCount } == 0)
 
         await harness.advance(by: 0.012)
