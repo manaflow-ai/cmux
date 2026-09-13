@@ -62,6 +62,9 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     }
 
     private func handle(_ event: NSEvent) -> Bool {
+        // Native row controls own their keys; Return must not also toggle the group.
+        if let control = window?.firstResponder as? NSControl,
+           control !== self, control.isDescendant(of: self) { return false }
         if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event) {
             _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
                 mode: mode,

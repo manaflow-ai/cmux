@@ -14,6 +14,9 @@ final class CloudTreeCellView: NSTableCellView {
     private var buttonsLeadingConstraint: NSLayoutConstraint?
     private var buttonsTopConstraint: NSLayoutConstraint?
     private var buttonsCenterConstraint: NSLayoutConstraint?
+    private var vpnHelp: CloudVPNWarningButton?
+    private var vpnCallout: CloudPortsVPNEmptyStateContent?
+    private var vpnHelpConstraint: NSLayoutConstraint?
     private var trackingArea: NSTrackingArea?
     private var hovered = false {
         didSet { buttonsHost?.alphaValue = hovered ? 1 : 0 }
@@ -68,17 +71,33 @@ final class CloudTreeCellView: NSTableCellView {
             cmuxDebugLog("cloudTree.cell.configure unread terminal=\(row.resource.id.key.suffix(4)) node=\(node.id.suffix(12))")
         }
         #endif
+        let showsCallout = showsCloudVPNWarning && node.isPortsEmptyPlaceholder
+        let showsHelp = showsCloudVPNWarning && node.isPortsGroup
+        displayHost.isHidden = showsCallout
         displayHost.rootView = AnyView(
-            CloudTreeRowContentView(kind: node.kind, style: style, showsCloudVPNWarning: showsCloudVPNWarning)
+            CloudTreeRowContentView(kind: node.kind, style: style)
                 .frame(maxWidth: .infinity, alignment: .leading)
         )
+        if showsCallout {
+            let callout = vpnCallout ?? makeVPNCallout()
+            callout.isHidden = false
+            callout.configure(style: style, setup: machineActions.setupVPN)
+        } else { vpnCallout?.isHidden = true }
+        if showsHelp {
+            let help = vpnHelp ?? makeVPNHelp()
+            help.isHidden = false
+            help.setup = machineActions.setupVPN
+        } else {
+            vpnHelp?.isHidden = true
+        }
+        vpnHelpConstraint?.isActive = showsHelp
         // An in-place row reload reuses this cell; the new content can be wider
         // than the last fitting size, so ask AppKit to re-measure the host.
         displayHost.invalidateIntrinsicContentSize()
         needsLayout = true
-        if CloudTreeRowHoverButtons.hasButtons(for: node.kind, showsCloudVPNWarning: showsCloudVPNWarning) {
+        if CloudTreeRowHoverButtons.hasButtons(for: node.kind) {
             let buttons = buttonsHost ?? makeButtonsHost()
-            buttons.rootView = AnyView(CloudTreeRowHoverButtons(kind: node.kind, machineActions: machineActions, nodeActions: nodeActions, showsCloudVPNWarning: showsCloudVPNWarning))
+            buttons.rootView = AnyView(CloudTreeRowHoverButtons(kind: node.kind, machineActions: machineActions, nodeActions: nodeActions))
             buttons.isHidden = false
             buttons.alphaValue = hovered ? 1 : 0
             buttonsLeadingConstraint?.isActive = true
@@ -101,15 +120,13 @@ final class CloudTreeCellView: NSTableCellView {
             toolTip = row.name
         } else if showsCloudVPNWarning, case .portsGroup = node.kind {
             toolTip = CloudPortsVPNWarning.projection(tunnelState: .off)?.help
-        } else if showsCloudVPNWarning, case .display = node.kind {
-            toolTip = CloudPortsVPNWarning.projection(tunnelState: .off)?.help
         } else {
             toolTip = nil
         }
         if case .machine(let machine, _) = node.kind {
             setAccessibilityLabel(CloudTreeMachineRowContent(machine: machine).accessibilityLabel)
         } else {
-            setAccessibilityLabel(node.searchableTitle)
+            setAccessibilityLabel(showsCallout ? CloudPortsVPNWarning().setupTitle : node.searchableTitle)
         }
     }
 
@@ -133,6 +150,35 @@ final class CloudTreeCellView: NSTableCellView {
         buttonsCenterConstraint = center
         buttonsHost = host
         return host
+    }
+
+    private func makeVPNHelp() -> CloudVPNWarningButton {
+        let help = CloudVPNWarningButton(frame: .zero)
+        help.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(help)
+        NSLayoutConstraint.activate([
+            help.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -CloudTreeRowGrid.trailingPadding),
+            help.centerYAnchor.constraint(equalTo: centerYAnchor),
+            help.heightAnchor.constraint(equalToConstant: 24),
+            help.widthAnchor.constraint(greaterThanOrEqualToConstant: 28)
+        ])
+        vpnHelpConstraint = displayHost.trailingAnchor.constraint(lessThanOrEqualTo: help.leadingAnchor, constant: -4)
+        vpnHelp = help
+        return help
+    }
+
+    private func makeVPNCallout() -> CloudPortsVPNEmptyStateContent {
+        let callout = CloudPortsVPNEmptyStateContent(frame: .zero)
+        callout.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(callout)
+        NSLayoutConstraint.activate([
+            callout.leadingAnchor.constraint(equalTo: displayHost.leadingAnchor),
+            callout.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -CloudTreeRowGrid.trailingPadding),
+            callout.topAnchor.constraint(equalTo: topAnchor),
+            callout.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+        vpnCallout = callout
+        return callout
     }
 
     override func updateTrackingAreas() {

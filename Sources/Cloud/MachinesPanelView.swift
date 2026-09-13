@@ -81,51 +81,10 @@ struct MachinesPanelView: View {
     @ViewBuilder
     private var authenticatedContent: some View {
         controlBar
-        if tunnelStatus.status?.state != .up {
-            Button {
-                openCloudVPNSetup()
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "network")
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(tunnelStatus.status?.state == .up
-                            ? String(localized: "cloud.vpn.setup.title", defaultValue: "Cloud VPN")
-                            : String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…"))
-                            .cmuxFont(size: 12, weight: .medium)
-                        Text(String(localized: "cloud.vpn.setup.entry.subtitle", defaultValue: "Optional private IP access for other apps"))
-                            .cmuxFont(size: 11)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right").font(.system(size: 10))
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("CloudVPNSetupEntryButton")
-        }
-        if let banner = tunnelStatus.banner, banner.showsInMachinesPanel,
-           !bannerDismissals.isDismissed(id: "machines.tunnel", signature: banner.dismissalSignature) {
-            MachinesTunnelBanner(banner: banner, backgroundColor: chromeBackgroundColor) {
-                SystemExtensionSettingsLink.open()
-            } onDismiss: {
-                bannerDismissals.dismiss(id: "machines.tunnel", signature: banner.dismissalSignature)
-            }
-        }
-        if let plan = viewModel.plan, !plan.isPaidPlan, let text = plan.freeAccessBannerText,
-           !bannerDismissals.isDismissed(id: "machines.free-access", signature: plan.freeAccessBanner.dismissalSignature) {
-            MachinesFreeAccessBanner(
-                text: text,
-                isExpired: plan.freeAccessBanner == .expired,
-                windowDays: plan.freeAccessWindowDays,
-                backgroundColor: chromeBackgroundColor,
-                onDismiss: {
-                    bannerDismissals.dismiss(id: "machines.free-access", signature: plan.freeAccessBanner.dismissalSignature)
-                }
-            )
-        }
+        MachinesPanelBanners(
+            tunnelBanner: tunnelStatus.banner, plan: viewModel.plan,
+            bannerDismissals: bannerDismissals, chromeBackgroundColor: chromeBackgroundColor
+        )
         content
     }
     /// Clears the tunnel banner and opens the Cloud VPN setup flow.
@@ -512,7 +471,7 @@ struct MachinesPanelView: View {
             expansionStore: expansionStore,
             style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
             onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) },
-            showsCloudVPNWarning: CloudPortsVPNWarning.projection(tunnelState: tunnelStatus.status?.state) != nil
+            showsCloudVPNWarning: CloudPortsVPNWarning.projection(status: tunnelStatus.status) != nil
         )
         .accessibilityIdentifier("CloudMachinesTree")
     }

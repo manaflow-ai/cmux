@@ -5,6 +5,16 @@ import CmuxCloudBannerCore
 typealias CloudPortsVPNWarning = CmuxCloudBannerCore.CloudPortsVPNWarning
 
 extension CloudPortsVPNWarning {
+    /// Only a supported, explicitly off system VPN offers setup in the tree.
+    static func projection(status: CloudTunnelStatus?) -> Self? {
+        guard let status, status.backend.isNetworkExtension else { return nil }
+        return projection(tunnelState: status.state)
+    }
+
+    var setupTitle: String {
+        String(localized: "cloud.ports.vpnOff.configure", defaultValue: "Configure cmux VPN")
+    }
+
     /// Localized title shown beside the Cloud Ports group.
     var title: String {
         String(localized: "cloud.ports.vpnOff.title", defaultValue: "Cloud VPN is off")
@@ -12,9 +22,14 @@ extension CloudPortsVPNWarning {
 
     /// Localized explanation of optional system-wide VPN access.
     var help: String {
+        "\(setupTitle)\n\(explanation)"
+    }
+
+    /// Localized explanation shown in the Ports empty state and detail popover.
+    var explanation: String {
         String(
-            localized: "cloud.vpn.setup.howItWorks.body",
-            defaultValue: "Connect Safari, Chrome, and other apps to your Cloud machines. Each machine keeps its private IP address and original ports. Only traffic to your Cloud network uses this encrypted connection. cmux terminals, Ports, and Desktop work without it."
+            localized: "cloud.ports.vpnOff.explanation",
+            defaultValue: "cmux’s in-app forwarding works without a system VPN. Cloud VPN lets Safari, Chrome, and other apps open private VM ports."
         )
     }
 

@@ -61,6 +61,21 @@ struct CloudSidebarSurfaceRegressionTests {
         if link == .error { #expect(value.style == .error) }
     }
 
+    @Test("VPN guidance attaches only to the successful empty Ports projection")
+    func vpnGuidanceTargetsSuccessfulEmptyState() throws {
+        let empty = try #require(nodes(link: .connected, desktop: false).first {
+            if case .placeholder = $0.kind { return $0.id.hasSuffix("/ports/status") }
+            return false
+        })
+        #expect(empty.isPortsEmptyPlaceholder)
+
+        let failed = try #require(nodes(link: .error, desktop: false).first {
+            if case .placeholder = $0.kind { return $0.id.hasSuffix("/ports/status") }
+            return false
+        })
+        #expect(!failed.isPortsEmptyPlaceholder)
+    }
+
     @Test("Shell-only machines do not invent a desktop")
     func noDesktopForBaseMachine() {
         #expect(!nodes(link: .connected, desktop: false).contains {
