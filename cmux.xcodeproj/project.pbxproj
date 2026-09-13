@@ -1006,6 +1006,7 @@
 		B9000046A1B2C3D4E5F60719 /* CMUXCLI+ExecutableResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000047A1B2C3D4E5F60719 /* CMUXCLI+ExecutableResolution.swift */; };
 		112950000000000000000008 /* CMUXCLI+Fork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112950000000000000000007 /* CMUXCLI+Fork.swift */; };
 		11295000000000000000000A /* CMUXCLI+ForkExecution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112950000000000000000009 /* CMUXCLI+ForkExecution.swift */; };
+		E8A71B06D1AC4C14AB090101 /* CMUXCLI+Guide.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8A71B06D1AC4C14AB090102 /* CMUXCLI+Guide.swift */; };
 		B9000061A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000060A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift */; };
 		B9000052A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000053A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift */; };
 		C51A75000000000000000001 /* CMUXCLI+JSONOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A75000000000000000002 /* CMUXCLI+JSONOutput.swift */; };
@@ -4709,6 +4710,7 @@
 		B9000047A1B2C3D4E5F60719 /* CMUXCLI+ExecutableResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ExecutableResolution.swift"; sourceTree = "<group>"; };
 		112950000000000000000007 /* CMUXCLI+Fork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Fork.swift"; sourceTree = "<group>"; };
 		112950000000000000000009 /* CMUXCLI+ForkExecution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ForkExecution.swift"; sourceTree = "<group>"; };
+		E8A71B06D1AC4C14AB090102 /* CMUXCLI+Guide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Guide.swift"; sourceTree = "<group>"; };
 		B9000060A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+HermesAgentHooks.swift"; sourceTree = "<group>"; };
 		B9000053A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+InstallPreview.swift"; sourceTree = "<group>"; };
 		C51A75000000000000000002 /* CMUXCLI+JSONOutput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+JSONOutput.swift"; sourceTree = "<group>"; };
@@ -10000,6 +10002,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C51A73000000000000000010 /* CMUXCLI+SimulatorInput.swift */,
 				C51A73000000000000000012 /* CMUXCLI+SimulatorSettings.swift */,
 				B9000031A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift */,
+				E8A71B06D1AC4C14AB090102 /* CMUXCLI+Guide.swift */,
 				B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */,
 				B90000D1A1B2C3D4E5F60719 /* CMUXCLI+CommandSuggestions.swift */,
 				112950000000000000000005 /* CMUXCLI+ContinuationSupport.swift */,
@@ -14021,6 +14024,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B9000046A1B2C3D4E5F60719 /* CMUXCLI+ExecutableResolution.swift in Sources */,
 				112950000000000000000008 /* CMUXCLI+Fork.swift in Sources */,
 				11295000000000000000000A /* CMUXCLI+ForkExecution.swift in Sources */,
+				E8A71B06D1AC4C14AB090101 /* CMUXCLI+Guide.swift in Sources */,
 				B9000061A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift in Sources */,
 				B9000052A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift in Sources */,
 				C51A75000000000000000001 /* CMUXCLI+JSONOutput.swift in Sources */,
