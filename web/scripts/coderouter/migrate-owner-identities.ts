@@ -1,5 +1,5 @@
 import { decryptCredential } from "../../services/coderouter/encryption";
-import { withCodexOwner } from "../../services/coderouter/codexIdentity";
+import { needsCodexOwnerMigration, withCodexOwner } from "../../services/coderouter/codexIdentity";
 import { bindCodexOwnerIdentity, listAccounts, listCoderouterTeamIds, listEncryptedCredentials } from "../../services/coderouter/repository";
 import { closeCloudDbForTests } from "../../db/client";
 import { Signer } from "@aws-sdk/rds-signer";
@@ -41,7 +41,7 @@ try {
         const identified = withCodexOwner(credential);
         const account = byId.get(envelope.accountId);
         if (!account || account.providerAccountId !== credential.accountId) throw new Error("workspace mismatch");
-        if (account.providerUserId === identified.userId) continue;
+        if (!needsCodexOwnerMigration(account, identified)) continue;
         pending++;
         if (!apply) continue;
         const changed = await bindCodexOwnerIdentity({ teamId, accountId: envelope.accountId, expectedKey: credential.accountId, expectedRevision: envelope.credentialRevision, credential: identified });

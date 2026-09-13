@@ -1,4 +1,4 @@
-import type { CodeRouterCredential, CodexCredential } from "./types";
+import type { CodeRouterAccountSummary, CodeRouterCredential, CodexCredential } from "./types";
 
 export type CodexOwner = { readonly userId: string; readonly workspaceId: string };
 const AUTH_CLAIM = "https://api.openai.com/auth";
@@ -75,7 +75,15 @@ function claimValues(claims: readonly Record<string, unknown>[], names: readonly
 }
 
 function validID(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0 && value.length <= 512 && value.trim() === value && !/[\u0000-\u0020\u007f]/.test(value);
+  return typeof value === "string" && value.length > 0 && value.length <= 512 && value.trim() === value && [...value].every(character => character.charCodeAt(0) > 0x20 && character.charCodeAt(0) !== 0x7f);
+}
+
+export function needsCodexOwnerMigration(account: Pick<CodeRouterAccountSummary, "providerAccountId" | "providerUserId">, credential: CodexCredential): boolean {
+  const owner = codexOwner(credential);
+  if (account.providerAccountId !== owner.workspaceId) throw new CodexOwnerMismatch();
+  if (account.providerUserId === undefined) return true;
+  if (account.providerUserId !== owner.userId) throw new CodexOwnerMismatch();
+  return false;
 }
 
 function jwtClaims(token: string): Record<string, unknown> {
