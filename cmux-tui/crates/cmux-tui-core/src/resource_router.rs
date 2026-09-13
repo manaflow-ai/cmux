@@ -915,7 +915,7 @@ fn browser_download_list(
         Some(crate::BrowserSource::Provider) if guest_daemon => ("vm", "vm"),
         Some(crate::BrowserSource::Provider) => ("provider", "provider"),
         Some(crate::BrowserSource::External) => ("external", "external"),
-        Some(crate::BrowserSource::Launched) => ("provider", "provider"),
+        Some(crate::BrowserSource::Launched) => ("local", "local"),
         None => ("unknown", "unknown"),
     };
     let limit = request.fields.get("limit").and_then(Value::as_u64).unwrap_or(25) as usize;

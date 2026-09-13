@@ -2164,6 +2164,7 @@
       "values": [
         "vm",
         "provider",
+        "local",
         "external",
         "unknown"
       ]
