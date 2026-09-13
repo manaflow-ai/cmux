@@ -174,6 +174,13 @@ public protocol ControlWorkspaceContext: AnyObject {
     /// - Returns: The navigation resolution.
     func controlSelectLastWorkspace(routing: ControlRoutingSelectors) -> ControlWorkspaceNavigationResolution
 
+    /// Navigates forward in workspace history for `workspace.last_forward`.
+    ///
+    /// - Parameter routing: The routing selectors used for TabManager
+    ///   resolution.
+    /// - Returns: The navigation resolution.
+    func controlSelectLastForwardWorkspace(routing: ControlRoutingSelectors) -> ControlWorkspaceNavigationResolution
+
     /// Equalizes splits for `workspace.equalize_splits`.
     ///
     /// - Parameters:

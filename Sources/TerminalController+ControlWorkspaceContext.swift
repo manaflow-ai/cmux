@@ -371,6 +371,21 @@ extension TerminalController: ControlWorkspaceContext {
         return .resolved(workspaceID: after, windowID: windowId)
     }
 
+    func controlSelectLastForwardWorkspace(routing: ControlRoutingSelectors) -> ControlWorkspaceNavigationResolution {
+        guard let tabManager = resolveTabManager(routing: routing) else {
+            return .tabManagerUnavailable
+        }
+        guard let before = tabManager.selectedTabId else { return .notFound }
+        if let windowId = AppDelegate.shared?.windowId(for: tabManager) {
+            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+            setActiveTabManager(tabManager)
+        }
+        tabManager.navigateForward()
+        guard let after = tabManager.selectedTabId, after != before else { return .notFound }
+        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        return .resolved(workspaceID: after, windowID: windowId)
+    }
+
     // MARK: - Equalize
 
     func controlEqualizeWorkspaceSplits(
