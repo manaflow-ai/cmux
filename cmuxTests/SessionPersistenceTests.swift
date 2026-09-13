@@ -872,6 +872,34 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNil(resolved)
     }
 
+    func testWindowSetNameSurvivesSaveAndLoad() throws {
+        let snapshotURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("session-window-set-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: snapshotURL) }
+
+        var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        snapshot.windows[0].windowSetName = "Personal"
+        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+
+        let loaded = try XCTUnwrap(SessionPersistenceStore.load(fileURL: snapshotURL))
+        XCTAssertEqual(loaded.windows.first?.windowSetName, "Personal")
+    }
+
+    func testSnapshotWithoutWindowSetNameStillLoads() throws {
+        let snapshotURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("session-window-set-legacy-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: snapshotURL) }
+
+        XCTAssertTrue(SessionPersistenceStore.save(
+            makeSnapshot(version: SessionSnapshotSchema.currentVersion), fileURL: snapshotURL
+        ))
+        let json = try String(contentsOf: snapshotURL, encoding: .utf8)
+        XCTAssertFalse(json.contains("windowSetName"))
+
+        let loaded = try XCTUnwrap(SessionPersistenceStore.load(fileURL: snapshotURL))
+        XCTAssertNil(loaded.windows.first?.windowSetName)
+    }
+
     private func makeSnapshot(version: Int) -> AppSessionSnapshot {
         let workspace = SessionWorkspaceSnapshot(
             processTitle: "Terminal",
