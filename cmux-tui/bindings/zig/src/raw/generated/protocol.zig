@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "567d1717b69de4a77dde2b72bfea5dc25e89d84caee83502c24cf968f7ae299d";
+pub const ir_sha256 = "3e8a21a3080c830d3765698c21641715ff9592b480170c4c7e6a7a764d362543";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -1224,17 +1224,25 @@ pub const Tab = struct {
     };
 };
 
+pub const TerminalColorOverrides = struct {
+    bg: wire.Nullable(ColorHex),
+    cursor: wire.Nullable(ColorHex),
+    fg: wire.Nullable(ColorHex),
+};
+
 pub const TerminalColors = struct {
     bg: wire.Nullable(ColorHex),
     cursor: wire.Field(ColorHex) = .absent,
     cursor_blink: wire.Field(bool) = .absent,
     cursor_style: wire.Field(CursorStyle) = .absent,
     fg: wire.Nullable(ColorHex),
+    overrides: ?TerminalColorOverrides = null,
     palette: ?wire.Map(ColorHex) = null,
     selection_bg: wire.Nullable(ColorHex),
     selection_fg: wire.Nullable(ColorHex),
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "overrides",
         "palette",
     };
 };
@@ -4365,12 +4373,14 @@ pub const ColorsChangedEvent = struct {
     cursor_style: wire.Field(CursorStyle) = .absent,
     event: []const u8,
     fg: wire.Nullable(ColorHex),
+    overrides: ?TerminalColorOverrides = null,
     palette: ?wire.Map(ColorHex) = null,
     selection_bg: wire.Nullable(ColorHex),
     selection_fg: wire.Nullable(ColorHex),
     surface: ?Id = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "overrides",
         "palette",
         "surface",
     };
