@@ -74,7 +74,7 @@ describe("cmux-tui daemon source", () => {
     const both = { "cmux-tui-x86_64-unknown-linux-musl": SHA, "cmux-tui-hook-x86_64-unknown-linux-musl": HOOK_SHA };
     expect(() => parseCmuxTuiManifest(MANIFEST, { binaries: both })).toThrow(/commit/);
     expect(() => parseCmuxTuiManifest(MANIFEST, { commit: COMMIT, binaries: { "cmux-tui-x86_64-unknown-linux-gnu": SHA, "cmux-tui-hook-x86_64-unknown-linux-musl": HOOK_SHA } })).toThrow(/musl/);
-    expect(() => parseCmuxTuiManifest(MANIFEST, { commit: COMMIT, binaries: { "cmux-tui-x86_64-unknown-linux-musl": SHA } })).toThrow(/agent hooks are unavailable/);
+    expect(() => parseCmuxTuiManifest(MANIFEST, { commit: COMMIT, binaries: { "cmux-tui-x86_64-unknown-linux-musl": SHA } })).toThrow(/vm_artifact_unavailable/);
     expect(() => parseCmuxTuiManifest(MANIFEST, "nonsense")).toThrow();
   });
 

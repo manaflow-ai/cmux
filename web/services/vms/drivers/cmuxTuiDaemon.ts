@@ -2,6 +2,7 @@ import { dirname } from "node:path";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../images/workUser";
 import {
   ProviderError,
+  ProviderArtifactUnavailableError,
   type CmuxRemoteEndpoint,
   type ExecResult,
   type ProviderId,
@@ -170,7 +171,7 @@ export function parseCmuxTuiManifest(
     throw new ProviderError(provider, `cmux-tui manifest at ${manifestUrl} has no ${CMUX_TUI_LINUX_TARGET} sha256 — publish artifacts from a main with the musl target`);
   }
   if (!/^[0-9a-f]{64}$/.test(hookSha256)) {
-    throw new ProviderError(provider, "Cloud VM agent hooks are unavailable in this image");
+    throw new ProviderArtifactUnavailableError(provider, { manifestUrl, target: CMUX_TUI_HOOK_LINUX_TARGET });
   }
   const base = manifestUrl.replace(/\/manifest\.json$/, "");
   return {
