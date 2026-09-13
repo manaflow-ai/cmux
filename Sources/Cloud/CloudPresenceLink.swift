@@ -15,13 +15,12 @@ final class CloudPresenceLink {
         case disconnected
     }
 
-    /// Updates faster than this are dropped on the sender; the daemon also
-    /// caps at 240/s and the event bus coalesces per client, so a dropped
-    /// move is replaced by the next one within a frame.
+    /// A burst sends its first update immediately and its newest pending
+    /// update at the next interval, including when the mouse then stops.
     static let minimumPublishInterval: TimeInterval = 1.0 / 30.0
 
     let machineID: String
-    let socketPath: String
+    private(set) var socketPath: String
     private(set) var phase: Phase = .connecting
     private(set) var serverSupportsPresence = false
 
@@ -31,9 +30,11 @@ final class CloudPresenceLink {
     private var connectTask: Task<Void, Never>?
     private var eventTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
+    private var pendingPublishTask: Task<Void, Never>?
     private var nextRequestID: UInt64 = 1
     private var identifyRequestID: UInt64 = 0
     private var listClientsRequestID: UInt64 = 0
+    private var subscribeRequestID: UInt64 = 0
     private var selfClientID: UInt64?
     private var reconnectAttempt = 0
     private var stopping = false
@@ -64,6 +65,7 @@ final class CloudPresenceLink {
         guard !stopping else { return }
         phase = .connecting
         selfClientID = nil
+        subscribeRequestID = 0
         lastSentPresence = nil
         lastPublish = 0
         connectTask = Task { @MainActor [weak self] in
@@ -105,6 +107,8 @@ final class CloudPresenceLink {
         eventTask?.cancel()
         reconnectTask?.cancel()
         reconnectTask = nil
+        pendingPublishTask?.cancel()
+        pendingPublishTask = nil
         desiredPresence = nil
         if phase == .ready, let connection, lastSentPresence != nil {
             connection.send(commandBuilder.presenceClear(requestID: takeRequestID()))
@@ -118,6 +122,7 @@ final class CloudPresenceLink {
     /// Publishes a pointer and highlight, or a pointer-less state when the
     /// mouse left the pane. Identical repeats are dropped.
     func publish(surfaceID: UInt64, pointer: CloudPresenceAnchor?, highlight: CloudPresenceHighlight?) {
+        guard surfaceID > 0 else { return }
         desiredPresence = (surfaceID, pointer, highlight)
         guard phase == .ready, serverSupportsPresence, let connection else { return }
         let now = Date().timeIntervalSinceReferenceDate
@@ -129,7 +134,12 @@ final class CloudPresenceLink {
            !settled {
             return
         }
-        if !settled, now - lastPublish < Self.minimumPublishInterval { return }
+        if !settled, now - lastPublish < Self.minimumPublishInterval {
+            schedulePendingPublish(now: now)
+            return
+        }
+        pendingPublishTask?.cancel()
+        pendingPublishTask = nil
         sendPresence(
             surfaceID: surfaceID,
             pointer: pointer,
@@ -142,10 +152,37 @@ final class CloudPresenceLink {
 
     func clear() {
         desiredPresence = nil
+        pendingPublishTask?.cancel()
+        pendingPublishTask = nil
         guard phase == .ready, serverSupportsPresence, let connection else { return }
         guard lastSentPresence != nil else { return }
         lastSentPresence = nil
         connection.send(commandBuilder.presenceClear(requestID: takeRequestID()))
+    }
+
+    /// Carrier replacement keeps the desired presence while retiring the
+    /// old stream. The subscription acknowledgement publishes it again.
+    func reconnect(socketPath: String) {
+        guard self.socketPath != socketPath, !stopping else { return }
+        self.socketPath = socketPath
+        transition(to: .disconnected)
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        startConnection()
+    }
+
+    private func schedulePendingPublish(now: TimeInterval) {
+        guard pendingPublishTask == nil else { return }
+        let delay = max(0, Self.minimumPublishInterval - (now - lastPublish))
+        pendingPublishTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch { return }
+            guard let self, !Task.isCancelled else { return }
+            self.pendingPublishTask = nil
+            guard let desired = self.desiredPresence else { return }
+            self.publish(surfaceID: desired.surface, pointer: desired.pointer, highlight: desired.highlight)
+        }
     }
 
     private func startEventTask(_ connection: CloudTuiManualIOConnection) {
@@ -166,6 +203,20 @@ final class CloudPresenceLink {
             guard entry.client != selfClientID else { return }
             onEntry(entry)
         case let .response(requestID, ok, _, capabilities, _, _, _, clientID):
+            if requestID == subscribeRequestID, subscribeRequestID != 0 {
+                subscribeRequestID = 0
+                guard ok else {
+                    transition(to: .disconnected)
+                    return
+                }
+                transition(to: .ready)
+                if let desired = desiredPresence {
+                    sendPresence(surfaceID: desired.surface, pointer: desired.pointer,
+                                 highlight: desired.highlight, on: connection, force: true,
+                                 now: Date().timeIntervalSinceReferenceDate)
+                }
+                return
+            }
             if requestID == identifyRequestID {
                 identifyRequestID = 0
                 guard ok else {
@@ -189,18 +240,8 @@ final class CloudPresenceLink {
                 return
             }
             selfClientID = clientID
-            connection.send(commandBuilder.subscribePresence(requestID: takeRequestID()))
-            transition(to: .ready)
-            if let desired = desiredPresence {
-                sendPresence(
-                    surfaceID: desired.surface,
-                    pointer: desired.pointer,
-                    highlight: desired.highlight,
-                    on: connection,
-                    force: true,
-                    now: Date().timeIntervalSinceReferenceDate
-                )
-            }
+            subscribeRequestID = takeRequestID()
+            connection.send(commandBuilder.subscribePresence(requestID: subscribeRequestID))
         case .snapshot, .output, .resized, .colorsChanged, .detached:
             return
         case .overflow:
@@ -245,9 +286,22 @@ final class CloudPresenceLink {
         if phase == .ready {
             reconnectAttempt = 0
         } else if phase == .disconnected {
+            tearDownConnection()
             scheduleReconnect()
         }
         onPhaseChange(self)
+    }
+
+    private func tearDownConnection() {
+        connectTask?.cancel()
+        connectTask = nil
+        eventTask?.cancel()
+        eventTask = nil
+        pendingPublishTask?.cancel()
+        pendingPublishTask = nil
+        connection?.close()
+        connection = nil
+        lastSentPresence = nil
     }
 
     private func scheduleReconnect() {

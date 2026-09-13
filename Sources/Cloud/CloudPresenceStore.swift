@@ -30,6 +30,11 @@ final class CloudPresenceStore {
 
     /// The label other clients see next to this Mac's pointer.
     var clientName: String = {
+        #if DEBUG
+        if let name = ProcessInfo.processInfo.environment["CMUX_DEV_PRESENCE_NAME"], !name.isEmpty {
+            return name
+        }
+        #endif
         let full = NSFullUserName()
         return full.isEmpty ? NSUserName() : full
     }()
@@ -39,12 +44,14 @@ final class CloudPresenceStore {
     func registerPane(panelID: UUID, machineID: String, remoteSurfaceID: UInt64, socketPath: String) {
         panes[panelID] = Pane(machineID: machineID, remoteSurfaceID: remoteSurfaceID, socketPath: socketPath)
         ensureLink(machineID: machineID, socketPath: socketPath)
+        post(machineID: machineID)
     }
 
     func updateRemoteSurfaceID(panelID: UUID, remoteSurfaceID: UInt64) {
         guard var pane = panes[panelID], pane.remoteSurfaceID != remoteSurfaceID else { return }
         pane.remoteSurfaceID = remoteSurfaceID
         panes[panelID] = pane
+        post(machineID: pane.machineID)
     }
 
     func updateSocketPath(panelID: UUID, socketPath: String) {
@@ -69,7 +76,7 @@ final class CloudPresenceStore {
     }
 
     func isPresencePane(_ panelID: UUID) -> Bool {
-        panes[panelID] != nil
+        (panes[panelID]?.remoteSurfaceID ?? 0) > 0
     }
 
     // MARK: Reading
@@ -89,7 +96,7 @@ final class CloudPresenceStore {
     // MARK: Publishing
 
     func publish(panelID: UUID, pointer: CloudPresenceAnchor?, highlight: CloudPresenceHighlight?) {
-        guard let pane = panes[panelID] else { return }
+        guard let pane = panes[panelID], pane.remoteSurfaceID > 0 else { return }
         if let previous = lastPublishedPane, previous != panelID,
            let previousPane = panes[previous], previousPane.machineID != pane.machineID {
             links[previousPane.machineID]?.clear()
@@ -109,10 +116,10 @@ final class CloudPresenceStore {
 
     @discardableResult
     private func ensureLink(machineID: String, socketPath: String) -> CloudPresenceLink {
-        if let link = links[machineID], link.socketPath == socketPath, link.phase != .disconnected {
+        if let link = links[machineID] {
+            link.reconnect(socketPath: socketPath)
             return link
         }
-        links[machineID]?.stop()
         let link = CloudPresenceLink(
             machineID: machineID,
             socketPath: socketPath,

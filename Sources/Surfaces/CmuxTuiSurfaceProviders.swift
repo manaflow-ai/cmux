@@ -185,7 +185,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         stateRecoveryRefreshQueued = false
         stateRecoveryCount = 0
         eventsFeedWarning = nil
-        for session in manualMirrorSessions.values { session.stop() }
+        for (panelID, session) in manualMirrorSessions {
+            session.stop()
+            CloudPresenceStore.shared.unregisterPane(panelID: panelID)
+        }
         manualMirrorSessions.removeAll()
         manualMirrorSurfaceIDsSocketPath = nil
         attachmentRetry.cancel()
@@ -644,6 +647,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private func closeManualMirrorPane(panelID: UUID, terminalID: String) {
         materializedPanels.remove(panelID)
         manualMirrorSessions.removeValue(forKey: panelID)?.stop()
+        CloudPresenceStore.shared.unregisterPane(panelID: panelID)
         guard let workspace = AppDelegate.shared?.workspace(containingSurfaceID: panelID) else { return }
         SurfacePaneFactory.closeExited(panelID: panelID, in: workspace.id)
     }
@@ -1312,6 +1316,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         browserPaneTasks.removeValue(forKey: projection.panelID)?.cancel()
         materializedPanels.remove(projection.panelID)
         manualMirrorSessions.removeValue(forKey: projection.panelID)?.stop()
+        CloudPresenceStore.shared.unregisterPane(panelID: projection.panelID)
     }
 
     @discardableResult
@@ -1319,6 +1324,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         browserPaneTasks.removeValue(forKey: projection.panelID)?.cancel()
         materializedPanels.remove(projection.panelID)
         manualMirrorSessions.removeValue(forKey: projection.panelID)?.stop()
+        CloudPresenceStore.shared.unregisterPane(panelID: projection.panelID)
         SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
         return false
     }
