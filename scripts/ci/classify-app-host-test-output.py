@@ -26,7 +26,8 @@ _APP_HOST_FAILURE_RE = re.compile(
     r"(?:test runner .*?(?:timed out|hung|failed)|"
     r"unexpected exit|communication with the test runner|"
     r"testmanagerd.*invalidated|Couldn't communicate with a helper|"
-    r"Fatal error:|Idle timed out|Post-test timed out)",
+    r"Fatal error:|Program crashed|Signal \d+|SIG[A-Z]+|"
+    r"Idle timed out|Post-test timed out)",
     re.IGNORECASE,
 )
 _ASSERTION_RE = re.compile(
@@ -67,7 +68,11 @@ def diagnose(output: str, exit_code: int | None = None) -> dict[str, object]:
             swift_failed = swift_failed or swift_match.group("result") == "failed"
         if compile_line is None and _COMPILE_ERROR_RE.search(raw_line):
             cleaned = _clean_line(raw_line)
-            if "command line" not in cleaned.lower():
+            if (
+                "command line" not in cleaned.lower()
+                and "fatal error:" not in cleaned.lower()
+                and "program crashed" not in cleaned.lower()
+            ):
                 compile_line = cleaned
         if app_host_line is None and _APP_HOST_FAILURE_RE.search(raw_line):
             app_host_line = _clean_line(raw_line)
