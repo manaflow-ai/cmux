@@ -13,7 +13,7 @@ final class WorkspaceGroupShortcutUITests: XCTestCase {
         }
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launchArguments += ["-cmux.flags.override.sidebar-appkit-list-experiment", "YES"]
-        app.launchArguments += ["-mobileHost.deviceID", try preparedHostIdentity()]
+        app.launchArguments += ["-mobileHost.deviceID", hostIdentityForLaunch()]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_TAG"] = "ui-empty-group-\(UUID().uuidString.prefix(8))"
         app.launchEnvironment["CMUX_UI_TEST_KEYEQUIV_PATH"] = recorder.path
@@ -47,23 +47,20 @@ final class WorkspaceGroupShortcutUITests: XCTestCase {
         attachScreenshot(named: "After grouping: empty header, original workspace focused")
     }
 
-    /// Avoid an unrelated cold-start identity migration deadlock before UI input.
-    /// Reuse the host's identity; never replace an existing shared identity.
-    private func preparedHostIdentity() throws -> String {
-        let directory = try FileManager.default.url(
-            for: .applicationSupportDirectory, in: .userDomainMask,
-            appropriateFor: nil, create: true
-        ).appendingPathComponent("cmux", isDirectory: true)
-        let url = directory.appendingPathComponent("mobile-host-device-id")
-        if FileManager.default.fileExists(atPath: url.path) {
-            let value = try String(contentsOf: url, encoding: .utf8)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            return try XCTUnwrap(UUID(uuidString: value)).uuidString.lowercased()
+    /// Reuse the host identity through a launch argument so an unrelated
+    /// cold-start migration deadlock cannot block the keyboard regression.
+    private func hostIdentityForLaunch() -> String {
+        let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first?.appendingPathComponent("cmux/mobile-host-device-id")
+        let shared = url.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+        let stable = UserDefaults(suiteName: "com.cmuxterm.app")?.string(forKey: "mobileHost.deviceID")
+        for candidate in [shared, stable] {
+            if let candidate,
+               let id = UUID(uuidString: candidate.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                return id.uuidString.lowercased()
+            }
         }
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let value = UUID().uuidString.lowercased()
-        try Data(value.utf8).write(to: url, options: .withoutOverwriting)
-        return value
+        return UUID().uuidString.lowercased()
     }
 
     private func attachScreenshot(named name: String) {
