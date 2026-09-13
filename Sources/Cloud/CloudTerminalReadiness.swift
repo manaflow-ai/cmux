@@ -59,6 +59,7 @@ final class CloudTerminalReadiness {
     private var gate = CloudTerminalReadinessGate()
     private var condition: (@MainActor () -> Bool)?
     private var onReady: (@MainActor () -> Void)?
+    private var onEnded: (@MainActor () -> Void)?
     // Notification tokens are only touched on the main actor; the unsafe
     // annotation permits the nonisolated ARC deinit to release them safely.
     private nonisolated(unsafe) var frameObserver: NSObjectProtocol?
@@ -75,13 +76,15 @@ final class CloudTerminalReadiness {
     func begin(
         surface: TerminalSurface,
         condition: @escaping @MainActor () -> Bool,
-        onReady: @escaping @MainActor () -> Void
+        onReady: @escaping @MainActor () -> Void,
+        onEnded: (@MainActor () -> Void)? = nil
     ) {
-        end()
+        finishEnd(notify: false)
         self.surface = surface
         gate.begin(baselineFrame: surface.hostedView.surfaceView.renderedFrameSequence)
         self.condition = condition
         self.onReady = onReady
+        self.onEnded = onEnded
         phase = .waiting
         cloudTerminalReadinessLogger.info(
             "readiness surface=\(surface.id.uuidString, privacy: .private(mask: .hash)) phase=waiting baseline=\(self.gate.baselineFrame)"
@@ -138,10 +141,16 @@ final class CloudTerminalReadiness {
 
     /// Ends readiness permanently and releases observation resources.
     func end() {
+        finishEnd(notify: true)
+    }
+
+    private func finishEnd(notify: Bool) {
         releaseObservers()
         if phase != .ended { phase = .ended }
+        if notify { onEnded?() }
         condition = nil
         onReady = nil
+        onEnded = nil
         surface = nil
     }
 
