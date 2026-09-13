@@ -13,6 +13,19 @@ import Testing
 /// it never invokes the ratatui renderer or inspects source text.
 @Suite
 struct CloudManualMirrorTransportTests {
+    @Test("Restored Cloud terminal failures render a copyable error")
+    func restoredTerminalFailurePresentation() {
+        let presentation = Workspace.cloudMaterializationFailurePresentation(
+            detail: "The Cloud terminal endpoint was unavailable.",
+            reference: "operation=op trace=trace"
+        )
+
+        #expect(presentation.title == "Cloud terminal could not start")
+        #expect(presentation.detail == "The Cloud terminal endpoint was unavailable.")
+        #expect(!presentation.showsProgress)
+        #expect(!presentation.showsReconnectButton)
+        #expect(presentation.copyableError.contains("operation=op trace=trace"))
+    }
     private let commands = CloudTuiManualIOCommand()
     private let parser = CloudTuiLegacySnapshotParser()
 
@@ -650,7 +663,7 @@ struct CloudManualMirrorTransportTests {
 
 /// One command a fixture read from the session, reduced to the fields the
 /// handshake tests assert on.
-private struct CloudManualMirrorFixtureCommand: Sendable {
+struct CloudManualMirrorFixtureCommand: Sendable {
     let cmd: String
     let id: UInt64
     let surface: UInt64?
@@ -672,7 +685,7 @@ private struct CloudManualMirrorFixtureCommand: Sendable {
 /// daemon's responses, so handshake ordering is observable as behavior rather
 /// than as source text.
 // @unchecked Sendable: every mutable field is guarded by `lock`.
-private final class CloudManualMirrorSocketFixture: @unchecked Sendable {
+final class CloudManualMirrorSocketFixture: @unchecked Sendable {
     let socketPath: String
     private let listenerFD: Int32
     private let lock = NSLock()
