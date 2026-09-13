@@ -511,8 +511,8 @@ struct MachinesPanelView: View {
             nodeActions: nodeActions,
             expansionStore: expansionStore,
             style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
-            showsCloudVPNWarning: CloudPortsVPNWarning.projection(tunnelState: tunnelStatus.status?.state) != nil,
-            onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) }
+            onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) },
+            showsCloudVPNWarning: CloudPortsVPNWarning.projection(tunnelState: tunnelStatus.status?.state) != nil
         )
         .accessibilityIdentifier("CloudMachinesTree")
     }
@@ -767,7 +767,7 @@ struct MachinesChromeIconButton: View {
 /// see the store. All verbs go through `CloudVMActionLauncher` so this panel,
 /// the ＋ menu, the palette, and the CLI share one mutation path.
 struct MachineRowActions {
-    let setupVPN: @MainActor (NSWindow?) -> Void
+    var setupVPN: @MainActor (NSWindow?) -> Void
     let openShell: @MainActor (String) -> Void
     let openDesktop: @MainActor (String) -> Void
     let runCommand: @MainActor (String, [String]) -> Void
