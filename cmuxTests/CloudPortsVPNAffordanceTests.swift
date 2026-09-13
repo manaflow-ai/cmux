@@ -86,6 +86,21 @@ struct CloudPortsVPNAffordanceTests {
         #expect(button.isHidden)
     }
 
+    @Test("Ports help stays beside its label at normal and narrow widths", arguments: [240.0, 140.0])
+    func helpStaysBesidePortsLabel(width: Double) throws {
+        let cell = CloudTreeCellView(frame: NSRect(x: 0, y: 0, width: width, height: 24))
+        let node = CloudTreeNode(id: "ports", kind: .portsGroup(machine: .cloud("test")))
+        cell.configure(node: node, machineActions: machineActions(), nodeActions: nodeActions(), showsCloudVPNWarning: true)
+        cell.layoutSubtreeIfNeeded()
+        let button = try #require(descendants(of: cell).compactMap { $0 as? CloudVPNSetupButton }.first)
+
+        // The help affordance belongs beside the Ports label, never in the
+        // trailing accessory column where it can be mistaken for a row action.
+        #expect(button.frame.minX < cell.bounds.width * 0.55)
+        #expect(button.frame.maxX < cell.bounds.width * 0.7)
+        #expect(!button.isBordered)
+    }
+
     @Test("Both VPN controls open setup directly and respect disabled state", arguments: [CloudVPNSetupButton.Presentation.text, .helpIcon])
     func controlsOpenSetupDirectly(presentation: CloudVPNSetupButton.Presentation) throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
