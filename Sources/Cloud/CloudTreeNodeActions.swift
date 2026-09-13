@@ -366,7 +366,7 @@ struct CloudTreeNodeActions {
         actions.refreshMachine = refreshMachine
         let navigation = CloudTreeTerminalNavigationCoordinator(
             machineName: machineName,
-            run: { label, operation in run(label, operation) },
+            run: run,
             operationController: operationController ?? AppDelegate.shared?.cloudWorkspaceOperationController
         )
         actions.openRemoteTerminal = { navigation.open(machine: $0, group: $1, resource: $2, view: $3, openIn: $4) }
