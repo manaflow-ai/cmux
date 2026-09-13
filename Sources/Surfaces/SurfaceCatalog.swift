@@ -79,10 +79,8 @@ final class SurfaceCatalog {
     private let abandonedMaterializationTimeout: Duration
     private let maximumTrackedMaterializations: Int
     private let materializationClock: any Clock<Duration>
-    /// Panels whose projection was recorded from a restored session before the provider
-    /// re-synced; resolved into `projections` once the resource shows up.
     private var projectionEndReasons: [UUID: SurfaceProjectionEndReason] = [:]
-    private var pendingRestoredProjections: [SurfaceProjectionRecord: UUID] = [:]
+    private var pendingRestoredProjections = SurfaceProjectionRestoreStore()
 
     /// Focus/select behavior the app uses to bring an existing projection forward.
     var focusProjection: ((SurfaceProjection) -> Void)?
@@ -205,8 +203,7 @@ final class SurfaceCatalog {
         machines[machine] = nil
         for id in resourceIDsByMachine[machine] ?? [] { resources[id] = nil }
         resourceIDsByMachine[machine] = nil
-        let pending = pendingRestoredProjections.keys.filter { $0.resource.machine == machine }
-        for record in pending { pendingRestoredProjections[record] = nil }
+        pendingRestoredProjections.remove(machine: machine)
         cloudWorkspaceProjectionCoordinator.cancel(machine: machine)
         cloudProjectionIndexDirty = true
         cloudStates[machine] = nil
@@ -1070,6 +1067,7 @@ final class SurfaceCatalog {
 
     /// Records a materialized pane and reconciles it with the installed graph.
     func record(_ projection: SurfaceProjection) {
+        pendingRestoredProjections.remove(panelID: projection.panelID)
         insertSupersedingLocalPlaceholder(cloudPlacementCoordinator.projectionInCurrentWorkspace(projection))
         reconcileCloudWorkspaceBinding(localWorkspaceID: projection.workspaceID)
         reconcileCloudProjection(projection)
@@ -1162,6 +1160,7 @@ final class SurfaceCatalog {
     /// A pane went away. Remote resources live on; a pane closed on purpose inside a
     /// mirrored workspace also closes its machine tab (`CloudPlacementCoordinator`).
     func endProjections(panelID: UUID, reason: SurfaceProjectionEndReason = .paneClosed) {
+        if pendingRestoredProjections.remove(panelID: panelID) { cloudProjectionIndexDirty = true }
         let ended = projections.filter { $0.panelID == panelID }
         guard !ended.isEmpty else { return }
         projections.subtract(ended)
@@ -1173,8 +1172,10 @@ final class SurfaceCatalog {
     }
 
     func moveProjections(panelID: UUID, to workspaceID: UUID) {
+        let movedPending = pendingRestoredProjections.move(panelID: panelID, to: workspaceID)
+        if movedPending { cloudProjectionIndexDirty = true }
         let moved = projections.filter { $0.panelID == panelID && $0.workspaceID != workspaceID }
-        guard !moved.isEmpty else { return }
+        guard !moved.isEmpty || movedPending else { return }
         projections.subtract(moved)
         for var projection in moved {
             projection.workspaceID = workspaceID
@@ -1271,8 +1272,8 @@ final class SurfaceCatalog {
             cloudProjectionIndex = Set(projections.filter { !$0.resource.machine.isLocal }.map {
                 CloudProjectionKey(panelID: $0.panelID, workspaceID: $0.workspaceID)
             })
-            cloudProjectionIndex.formUnion(pendingRestoredProjections.compactMap { record, workspaceID in
-                record.resource.machine.isLocal ? nil : CloudProjectionKey(panelID: record.panelID, workspaceID: workspaceID)
+            cloudProjectionIndex.formUnion(pendingRestoredProjections.projections.compactMap {
+                $0.resource.machine.isLocal ? nil : CloudProjectionKey(panelID: $0.panelID, workspaceID: $0.workspaceID)
             })
             cloudProjectionIndexDirty = false
         }
@@ -1288,7 +1289,6 @@ final class SurfaceCatalog {
     }
 
     // MARK: Restore
-
     /// Records persisted projections for panes the session restore recreated. The projection
     /// becomes live as soon as the provider reports the resource again (a cloud terminal
     /// after the link reconnects); local resources are re-registered by the local provider
@@ -1296,6 +1296,7 @@ final class SurfaceCatalog {
     func restore(_ records: [SurfaceProjectionRecord], workspaceID: UUID) {
         for record in records {
             if resources[record.resource] != nil {
+                pendingRestoredProjections.remove(panelID: record.panelID)
                 insertSupersedingLocalPlaceholder(SurfaceProjection(
                     resource: record.resource,
                     workspaceID: workspaceID,
@@ -1304,7 +1305,7 @@ final class SurfaceCatalog {
                     remoteTabID: record.remoteTabID
                 ))
             } else {
-                pendingRestoredProjections[record] = workspaceID
+                pendingRestoredProjections.stage(record, workspaceID: workspaceID)
                 cloudProjectionIndexDirty = true
             }
         }
@@ -1313,7 +1314,7 @@ final class SurfaceCatalog {
     }
 
     func projectionRecords(forWorkspace workspaceID: UUID) -> [SurfaceProjectionRecord] {
-        projections
+        var records = projections
             .filter { $0.workspaceID == workspaceID }
             .map {
                 SurfaceProjectionRecord(
@@ -1323,7 +1324,10 @@ final class SurfaceCatalog {
                     remoteTabID: $0.remoteTabID
                 )
             }
-            .sorted { $0.panelID.uuidString < $1.panelID.uuidString }
+        let pending = pendingRestoredProjections.records(for: workspaceID)
+        records.removeAll { live in pending.contains { pending in pending.panelID == live.panelID } }
+        records.append(contentsOf: pending)
+        return records.sorted { $0.panelID.uuidString < $1.panelID.uuidString }
     }
 
     /// Cloud machine IDs referenced by restored panes that are waiting for a
@@ -1331,7 +1335,7 @@ final class SurfaceCatalog {
     /// stale-machine reconciliation so a deleted ID cannot attach old panes
     /// when a different machine later receives the same ID.
     var pendingRestoredMachineIDs: Set<String> {
-        Set(pendingRestoredProjections.keys.compactMap { $0.resource.machine.cloudMachineID })
+        Set(pendingRestoredProjections.machineIDs.compactMap { $0.cloudMachineID })
     }
 
     /// Returns whether at least one resource is currently published for a machine.
@@ -1352,18 +1356,14 @@ final class SurfaceCatalog {
 
     private func resolvePendingRestoredProjections(on machine: SurfaceMachineID) {
         var resolvedWorkspaceIDs = Set<UUID>()
-        for (record, workspaceID) in pendingRestoredProjections where record.resource.machine == machine {
-            guard resources[record.resource] != nil else { continue }
-            insertSupersedingLocalPlaceholder(SurfaceProjection(
-                resource: record.resource,
-                workspaceID: workspaceID,
-                panelID: record.panelID,
-                remoteWorkspaceID: record.remoteWorkspaceID,
-                remoteTabID: record.remoteTabID
-            ))
-            pendingRestoredProjections[record] = nil
+        let resolved = pendingRestoredProjections.takeResolvable(
+            machine: machine,
+            availableResources: Set(resources.keys)
+        )
+        for projection in resolved {
+            insertSupersedingLocalPlaceholder(projection)
+            resolvedWorkspaceIDs.insert(projection.workspaceID)
             cloudProjectionIndexDirty = true
-            resolvedWorkspaceIDs.insert(workspaceID)
         }
         for workspaceID in resolvedWorkspaceIDs {
             reconcileCloudWorkspaceBinding(localWorkspaceID: workspaceID)
