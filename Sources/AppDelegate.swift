@@ -8909,7 +8909,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     memoryOptionsMb: page?.limits?.memoryOptionsMb ?? [],
                     lockedMemoryOptionsMb: page?.limits?.lockedMemoryOptionsMb,
                     memoryUpgradePlanId: page?.limits?.memoryUpgradePlanId,
-                memoryUpgradePlansByMb: page?.limits?.memoryUpgradePlansByMb,
+                    memoryUpgradePlansByMb: page?.limits?.memoryUpgradePlansByMb,
                     submit: { [weak self] request in
                         guard let self else { return false }
                         return MachineCreateCoordinator.shared.start(request, cancellableLaunch: { [weak self] arguments, progress, completion in
@@ -9410,8 +9410,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             destination: CloudWorkspaceGroupDestination(
                 tabManager: context.tabManager,
                 groupId: workspaceGroupTarget?.groupId,
-                placement: workspaceGroupTarget?.placement ?? groupPlacement,
-                referenceWorkspaceId: workspaceGroupTarget?.referenceWorkspaceId ?? anchorId,
+                placement: workspaceGroupTarget?.placement ?? .end,
+                referenceWorkspaceId: workspaceGroupTarget?.referenceWorkspaceId,
                 initialWorkspaceId: initialWorkspaceId
             )
         )
