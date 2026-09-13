@@ -900,6 +900,35 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         )
     }
 
+    /// `terminal <id> close`; a terminal whose process already exited is gone from
+    /// cmux-tui's selectors, so its tab is closed instead. Either way the resource
+    /// leaves the catalog now and the next snapshot confirms.
+    func closeTerminal(_ id: SurfaceResourceID) async throws {
+        try await closeTerminal(id, fallbackTabID: nil)
+    }
+
+    func closeTerminal(_ id: SurfaceResourceID, fallbackTabID: String?) async throws {
+        pendingRemoteCreations.removeValue(forKey: id)
+        do {
+            _ = try await runCloseCommand { CloudTuiCommandLine.closeTerminalArguments(socketPath: $0, terminalID: id.key) }
+        } catch {
+            guard let tabID = fallbackTabID ?? tabByTerminal[id.key], Self.isSelectorNotFound(error) else { throw error }
+            _ = try await runCloseCommand { CloudTuiCommandLine.closeTabArguments(socketPath: $0, tabID: tabID) }
+        }
+        closeLocalPanes(showing: [id])
+        catalog.remove(id, from: self)
+        scheduleRefresh()
+    }
+
+    /// A closed terminal has no pane to show any more: every local pane that projected it
+    /// goes too, instead of lingering as a dead attach the person has to close by hand.
+    private func closeLocalPanes(showing ids: [SurfaceResourceID]) {
+        let wanted = Set(ids)
+        for projection in catalog.snapshot.projections where wanted.contains(projection.resource) {
+            SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
+        }
+    }
+
     /// cmux-tui's `selector.not_found` error body, surfaced by `link.run` as the
     /// command's output text.
     static func isSelectorNotFound(_ error: Error) -> Bool {
@@ -1549,57 +1578,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             machine: machine,
             directURL: summary.preferredPrivateAddress.map { Self.privateDesktopURL(privateAddress: $0) }
         )
-    }
-
-    /// The noVNC URL uses only the VM private address. The private network is
-    /// the access check, so no public preview token or endpoint is required.
-    nonisolated static func privateDesktopURL(privateAddress: String) -> String {
-        let base = CmuxInternalHostnames.directPortURL(
-            privateAddress: privateAddress,
-            port: CmuxTuiSnapshotParser.desktopPort
-        )
-        return "\(base)/vnc.html?path=websockify&autoconnect=1&resize=remote&reconnect=1&reconnect_delay=2000"
-    }
-
-    /// Turn a VM-local browser URL into the same URL on the VM private address.
-    /// Path, query, fragment, scheme, and port stay unchanged.
-    nonisolated static func privateBrowserURL(_ raw: String, privateAddress: String) -> String? {
-        guard let parts = URLComponents(string: raw),
-              let host = parts.host?.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]")),
-              ["localhost", "127.0.0.1", "0.0.0.0", "::1"].contains(host) else { return nil }
-        return CloudPortRoutePlan.privateURL(raw, address: privateAddress)?.absoluteString
-    }
-
-    /// Shared Cloud terminal-link conversion for Workspace and Dock containers.
-    nonisolated static func cloudTerminalLinkTarget(url: URL, resource: SurfaceResource, privateAddress: String) -> CloudTerminalLinkTarget? {
-        guard resource.kind == .terminal, resource.machine.cloudMachineID != nil,
-              let rewritten = privateBrowserURL(url.absoluteString, privateAddress: privateAddress),
-              let privateURL = URL(string: rewritten) else { return nil }
-        return CloudTerminalLinkTarget(url: privateURL)
-    }
-
-    /// Add the local URL used when this resource is projected on the Mac.
-    nonisolated static func withPrivateBrowserURL(
-        _ resource: SurfaceResource,
-        privateAddress: String
-    ) -> SurfaceResource {
-        var updated = resource
-        switch resource.kind {
-        case .display:
-            updated.url = privateDesktopURL(privateAddress: privateAddress)
-        case .browser:
-            if resource.id.key.hasPrefix("port:"), let port = resource.port {
-                updated.url = CmuxInternalHostnames.directPortURL(
-                    privateAddress: privateAddress,
-                    port: port
-                )
-            } else if let raw = resource.url {
-                updated.url = privateBrowserURL(raw, privateAddress: privateAddress)
-            }
-        case .terminal:
-            break
-        }
-        return updated
     }
 
     private func ports(
