@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -59,6 +59,8 @@ if (verb === "rename" && ["workspace", "tab", "pane"].includes(noun)) {
 } else if (noun === "workspace" && verb === "move") {
   if (args[3] !== "--index") process.exit(2);
   item.index = Number(args[4]);
+} else if (noun === "workspace" && verb === "close") {
+  graph.workspaces.splice(objects.indexOf(item), 1);
 } else if (verb === "focus") { graph.focused = id; }
 else { process.stderr.write("unsupported grammar\\n"); process.exit(2); }
 graph.session.revision = (BigInt(graph.session.revision) + 1n).toString();
@@ -66,18 +68,21 @@ fs.writeFileSync(path, JSON.stringify(graph));
 emit({value: item, generation: process.env.RECEIPT_GENERATION ?? graph.session.generation, revision: graph.session.revision});
 `;
 
-async function fixture(peer: boolean) {
+async function fixture(peer: boolean, terminalCount = 2) {
   const dir = mkdtempSync(join(tmpdir(), "cmux-topology-"));
   const shim = join(dir, "cmux");
   const daemon = join(dir, "cmux-tui");
   const graph = {
     session: { generation: "generation-1", revision: "9007199254740993" },
-    workspaces: [{ id: "ws_task", name: "task", index: 0 }, { id: "ws_other", name: "other", index: 1 }],
+    workspaces: [{ id: "ws_task", name: "task", index: 0 }, { id: "ws_other", name: "other", index: 1 }, ...(terminalCount > 2 ? [{ id: "ws_agi", name: "agi", index: 2 }] : [])],
     panes: [{ id: "pane_a", screen_id: "screen_a", position: 0 }, { id: "pane_b", screen_id: "screen_a", position: 1 }],
     tabs: [{ id: "tab_a", content_kind: "terminal", content_id: "term_agent", pane_id: "pane_a", index: 0 },
       { id: "tab_b", content_kind: "terminal", content_id: "term_agent", pane_id: "pane_b", index: 0 },
       { id: "tab_other", content_kind: "terminal", content_id: "term_other", pane_id: "pane_b", index: 1 }],
-    terminals: [{ id: "term_agent", pid: 42 }, { id: "term_other", pid: 43 }],
+    terminals: Array.from({ length: terminalCount }, (_, index) => ({
+      id: index === 0 ? "term_agent" : index === 9 ? "term_9df068c3ec6f68bbe5eeadb2bd399535" : `term_${index}`,
+      pid: 42 + index,
+    })),
   };
   writeFileSync(shim, GUEST_CMUX_SHIM);
   writeFileSync(daemon, DAEMON); chmodSync(daemon, 0o755);
@@ -99,6 +104,16 @@ async function fixture(peer: boolean) {
     run: (args: string[], env = {}) => spawnSync("sh", [shim, ...(peer ? ["vm", args[0], args[1], "peer", ...args.slice(2)] : args)], {
       encoding: "utf8", timeout: 10_000,
       env: { NODE_ENV: "test", PATH: process.env.PATH, HOME: dir, CMUX_TUI_BIN: daemon, CMUX_TUI_TERMINAL_ID: "term_agent", ...env },
+    }),
+    runAsync: (args: string[], env = {}) => new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve) => {
+      const child = spawn("sh", [shim, ...(peer ? ["vm", args[0], args[1], "peer", ...args.slice(2)] : args)], {
+        env: { NODE_ENV: "test", PATH: process.env.PATH, HOME: dir, CMUX_TUI_BIN: daemon, CMUX_TUI_TERMINAL_ID: "term_agent", ...env },
+      });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", chunk => { stdout += chunk; });
+      child.stderr.on("data", chunk => { stderr += chunk; });
+      child.on("close", status => resolve({ status, stdout, stderr }));
     }),
     calls: () => readFileSync(join(dir, "calls.jsonl"), "utf8").trim().split("\n").filter(Boolean).map(x => JSON.parse(x)),
     cleanup: async () => { if (peer) await new Promise<void>(resolve => server.close(() => resolve())); rmSync(dir, { recursive: true, force: true }); },
@@ -185,6 +200,40 @@ for (const peer of [false, true]) test(`topology rejects invalid moves and prese
     expect(missing.stderr).toContain("cmux workspace help");
   } finally { await f.cleanup(); }
 });
+
+test("workspace close normalizes selector-first and safe host-compatible forms", async () => {
+  const f = await fixture(false);
+  try {
+    const invalid = f.run(["workspace", "close", "--workspace", "ws_other", "--focus", "true"]);
+    expect(invalid.status).toBe(2);
+    expect(invalid.stderr).toContain("--focus false");
+    expect(f.read().workspaces.map((workspace: { id: string }) => workspace.id)).toContain("ws_other");
+
+    const closed = f.run(["workspace", "ws_task", "close", "--json"]);
+    expect(closed.status).toBe(0);
+    expect(f.read().workspaces.map((workspace: { id: string }) => workspace.id)).not.toContain("ws_task");
+
+    const compatible = f.run(["workspace", "close", "--workspace", "ws_other", "--focus", "false", "--json"]);
+    expect(compatible.status).toBe(0);
+    expect(f.read().workspaces).toHaveLength(0);
+    expect(f.calls().some(call => call.includes("ws_other") && call.includes("close"))).toBe(true);
+  } finally { await f.cleanup(); }
+});
+
+test("guest tree snapshot stays bounded across the observed 19-client/52-terminal burst", async () => {
+  const f = await fixture(false, 52);
+  try {
+    const results = await Promise.all(
+      Array.from({ length: 19 }, () => f.runAsync(["tree", "--json"])),
+    );
+    expect(results.every(result => result.status === 0)).toBe(true);
+    expect(results.every(result => result.stderr === "")).toBe(true);
+    expect(results.every(result => result.stdout.includes("term_51"))).toBe(true);
+    expect(results.every(result => result.stdout.includes("term_9df068c3ec6f68bbe5eeadb2bd399535"))).toBe(true);
+    expect(results.every(result => result.stdout.includes('"agi"'))).toBe(true);
+    expect(f.calls()).toHaveLength(19);
+  } finally { await f.cleanup(); }
+}, { timeout: 20_000 });
 
 test("topology help is localized and works before daemon installation", () => {
   const dir = mkdtempSync(join(tmpdir(), "cmux-topology-help-"));
