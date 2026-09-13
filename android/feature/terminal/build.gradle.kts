@@ -28,6 +28,7 @@ dependencies {
     implementation(project(":core:pairing"))
     implementation(project(":core:rpc"))
     implementation(project(":core:transport"))
+    implementation(project(":core:ghostty-vt"))
     implementation(project(":termux-terminal-emulator"))
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

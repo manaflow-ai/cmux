@@ -2,12 +2,11 @@ package dev.cmux.android.feature.terminal
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,12 +28,42 @@ fun TerminalScreen(
     viewModel: TerminalViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val activeSurfaceId by viewModel.activeSurfaceId.collectAsStateWithLifecycle()
+    val siblingTerminals by viewModel.siblingTerminals.collectAsStateWithLifecycle()
     var inputText by remember { mutableStateOf("") }
+    var pickerExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Terminal", fontFamily = FontFamily.Monospace) },
+                title = {
+                    val activeTitle = siblingTerminals.firstOrNull { it.id == activeSurfaceId }
+                        ?.title?.takeIf { it.isNotBlank() } ?: "Terminal"
+                    Box {
+                        TextButton(onClick = { pickerExpanded = true }, enabled = siblingTerminals.size > 1) {
+                            Text(activeTitle, fontFamily = FontFamily.Monospace, color = Color.White)
+                            if (siblingTerminals.size > 1) {
+                                Icon(Icons.Default.ArrowDropDown, contentDescription = "Switch terminal", tint = Color.White)
+                            }
+                        }
+                        DropdownMenu(expanded = pickerExpanded, onDismissRequest = { pickerExpanded = false }) {
+                            siblingTerminals.forEach { terminal ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(terminal.title?.takeIf { it.isNotBlank() } ?: terminal.id)
+                                    },
+                                    leadingIcon = if (terminal.id == activeSurfaceId) {
+                                        { Icon(Icons.Default.Check, contentDescription = null) }
+                                    } else null,
+                                    onClick = {
+                                        pickerExpanded = false
+                                        viewModel.switchSurface(terminal.id)
+                                    },
+                                )
+                            }
+                        }
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -61,29 +90,14 @@ fun TerminalScreen(
                     }
                 }
                 is TerminalUiState.Connected -> {
-                    val listState = rememberLazyListState()
-                    LaunchedEffect(s.lines.size) {
-                        if (s.lines.isNotEmpty()) {
-                            listState.scrollToItem(s.lines.size - 1)
-                        }
-                    }
-                    LazyColumn(
-                        state = listState,
+                    TerminalCanvas(
+                        snapshot = s.snapshot,
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
                             .padding(8.dp),
-                    ) {
-                        items(s.lines) { line ->
-                            Text(
-                                text = line.ifEmpty { " " },
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 13.sp,
-                                color = Color(0xFFD4D4D4),
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-                    }
+                        onScroll = viewModel::scroll,
+                    )
                 }
             }
 

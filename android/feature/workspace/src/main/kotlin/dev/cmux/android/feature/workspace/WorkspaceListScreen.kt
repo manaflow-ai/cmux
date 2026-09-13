@@ -5,10 +5,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -16,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.cmux.android.core.rpc.WorkspaceDto
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -25,6 +30,20 @@ fun WorkspaceListScreen(
     viewModel: WorkspaceViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val isCreating by viewModel.isCreating.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        viewModel.createEvents.collect { event ->
+            when (event) {
+                is WorkspaceCreateEvent.Created -> onOpenTerminal(event.workspaceId, event.surfaceId)
+                is WorkspaceCreateEvent.Failed -> scope.launch {
+                    snackbarHostState.showSnackbar("Couldn't create workspace: ${event.message}")
+                }
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -36,6 +55,16 @@ fun WorkspaceListScreen(
                     }
                 },
             )
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        floatingActionButton = {
+            FloatingActionButton(onClick = { if (!isCreating) viewModel.createWorkspace() }) {
+                if (isCreating) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Default.Add, contentDescription = "New workspace")
+                }
+            }
         },
     ) { padding ->
         Box(

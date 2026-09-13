@@ -19,7 +19,6 @@ import dev.cmux.android.feature.auth.SignInScreen
 import dev.cmux.android.feature.browser.BrowserStreamScreen
 import dev.cmux.android.feature.pairing.PairingScannerScreen
 import dev.cmux.android.feature.terminal.TerminalScreen
-import dev.cmux.android.feature.workspace.WorkspaceListScreen
 
 object Routes {
     const val STARTUP = "startup"
@@ -90,7 +89,7 @@ fun CmuxNavGraph() {
         }
 
         composable(Routes.WORKSPACE_LIST) {
-            WorkspaceListScreen(
+            MainTabScaffold(
                 onOpenTerminal = { wsId, surfaceId ->
                     navController.navigate(Routes.terminal(wsId, surfaceId))
                 },

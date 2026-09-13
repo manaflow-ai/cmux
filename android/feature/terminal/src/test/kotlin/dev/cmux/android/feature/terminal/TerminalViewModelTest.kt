@@ -1,5 +1,9 @@
 package dev.cmux.android.feature.terminal
 
+import dev.cmux.android.core.ghosttyvt.GhosttyCell
+import dev.cmux.android.core.ghosttyvt.GhosttyCursorVisualStyle
+import dev.cmux.android.core.ghosttyvt.GhosttyRenderSnapshot
+import dev.cmux.android.core.ghosttyvt.GhosttyRow
 import dev.cmux.termux.TerminalEmulator
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
@@ -58,12 +62,31 @@ class TerminalViewModelTest {
     }
 
     @Test
-    fun `TerminalUiState Connected holds correct lines`() {
-        val lines = listOf("line 1", "line 2", "line 3")
-        val state: TerminalUiState = TerminalUiState.Connected(lines)
+    fun `TerminalUiState Connected holds correct snapshot`() {
+        val cell = GhosttyCell(
+            codepoint = 'a'.code,
+            hasFg = false, fgR = 0, fgG = 0, fgB = 0,
+            hasBg = false, bgR = 0, bgG = 0, bgB = 0,
+            bold = false, italic = false, faint = false, blink = false,
+            inverse = false, invisible = false, strikethrough = false, overline = false,
+            underlineStyle = 0,
+        )
+        val snapshot = GhosttyRenderSnapshot(
+            columns = 3,
+            rows = 1,
+            cursorVisible = false,
+            cursorX = 0,
+            cursorY = 0,
+            cursorVisualStyle = GhosttyCursorVisualStyle.BLOCK,
+            cursorBlinking = false,
+            defaultForeground = Triple(212, 212, 212),
+            defaultBackground = Triple(13, 13, 13),
+            rowData = listOf(GhosttyRow(cells = listOf(cell))),
+        )
+        val state: TerminalUiState = TerminalUiState.Connected(snapshot)
         assertTrue(state is TerminalUiState.Connected)
-        assertEquals(3, (state as TerminalUiState.Connected).lines.size)
-        assertEquals("line 2", state.lines[1])
+        assertEquals(3, (state as TerminalUiState.Connected).snapshot.columns)
+        assertEquals('a'.code, state.snapshot.rowData[0].cells[0].codepoint)
     }
 
     @Test

@@ -1,5 +1,6 @@
 package dev.cmux.android.core.pairing
 
+import android.util.Log
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
@@ -8,6 +9,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.Request
+
+private const val TAG = "RelayPresenceClient"
 
 @Serializable
 data class RelayPresenceEntry(
@@ -42,11 +45,17 @@ class RelayPresenceClient @Inject constructor() {
             .build()
         try {
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext emptyList()
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "listPresence($base) failed: HTTP ${response.code} ${response.body?.string()}")
+                    return@withContext emptyList()
+                }
                 val body = response.body?.string() ?: return@withContext emptyList()
-                json.decodeFromString<RelayPresenceListResponse>(body).devices
+                val devices = json.decodeFromString<RelayPresenceListResponse>(body).devices
+                Log.i(TAG, "listPresence($base) -> ${devices.size} device(s): $body")
+                devices
             }
         } catch (e: Exception) {
+            Log.w(TAG, "listPresence($base) threw", e)
             emptyList()
         }
     }

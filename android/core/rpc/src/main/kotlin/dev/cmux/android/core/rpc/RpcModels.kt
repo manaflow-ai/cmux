@@ -34,4 +34,20 @@ data class TerminalDto(
     val id: String,
     val title: String? = null,
     val is_focused: Boolean = false,
+    val is_ready: Boolean = true,
+)
+
+/** A single entry in the notification feed (mobile.notification.feed.list). */
+@Serializable
+data class NotificationFeedItemDto(
+    val id: String,
+    val workspace_id: String,
+    val title: String,
+    val subtitle: String? = null,
+    val body: String? = null,
+    val created_at: Double,
+    val is_read: Boolean = false,
+    val surface_id: String? = null,
+    val workspace_title: String? = null,
+    val surface_title: String? = null,
 )

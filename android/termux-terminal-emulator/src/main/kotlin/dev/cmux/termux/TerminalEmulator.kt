@@ -51,6 +51,11 @@ class TerminalEmulator(
         // Re-init cells; real implementation would reflow
     }
 
+    /** Clear the grid/cursor back to a blank state (e.g. when switching to a different surface). */
+    fun reset() {
+        clearScreen()
+    }
+
     private fun processChar(ch: Char) {
         when {
             inEscape -> handleEscape(ch)
