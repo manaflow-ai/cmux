@@ -23,6 +23,8 @@ private final class RecordingTerminalLinkContainer: TerminalLinkOpenContainer {
         false
     }
 
+    func cloudTerminalLinkTarget(url: URL, sourcePanelId: UUID) -> CloudTerminalLinkTarget? { nil }
+
     func deferTerminalFileLinkOpen(
         sourcePanelId: UUID,
         filePath: String,
