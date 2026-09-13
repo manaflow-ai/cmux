@@ -1242,6 +1242,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
     }
 
+
+    private func attachCommand(terminalID: String) async throws -> String {
         let connected = try await links.connected(machineID: machineID)
         guard let clientURL = CloudTuiClientPaths.clientURL() else {
             throw CloudMachineLinkManager.ManagerError.clientMissing
@@ -1405,13 +1407,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
 
     /// The pane showing the terminal when one is open on this Mac, else the
-    /// local workspace bound to the terminal's remote workspace, else any
-    /// local workspace bound to the machine. No local placement means the row
-    /// stays undelivered until one exists; the Cloud tree still shows the dot.
-    private func notificationDeliveryTarget(for row: CloudVMNotificationRow) -> CloudNotificationDeliveryTarget? {
-        if let terminalID = row.terminalID {
-            let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)
-            if let projection = catalog.projections(of: resourceID).first {
                 return CloudNotificationDeliveryTarget(workspaceID: projection.workspaceID, panelID: projection.panelID)
             }
         }

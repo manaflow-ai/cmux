@@ -10,7 +10,6 @@ extension CmuxTuiSurfaceProvider {
     }
 }
 
-}
 
 
 /// Two more headless terminal primitives over the machine's link, beside `readScreen`
