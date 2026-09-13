@@ -1440,7 +1440,18 @@
   },
   "machines.stats.cpu": {
     "class": "technical",
-    "source": "CPU"
+    "source": "CPU",
+    "identityLocales": {
+      "bs": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "da": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "it": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "km": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "nb": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "pl": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "pt-BR": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "th": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "tr": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required."
+    }
   },
   "machines.stats.memory": {
     "source": "Mem",
@@ -3146,6 +3157,25 @@
       "zh-Hans": "GUI is a product abbreviation; translated entry is still required.",
       "ko": "GUI is a product abbreviation; translated entry is still required.",
       "ja": "GUI is a product abbreviation; translated entry is still required."
+    }
+  },
+  "cloudTree.resources.missing": {
+    "source": "—",
+    "class": "format"
+  },
+  "cloudTree.resources.ram": {
+    "source": "RAM",
+    "class": "technical",
+    "identityLocales": {
+      "bs": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "da": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "it": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "km": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "nb": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "pl": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "pt-BR": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "th": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "tr": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required."
     }
   }
 }

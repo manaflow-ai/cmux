@@ -6,8 +6,9 @@ import {
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { resizeVm } from "../../../../../services/vms/workflows";
 import { VM_DISK_MB_MAX, VM_DISK_MB_STEP } from "../../../../../services/vms/machineSpec";
+import { maxDiskMbForPlan, maxMemoryMbForPlan, maxVcpusForPlan } from "../../../../../services/vms/entitlements";
 
-/** Grow a Cloud VM's disk. The provider and this route both enforce grow-only semantics. */
+/** Grow a Cloud VM's resources. The workflow owns plan and grow-only checks. */
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -27,20 +28,18 @@ export async function POST(
       } catch {
         return jsonResponse({ error: "invalid JSON body" }, 400);
       }
-      const storageMb = body && typeof body === "object" && "storageMb" in body
-        ? (body as { storageMb: unknown }).storageMb
-        : undefined;
-      if (
-        typeof storageMb !== "number" ||
-        !Number.isSafeInteger(storageMb) ||
-        storageMb <= 0 ||
-        storageMb % VM_DISK_MB_STEP !== 0 ||
-        storageMb > VM_DISK_MB_MAX
-      ) {
+      const candidate = body && typeof body === "object" && !Array.isArray(body)
+        ? body as Record<string, unknown> : {};
+      const { storageMb, cpu, memoryMb } = candidate;
+      const dimensions = [storageMb, cpu, memoryMb];
+      if (dimensions.every((value) => value === undefined) || dimensions.some((value) =>
+        value !== undefined && (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0)
+      ) || (typeof storageMb === "number" && (storageMb % VM_DISK_MB_STEP !== 0 || storageMb > VM_DISK_MB_MAX)) ||
+        (typeof memoryMb === "number" && (memoryMb < 4 * 1024 || memoryMb % 1024 !== 0 || memoryMb > 64 * 1024)) ||
+        (typeof cpu === "number" && cpu > 32)) {
         return jsonResponse({
-          error: "invalid disk size",
-          message: `storageMb must be a whole GiB size between ${VM_DISK_MB_STEP / 1024} and ${VM_DISK_MB_MAX / 1024} GiB.`,
-          details: { minGiB: VM_DISK_MB_STEP / 1024, maxGiB: VM_DISK_MB_MAX / 1024, stepGiB: VM_DISK_MB_STEP / 1024 },
+          error: "invalid resize size",
+          message: "Provide cpu (1–32), memoryMb (4–64 GiB, whole GiB), or storageMb (4 GiB steps, up to 256 GiB).",
         }, 400);
       }
       span.setAttribute("cmux.vm.id", id);
@@ -50,18 +49,27 @@ export async function POST(
         billingPlanId: account.entitlements.planId,
         teamIds: user.teamIds,
         providerVmId: id,
-        storageMb,
+        storageMb: storageMb as number | undefined,
+        cpu: cpu as number | undefined,
+        memoryMb: memoryMb as number | undefined,
         maxActiveVms: account.entitlements.maxActiveVms,
       }), { request });
       if (!run.ok) return run.response;
       const stats = run.value;
       return jsonResponse({
         id,
-        diskTotalMb: stats.diskTotalMb,
-        diskUsedMb: stats.diskUsedMb,
         state: stats.state,
         sampledAt: stats.sampledAt,
-        maxDiskMb: VM_DISK_MB_MAX,
+        cpus: stats.cpus,
+        cpuPercent: stats.cpuPercent,
+        loadAverage1m: stats.loadAverage1m,
+        memoryTotalMb: stats.memoryTotalMb,
+        memoryUsedMb: stats.memoryUsedMb,
+        diskTotalMb: stats.diskTotalMb,
+        diskUsedMb: stats.diskUsedMb,
+        maxDiskMb: maxDiskMbForPlan(account.entitlements.planId),
+        maxMemoryMb: maxMemoryMbForPlan(account.entitlements.planId),
+        maxVcpus: maxVcpusForPlan(account.entitlements.planId),
       });
     },
   );

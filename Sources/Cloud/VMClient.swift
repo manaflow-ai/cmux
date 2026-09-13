@@ -619,12 +619,6 @@ struct VMPublicationDomain: Equatable, Sendable {
 }
 
 
-struct VMSnapshotResult {
-    let id: String
-    let name: String?
-    let createdAt: Int64
-}
-
 /// One reflection read (`GET /api/vm/<id>/reflection[/<path>]`): the HTTP status and the
 /// JSON body as sent. A 404 with `{error: "not_found", paths: […]}` is a normal result
 /// (an unknown reflection path), so the CLI can print the paths that do exist.
@@ -777,7 +771,7 @@ actor VMClient {
     /// the composition root.
     @MainActor
     static func bootstrap(auth: AuthCoordinator, session: URLSession = .shared, operations: CloudOperationRecorder? = nil) {
-        shared = VMClient(session: session, auth: auth, operations: operations)
+        shared = VMClient(session: session, auth: auth, checkpointRenames: SurfaceCatalog.shared.cloudRenameCoordinator, operations: operations)
     }
 
     /// Revoke endpoint credentials issued by the Cloud VM service during sign-out.
@@ -816,6 +810,7 @@ actor VMClient {
 
     private let session: URLSession
     private let auth: AuthCoordinator
+    private let checkpointRenames: CloudRenameCoordinator
     private let telemetry: VMClientTelemetry
     nonisolated let operations: CloudOperationRecorder?
     private let machineCache: CloudMachineCache
@@ -824,6 +819,7 @@ actor VMClient {
     init(
         session: URLSession = .shared,
         auth: AuthCoordinator,
+        checkpointRenames: CloudRenameCoordinator,
         telemetry: VMClientTelemetry = .shared,
         operations: CloudOperationRecorder? = nil,
         machineCache: CloudMachineCache = CloudMachineCache(),
@@ -831,6 +827,7 @@ actor VMClient {
     ) {
         self.session = session
         self.auth = auth
+        self.checkpointRenames = checkpointRenames
         self.telemetry = telemetry
         self.operations = operations
         self.machineCache = machineCache
@@ -1504,6 +1501,7 @@ actor VMClient {
 
     func snapshot(id: String, name: String? = nil) async throws -> VMSnapshotResult {
         return try await withOperation(.snapshot, foreground: true) {
+            try await checkpointRenames.waitForPendingRenames(on: .cloud(id))
             var body: [String: Any] = [:]
             if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 body["name"] = name
@@ -1531,6 +1529,7 @@ actor VMClient {
 
     func fork(id: String, name: String? = nil, idempotencyKey: String) async throws -> (snapshot: VMSnapshotResult?, vm: VMSummary) {
         return try await withOperation(.fork, foreground: true) {
+            try await checkpointRenames.waitForPendingRenames(on: .cloud(id))
             var body: [String: Any] = [:]
             if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 body["name"] = name
@@ -1986,6 +1985,46 @@ actor VMClient {
                 cpus: int("cpus"),
                 cpuPercent: double("cpuPercent"),
                 loadAverage1m: double("loadAverage1m"),
+                memoryTotalMb: int("memoryTotalMb"),
+                memoryUsedMb: int("memoryUsedMb"),
+                diskTotalMb: int("diskTotalMb"),
+                diskUsedMb: int("diskUsedMb")
+            )
+        }
+    }
+
+    /// Grow a machine's disk and return the provider-confirmed post-resize reading.
+    func resizeDisk(id: String, diskMb: Int) async throws -> VMStats {
+        try await resize(id: id, cpu: nil, memoryMb: nil, diskMb: diskMb)
+    }
+
+    /// Grow one or more machine resources and return provider-confirmed stats.
+    func resize(id: String, cpu: Int?, memoryMb: Int?, diskMb: Int?) async throws -> VMStats {
+        return try await withOperation(.resize, foreground: true) {
+            let encodedID = try pathSegment(id, fieldName: "vm id")
+            let (data, http) = try await request(
+                "POST",
+                path: "/api/vm/\(encodedID)/resize",
+                jsonBody: ["cpu": cpu as Any, "memoryMb": memoryMb as Any, "storageMb": diskMb as Any].compactMapValues { value in value is NSNull ? nil : value },
+                timeoutSeconds: 120
+            )
+            try ensureOK(http, data: data)
+            let obj = try decodeJSONObject(data)
+            let state = VMStats.State(rawValue: (obj["state"] as? String) ?? "") ?? .unknown
+            func int(_ key: String) -> Int? {
+                if let value = obj[key] as? Int { return value }
+                if let value = obj[key] as? Double { return Int(value) }
+                return nil
+            }
+            let sampledAtMs = (obj["sampledAt"] as? Double)
+                ?? (obj["sampledAt"] as? Int).map(Double.init)
+                ?? Date().timeIntervalSince1970 * 1000
+            return VMStats(
+                state: state,
+                sampledAt: Date(timeIntervalSince1970: sampledAtMs / 1000),
+                cpus: int("cpus"),
+                cpuPercent: int("cpuPercent").map(Double.init),
+                loadAverage1m: nil,
                 memoryTotalMb: int("memoryTotalMb"),
                 memoryUsedMb: int("memoryUsedMb"),
                 diskTotalMb: int("diskTotalMb"),

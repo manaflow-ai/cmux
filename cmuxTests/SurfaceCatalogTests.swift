@@ -315,7 +315,7 @@ struct SurfaceCatalogTests {
             info: provider.info
         )
 
-        #expect(catalog.snapshot.resources(on: machine).first { $0.id.key == "term_one" }?.title == "new")
+        #expect(catalog.snapshot.resources(on: machine).first { $0.id.key == "term_one" }?.remoteViews?.first?.name == "new")
         #expect(catalog.snapshot.resources(on: machine).contains(termTwo))
         #expect(catalog.snapshot.resources(on: machine).contains(port))
         #expect(catalog.cloudStates[machine]?.cursor == CloudVMCursor(generation: "g1", revision: 2))
@@ -360,7 +360,7 @@ struct SurfaceCatalogTests {
         catalog.register(provider)
         let snapshot: [String: Any] = [
             "cursor": ["generation": "g1", "revision": "1"],
-            "workspaces": [["id": "ws", "name": "canonical"]],
+            "workspaces": [["id": "ws", "name": "canonical", "focused": true]],
             "screens": [],
             "panes": [],
             "tabs": [],

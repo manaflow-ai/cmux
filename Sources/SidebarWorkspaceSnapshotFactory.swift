@@ -16,25 +16,22 @@ struct SidebarWorkspaceSnapshotFactory {
     let settings: SidebarTabItemSettingsSnapshot
     let showsAgentActivity: Bool
 
+    /// Creates the current immutable presentation snapshot for the workspace row.
     func makeSnapshot() -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         let detailVisibility = settings.visibleAuxiliaryDetails
-        let orderedPanelIds: [UUID]? =
-            (detailVisibility.showsBranchDirectory || detailVisibility.showsPullRequests)
-                ? workspace.sidebarOrderedPanelIds()
-                : nil
+        let orderedPanelIds = workspace.sidebarOrderedPanelIds()
+        let taskStatusInput = SidebarWorkspaceTaskStatusSnapshot.capture(workspace: workspace, orderedPanelIds: orderedPanelIds)
         let compactGitBranchSummaryText: String? = {
             guard detailVisibility.showsBranchDirectory,
                   settings.branchDirectory.branchLayout == .inline,
-                  settings.showsGitBranch,
-                  let orderedPanelIds else {
+                  settings.showsGitBranch else {
                 return nil
             }
             return gitBranchSummaryText(orderedPanelIds: orderedPanelIds)
         }()
         let compactDirectoryCandidates: [String] = {
             guard detailVisibility.showsBranchDirectory,
-                  settings.branchDirectory.branchLayout == .inline,
-                  let orderedPanelIds else {
+                  settings.branchDirectory.branchLayout == .inline else {
                 return []
             }
             return compactDirectoryCandidatesList(orderedPanelIds: orderedPanelIds)
@@ -45,19 +42,18 @@ struct SidebarWorkspaceSnapshotFactory {
         )
         let branchDirectoryLines: [SidebarWorkspaceSnapshotBuilder.VerticalBranchDirectoryLine] = {
             guard detailVisibility.showsBranchDirectory,
-                  settings.branchDirectory.branchLayout == .vertical,
-                  let orderedPanelIds else {
+                  settings.branchDirectory.branchLayout == .vertical else {
                 return []
             }
             return verticalBranchDirectoryLines(orderedPanelIds: orderedPanelIds)
         }()
         let pullRequestRows: [SidebarWorkspaceSnapshotBuilder.PullRequestDisplay] = {
-            guard detailVisibility.showsPullRequests, let orderedPanelIds else { return [] }
+            guard detailVisibility.showsPullRequests else { return [] }
             return pullRequestDisplays(orderedPanelIds: orderedPanelIds)
         }()
         let todoControlsEnabled = WorkspaceTodoFeature.isEnabled
         let workspaceStatusVisible = todoControlsEnabled && !workspace.todoState.statusHidden
-        let inferredTaskStatus = workspaceStatusVisible ? workspace.inferredTaskStatus : nil
+        let inferredTaskStatus = workspaceStatusVisible ? taskStatusInput.inferred : nil
         let taskStatusResolution: WorkspaceTaskStatusOverride.Resolution? = inferredTaskStatus.map { inferred in
             WorkspaceTaskStatusOverride.effectiveStatus(
                 override: workspace.todoState.statusOverride,
@@ -81,6 +77,13 @@ struct SidebarWorkspaceSnapshotFactory {
             isPinned: workspace.isPinned,
             isMuted: workspace.isMuted,
             customColorHex: workspace.customColor,
+            cloudWorkspaceLabel: workspace.cloudVMID.map { machine in
+                let template = String(
+                    localized: "sidebar.cloudWorkspace.label",
+                    defaultValue: "Cloud workspace on %@"
+                )
+                return String.localizedStringWithFormat(template, machine)
+            },
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
@@ -117,7 +120,8 @@ struct SidebarWorkspaceSnapshotFactory {
             checklistItems: workspace.todoState.checklist,
             checklistCompletedCount: checklistProgress.completedCount,
             checklistTotalCount: checklistProgress.totalCount,
-            checklistFirstUncheckedText: checklistProgress.firstUncheckedText
+            checklistFirstUncheckedText: checklistProgress.firstUncheckedText,
+            taskStatusInput: taskStatusInput
         )
     }
 

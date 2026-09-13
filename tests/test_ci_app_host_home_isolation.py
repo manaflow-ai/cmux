@@ -37,7 +37,7 @@ APP_HOST_RECEIPT_WRITER = (
     if APP_HOST_RECEIPT_WRITER_PATH.is_file()
     else ""
 )
-APP_ENTRYPOINT = (ROOT / "Sources/cmuxApp.swift").read_text(encoding="utf-8")
+APP_ENTRYPOINT = (ROOT / "Sources/CmuxMain.swift" if (ROOT / "Sources/CmuxMain.swift").exists() else ROOT / "Sources/cmuxApp.swift").read_text(encoding="utf-8")
 UNIT_SCHEME = (
     ROOT / "cmux.xcodeproj/xcshareddata/xcschemes/cmux-unit.xcscheme"
 ).read_text(encoding="utf-8")

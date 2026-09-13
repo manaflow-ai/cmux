@@ -64,6 +64,7 @@ EXPECTED_BROWSER_METHODS = {
     "browser.frame.main",
     "browser.dialog.accept",
     "browser.dialog.dismiss",
+    "browser.download.list",
     "browser.download.wait",
     "browser.cookies.get",
     "browser.cookies.set",

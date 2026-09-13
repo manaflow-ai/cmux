@@ -703,6 +703,7 @@ final class WindowTerminalPortal: NSObject {
     struct Entry {
         weak var hostedView: GhosttySurfaceScrollView?
         weak var anchorView: NSView?
+        let workspaceID: UUID?
         var visibleInUI: Bool
         var awaitingGeometrySettlement: Bool
         var zPriority: Int
@@ -1523,45 +1524,36 @@ final class WindowTerminalPortal: NSObject {
 #endif
     }
 
-    /// Update the visibleInUI flag on an existing entry without rebinding.
-    /// Used when a deferred bind is pending — this ensures synchronizeHostedView
-    /// won't hide a view that updateNSView has already marked as visible.
+    func hideEntries(forWorkspaceID workspaceID: UUID) {
+        for hostedId in entriesByHostedId.compactMap({ hostedId, entry in
+            entry.workspaceID == workspaceID ? hostedId : nil
+        }) {
+            hideEntry(forHostedId: hostedId)
+        }
+    }
+
     @discardableResult
     func updateEntryVisibility(forHostedId hostedId: ObjectIdentifier, visibleInUI: Bool) -> Bool {
         let needsReattach = visibleInUI && hostedViewNeedsPortalReattachForVisiblePresentation(withId: hostedId)
         guard var entry = entriesByHostedId[hostedId] else { return needsReattach }
-        let becameVisible = visibleInUI && !entry.visibleInUI
-        let becameHidden = !visibleInUI && entry.visibleInUI
-        entry.visibleInUI = visibleInUI
+        let effectiveVisibleInUI = visibleInUI && Workspace.portalRenderingEnabled(for: entry.workspaceID)
+        let becameVisible = effectiveVisibleInUI && !entry.visibleInUI
+        let becameHidden = !effectiveVisibleInUI && entry.visibleInUI
+        entry.visibleInUI = effectiveVisibleInUI
         if becameVisible {
             lastHierarchySyncSignature = nil
             geometrySettlementPassesRemaining = 4
             entry.awaitingGeometrySettlement = true
             entry.hostedView?.beginPortalGeometrySettlement()
-        } else if !visibleInUI {
+        } else if !effectiveVisibleInUI {
             entry.awaitingGeometrySettlement = false
             entry.hostedView?.finishPortalGeometrySettlement()
             entry.transientRecoveryRetriesRemaining = 0
         }
         entriesByHostedId[hostedId] = entry
         if becameHidden {
-            // Visibility updates are coalesced. Clear the presentation edge
-            // synchronously so a hide -> show in one turn can notify again.
             clearPresentationNotificationState(for: hostedId)
         }
-        // A view that just became visible may still hold the frame it was
-        // born with (bind can seed from a pre-settle anchor reading, and a
-        // hidden entry's frame is deliberately left alone). Visibility is a
-        // sizing input like any other: it schedules a pass rather than
-        // trusting that some earlier one already ran.
-        //
-        // A flip to invisible must schedule the same pass: the hide is applied
-        // by synchronizeHostedView (shouldHide reads entry.visibleInUI), and a
-        // selection-only tab switch produces no window geometry churn that
-        // would run one otherwise. An unscheduled hide left the deselected
-        // terminal's layer rendering above SwiftUI chrome — the previous
-        // terminal's content filled the browser omnibar band until unrelated
-        // churn (sidebar toggle, window resize) healed it.
         if becameVisible || becameHidden {
             scheduleExternalGeometrySynchronize(forceImmediate: false)
         }
@@ -1660,8 +1652,9 @@ final class WindowTerminalPortal: NSObject {
         entriesByHostedId[hostedId] = Entry(
             hostedView: hostedView,
             anchorView: anchorView,
-            visibleInUI: visibleInUI,
-            awaitingGeometrySettlement: visibleInUI,
+            workspaceID: hostedView.isRightSidebarDockSurface ? nil : hostedView.surfaceView.terminalSurface?.tabId,
+            visibleInUI: visibleInUI && (hostedView.isRightSidebarDockSurface || Workspace.portalRenderingEnabled(for: hostedView.surfaceView.terminalSurface?.tabId)),
+            awaitingGeometrySettlement: visibleInUI && (hostedView.isRightSidebarDockSurface || Workspace.portalRenderingEnabled(for: hostedView.surfaceView.terminalSurface?.tabId)),
             zPriority: zPriority,
             transientRecoveryRetriesRemaining: 0
         )
@@ -2907,6 +2900,13 @@ enum TerminalWindowPortalRegistry {
         let hostedId = ObjectIdentifier(hostedView)
         guard let windowId = hostedToWindowId[hostedId], let portal = portalsByWindowId[windowId] else { return }
         portal.hideEntry(forHostedId: hostedId)
+    }
+
+    /// Hides every registered terminal portal owned by one inactive workspace.
+    static func hideHostedViews(forWorkspaceID workspaceID: UUID) {
+        for portal in portalsByWindowId.values {
+            portal.hideEntries(forWorkspaceID: workspaceID)
+        }
     }
 
     /// Permanently detach a hosted terminal view from the window-level portal.
