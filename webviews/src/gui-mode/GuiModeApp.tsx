@@ -2,11 +2,13 @@ import React, { useCallback, useRef, useState } from "react";
 import {
   CODEX_BUTTON_BASE,
   CODEX_BUTTON_COMPOSER,
-  CODEX_BUTTON_PRIMARY,
+  CODEX_BUTTON_GHOST,
+  CODEX_BUTTON_UNIFORM,
   CODEX_COMPOSER_FRAME,
   CODEX_COMPOSER_INNER,
   CODEX_COMPOSER_STACK,
   CODEX_COMPOSER_SURFACE,
+  CODEX_SUBMIT_BUTTON,
 } from "../agent-session/shared/codexClassNames";
 import {
   PromptEditor,
@@ -87,13 +89,10 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
   const blockedRequestIds = useRef(new Set<string>());
   const settledRequestIds = useRef(new Set<string>());
   const selectedProvider = providerForId(context.providers, selectedProviderId);
-  const accentStyle = providerAccentStyle(selectedProvider);
   const trimmedPrompt = prompt.trim();
   const canSubmit = trimmedPrompt.length > 0 && !isSubmitting;
   const submit = useCallback(() => {
-    if (!canSubmit) {
-      return;
-    }
+    if (!canSubmit) return;
     setIsSubmitting(true);
     setError("");
     const requestId = makeGuiModeRequestId();
@@ -104,8 +103,7 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
         try {
           await cancelGuiModeSubmit(requestId);
         } catch {
-          // Keep the request locked when native cancellation cannot be delivered;
-          // releasing it would permit a duplicate workspace mutation.
+          // Keep duplicate workspace creation blocked until native cancellation is confirmed.
           blockedRequestIds.current.add(requestId);
           setError(context.copy.cancellationUnconfirmed);
         }
@@ -135,65 +133,83 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
     }).catch(() => setError(context.copy.cancellationUnconfirmed));
   }, [context.copy.cancellationUnconfirmed]);
 
-  return h("section", { className: "gui-mode-home", "aria-label": context.copy.homeTitle, style: accentStyle },
-    h("div", { className: "gui-mode-chat-shell" },
-      h("div", { className: "gui-mode-topline" },
-        h("div", { className: "gui-mode-title" }, context.copy.homeTitle),
-        h("div", { className: "gui-mode-runtime-pill" }, selectedProvider.supportLabel),
-      ),
-      h("div", { className: "gui-mode-chat-thread", role: "log", "aria-live": "polite" },
-        h(AssistantChatTurn, {
-          provider: selectedProvider,
-          text: context.copy.promptPlaceholder,
-        }),
-        trimmedPrompt.length > 0
-          ? h(UserChatTurn, { text: prompt })
-          : null,
-      ),
-      h("div", { className: `${CODEX_COMPOSER_STACK} gui-mode-center-stack` },
-        h("div", { className: CODEX_COMPOSER_FRAME },
-          h("div", { className: `${CODEX_COMPOSER_SURFACE} gui-mode-composer` },
-            h("div", { className: CODEX_COMPOSER_INNER },
-              h(PromptEditor, {
-                ref: editorRef,
-                ariaLabel: context.copy.promptPlaceholder,
-                className: "gui-mode-editor",
-                minHeight: "6.25rem",
-                onSubmit: submit,
-                onTextChange: setPrompt,
-                placeholder: context.copy.promptPlaceholder,
-                value: prompt,
-              }),
-              h("div", { className: "gui-mode-footer" },
-                h("div", { className: "gui-mode-footer-left" },
-                  h(ProviderSelect, {
-                    label: context.copy.providerLabel,
-                    providers: context.providers,
-                    selectedProviderId: selectedProvider.id,
-                    noResultsLabel: context.copy.noProvidersFound,
-                    searchPlaceholder: context.copy.providerSearchPlaceholder,
-                    onSelectProvider: setSelectedProviderId,
-                  }),
-                  h("div", { className: "gui-mode-command-hint" },
-                    h("span", { className: "gui-mode-command-label" }, context.copy.taskCommandLabel),
-                    h("code", { className: "gui-mode-command-code" }, selectedProvider.taskCommandPreview),
+  return h("section", {
+    className: "agent-shell gui-mode-home",
+    "aria-label": context.copy.homeTitle,
+    style: providerAccentStyle(selectedProvider),
+  },
+    h("div", {
+      className: "agent-thread gui-mode-thread",
+      "data-empty": trimmedPrompt.length === 0 ? "true" : undefined,
+      role: "log",
+      "aria-live": "polite",
+    },
+      trimmedPrompt.length > 0 ? h(UserChatTurn, { text: prompt }) : null,
+    ),
+    h("div", { className: CODEX_COMPOSER_STACK },
+      h("div", { className: "relative flex w-full flex-col gap-2" },
+        h("form", {
+          className: "w-full min-w-0",
+          onSubmit: (event: React.FormEvent) => {
+            event.preventDefault();
+            submit();
+          },
+        },
+          h("div", { className: CODEX_COMPOSER_FRAME },
+            h("div", {
+              className: `${CODEX_COMPOSER_SURFACE} gui-mode-composer overflow-visible rounded-3xl`,
+            },
+              h("div", { className: CODEX_COMPOSER_INNER },
+                h("div", { className: "composer-footer gui-mode-composer-footer" },
+                  h("div", { className: "codex-left-rail" },
+                    h("button", {
+                      className: `${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full gui-mode-add-context`,
+                      type: "button",
+                      "aria-label": context.copy.setupCommandLabel,
+                      title: context.copy.setupCommandLabel,
+                    }, guiModePlusIcon("icon-sm")),
+                  ),
+                  h("div", { className: "min-w-0 gui-mode-editor-shell" },
+                    h(PromptEditor, {
+                      ref: editorRef,
+                      ariaLabel: context.copy.promptPlaceholder,
+                      className: "gui-mode-editor text-base",
+                      minHeight: "1.25rem",
+                      onSubmit: submit,
+                      onTextChange: setPrompt,
+                      placeholder: context.copy.promptPlaceholder,
+                      singleLine: true,
+                      value: prompt,
+                    }),
+                  ),
+                  h("div", { className: "codex-action-cluster gui-mode-action-cluster" },
+                    h(ProviderSelect, {
+                      label: context.copy.providerLabel,
+                      providers: context.providers,
+                      selectedProviderId: selectedProvider.id,
+                      noResultsLabel: context.copy.noProvidersFound,
+                      searchPlaceholder: context.copy.providerSearchPlaceholder,
+                      onSelectProvider: setSelectedProviderId,
+                    }),
+                    isSubmitting
+                      ? h("button", {
+                        className: `${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full gui-mode-cancel`,
+                        onClick: cancel,
+                        type: "button",
+                        "aria-label": context.copy.cancel,
+                        title: context.copy.cancel,
+                      }, guiModeStopIcon())
+                      : null,
+                    h("button", {
+                      className: `${CODEX_SUBMIT_BUTTON} gui-mode-submit${canSubmit ? "" : " cursor-default opacity-50"}`,
+                      "aria-label": isSubmitting ? context.copy.submitting : context.copy.submit,
+                      disabled: !canSubmit,
+                      type: "submit",
+                    }, guiModeSendIcon("icon-sm text-token-dropdown-background")),
                   ),
                 ),
-                h("button", {
-                  className: `${CODEX_BUTTON_BASE} ${CODEX_BUTTON_PRIMARY} ${CODEX_BUTTON_COMPOSER} gui-mode-submit`,
-                  disabled: !canSubmit,
-                  onClick: submit,
-                  type: "button",
-                }, isSubmitting ? context.copy.submitting : context.copy.submit),
-                isSubmitting
-                  ? h("button", {
-                    className: `${CODEX_BUTTON_BASE} ${CODEX_BUTTON_COMPOSER} gui-mode-cancel`,
-                    onClick: cancel,
-                    type: "button",
-                  }, context.copy.cancel)
-                  : null,
+                h("div", { className: "gui-mode-error", role: "alert" }, error),
               ),
-              h("div", { className: "gui-mode-error", role: "alert" }, error),
             ),
           ),
         ),
@@ -206,24 +222,22 @@ function GuiModeTaskPage({ context }: { context: GuiModeContext }) {
   const provider = providerForId(context.providers, context.selectedProviderId);
   return h("section", {
     "aria-label": context.copy.taskTitle,
-    className: "gui-mode-task gui-mode-task-chat",
+    className: "agent-shell gui-mode-task",
     style: providerAccentStyle(provider),
   },
-    h("div", { className: "gui-mode-chat-shell gui-mode-task-shell" },
-      h("div", { className: "gui-mode-topline" },
+    h("div", { className: "agent-thread gui-mode-task-thread", role: "log" },
+      h("div", { className: "gui-mode-task-heading" },
         h("div", { className: "gui-mode-title" }, context.copy.taskTitle),
         h("div", { className: "gui-mode-runtime-pill" }, provider.displayName),
       ),
-      h("div", { className: "gui-mode-chat-thread gui-mode-task-thread", role: "log" },
-        h(UserChatTurn, { label: context.copy.taskPromptLabel, text: context.prompt }),
-        h(AssistantChatTurn, {
-          provider,
-          text: provider.detail,
-          commandLabel: context.copy.taskCommandLabel,
-          command: provider.taskCommandPreview,
-          capabilities: provider.capabilities,
-        }),
-      ),
+      h(UserChatTurn, { label: context.copy.taskPromptLabel, text: context.prompt }),
+      h(AssistantChatTurn, {
+        provider,
+        text: provider.detail,
+        commandLabel: context.copy.taskCommandLabel,
+        command: provider.taskCommandPreview,
+        capabilities: provider.capabilities,
+      }),
     ),
   );
 }
@@ -244,6 +258,7 @@ function ProviderSelect({
   searchPlaceholder: string;
 }) {
   const [query, setQuery] = useState("");
+  const [isOpen, setIsOpen] = useState(false);
   const selectedProvider = providerForId(providers, selectedProviderId);
   const filteredProviders = filterGuiModeProviders(providers, query);
   const selectProviders = filteredProviders.length === 0
@@ -251,21 +266,30 @@ function ProviderSelect({
     : filteredProviders.some((provider) => provider.id === selectedProvider.id)
     ? filteredProviders
     : [selectedProvider, ...filteredProviders];
-  return h("label", { className: "gui-mode-agent-select-shell", style: providerAccentStyle(selectedProvider) },
-    h("span", { className: "gui-mode-provider-mark", "aria-hidden": "true" }),
-    h("span", { className: "gui-mode-agent-select-label" }, label),
-    h("input", {
-      "aria-label": searchPlaceholder,
-      className: "gui-mode-agent-search",
-      onChange: (event: React.ChangeEvent<HTMLInputElement>) => setQuery(event.currentTarget.value),
-      placeholder: searchPlaceholder,
-      type: "search",
-      value: query,
-    }),
+  return h("div", {
+    className: "model-picker-root gui-mode-provider-picker",
+    style: providerAccentStyle(selectedProvider),
+  },
+    h("button", {
+      className: `${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} model-picker rounded-full gui-mode-provider-button`,
+      type: "button",
+      "aria-expanded": isOpen,
+      "aria-haspopup": "menu",
+      "aria-label": label,
+      onClick: () => setIsOpen((open) => !open),
+    },
+      h("span", { className: "model-icon gui-mode-provider-icon", "aria-hidden": true }, selectedProvider.displayName.slice(0, 1)),
+      h("span", { className: "model-picker-content flex min-w-0 items-center gap-1.5" },
+        h("span", { className: "model-label truncate whitespace-nowrap" }, selectedProvider.displayName),
+      ),
+      h("span", { className: "model-chevron composer-footer__secondary-chevron icon-2xs", "aria-hidden": true }, guiModeChevronIcon()),
+    ),
     h("select", {
       "aria-label": label,
+      "aria-hidden": true,
       className: "gui-mode-agent-select",
       onChange: (event: React.ChangeEvent<HTMLSelectElement>) => onSelectProvider(event.currentTarget.value),
+      tabIndex: -1,
       value: selectedProvider.id,
     },
       selectProviders.map((provider) => h("option", {
@@ -273,9 +297,67 @@ function ProviderSelect({
         value: provider.id,
       }, provider.displayName)),
     ),
-    filteredProviders.length === 0
-      ? h("span", { className: "gui-mode-provider-no-results", role: "status" }, noResultsLabel)
+    isOpen
+      ? h("div", { className: "provider-dropdown gui-mode-provider-dropdown", role: "menu" },
+        h("div", { className: "provider-dropdown-title" }, label),
+        h("input", {
+          "aria-label": searchPlaceholder,
+          autoFocus: true,
+          className: "gui-mode-agent-search",
+          onChange: (event: React.ChangeEvent<HTMLInputElement>) => setQuery(event.currentTarget.value),
+          placeholder: searchPlaceholder,
+          type: "search",
+          value: query,
+        }),
+        filteredProviders.length === 0
+          ? h("div", { className: "gui-mode-provider-no-results", role: "status" }, noResultsLabel)
+          : filteredProviders.map((provider) => h("button", {
+            className: "provider-dropdown-item gui-mode-provider-option",
+            key: provider.id,
+            onClick: () => {
+              onSelectProvider(provider.id);
+              setIsOpen(false);
+              setQuery("");
+            },
+            role: "menuitem",
+            type: "button",
+          },
+            h("span", { className: "model-icon", "aria-hidden": true }, provider.displayName.slice(0, 1)),
+            h("span", { className: "truncate" }, provider.displayName),
+            provider.id === selectedProvider.id ? h("span", { className: "gui-mode-provider-check", "aria-hidden": true }, "✓") : null,
+          )),
+      )
       : null,
+  );
+}
+
+function guiModeSendIcon(className = "icon-sm") {
+  return h("svg", { className, width: "20", height: "20", viewBox: "0 0 20 20", fill: "none", "aria-hidden": true },
+    h("path", {
+      d: "M9.33467 16.6663V4.93978L4.6374 9.63704L3.69599 8.69661L9.52998 2.86263C9.78968 2.60314 10.2107 2.60314 10.4704 2.86263L16.3034 8.69661L15.363 9.63704L10.6647 4.9388V16.6663C10.6647 17.0336 10.367 17.3314 9.99971 17.3314C9.63259 17.3312 9.33467 17.0335 9.33467 16.6663Z",
+      fill: "currentColor",
+    }),
+  );
+}
+
+function guiModePlusIcon(className = "icon-sm") {
+  return h("svg", { className, width: "20", height: "20", viewBox: "0 0 20 20", fill: "none", "aria-hidden": true },
+    h("path", {
+      d: "M9.33496 16.5V10.665H3.5C3.13273 10.665 2.83496 10.3673 2.83496 10C2.83496 9.63273 3.13273 9.33496 3.5 9.33496H9.33496V3.5C9.33496 3.13273 9.63273 2.83496 10 2.83496C10.3673 2.83496 10.665 3.13273 10.665 3.5V9.33496H16.5V10.665H10.665V16.5C10.665 16.8673 10.367 17.165 10 17.165C9.63273 17.165 9.33496 16.8673 9.33496 16.5Z",
+      fill: "currentColor",
+    }),
+  );
+}
+
+function guiModeStopIcon() {
+  return h("svg", { width: "16", height: "16", viewBox: "0 0 16 16", fill: "none", "aria-hidden": true },
+    h("rect", { x: "4.75", y: "4.75", width: "6.5", height: "6.5", rx: "1", fill: "currentColor" }),
+  );
+}
+
+function guiModeChevronIcon() {
+  return h("svg", { className: "icon-2xs", width: "20", height: "21", viewBox: "0 0 20 21", fill: "none", "aria-hidden": true },
+    h("path", { d: "M4.4 7.7L10 13.3L15.6 7.7", fill: "none", stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round", strokeLinejoin: "round" }),
   );
 }
 
@@ -292,11 +374,11 @@ function AssistantChatTurn({
   provider: GuiModeProvider;
   text: string;
 }) {
-  return h("div", { className: "gui-mode-chat-turn gui-mode-chat-turn-assistant" },
+  return h("div", { className: "codex-assistant-turn gui-mode-chat-turn gui-mode-chat-turn-assistant" },
     h("div", { className: "gui-mode-chat-avatar", style: providerAccentStyle(provider), "aria-hidden": "true" },
       h("span", { className: "gui-mode-provider-mark" }),
     ),
-    h("div", { className: "gui-mode-chat-message gui-mode-assistant-message" },
+    h("div", { className: "codex-assistant-message gui-mode-chat-message gui-mode-assistant-message" },
       h("div", { className: "gui-mode-chat-message-head" },
         h("span", { className: "gui-mode-chat-agent-name" }, provider.displayName),
         h("span", { className: "gui-mode-chat-agent-support" }, provider.supportLabel),
@@ -321,10 +403,10 @@ function AssistantChatTurn({
 }
 
 function UserChatTurn({ label, text }: { label?: string; text: string }) {
-  return h("div", { className: "gui-mode-chat-turn gui-mode-chat-turn-user" },
-    h("div", { className: "gui-mode-chat-message gui-mode-user-message" },
+  return h("div", { className: "codex-user-turn gui-mode-chat-turn gui-mode-chat-turn-user" },
+    h("div", { className: "codex-user-bubble gui-mode-chat-message gui-mode-user-message" },
       label ? h("div", { className: "gui-mode-chat-user-label" }, label) : null,
-      h("div", { className: "gui-mode-chat-message-text" }, text),
+      h("div", { className: "codex-user-message-content gui-mode-chat-message-text" }, text),
     ),
   );
 }

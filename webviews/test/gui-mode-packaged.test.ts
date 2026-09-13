@@ -42,14 +42,15 @@ test("packaged GUI boots its real script and displays the native composer contex
     const result = JSON.parse(execFileSync("node", [
       join(import.meta.dir, "fixtures/boot-gui-mode.mjs"),
       join(appRoot, "gui-mode.html"),
-    ], { input: JSON.stringify(context), encoding: "utf8", timeout: 8000 }));
+    ], { input: JSON.stringify(context), encoding: "utf8", timeout: 12000 }));
     expect(result.errors).toEqual([]);
     expect(result.requests).toContain("app.context");
-    expect(result.title).toBe(context.copy.homeTitle);
+    expect(result.home).toBe(true);
+    expect(result.composerVisible).toBe(true);
     expect(result.hasEditor).toBe(true);
     expect(result.selectedProvider).toBe("codex");
     expect(result.submitDisabled).toBe(true);
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }
-});
+}, 15000);

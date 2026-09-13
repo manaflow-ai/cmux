@@ -33,7 +33,8 @@ try {
   });
   process.stdout.write(JSON.stringify({
     errors, requests,
-    title: document.querySelector(".gui-mode-title")?.textContent,
+    home: !!document.querySelector(".gui-mode-home"),
+    composerVisible: !!document.querySelector(".gui-mode-editor [contenteditable=true]"),
     hasEditor: !!document.querySelector(".gui-mode-editor [contenteditable=true]"),
     selectedProvider: document.querySelector(".gui-mode-agent-select")?.value,
     submitDisabled: document.querySelector(".gui-mode-submit")?.disabled,
