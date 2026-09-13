@@ -3960,49 +3960,76 @@ final class SocketClient {
     }
 
     static func waitForFilesystemPath(_ path: String, timeout: TimeInterval) throws {
-        if FileManager.default.fileExists(atPath: path) {
+        try waitForFilesystemPathCondition(
+            path,
+            timeout: timeout,
+            timeoutMessage: "Timed out waiting for \(path)",
+            isConditionMet: { FileManager.default.fileExists(atPath: path) }
+        )
+    }
+
+    static func waitForFilesystemPathAbsence(_ path: String, timeout: TimeInterval) throws {
+        try waitForFilesystemPathCondition(
+            path,
+            timeout: timeout,
+            timeoutMessage: "Timed out waiting for \(path) to be removed",
+            isConditionMet: { !FileManager.default.fileExists(atPath: path) }
+        )
+    }
+
+    /// Blocks until `isConditionMet` becomes true, waking only on filesystem
+    /// events in the path's parent directory rather than polling. Shared by
+    /// `waitForFilesystemPath` and `waitForFilesystemPathAbsence`, which differ
+    /// only in the polarity of their `fileExists` check.
+    private static func waitForFilesystemPathCondition(
+        _ path: String,
+        timeout: TimeInterval,
+        timeoutMessage: @autoclosure () -> String,
+        isConditionMet: @escaping () -> Bool
+    ) throws {
+        if isConditionMet() {
             return
         }
 
         guard let watchDirectory = existingWatchDirectory(forPath: path) else {
-            throw CLIError(message: "Timed out waiting for \(path)")
+            throw CLIError(message: timeoutMessage())
         }
         let watchFD = open(watchDirectory, O_EVTONLY)
         guard watchFD >= 0 else {
-            throw CLIError(message: "Timed out waiting for \(path)")
+            throw CLIError(message: timeoutMessage())
         }
 
         let queue = DispatchQueue(label: "com.cmux.cli.path-watch.\(UUID().uuidString)")
         let semaphore = DispatchSemaphore(value: 0)
-        var found = false
+        var met = false
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: watchFD,
             eventMask: [.write, .rename, .delete, .attrib, .extend, .link],
             queue: queue
         )
 
-        func checkPath() {
-            guard !found else { return }
-            if FileManager.default.fileExists(atPath: path) {
-                found = true
+        func checkCondition() {
+            guard !met else { return }
+            if isConditionMet() {
+                met = true
                 semaphore.signal()
             }
         }
 
         source.setEventHandler {
-            checkPath()
+            checkCondition()
         }
         source.setCancelHandler {
             Darwin.close(watchFD)
         }
         source.resume()
         queue.async {
-            checkPath()
+            checkCondition()
         }
 
         guard semaphore.wait(timeout: .now() + timeout) == .success else {
             source.cancel()
-            throw CLIError(message: "Timed out waiting for \(path)")
+            throw CLIError(message: timeoutMessage())
         }
 
         source.cancel()
@@ -4311,6 +4338,10 @@ struct CMUXCLI {
     let initialSIGPIPEInspectionPayload: [String: Any]?
     let simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning
 
+    /// Value-taking global options recognized before the command token, shared
+    /// with `CMUXTermMain.firstNonGlobalArgument` so the two option lists cannot drift.
+    static let valueTakingGlobalOptionNames: Set<String> = ["--socket", "--password", "--window", "--id-format"]
+
     private enum NotifyTargetResolution {
         case surface(
             rawSurface: String,
@@ -4320,6 +4351,16 @@ struct CMUXCLI {
         )
         case workspace(String)
         case caller([String: Any])
+    }
+
+    /// Splits `--name=value` into its parts for the value-taking global options.
+    /// Anything else, including the `--name value` form, comes back unchanged with
+    /// a nil inline value, meaning the value is the argument that follows.
+    static func splitGlobalOption(_ argument: String) -> (name: String, inlineValue: String?) {
+        guard let equalsIndex = argument.firstIndex(of: "=") else { return (argument, nil) }
+        let name = String(argument[argument.startIndex..<equalsIndex])
+        guard valueTakingGlobalOptionNames.contains(name) else { return (argument, nil) }
+        return (name, String(argument[argument.index(after: equalsIndex)...]))
     }
 
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
@@ -4903,7 +4944,7 @@ struct CMUXCLI {
         return true
     }
 
-    private func localizedCoderouterAliases() -> String {
+    static func localizedCoderouterAliases() -> String {
         let defaultValue = "coderouter|cr [coderouter-args...]                 (aliases for the CodeRouter CLI; offers to install it when missing)"
         let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
         let catalogValue = String(
@@ -4945,41 +4986,33 @@ struct CMUXCLI {
         var index = 1
         while index < args.count {
             let arg = args[index]
-            if arg == "--socket" {
-                guard index + 1 < args.count else {
-                    throw CLIError(message: "--socket requires a path")
+            // `--name=value` is accepted alongside `--name value`, matching
+            // `CMUXTermMain.firstNonGlobalArgument`. Without this, routing would
+            // skip `--window=w:1` while this loop treated it as the command name.
+            let (optionName, inlineValue) = Self.splitGlobalOption(arg)
+            if Self.valueTakingGlobalOptionNames.contains(optionName) {
+                let value: String
+                if let inlineValue, !inlineValue.isEmpty {
+                    value = inlineValue
+                } else if inlineValue == nil, index + 1 < args.count {
+                    value = args[index + 1]
+                } else {
+                    let requirement = optionName == "--id-format" ? "a value (refs|uuids|both)" : optionName == "--window" ? "a window id" : optionName == "--socket" ? "a path" : "a value"
+                    throw CLIError(message: "\(optionName) requires \(requirement)")
                 }
-                explicitSocketPath = args[index + 1]
-                index += 2
+                switch optionName {
+                case "--socket": explicitSocketPath = value
+                case "--id-format": idFormatArg = value
+                case "--window": windowId = value
+                case "--password": socketPasswordArg = value
+                default: break
+                }
+                index += inlineValue == nil ? 2 : 1
                 continue
             }
             if arg == "--json" {
                 jsonOutput = true
                 index += 1
-                continue
-            }
-            if arg == "--id-format" {
-                guard index + 1 < args.count else {
-                    throw CLIError(message: "--id-format requires a value (refs|uuids|both)")
-                }
-                idFormatArg = args[index + 1]
-                index += 2
-                continue
-            }
-            if arg == "--window" {
-                guard index + 1 < args.count else {
-                    throw CLIError(message: "--window requires a window id")
-                }
-                windowId = args[index + 1]
-                index += 2
-                continue
-            }
-            if arg == "--password" {
-                guard index + 1 < args.count else {
-                    throw CLIError(message: "--password requires a value")
-                }
-                socketPasswordArg = args[index + 1]
-                index += 2
                 continue
             }
             if arg == "-v" || arg == "--version" {
@@ -27101,6 +27134,21 @@ struct CMUXCLI {
         return URL(fileURLWithPath: "/tmp/cmux-wait-for-\(String(sanitized)).sig")
     }
 
+    /// A lock file name must distinguish every channel name, so the readable
+    /// sanitized form is only a prefix: `a/b` and `a.b` both sanitize to `a_b`
+    /// and would otherwise share one lock, letting either channel block or
+    /// unlock the other. The appended digest is taken over the raw name, so
+    /// distinct names always land on distinct files.
+    private func tmuxWaitForLockURL(name: String) -> URL {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        let sanitized = String(name.unicodeScalars.map { allowed.contains($0) ? Character($0) : "_" })
+        let digest = SHA256.hash(data: Data(name.utf8))
+            .prefix(8)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return URL(fileURLWithPath: "/tmp/cmux-wait-for-\(sanitized.prefix(64))-\(digest).lock")
+    }
+
     private func runTmuxCompatCommand(
         command: String,
         commandArgs: [String],
@@ -27218,6 +27266,8 @@ struct CMUXCLI {
 
         case "wait-for":
             let signal = commandArgs.contains("-S") || commandArgs.contains("--signal")
+            let lock = commandArgs.contains("-L")
+            let unlock = commandArgs.contains("-U")
             let timeoutRaw = optionValue(commandArgs, name: "--timeout")
             let timeout = timeoutRaw.flatMap { Double($0) } ?? 30.0
             let name = commandArgs.first(where: { !$0.hasPrefix("-") }) ?? ""
@@ -27229,6 +27279,42 @@ struct CMUXCLI {
                 FileManager.default.createFile(atPath: signalURL.path, contents: Data())
                 print("OK")
                 return
+            }
+            if unlock {
+                // Unlocking an unlocked channel is a no-op, but a removal that
+                // actually failed (permissions, I/O) must not report success:
+                // the lock file survives and every waiter stays blocked while
+                // the caller believes the channel is free.
+                let lockURL = tmuxWaitForLockURL(name: name)
+                if unlink(lockURL.path) != 0, errno != ENOENT {
+                    throw CLIError(message: "wait-for failed to unlock '\(name)': \(String(cString: strerror(errno)))")
+                }
+                print("OK")
+                return
+            }
+            if lock {
+                let lockURL = tmuxWaitForLockURL(name: name)
+                let deadline = Date().addingTimeInterval(timeout)
+                while true {
+                    let fd = open(lockURL.path, O_CREAT | O_EXCL | O_WRONLY, 0o644)
+                    if fd >= 0 {
+                        Darwin.close(fd)
+                        print("OK")
+                        return
+                    }
+                    guard errno == EEXIST else {
+                        throw CLIError(message: "wait-for failed to lock '\(name)': \(String(cString: strerror(errno)))")
+                    }
+                    let remaining = deadline.timeIntervalSinceNow
+                    guard remaining > 0 else {
+                        throw CLIError(message: "wait-for timed out waiting to lock '\(name)'")
+                    }
+                    do {
+                        try SocketClient.waitForFilesystemPathAbsence(lockURL.path, timeout: remaining)
+                    } catch {
+                        throw CLIError(message: "wait-for timed out waiting to lock '\(name)'")
+                    }
+                }
             }
             let deadline = Date().addingTimeInterval(timeout)
             do {
@@ -41333,7 +41419,7 @@ export default CMUXSessionRestore;
           automation <list|show|test|enable|disable|logs|reload> [args]
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
-          \(localizedCoderouterAliases())
+          \(Self.localizedCoderouterAliases())
           \(localizedCoderouterCommands())
           vm <base|new|ls|domains|tree|self|status|stats|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]    (alias: cloud)
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
@@ -41510,7 +41596,7 @@ export default CMUXSessionRestore;
 
 }
 
-private enum CMUXCLIOutput {
+enum CMUXCLIOutput {
     static func writeStandardError(_ message: String) {
         cliWriteStderr(message)
     }
@@ -41522,6 +41608,12 @@ struct CMUXTermMain {
         let initialSIGPIPEInspectionPayload = CMUXCLI.currentSIGPIPEInspectionPayload()
         _ = signal(SIGPIPE, SIG_DFL)
         configureCLIStdioNoSIGPIPE()
+
+        if shouldUseFacade() {
+            await CmuxCommand.runFacade()
+            return
+        }
+
         let cli = CMUXCLI(
             args: CommandLine.arguments,
             initialSIGPIPEInspectionPayload: initialSIGPIPEInspectionPayload
@@ -41535,5 +41627,64 @@ struct CMUXTermMain {
             let exitCode = (error as? CLIError)?.exitCode ?? 1
             exit(exitCode)
         }
+    }
+
+    /// The facade owns an invocation only when the first non-global argument names a
+    /// declared command. Delegated commands retain legacy help text until their
+    /// runners move into the facade; native completion commands keep facade help.
+    /// Bare paths, undeclared commands, and the legacy escape hatch all stay on the
+    /// hand-rolled parser.
+    private static func shouldUseFacade() -> Bool {
+        if ProcessInfo.processInfo.environment["CMUX_CLI_LEGACY_PARSER"] == "1" {
+            return false
+        }
+        // A shell's generated completion script invokes the binary as
+        // `cmux ---completion <command path...> -- <argument> <partial>` to
+        // resolve a `.custom` completion handler. That marker is always the
+        // literal first argument, is not a declared command name, and must
+        // always reach ArgumentParser or every dynamic completion silently
+        // breaks in real shell usage.
+        if CommandLine.arguments.dropFirst().first == "---completion" {
+            return true
+        }
+        guard let command = firstNonGlobalArgument(CommandLine.arguments.dropFirst()) else {
+            return false
+        }
+        guard CmuxCommand.declaredCommandNames.contains(command) else {
+            return false
+        }
+        let allArguments = Array(CommandLine.arguments.dropFirst())
+        let preSeparatorArguments = allArguments.firstIndex(of: "--").map { Array(allArguments[..<$0]) } ?? allArguments
+        if preSeparatorArguments.contains(where: { $0 == "--help" || $0 == "-h" }) {
+            return CmuxCommand.facadeNativeCommandNames.contains(command)
+        }
+        return true
+    }
+
+    private static func firstNonGlobalArgument(_ arguments: ArraySlice<String>) -> String? {
+        let optionsWithValues = CMUXCLI.valueTakingGlobalOptionNames
+        var index = arguments.startIndex
+        while index < arguments.endIndex {
+            let argument = arguments[index]
+            index = arguments.index(after: index)
+            if argument == "--" {
+                // Everything after a bare `--` is payload, not a global option
+                // or a command name, so there is nothing left to route on.
+                return nil
+            }
+            if argument == "--json" {
+                continue
+            }
+            if CMUXCLI.splitGlobalOption(argument).inlineValue != nil {
+                continue
+            }
+            if optionsWithValues.contains(argument) {
+                guard index < arguments.endIndex else { return nil }
+                index = arguments.index(after: index)
+                continue
+            }
+            return argument
+        }
+        return nil
     }
 }
