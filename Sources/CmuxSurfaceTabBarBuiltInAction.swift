@@ -143,6 +143,7 @@ extension CmuxSurfaceTabBarBuiltInAction {
         case .newCloudMachine: return .newCloudMachine
         case .newTerminal: return .newSurface
         case .newBrowser: return .openBrowser
+        case .newGuiMode: return .newGuiMode
         case .splitRight: return .splitRight
         case .splitDown: return .splitDown
         case .newAgentChat, .cloudVM, .mobileConnect, .newSimulator: return nil
