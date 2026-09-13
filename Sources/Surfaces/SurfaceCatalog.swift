@@ -123,6 +123,12 @@ final class SurfaceCatalog {
         cloudWorkspaceProjectionCoordinator.environment = .init(workspaces: service.environment)
         cloudPlacementCoordinator = CloudPlacementCoordinator(
             binding: { service.environment.workspace($0)?.cloudVMBinding },
+            workspaceExists: { [weak self] machine, remoteWorkspaceID in
+                guard let self, let state = self.cloudStates[machine],
+                      (self.cloudStateObservations[machine] ?? .current).freshness == .current,
+                      state.cursor != nil, state.document.containsCollection("workspaces") else { return nil }
+                return state.workspaceIDs.contains(remoteWorkspaceID)
+            },
             reportFailure: { projection, error in
                 service.environment.workspace(projection.workspaceID)?.presentCloudPlacementFailure(error)
             }

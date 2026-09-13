@@ -61,7 +61,7 @@ final class CloudSidebarRenameFixture {
     }
 
     func reconcile() {
-        if let state = catalog.cloudStates[machine] { service.reconcileRemoteState(machine: machine, state: state, catalog: catalog) }
+        if let state = catalog.cloudStates[machine] { service.reconcileRemoteState(machine: machine, state: state, catalog: catalog, observation: catalog.cloudStateObservations[machine] ?? .current) }
     }
 
     func drain() async throws {

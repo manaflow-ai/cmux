@@ -42,6 +42,7 @@ extension Workspace {
         return routeCloudPaneTerminalCreate(
             near: resource, sourcePanelID: panelID,
             destination: .split(workspaceID: id, paneID: paneID.id.uuidString, direction: direction),
+            preferredRemoteWorkspaceID: SurfaceCatalog.shared.projection(forPanel: panelID)?.remoteWorkspaceID,
             focus: focus
         )
     }
@@ -54,6 +55,7 @@ extension Workspace {
         return routeCloudPaneTerminalCreate(
             near: resource, sourcePanelID: sourcePanelID,
             destination: .tab(workspaceID: id, paneID: newPane.id.uuidString, index: nil),
+            preferredRemoteWorkspaceID: SurfaceCatalog.shared.projection(forPanel: sourcePanelID)?.remoteWorkspaceID,
             focus: true,
             splitDirection: orientation == .horizontal ? .right : .down,
             pendingPane: newPane
@@ -67,6 +69,7 @@ extension Workspace {
         return routeCloudPaneTerminalCreate(
             near: resource, sourcePanelID: bonsplitController.selectedTab(inPane: paneID).flatMap { panelIdFromSurfaceId($0.id) },
             destination: .tab(workspaceID: id, paneID: paneID.id.uuidString, index: nil),
+            preferredRemoteWorkspaceID: bonsplitController.selectedTab(inPane: paneID).flatMap { panelIdFromSurfaceId($0.id) }.flatMap { SurfaceCatalog.shared.projection(forPanel: $0)?.remoteWorkspaceID },
             focus: focus
         )
     }
@@ -80,14 +83,22 @@ extension Workspace {
         near resource: SurfaceResource,
         sourcePanelID: UUID?,
         destination: SurfaceDestination,
+        preferredRemoteWorkspaceID: String? = nil,
         focus: Bool,
         splitDirection: SurfaceSplitDirection? = nil,
         pendingPane: PaneID? = nil
     ) -> Bool {
         let catalog = SurfaceCatalog.shared
         guard let provider = catalog.provider(for: resource.machine) else { return false }
-        let remoteWorkspaceID = catalog.cloudPlacementCoordinator.creationWorkspaceID(in: id, near: resource)
+        let remoteWorkspaceID = catalog.cloudPlacementCoordinator.creationWorkspaceID(in: id, near: resource, preferredRemoteWorkspaceID: preferredRemoteWorkspaceID)
         let machine = resource.machine
+        let sourceProjection = sourcePanelID.flatMap { catalog.projection(forPanel: $0) }
+        if remoteWorkspaceID == nil, sourceProjection?.remoteTabID == nil {
+            Task { @MainActor in
+                Self.presentCloudPaneCreationFailure(machine: machine, error: SurfaceCatalogError.ambiguousRemotePlacement(resource.id, workspaceID: ""))
+            }
+            return true
+        }
         let pendingPanel: CloudTerminalPendingPanel?
         if let pendingPane {
             guard let pending = installCloudTerminalPendingPanel(machine: machine, in: pendingPane) else {
@@ -114,7 +125,7 @@ extension Workspace {
         }
         let create: CloudTerminalCreationCoordinator.Create = {
             do {
-                let source = sourcePanelID.flatMap { catalog.projection(forPanel: $0) }
+                let source = sourceProjection
                 let direction: SurfaceSplitDirection?
                 if case .split(_, _, let requested) = destination { direction = requested }
                 else { direction = splitDirection }

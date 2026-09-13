@@ -79,6 +79,28 @@ struct CloudSidebarAttentionLayoutTests {
         try fixture.attachScreenshot(named: "collapsed-folder-read-hover-narrow")
     }
 
+    @Test("Targeted refresh includes the collapsed folder when descendant attention changes")
+    func collapsedFolderIsInvalidatedByDescendantReadChanges() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let read = fixture.nodes()
+        fixture.coordinator.apply(nodes: read)
+        let outline = try #require(fixture.coordinator.outlineView)
+        let folder = try #require(CloudTreeNodeBuilder.flattened(read).first { $0.id == fixture.folderID("ws_2") })
+        outline.collapseItem(folder)
+        let before = CloudTreeNodeBuilder.contentSignature(read)
+        let unread = CloudTreeNodeBuilder.contentSignature(fixture.nodes(unread: ["term_ws_2"]))
+        let arrival = CloudTreeRowUpdate(previous: before, next: unread)
+        #expect(arrival.changedNodeIDs.contains(folder.id))
+        #expect(arrival.rowIndexes(in: outline).contains(outline.row(forItem: folder)))
+        #expect(!arrival.changedNodeIDs.contains(fixture.folderID("ws_1")))
+        let clear = CloudTreeRowUpdate(previous: unread, next: before)
+        #expect(clear.rowIndexes(in: outline).contains(outline.row(forItem: folder)))
+        folder.isPinned = true
+        let pinned = CloudTreeRowUpdate(previous: before, next: CloudTreeNodeBuilder.contentSignature(read))
+        #expect(pinned.rowIndexes(in: outline).contains(outline.row(forItem: folder)))
+    }
+
     private func render(_ cell: CloudTreeCellView, node: CloudTreeNode, fixture: CloudSidebarOrderingFixture) throws -> NSBitmapImageRep {
         cell.configure(node: node, machineActions: fixture.coordinator.machineActions, nodeActions: fixture.coordinator.nodeActions)
         cell.layoutSubtreeIfNeeded()

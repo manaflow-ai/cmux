@@ -10,7 +10,7 @@ extension CloudTreeNodeBuilder {
 
     /// Everything a row displays — a change here with an equal structure signature is
     /// applied to the existing rows in place.
-    static func contentSignature(_ nodes: [CloudTreeNode]) -> [String] {
-        flattened(nodes).map { "\($0.id)|\($0.isPinned)|\(String(describing: $0.kind))|\(String(describing: $0.dragGroup))" }
+    static func contentSignature(_ nodes: [CloudTreeNode]) -> [CloudTreeNodeContentSnapshot] {
+        flattened(nodes).map(\.contentSnapshot)
     }
 }

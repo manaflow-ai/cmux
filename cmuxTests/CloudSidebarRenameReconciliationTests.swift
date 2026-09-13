@@ -28,7 +28,7 @@ struct CloudSidebarRenameReconciliationTests {
         #expect(workspace.panelCustomTitleSources[fixture.panelID] == .auto)
         fixture.install(try fixture.state(revision: 5, name: "Calculate 2+2"))
         fixture.reconcile()
-        fixture.service.reconcileRemoteState(machine: fixture.machine, state: stale, catalog: fixture.catalog)
+        fixture.service.reconcileRemoteState(machine: fixture.machine, state: stale, catalog: fixture.catalog, observation: .current)
         try fixture.assertParity("Calculate 2+2")
         #expect(workspace.panelCustomTitleSources[fixture.panelID] == .auto)
     }
@@ -52,7 +52,7 @@ struct CloudSidebarRenameReconciliationTests {
         let old = try fixture.state()
         fixture.install(try fixture.state(revision: 3, name: "Same label"))
         fixture.reconcile()
-        fixture.service.reconcileRemoteState(machine: fixture.machine, state: old, catalog: fixture.catalog)
+        fixture.service.reconcileRemoteState(machine: fixture.machine, state: old, catalog: fixture.catalog, observation: .current)
         try fixture.assertParity("Same label")
     }
 

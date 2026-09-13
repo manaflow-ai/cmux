@@ -76,7 +76,15 @@ final class CloudTreeNode: NSObject {
     }
 
     var isExpandable: Bool { !children.isEmpty }
-
+    var contentSnapshot: CloudTreeNodeContentSnapshot {
+        .init(
+            id: id,
+            kind: kind,
+            explicitDragGroup: explicitDragGroup,
+            isPinned: isPinned,
+            hasUnreadAttention: hasUnreadAttention
+        )
+    }
     /// The case of `kind` without its payload: what decides row height, menus,
     /// expandability and drag-ability. Two trees with equal structure signatures
     /// can be updated in place; a content-only change never needs `reloadData`.
@@ -1166,6 +1174,4 @@ enum CloudTreeNodeBuilder {
         )
     }
 
-    /// Depth-first flattening in display order (every node expanded); used by
-    /// tests and by quick-search.
 }
