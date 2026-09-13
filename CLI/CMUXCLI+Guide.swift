@@ -20,7 +20,8 @@ extension CMUXCLI {
         }
 
         let invocation = cloud ? "cmux cloud guide | cmux cloud --skill" : "cmux guide | cmux --skill"
-        let usage = "Usage: \(invocation) [--json]\n\n" + Self.guideDescription
+        let usageLabel = CMUXDiffViewerLocalization.string("cli.guide.usage", defaultValue: "Usage:")
+        let usage = "\(usageLabel) \(invocation) [--json]\n\n" + Self.guideDescription
         if remaining == ["--help"] || remaining == ["-h"] {
             print(usage)
             return true
@@ -120,7 +121,7 @@ extension CMUXCLI {
         cmux cloud route --provision --json
         ```
 
-        \(CMUXDiffViewerLocalization.string("cli.guide.cloud.work", defaultValue: "## Run work and collect results\n\nUse `exec` for a short non-GUI command on a chosen machine. Use `run --sync -- <command>` to route a bounded command, or `agent` to start a coding agent. Use a machine `terminal` for long-running, interactive, or GUI work. Machine workspaces and terminals keep running when a pane closes or the Mac sleeps; terminal IDs come from `tree`, and you can reattach with the `vm open <machine>/<workspace>/<terminal>` address. Use `push` and `pull` to transfer files. Use `terminal wait` for a screen pattern and `terminal wait-exit` plus `terminal output` for process completion and logs. Read terminal output before reporting success."))
+        \(CMUXDiffViewerLocalization.string("cli.guide.cloud.work", defaultValue: "## Run work and collect results\n\nUse `exec` for a short non-GUI command on a chosen machine. Use `run -- <command>` to route a bounded command; add `--sync` only when you want to upload the current directory. Use `dev <machine> --no-open` to stage a recognized project with its development layout, or use `agent` to start a coding agent. Use a machine `terminal` for long-running, interactive, or GUI work. Machine workspaces and terminals keep running when a pane closes or the Mac sleeps; terminal IDs come from `tree`, and you can reattach with the `vm open <machine>/<workspace>/<terminal>` address. Use `push` and `pull` to transfer files. Use `terminal wait` for a screen pattern and `terminal wait-exit` plus `terminal output` for process completion and logs. Read terminal output before reporting success."))
 
         ```sh
         cmux cloud exec <machine> -- pwd
@@ -129,7 +130,8 @@ extension CMUXCLI {
         cmux cloud dev <machine> --no-open
         cmux cloud agent --help
         cmux cloud terminal --help
-        cmux cloud run --sync -- <command>
+        cmux cloud run -- <command>
+        cmux cloud run --sync -- <command>  # opt in to uploading the current directory
         cmux cloud terminal wait <machine> <terminal> --pattern 'done|failed' --timeout 300
         cmux cloud terminal read <machine> <terminal>
         cmux cloud terminal wait-exit <machine> <terminal> --timeout 900
