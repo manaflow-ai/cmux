@@ -105,7 +105,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     }
     /// Receives render-health transitions on the main actor for pane-local UI.
     /// The callback is installed by the AppKit host and cleared when it rebinds.
-    var onRenderHealthChanged: ((TerminalSurfaceRenderHealth) -> Void)?
+    @MainActor var onRenderHealthChanged: (@MainActor (TerminalSurfaceRenderHealth) -> Void)?
     let rendererPresentationState = TerminalRendererPresentationState()
     /// Wall-clock time (epoch seconds) this surface was last made visible in the
     /// UI. Used by `RendererRealizationController` as the LRU key so recently
