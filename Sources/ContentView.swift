@@ -3124,16 +3124,16 @@ struct ContentView: View {
                 attemptCommandPaletteTextSelectionIfNeeded()
             }
         })
-
         view = AnyView(view.onReceive(tabManager.tabsPublisher) { tabs in
             let existingIds = Set(tabs.map { $0.id })
+            let hadSidebarSelection = !selectedTabIds.isEmpty
             if let previousSelectedWorkspaceId, !existingIds.contains(previousSelectedWorkspaceId) {
                 self.previousSelectedWorkspaceId = tabManager.selectedTabId
             }
             tabManager.pruneBackgroundWorkspaceLoads(existingIds: existingIds)
             reconcileMountedWorkspaceIds(tabs: tabs)
             selectedTabIds = selectedTabIds.filter { existingIds.contains($0) }
-            if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
+            if hadSidebarSelection, selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
                 selectedTabIds = [selectedId]
             }
             if let lastIndex = lastSidebarSelectionIndex, lastIndex >= tabs.count {

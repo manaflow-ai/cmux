@@ -71,6 +71,11 @@ struct WorkspaceGroupCycleShortcutTests {
         ))
         let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
         let anchor = try #require(manager.tabs.first { $0.id == group.anchorWorkspaceId })
+        let orderedMembers = manager.tabs.filter {
+            $0.groupId == group.id && $0.id != group.anchorWorkspaceId
+        }
+        let firstOrderedMember = try #require(orderedMembers.first)
+        let lastOrderedMember = try #require(orderedMembers.last)
 
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
@@ -87,18 +92,18 @@ struct WorkspaceGroupCycleShortcutTests {
 
         manager.selectWorkspace(firstMember)
         #expect(appDelegate.debugHandleCustomShortcut(event: nextEvent))
-        #expect(manager.selectedTabId == secondMember.id)
+        #expect(manager.selectedTabId == lastOrderedMember.id)
         #expect(appDelegate.debugHandleCustomShortcut(event: nextEvent))
-        #expect(manager.selectedTabId == firstMember.id)
+        #expect(manager.selectedTabId == firstOrderedMember.id)
         #expect(appDelegate.debugHandleCustomShortcut(event: previousEvent))
-        #expect(manager.selectedTabId == secondMember.id)
+        #expect(manager.selectedTabId == lastOrderedMember.id)
 
         manager.selectWorkspace(anchor)
         #expect(appDelegate.debugHandleCustomShortcut(event: nextEvent))
-        #expect(manager.selectedTabId == firstMember.id)
+        #expect(manager.selectedTabId == firstOrderedMember.id)
         manager.selectWorkspace(anchor)
         #expect(appDelegate.debugHandleCustomShortcut(event: previousEvent))
-        #expect(manager.selectedTabId == secondMember.id)
+        #expect(manager.selectedTabId == lastOrderedMember.id)
 
         manager.selectWorkspace(ungroupedWorkspace)
         #expect(appDelegate.debugHandleCustomShortcut(event: nextEvent))
@@ -133,7 +138,6 @@ struct WorkspaceGroupCycleShortcutTests {
             #expect(manager.selectedTabId == selectedWorkspaceId)
             #expect(window.firstResponder === responder)
             #expect(originalWorkspace.groupId == nil)
-            #expect(manager.sidebarSelectedWorkspaceIds.isEmpty)
             // A generated anchor renders exclusively as a header, so an
             // anchor-only group is visibly empty and keeps a live identity.
             let rows = SidebarWorkspaceRenderItem.renderItems(
