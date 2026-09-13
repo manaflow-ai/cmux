@@ -95,10 +95,13 @@ final class CloudTerminalReadiness {
     ) {
         let previousOnReady = phase == .waiting ? self.onReady : nil
         let previousOnEnded = phase == .waiting ? self.onEnded : nil
+        let previousCondition = phase == .waiting ? self.condition : nil
         finishEnd(notify: false)
         self.surface = surface
         gate.begin(baselineFrame: surface.hostedView.surfaceView.renderedFrameSequence)
-        self.condition = condition
+        self.condition = previousCondition.map { previous in
+            { previous() && condition() }
+        } ?? condition
         self.onReady = Self.composed(previousOnReady, onReady)
         self.onEnded = Self.composed(previousOnEnded, onEnded)
         self.onTimedOut = onTimedOut

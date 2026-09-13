@@ -150,6 +150,9 @@ struct CloudTuiCreationCoordinator: Sendable {
                 if answer.isCreationResolutionUnsupported { throw Failure.unsupported }
                 guard answer.isRetryable else { throw Failure.outcomeUnknown }
                 resolutionAttempts += 1
+                guard resolutionAttempts <= recoveryPolicy.maximumResolutionAttempts else {
+                    throw Failure.outcomeUnknown
+                }
                 try await clock.sleep(for: recoveryPolicy.delay(afterAttempts: resolutionAttempts))
             }
         }
