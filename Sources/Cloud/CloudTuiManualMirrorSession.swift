@@ -152,7 +152,7 @@ final class CloudTuiManualMirrorSession {
         }
         self.surface = surface
         if let workspace = surface.owningWorkspace(),
-           let panelID = workspace.panelIdFromSurfaceId(surface.id),
+           let panelID = workspace.panelIdFromSurfaceId(TabID(uuid: surface.tabId)),
            let panel = workspace.panels[panelID] as? TerminalPanel {
             presentationReadiness = panel.cloudStartupReadiness
         }
