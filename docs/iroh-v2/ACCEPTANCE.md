@@ -19,7 +19,7 @@ The HTML has six target flows: enrollment/control setup, Mac registration and di
 
 ## User acceptance runs
 
-Two complete engaged simulator runs are required, each at least 3,600 seconds of actual foreground use. Use the deployed staging backend for automatic/direct-capable mode and the deployed production backend for relay-only mode. Also run a real-client smoke in staging relay-only and production automatic mode, so both deployments exercise both modes. Production uses only the designated test team and fresh v2 data. Both environments must be separate new resources, not aliases to legacy storage or to each other.
+Two complete engaged simulator runs are required, each at least 3,600 seconds of actual foreground use. Use the deployed staging backend for automatic/direct-capable mode and the deployed production backend for relay-only mode. Also run a real-client smoke in staging relay-only and production automatic mode, so both deployments exercise both modes. Production uses only the designated test team and v2-scoped records in the existing production database. Development namespaces remain isolated from production traffic.
 
 Run an isolated tagged Mac and isolated simulator using the configured `agent` Stack profile. Record the leased fleet host, simulator UDID, Mac/iOS bundle IDs, tag, source SHA, built artifact hashes, backend URL, Worker version, database identifiers and relay release. Never use the user's active cmux or a shared simulator. A physical iPhone does not substitute for the explicitly requested simulator run; any repository-required phone handoff is additional and uses the `personal` profile with a matching Mac.
 

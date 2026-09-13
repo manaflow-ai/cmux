@@ -12,11 +12,11 @@ export interface EndpointOwnership {
 }
 
 /** No directory read or credential renewal traverses this adapter. */
+/** Shared ownership adapter. The configured URL is the existing production Postgres database. */
 export class PlanetScaleOwnership implements EndpointOwnership {
   constructor(private readonly databaseURL: string, private readonly environment: string, private readonly projectId: string) {
     const url = new URL(databaseURL);
-    if (url.protocol !== "postgresql:" && url.protocol !== "postgres:") throw new Error("PlanetScale ownership requires PostgreSQL");
-    if (!url.hostname.endsWith(".psdb.cloud")) throw new Error("Ownership database must be the configured PlanetScale service");
+    if (url.protocol !== "postgresql:" && url.protocol !== "postgres:") throw new Error("Ownership database requires PostgreSQL");
   }
 
   async reserve(device: DeviceDescriptor, now: number): Promise<void> {

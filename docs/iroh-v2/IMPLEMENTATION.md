@@ -4,7 +4,7 @@ Source: [accepted decisions](design/IROH-DECISIONS.md), revision 21, and the use
 
 ## Required result
 
-Implement the full backend, database, Mac/iOS clients, shared contracts, Dashboard integration, deployment environments, observability and accepted rate limits. Remove incompatible legacy client behavior. Production and staging use the new independent backend and fresh storage. Start with new IROH identity/cache namespaces and preserve existing user authentication.
+Implement the full backend, database, Mac/iOS clients, shared contracts, Dashboard integration, deployment environments, observability and accepted rate limits. Remove incompatible legacy client behavior. Production and staging use the new backend against the existing production database with v2-scoped records. Start with new IROH identity/cache namespaces and preserve existing user authentication.
 
 **Lawrence's adopted decisions are implementation requirements.** Use Zod instead of Ajv for server input and output validation; export JSON Schema and generate Swift/TypeScript models with quicktype. HTTP and socket requests share one local operation handler. Apply immutable Drizzle migrations before serving requests, enforce storage bounds atomically in SQLite, handle storage failures explicitly, and run real workerd migration/persistence tests. Required release checks enforce the Cloudflare boundary and contract compatibility. Deploy in stages with complete, bounded observability. The [adopted rules](design/IROH-DECISIONS.md#accepted-backend-implementation-rules) and [source assessment](design/PR-12199-LESSONS.md) retain the full details and our adaptations, including no scheduled challenge cleanup.
 

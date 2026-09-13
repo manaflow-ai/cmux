@@ -37,7 +37,7 @@ function createRuntime(env: Environment) {
     return {
       ...scope, keys, currentKeyId, currentKey, allowedOrigins,
       stack: new StackAuthority({ ...scope, apiURL: env.STACK_API_URL, publishableKey: env.STACK_PUBLISHABLE_KEY, serverKey: env.STACK_SERVER_KEY }),
-      ownership: new PlanetScaleOwnership(env.PLANETSCALE_DATABASE_URL, scope.environment, scope.projectId),
+      ownership: new PlanetScaleOwnership(env.DATABASE_URL ?? env.PLANETSCALE_DATABASE_URL, scope.environment, scope.projectId),
       relays: new RelayIssuer({
         ...scope, relayURLs, issuer: RELAY_TOKEN_ISSUER, audience: RELAY_TOKEN_AUDIENCE,
         keyId: env.RELAY_KEY_ID, privateKeyPem: env.RELAY_SIGNING_KEY,

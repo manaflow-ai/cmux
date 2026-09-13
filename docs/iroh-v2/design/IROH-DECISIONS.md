@@ -4,11 +4,11 @@ Updated 10 September 2026, revision 21. Accepted directions are recorded here; u
 
 ## Backend and scope
 
-- Rebuild the IROH backend and storage from scratch using inspected main behavior as a reference. Move IROH backend work to Cloudflare Workers; every new endpoint is under `/v2/`. Use new production storage and isolated development storage.
+- Rebuild the IROH backend and storage behavior from inspected main behavior as a reference. Move IROH backend work to Cloudflare Workers; every new endpoint is under `/v2/`. Keep the existing production database. Development Workers use isolated Durable Object namespaces and must never write production records.
 - **One Durable Object per Stack Auth team and environment**, with Stack project included in the routing identity. The Worker authenticates the user, verifies the selected team and required permission, then routes to that team’s object. Never trust a client-supplied team ID or forwarded internal authority header.
-- Use **Drizzle with Durable Object SQLite** for team-local persistent state. **PlanetScale** is the primary shared database for global ownership, cross-team queries, reporting and records used by other services. Each record has one authoritative home.
+- Use **Drizzle with Durable Object SQLite** for team-local persistent state. The existing production Postgres database remains the shared database for global ownership, cross-team queries, reporting and records used by other services. Each record has one authoritative home.
 - **Request and product usage allowances remain per user**, shared across that user’s devices/builds and teams within an environment. They are not divided between teammates. No application IP quota. Physical resource bounds still apply to individual payloads/connections and the shared DO.
-- **Development isolation.** The shared development Worker follows the latest main branch. A developer or agent can deploy a suffixed Worker with its own Durable Object namespaces and matching build origin using `workers/iroh-v2/scripts/deploy-dev.sh <slug>`.
+- **Development isolation.** The shared development Worker follows the latest main branch. A developer or agent can deploy a suffixed Worker with its own Durable Object namespaces and matching build origin using `workers/iroh-v2/scripts/deploy-dev.sh <slug>`. Shared and suffixed development uses the existing database only through explicitly isolated test scopes; production records and budgets are never used by development.
 
 | Area | Scope |
 | --- | --- |

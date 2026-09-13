@@ -15,7 +15,8 @@ interface __BaseEnv_Env {
 	RELAY_SIGNING_KEY: string;
 	RELAY_KEY_ID: string;
 	RELAY_URLS: string;
-	PLANETSCALE_DATABASE_URL: string;
+	DATABASE_URL?: string;
+	PLANETSCALE_DATABASE_URL?: string;
 	AXIOM_TOKEN: string;
 	SENTRY_DSN: string;
 	TEAM_CONTROL: DurableObjectNamespace<import("./src/index").TeamControl>;
