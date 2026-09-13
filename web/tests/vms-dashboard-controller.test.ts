@@ -137,4 +137,19 @@ describe("VM Dashboard v2 controller", () => {
   test("accepts the development account's deployed Worker origin", () => {
     expect(() => new V2DashboardController({ origin: "https://cmux-iroh-v2-development.debussy.workers.dev", environment: "development", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => {} })).not.toThrow();
   });
+
+  test("redirects through the auth callback when the dashboard token expires", async () => {
+    let authExpired = 0;
+    let errors = 0;
+    globalThis.fetch = (async () => Response.json({ schemaId: "error.v1", requestId: "r", code: "unauthorized", retryable: false }, { status: 401 })) as typeof fetch;
+    const controller = new V2DashboardController({
+      origin: "https://cmux-iroh-v2-development.debussy.workers.dev",
+      environment: "development", projectId: "p", userId: "u", teamId: "t",
+      getStackToken: async () => "expired",
+      onDirectory: () => {}, onAuthExpired: () => { authExpired += 1; }, onError: () => { errors += 1; },
+    });
+    await controller.start();
+    expect(authExpired).toBe(1);
+    expect(errors).toBe(0);
+  });
 });
