@@ -14818,8 +14818,8 @@ extension Workspace: BonsplitDelegate {
                 ]
             )
             self.scheduleTerminalGeometryReconcile()
-            if !self.isDetachingCloseTransaction { self.scheduleFocusReconcile() }
         }
+        if !isDetachingCloseTransaction { scheduleFocusReconcile() }
     }
 
     // No post-close polling refresh loop: we rely on view invariants and Ghostty's wakeups.
