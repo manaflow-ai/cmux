@@ -97,7 +97,15 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// renderer Ghostty created from one cmux has actually presented in a real
     /// window, while preserving Ghostty's native rebuild transaction.
     var rendererPresentationPhase = TerminalRendererPresentationPhase.awaitingFirstPresentation
-    @Published public internal(set) var renderHealth: TerminalSurfaceRenderHealth = .notStarted
+    public internal(set) var renderHealth: TerminalSurfaceRenderHealth = .notStarted {
+        didSet {
+            guard oldValue != renderHealth else { return }
+            onRenderHealthChanged?(renderHealth)
+        }
+    }
+    /// Receives render-health transitions on the main actor for pane-local UI.
+    /// The callback is installed by the AppKit host and cleared when it rebinds.
+    var onRenderHealthChanged: ((TerminalSurfaceRenderHealth) -> Void)?
     let rendererPresentationState = TerminalRendererPresentationState()
     /// Wall-clock time (epoch seconds) this surface was last made visible in the
     /// UI. Used by `RendererRealizationController` as the LRU key so recently
