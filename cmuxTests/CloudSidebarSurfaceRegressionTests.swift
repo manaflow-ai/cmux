@@ -73,6 +73,8 @@ struct CloudSidebarSurfaceRegressionTests {
     @MainActor
     func workspaceVisibilityFollowsDaemonChanges(incremental: Bool) throws {
         let catalog = SurfaceCatalog()
+        let provider = CloudPlacementTestProvider(machine: machine)
+        catalog.register(provider)
         let initial = try visibilityState()
         publishVisibility(initial, to: catalog, incremental: false)
         #expect(workspaceIDs(catalog.snapshot) == ["ws_side"])
@@ -135,9 +137,10 @@ struct CloudSidebarSurfaceRegressionTests {
         let returned = try #require(catalog.resources[terminalID])
         // Terminal kill and accepted create receipts update resources before the
         // next complete graph; both must update visibility without a fleet poll.
-        catalog.remove(terminalID)
+        catalog.remove(terminalID, from: provider)
+        #expect(catalog.resources[terminalID] == nil)
         #expect(workspaceRows(catalog.snapshot).isEmpty)
-        catalog.upsert(returned)
+        catalog.upsert(returned, from: provider)
         #expect(workspaceIDs(catalog.snapshot) == ["ws_main"])
         publishVisibility(try #require(catalog.cloudStates[machine]), to: catalog, incremental: false)
         #expect(workspaceIDs(catalog.snapshot) == ["ws_main"], "a full refresh agrees with the event stream")
@@ -169,14 +172,17 @@ struct CloudSidebarSurfaceRegressionTests {
     @MainActor
     func retainedAndLegacyTerminalsRemainVisible(lifecycle: SurfaceLifecycle) throws {
         let catalog = SurfaceCatalog()
+        let provider = CloudPlacementTestProvider(machine: machine)
+        catalog.register(provider)
         publishVisibility(try visibilityState(), to: catalog, incremental: false)
         var terminal = try #require(catalog.snapshot.resources.first { $0.kind == .terminal })
         terminal.lifecycle = lifecycle
         terminal.remoteViews = nil
-        catalog.upsert(terminal)
+        catalog.upsert(terminal, from: provider)
         #expect(workspaceIDs(catalog.snapshot) == ["ws_side"], "retained terminal output is valid workspace content")
         terminal.remoteViews = []
-        catalog.upsert(terminal)
+        catalog.upsert(terminal, from: provider)
+        #expect(catalog.resources[terminal.id]?.remoteViews == [])
         #expect(workspaceRows(catalog.snapshot).isEmpty, "explicit detachment overrides a legacy workspace hint")
     }
 
