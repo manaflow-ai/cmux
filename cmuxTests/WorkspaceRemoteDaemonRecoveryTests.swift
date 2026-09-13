@@ -67,9 +67,11 @@ struct WorkspaceRemoteDaemonRecoveryTests {
     /// A bootstrap failure is published through both the connection-state and
     /// daemon-status seams.  The PTY can subsequently reattach as soon as the
     /// daemon is ready, before a separate proxy `.connected` update arrives.
-    /// That recovery ordering must retract the old connection error too.
+    /// The reconnect attempt owns the failure from that point on, so both
+    /// seams must be retracted as soon as the retry starts — and a later
+    /// daemon-ready update must not resurrect them.
     @Test
-    func daemonReadyClearsBootstrapErrorBeforeProxyConnected() {
+    func reconnectAttemptRetractsBootstrapErrorBeforeProxyConnected() {
         let workspace = Workspace()
         let target = "dev@example.com"
         let config = WorkspaceRemoteConfiguration(
@@ -100,16 +102,26 @@ struct WorkspaceRemoteDaemonRecoveryTests {
             target: target
         )
 
-        // The reconnect supervisor has started a new attempt; the old error
-        // is still the sidebar's latest detail while the proxy comes up.
+        // Both seams published the failure before recovery started.
+        #expect(workspace.statusEntries["remote.error"] != nil)
+        #expect(workspace.logEntries.contains { $0.source == "remote-daemon" })
+
+        // The reconnect supervisor has started a new attempt; that attempt owns
+        // the failure, so the sidebar must stop reporting it immediately.
         workspace.applyRemoteConnectionStateUpdate(
             .reconnecting,
             detail: "Reconnecting to \(target) (retry 1)",
             target: target
         )
 
-        #expect(workspace.statusEntries["remote.error"] != nil)
-        #expect(workspace.logEntries.contains { $0.source == "remote-daemon" })
+        #expect(
+            workspace.statusEntries["remote.error"] == nil,
+            "A retrying workspace must not keep rendering the superseded failure"
+        )
+        #expect(
+            workspace.logEntries.last(where: { $0.source == "remote-daemon" }) == nil,
+            "A superseded bootstrap log must not remain the sidebar's latest entry"
+        )
 
         // The daemon is healthy again, but the proxy/connection presentation
         // has not published `.connected` yet.
@@ -120,11 +132,11 @@ struct WorkspaceRemoteDaemonRecoveryTests {
 
         #expect(
             workspace.statusEntries["remote.error"] == nil,
-            "A recovered bootstrap error must not remain in the sidebar"
+            "A recovered bootstrap error must not be republished"
         )
         #expect(
             workspace.logEntries.last(where: { $0.source == "remote-daemon" }) == nil,
-            "A recovered bootstrap log must not remain the sidebar's latest error"
+            "A recovered bootstrap log must not be republished"
         )
     }
 
@@ -328,8 +340,10 @@ struct WorkspaceRemoteDaemonRecoveryTests {
                 )
             )
             let remoteNotificationKey = "remote-host:\(host)"
+            let failureDetail = "ssh: connect to host example.com port 22: Operation timed out"
             let unrelatedNotificationID = UUID()
             let matchingNotificationIDs = [UUID(), UUID()]
+            let currentFailureNotificationID = UUID()
             store.replaceNotificationsForTesting([
                 TerminalNotification(
                     id: unrelatedNotificationID,
@@ -364,20 +378,28 @@ struct WorkspaceRemoteDaemonRecoveryTests {
                     createdAt: Date(),
                     isRead: false
                 ),
+                // The workspace publishes SSH failures as correlated
+                // notifications; the recovery path must retract this one too.
+                // Notification insertion itself is gated on a live surface
+                // owner that a detached test workspace cannot provide, so the
+                // published notification is seeded directly.
+                TerminalNotification(
+                    id: currentFailureNotificationID,
+                    tabId: workspace.id,
+                    surfaceId: nil,
+                    correlationKey: remoteNotificationKey,
+                    title: "Remote SSH Error",
+                    subtitle: target,
+                    body: failureDetail,
+                    createdAt: Date(),
+                    isRead: false
+                ),
             ])
             #expect(store.notifications.contains { $0.id == matchingNotificationIDs[0] })
             #expect(store.notifications.contains { $0.id == matchingNotificationIDs[1] })
+            #expect(store.notifications.contains { $0.id == currentFailureNotificationID })
 
-            let failureDetail = "ssh: connect to host example.com port 22: Operation timed out"
             workspace.applyRemoteConnectionStateUpdate(.error, detail: failureDetail, target: target)
-
-            let remoteNotificationArrived = await waitForNotification(
-                in: store,
-                tabID: workspace.id,
-                correlationKey: remoteNotificationKey,
-                body: failureDetail
-            )
-            #expect(remoteNotificationArrived)
 
             #expect(workspace.remoteConnectionState == .error)
             #expect(workspace.statusEntries["remote.error"] != nil)
@@ -411,24 +433,5 @@ struct WorkspaceRemoteDaemonRecoveryTests {
 
             #expect(workspace.logEntries.filter { $0.source == "remote" && $0.message.contains(failureDetail) }.count == 1)
         }
-    }
-
-    private func waitForNotification(
-        in store: TerminalNotificationStore,
-        tabID: UUID,
-        correlationKey: String,
-        body: String
-    ) async -> Bool {
-        for _ in 0..<200 {
-            if store.notifications.contains(where: { notification in
-                notification.tabId == tabID
-                    && notification.correlationKey == correlationKey
-                    && notification.body == body
-            }) {
-                return true
-            }
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        return false
     }
 }
