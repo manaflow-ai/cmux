@@ -34,7 +34,8 @@ struct CloudNativeLayoutProjectionTests {
         #expect(Set(workspace.panels.keys) == originalPanels)
         #expect(workspace.bonsplitController.allPaneIds.count == 3)
         #expect(workspace.bonsplitController.focusedPaneId == workspace.paneId(forPanelId: second))
-        #expect(workspace.bonsplitController.selectedTab(inPane: try #require(workspace.paneId(forPanelId: second)))?.id == secondTab)
+        let secondPane = try #require(workspace.paneId(forPanelId: second))
+        #expect(workspace.bonsplitController.selectedTab(inPane: secondPane)?.id == secondTab)
         let tree = workspace.bonsplitController.treeSnapshot()
         guard case .split(let root) = tree, case .split(let right) = root.second else {
             Issue.record("Expected the daemon split structure"); return

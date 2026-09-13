@@ -66,8 +66,9 @@ struct CloudSidebarConsistencyTests {
             install(graph, in: catalog, incremental: incremental)
             let row = try #require(workspaceRows(catalog).first)
             let group = try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: "ws_main")
+            let snapshot = try #require(graph.snapshotObject())
             let layout = try #require(CloudWorkspaceLayoutTranslator.projectionLayout(
-                snapshot: try #require(graph.snapshotObject()), machine: machine,
+                snapshot: snapshot, machine: machine,
                 workspaceID: "ws_main", resources: catalog.snapshot.resources
             ))
             let expected = tabs.map { "tab_" + $0 }
