@@ -71278,6 +71278,62 @@
         }
       }
     },
+    "cli.browser.download.error.invalidArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Invalid browser download arguments: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザダウンロードの引数が無効です: %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "浏览器下载参数无效：%@" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Ungültige Browser-Download-Argumente: %@" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Arguments de téléchargement du navigateur invalides : %@" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "وسيطات تنزيل المتصفح غير صالحة: %@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Argumentos de descarga del navegador no válidos: %@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "瀏覽器下載引數無效：%@" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "브라우저 다운로드 인수가 올바르지 않습니다: %@" } }
+      }
+    },
+    "cli.browser.download.error.surfaceRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "browser download requires a surface handle" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザのダウンロードにはサーフェスハンドルが必要です" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "浏览器下载需要 surface 句柄" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Browser-Downloads benötigen einen Surface-Handle" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le téléchargement du navigateur nécessite un descripteur de surface" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "يتطلب تنزيل المتصفح معرّف سطح" } },
+        "es": { "stringUnit": { "state": "translated", "value": "La descarga del navegador requiere un identificador de superficie" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "瀏覽器下載需要 surface 控點" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "브라우저 다운로드에는 surface 핸들이 필요합니다" } }
+      }
+    },
+    "cli.browser.download.list.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No recent downloads." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "最近のダウンロードはありません。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "没有最近的下载。" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Keine aktuellen Downloads." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Aucun téléchargement récent." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "لا توجد تنزيلات حديثة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "No hay descargas recientes." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "沒有最近的下載。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "최근 다운로드가 없습니다." } }
+      }
+    },
+    "cli.browser.download.list.entry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%1$lld. %2$@ %3$@\n   id: %4$@\n   path: %5$@\n   bytes: %6$@\n   path_exists: %7$@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%1$lld. %2$@ %3$@\n   ID: %4$@\n   パス: %5$@\n   バイト: %6$@\n   パスの存在: %7$@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "%1$lld. %2$@ %3$@\n   ID：%4$@\n   路径：%5$@\n   字节：%6$@\n   路径存在：%7$@" } },
+        "de": { "stringUnit": { "state": "translated", "value": "%1$lld. %2$@ %3$@\n   ID: %4$@\n   Pfad: %5$@\n   Bytes: %6$@\n   Pfad vorhanden: %7$@" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "%1$lld. %2$@ %3$@\n   ID : %4$@\n   chemin : %5$@\n   octets : %6$@\n   chemin présent : %7$@" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "%1$lld. %2$@ %3$@\n   المعرّف: %4$@\n   المسار: %5$@\n   البايتات: %6$@\n   المسار موجود: %7$@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "%1$lld. %2$@ %3$@\n   id: %4$@\n   ruta: %5$@\n   bytes: %6$@\n   ruta existente: %7$@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "%1$lld. %2$@ %3$@\n   ID：%4$@\n   路徑：%5$@\n   位元組：%6$@\n   路徑存在：%7$@" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%1$lld. %2$@ %3$@\n   ID: %4$@\n   경로: %5$@\n   바이트: %6$@\n   경로 존재: %7$@" } }
+      }
+    },
     "cli.browser.error.operationFailed": {
       "extractionState": "manual",
       "localizations": {
