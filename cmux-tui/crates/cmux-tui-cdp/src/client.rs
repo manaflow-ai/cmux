@@ -193,6 +193,25 @@ pub struct NavigationResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DownloadWillBegin {
+    pub session_id: Option<String>,
+    pub frame_id: Option<String>,
+    pub guid: String,
+    pub url: String,
+    pub suggested_filename: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DownloadProgress {
+    pub session_id: Option<String>,
+    pub guid: String,
+    pub state: String,
+    pub received_bytes: u64,
+    pub total_bytes: Option<u64>,
+    pub file_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MainFrameSnapshot {
     pub frame_id: String,
     pub loader_id: String,
@@ -230,6 +249,8 @@ pub enum CdpEvent {
     },
     TargetCreated(TargetCreated),
     TargetInfoChanged(TargetInfo),
+    DownloadWillBegin(DownloadWillBegin),
+    DownloadProgress(DownloadProgress),
     Other {
         method: String,
         params: Value,
@@ -513,6 +534,23 @@ pub fn event_retained_bytes(event: &CdpEvent) -> usize {
             .saturating_add(info.target_id.len())
             .saturating_add(info.title.len())
             .saturating_add(info.url.len()),
+        CdpEvent::DownloadWillBegin(download) => download
+            .session_id
+            .as_ref()
+            .map_or(0, String::len)
+            .saturating_add(download.frame_id.as_ref().map_or(0, String::len))
+            .saturating_add(download.guid.len())
+            .saturating_add(download.url.len())
+            .saturating_add(download.suggested_filename.len())
+            .saturating_add(size_of::<DownloadWillBegin>()),
+        CdpEvent::DownloadProgress(download) => download
+            .session_id
+            .as_ref()
+            .map_or(0, String::len)
+            .saturating_add(download.guid.len())
+            .saturating_add(download.state.len())
+            .saturating_add(download.file_path.as_ref().map_or(0, String::len))
+            .saturating_add(size_of::<DownloadProgress>()),
         CdpEvent::Other { method, params, session_id } => method
             .len()
             .saturating_add(json_retained_bytes(params))
@@ -1270,6 +1308,15 @@ impl CdpClient {
         self.call("Page.stopLoading", json!({}), Some(session_id)).map(|_| ())
     }
 
+    pub fn set_download_behavior(&self, download_path: &str) -> anyhow::Result<()> {
+        self.call(
+            "Browser.setDownloadBehavior",
+            json!({"behavior":"allowAndName","downloadPath":download_path,"eventsEnabled":true}),
+            None,
+        )
+        .map(|_| ())
+    }
+
     pub fn navigation_history(&self, session_id: &str) -> anyhow::Result<NavigationHistory> {
         let result = self.call("Page.getNavigationHistory", json!({}), Some(session_id))?;
         let current_index = result
@@ -1706,6 +1753,53 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
             if let Some(info) = target_info(params, session_id.as_deref()) {
                 dispatch_event(inner, CdpEvent::TargetInfoChanged(info));
             }
+        }
+        "Browser.downloadWillBegin" | "Page.downloadWillBegin" => {
+            let guid = params.get("guid").and_then(Value::as_str).unwrap_or_default();
+            if guid.is_empty() {
+                return;
+            }
+            dispatch_event(
+                inner,
+                CdpEvent::DownloadWillBegin(DownloadWillBegin {
+                    session_id,
+                    frame_id: params.get("frameId").and_then(Value::as_str).map(ToOwned::to_owned),
+                    guid: guid.to_string(),
+                    url: params.get("url").and_then(Value::as_str).unwrap_or_default().to_string(),
+                    suggested_filename: params
+                        .get("suggestedFilename")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                }),
+            );
+        }
+        "Browser.downloadProgress" | "Page.downloadProgress" => {
+            let guid = params.get("guid").and_then(Value::as_str).unwrap_or_default();
+            if guid.is_empty() {
+                return;
+            }
+            dispatch_event(
+                inner,
+                CdpEvent::DownloadProgress(DownloadProgress {
+                    session_id,
+                    guid: guid.to_string(),
+                    state: params
+                        .get("state")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    received_bytes: params
+                        .get("receivedBytes")
+                        .and_then(Value::as_u64)
+                        .unwrap_or_default(),
+                    total_bytes: params.get("totalBytes").and_then(Value::as_u64),
+                    file_path: params
+                        .get("filePath")
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned),
+                }),
+            );
         }
         "Page.frameNavigated" if session_id.is_some() => {
             let session_id = session_id.expect("guarded above");
@@ -2433,6 +2527,40 @@ mod tests {
             json_retained_bytes(&value) >= 128 * size_of::<Value>(),
             "null container storage was not charged"
         );
+    }
+
+    #[test]
+    fn download_events_decode_page_and_browser_scopes() {
+        let (inner, _outbound_rx) = test_inner();
+        handle_text(
+            &inner,
+            &json!({
+                "method": "Page.downloadWillBegin",
+                "sessionId": "session-1",
+                "params": {"frameId":"frame-1","guid":"guid-1","url":"https://example.test/file","suggestedFilename":"file.txt"}
+            })
+            .to_string(),
+        );
+        handle_text(
+            &inner,
+            &json!({
+                "method": "Browser.downloadProgress",
+                "params": {"guid":"guid-1","state":"completed","receivedBytes":7,"totalBytes":7,"filePath":"/tmp/file.txt"}
+            })
+            .to_string(),
+        );
+        let (event_tx, event_rx) = sync_channel(2);
+        inner.events.drain_into(&event_tx).unwrap();
+        assert!(matches!(
+            event_rx.recv().unwrap(),
+            CdpEvent::DownloadWillBegin(DownloadWillBegin { session_id: Some(session), guid, .. })
+                if session == "session-1" && guid == "guid-1"
+        ));
+        assert!(matches!(
+            event_rx.recv().unwrap(),
+            CdpEvent::DownloadProgress(DownloadProgress { session_id: None, state, file_path: Some(path), .. })
+                if state == "completed" && path == "/tmp/file.txt"
+        ));
     }
 
     #[test]

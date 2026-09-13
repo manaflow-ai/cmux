@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "172c4ba67b5a1449ce68b03a4a7bf9b982b102da769c18ad3d3f2460c0e15727",
+  "catalog_sha256": "f2dd249bf880bad77f2c45a54b722a793ff2b230ac67ac1fc330edda1af5d39d",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -18,6 +18,9 @@
     },
     "browser.close": {
       "class": "mutation"
+    },
+    "browser.download.list": {
+      "class": "read"
     },
     "browser.forward": {
       "class": "mutation"

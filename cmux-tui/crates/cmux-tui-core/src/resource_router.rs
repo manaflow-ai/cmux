@@ -17,12 +17,12 @@ use base64::Engine;
 use serde_json::{Map, Value, json};
 
 use crate::resource::{
-    NotificationPublicId, RequestEnvelope, RequestId, ResourceError, ResourceOperation,
-    ResponseEnvelope, Selector, TerminalPublicId, WireDecimal,
+    ContentPublicId, NotificationPublicId, RequestEnvelope, RequestId, ResourceError,
+    ResourceOperation, ResponseEnvelope, Selector, TerminalPublicId, WireDecimal,
 };
 use crate::resource_api::{ResourceMachineRequest, operation_failed, public_session_snapshot};
 use crate::workspace_registry::{ResourceEffectOutcome, ResourceEffectPreparation};
-use crate::{Mux, ResolvedResourcePath, ResourceSelectors, ResourceTarget};
+use crate::{Mux, ResolvedResourcePath, ResourceSelectors, ResourceTarget, SurfaceKind};
 
 const CATALOG_JSON: &str = include_str!("../../../spec/resource-operations-v2.json");
 
@@ -865,6 +865,7 @@ fn dispatch_resource_request(
             ResourceOperation::BrowserGet => {
                 get_resource(mux, &request.selectors, ResourceTarget::Browser, "browsers")
             }
+            ResourceOperation::BrowserDownloadList => browser_download_list(mux, &request),
             ResourceOperation::NotificationList => {
                 ensure_session_route(mux, &request.selectors)?;
                 let limit =
@@ -891,6 +892,71 @@ fn dispatch_resource_request(
             json!({"required_context":"control_connection"}),
         )),
     }
+}
+
+fn browser_download_list(
+    mux: &Mux,
+    request: &ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    let path = mux.resolve_resource_path(ResourceTarget::Browser, &request.selectors)?;
+    let browser_id =
+        path.browser.ok_or_else(|| ResourceError::not_found("browser", "<resolved>"))?;
+    let surface_id = mux
+        .with_state(|state| {
+            state.single_placement_of_content(&ContentPublicId::Browser(browser_id.clone()))
+        })
+        .ok_or_else(|| ResourceError::not_found("browser", browser_id.as_str()))?;
+    let surface = mux
+        .surface(surface_id)
+        .filter(|surface| surface.kind() == SurfaceKind::Browser)
+        .ok_or_else(|| ResourceError::not_found("browser", browser_id.as_str()))?;
+    let guest_daemon = cfg!(target_os = "linux")
+        && std::env::var_os("CMUX_TUI_GUEST").is_some_and(|value| value == "1");
+    let (owner, location) = match surface.browser_source() {
+        Some(crate::BrowserSource::Provider) if guest_daemon => ("vm", "vm"),
+        Some(crate::BrowserSource::Provider) => ("provider", "provider"),
+        Some(crate::BrowserSource::External) => ("external", "external"),
+        Some(crate::BrowserSource::Launched) => ("vm", "vm"),
+        None => ("unknown", "unknown"),
+    };
+    let limit = request.fields.get("limit").and_then(Value::as_u64).unwrap_or(25) as usize;
+    let downloads = surface
+        .browser_downloads()
+        .into_iter()
+        .rev()
+        .take(limit)
+        .map(|(download_id, filename, path, path_exists, status, bytes, total_bytes)| {
+            json!({
+                "download_id": download_id,
+                "filename": filename,
+                "path": path,
+                "path_exists": path_exists,
+                "status": status,
+                "bytes": bytes.map(WireDecimal::new),
+                "total_bytes": total_bytes.map(WireDecimal::new),
+                "owner": owner,
+                "location": location,
+            })
+        })
+        .collect::<Vec<_>>();
+    let snapshot = public_session_snapshot(mux)?;
+    let browser = snapshot["browsers"]
+        .as_array()
+        .and_then(|browsers| browsers.iter().find(|browser| browser["id"] == browser_id.as_str()))
+        .cloned()
+        .ok_or_else(|| ResourceError::not_found("browser", browser_id.as_str()))?;
+    Ok(json!({
+        "workspace_id": path.workspace,
+        "screen_id": path.screen,
+        "pane_id": path.pane,
+        "tab_id": path.tab,
+        "browser": browser,
+        "downloads": downloads,
+        "count": downloads.len(),
+        "limit": limit,
+        "owner": owner,
+        "location": location,
+    }))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -922,6 +988,7 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::TerminalGet
         | ResourceOperation::BrowserList
         | ResourceOperation::BrowserGet
+        | ResourceOperation::BrowserDownloadList
         | ResourceOperation::NotificationList
         | ResourceOperation::NotificationCreate
         | ResourceOperation::NotificationAck

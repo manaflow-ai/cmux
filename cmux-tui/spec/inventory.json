@@ -9,6 +9,7 @@
     "browser.attach",
     "browser.back",
     "browser.close",
+    "browser.download.list",
     "browser.forward",
     "browser.get",
     "browser.input.key",

@@ -1,12 +1,13 @@
 use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use cmux_tui_cdp::{
-    CDP_EVENT_QUEUE_CAPACITY, CapturedFrame, CdpClient, CdpEvent, CdpKeyEvent, Chrome, FrameEpoch,
-    TargetCreated, resolve_browser_ws_url,
+    CDP_EVENT_QUEUE_CAPACITY, CapturedFrame, CdpClient, CdpEvent, CdpKeyEvent, Chrome,
+    DownloadProgress, DownloadWillBegin, FrameEpoch, TargetCreated, resolve_browser_ws_url,
 };
 
 use crate::browser_provider::{BrowserProviderAuthentication, BrowserProviderTargetLease};
@@ -19,6 +20,87 @@ pub enum BrowserSource {
     External,
     Launched,
     Provider,
+}
+
+#[cfg(test)]
+mod download_ledger_tests {
+    use super::*;
+
+    #[test]
+    fn history_is_repeatable_and_newest_first_with_stable_guids() {
+        let mut ledger = DownloadLedger {
+            directory: None,
+            records: VecDeque::new(),
+            frame_sessions: HashMap::new(),
+        };
+        ledger.remember_frame("frame", "session");
+        ledger.begin(DownloadWillBegin {
+            session_id: None,
+            frame_id: Some("frame".into()),
+            guid: "guid-a".into(),
+            url: "https://example.test/a".into(),
+            suggested_filename: "same.txt".into(),
+        });
+        ledger.begin(DownloadWillBegin {
+            session_id: Some("session".into()),
+            frame_id: None,
+            guid: "guid-b".into(),
+            url: "https://example.test/b".into(),
+            suggested_filename: "same.txt".into(),
+        });
+        ledger.progress(DownloadProgress {
+            session_id: None,
+            guid: "guid-a".into(),
+            state: "completed".into(),
+            received_bytes: 7,
+            total_bytes: Some(7),
+            file_path: None,
+        });
+        let rows = ledger.for_session("session");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].guid, "guid-a");
+        assert_eq!(rows[0].status, "saved");
+        assert_eq!(rows[1].guid, "guid-b");
+        assert_eq!(rows[1].status, "downloading");
+        ledger.begin(DownloadWillBegin {
+            session_id: Some("session".into()),
+            frame_id: None,
+            guid: "guid-b".into(),
+            url: "https://example.test/b".into(),
+            suggested_filename: "same.txt".into(),
+        });
+        assert_eq!(ledger.for_session("session").len(), 2);
+    }
+
+    #[test]
+    fn completion_rejects_paths_outside_the_managed_directory() {
+        let directory =
+            std::env::temp_dir().join(format!("cmux-download-ledger-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let mut ledger = DownloadLedger {
+            directory: Some(directory.clone()),
+            records: VecDeque::new(),
+            frame_sessions: HashMap::new(),
+        };
+        ledger.begin(DownloadWillBegin {
+            session_id: Some("session".into()),
+            frame_id: None,
+            guid: "guid".into(),
+            url: String::new(),
+            suggested_filename: "file.txt".into(),
+        });
+        ledger.progress(DownloadProgress {
+            session_id: None,
+            guid: "guid".into(),
+            state: "completed".into(),
+            received_bytes: 1,
+            total_bytes: Some(1),
+            file_path: Some("/etc/passwd".into()),
+        });
+        assert!(ledger.records[0].path.is_none());
+        let _ = std::fs::remove_dir_all(directory);
+    }
 }
 
 impl BrowserSource {
@@ -583,7 +665,121 @@ pub struct BrowserRuntime {
     bearer_token: Option<String>,
     stealth_user_agent: Option<String>,
     routes: Mutex<Routes>,
+    downloads: Mutex<DownloadLedger>,
     closed: AtomicBool,
+}
+
+const DOWNLOAD_HISTORY_CAPACITY: usize = 64;
+const DOWNLOAD_FRAME_SESSION_CAPACITY: usize = 256;
+
+#[derive(Debug, Clone)]
+struct DownloadRecord {
+    guid: String,
+    session_id: Option<String>,
+    filename: String,
+    path: Option<PathBuf>,
+    status: String,
+    received_bytes: Option<u64>,
+    total_bytes: Option<u64>,
+}
+
+#[derive(Debug)]
+struct DownloadLedger {
+    directory: Option<PathBuf>,
+    records: VecDeque<DownloadRecord>,
+    frame_sessions: HashMap<String, String>,
+}
+
+impl DownloadLedger {
+    fn new(source: BrowserSource) -> Self {
+        let directory = if source == BrowserSource::Provider
+            && cfg!(target_os = "linux")
+            && std::env::var_os("CMUX_TUI_GUEST").is_some_and(|value| value == "1")
+        {
+            let path =
+                std::env::temp_dir().join(format!("cmux-tui-downloads-{}", std::process::id()));
+            std::fs::create_dir_all(&path).ok().then_some(path)
+        } else {
+            None
+        };
+        Self { directory, records: VecDeque::new(), frame_sessions: HashMap::new() }
+    }
+
+    fn remember_frame(&mut self, frame_id: &str, session_id: &str) {
+        if !frame_id.is_empty() {
+            if !self.frame_sessions.contains_key(frame_id) {
+                if self.frame_sessions.len() >= DOWNLOAD_FRAME_SESSION_CAPACITY {
+                    if let Some(oldest) = self.frame_sessions.keys().next().cloned() {
+                        self.frame_sessions.remove(&oldest);
+                    }
+                }
+                self.frame_sessions.insert(frame_id.to_string(), session_id.to_string());
+            }
+        }
+    }
+
+    fn begin(&mut self, event: DownloadWillBegin) {
+        if self.records.iter().any(|record| record.guid == event.guid) {
+            return;
+        }
+        let session_id = event.session_id.or_else(|| {
+            event.frame_id.as_deref().and_then(|frame| self.frame_sessions.get(frame).cloned())
+        });
+        let filename = PathBuf::from(&event.suggested_filename)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.is_empty())
+            .unwrap_or("download")
+            .to_string();
+        self.records.push_back(DownloadRecord {
+            guid: event.guid,
+            session_id,
+            filename,
+            path: None,
+            status: "downloading".into(),
+            received_bytes: None,
+            total_bytes: None,
+        });
+        while self.records.len() > DOWNLOAD_HISTORY_CAPACITY {
+            self.records.pop_front();
+        }
+    }
+
+    fn progress(&mut self, event: DownloadProgress) {
+        let session_id = event.session_id.or_else(|| {
+            self.records
+                .iter()
+                .find(|record| record.guid == event.guid)
+                .and_then(|record| record.session_id.clone())
+        });
+        let Some(record) = self.records.iter_mut().find(|record| record.guid == event.guid) else {
+            return;
+        };
+        record.session_id = session_id;
+        record.received_bytes = Some(event.received_bytes);
+        record.total_bytes = event.total_bytes;
+        record.status = match event.state.as_str() {
+            "completed" => "saved".into(),
+            "canceled" | "cancelled" => "cancelled".into(),
+            "interrupted" => "failed".into(),
+            _ => "downloading".into(),
+        };
+        if let Some(path) = event.file_path.filter(|path| !path.is_empty()) {
+            if let Some(directory) = self.directory.as_ref()
+                && PathBuf::from(&path).starts_with(directory)
+            {
+                record.path = Some(PathBuf::from(path));
+            }
+        }
+    }
+
+    fn for_session(&self, session_id: &str) -> Vec<DownloadRecord> {
+        self.records
+            .iter()
+            .filter(|record| record.session_id.as_deref() == Some(session_id))
+            .cloned()
+            .collect()
+    }
 }
 
 #[derive(Default)]
@@ -809,6 +1005,7 @@ impl BrowserRuntime {
             bearer_token: bearer_token.map(str::to_string),
             stealth_user_agent,
             routes: Mutex::new(Routes::default()),
+            downloads: Mutex::new(DownloadLedger::new(source)),
             closed: AtomicBool::new(false),
         });
         start_router(Arc::downgrade(&runtime), event_rx)?;
@@ -884,8 +1081,12 @@ impl BrowserRuntime {
             let _ = self.client.set_user_agent(session_id, user_agent);
         }
         self.client.page_enable(session_id)?;
+        if let Some(path) = self.downloads.lock().unwrap().directory.clone() {
+            let _ = self.client.set_download_behavior(&path.to_string_lossy());
+        }
         self.client.set_lifecycle_events_enabled(session_id)?;
-        self.client.seed_main_frame(session_id)?;
+        let main_frame = self.client.snapshot_main_frame_with_retry(session_id)?;
+        self.record_frame_session(&main_frame.frame_id, session_id);
         let (pixel_w, pixel_h) = browser.pixel_size();
         self.client.set_device_metrics(session_id, pixel_w, pixel_h)?;
         self.client.start_screencast(session_id, pixel_w, pixel_h)?;
@@ -963,6 +1164,46 @@ impl BrowserRuntime {
         if let Some(chrome) = &self.chrome {
             chrome.kill();
         }
+        if let Some(directory) = self.downloads.lock().unwrap().directory.take() {
+            let _ = std::fs::remove_dir_all(directory);
+        }
+    }
+
+    pub(crate) fn record_frame_session(&self, frame_id: &str, session_id: &str) {
+        self.downloads.lock().unwrap().remember_frame(frame_id, session_id);
+    }
+
+    pub(crate) fn record_download_will_begin(&self, event: DownloadWillBegin) {
+        self.downloads.lock().unwrap().begin(event);
+    }
+
+    pub(crate) fn record_download_progress(&self, event: DownloadProgress) {
+        self.downloads.lock().unwrap().progress(event);
+    }
+
+    pub(crate) fn downloads_for_session(
+        &self,
+        session_id: &str,
+    ) -> Vec<(String, String, Option<String>, Option<bool>, String, Option<u64>, Option<u64>)> {
+        self.downloads
+            .lock()
+            .unwrap()
+            .for_session(session_id)
+            .into_iter()
+            .map(|record| {
+                let path = record.path.map(|path| path.to_string_lossy().into_owned());
+                let path_exists = path.as_deref().map(|path| std::path::Path::new(path).is_file());
+                (
+                    record.guid,
+                    record.filename,
+                    path,
+                    path_exists,
+                    record.status,
+                    record.received_bytes,
+                    record.total_bytes,
+                )
+            })
+            .collect()
     }
 }
 
@@ -1195,6 +1436,13 @@ fn start_router(runtime: Weak<BrowserRuntime>, events: Receiver<CdpEvent>) -> an
                     }
                 }
                 CdpEvent::FrameNavigated { params, session_id, frame_epoch } => {
+                    if let Some(frame_id) = params
+                        .get("frame")
+                        .and_then(|frame| frame.get("id"))
+                        .and_then(serde_json::Value::as_str)
+                    {
+                        runtime.record_frame_session(frame_id, &session_id);
+                    }
                     let tx =
                         { runtime.routes.lock().unwrap().by_session.get(&session_id).cloned() };
                     if let Some(tx) = tx
@@ -1255,6 +1503,37 @@ fn start_router(runtime: Weak<BrowserRuntime>, events: Receiver<CdpEvent>) -> an
                         && tx.deliver(CdpEvent::TargetInfoChanged(info))
                     {
                         runtime.remove_route(&tx);
+                    }
+                }
+                CdpEvent::DownloadWillBegin(event) => {
+                    runtime.record_download_will_begin(event.clone());
+                    let tx = event.session_id.as_ref().and_then(|session_id| {
+                        runtime.routes.lock().unwrap().by_session.get(session_id).cloned()
+                    });
+                    if let Some(tx) = tx {
+                        let _ = tx.deliver(CdpEvent::DownloadWillBegin(event));
+                    }
+                }
+                CdpEvent::DownloadProgress(event) => {
+                    runtime.record_download_progress(event.clone());
+                    // Browser.downloadProgress is browser-scoped and omits a
+                    // session id. The ledger has already associated its GUID
+                    // with the target that emitted downloadWillBegin.
+                    let session_id = event.session_id.clone().or_else(|| {
+                        runtime
+                            .downloads
+                            .lock()
+                            .unwrap()
+                            .records
+                            .iter()
+                            .find(|record| record.guid == event.guid)
+                            .and_then(|record| record.session_id.clone())
+                    });
+                    let tx = session_id.as_ref().and_then(|session_id| {
+                        runtime.routes.lock().unwrap().by_session.get(session_id).cloned()
+                    });
+                    if let Some(tx) = tx {
+                        let _ = tx.deliver(CdpEvent::DownloadProgress(event));
                     }
                 }
                 CdpEvent::Other { method, params, session_id: Some(session_id) } => {
@@ -2059,6 +2338,17 @@ impl BrowserSurface {
 
     pub fn source(&self) -> Option<BrowserSource> {
         self.session.lock().unwrap().as_ref().map(|session| session.runtime.source())
+    }
+
+    pub(crate) fn downloads(
+        &self,
+    ) -> Vec<(String, String, Option<String>, Option<bool>, String, Option<u64>, Option<u64>)> {
+        self.session
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|session| session.runtime.downloads_for_session(&session.session_id))
+            .unwrap_or_default()
     }
 
     pub(crate) fn prepare_provider_bootstrap_attempt(&self) -> bool {

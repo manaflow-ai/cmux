@@ -188,6 +188,7 @@ esac
     expect(run.stdout).toContain("cmux coderouter status|usage [--json]|models");
     expect(run.stdout).toContain("cmux coderouter agent <claude|codex|opencode|pi>");
     expect(run.stdout).toContain("cmux agent <claude|codex|opencode|pi>");
+    expect(run.stdout).toContain("cmux browser <selector> download list [--limit <1..25>]");
   });
 
   describe("auth status", () => {
@@ -839,6 +840,7 @@ describe("in-VM cmux shim: agent primitives", () => {
       "cmux send-key [--terminal <id>] <key> [key...]",
       "cmux read-screen [--terminal <id>] [--json]",
       "cmux terminal send|read|wait|wait-exit|output|close <id>",
+      "cmux browser <selector> download list [--limit <1..25>]",
       "cmux vm terminal send|read|wait|wait-exit|output|close <machine> <term>",
       "cmux vm workspace new|rename|close|rm <machine>",
       "cmux vm agent <machine> --agent <claude|codex|opencode|pi>",
@@ -938,6 +940,13 @@ describe("in-VM cmux shim: agent primitives", () => {
       const dir = makeStatefulDir();
       expect(runStateful(dir, ["terminal", "term_x", "keys", "enter"]).calls).toEqual([["--session", "cloud", "terminal", "term_x", "keys", "enter"]]);
       expect(runStateful(dir, ["terminal", "list"]).calls).toEqual([["--session", "cloud", "terminal", "list"]]);
+    });
+
+    test("browser download history passes through the guest transport with a bounded limit", () => {
+      const dir = makeStatefulDir();
+      const run = runStateful(dir, ["browser", "browser_1", "download", "list", "--limit", "2"]);
+      expect(run.status).toBe(0);
+      expect(run.calls).toEqual([["--session", "cloud", "browser", "browser_1", "download", "list", "--limit", "2"]]);
     });
 
     test("new-workspace, tree, and new-split (from the caller's pane, else the focused pane; right/down only)", () => {

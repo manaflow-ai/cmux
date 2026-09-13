@@ -1184,6 +1184,14 @@ fn parse_browser(
             selectors.insert("browser", "browser", selector)?;
             request(ResourceOperation::BrowserGet, selectors, flags, Map::new())
         }
+        [selector, "download", "list"] => {
+            selectors.insert("browser", "browser", selector)?;
+            let mut params = Map::new();
+            if let Some(limit) = flags.take("limit") {
+                insert_bounded_u32(&mut params, "limit", "--limit", limit, 1, 25)?;
+            }
+            request(ResourceOperation::BrowserDownloadList, selectors, flags, params)
+        }
         [selector, "navigate"] => {
             selectors.insert("browser", "browser", selector)?;
             let url = flags.required("url")?;
@@ -4607,6 +4615,7 @@ mod tests {
             (vec!["terminal", TERMINAL, "close"], "terminal.close"),
             (vec!["browser", "list"], "browser.list"),
             (vec!["browser", BROWSER, "show"], "browser.get"),
+            (vec!["browser", BROWSER, "download", "list"], "browser.download.list"),
             (
                 vec!["browser", BROWSER, "navigate", "--url", "https://example.com"],
                 "browser.navigate",
@@ -4740,9 +4749,9 @@ mod tests {
             ),
         ];
 
-        assert_eq!(cases.len(), 120);
+        assert_eq!(cases.len(), 121);
         let catalog = operation_catalog();
-        assert_eq!(catalog["operations"].as_object().unwrap().len(), 127);
+        assert_eq!(catalog["operations"].as_object().unwrap().len(), 128);
         let mut seen = std::collections::BTreeSet::new();
         let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
         for (args, expected) in &cases {

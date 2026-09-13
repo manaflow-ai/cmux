@@ -44,6 +44,7 @@
         "browser.attach",
         "browser.back",
         "browser.close",
+        "browser.download.list",
         "browser.forward",
         "browser.get",
         "browser.input.key",
@@ -169,6 +170,7 @@
       "x-operation-classes": {
         "read": [
           "agent.list",
+          "browser.download.list",
           "browser.get",
           "browser.list",
           "client.get",

@@ -327,6 +327,8 @@ pub enum ResourceOperation {
     BrowserList,
     #[serde(rename = "browser.get")]
     BrowserGet,
+    #[serde(rename = "browser.download.list")]
+    BrowserDownloadList,
     #[serde(rename = "browser.navigate")]
     BrowserNavigate,
     #[serde(rename = "browser.back")]
@@ -480,6 +482,7 @@ impl ResourceOperation {
                 | Self::TerminalProcessGet
                 | Self::BrowserList
                 | Self::BrowserGet
+                | Self::BrowserDownloadList
                 | Self::NotificationList
                 | Self::AgentList
                 | Self::SidebarViewGet
@@ -507,6 +510,7 @@ mod resource_operation_wire_name_tests {
             "workspace.create",
             "terminal.output_read",
             "browser.close",
+            "browser.download.list",
             "stream.cancel",
         ] {
             let operation: ResourceOperation =
@@ -621,6 +625,7 @@ impl ResourceOperation {
             Self::TerminalClose => "terminal.close",
             Self::BrowserList => "browser.list",
             Self::BrowserGet => "browser.get",
+            Self::BrowserDownloadList => "browser.download.list",
             Self::BrowserNavigate => "browser.navigate",
             Self::BrowserBack => "browser.back",
             Self::BrowserForward => "browser.forward",

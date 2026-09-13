@@ -5929,6 +5929,12 @@ impl Surface {
         self.as_browser().map(BrowserSurface::frames_stalled)
     }
 
+    pub(crate) fn browser_downloads(
+        &self,
+    ) -> Vec<(String, String, Option<String>, Option<bool>, String, Option<u64>, Option<u64>)> {
+        self.as_browser().map(BrowserSurface::downloads).unwrap_or_default()
+    }
+
     pub fn attach_frames(&self) -> anyhow::Result<(BrowserAttachState, BrowserFrameStream)> {
         let Some(browser) = self.as_browser() else {
             anyhow::bail!("PTY surface is not a browser surface");

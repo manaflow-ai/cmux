@@ -6,13 +6,13 @@ selectors, fields, results, errors, constraints, or stream types.
 
 ## Transported operations
 
-`cmux.protocol/2` transports 127 operations for exactly one local mux
+`cmux.protocol/2` transports 128 operations for exactly one local mux
 session. Cross-machine aggregation and provider lifecycle require a later
 broker protocol.
 
 | Class | Count | Semantics |
 | --- | ---: | --- |
-| `read` | 41 | Reads state and forbids an idempotency key |
+| `read` | 42 | Reads state and forbids an idempotency key |
 | `mutation` | 69 | Requires an idempotency key and returns a mutation result |
 | `stream_open` | 5 | Opens a connection-owned typed stream |
 | `connection_control` | 12 | Changes only connection-local state |
@@ -29,7 +29,7 @@ correlation, and idempotency metadata.
 | Target | Count | Operations |
 | --- | ---: | --- |
 | `agent` | 2 | `agent.list`, `agent.report` |
-| `browser` | 15 | `browser.activate`, `browser.attach`, `browser.back`, `browser.close`, `browser.forward`, `browser.get`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.list`, `browser.navigate`, `browser.reload`, `browser.viewer.release`, `browser.viewer.resize` |
+| `browser` | 16 | `browser.activate`, `browser.attach`, `browser.back`, `browser.close`, `browser.download.list`, `browser.forward`, `browser.get`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.list`, `browser.navigate`, `browser.reload`, `browser.viewer.release`, `browser.viewer.resize` |
 | `client` | 7 | `client.cell_pixels.set`, `client.detach`, `client.get`, `client.list`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set` |
 | `frontend_projection` | 2 | `frontend_projection.get`, `frontend_projection.put` |
 | `machine` | 2 | `machine.get`, `machine.list` |

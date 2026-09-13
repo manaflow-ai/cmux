@@ -105,6 +105,13 @@ Browser tabs are attach-only. cmux-tui never discovers or launches Chrome and ne
 
 cmux-browser starts its bundled TUI with the upstream Vercel `agent-browser` provider enabled. New terminal shells inherit a caller-local agent-browser session and a `browser.provider` plugin backed by the same cmux-browser process, so ordinary `agent-browser snapshot`, `click`, `fill`, and related commands operate on a browser tab in that terminal's canonical workspace instead of spawning or auto-discovering another Chrome. Selection is deterministic and does not read any frontend's active/focus state; set `CMUX_TUI_BROWSER_TAB_ID` to choose an exact stable tab when a workspace contains several browser tabs.
 
+Cloud devbox daemons set `CMUX_TUI_GUEST=1`. For their provider-owned browser,
+the daemon configures a bounded temporary download directory and retains a
+browser-scoped ledger. Read it with `cmux browser <browser-id> download list`;
+the result identifies VM ownership and reports the real VM path only when the
+provider supplies a path inside that directory. External CDP endpoints remain
+attach-only and do not expose host paths as VM files.
+
 ## Development
 
 ```bash

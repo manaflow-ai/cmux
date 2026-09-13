@@ -57,3 +57,23 @@ Set `CMUX_TUI_BROWSER_TAB_ID=tab_...` for an exact browser tab. Direct-page mode
 Attach clients can stream browser panes as of protocol v6. Older protocol servers show a placeholder for browser panes.
 
 The provider must be local and explicitly registered. WebSocket control clients cannot register providers or read endpoint credentials. A workspace with no published browser target shows an attach error instead of falling back to another Chrome.
+
+## Guest download history
+
+On a Cloud Linux daemon, the guest shim exposes the native TUI operation:
+
+```bash
+cmux browser <browser-id> download list [--limit <1..25>]
+```
+
+The read is browser-scoped, repeatable, and newest-first. Each row has a stable
+CDP download id, suggested filename, status (`downloading`, `saved`, `failed`,
+or `cancelled`), byte counters, and `path`/`path_exists` when the VM browser
+reported a file in the daemon-owned download directory configured for this
+guest provider. `owner` and `location`
+are `vm` only for the explicit Cloud daemon provider; external CDP endpoints
+remain `external` and never claim that a host path is usable in the VM. History
+is bounded and lives for the attached daemon/provider runtime; shutting down the
+daemon removes its temporary download directory. Older pinned daemons reject the
+operation as unsupported until the matching cmux-tui artifact is deployed and
+the image is rebaked.

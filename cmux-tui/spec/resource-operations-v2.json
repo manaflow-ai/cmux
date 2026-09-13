@@ -2150,6 +2150,55 @@
         "failed"
       ]
     },
+    "BrowserDownloadStatus": {
+      "kind": "enum",
+      "values": [
+        "downloading",
+        "saved",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "BrowserDownloadOwner": {
+      "kind": "enum",
+      "values": [
+        "vm",
+        "provider",
+        "external",
+        "unknown"
+      ]
+    },
+    "BrowserDownload": {
+      "kind": "object",
+      "fields": {
+        "download_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 512}},
+        "filename": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 1024}},
+        "path": {"required": true, "type": {"kind": "nullable", "value": {"kind": "primitive", "name": "string", "max_length": 4096}}},
+        "path_exists": {"required": true, "type": {"kind": "nullable", "value": {"kind": "primitive", "name": "boolean"}}},
+        "status": {"required": true, "type": {"kind": "ref", "name": "BrowserDownloadStatus"}},
+        "bytes": {"required": true, "type": {"kind": "nullable", "value": {"kind": "primitive", "name": "decimal"}}},
+        "total_bytes": {"required": true, "type": {"kind": "nullable", "value": {"kind": "primitive", "name": "decimal"}}},
+        "owner": {"required": true, "type": {"kind": "ref", "name": "BrowserDownloadOwner"}},
+        "location": {"required": true, "type": {"kind": "ref", "name": "BrowserDownloadOwner"}}
+      },
+      "extra": false
+    },
+    "BrowserDownloadList": {
+      "kind": "object",
+      "fields": {
+        "workspace_id": {"required": true, "type": {"kind": "resource_id", "resource": "workspace"}},
+        "screen_id": {"required": true, "type": {"kind": "resource_id", "resource": "screen"}},
+        "pane_id": {"required": true, "type": {"kind": "resource_id", "resource": "pane"}},
+        "tab_id": {"required": true, "type": {"kind": "resource_id", "resource": "tab"}},
+        "browser": {"required": true, "type": {"kind": "ref", "name": "BrowserSnapshot"}},
+        "downloads": {"required": true, "type": {"kind": "array", "items": {"kind": "ref", "name": "BrowserDownload"}}},
+        "count": {"required": true, "type": {"kind": "primitive", "name": "uint32"}},
+        "limit": {"required": true, "type": {"kind": "primitive", "name": "uint32", "minimum": 1, "maximum": 25}},
+        "owner": {"required": true, "type": {"kind": "ref", "name": "BrowserDownloadOwner"}},
+        "location": {"required": true, "type": {"kind": "ref", "name": "BrowserDownloadOwner"}}
+      },
+      "extra": false
+    },
     "BrowserSnapshot": {
       "kind": "object",
       "fields": {
@@ -6152,6 +6201,43 @@
         "mutation.indeterminate",
         "operation.failed",
         "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "browser.download.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "browser",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace",
+        "screen",
+        "pane",
+        "tab"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "browser": "required"
+        },
+        "fields": {
+          "limit": {"required": false, "type": {"kind": "primitive", "name": "uint32", "minimum": 1, "maximum": 25}, "description": "Maximum number of newest downloads to return."}
+        },
+        "extra": false
+      },
+      "result": {"kind": "ref", "name": "BrowserDownloadList"},
+      "errors": [
+        "operation.failed",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
