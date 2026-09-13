@@ -32,7 +32,7 @@ import Testing
         ],
         "terminals": [
             ["id": "term_build", "tab_id": "tab_1", "tab_ids": ["tab_1", "tab_4"], "title": "cargo test", "cwd": "/root/work/app", "lifecycle": "running", "running": true],
-            ["id": "term_shell", "tab_id": "tab_2", "tab_ids": ["tab_2"], "title": "", "lifecycle": "exited", "running": false],
+            ["id": "term_shell", "tab_id": "tab_2", "tab_ids": ["tab_2"], "title": "", "lifecycle": "running", "running": true],
             ["id": "term_detached", "tab_id": "tab_missing", "tab_ids": [], "title": "detached", "running": true],
         ],
         "browsers": [],
@@ -128,10 +128,10 @@ import Testing
         #expect(build.remoteWorkspaces.map(\.id) == ["ws_main", "ws_api"])
         #expect(build.remoteViewCount == 2)
 
-        // An untitled terminal stays untitled (the row shows a localized fallback, never the raw id).
+        // A live untitled terminal keeps its view and uses the row's localized fallback.
         let shell = try #require(resources.first { $0.id.key == "term_shell" })
         #expect(shell.title == "")
-        #expect(shell.lifecycle == .exited)
+        #expect(shell.lifecycle == .running)
         #expect(shell.agent == nil)
         #expect(shell.remoteWorkspace?.id == "ws_api")
         #expect(shell.remoteViews?.count == 1)
@@ -874,12 +874,14 @@ import Testing
     @Test(arguments: [true, false])
     func exitedTerminalWithATabIsNotAnOpenableResource(explicitLifecycle: Bool) throws {
         var snapshot = Self.sessionSnapshot
+        var terminals = try #require(snapshot["terminals"] as? [[String: Any]])
+        let index = try #require(terminals.firstIndex { $0["id"] as? String == "term_shell" })
+        terminals[index]["lifecycle"] = "exited"
+        terminals[index]["running"] = false
         if !explicitLifecycle {
-            var terminals = try #require(snapshot["terminals"] as? [[String: Any]])
-            let index = try #require(terminals.firstIndex { $0["id"] as? String == "term_shell" })
             terminals[index].removeValue(forKey: "lifecycle")
-            snapshot["terminals"] = terminals
         }
+        snapshot["terminals"] = terminals
         let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: Self.machine))
         let exitedID = SurfaceResourceID(machine: Self.machine, kind: .terminal, key: "term_shell")
         let legacy = CmuxTuiSnapshotParser.terminals(fromSnapshot: snapshot, machine: Self.machine)
@@ -934,13 +936,15 @@ import Testing
         // away; its selector no longer resolves, so nothing could open or close it.
         var snapshot = Self.sessionSnapshot
         var terminals = snapshot["terminals"] as! [[String: Any]]
+        let shellIndex = terminals.firstIndex { $0["id"] as? String == "term_shell" }!
+        terminals[shellIndex]["lifecycle"] = "exited"
+        terminals[shellIndex]["running"] = false
         terminals.append(["id": "term_gone", "tab_id": NSNull(), "tab_ids": [], "title": "", "lifecycle": "exited", "running": false,
                           "exit": ["outcome": ["kind": "exit", "code": 130]]])
         snapshot["terminals"] = terminals
         let keys = CmuxTuiSnapshotParser.terminals(fromSnapshot: snapshot, machine: Self.machine).map { $0.id.key }
         #expect(!keys.contains("term_gone"))
-        // An exited terminal that still has a tab stays: that one can be closed.
-        #expect(keys.contains("term_shell"))
+        #expect(!keys.contains("term_shell"), "exited terminals with retained tabs are not openable either")
         let tabs = CmuxTuiSnapshotParser.tabByTerminal(fromSnapshot: snapshot)
         #expect(tabs["term_shell"] == "tab_2")
         #expect(tabs["term_build"] == "tab_1")

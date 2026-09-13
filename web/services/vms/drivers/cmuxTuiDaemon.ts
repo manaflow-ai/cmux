@@ -1,5 +1,5 @@
 import { dirname } from "node:path";
-import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../images/workUser";
+import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER, devboxWorkUserRuntimeCommand } from "../images/workUser";
 import {
   ProviderError,
   ProviderArtifactUnavailableError,
@@ -576,6 +576,9 @@ export function cmuxTuiAttachBundleCommand(options: {
     // the entire attach bundle before the probe, device, and invitation sections.
     ...(options.readyGate ? [`( ${options.readyGate}; ) || exit ${CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT}`] : []),
     cmuxTuiLayoutSelector(),
+    // Healthy older machines also need this repair: their persistent shells
+    // outlive logind sessions, even when the daemon never needs a restart.
+    `${devboxWorkUserRuntimeCommand()} || exit 1`,
     `echo ${BUNDLE_MARKERS.probe}`,
     `${run("remote-probe --json")}; echo`,
     `echo ${BUNDLE_MARKERS.devices}`,
