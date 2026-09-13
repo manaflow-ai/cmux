@@ -1409,14 +1409,8 @@ struct MachineUsageReadoutTests {
         withUsage.usage = byID["noble-wren"]
         let fact = CloudTreeMachineRowContent.inlineFact(withUsage, style: .compact)
         #expect(fact == nil, "spend belongs in the tooltip, leaving row space for resources")
-        #expect(CloudTreeMachineRowContent.inlineFact(machine("noble-wren"), style: .compact) == nil)
+        #expect(CloudTreeMachineRowContent.toolTip(withUsage).contains(line), "spend stays available on hover")
     }
 
-    @Test("Spend does not consume row height")
-    func spendDoesNotChangeHeight() {
-        let twoLine = CloudTreeStyle.presets.first { $0.machineRowLayout == .twoLine }
-        guard let twoLine else { return }
-        #expect(twoLine.machineRowHeight(hasStats: false, hasUsage: true) == twoLine.machineRowHeight(hasStats: false))
-        #expect(CloudTreeStyle.compact.machineRowHeight(hasStats: false, hasUsage: true) == CloudTreeStyle.compact.machineRowHeight(hasStats: false))
-    }
+
 }

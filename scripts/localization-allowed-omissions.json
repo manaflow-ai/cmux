@@ -3030,5 +3030,13 @@
       "da": "Standard technical UI term with the same spelling in this language.",
       "nb": "Standard technical UI term with the same spelling in this language."
     }
+  },
+  "cloudTree.resources.missing": {
+    "source": "—",
+    "class": "format"
+  },
+  "cloudTree.resources.ram": {
+    "source": "RAM",
+    "class": "technical"
   }
 }

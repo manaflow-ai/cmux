@@ -73,10 +73,10 @@ final class CloudTreeCellView: NSTableCellView {
             buttons.isHidden = false
             buttons.alphaValue = hovered ? 1 : 0
             buttonsLeadingConstraint?.isActive = true
-            // Two-line machine cards pin the buttons to the name line; every
-            // other row centers them vertically.
-            let pinToNameLine = node.isMachineRow && style.machineRowLayout == .twoLine
-            buttonsTopConstraint?.constant = style.machineVerticalPadding
+            // Cloud resources sit below the name; keep hover buttons on its line.
+            // Local and pending rows retain their preset alignment.
+            let pinToNameLine = node.isMachineRow && (style.machineRowLayout == .twoLine || node.structureTag == "machine")
+            buttonsTopConstraint?.constant = style.machineVerticalPadding + (style.machineBand ? 4 : 0)
             buttonsTopConstraint?.isActive = pinToNameLine
             buttonsCenterConstraint?.isActive = !pinToNameLine
         } else {
@@ -84,7 +84,7 @@ final class CloudTreeCellView: NSTableCellView {
             buttonsLeadingConstraint?.isActive = false
         }
         if case .machine(let machine, _) = node.kind {
-            toolTip = [machine.displayName, machine.activityLabel, machine.image].joined(separator: "\n")
+            toolTip = CloudTreeMachineRowContent.toolTip(machine)
         } else if case .pendingMachine(let operation) = node.kind {
             // The failure's first line rides along so a red row explains itself on hover.
             toolTip = operation.summaryLine
@@ -93,7 +93,11 @@ final class CloudTreeCellView: NSTableCellView {
         } else {
             toolTip = nil
         }
-        setAccessibilityLabel(node.searchableTitle)
+        if case .machine(let machine, _) = node.kind {
+            setAccessibilityLabel(CloudTreeMachineRowContent.accessibilityLabel(machine))
+        } else {
+            setAccessibilityLabel(node.searchableTitle)
+        }
     }
 
     private func makeButtonsHost() -> NSHostingView<AnyView> {
