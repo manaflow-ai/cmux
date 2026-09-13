@@ -21,6 +21,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Loopback forwards into this machine's private address over the hub; nil
     /// when the build has no hub. Owned by the registry, shared by every provider.
     let portForwards: CloudHubPortForwarder?
+    let portAccessStore: CloudPortAccessStore
     /// Invalidates suspended work when this provider is stopped or replaced.
     private var lifecycleGeneration: UInt64 = 0
     /// Invalidates an older refresh before it can publish over a newer one.
@@ -110,7 +111,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         links: CloudMachineLinkManager,
         catalog: SurfaceCatalog,
         portForwards: CloudHubPortForwarder? = nil,
-        attachmentClock: any Clock<Duration> = ContinuousClock()
+        attachmentClock: any Clock<Duration> = ContinuousClock(),
+        portAccessStore: CloudPortAccessStore? = nil
     ) {
         machineID = summary.id
         self.attachmentClock = attachmentClock
@@ -118,6 +120,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         self.links = links
         self.catalog = catalog
         self.portForwards = portForwards
+        self.portAccessStore = portAccessStore ?? CloudPortAccessStore()
         info = Self.info(from: summary, linkState: summary.status == "running" ? .connecting : .asleep, linkError: nil, stats: nil)
         installNotificationSync()
     }
@@ -130,6 +133,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
     func update(summary: VMSummary) {
         guard isRegisteredInCatalog() else { return }
+        let previousPrivateAddress = info.privateAddress
         refreshGeneration &+= 1
         refreshCoordinator.invalidate()
         self.summary = summary
@@ -151,8 +155,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         } else {
             catalog.updateMachine(info, from: self)
         }
+        if previousPrivateAddress != info.privateAddress {
+            refreshCloudBrowserRoutes()
+        }
     }
-    func stop() {
+    func stop() async {
+        await portAccessStore.remove(machineID: machineID)
         lifecycleGeneration &+= 1
         refreshCoordinator.cancel()
         for task in browserPaneTasks.values { task.cancel() }
@@ -287,21 +295,25 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
-            // Listening ports come from the machine itself over the private link: a
-            // failed probe keeps the cached rows, a successful scan is authoritative.
-            if let refreshedPorts = await ports(
+            // The port scan and graph snapshot use independent daemon requests.
+            // Start both after the link is ready, so refresh latency is the slower
+            // request rather than their sum. Each result remains guarded by the
+            // same generation fence before it publishes.
+            async let refreshedPorts = ports(
                 link: link,
                 socketPath: connected.socketPath,
                 force: force,
                 generation: generation,
                 privateAddress: privateAddress
-            ) {
+            )
+            async let snapshotData = link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: connected.socketPath))
+            if let refreshedPorts = await refreshedPorts {
                 guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
                 scannedPorts = refreshedPorts
                 currentPorts = refreshedPorts
             }
             watchChanges(link: link, generation: lifecycle)
-            let data = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: connected.socketPath))
+            let data = try await snapshotData
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let incoming = CmuxTuiSnapshotParser.state(fromSnapshot: object, machine: machine)
@@ -1043,9 +1055,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             created = (manual.workspaceID, manual.panelID)
             createdPlacement = manual.remotePlacement
         case .display, .browser:
-            // Ports and the desktop are reached through the user-space
-            // WireGuard hub on a loopback forward: no system VPN, no
-            // extension approval, on every build (`CloudPortRoutePlan`).
+            // Browser access is private by default. The browser owns the native
+            // VPN/forwarding controls before any connection is attempted.
             created = try await materializeBrowserPane(resource, at: destination, focus: focus)
         }
         materializedPanels.insert(created.panelID)
@@ -1670,13 +1681,18 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Turn a VM-local browser URL into the same URL on the VM private address.
     /// Path, query, fragment, scheme, and port stay unchanged.
     nonisolated static func privateBrowserURL(_ raw: String, privateAddress: String) -> String? {
-        guard var parts = URLComponents(string: raw),
-              let host = parts.host?.lowercased(),
-              host == "localhost" || host == "127.0.0.1" || host == "::1" else {
-            return nil
-        }
-        parts.host = privateAddress
-        return parts.url?.absoluteString
+        guard let parts = URLComponents(string: raw),
+              let host = parts.host?.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]")),
+              ["localhost", "127.0.0.1", "0.0.0.0", "::1"].contains(host) else { return nil }
+        return CloudPortRoutePlan.privateURL(raw, address: privateAddress)?.absoluteString
+    }
+
+    /// Shared Cloud terminal-link conversion for Workspace and Dock containers.
+    nonisolated static func cloudTerminalLinkTarget(url: URL, resource: SurfaceResource, privateAddress: String) -> CloudTerminalLinkTarget? {
+        guard resource.kind == .terminal, resource.machine.cloudMachineID != nil,
+              let rewritten = privateBrowserURL(url.absoluteString, privateAddress: privateAddress),
+              let privateURL = URL(string: rewritten) else { return nil }
+        return CloudTerminalLinkTarget(url: privateURL)
     }
 
     /// Add the local URL used when this resource is projected on the Mac.

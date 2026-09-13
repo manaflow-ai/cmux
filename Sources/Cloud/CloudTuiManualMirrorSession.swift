@@ -1,5 +1,9 @@
 import CmuxTerminal
+import CmuxCore
 import Foundation
+import os
+
+private let manualMirrorLogger = Logger(subsystem: "com.cmuxterm.app", category: "CloudManualMirror")
 
 /// Owns one native cloud-terminal attachment.
 ///
@@ -17,6 +21,12 @@ final class CloudTuiManualMirrorSession {
     private(set) var remoteSurfaceID: UInt64
     let inputRouter: CloudTuiManualIOInputRouter
 
+    private let operations: CloudOperationRecorder?
+    private var diagnosticContext: CloudOperationContext?
+    private var diagnosticReplayReceived = false
+    private var diagnosticDeadline: Task<Void, Never>?
+    private(set) var diagnosticFailure: CloudDiagnosticFailure?
+    private var diagnosticReference: String?
     private weak var surface: TerminalSurface?
     private let onNeedsReconnect: @MainActor () -> Void
     private let commandBuilder: CloudTuiManualIOCommand
@@ -48,7 +58,18 @@ final class CloudTuiManualMirrorSession {
     private var appliedRemoteColors = CloudTuiRemoteColors()
     private var hasReceivedRemoteReplay = false
     private var lastRemoteGrid: CloudTuiManualIOGrid?
-    private(set) var phase: CloudTuiManualMirrorPhase = .idle
+    private(set) var phase: CloudTuiManualMirrorPhase = .idle {
+        didSet {
+            if phase == .disconnected, oldValue != .disconnected, diagnosticContext != nil {
+                finishDiagnostics(error: CloudDiagnosticFailure.network)
+            }
+            if phase == .stopped { finishDiagnostics(error: CancellationError()) }
+            if phase == .attached && diagnosticReplayReceived { finishDiagnostics() }
+            manualMirrorLogger.notice("phase terminal=\(self.terminalID, privacy: .private(mask: .hash)) surface=\(self.remoteSurfaceID) phase=\(String(describing: self.phase), privacy: .public) replay=\(self.diagnosticReplayReceived)")
+            surface?.hostedView.synchronizeCloudTerminalReconnectOverlay()
+            surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
+        }
+    }
     /// Bounds on the handshake and on attached-stream liveness, enforced by
     /// the attachment watchdog. Tests inject short bounds and a virtual clock.
     let deadlines: CloudTuiManualMirrorDeadlines
@@ -59,6 +80,27 @@ final class CloudTuiManualMirrorSession {
     private let log = CloudTerminalAttachmentLog()
     private var attachAttempts = 0
     private var interruption: CloudTerminalAttachmentInterruption?
+    var connectionPresentation: CloudTerminalReconnectOverlayPolicy.Presentation? {
+        guard let state = CloudManualMirrorPresentation(
+            phase: phase, replayReceived: diagnosticReplayReceived
+        ).connectionState else { return nil }
+        var presentation = CloudTerminalReconnectOverlayPolicy.presentation(
+            isManagedCloudWorkspace: true, isRemoteTerminalSurface: true,
+            connectionState: state, detail: diagnosticFailure?.label
+        )
+        presentation?.diagnosticReference = diagnosticReference
+        return presentation
+    }
+
+    @discardableResult
+    func retryConnection() -> Bool {
+        guard phase != .stopped else { return false }
+        // Explicit recovery must pass through the provider's fresh resolution,
+        // including when the current socket is still attached or connecting.
+        fenceAttachment(error: CancellationError())
+        onNeedsReconnect()
+        return true
+    }
     private nonisolated static let leaseCapability = "view-attachment-lease-v1"
 
     init(
@@ -66,11 +108,13 @@ final class CloudTuiManualMirrorSession {
         terminalID: String,
         remoteSurfaceID: UInt64,
         initiallyClaimsGeometry: Bool = true,
+        operations: CloudOperationRecorder? = nil,
         commandBuilder: CloudTuiManualIOCommand = CloudTuiManualIOCommand(),
         deadlines: CloudTuiManualMirrorDeadlines = .standard,
         clock: any Clock<Duration> = ContinuousClock(),
         onNeedsReconnect: @escaping @MainActor () -> Void
     ) {
+        self.operations = operations
         self.machineID = machineID
         self.terminalID = terminalID
         self.remoteSurfaceID = remoteSurfaceID
@@ -98,7 +142,17 @@ final class CloudTuiManualMirrorSession {
     /// before inserting the panel, so a runtime-ready signal cannot be missed;
     /// assigning them here also makes rebinding after restore safe.
     func bind(surface: TerminalSurface) {
+        if let previous = self.surface, previous !== surface,
+           previous.hostedView.cloudTerminalOverlay.session === self {
+            previous.onManualSizeApplied = nil
+            previous.onRuntimeReady = nil
+            previous.onManualWindowAttached = nil
+            previous.onManualVisibilityChanged = nil
+            previous.hostedView.cloudTerminalOverlay.unbindSession(self)
+        }
         self.surface = surface
+        surface.hostedView.cloudTerminalOverlay.session = self
+        manualMirrorLogger.info("bind terminal=\(self.terminalID, privacy: .private(mask: .hash)) surface=\(self.remoteSurfaceID)")
         // A color sidecar that arrived before any surface existed reaches this
         // one now. The stored sidecar is the remote truth, and the next
         // identical sidecar would produce an empty delta and leave the pane on
@@ -123,12 +177,11 @@ final class CloudTuiManualMirrorSession {
         runtimeReady()
     }
 
-    /// Re-samples a pane when it becomes visible without a frame-size delta.
-    /// A hidden projection never claims geometry; a visible projection can
-    /// reclaim it on the normal focus edge.
+    /// Re-samples on reveal even without a frame-size delta. A valid grid in
+    /// the visible, real pane makes sizing eligible; initial focus is irrelevant.
     func visibilityChanged(_ visible: Bool) {
-        guard phase != .stopped,
-              surface?.isNativeViewInRealWindow == true else { return }
+        guard phase != .stopped else { return }
+        manualMirrorLogger.info("visibility terminal=\(self.terminalID, privacy: .private(mask: .hash)) visible=\(visible)")
         if !visible {
             // Do not let a hidden portal continue to resize a shared remote
             // PTY. The release is connection-scoped and idempotent; closing
@@ -148,14 +201,15 @@ final class CloudTuiManualMirrorSession {
                     )
                 }
             }
-            geometryClaimEligible = false
             geometryClaimed = false
+            geometryClaimEligible = false
             claimUnsupported = false
             claimInFlight = false
             discardPendingSizingRequests()
             resizeScheduler.resetForReconnect()
             return
         }
+        if phase == .disconnected || phase == .idle { onNeedsReconnect() }
         runtimeReady()
     }
 
@@ -185,8 +239,7 @@ final class CloudTuiManualMirrorSession {
         reason: CloudTerminalAttachmentInterruption = .unresolved("awaiting an authoritative resolution")
     ) {
         guard phase != .stopped else { return }
-        tearDownConnection()
-        transition(to: .disconnected, reason: reason)
+        fenceAttachment(error: CloudDiagnosticFailure.notFound, reason: reason)
     }
 
     /// Drops the current transport and every per-connection fact. Leases,
@@ -214,6 +267,7 @@ final class CloudTuiManualMirrorSession {
         serverCapabilities.removeAll(keepingCapacity: true)
         resizeScheduler.resetForReconnect()
         lastRemoteGrid = nil
+        diagnosticReplayReceived = false
     }
 
     /// Samples the grid after Ghostty has created its runtime surface. Runtime
@@ -255,6 +309,24 @@ final class CloudTuiManualMirrorSession {
             }
         }
 
+        finishDiagnostics(error: CancellationError())
+        diagnosticFailure = nil
+        diagnosticReplayReceived = false
+        if let parent = CloudOperationContext.current {
+            diagnosticContext = parent.recorder.beginChild(of: parent, phase: .ready, attempt: 0)
+        } else if let operations {
+            let root = operations.begin(.terminal, foreground: false)
+            diagnosticContext = root
+        }
+        if let context = diagnosticContext {
+            diagnosticReference = "operation=\(context.operationID.uuidString.lowercased()) trace=\(context.traceID)"
+            diagnosticDeadline = Task { @MainActor [weak self] in
+                do { try await Task.sleep(for: .seconds(60)) } catch { return }
+                guard let self, self.diagnosticContext?.spanID == context.spanID else { return }
+                self.finishDiagnostics(error: CloudDiagnosticFailure.timeout)
+                self.transitionToDisconnected(error: nil)
+            }
+        }
         self.socketPath = socketPath
         tearDownConnection()
         attachAttempts += 1
@@ -363,13 +435,26 @@ final class CloudTuiManualMirrorSession {
         connection?.close()
         connection = nil
         pendingRequests.removeAll(keepingCapacity: false)
-        if let surface {
+        if let surface, surface.hostedView.cloudTerminalOverlay.session === self {
+            surface.hostedView.cloudTerminalOverlay.unbindSession(self)
             surface.onManualSizeApplied = nil
             surface.onRuntimeReady = nil
             surface.onManualWindowAttached = nil
             surface.onManualVisibilityChanged = nil
         }
         self.surface = nil
+    }
+
+    private func finishDiagnostics(error: Error? = nil) {
+        diagnosticDeadline?.cancel()
+        diagnosticDeadline = nil
+        if let error, !(error is CancellationError) { diagnosticFailure = .classify(error) }
+        surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
+        let context = diagnosticContext ?? (error != nil && !(error is CancellationError) ? operations?.begin(.terminal, foreground: false) : nil)
+        guard let context else { return }
+        diagnosticReference = "operation=\(context.operationID.uuidString.lowercased()) trace=\(context.traceID)"
+        diagnosticContext = nil
+        Task { await context.recorder.finish(context, error: error) }
     }
 
     // MARK: - Transport events
@@ -402,6 +487,8 @@ final class CloudTuiManualMirrorSession {
             applyColors(colors)
             replayNeedsReset = false
             hasReceivedRemoteReplay = true
+            diagnosticReplayReceived = true
+            if phase == .attached { finishDiagnostics() }
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
             reconcileRemoteGrid()
         case let .output(surfaceID, bytes, colors):
@@ -416,6 +503,8 @@ final class CloudTuiManualMirrorSession {
             applyReplay(bytes, reset: true)
             applyColors(colors)
             hasReceivedRemoteReplay = true
+            diagnosticReplayReceived = true
+            if phase == .attached { finishDiagnostics() }
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
             reconcileRemoteGrid()
         case let .colorsChanged(surfaceID, colors):
@@ -468,8 +557,31 @@ final class CloudTuiManualMirrorSession {
     private func transitionToDisconnected(reason: CloudTerminalAttachmentInterruption) {
         tearDownConnection()
         guard phase != .stopped else { return }
+        let diagnosticError: CloudDiagnosticFailure
+        switch reason {
+        case .handshakeTimedOut, .livenessTimedOut: diagnosticError = .timeout
+        case .rejected: diagnosticError = .protocol
+        case .unresolved: diagnosticError = .notFound
+        case .transportClosed: diagnosticError = .network
+        }
+        finishDiagnostics(error: diagnosticError)
         transition(to: .disconnected, reason: reason)
         onNeedsReconnect()
+    }
+
+    private func transitionToDisconnected(error: Error? = CloudDiagnosticFailure.network) {
+        tearDownConnection()
+        guard phase != .stopped else { return }
+        finishDiagnostics(error: error ?? CancellationError())
+        transition(to: .disconnected, reason: .transportClosed)
+        onNeedsReconnect()
+    }
+
+    private func fenceAttachment(error: Error, reason: CloudTerminalAttachmentInterruption = .transportClosed) {
+        tearDownConnection()
+        guard phase != .stopped else { return }
+        finishDiagnostics(error: error)
+        transition(to: .disconnected, reason: reason)
     }
 
     /// A watchdog deadline elapsed while the session was still in `expected`.
@@ -515,6 +627,7 @@ final class CloudTuiManualMirrorSession {
         error: String?
     ) {
         guard let kind = pendingRequests.removeValue(forKey: requestID) else { return }
+        manualMirrorLogger.info("answer terminal=\(self.terminalID, privacy: .private(mask: .hash)) surface=\(self.remoteSurfaceID) request=\(String(describing: kind), privacy: .public) ok=\(ok) outcome=\(outcome ?? "none", privacy: .private) error=\(error ?? "none", privacy: .private)")
         switch kind {
         case .identify:
             guard ok else {
@@ -722,12 +835,14 @@ final class CloudTuiManualMirrorSession {
     private func sendClaimIfNeeded() {
         guard attachResponseReceived,
               surface?.isRendererPortalVisible == true,
+              surface?.isNativeViewInRealWindow == true,
               geometryClaimEligible,
               !geometryClaimed,
               !claimUnsupported,
               !claimInFlight,
               resizeScheduler.inFlight != nil || resizeScheduler.lastAcknowledged != nil,
               let connection else { return }
+        manualMirrorLogger.info("geometry terminal=\(self.terminalID, privacy: .private(mask: .hash)) decision=claim")
         claimInFlight = true
         let requestID = takeRequestID()
         pendingRequests[requestID] = .claim
