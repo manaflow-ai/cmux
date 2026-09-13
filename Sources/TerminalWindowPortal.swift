@@ -1894,6 +1894,7 @@ final class WindowTerminalPortal: NSObject {
             let pending = self.pendingDeferredSurfaceRefreshes
             self.pendingDeferredSurfaceRefreshes = [:]
             for (pendingId, pendingReason) in pending {
+                self.lastDeferredSurfaceRefreshFrames.removeValue(forKey: pendingId)
                 guard let entry = self.entriesByHostedId[pendingId],
                       entry.visibleInUI,
                       let hostedView = entry.hostedView,
@@ -2908,14 +2909,12 @@ enum TerminalWindowPortalRegistry {
             portal.hideEntries(forWorkspaceID: workspaceID)
         }
     }
-
     /// Permanently detach a hosted terminal view from the window-level portal.
     static func detach(hostedView: GhosttySurfaceScrollView) {
         let hostedId = ObjectIdentifier(hostedView)
         guard let windowId = hostedToWindowId.removeValue(forKey: hostedId) else { return }
         portalsByWindowId[windowId]?.detachHostedView(withId: hostedId)
     }
-
     /// Update visibleInUI on an existing portal entry without rebinding.
     @discardableResult
     static func updateEntryVisibility(for hostedView: GhosttySurfaceScrollView, visibleInUI: Bool) -> Bool {
