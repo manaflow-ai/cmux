@@ -30,7 +30,7 @@ struct CloudRemoteColorOwnershipTests {
             overrides: authored, palette: ["4": "#445566"]
         )
         let after = try colors(
-            event: "colors-changed", foreground: "#202020", background: "#ffffff",
+            event: "colors-changed", foreground: "#d0d0d0", background: "#202020",
             overrides: authored, palette: ["4": "#445566"]
         )
         #expect(after == before)
@@ -46,6 +46,27 @@ struct CloudRemoteColorOwnershipTests {
         #expect(reset.oscBytes.isEmpty)
     }
 
+    @Test
+    func repeatedClientUpdatesNeverAccumulateViewerColorOverrides() throws {
+        let events = ["vt-state", "resized", "output", "colors-changed"]
+        var previous = CloudTuiRemoteColors()
+        var liveColorBytes = 0
+        var restoredColorBytes = 0
+        for index in 0..<256 {
+            let next = try colors(
+                event: events[index % events.count],
+                foreground: index.isMultiple(of: 2) ? "#d0d0d0" : "#202020",
+                background: index.isMultiple(of: 2) ? "#202020" : "#ffffff"
+            )
+            liveColorBytes += next.oscDelta(from: previous).count
+            restoredColorBytes += next.oscBytes.count
+            previous = next
+        }
+        #expect(liveColorBytes == 0)
+        #expect(restoredColorBytes == 0)
+        #expect(previous.isEmpty)
+    }
+
     private func colors(
         event: String,
         foreground: String,
@@ -54,7 +75,7 @@ struct CloudRemoteColorOwnershipTests {
         palette: [String: String] = [:]
     ) throws -> CloudTuiRemoteColors {
         let sidecar: [String: Any] = [
-            "fg": foreground, "bg": background, "cursor": "#abcdef",
+            "fg": foreground, "bg": background, "cursor": overrides["cursor"] ?? "#abcdef",
             "overrides": overrides, "palette": palette
         ]
         var payload: [String: Any] = [
