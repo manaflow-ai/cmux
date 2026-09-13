@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { shellQuote } from "./drivers/cmuxTuiDaemon";
 
 export type GuestPromptIdentity = {
@@ -24,7 +25,7 @@ export function vmPromptIdentity(row: {
   };
 }
 
-const assetPath = (name: string) => decodeURIComponent(new URL(`./images/devbox/${name}`, import.meta.url).pathname);
+const assetPath = (name: string) => resolve(process.cwd(), "services/vms/images/devbox", name);
 const bashrc = readFileSync(assetPath("cmux-bashrc"), "utf8");
 const prompt = readFileSync(assetPath("cmux-prompt.bash"), "utf8");
 
