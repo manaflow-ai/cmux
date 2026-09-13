@@ -82,6 +82,29 @@ import Testing
         #expect(provider.createdRemoteWorkspaceID == remoteWorkspace.id)
     }
 
+    @Test("Failed cloud pane creation does not enter a process-modal run loop")
+    func failedCloudPaneCreationStaysInWorkspaceState() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let machine = SurfaceMachineID.cloud("failed-pane-\(UUID().uuidString)")
+        let error = NSError(
+            domain: "CloudPaneCreationFailureTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "connection refused"]
+        )
+
+        workspace.presentCloudPaneCreationFailure(machine: machine, error: error)
+
+        #expect(NSApp.modalWindow == nil)
+        let failure = try #require(workspace.cloudPaneCreationFailure)
+        #expect(failure.machine == machine)
+        #expect(failure.errorText.contains("connection refused"))
+
+        workspace.dismissCloudPaneCreationFailure(id: failure.id)
+        #expect(workspace.cloudPaneCreationFailure == nil)
+    }
+
     @Test("Cloud process cwd parsing ignores the recorded spawn directory")
     func cloudProcessCwdParsingIgnoresSpawnDirectory() {
         #expect(CloudTuiCommandLine.processInfoArguments(socketPath: "/tmp/cloud.sock", terminalID: "term-source") == [
