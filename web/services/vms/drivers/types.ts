@@ -2,6 +2,8 @@
 // per-provider implementations behind an interface. Callers hold a `VMProvider` and never reach
 // into specifics.
 
+import type { GuestPromptIdentity } from "../guestPrompt";
+
 export type ProviderId = "freestyle";
 
 const PROVIDER_IDS: readonly ProviderId[] = ["freestyle"];
@@ -70,6 +72,8 @@ export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
   /** Human-facing machine label; providers may ignore this cosmetic field. */
   displayName?: string;
+  /** Current prompt name, written into the guest rather than a shell environment. */
+  promptIdentity?: GuestPromptIdentity;
   providerMetadata?: Record<string, unknown>;
   /**
    * Name of a persistent volume to mount as the machine's home directory. Providers that
@@ -232,6 +236,8 @@ export type CmuxRemoteEndpoint = {
 };
 
 export type CmuxRemoteAttachOptions = {
+  /** Authoritative display name and revision, refreshed before returning the terminal. */
+  promptIdentity?: GuestPromptIdentity;
   /**
    * The caller's cmux-tui device fingerprint, when it already enrolled with this
    * VM's daemon. Lets the provider skip minting an invitation.
