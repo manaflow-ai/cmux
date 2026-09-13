@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -17,7 +17,13 @@ fs.appendFileSync(process.env.HOME + "/calls.jsonl", JSON.stringify(args) + "\\n
 args.splice(0, 2);
 args = args.filter(x => x !== "--json");
 let expected;
-if (args[0] === "--expected-revision") { expected = args[1]; args.splice(0, 2); }
+for (let index = 0; index < args.length; index++) {
+  if (["--expected-revision", "--idempotency-key"].includes(args[index])) {
+    if (index + 1 >= args.length) process.exit(2);
+    if (args[index] === "--expected-revision") expected = args[index + 1];
+    args.splice(index, 2); index--;
+  }
+}
 const [noun, id, verb] = args;
 const value = key => args[args.indexOf(key) + 1];
 const emit = value => process.stdout.write(JSON.stringify(value) + "\\n");
@@ -60,6 +66,7 @@ if (verb === "rename" && ["workspace", "tab", "pane"].includes(noun)) {
   if (args[3] !== "--index") process.exit(2);
   item.index = Number(args[4]);
 } else if (noun === "workspace" && verb === "close") {
+  if (args.length !== 3) process.exit(2);
   graph.workspaces.splice(objects.indexOf(item), 1);
 } else if (verb === "focus") { graph.focused = id; }
 else { process.stderr.write("unsupported grammar\\n"); process.exit(2); }
@@ -68,21 +75,18 @@ fs.writeFileSync(path, JSON.stringify(graph));
 emit({value: item, generation: process.env.RECEIPT_GENERATION ?? graph.session.generation, revision: graph.session.revision});
 `;
 
-async function fixture(peer: boolean, terminalCount = 2) {
+async function fixture(peer: boolean) {
   const dir = mkdtempSync(join(tmpdir(), "cmux-topology-"));
   const shim = join(dir, "cmux");
   const daemon = join(dir, "cmux-tui");
   const graph = {
     session: { generation: "generation-1", revision: "9007199254740993" },
-    workspaces: [{ id: "ws_task", name: "task", index: 0 }, { id: "ws_other", name: "other", index: 1 }, ...(terminalCount > 2 ? [{ id: "ws_agi", name: "agi", index: 2 }] : [])],
+    workspaces: [{ id: "ws_task", name: "task", index: 0 }, { id: "ws_other", name: "other", index: 1 }],
     panes: [{ id: "pane_a", screen_id: "screen_a", position: 0 }, { id: "pane_b", screen_id: "screen_a", position: 1 }],
     tabs: [{ id: "tab_a", content_kind: "terminal", content_id: "term_agent", pane_id: "pane_a", index: 0 },
       { id: "tab_b", content_kind: "terminal", content_id: "term_agent", pane_id: "pane_b", index: 0 },
       { id: "tab_other", content_kind: "terminal", content_id: "term_other", pane_id: "pane_b", index: 1 }],
-    terminals: Array.from({ length: terminalCount }, (_, index) => ({
-      id: index === 0 ? "term_agent" : index === 9 ? "term_9df068c3ec6f68bbe5eeadb2bd399535" : `term_${index}`,
-      pid: 42 + index,
-    })),
+    terminals: [{ id: "term_agent", pid: 42 }, { id: "term_other", pid: 43 }],
   };
   writeFileSync(shim, GUEST_CMUX_SHIM);
   writeFileSync(daemon, DAEMON); chmodSync(daemon, 0o755);
@@ -105,16 +109,17 @@ async function fixture(peer: boolean, terminalCount = 2) {
       encoding: "utf8", timeout: 10_000,
       env: { NODE_ENV: "test", PATH: process.env.PATH, HOME: dir, CMUX_TUI_BIN: daemon, CMUX_TUI_TERMINAL_ID: "term_agent", ...env },
     }),
-    runAsync: (args: string[], env = {}) => new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve) => {
-      const child = spawn("sh", [shim, ...(peer ? ["vm", args[0], args[1], "peer", ...args.slice(2)] : args)], {
-        env: { NODE_ENV: "test", PATH: process.env.PATH, HOME: dir, CMUX_TUI_BIN: daemon, CMUX_TUI_TERMINAL_ID: "term_agent", ...env },
+    runInTerminal: (script: string, ids: string[]) => {
+      chmodSync(shim, 0o755);
+      return spawnSync("sh", ["-c", script, "guest-burst", ...ids], {
+        encoding: "utf8", timeout: 30_000,
+        env: { NODE_ENV: "test", PATH: `${dir}:${process.env.PATH}`, HOME: dir, CMUX_TUI_BIN: daemon },
       });
-      let stdout = "";
-      let stderr = "";
-      child.stdout.on("data", chunk => { stdout += chunk; });
-      child.stderr.on("data", chunk => { stderr += chunk; });
-      child.on("close", status => resolve({ status, stdout, stderr }));
-    }),
+    },
+    seedWorkspaces: (ids: string[]) => {
+      const state = { ...graph, workspaces: ids.map((id, index) => ({ id, index, name: id })) };
+      writeFileSync(join(dir, "graph.json"), JSON.stringify(state));
+    },
     calls: () => readFileSync(join(dir, "calls.jsonl"), "utf8").trim().split("\n").filter(Boolean).map(x => JSON.parse(x)),
     cleanup: async () => { if (peer) await new Promise<void>(resolve => server.close(() => resolve())); rmSync(dir, { recursive: true, force: true }); },
     route: peer ? ["--socket", socket] : ["--session", "cloud"],
@@ -207,7 +212,8 @@ test("workspace close normalizes selector-first and safe host-compatible forms",
     const invalid = f.run(["workspace", "close", "--workspace", "ws_other", "--focus", "true"]);
     expect(invalid.status).toBe(2);
     expect(invalid.stderr).toContain("--focus false");
-    expect(f.read().workspaces.map((workspace: { id: string }) => workspace.id)).toContain("ws_other");
+    expect(f.read()).toEqual(f.graph);
+    expect(f.calls()).toEqual([]);
 
     const closed = f.run(["workspace", "ws_task", "close", "--json"]);
     expect(closed.status).toBe(0);
@@ -216,24 +222,79 @@ test("workspace close normalizes selector-first and safe host-compatible forms",
     const compatible = f.run(["workspace", "close", "--workspace", "ws_other", "--focus", "false", "--json"]);
     expect(compatible.status).toBe(0);
     expect(f.read().workspaces).toHaveLength(0);
-    expect(f.calls().some(call => call.includes("ws_other") && call.includes("close"))).toBe(true);
+    expect(f.calls()).toEqual([
+      [...f.route, "workspace", "ws_task", "close", "--json"],
+      [...f.route, "workspace", "ws_other", "close", "--json"],
+    ]);
+    expect(f.read().terminals).toEqual(f.graph.terminals);
   } finally { await f.cleanup(); }
 });
 
-test("guest tree snapshot stays bounded across the observed 19-client/52-terminal burst", async () => {
-  const f = await fixture(false, 52);
+for (const peer of [false, true]) describe(`guest workspace close contract (peer=${peer})`, () => {
+  test("preserves the existing revision and idempotency options", async () => {
+    const f = await fixture(peer);
+    try {
+      const options = ["--expected-revision", f.graph.session.revision, "--idempotency-key", "close:task", "--json"];
+      const result = f.run(["workspace", "close", "ws_task", ...options]);
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(f.calls()).toEqual([[...f.route, "workspace", "ws_task", "close", ...options]]);
+      expect(f.read().workspaces.map((workspace: { id: string }) => workspace.id)).toEqual(["ws_other"]);
+    } finally { await f.cleanup(); }
+  });
+
+  test("accepts compatible options in either order without changing routing", async () => {
+    const f = await fixture(peer);
+    try {
+      const first = f.run(["workspace", "close", "--json", "--focus", "false", "--workspace", "ws_task"]);
+      const second = f.run(["workspace", "close", "--workspace=ws_other", "--focus=false"]);
+      expect(first.status).toBe(0);
+      expect(second.status).toBe(0);
+      expect(f.calls()).toEqual([
+        [...f.route, "workspace", "ws_task", "close", "--json"],
+        [...f.route, "workspace", "ws_other", "close"],
+      ]);
+    } finally { await f.cleanup(); }
+  });
+
+  test("invalid options never mutate either workspace", async () => {
+    const f = await fixture(peer);
+    try {
+      for (const args of [
+        ["--workspace", "ws_task", "--focus", "true"],
+        ["--workspace", "ws_task", "--focus", "maybe"],
+        ["--workspace", "ws_task", "--focus"],
+        ["--workspace", "ws_task", "--workspace", "ws_other"],
+        ["--workspace", ""],
+        ["--workspace"],
+        ["ws_task", "--unexpected", "value"],
+      ]) {
+        expect(f.run(["workspace", "close", ...args]).status).toBe(2);
+        expect(f.read()).toEqual(f.graph);
+      }
+    } finally { await f.cleanup(); }
+  });
+});
+
+test("the in-terminal close loop forwards one close per workspace and stops on failure", async () => {
+  const f = await fixture(false);
   try {
-    const results = await Promise.all(
-      Array.from({ length: 19 }, () => f.runAsync(["tree", "--json"])),
-    );
-    expect(results.every(result => result.status === 0)).toBe(true);
-    expect(results.every(result => result.stderr === "")).toBe(true);
-    expect(results.every(result => result.stdout.includes("term_51"))).toBe(true);
-    expect(results.every(result => result.stdout.includes("term_9df068c3ec6f68bbe5eeadb2bd399535"))).toBe(true);
-    expect(results.every(result => result.stdout.includes('"agi"'))).toBe(true);
-    expect(f.calls()).toHaveLength(19);
+    const ids = Array.from({ length: 15 }, (_, index) => `ws_cmux${index + 1}`);
+    f.seedWorkspaces(["ws_agi", ...ids]);
+    const result = f.runInTerminal('set -e; for id do cmux workspace close --workspace "$id" --focus false >/dev/null; done', ids);
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(f.calls()).toEqual(ids.map(id => [...f.route, "workspace", id, "close"]));
+    expect(f.read().workspaces.map((workspace: { id: string }) => workspace.id)).toEqual(["ws_agi"]);
+    expect(f.read().terminals).toEqual(f.graph.terminals);
+
+    const failed = f.runInTerminal('set -e; for id do cmux workspace close --workspace "$id" --focus false >/dev/null; done', ["ws_missing", "ws_agi"]);
+    expect(failed.status).toBe(2);
+    expect(f.calls().at(-1)).toEqual([...f.route, "workspace", "ws_missing", "close"]);
+    expect(f.calls()).toHaveLength(ids.length + 1);
+    expect(f.read().workspaces.map((workspace: { id: string }) => workspace.id)).toEqual(["ws_agi"]);
   } finally { await f.cleanup(); }
-}, { timeout: 20_000 });
+});
 
 test("topology help is localized and works before daemon installation", () => {
   const dir = mkdtempSync(join(tmpdir(), "cmux-topology-help-"));
