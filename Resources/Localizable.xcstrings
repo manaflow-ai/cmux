@@ -128573,6 +128573,183 @@
         }
       }
     },
+    "cloudTree.error.remoteWorkspaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote workspace %@ is no longer available. Refresh and retry."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Remote-Arbeitsbereich %@ ist nicht mehr verfügbar. Aktualisieren Sie und versuchen Sie es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’espace de travail distant %@ n’est plus disponible. Actualisez et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحة العمل البعيدة %@ لم تعد متاحة. حدّث ثم أعد المحاولة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El espacio de trabajo remoto %@ ya no está disponible. Actualiza e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端工作區 %@ 已無法使用。請重新整理後再試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程工作区 %@ 已不可用。请刷新后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 작업 공간 %@을(를) 더 이상 사용할 수 없습니다. 새로 고친 후 다시 시도하십시오."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートワークスペース %@ は利用できなくなりました。更新して再試行してください。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.remotePlacementUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote workspace %@ has no available terminal placement. Refresh and retry."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Remote-Arbeitsbereich %@ ist keine Terminal-Platzierung verfügbar. Aktualisieren Sie und versuchen Sie es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’espace de travail distant %@ ne dispose d’aucun emplacement de terminal disponible. Actualisez et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يتوفر موضع طرفية في مساحة العمل البعيدة %@. حدّث ثم أعد المحاولة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El espacio de trabajo remoto %@ no tiene una ubicación de terminal disponible. Actualiza e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端工作區 %@ 沒有可用的終端機位置。請重新整理後再試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程工作区 %@ 没有可用的终端位置。请刷新后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 작업 공간 %@에 사용 가능한 터미널 배치가 없습니다. 새로 고친 후 다시 시도하십시오."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートワークスペース %@ に利用可能なターミナル配置がありません。更新して再試行してください。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.remoteTabNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote tab %@ is no longer available. Refresh and retry."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Remote-Tab %@ ist nicht mehr verfügbar. Aktualisieren Sie und versuchen Sie es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’onglet distant %@ n’est plus disponible. Actualisez et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "علامة التبويب البعيدة %@ لم تعد متاحة. حدّث ثم أعد المحاولة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pestaña remota %@ ya no está disponible. Actualiza e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端標籤頁 %@ 已無法使用。請重新整理後再試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程标签页 %@ 已不可用。请刷新后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 탭 %@을(를) 더 이상 사용할 수 없습니다. 새로 고친 후 다시 시도하십시오."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートタブ %@ は利用できなくなりました。更新して再試行してください。"
+          }
+        }
+      }
+    },
     "cloudTree.error.renameWorkspaceNotFound": {
       "extractionState": "manual",
       "localizations": {
