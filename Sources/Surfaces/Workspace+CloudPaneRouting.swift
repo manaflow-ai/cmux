@@ -63,8 +63,8 @@ extension Workspace {
     /// resource to that machine. Returns false when the pane is not cloud-anchored.
     func routeCloudPaneTerminalTab(inPane paneID: PaneID, focus: Bool) -> Bool {
         guard let resource = cloudProjectedResource(inPane: paneID) else { return false }
-        let preferredRemoteWorkspaceID = bonsplitController.selectedTab(inPane: paneID).flatMap {
-            guard let panelID = panelIdFromSurfaceId($0.id) else { return nil }
+        let preferredRemoteWorkspaceID: String? = bonsplitController.selectedTab(inPane: paneID).flatMap { tab -> String? in
+            guard let panelID = panelIdFromSurfaceId(tab.id) else { return nil }
             return SurfaceCatalog.shared.projection(forPanel: panelID)?.remoteWorkspaceID
         }
         return routeCloudPaneTerminalCreate(
