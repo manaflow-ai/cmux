@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR f78c8242ed878ed6fb1f0587e575ea58c6922faa6682b8192b28285fa317cedf.
+// cmux-tui mux protocol 12, IR d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1093,6 +1093,14 @@ pub struct Tab {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalColorOverrides {
+    pub bg: Nullable<ColorHex>,
+    pub cursor: Nullable<ColorHex>,
+    pub fg: Nullable<ColorHex>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalColors {
     pub bg: Nullable<ColorHex>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1102,6 +1110,8 @@ pub struct TerminalColors {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cursor_style: Optional<CursorStyle>,
     pub fg: Nullable<ColorHex>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub overrides: Option<TerminalColorOverrides>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub palette: Option<BTreeMap<String, ColorHex>>,
     pub selection_bg: Nullable<ColorHex>,

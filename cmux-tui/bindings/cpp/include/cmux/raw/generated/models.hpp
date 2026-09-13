@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "f78c8242ed878ed6fb1f0587e575ea58c6922faa6682b8192b28285fa317cedf";
+inline constexpr std::string_view kProtocolIrSha256 = "d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -111,6 +111,7 @@ struct Size;
 enum class SplitDirection;
 struct SurfaceResult;
 struct Tab;
+struct TerminalColorOverrides;
 struct TerminalColors;
 struct TerminalEventsResult;
 struct TerminalExit;
@@ -931,12 +932,20 @@ enum class CursorStyle {
     bar,
 };
 
+struct TerminalColorOverrides {
+    std::optional<ColorHex> bg{};
+    std::optional<ColorHex> cursor{};
+    std::optional<ColorHex> fg{};
+    friend bool operator==(const TerminalColorOverrides&, const TerminalColorOverrides&) = default;
+};
+
 struct ColorsChangedEvent {
     std::optional<ColorHex> bg{};
     Field<ColorHex> cursor{};
     Field<bool> cursor_blink{};
     Field<CursorStyle> cursor_style{};
     std::optional<ColorHex> fg{};
+    std::optional<TerminalColorOverrides> overrides{};
     std::optional<std::map<std::string, ColorHex, std::less<>>> palette{};
     std::optional<ColorHex> selection_bg{};
     std::optional<ColorHex> selection_fg{};
@@ -1690,6 +1699,7 @@ struct TerminalColors {
     Field<bool> cursor_blink{};
     Field<CursorStyle> cursor_style{};
     std::optional<ColorHex> fg{};
+    std::optional<TerminalColorOverrides> overrides{};
     std::optional<std::map<std::string, ColorHex, std::less<>>> palette{};
     std::optional<ColorHex> selection_bg{};
     std::optional<ColorHex> selection_fg{};
@@ -3273,6 +3283,12 @@ template <>
 struct Codec<Tab> {
     static Result<Json> encode(const Tab& value);
     static Result<Tab> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalColorOverrides> {
+    static Result<Json> encode(const TerminalColorOverrides& value);
+    static Result<TerminalColorOverrides> decode(const Json& value);
 };
 
 template <>

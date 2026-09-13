@@ -1,9 +1,6 @@
 import Foundation
 
-/// Builds the private JSON commands used by a native cloud manual-I/O pane.
-///
-/// These commands are transport operations only. They never ask cmux-tui to
-/// render a viewport; the host consumes the resulting raw PTY bytes.
+/// Builds private transport commands for a native Cloud Ghostty byte mirror.
 struct CloudTuiManualIOCommand: Sendable {
     /// cmux-tui's terminal geometry clamp (the protocol's uint16 values are
     /// additionally bounded to keep pathological panes from exhausting the
@@ -61,6 +58,7 @@ struct CloudTuiManualIOCommand: Sendable {
             "capabilities": [
                 viewAttachmentLeaseCapability,
                 viewAttachmentDetachCapability,
+                "terminal-color-overrides-v1",
             ],
         ]
     }
