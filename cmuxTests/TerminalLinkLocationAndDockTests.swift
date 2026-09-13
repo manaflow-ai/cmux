@@ -24,6 +24,10 @@ private final class RecordingTerminalLinkContainer: TerminalLinkOpenContainer {
         false
     }
 
+    func cloudTerminalLinkTarget(url: URL, sourcePanelId: UUID) -> CloudTerminalLinkTarget? {
+        nil
+    }
+
     func deferTerminalFileLinkOpen(
         sourcePanelId: UUID,
         filePath: String,
@@ -32,8 +36,6 @@ private final class RecordingTerminalLinkContainer: TerminalLinkOpenContainer {
         openedFilePaths.append(filePath)
         return true
     }
-
-    func cloudTerminalLinkTarget(url: URL, sourcePanelId: UUID) -> CloudTerminalLinkTarget? { nil }
 
     func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
         false
@@ -89,9 +91,10 @@ struct TerminalLinkLocationAndDockTests {
         // Dock callbacks carry a surface identity. Keep an alias in the Dock's
         // tab-to-panel index to exercise resolution when those identities do
         // not equal the panel dictionary key.
-        let callbackSurfaceId = TabID()
-        store.bindSurface(callbackSurfaceId, toPanelId: terminalPanel.id)
-        #expect(store.surfaceIdToPanelId[callbackSurfaceId] == terminalPanel.id)
+        let callbackSurfaceId = UUID()
+        let callbackTabId = TabID(uuid: callbackSurfaceId)
+        store.bindSurface(callbackTabId, toPanelId: terminalPanel.id)
+        #expect(store.surfaceIdToPanelId[callbackTabId] == terminalPanel.id)
 
         var externallyOpened: [URL] = []
         let coordinator = TerminalLinkOpenCoordinator(
@@ -107,7 +110,7 @@ struct TerminalLinkLocationAndDockTests {
         #expect(coordinator.open(TerminalLinkOpenRequest(
             rawValue: url.absoluteString,
             sourceWorkspaceId: workspaceId,
-            sourcePanelId: callbackSurfaceId.uuid,
+            sourcePanelId: callbackSurfaceId,
             workingDirectory: baseDirectory
         )))
 
