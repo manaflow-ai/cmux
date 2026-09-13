@@ -1,4 +1,3 @@
-import AppKit
 import Bonsplit
 import CmuxWorkspaces
 import Foundation
@@ -10,6 +9,7 @@ import Foundation
 /// (`workspace <ws> run`) and projected back into this workspace at the requested spot,
 /// so the sidebar, the socket, and the shortcut agree on what exists.
 /// Installs the temporary panel used while a Cloud terminal split is materialized.
+@MainActor
 extension Workspace {
     /// The cloud resource behind a panel, when the panel projects one.
     func cloudProjectedResource(forPanel panelID: UUID) -> SurfaceResource? {
@@ -93,10 +93,15 @@ extension Workspace {
         guard let provider = catalog.provider(for: resource.machine) else { return false }
         let remoteWorkspaceID = catalog.cloudPlacementCoordinator.creationWorkspaceID(in: id, near: resource, preferredRemoteWorkspaceID: preferredRemoteWorkspaceID)
         let machine = resource.machine
+        let requestID = cloudPaneCreationFailureStore.beginRequest()
         let sourceProjection = sourcePanelID.flatMap { catalog.projection(forPanel: $0) }
         if remoteWorkspaceID == nil, sourceProjection?.remoteTabID == nil {
             Task { @MainActor in
-                Self.presentCloudPaneCreationFailure(machine: machine, error: SurfaceCatalogError.ambiguousRemotePlacement(resource.id, workspaceID: ""))
+                self.presentCloudPaneCreationFailure(
+                    machine: machine,
+                    error: SurfaceCatalogError.ambiguousRemotePlacement(resource.id, workspaceID: ""),
+                    requestID: requestID
+                )
             }
             return true
         }
@@ -195,35 +200,22 @@ extension Workspace {
                     let created = try await create()
                     _ = try await project(created)
                 } catch {
-                    Self.presentCloudPaneCreationFailure(machine: machine, error: error)
+                    self.presentCloudPaneCreationFailure(machine: machine, error: error, requestID: requestID)
                 }
             }
         }
         return true
     }
 
+    /// Publishes a non-modal failure card for a cloud terminal request.
     @MainActor
-    private static func presentCloudPaneCreationFailure(machine: SurfaceMachineID, error: Error) {
+    func presentCloudPaneCreationFailure(machine: SurfaceMachineID, error: Error, requestID: UUID) {
         #if DEBUG
         cmuxDebugLog("cloud.pane.createFailed machine=\(machine.rawValue) error=\(String(reflecting: error))")
         #endif
-        let alert = NSAlert()
-        alert.messageText = String(
-            format: String(
-                localized: "cloudPane.newTerminalFailed.title",
-                defaultValue: "Couldn’t start a terminal on %@"
-            ),
-            machine.rawValue
-        )
-        alert.informativeText = String(
-            localized: "cloudTerminal.creation.failed.detail",
-            defaultValue: "The Cloud service did not accept the terminal request."
-        )
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: String(localized: "cloudPane.newTerminalFailed.ok", defaultValue: "OK"))
-        CloudErrorCopy.install(in: alert, text: "\(alert.messageText)\n\(alert.informativeText)")
-        alert.runModal()
+        cloudPaneCreationFailureStore.present(machine: machine, error: error, requestID: requestID)
     }
+
 }
 
 
