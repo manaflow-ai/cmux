@@ -186,6 +186,111 @@ struct FileExplorerStoreTests {
         #expect(!(store.rootNodes[1].isDirectory))
     }
 
+    // MARK: - Non-destructive same-root reload (sidebar flicker regression)
+
+    @Test
+    func testSameRootReloadKeepsTreeVisibleUntilFreshListingArrives() async throws {
+        let provider = DeferredListFileExplorerProvider()
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider, reloadIfAvailable: false)
+        store.setRootPath("/home/dev/project")
+
+        try await waitFor("initial listing requested") { provider.listCallPaths.count == 1 }
+        provider.resumeListing(returning: [
+            FileExplorerEntry(name: "a.txt", path: "/home/dev/project/a.txt", isDirectory: false)
+        ])
+        try await waitFor("initial root nodes loaded") { store.rootNodes.count == 1 }
+
+        // A same-root refresh (what the directory watcher triggers) must keep
+        // the current tree on screen instead of blanking it and flashing the
+        // loading spinner while the fresh listing is in flight.
+        store.reload()
+        #expect(store.rootNodes.count == 1, "tree should stay visible during same-root reload")
+        #expect(!store.isRootLoading, "spinner should not flash during same-root reload")
+
+        try await waitFor("refresh listing requested") { provider.listCallPaths.count == 2 }
+        #expect(store.rootNodes.count == 1)
+        provider.resumeListing(returning: [
+            FileExplorerEntry(name: "a.txt", path: "/home/dev/project/a.txt", isDirectory: false),
+            FileExplorerEntry(name: "b.txt", path: "/home/dev/project/b.txt", isDirectory: false),
+        ])
+        try await waitFor("refreshed root nodes swapped in") { store.rootNodes.count == 2 }
+    }
+
+    @Test
+    func testSameRootReloadReusesNodeIdentityForUnchangedPaths() async throws {
+        let provider = MockFileExplorerProvider()
+        provider.listings["/home/user/project"] = .success([
+            FileExplorerEntry(name: "src", path: "/home/user/project/src", isDirectory: true)
+        ])
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider)
+        store.setRootPath("/home/user/project")
+        try await waitFor("root nodes loaded") { store.rootNodes.count == 1 }
+        let originalNode = try #require(store.rootNodes.first)
+
+        provider.listings["/home/user/project"] = .success([
+            FileExplorerEntry(name: "src", path: "/home/user/project/src", isDirectory: true),
+            FileExplorerEntry(name: "new.txt", path: "/home/user/project/new.txt", isDirectory: false),
+        ])
+        store.reload()
+        try await waitFor("refreshed root nodes loaded") { store.rootNodes.count == 2 }
+
+        // NSOutlineView keys row state off item identity: an unchanged path must
+        // come back as the same node object across a same-root refresh.
+        let refreshedSrc = try #require(store.rootNodes.first { $0.path == "/home/user/project/src" })
+        #expect(refreshedSrc === originalNode, "unchanged path should reuse its node instance")
+    }
+
+    @Test
+    func testRootSwitchDropsStaleTreeImmediately() async throws {
+        let provider = MockFileExplorerProvider()
+        provider.listings["/home/user/projectA"] = .success([
+            FileExplorerEntry(name: "a.txt", path: "/home/user/projectA/a.txt", isDirectory: false)
+        ])
+        provider.listings["/home/user/projectB"] = .success([
+            FileExplorerEntry(name: "b.txt", path: "/home/user/projectB/b.txt", isDirectory: false)
+        ])
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider)
+        store.setRootPath("/home/user/projectA")
+        try await waitFor("projectA loaded") { store.rootNodes.count == 1 }
+
+        // Switching roots must not show projectA's tree under projectB's path.
+        store.setRootPath("/home/user/projectB")
+        #expect(store.rootNodes.isEmpty || store.rootNodes.first?.path.hasPrefix("/home/user/projectB") == true)
+        try await waitFor("projectB loaded") {
+            store.rootNodes.count == 1 && store.rootNodes.first?.path == "/home/user/projectB/b.txt"
+        }
+    }
+
+    @Test
+    func testSameRootReloadDropsCachedChildrenOfCollapsedDirectories() async throws {
+        let provider = MockFileExplorerProvider()
+        provider.listings["/home/user/project"] = .success([
+            FileExplorerEntry(name: "dir", path: "/home/user/project/dir", isDirectory: true)
+        ])
+        provider.listings["/home/user/project/dir"] = .success([
+            FileExplorerEntry(name: "old.txt", path: "/home/user/project/dir/old.txt", isDirectory: false)
+        ])
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider)
+        store.setRootPath("/home/user/project")
+        try await waitFor("root loaded") { store.rootNodes.count == 1 }
+        let dir = try #require(store.rootNodes.first)
+
+        store.expand(node: dir)
+        try await waitFor("children loaded") { dir.children?.count == 1 }
+        store.collapse(node: dir)
+
+        // A collapsed directory must not keep a stale cached subtree across a
+        // same-root reload; the next expand should re-list from the provider.
+        store.reload()
+        try await waitFor("collapsed dir cache dropped") {
+            store.rootNodes.first === dir && dir.children == nil
+        }
+    }
+
     @Test
     func testDisplayRootPathUsesTilde() {
         let provider = MockFileExplorerProvider(homePath: "/home/user")
