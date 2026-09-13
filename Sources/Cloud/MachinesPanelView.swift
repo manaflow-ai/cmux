@@ -1,3 +1,4 @@
+import CmuxCloudMachines
 import AppKit
 import CmuxSettings
 import SwiftUI
@@ -20,13 +21,24 @@ enum CloudVMPanelAuthState: Equatable {
 }
 
 struct MachinesPanelView: View {
-    @StateObject private var viewModel = MachinesPanelViewModel()
+    @StateObject private var viewModel: MachinesPanelViewModel
     @State private var expansionStore = CloudTreeExpansionStore()
     @State private var tunnelStatus = CloudTunnelStatusModel()
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
     @State private var bannerDismissals = CloudBannerDismissalStore(defaults: .standard)
     let chromeBackgroundColor: NSColor
     var tabManager: TabManager? = nil
+
+
+    init(chromeBackgroundColor: NSColor, defaultMachineStore: DefaultCloudMachineStore, tabManager: TabManager? = nil) {
+        self.chromeBackgroundColor = chromeBackgroundColor
+        self.tabManager = tabManager
+        _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(defaultMachineStore: defaultMachineStore))
+    }
+
+    init(chromeBackgroundColor: NSColor, tabManager: TabManager? = nil) {
+        self.init(chromeBackgroundColor: chromeBackgroundColor, defaultMachineStore: DefaultCloudMachineStore(defaults: .standard), tabManager: tabManager)
+    }
 
     private var accountFlow: HostAccountFlow? {
         AppDelegate.shared?.auth?.accountFlow
@@ -53,6 +65,9 @@ struct MachinesPanelView: View {
         .onAppear { syncPolling(for: authState) }
         .onChange(of: authState) { _, state in
             syncPolling(for: state)
+        }
+        .onChange(of: viewModel.defaultMachineStore?.machineID) { _, id in
+            if let id { viewModel.setDefaultMachine(id: id) }
         }
         .onDisappear {
             viewModel.stopPolling()
@@ -462,6 +477,9 @@ struct MachinesPanelView: View {
         machineActions.setupVPN = { window in
             openCloudVPNSetup(preferredWindow: window)
         }
+        machineActions.setDefault = { [weak viewModel] id in
+            viewModel?.setDefaultMachine(id: id)
+        }
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
         let nodeActions = CloudTreeNodeActions.bound(
             catalog: { SurfaceCatalog.shared },
@@ -749,6 +767,8 @@ struct MachineRowActions {
     /// A locked (free-window-expired) machine routes here instead of a doomed
     /// connect; the backend enforces the same boundary with 402s.
     let promptUpgrade: @MainActor () -> Void
+    /// Persist the machine used by Cmd+Y.
+    var setDefault: @MainActor (String) -> Void = { _ in }
     /// Verbs of the pending rows (creates still running or failed).
     var create: MachineCreateRowActions = .inert
 

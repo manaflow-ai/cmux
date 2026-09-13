@@ -142,6 +142,9 @@
          location = "group:CmuxCloudBannerCore">
       </FileRef>
       <FileRef
+         location = "group:CmuxCloudMachines">
+      </FileRef>
+      <FileRef
          location = "group:CmuxCommandPalette">
       </FileRef>
       <FileRef

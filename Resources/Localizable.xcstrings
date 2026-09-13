@@ -520604,6 +520604,1256 @@
         }
       }
     }
-  },
+  ,
+    "command.newCloudWorkspace.title": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "New Cloud Workspace"
+      }
+    },
+    "ja": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "新規クラウドワークスペース"
+      }
+    },
+    "de": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Neuer Cloud-Arbeitsbereich"
+      }
+    },
+    "fr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nouvel espace de travail cloud"
+      }
+    },
+    "es": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nuevo espacio de trabajo en la nube"
+      }
+    },
+    "it": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nuovo spazio di lavoro cloud"
+      }
+    },
+    "ko": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "새 클라우드 워크스페이스"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "新建云工作区"
+      }
+    },
+    "zh-Hant": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "新增雲端工作區"
+      }
+    },
+    "pt-BR": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Novo espaço de trabalho na nuvem"
+      }
+    },
+    "ru": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Новое облачное рабочее пространство"
+      }
+    },
+    "ar": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "مساحة عمل سحابية جديدة"
+      }
+    },
+    "bs": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Novi radni prostor u oblaku"
+      }
+    },
+    "da": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nyt cloud-arbejdsområde"
+      }
+    },
+    "km": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "កន្លែងធ្វើការលើពពកថ្មី"
+      }
+    },
+    "nb": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nytt skyarbeidsområde"
+      }
+    },
+    "pl": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nowy obszar roboczy w chmurze"
+      }
+    },
+    "th": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "เวิร์กสเปซคลาวด์ใหม่"
+      }
+    },
+    "tr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Yeni bulut çalışma alanı"
+      }
+    },
+    "uk": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Новий хмарний робочий простір"
+      }
+    }
+  }
+},
+    "command.newCloudMachine.title": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "New Cloud Machine"
+      }
+    },
+    "ja": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "新規クラウドマシン"
+      }
+    },
+    "de": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Neue Cloud-Maschine"
+      }
+    },
+    "fr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nouvelle machine cloud"
+      }
+    },
+    "es": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nueva máquina en la nube"
+      }
+    },
+    "it": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nuova macchina cloud"
+      }
+    },
+    "ko": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "새 클라우드 머신"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "新建云机器"
+      }
+    },
+    "zh-Hant": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "新增雲端機器"
+      }
+    },
+    "pt-BR": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nova máquina na nuvem"
+      }
+    },
+    "ru": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Новая облачная машина"
+      }
+    },
+    "ar": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "جهاز سحابي جديد"
+      }
+    },
+    "bs": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nova mašina u oblaku"
+      }
+    },
+    "da": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Ny cloud-maskine"
+      }
+    },
+    "km": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ម៉ាស៊ីនលើពពកថ្មី"
+      }
+    },
+    "nb": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Ny skymaskin"
+      }
+    },
+    "pl": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nowa maszyna w chmurze"
+      }
+    },
+    "th": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "เครื่องคลาวด์ใหม่"
+      }
+    },
+    "tr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Yeni bulut makinesi"
+      }
+    },
+    "uk": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Нова хмарна машина"
+      }
+    }
+  }
+},
+    "menu.file.newCloudWorkspace": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "New Cloud Workspace"
+      }
+    },
+    "ja": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "新規クラウドワークスペース"
+      }
+    },
+    "de": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Neuer Cloud-Arbeitsbereich"
+      }
+    },
+    "fr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nouvel espace de travail cloud"
+      }
+    },
+    "es": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nuevo espacio de trabajo en la nube"
+      }
+    },
+    "it": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nuovo spazio di lavoro cloud"
+      }
+    },
+    "ko": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "새 클라우드 워크스페이스"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "新建云工作区"
+      }
+    },
+    "zh-Hant": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "新增雲端工作區"
+      }
+    },
+    "pt-BR": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Novo espaço de trabalho na nuvem"
+      }
+    },
+    "ru": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Новое облачное рабочее пространство"
+      }
+    },
+    "ar": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "مساحة عمل سحابية جديدة"
+      }
+    },
+    "bs": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Novi radni prostor u oblaku"
+      }
+    },
+    "da": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nyt cloud-arbejdsområde"
+      }
+    },
+    "km": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "កន្លែងធ្វើការលើពពកថ្មី"
+      }
+    },
+    "nb": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nytt skyarbeidsområde"
+      }
+    },
+    "pl": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nowy obszar roboczy w chmurze"
+      }
+    },
+    "th": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "เวิร์กสเปซคลาวด์ใหม่"
+      }
+    },
+    "tr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Yeni bulut çalışma alanı"
+      }
+    },
+    "uk": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Новий хмарний робочий простір"
+      }
+    }
+  }
+},
+    "menu.file.newCloudMachine": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "New Cloud Machine"
+      }
+    },
+    "ja": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "新規クラウドマシン"
+      }
+    },
+    "de": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Neue Cloud-Maschine"
+      }
+    },
+    "fr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nouvelle machine cloud"
+      }
+    },
+    "es": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nueva máquina en la nube"
+      }
+    },
+    "it": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nuova macchina cloud"
+      }
+    },
+    "ko": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "새 클라우드 머신"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "新建云机器"
+      }
+    },
+    "zh-Hant": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "新增雲端機器"
+      }
+    },
+    "pt-BR": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nova máquina na nuvem"
+      }
+    },
+    "ru": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Новая облачная машина"
+      }
+    },
+    "ar": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "جهاز سحابي جديد"
+      }
+    },
+    "bs": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nova mašina u oblaku"
+      }
+    },
+    "da": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Ny cloud-maskine"
+      }
+    },
+    "km": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ម៉ាស៊ីនលើពពកថ្មី"
+      }
+    },
+    "nb": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Ny skymaskin"
+      }
+    },
+    "pl": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nowa maszyna w chmurze"
+      }
+    },
+    "th": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "เครื่องคลาวด์ใหม่"
+      }
+    },
+    "tr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Yeni bulut makinesi"
+      }
+    },
+    "uk": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Нова хмарна машина"
+      }
+    }
+  }
+},
+    "shortcut.newCloudWorkspace.label": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "New Cloud Workspace"
+      }
+    },
+    "ja": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "新規クラウドワークスペース"
+      }
+    },
+    "de": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Neuer Cloud-Arbeitsbereich"
+      }
+    },
+    "fr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nouvel espace de travail cloud"
+      }
+    },
+    "es": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nuevo espacio de trabajo en la nube"
+      }
+    },
+    "it": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nuovo spazio di lavoro cloud"
+      }
+    },
+    "ko": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "새 클라우드 워크스페이스"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "新建云工作区"
+      }
+    },
+    "zh-Hant": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "新增雲端工作區"
+      }
+    },
+    "pt-BR": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Novo espaço de trabalho na nuvem"
+      }
+    },
+    "ru": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Новое облачное рабочее пространство"
+      }
+    },
+    "ar": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "مساحة عمل سحابية جديدة"
+      }
+    },
+    "bs": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Novi radni prostor u oblaku"
+      }
+    },
+    "da": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nyt cloud-arbejdsområde"
+      }
+    },
+    "km": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "កន្លែងធ្វើការលើពពកថ្មី"
+      }
+    },
+    "nb": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nytt skyarbeidsområde"
+      }
+    },
+    "pl": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nowy obszar roboczy w chmurze"
+      }
+    },
+    "th": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "เวิร์กสเปซคลาวด์ใหม่"
+      }
+    },
+    "tr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Yeni bulut çalışma alanı"
+      }
+    },
+    "uk": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Новий хмарний робочий простір"
+      }
+    }
+  }
+},
+    "shortcut.newCloudMachine.label": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "New Cloud Machine"
+      }
+    },
+    "ja": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "新規クラウドマシン"
+      }
+    },
+    "de": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Neue Cloud-Maschine"
+      }
+    },
+    "fr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nouvelle machine cloud"
+      }
+    },
+    "es": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nueva máquina en la nube"
+      }
+    },
+    "it": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nuova macchina cloud"
+      }
+    },
+    "ko": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "새 클라우드 머신"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "新建云机器"
+      }
+    },
+    "zh-Hant": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "新增雲端機器"
+      }
+    },
+    "pt-BR": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nova máquina na nuvem"
+      }
+    },
+    "ru": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Новая облачная машина"
+      }
+    },
+    "ar": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "جهاز سحابي جديد"
+      }
+    },
+    "bs": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nova mašina u oblaku"
+      }
+    },
+    "da": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Ny cloud-maskine"
+      }
+    },
+    "km": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ម៉ាស៊ីនលើពពកថ្មី"
+      }
+    },
+    "nb": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Ny skymaskin"
+      }
+    },
+    "pl": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nowa maszyna w chmurze"
+      }
+    },
+    "th": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "เครื่องคลาวด์ใหม่"
+      }
+    },
+    "tr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Yeni bulut makinesi"
+      }
+    },
+    "uk": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Нова хмарна машина"
+      }
+    }
+  }
+},
+    "machines.menu.defaultMachine": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Default Machine"
+      }
+    },
+    "ja": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "デフォルトマシン"
+      }
+    },
+    "de": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Standardmaschine"
+      }
+    },
+    "fr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Machine par défaut"
+      }
+    },
+    "es": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Máquina predeterminada"
+      }
+    },
+    "it": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Macchina predefinita"
+      }
+    },
+    "ko": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "기본 머신"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "默认机器"
+      }
+    },
+    "zh-Hant": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "預設機器"
+      }
+    },
+    "pt-BR": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Máquina padrão"
+      }
+    },
+    "ru": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Машина по умолчанию"
+      }
+    },
+    "ar": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "الجهاز الافتراضي"
+      }
+    },
+    "bs": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Podrazumijevana mašina"
+      }
+    },
+    "da": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Standardmaskine"
+      }
+    },
+    "km": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ម៉ាស៊ីនលំនាំដើម"
+      }
+    },
+    "nb": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Standardmaskin"
+      }
+    },
+    "pl": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Maszyna domyślna"
+      }
+    },
+    "th": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "เครื่องเริ่มต้น"
+      }
+    },
+    "tr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Varsayılan makine"
+      }
+    },
+    "uk": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Машина за замовчуванням"
+      }
+    }
+  }
+},
+    "machines.menu.setDefaultMachine": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Set as Default Machine"
+      }
+    },
+    "ja": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "デフォルトマシンに設定"
+      }
+    },
+    "de": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Als Standardmaschine festlegen"
+      }
+    },
+    "fr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Définir comme machine par défaut"
+      }
+    },
+    "es": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Establecer como máquina predeterminada"
+      }
+    },
+    "it": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Imposta come macchina predefinita"
+      }
+    },
+    "ko": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "기본 머신으로 설정"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "设为默认机器"
+      }
+    },
+    "zh-Hant": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "設為預設機器"
+      }
+    },
+    "pt-BR": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Definir como máquina padrão"
+      }
+    },
+    "ru": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Сделать машиной по умолчанию"
+      }
+    },
+    "ar": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "تعيين كجهاز افتراضي"
+      }
+    },
+    "bs": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Postavi kao podrazumijevanu mašinu"
+      }
+    },
+    "da": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Indstil som standardmaskine"
+      }
+    },
+    "km": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "កំណត់ជាម៉ាស៊ីនលំនាំដើម"
+      }
+    },
+    "nb": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Angi som standardmaskin"
+      }
+    },
+    "pl": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Ustaw jako maszynę domyślną"
+      }
+    },
+    "th": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ตั้งเป็นเครื่องเริ่มต้น"
+      }
+    },
+    "tr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Varsayılan makine olarak ayarla"
+      }
+    },
+    "uk": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Зробити машиною за замовчуванням"
+      }
+    }
+  }
+},
+    "machines.row.default.help": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Default machine for New Cloud Workspace"
+      }
+    },
+    "ja": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "新規クラウドワークスペースのデフォルトマシン"
+      }
+    },
+    "de": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Standardmaschine für neuen Cloud-Arbeitsbereich"
+      }
+    },
+    "fr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Machine par défaut du nouvel espace cloud"
+      }
+    },
+    "es": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Máquina del espacio cloud predeterminado"
+      }
+    },
+    "it": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Macchina predefinita del nuovo spazio cloud"
+      }
+    },
+    "ko": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "새 클라우드 워크스페이스의 기본 머신"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "新建云工作区的默认机器"
+      }
+    },
+    "zh-Hant": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "新增雲端工作區的預設機器"
+      }
+    },
+    "pt-BR": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Máquina padrão do novo espaço na nuvem"
+      }
+    },
+    "ru": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Машина по умолчанию для нового облачного пространства"
+      }
+    },
+    "ar": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "الجهاز الافتراضي لمساحة عمل سحابية جديدة"
+      }
+    },
+    "bs": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Podrazumijevana mašina za novi radni prostor u oblaku"
+      }
+    },
+    "da": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Standardmaskine til nyt cloud-arbejdsområde"
+      }
+    },
+    "km": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ម៉ាស៊ីនលំនាំដើមសម្រាប់កន្លែងធ្វើការលើពពកថ្មី"
+      }
+    },
+    "nb": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Standardmaskin for nytt skyarbeidsområde"
+      }
+    },
+    "pl": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Domyślna maszyna dla nowego obszaru roboczego w chmurze"
+      }
+    },
+    "th": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "เครื่องเริ่มต้นสำหรับเวิร์กสเปซคลาวด์ใหม่"
+      }
+    },
+    "tr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Yeni bulut çalışma alanı için varsayılan makine"
+      }
+    },
+    "uk": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Машина за замовчуванням для нового хмарного робочого простору"
+      }
+    }
+  }
+},
+    "machines.row.default.accessibilityLabel": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Default machine"
+      }
+    },
+    "ja": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "デフォルトマシン"
+      }
+    },
+    "de": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Standardmaschine"
+      }
+    },
+    "fr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Machine par défaut"
+      }
+    },
+    "es": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Máquina predeterminada"
+      }
+    },
+    "it": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Macchina predefinita"
+      }
+    },
+    "ko": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "기본 머신"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "默认机器"
+      }
+    },
+    "zh-Hant": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "預設機器"
+      }
+    },
+    "pt-BR": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Máquina padrão"
+      }
+    },
+    "ru": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Машина по умолчанию"
+      }
+    },
+    "ar": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "الجهاز الافتراضي"
+      }
+    },
+    "bs": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Podrazumijevana mašina"
+      }
+    },
+    "da": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Standardmaskine"
+      }
+    },
+    "km": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ម៉ាស៊ីនលំនាំដើម"
+      }
+    },
+    "nb": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Standardmaskin"
+      }
+    },
+    "pl": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Maszyna domyślna"
+      }
+    },
+    "th": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "เครื่องเริ่มต้น"
+      }
+    },
+    "tr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Varsayılan makine"
+      }
+    },
+    "uk": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Машина за замовчуванням"
+      }
+    }
+  }
+}},
   "version": "1.0"
 }

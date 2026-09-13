@@ -622,7 +622,7 @@ struct CloudTreeMachineRowContent: View {
                     } else {
                         // This row is another computer: the same outline cloud as the
                         // titlebar Cloud button, dimmed so it doesn't compete with the name.
-                        Image(systemName: "cloud")
+                Image(systemName: "cloud")
                             .font(.system(size: 9, weight: .medium))
                             .foregroundStyle(.secondary)
                             .frame(width: CloudTreeRowGrid.dotSlot, alignment: .center)
@@ -636,6 +636,13 @@ struct CloudTreeMachineRowContent: View {
                             .foregroundStyle(.primary)
                             .lineLimit(1)
                             .truncationMode(.tail)
+                        if machine.isDefault {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .help(String(localized: "machines.row.default.help", defaultValue: "Default machine for New Cloud Workspace"))
+                                .accessibilityLabel(String(localized: "machines.row.default.accessibilityLabel", defaultValue: "Default machine"))
+                        }
                         if let fact = Self.inlineFact(machine, style: style) {
                             Text(fact)
                                 .cmuxFont(size: style.detailSize, design: style.fontDesign)
@@ -666,12 +673,21 @@ struct CloudTreeMachineRowContent: View {
                         .frame(width: CloudTreeRowGrid.dotSlot, height: style.machineNameLineHeight, alignment: .center)
                 }
                 VStack(alignment: .leading, spacing: CloudTreeRowGrid.machineLineSpacing) {
-                    Text(machine.displayName)
-                        .cmuxFont(size: style.machineNameSize, weight: .medium, design: style.fontDesign)
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(height: style.machineNameLineHeight)
+                    HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.dotGap) {
+                        Text(machine.displayName)
+                            .cmuxFont(size: style.machineNameSize, weight: .medium, design: style.fontDesign)
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        if machine.isDefault {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .help(String(localized: "machines.row.default.help", defaultValue: "Default machine for New Cloud Workspace"))
+                                .accessibilityLabel(String(localized: "machines.row.default.accessibilityLabel", defaultValue: "Default machine"))
+                        }
+                    }
+                    .frame(height: style.machineNameLineHeight, alignment: .leading)
                     Text(Self.subtitle(machine))
                         .cmuxFont(size: style.detailSize + 0.5, design: style.fontDesign)
                         .foregroundStyle(.secondary)
