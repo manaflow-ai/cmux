@@ -444,7 +444,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         reprojectRestoredPanes(generation: lifecycle)
         return snapshotEstablishedCurrentGraph
     }
-
     @discardableResult
     private func installSnapshotIfNewer(_ incoming: CloudVMState, requestVersion: UInt64? = nil) -> Bool {
         guard acceptsIncomingGeneration(incoming.cursor) else {
@@ -1773,7 +1772,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
 
     // MARK: Notifications
-
     private func installNotificationSync() {
         // The registry never creates a provider while the managed-device
         // policy disables Cloud, so no policy check is repeated here.
@@ -1785,8 +1783,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             resolveTarget: { [weak self] row in self?.notificationDeliveryTarget(for: row) },
             deliver: { [weak self] row, target in self?.deliverNotification(row, to: target) ?? false },
             send: { [weak self] batch in
-                // A vanished provider must not report success: the batch stays
-                // pending in the durable state for the replacement sync.
                 guard let self else { throw ProviderError.machineAsleep(machineID) }
                 let connected = try await self.links.connected(machineID: machineID)
                 guard let link = await self.links.link(machineID: machineID) else {
@@ -1810,7 +1806,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 for notification in store.notifications where notification.correlationKey.map(keys.contains) == true {
                     store.remove(id: notification.id)
                 }
-            }
+            },
+            handle: { [weak self] row, target in self?.handleCloudBrowserOpenRequest(row, target: target) ?? false }
         )
         notificationSync = sync
         CloudNotificationSyncHub.shared.register(sync)
@@ -1842,10 +1839,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private func notificationDeliveryTarget(for row: CloudVMNotificationRow) -> CloudNotificationDeliveryTarget? {
         if let terminalID = row.terminalID {
             let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)
-            if let projection = catalog.projections(of: resourceID).first {
+            let projections = catalog.projections(of: resourceID)
+            if projections.count == 1, let projection = projections.first {
                 return CloudNotificationDeliveryTarget(workspaceID: projection.workspaceID, panelID: projection.panelID)
             }
         }
+        if row.title == Self.cloudBrowserOpenNotificationTitle { return nil }
         let remoteWorkspaceID = row.terminalID.flatMap { terminalID -> String? in
             guard let state = cloudState else { return nil }
             for tab in state.tabs where tab.contentID == terminalID {
@@ -1867,6 +1866,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
 
     private func deliverNotification(_ row: CloudVMNotificationRow, to target: CloudNotificationDeliveryTarget) -> Bool {
+        guard row.title != Self.cloudBrowserOpenNotificationTitle else { return false }
         guard let store = AppDelegate.shared?.notificationStore else { return false }
         guard CloudNotificationSyncHub.shared.admit(row, machineID: machineID) else { return true }
         let terminalTitle = row.terminalID.flatMap { cloudState?.lookupIndex.terminal(id: $0)?.title } ?? ""

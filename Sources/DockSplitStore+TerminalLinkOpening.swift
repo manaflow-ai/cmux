@@ -32,38 +32,42 @@ extension DockSplitStore: TerminalLinkOpenContainer {
         false
     }
 
-    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
+    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool = true) -> Bool {
         guard let sourcePane = paneId(forPanelId: sourcePanelId) else { return false }
         if let targetPane = BrowserRightSidePaneResolver().preferredPane(
             from: sourcePane,
             in: bonsplitController
         ) {
-            noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
+            if focus { noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow) }
             guard let panelId = newSurface(
                 kind: .browser,
                 inPane: targetPane,
                 url: url,
-                focus: false
+                focus: focus
             ) else { return false }
-            focusPanelFromDockInteraction(
-                panelId,
-                window: NSApp.keyWindow ?? NSApp.mainWindow
-            )
+            if focus {
+                focusPanelFromDockInteraction(
+                    panelId,
+                    window: NSApp.keyWindow ?? NSApp.mainWindow
+                )
+            }
             return true
         }
-        noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
+        if focus { noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow) }
         guard let panelId = newSplit(
             kind: .browser,
             orientation: .horizontal,
             insertFirst: false,
             sourcePanelId: sourcePanelId,
             url: url,
-            focus: false
+            focus: focus
         ) else { return false }
-        focusPanelFromDockInteraction(
-            panelId,
-            window: NSApp.keyWindow ?? NSApp.mainWindow
-        )
+        if focus {
+            focusPanelFromDockInteraction(
+                panelId,
+                window: NSApp.keyWindow ?? NSApp.mainWindow
+            )
+        }
         return true
     }
 }

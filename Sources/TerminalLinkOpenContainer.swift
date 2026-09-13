@@ -19,7 +19,7 @@ protocol TerminalLinkOpenContainer: AnyObject {
     ) -> Bool
 
     @discardableResult
-    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool
+    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool) -> Bool
 }
 
 struct CloudTerminalLinkTarget: Sendable, Equatable {

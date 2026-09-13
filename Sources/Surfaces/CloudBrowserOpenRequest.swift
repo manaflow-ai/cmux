@@ -1,0 +1,39 @@
+import Foundation
+
+extension CmuxTuiSurfaceProvider {
+    /// Private notification title used to request a Mac browser pane from a VM.
+    static let cloudBrowserOpenNotificationTitle = "cmux.open-url"
+}
+
+extension CmuxTuiSurfaceProvider {
+    /// Consumes a guest URL request and opens it beside the source terminal.
+    @MainActor
+    func handleCloudBrowserOpenRequest(
+        _ row: CloudVMNotificationRow,
+        target: CloudNotificationDeliveryTarget
+    ) -> Bool {
+        guard row.title == Self.cloudBrowserOpenNotificationTitle else { return false }
+        guard let terminalID = row.terminalID,
+              let url = URL(string: row.body),
+              ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              let sourcePanelID = target.panelID else {
+            return false
+        }
+        let terminalResourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)
+        guard catalog.resources[terminalResourceID] != nil else {
+            return false
+        }
+
+        // Match terminal-link policy: the setting chooses an embedded cmux
+        // browser, while a disabled browser opens the user's system browser.
+        return TerminalLinkOpenCoordinator(
+            deferOperation: { operation in operation() }
+        ).open(TerminalLinkOpenRequest(
+            rawValue: url.absoluteString,
+            sourceWorkspaceId: target.workspaceID,
+            sourcePanelId: sourcePanelID,
+            workingDirectory: nil,
+            focus: false
+        ))
+    }
+}

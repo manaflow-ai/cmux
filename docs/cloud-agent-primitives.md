@@ -16,6 +16,7 @@ keep running when the laptop closes.
 | `vm push` / `vm pull` (chunked, hashed, excludes) | shipped |
 | `vm run --sync -- <cmd>` | shipped |
 | `vm exec`, `vm terminal send/read/wait` (drive anything headlessly) | shipped |
+| Cloud terminal URL opener (`cmux open`, `BROWSER`/`GH_BROWSER`, `xdg-open`/`x-www-browser`/`sensible-browser`) | shipped |
 | `vm dev` (detect/record/replay environment, named workspace) | designed (cloud-project-environments.md) |
 | `vm push --watch` (fs-event incremental sync) | next |
 | `vm repo clone <url>` (clone *in* the cloud — big repos never transit the Mac; gh auth via edge-injected credentials, never a token in the guest) | next |
@@ -57,6 +58,16 @@ cmux vm layout apply  <machine> <file|-> [--name <n>|--workspace <empty-ws>] [--
   The Mac CLI runs that implementation over the exec channel; inside a machine
   the same verb works locally and toward linked peers (`cmux vm layout … <peer>`).
   Presets are just files (a layout saved on the Mac applies with `--from-saved`).
+- **Human browser handoff.** Devbox shells set `BROWSER` and `GH_BROWSER`, and
+  the common Linux opener names point to the same `cmux open <url>` wrapper.
+  The command sends a private request through the daemon's durable notification
+  stream; the Mac consumes it as a browser pane in the caller's remote pane
+  only when that terminal has a native Mac mirror attached. Otherwise it prints
+  `Open this URL: <url>` and exits 0 so device-login CLIs keep polling.
+  Explicit Chrome, agent-browser, xdotool, and CUA launches continue to use
+  the VM desktop on `DISPLAY=:1`. Existing machines need the wrapper and env
+  hook installed once until a devbox snapshot containing this change is
+  promoted.
 - **Author without opening**: `apply` builds a new (or an empty) workspace
   headlessly; `command`s are typed into login shells so panes survive them and
   the scrollback shows what ran. `--open` is the only thing that touches the Mac.

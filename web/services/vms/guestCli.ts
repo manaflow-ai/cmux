@@ -33,6 +33,7 @@
 
 import { GUEST_CMUX_MESSAGE_SHELL } from "./guestCliMessages";
 import { GUEST_CMUX_TOPOLOGY_SHELL } from "./guestTopologyCli";
+import { GUEST_CMUX_OPEN_SHELL } from "./guestBrowserOpen";
 
 export const GUEST_CMUX_SHIM_PATH = "/usr/local/bin/cmux";
 
@@ -94,7 +95,7 @@ case "\${1:-}:\${2:-}:\${3:-}" in
 esac
 case "\${1:-}:\${2:-}" in
   workspace:help|workspace:--help|workspace:-h|workspace:|pane:help|pane:--help|pane:-h|pane:|tab:help|tab:--help|tab:-h|tab:|terminal:help|terminal:--help|terminal:-h) ;;
-  self:*|whoami:*|reflect:*|reflection:*|vm:ls|vm:list|vm:peers|vm:links|vm:help|vm:--help|vm:-h|vm:|:*|help:*|--help:*|-h:*|--version:*|-V:*) ;;
+  self:*|whoami:*|reflect:*|reflection:*|open:*|open-url:*|vm:ls|vm:list|vm:peers|vm:links|vm:help|vm:--help|vm:-h|vm:|:*|help:*|--help:*|-h:*|--version:*|-V:*) ;;
   *) [ -x "\$CMUX_TUI_BIN" ] || die_message 1 missingDaemon "\$CMUX_TUI_BIN" ;;
 esac
 
@@ -1544,6 +1545,7 @@ default_pane() {
 }
 
 ${GUEST_CMUX_TOPOLOGY_SHELL}
+${GUEST_CMUX_OPEN_SHELL}
 # ---------------------------------------------------------------------------
 # Layouts as data. \`layout export\` turns a daemon workspace into the same
 # declarative document the Mac accepts (\`cmux new-workspace --layout\`, cmux.json
@@ -2465,6 +2467,10 @@ workspace_verb() {
 }
 
 case "\${1:-}" in
+  open|open-url)
+    shift
+    guest_open_url "\$@"
+    ;;
   --version|-v|version)
     cmux_message version
     exec "\$CMUX_TUI_BIN" --version

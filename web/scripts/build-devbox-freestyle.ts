@@ -299,6 +299,12 @@ try {
     "jq -e '.DefaultSearchProviderSearchURL | test(\"duckduckgo\")' /etc/opt/chrome/policies/managed/cmux.json && echo 'export AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable' > /etc/profile.d/cmux-media.sh",
   );
 
+  await put("cmux-open-url", "/usr/local/bin/cmux-open-url", 0o755);
+  await step(
+    "cloud-browser-opener",
+    "sh -n /usr/local/bin/cmux-open-url && ln -sfn cmux-open-url /usr/local/bin/xdg-open && ln -sfn cmux-open-url /usr/local/bin/x-www-browser && ln -sfn cmux-open-url /usr/local/bin/sensible-browser",
+  );
+
   const cuaVersion = devboxCuaDriverVersion();
   await step(
     "cua-driver",
