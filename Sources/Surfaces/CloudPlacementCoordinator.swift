@@ -21,7 +21,7 @@ final class CloudPlacementCoordinator {
     // already removed locally. They are released as soon as that machine's lane drains.
     private var receipts: [SurfaceResourceID: [UUID: SurfaceRemotePlacement]] = [:]
     private var movedTabs: [SurfaceMachineID: [String: String]] = [:]
-    private var closedTabs: [SurfaceMachineID: Set<String>] = [:]
+    private var closedTabs: [SurfaceMachineID: [String: String]] = [:]
     private var confirmationCursors: [SurfaceMachineID: [String: CloudVMCursor]] = [:]
     private(set) var failures: [SurfaceResourceID: String] = [:]
 
@@ -107,6 +107,7 @@ final class CloudPlacementCoordinator {
         }
         guard let target = boundRemoteWorkspaceID(forLocalWorkspace: projection.workspaceID, on: projection.resource.machine),
               let provider = catalog.provider(for: projection.resource.machine) as? any SurfacePlacementSyncing else { return }
+        if lanes[projection.resource.machine] == nil, projection.remoteWorkspaceID == target { return }
         enqueue(projection, catalog: catalog) {
             guard let resource = catalog.resources[projection.resource] else { return false }
             let current = self.placement(of: projection, resource: resource, catalog: catalog)
@@ -167,9 +168,28 @@ final class CloudPlacementCoordinator {
             replacements[projection] = updated
         }
         catalog.reconcileRemotePlacements(replacements)
+        closedTabs[state.machine] = closedTabs[state.machine]?.filter { tabID, workspaceID in
+            guard let tab = state.lookupIndex.tab(id: tabID), let pane = state.lookupIndex.pane(id: tab.paneID),
+                  let screen = state.lookupIndex.screen(id: pane.screenID) else { return false }
+            return screen.workspaceID == workspaceID
+        }
         // Receipts for panes closed before confirmation need no retained local state.
         let liveTabIDs = Set(catalog.projections.filter { $0.resource.machine == state.machine }.compactMap(\.remoteTabID))
         confirmationCursors[state.machine] = confirmationCursors[state.machine]?.filter { liveTabIDs.contains($0.key) }
+    }
+
+    /// A graph preceding a confirmed local move cannot reshape its native view.
+    func allowsNativeReconciliation(_ state: CloudVMState) -> Bool {
+        guard lanes[state.machine] == nil else { return false }
+        return !(confirmationCursors[state.machine] ?? [:]).values.contains { receipt in
+            guard let cursor = state.cursor else { return true }
+            return cursor.generation == receipt.generation && cursor.revision < receipt.revision
+        }
+    }
+
+    func isPendingClose(_ placement: SurfaceResourcePlacement, on machine: SurfaceMachineID) -> Bool {
+        guard let tabID = placement.remoteTabID, let workspaceID = placement.remoteWorkspaceID else { return false }
+        return closedTabs[machine]?[tabID] == workspaceID
     }
 
     func projectionDidEnd(_ projection: SurfaceProjection, reason: SurfaceProjectionEndReason, catalog: SurfaceCatalog) {
@@ -180,7 +200,7 @@ final class CloudPlacementCoordinator {
             guard let resource = catalog.resources[projection.resource],
                   let current = self.placement(of: projection, resource: resource, catalog: catalog),
                   current.workspaceID == bound,
-                  self.closedTabs[resource.machine]?.contains(current.tabID) != true else { return false }
+                  self.closedTabs[resource.machine]?[current.tabID] != bound else { return false }
             let stillShown = catalog.projections.contains { other in
                 other.resource == resource.id
                     && (other.remoteTabID == nil
@@ -188,7 +208,7 @@ final class CloudPlacementCoordinator {
             }
             guard !stillShown else { return false }
             try await provider.closeRemoteTab(id: current.tabID, inRemoteWorkspace: bound)
-            self.closedTabs[resource.machine, default: []].insert(current.tabID)
+            self.closedTabs[resource.machine, default: [:]][current.tabID] = bound
             return true
         }
     }
@@ -206,6 +226,9 @@ final class CloudPlacementCoordinator {
         let task = enqueue(projection, catalog: catalog, presentFailure: false) {
             let current = catalog.projections.filter { $0.resource == resourceID }
             guard !current.isEmpty else { return false }
+            if let state = catalog.cloudStates[resourceID.machine] {
+                guard current.contains(where: { catalog.cloudWorkspaceProjectionCoordinator.retainsProjection($0, in: state) }) else { return false }
+            }
             let targets = Set(current.compactMap {
                 self.boundRemoteWorkspaceID(forLocalWorkspace: $0.workspaceID, on: resourceID.machine)
             })
@@ -274,9 +297,9 @@ final class CloudPlacementCoordinator {
                     self.lanes[machine] = nil
                     self.receipts = self.receipts.filter { $0.key.machine != machine }
                     self.movedTabs[machine] = nil
-                    self.closedTabs[machine] = nil
                     if let state = catalog.cloudStates[machine] {
                         self.reconcileRemoteState(state, catalog: catalog)
+                        catalog.cloudWorkspaceProjectionCoordinator.request(machine: machine, catalog: catalog)
                     }
                 }
             }

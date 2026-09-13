@@ -39,21 +39,23 @@ extension Workspace {
             ? (insertFirst ? .left : .right)
             : (insertFirst ? .up : .down)
         return routeCloudPaneTerminalCreate(
-            near: resource,
+            near: resource, sourcePanelID: panelID,
             destination: .split(workspaceID: id, paneID: paneID.id.uuidString, direction: direction),
             preferredRemoteWorkspaceID: SurfaceCatalog.shared.projection(forPanel: panelID)?.remoteWorkspaceID,
             focus: focus
         )
     }
 
-    /// Routes a bonsplit UI split whose source pane projects a cloud resource.
-    func routeCloudPaneUISplit(from sourcePanelID: UUID, into newPane: PaneID) -> Bool {
+    /// Routes a bonsplit UI split (the pane-divider split button) whose source pane
+    /// projects a cloud resource: the already-created empty pane receives the machine's
+    /// new terminal as its first tab. Returns false when the source is not cloud-anchored.
+    func routeCloudPaneUISplit(from sourcePanelID: UUID, into newPane: PaneID, orientation: SplitOrientation) -> Bool {
         guard let resource = cloudProjectedResource(forPanel: sourcePanelID) else { return false }
         return routeCloudPaneTerminalCreate(
-            near: resource,
+            near: resource, sourcePanelID: sourcePanelID,
             destination: .tab(workspaceID: id, paneID: newPane.id.uuidString, index: nil),
             preferredRemoteWorkspaceID: SurfaceCatalog.shared.projection(forPanel: sourcePanelID)?.remoteWorkspaceID,
-            focus: true
+            focus: true, splitDirection: orientation == .horizontal ? .right : .down
         )
     }
 
@@ -61,14 +63,10 @@ extension Workspace {
     /// resource to that machine. Returns false when the pane is not cloud-anchored.
     func routeCloudPaneTerminalTab(inPane paneID: PaneID, focus: Bool) -> Bool {
         guard let resource = cloudProjectedResource(inPane: paneID) else { return false }
-        let preferredRemoteWorkspaceID: String? = bonsplitController.selectedTab(inPane: paneID).flatMap { tab -> String? in
-            guard let panelID = panelIdFromSurfaceId(tab.id) else { return nil }
-            return SurfaceCatalog.shared.projection(forPanel: panelID)?.remoteWorkspaceID
-        }
         return routeCloudPaneTerminalCreate(
-            near: resource,
+            near: resource, sourcePanelID: bonsplitController.selectedTab(inPane: paneID).flatMap { panelIdFromSurfaceId($0.id) },
             destination: .tab(workspaceID: id, paneID: paneID.id.uuidString, index: nil),
-            preferredRemoteWorkspaceID: preferredRemoteWorkspaceID,
+            preferredRemoteWorkspaceID: bonsplitController.selectedTab(inPane: paneID).flatMap { panelIdFromSurfaceId($0.id) }.flatMap { SurfaceCatalog.shared.projection(forPanel: $0)?.remoteWorkspaceID },
             focus: focus
         )
     }
@@ -80,33 +78,33 @@ extension Workspace {
     /// nothing, because the user's gesture otherwise looks dead.
     private func routeCloudPaneTerminalCreate(
         near resource: SurfaceResource,
+        sourcePanelID: UUID?,
         destination: SurfaceDestination,
-        preferredRemoteWorkspaceID: String?,
-        focus: Bool
+        preferredRemoteWorkspaceID: String? = nil,
+        focus: Bool,
+        splitDirection: SurfaceSplitDirection? = nil
     ) -> Bool {
         let catalog = SurfaceCatalog.shared
         guard let provider = catalog.provider(for: resource.machine) else { return false }
-        let remoteWorkspaceID = catalog.cloudPlacementCoordinator.creationWorkspaceID(
-            in: id,
-            near: resource,
-            preferredRemoteWorkspaceID: preferredRemoteWorkspaceID
-        )
+        let remoteWorkspaceID = catalog.cloudPlacementCoordinator.creationWorkspaceID(in: id, near: resource, preferredRemoteWorkspaceID: preferredRemoteWorkspaceID)
         let machine = resource.machine
-        guard let remoteWorkspaceID else {
-            Task { @MainActor in
-                Self.presentCloudPaneCreationFailure(
-                    machine: machine,
-                    error: SurfaceCatalogError.ambiguousRemotePlacement(resource.id, workspaceID: "")
-                )
-            }
-            return true
-        }
+        let scope = catalog.beginProjectionMutation(for: [resource.id])
         Task { @MainActor in
+            defer { catalog.endProjectionMutation(scope) }
             do {
-                let workingDirectory = await provider.currentWorkingDirectory(of: resource)
-                let created = try await provider.createTerminal(
-                    command: nil, cwd: workingDirectory, name: nil, remoteWorkspaceID: remoteWorkspaceID
-                )
+                let created: SurfaceResource
+                let source = sourcePanelID.flatMap { catalog.projection(forPanel: $0) }
+                let direction: SurfaceSplitDirection?
+                if case .split(_, _, let requested) = destination { direction = requested }
+                else { direction = splitDirection }
+                if let sourceTabID = source?.remoteTabID, let layoutProvider = provider as? any SurfaceLayoutTerminalCreating {
+                    created = try await layoutProvider.createTerminal(nearTabID: sourceTabID, splitDirection: direction)
+                } else {
+                    let workingDirectory = await provider.currentWorkingDirectory(of: resource)
+                    created = try await provider.createTerminal(
+                        command: nil, cwd: workingDirectory, name: nil, remoteWorkspaceID: remoteWorkspaceID
+                    )
+                }
                 _ = try await catalog.project(
                     created.id,
                     into: destination,
@@ -371,13 +369,14 @@ final class CloudWorkspaceRenameService {
               catalog.provider(for: target.machine) != nil else { return }
         let expectedTitle = workspace.customTitle
         let manager = workspace.owningTabManager ?? environment.tabManager(workspace.id)
-        let rename = catalog.enqueueRemoteWorkspaceRename(on: target.machine, id: target.remoteWorkspaceID, name: name)
+        let write = catalog.enqueueRemoteWorkspaceRename(on: target.machine, id: target.remoteWorkspaceID, name: name)
         Task { @MainActor [weak workspace, weak manager] in
             do {
-                try await rename.value
+                try await write.value
             } catch {
                 guard let workspace,
-                      workspace.customTitle == expectedTitle,
+                      workspace.customTitle == expectedTitle, workspace.effectiveCustomTitleSource == .user,
+                      catalog.cloudRenameCoordinator.pendingName(for: .workspace(machine: target.machine, id: target.remoteWorkspaceID)) == nil,
                       let manager else { return }
                 _ = manager.setCustomTitle(
                     tabId: workspace.id,
@@ -429,13 +428,14 @@ final class CloudWorkspaceRenameService {
             return
         }
         guard catalog.provider(for: resource.machine) != nil else { return }
-        let rename = catalog.enqueueRemoteTabRename(on: resource.machine, id: tabID, name: name)
+        let write = catalog.enqueueRemoteTabRename(on: resource.machine, id: tabID, name: name)
         Task { @MainActor [weak workspace] in
             do {
-                try await rename.value
+                try await write.value
             } catch {
                 guard let workspace,
-                      workspace.panelCustomTitles[panelID] == expectedTitle else { return }
+                      workspace.panelCustomTitles[panelID] == expectedTitle, workspace.panelCustomTitleSources[panelID] == .user,
+                      catalog.cloudRenameCoordinator.pendingName(for: .tab(machine: resource.machine, id: tabID)) == nil else { return }
                 _ = workspace.setPanelCustomTitle(
                     panelId: panelID,
                     title: previousCustomTitle,

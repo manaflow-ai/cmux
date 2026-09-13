@@ -427,7 +427,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 #endif
                 return false
             }
+            guard requestVersion == nil || requestVersion == cloudStateInstallVersion || incoming == current else {
+                return false
+            }
             cloudState = incoming
+            cloudStateInstallVersion &+= 1
             retirePendingRemoteRenames(observed: incoming)
             return true
         }
@@ -548,10 +552,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         reconcileTitles: Bool = true,
         observation: CloudVMStateObservation = .current
     ) {
-        guard canPublishCloudState(state) else { return }
+        guard cloudState == state, canPublishCloudState(state) else { return }
         var pool: [SurfaceResource] = []
         // The control plane's resolved kind is authoritative. Freestyle snapshot
-        // ids are opaque and cannot tell us whether the machine has a desktop.
         if summary.resolvedKind.hasDesktop {
             pool.append(desktopDisplayResource())
         }
@@ -578,31 +581,22 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         closePanesForVanishedRemoteTerminals(observation: observation)
     }
 
-    /// Applies a contiguous event to the catalog's canonical graph. Row-local changes rebuild
-    /// only their affected terminal, browser, or display rows. A topology change crosses a
-    /// relationship boundary and uses the authoritative complete publication path.
     func publishDelta(
         _ state: CloudVMState,
         impact: CloudVMStateDeltaImpact,
         ports: [Int],
         reconcileTitles: Bool
     ) {
-        guard canPublishCloudState(state) else { return }
+        guard cloudState == state, canPublishCloudState(state) else { return }
         if impact.requiresFullResourceRebuild {
             publish(state, ports: ports, reconcileTitles: reconcileTitles)
             return
         }
 
         var affected = impact.resourceIDs
-        // A full publish can erase an optimistic create while its receipt is
-        // still ahead of the accepted graph. Include those identities in a
-        // delta patch as well, so every publication path applies the same
-        // read-your-write overlay atomically.
         affected.formUnion(pendingRemoteCreations.keys)
         var resources = CmuxTuiSnapshotParser.resources(from: state, matching: affected)
         resources = resourcesWithPendingCreations(resources, state: state)
-        // A desktop is a machine capability even when no workspace currently points at it.
-        // Include that pool row only when the delta actually touched a display identity.
         if summary.resolvedKind.hasDesktop,
            affected.contains(SurfaceResourceID(machine: machine, kind: .display, key: "display:1")) {
             resources = CmuxTuiSnapshotParser.mergingDisplays(
@@ -621,10 +615,15 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             observation: acceptedObservation
         )
         if reconcileTitles {
-            catalog.reconcileCloudRemoteState(machine: machine, state: state, observation: acceptedObservation)
+            catalog.cloudWorkspaceRenameService.reconcileRemoteState(
+                machine: machine,
+                state: state,
+                catalog: catalog,
+                observation: acceptedObservation,
+                affectedResources: affected,
+                workspaceNamesChanged: false
+            )
         }
-        // A newly restored terminal may need its attach pane materialized. Existing rows do not
-        // need a full projection scan for every title event.
         if changed.contains(where: { $0.kind == .terminal && !previousIDs.contains($0) }) {
             reprojectRestoredPanes(generation: lifecycleGeneration)
         }
@@ -901,6 +900,25 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         )
     }
 
+    /// Runs one close-family command, reconnecting and retrying ONCE when the attempt
+    /// died with the link ("cmux-tui link exited with status …": a dropped tunnel kills
+    /// the whole client run). Safe here because every close verb is idempotent — a
+    /// second attempt against an already-closed target is `selector.not_found`, which
+    /// the callers already tolerate. Non-idempotent verbs (create, run) must not use it.
+    private func runCloseCommand(_ arguments: (_ socketPath: String) -> [String]) async throws -> Data {
+        let connected = try await links.connected(machineID: machineID)
+        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
+        do {
+            return try await link.run(arguments: arguments(connected.socketPath))
+        } catch {
+            // selector.not_found is a real answer, not a transport failure.
+            if Self.isSelectorNotFound(error) { throw error }
+            let reconnected = try await links.connected(machineID: machineID)
+            guard let fresh = await links.link(machineID: machineID) else { throw error }
+            return try await fresh.run(arguments: arguments(reconnected.socketPath))
+        }
+    }
+
     // MARK: Headless terminal I/O (agent primitives; no pane involved)
 
     /// Type `text` into the remote terminal exactly as given (no newline appended).
@@ -984,6 +1002,19 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
     }
 
+    /// `workspace <id> close`: its tabs go with it, its terminals detach into the pool
+    /// (`spec/cli.md`: only `terminal close` kills) — the protocol contract, and what
+    /// the sidebar's "Close Workspace (Keep Terminals)" promises. Callers wanting the
+    /// full delete (`vm.workspace_delete`, the sidebar's "Delete Workspace and
+    /// Terminals…") go through `CloudTreeNodeActions.deleteWorkspaceAndTerminals`,
+    /// which closes each terminal first.
+    func closeRemoteWorkspace(id: String) async throws {
+        _ = try await runCloseCommand { CloudTuiCommandLine.closeWorkspaceArguments(socketPath: $0, workspaceID: id) }
+        info.remoteWorkspaces = info.remoteWorkspaces?.filter { $0.id != id }
+        catalog.updateMachine(info, from: self)
+        scheduleRefresh()
+    }
+
     /// cmux-tui's `selector.not_found` error body, surfaced by `link.run` as the
     /// command's output text.
     static func isSelectorNotFound(_ error: Error) -> Bool {
@@ -1015,6 +1046,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         case .terminal:
             let manual = try await materializeManualMirrorTerminal(
                 resource,
+                remoteTabID: (remoteView ?? Self.defaultRemoteView(for: resource))?.tabID,
                 at: destination,
                 focus: focus
             )
@@ -1058,12 +1090,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             cwd: cwd,
             command: (command?.isEmpty == false ? command : nil) ?? CloudTuiCommandLine.defaultTerminalCommand
         )
-        let data: Data
-        do { data = try await link.run(arguments: CloudTuiCommandLine.runArguments(socketPath: connected.socketPath, workspaceID: workspaceID, command: argv, onExit: onExit)) }
-        catch {
-            guard Self.isSelectorNotFound(error) else { throw error }
-            throw requestedWorkspace.map { ProviderError.remoteWorkspaceNotFound($0) } ?? ProviderError.noWorkspaceOnMachine(machineID)
-        }
+        let data = try await link.run(arguments: CloudTuiCommandLine.runArguments(socketPath: connected.socketPath, workspaceID: workspaceID, command: argv, onExit: onExit))
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let created = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) else {
             throw ProviderError.terminalNotCreated(String(data: data, encoding: .utf8) ?? "")
@@ -1074,7 +1101,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         return recordCreatedTerminal(created, workspaceID: resolvedWorkspaceID, name: name, cwd: cwd)
     }
 
-    private func recordCreatedTerminal(
+    func recordCreatedTerminal(
         _ created: CmuxTuiSnapshotParser.CreatedTerminalPath,
         workspaceID: String,
         name: String?,
@@ -2026,15 +2053,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     /// Mutations also request a snapshot as a safety check. One main-actor yield
     /// coalesces calls made in the same transaction without adding a time guess.
-    func removeRemoteWorkspaceFromInfo(_ id: String) {
-        info.remoteWorkspaces = info.remoteWorkspaces?.filter { $0.id != id }
-    }
-
-    func reconcileRemovedRemoteWorkspace(_ id: String) {
-        removeRemoteWorkspaceFromInfo(id)
-        catalog.updateMachine(info, from: self)
-    }
-
     func scheduleRefresh() {
         let lifecycle = lifecycleGeneration
         guard scheduledRefresh == nil else { return }
@@ -2057,7 +2075,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let terminals = catalog.snapshot.resources(on: machine).filter { $0.kind == .terminal }
         for terminal in terminals {
             for projection in catalog.projections(of: terminal.id) where !materializedPanels.contains(projection.panelID) {
-                guard AppDelegate.shared?.workspace(containingSurfaceID: projection.panelID) != nil,
+                guard cloudState.map({ catalog.cloudWorkspaceProjectionCoordinator.retainsProjection(projection, in: $0) }) != false,
+                      AppDelegate.shared?.workspace(containingSurfaceID: projection.panelID) != nil,
                       let paneID = SurfacePaneFactory.paneID(ofPanel: projection.panelID, in: projection.workspaceID) else {
                     continue
                 }

@@ -7,24 +7,16 @@ extension CloudWorkspaceRenameService {
         case rebind(machine: SurfaceMachineID, remoteWorkspaceID: String)
     }
 
-    /// Decides whether one persisted binding is still valid against a complete,
-    /// current daemon graph. Missing or partial transport state never clears a
-    /// binding: only a cursor-bearing graph with an explicit workspace collection
-    /// can prove that the remote workspace was deleted. If live projections agree
-    /// on one surviving workspace, the local owner follows that exact identity;
-    /// mixed projections remain unbound rather than moving a terminal implicitly.
-    func bindingReconciliation(
-        binding: WorkspaceCloudVMBinding?,
+    private func bindingReconciliation(
+        binding: WorkspaceCloudVMBinding,
         machine: SurfaceMachineID,
         state: CloudVMState,
         observation: CloudVMStateObservation,
         projections: [SurfaceProjection],
         resources: [SurfaceResource],
-        resourcesByID: [SurfaceResourceID: SurfaceResource]? = nil
+        resourcesByID: [SurfaceResourceID: SurfaceResource]
     ) -> BindingReconciliation {
-        guard let binding,
-              binding.vmID == machine.cloudMachineID,
-              let remoteID = binding.remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard let remoteID = binding.remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines),
               !remoteID.isEmpty else { return .keep }
         guard observation.freshness == .current,
               state.cursor != nil,
@@ -34,137 +26,86 @@ extension CloudWorkspaceRenameService {
             projections: projections,
             resources: resources,
             resourcesByID: resourcesByID
-        ),
-              target.machine == machine,
-              state.workspaceIDs.contains(target.remoteWorkspaceID) else { return .clear }
+        ), target.machine == machine,
+        state.workspaceIDs.contains(target.remoteWorkspaceID) else { return .clear }
         return .rebind(machine: target.machine, remoteWorkspaceID: target.remoteWorkspaceID)
     }
 
-    /// Applies daemon-owned names to every local projection that carries an
-    /// exact remote identity. A remote observation uses `.remote` and disables
-    /// both local transport propagations.
-    ///
-    /// While a local intent is in flight, a different remote value stays visible
-    /// until the command succeeds or rolls back. This avoids a polling race
-    /// without creating a second durable source of truth.
+    /// Reconciles only the identities touched by an accepted event. Full snapshots
+    /// also repair workspace names; process-title events never rewrite other rows.
     @MainActor
     func reconcileRemoteState(
         machine: SurfaceMachineID,
         state: CloudVMState,
         catalog: SurfaceCatalog,
-        observation: CloudVMStateObservation
+        observation: CloudVMStateObservation,
+        affectedResources: Set<SurfaceResourceID>? = nil,
+        workspaceNamesChanged: Bool = true
     ) {
-        guard case .cloud = machine else { return }
+        guard case .cloud = machine, catalog.cloudStates[machine] == state else { return }
         let snapshot = catalog.snapshot
-        // Synchronizable snapshots reject duplicate identity rows at the parser
-        // boundary. Keep these defensive maps total for legacy callers that may
-        // construct a value directly; missing relationships still fail closed
-        // below instead of selecting a placement by array order.
-        let workspacesByID = state.workspaces.reduce(into: [String: CloudVMWorkspaceState]()) {
-            $0[$1.id] = $1
-        }
-        let tabsByID = state.tabs.reduce(into: [String: CloudVMTabState]()) {
-            $0[$1.id] = $1
-        }
-        let resourcesByID = snapshot.resources(on: machine).reduce(into: [SurfaceResourceID: SurfaceResource]()) {
-            $0[$1.id] = $1
-        }
+        let resources = snapshot.resources(on: machine)
+        let resourcesByID = Dictionary(resources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let projectionsByWorkspace = Dictionary(
             grouping: snapshot.projections.filter { $0.resource.machine == machine },
             by: \.workspaceID
         )
-        let localWorkspaces = environment.workspaces()
-        let localWorkspacesByID = Dictionary(
-            localWorkspaces.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        for workspace in localWorkspaces {
-            guard let binding = workspace.cloudVMBinding,
-                  binding.vmID == machine.cloudMachineID,
-                  var remoteID = binding.remoteWorkspaceID,
-                  !remoteID.isEmpty else { continue }
-            let projections = projectionsByWorkspace[workspace.id] ?? []
-            switch bindingReconciliation(
-                binding: binding,
-                machine: machine,
-                state: state,
-                observation: observation,
-                projections: projections,
-                resources: snapshot.resources,
-                resourcesByID: resourcesByID
-            ) {
-            case .keep:
-                break
-            case .clear:
-                workspace.cloudVMBinding = nil
-                continue
-            case .rebind(let targetMachine, let targetWorkspaceID):
-                workspace.cloudVMBinding = WorkspaceCloudVMBinding(
-                    vmID: targetMachine.cloudMachineID ?? binding.vmID,
-                    isBase: binding.isBase,
-                    remoteWorkspaceID: targetWorkspaceID
-                )
-                remoteID = targetWorkspaceID
+        if workspaceNamesChanged {
+            for workspace in environment.workspaces() {
+                guard let binding = workspace.cloudVMBinding, binding.vmID == machine.cloudMachineID,
+                      let id = binding.remoteWorkspaceID else { continue }
+                switch bindingReconciliation(
+                    binding: binding,
+                    machine: machine,
+                    state: state,
+                    observation: observation,
+                    projections: projectionsByWorkspace[workspace.id] ?? [],
+                    resources: resources,
+                    resourcesByID: resourcesByID
+                ) {
+                case .keep:
+                    break
+                case .clear:
+                    workspace.cloudVMBinding = nil
+                    continue
+                case .rebind(let targetMachine, let targetWorkspaceID):
+                    workspace.cloudVMBinding = WorkspaceCloudVMBinding(
+                        vmID: targetMachine.cloudMachineID ?? binding.vmID,
+                        isBase: binding.isBase,
+                        remoteWorkspaceID: targetWorkspaceID
+                    )
+                }
+                guard let currentBinding = workspace.cloudVMBinding,
+                      let id = currentBinding.remoteWorkspaceID,
+                      let remote = state.lookupIndex.workspace(id: id) else { continue }
+                let key = CloudRenameCoordinator.Key.workspace(machine: machine, id: id)
+                if let pending = catalog.cloudRenameCoordinator.pendingName(for: key), pending != remote.name { continue }
+                if workspace.effectiveCustomTitleSource == .user { continue }
+                // Pending user edits are protected above. Confirmed names belong
+                // to the daemon; a generated prefix must not become a local alias.
+                guard workspace.customTitle != remote.name || workspace.effectiveCustomTitleSource != .remote else { continue }
+                let manager = workspace.owningTabManager ?? environment.tabManager(workspace.id)
+                _ = manager?.setCustomTitle(tabId: workspace.id, title: remote.name, source: .remote,
+                                           propagateToRemoteTmux: false, propagateToCloud: false)
             }
-            guard let remote = workspacesByID[remoteID] else { continue }
-
-            let intentKey = CloudRenameCoordinator.Key.workspace(machine: machine, id: remoteID)
-            if let pending = catalog.cloudRenameCoordinator.pendingName(for: intentKey), pending != remote.name {
-                continue
-            }
-            let displayName = workspaceDisplayName(
-                machine: machine,
-                remoteName: remote.name,
-                currentTitleSource: workspace.effectiveCustomTitleSource,
-                currentCustomTitle: workspace.customTitle
-            )
-            let manager = workspace.owningTabManager ?? environment.tabManager(workspace.id)
-            _ = manager?.setCustomTitle(
-                tabId: workspace.id,
-                title: displayName,
-                source: .remote,
-                propagateToRemoteTmux: false,
-                propagateToCloud: false
-            )
         }
-
-        for projection in snapshot.projections where projection.resource.machine == machine {
-            guard let workspace = localWorkspacesByID[projection.workspaceID],
-                  workspace.panels[projection.panelID] != nil,
-                  let resource = resourcesByID[projection.resource],
-                  resource.kind == .terminal
-            else { continue }
-
-            let tabID = remoteTabID(for: projection, resource: resource)
-            guard let tabID, let tab = tabsByID[tabID] else { continue }
-            let intentKey = CloudRenameCoordinator.Key.tab(machine: machine, id: tabID)
-            if let pending = catalog.cloudRenameCoordinator.pendingName(for: intentKey), pending != (tab.name ?? "") {
-                continue
+        for projection in catalog.projections where projection.resource.machine == machine {
+            if let affectedResources, !affectedResources.contains(projection.resource) { continue }
+            guard let resource = catalog.resources[projection.resource], resource.kind == .terminal,
+                  let workspace = environment.workspace(projection.workspaceID),
+                  workspace.panels[projection.panelID] != nil else { continue }
+            if workspace.panelTitles[projection.panelID] != resource.cloudProcessDisplayTitle {
+                _ = workspace.updatePanelTitle(panelId: projection.panelID, title: resource.cloudProcessDisplayTitle)
             }
-            _ = workspace.setPanelCustomTitle(
-                panelId: projection.panelID,
-                title: tab.name,
-                source: .remote,
-                propagateToRemoteTmux: false,
-                propagateToCloud: false
-            )
+            guard let tabID = remoteTabID(for: projection, resource: resource),
+                  let tab = state.lookupIndex.tab(id: tabID) else { continue }
+            let key = CloudRenameCoordinator.Key.tab(machine: machine, id: tabID)
+            if let pending = catalog.cloudRenameCoordinator.pendingName(for: key), pending != (tab.name ?? "") { continue }
+            if workspace.panelCustomTitleSources[projection.panelID] == .user { continue }
+            guard workspace.panelCustomTitles[projection.panelID] != tab.name
+                    || (tab.name != nil && workspace.panelCustomTitleSources[projection.panelID] != .remote) else { continue }
+            _ = workspace.setPanelCustomTitle(panelId: projection.panelID, title: tab.name, source: .remote,
+                                               propagateToRemoteTmux: false, propagateToCloud: false)
         }
     }
-
-    private func workspaceDisplayName(
-        machine: SurfaceMachineID,
-        remoteName: String,
-        currentTitleSource: Workspace.CustomTitleSource?,
-        currentCustomTitle: String?
-    ) -> String {
-        // Preserve the machine prefix only for a title this feature created.
-        // A user-entered title remains exact after the daemon echoes it.
-        let prefix = "\(machine.rawValue): "
-        if currentTitleSource == .remote,
-           currentCustomTitle?.hasPrefix(prefix) == true {
-            return prefix + remoteName
-        }
-        return remoteName
-    }
-
 }

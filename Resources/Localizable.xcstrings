@@ -128514,6 +128514,65 @@
         }
       }
     },
+    "cloudTree.error.terminalRestoreFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The clicked Cloud terminal could not be restored in its workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリックした Cloud ターミナルをそのワークスペースに復元できませんでした。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法在其工作区中恢复所点击的 Cloud 终端。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das angeklickte Cloud-Terminal konnte in seinem Arbeitsbereich nicht wiederhergestellt werden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le terminal Cloud sélectionné n’a pas pu être restauré dans son espace de travail."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر استعادة طرفية Cloud التي نقرت عليها في مساحة عملها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo restaurar el terminal de Cloud seleccionado en su espacio de trabajo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法在所點選 Cloud 終端機的工作區中將其還原。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클릭한 Cloud 터미널을 해당 작업 공간에서 복원할 수 없습니다."
+          }
+        }
+      }
+    },
     "cloudTree.error.snapshotOnly": {
       "extractionState": "manual",
       "localizations": {
