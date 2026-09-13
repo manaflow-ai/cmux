@@ -264,7 +264,7 @@ struct CloudTreeTerminalRow: Equatable {
         if let name = remoteView?.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
             return name
         }
-        return resource.title
+        return resource.machine.isLocal ? resource.title : (remoteView == nil ? resource.cloudPoolDisplayTitle : resource.cloudProcessDisplayTitle)
     }
 
     /// True when no daemon tab currently contains this terminal.
@@ -881,10 +881,8 @@ enum CloudTreeNodeBuilder {
         return children
     }
 
-    /// The Workspaces group is a placement projection of the daemon graph. A
-    /// resource can appear once for every exact tab view, while an empty workspace
-    /// still gets a row from machine info. This is the sole tree construction path
-    /// for workspace rows, so ordering and rename identity cannot diverge.
+    /// Builds every nonempty Cloud workspace from its actual layout members.
+    /// Empty daemon records remain available to lookup and persistence.
     private static func workspacesGroupNode(
         machine: SurfaceMachineID,
         info: SurfaceMachineInfo,
@@ -912,7 +910,7 @@ enum CloudTreeNodeBuilder {
             rows.displays.append(RemoteResourcePlacement(resource: member.resource, workspace: rows.workspace, view: nil))
             byWorkspace[member.workspaceID] = rows
         }
-        let workspaces = byWorkspace.values.sorted { lhs, rhs in
+        let workspaces = byWorkspace.values.filter { !$0.terminals.isEmpty || !$0.browsers.isEmpty || !$0.displays.isEmpty }.sorted { lhs, rhs in
             lhs.workspace.index != rhs.workspace.index ? lhs.workspace.index < rhs.workspace.index : lhs.workspace.id < rhs.workspace.id
         }
         let workspaceNodes = workspaces.map { rows in
@@ -961,7 +959,7 @@ enum CloudTreeNodeBuilder {
                 dragGroup: SurfaceResourceGroup(
                     title: workspace.name,
                     placements: orderedRealPlacements,
-                    remoteWorkspaceID: workspace.id
+                    remoteWorkspaceID: workspace.id, representsWorkspace: true
                 )
             )
         }

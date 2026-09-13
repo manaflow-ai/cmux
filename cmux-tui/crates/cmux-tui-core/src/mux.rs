@@ -8799,27 +8799,59 @@ impl Mux {
         Some(removed)
     }
 
-    /// Resolve a process-stable terminal UUID and one live view placement.
-    /// A catalog-owned terminal with zero views resolves successfully with a
-    /// null surface. This is lookup-only and never creates a replacement shell.
+    /// Resolve a terminal identity to its durable record and one live view
+    /// placement. A catalog-owned terminal with zero views resolves
+    /// successfully with a null surface. This is lookup-only and never creates
+    /// a replacement shell.
+    ///
+    /// Either identity a client can hold is accepted: the process-stable
+    /// terminal host UUID, or the public `term_…` resource id every resource
+    /// command reports (with or without its prefix). A public id maps through
+    /// the registry, including after close, so a tombstone still answers.
+    /// Clients such as the Mac app only ever hold public ids; validating them
+    /// as host ids answered `invalid_terminal_id` and left a detached
+    /// terminal unresolvable by construction (#12362).
     pub fn resolve_terminal(
         &self,
         terminal_id: &str,
     ) -> anyhow::Result<Option<TerminalResolution>> {
-        validate_terminal_hex(terminal_id, "invalid_terminal_id")?;
         let (terminal, terminal_revision) = {
             let registry = self.workspace_registry.lock().unwrap();
-            let snapshot = registry.terminal_snapshot()?;
-            (registry.terminal_record(terminal_id)?, snapshot.revision)
+            let Some(host_id) = Self::resolve_terminal_host_id(&registry, terminal_id)? else {
+                return Ok(None);
+            };
+            (registry.terminal_record(&host_id)?, registry.terminal_revision()?)
         };
         let Some(terminal) = terminal else {
             return Ok(None);
         };
         let state = self.state.lock().unwrap();
         let surface = self
-            .catalog_terminal_by_host(&state, terminal_id)?
+            .catalog_terminal_by_host(&state, &terminal.terminal_id)?
             .and_then(|runtime| terminal_placement_for_runtime(&state, &runtime));
         Ok(Some(TerminalResolution { surface, terminal, terminal_revision }))
+    }
+
+    /// The host id behind a resolver input, or `None` when no registered
+    /// terminal carries that identity. A UUIDv4-shaped value is tried as a host
+    /// id first; about one public id in 64 has that shape by chance, so on a
+    /// miss it is retried as a public id before being reported unknown.
+    fn resolve_terminal_host_id(
+        registry: &WorkspaceRegistry,
+        terminal_id: &str,
+    ) -> anyhow::Result<Option<String>> {
+        let payload = terminal_id.strip_prefix("term_").unwrap_or(terminal_id);
+        let is_hex = payload.len() == crate::terminal_host::TERMINAL_ID_LEN * 2
+            && payload.bytes().all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'));
+        anyhow::ensure!(is_hex, "invalid_terminal_id");
+        if !terminal_id.starts_with("term_")
+            && TerminalId::from_hex(payload).is_some()
+            && registry.terminal_record(payload)?.is_some()
+        {
+            return Ok(Some(payload.to_string()));
+        }
+        let public_id = TerminalPublicId::parse(format!("term_{payload}"))?;
+        registry.terminal_host_id(&public_id)
     }
 
     /// Atomically resolve, incarnation-check, and remove a hosted terminal by
@@ -22455,6 +22487,41 @@ mod tests {
     }
 
     #[cfg(unix)]
+    /// The Mac holds only public `term_…` ids. A running terminal whose views
+    /// were all closed stays attachable only if `resolve-terminal` answers for
+    /// that id: the compatibility tree lists tabs, not terminals, so a
+    /// detached terminal was unresolvable by construction (#12362).
+    #[test]
+    fn resolve_terminal_accepts_the_public_id_of_a_detached_terminal() {
+        let mux = test_mux();
+        let source = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let public_id = source
+            .terminal_public_id()
+            .cloned()
+            .expect("hosted terminal has a public content identity");
+        let host = mux
+            .resource_terminal_host_identity(&source)
+            .expect("hosted terminal has a durable process identity");
+        let workspace =
+            mux.surface_workspace(source.id).expect("the new workspace hosts the terminal");
+        mux.create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000012362".into()), None)
+            .unwrap();
+        assert!(mux.close_workspace_at_revision(workspace, None).unwrap().is_some());
+        assert_eq!(mux.resolve_terminal(&host.terminal_id).unwrap().unwrap().surface, None);
+        assert!(
+            mux.surface(source.id).is_some(),
+            "closing a workspace detaches its terminals; it never kills them"
+        );
+
+        let resolved = mux
+            .resolve_terminal(public_id.as_str())
+            .expect("a public terminal id is a valid resolver input")
+            .expect("the detached terminal is still registered");
+        assert_eq!(resolved.terminal.terminal_id, host.terminal_id);
+        assert_eq!(resolved.terminal.lifecycle, TerminalLifecycle::Running);
+        assert_eq!(resolved.surface, None);
+    }
+
     #[test]
     fn hosted_terminal_exit_atomically_detaches_every_projected_view() {
         let mux = test_mux();

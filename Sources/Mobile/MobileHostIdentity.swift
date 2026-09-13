@@ -9,7 +9,13 @@ enum MobileHostIdentity {
     private static let maximumDisplayNameUTF16Length = 128
     private static let maximumDisplayedBuildTagUTF16Length = 64
 
-    static func deviceID() -> String {
+    /// Process-stable host identity used by synchronous transport and terminal paths.
+    ///
+    /// Swift initializes this constant once, so the filesystem-backed migration
+    /// runs at most once per app process. After initialization, ``deviceID()``
+    /// returns the immutable snapshot without locking or disk access. The
+    /// overload below remains the testable resolver for persistence migration.
+    private static let cachedDeviceID: String = {
         let stableDefaults = Bundle.main.bundleIdentifier == stableBundleIdentifier
             ? nil
             : UserDefaults(suiteName: stableBundleIdentifier)
@@ -19,6 +25,11 @@ enum MobileHostIdentity {
             stableDefaults: stableDefaults,
             bundleIdentifier: Bundle.main.bundleIdentifier
         )
+    }()
+
+    /// Returns the process-stable host identity without repeating filesystem work.
+    static func deviceID() -> String {
+        cachedDeviceID
     }
 
     static func deviceID(

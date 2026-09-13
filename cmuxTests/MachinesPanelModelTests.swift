@@ -439,9 +439,9 @@ final class MachinesPanelModelTests: XCTestCase {
             includeLocalMachine: true
         )
         let ids = CloudTreeNodeBuilder.flattened(nodes).map(\.id)
-        // One machine, many workspaces: the Workspaces group leads (every workspace the
-        // machine reports, pointer rows under each), then Ports, VNC Displays (one row
-        // per screen), and last, its own section, Terminals (every terminal the machine owns).
+        // One machine, many workspaces: the Workspaces group leads (nonempty workspace
+        // pointers), then Ports, VNC Displays (one row per screen), and last, its own
+        // section, Terminals (every terminal the machine owns).
         XCTAssertEqual(ids, [
             "machine:local",
             "machine:local/ws/\(local.uuidString)",
@@ -450,12 +450,9 @@ final class MachinesPanelModelTests: XCTestCase {
             "machine:vivid-newt/workspaces",
             "machine:vivid-newt/ws/ws_main",
             "machine:vivid-newt/ws/ws_main/resource:vivid-newt/terminal/term_1/tab:tab_1",
-            "machine:vivid-newt/ws/ws_main/resource:vivid-newt/display/display:1",
             "machine:vivid-newt/ws/ws_side",
             "machine:vivid-newt/ws/ws_side/resource:vivid-newt/terminal/term_1/tab:tab_9",
             "machine:vivid-newt/ws/ws_side/resource:vivid-newt/display/display:1/tab:tab_desk",
-            "machine:vivid-newt/ws/ws_empty",
-            "machine:vivid-newt/ws/ws_empty/resource:vivid-newt/display/display:1",
             "machine:vivid-newt/ports",
             "resource:vivid-newt/browser/port:3000",
             "machine:vivid-newt/displays",
@@ -503,20 +500,15 @@ final class MachinesPanelModelTests: XCTestCase {
         if case .workspace(_, _, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_side"]!.kind {
             XCTAssertEqual(openIn, remoteSideLocalWorkspace, "term_1's second remote view uses its own local workspace")
         } else { XCTFail("expected ws_side row") }
-        if case .workspace(_, _, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_empty"]!.kind {
-            XCTAssertNil(openIn, "nothing of it is open anywhere")
-        } else { XCTFail("expected ws_empty row") }
+        XCTAssertNil(openByID["machine:vivid-newt/ws/ws_empty"], "empty workspaces are omitted from the Cloud sidebar")
         // Desktop rows: a workspace's own display pointer opens inside the local
         // workspace showing that remote workspace; the pool row keeps the global jump.
-        if case .display(_, let openIn, _) = openByID["machine:vivid-newt/ws/ws_main/resource:vivid-newt/display/display:1"]!.kind {
-            XCTAssertEqual(openIn, local, "ws_main shows locally, so its Desktop opens there")
-        } else { XCTFail("expected ws_main display row") }
+        if case .display(_, let openIn, _) = openByID["machine:vivid-newt/ws/ws_side/resource:vivid-newt/display/display:1/tab:tab_desk"]!.kind {
+            XCTAssertEqual(openIn, remoteSideLocalWorkspace, "the actual desktop placement opens in ws_side")
+        } else { XCTFail("expected ws_side display row") }
         if case .display(_, let openIn, _) = openByID["resource:vivid-newt/display/display:1"]!.kind {
             XCTAssertNil(openIn, "the pool Desktop keeps the global open-or-focus")
         } else { XCTFail("expected pool display row") }
-        if case .display(_, let openIn, _) = openByID["machine:vivid-newt/ws/ws_empty/resource:vivid-newt/display/display:1"]!.kind {
-            XCTAssertNil(openIn, "ws_empty shows nowhere locally")
-        } else { XCTFail("expected ws_empty display row") }
         XCTAssertNil(CloudTreeNodeBuilder.localWorkspaceShowing(
             remoteWorkspaceID: wsEmpty.id,
             placements: [],
@@ -527,8 +519,7 @@ final class MachinesPanelModelTests: XCTestCase {
             CloudTreeNodeBuilder.flattened(nodes).first { $0.id == "machine:vivid-newt/ws/ws_side" }?.dragGroup?.resources,
             [remoteA.id, display.id]
         )
-        // An implicit display row (no view pins it) shows under the workspace but
-        // stays out of the workspace's open/drag group.
+        // The workspace's open/drag group carries only actual remote placements.
         XCTAssertEqual(
             CloudTreeNodeBuilder.flattened(nodes).first { $0.id == "machine:vivid-newt/ws/ws_main" }?.dragGroup?.resources,
             [remoteA.id]
@@ -555,11 +546,7 @@ final class MachinesPanelModelTests: XCTestCase {
             XCTAssertEqual(row.resource.agent?.source, "claude")
             XCTAssertEqual(row.remoteView?.tabID, "tab_9")
         } else { XCTFail("expected pointer row") }
-        // The empty workspace still gets a row (from the machine info), with no pointers.
-        if case .workspace(_, let workspace, let count, _, _) = byID["machine:vivid-newt/ws/ws_empty"]!.kind {
-            XCTAssertEqual(workspace.name, "scratch")
-            XCTAssertEqual(count, 0)
-        } else { XCTFail("expected empty workspace row") }
+        XCTAssertNil(byID["machine:vivid-newt/ws/ws_empty"], "zero-terminal workspaces are not sidebar rows")
         if case .terminalsPool(_, let count) = byID["machine:vivid-newt/terminals"]!.kind {
             XCTAssertEqual(count, 2, "every terminal the machine owns")
         } else { XCTFail("expected terminals pool") }
@@ -573,13 +560,12 @@ final class MachinesPanelModelTests: XCTestCase {
         if case .localWorkspace(let row) = flattened[1].kind { XCTAssertEqual(row.title, "cmux90"); XCTAssertTrue(row.isSelected) } else { XCTFail("expected local workspace") }
         XCTAssertEqual(flattened.compactMap { $0.dragResource?.id.rawValue }, [
             "local/terminal/AAA",
+            "vivid-newt/terminal/term_1",
             "vivid-newt/terminal/term_1", "vivid-newt/display/display:1",
-            "vivid-newt/terminal/term_1", "vivid-newt/display/display:1",
-            "vivid-newt/display/display:1",
             "vivid-newt/browser/port:3000",
             "vivid-newt/display/display:1",
             "vivid-newt/terminal/term_1", "vivid-newt/terminal/term_2",
-        ], "one drag resource per pointer (or implicit display) row, then the port, the screen, then the Terminals rows")
+        ], "one drag resource per actual pointer row, then the port, the screen, then the Terminals rows")
         XCTAssertTrue(flattened[0].isMachineRow)
         XCTAssertTrue(flattened[3].isMachineRow)
         XCTAssertEqual(flattened[3].machine, .cloud("vivid-newt"))
@@ -1000,15 +986,15 @@ final class MachinesPanelModelTests: XCTestCase {
             id: "warm-owl", provider: "freestyle", image: "cmux-xfce-vnc:latest", isDesktop: true,
             activity: .ready, createdAt: nil, label: nil, freeAccess: .active(daysLeft: 3)
         )
-        XCTAssertFalse(CloudTreeMachineRowContent.subtitle(active).contains("3"), "expiry is plan chrome, not a machine fact")
-        XCTAssertNil(CloudTreeMachineRowContent.inlineFact(active, style: .compact))
+        XCTAssertFalse(CloudTreeMachineRowContent(machine: active).subtitle.contains("3"), "expiry is plan chrome, not a machine fact")
+        XCTAssertNil(CloudTreeMachineRowContent(machine: active, style: .compact).inlineFact)
 
         let expired = MachineSnapshot(
             id: "warm-owl", provider: "freestyle", image: "cmux-xfce-vnc:latest", isDesktop: true,
             activity: .attention("locked"), createdAt: nil, label: nil, freeAccess: .expired
         )
-        XCTAssertTrue(CloudTreeMachineRowContent.subtitle(expired).contains("Locked"), "a dead row still explains itself")
-        XCTAssertNotNil(CloudTreeMachineRowContent.inlineFact(expired, style: .compact))
+        XCTAssertTrue(CloudTreeMachineRowContent(machine: expired).subtitle.contains("Locked"), "a dead row still explains itself")
+        XCTAssertNotNil(CloudTreeMachineRowContent(machine: expired, style: .compact).inlineFact)
     }
 
     func testCloudTreeStylePresetsAreDistinctAndResolvable() {
@@ -1025,9 +1011,9 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertNil(CloudTreeStyle.preset(id: "bogus"))
         // The presets are different shapes, not one look at five sizes.
         XCTAssertEqual(Set(presets.map { "\($0.leafLayout)|\($0.iconTreatment)|\($0.groupLabelStyle)|\($0.metaPlacement)|\($0.machineBand)|\($0.monospacedText)" }).count, presets.count, "every preset differs structurally")
-        // Two-line cards grow with the stats line; single-line rows never do.
+        // Every cloud style reserves a dedicated resource strip.
         XCTAssertGreaterThan(CloudTreeStyle.aero.machineRowHeight(hasStats: true), CloudTreeStyle.aero.machineRowHeight(hasStats: false))
-        XCTAssertEqual(CloudTreeStyle.compact.machineRowHeight(hasStats: true), CloudTreeStyle.compact.machineRowHeight(hasStats: false))
+        XCTAssertGreaterThan(CloudTreeStyle.compact.machineRowHeight(hasStats: true), CloudTreeStyle.compact.machineRowHeight(hasStats: false))
     }
 
     func testDropDestinationMapsEverySplitSideAndInserts() {
@@ -1166,8 +1152,7 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
     }
 }
 
-/// Pins the single-line machine row's inline fact: Locked wins, then the live
-/// CPU/Mem/Disk reading (when the style shows stats), else nothing.
+/// Resource readings have their own strip, leaving only Locked beside the name.
 @Suite("Cloud tree machine inline fact")
 struct CloudTreeMachineInlineFactTests {
     private func snapshot(stats: VMStats?) -> MachineSnapshot {
@@ -1178,20 +1163,20 @@ struct CloudTreeMachineInlineFactTests {
         return machine
     }
 
-    @Test("An awake reading renders inline in the default single-line style")
-    func awakeReadingRendersInline() {
+    @Test("Resource readings do not compete with the machine name")
+    func awakeReadingHasDedicatedSpace() {
         let stats = VMStats(
             state: .awake, sampledAt: Date(timeIntervalSince1970: 0), cpus: 2, cpuPercent: 9.4,
             loadAverage1m: nil, memoryTotalMb: 3891, memoryUsedMb: 3481, diskTotalMb: 3174, diskUsedMb: 2867
         )
-        let fact = CloudTreeMachineRowContent.inlineFact(snapshot(stats: stats), style: .compact)
-        #expect(fact?.contains("CPU 9%") == true)
-        #expect(fact?.contains("3.4/3.8") == true)
+        let fact = CloudTreeMachineRowContent(machine: snapshot(stats: stats), style: .compact).inlineFact
+        #expect(fact == nil)
+        #expect(CloudTreeStyle.compact.machineRowHeight(hasStats: true) > CloudTreeStyle.compact.machineRowHeight(hasStats: false))
     }
 
     @Test("No reading yet means no inline fact")
     func missingStatsShowsNothing() {
-        #expect(CloudTreeMachineRowContent.inlineFact(snapshot(stats: nil), style: .compact) == nil)
+        #expect(CloudTreeMachineRowContent(machine: snapshot(stats: nil), style: .compact).inlineFact == nil)
     }
 }
 
@@ -1399,25 +1384,21 @@ struct MachineUsageReadoutTests {
         let usage = try MachineUsageClient.decodeTeamUsage(payload)
         let byID = usage.byMachineID
         let wren = try #require(byID["noble-wren"])
-        let line = try #require(CloudTreeMachineRowContent.usageLine(wren))
+        var withUsage = machine("noble-wren")
+        withUsage.usage = wren
+        let line = try #require(CloudTreeMachineRowContent(machine: withUsage).usageLine)
         #expect(line.hasPrefix("$1.23"), "two decimals, USD: \(line)")
         #expect(line.contains("41K"), "compact token count: \(line)")
         #expect(line.hasSuffix("30d"), "window label: \(line)")
         let owl = try #require(byID["idle-owl"])
-        #expect(CloudTreeMachineRowContent.usageLine(owl) == nil)
+        var idle = machine("idle-owl")
+        idle.usage = owl
+        #expect(CloudTreeMachineRowContent(machine: idle).usageLine == nil)
 
-        var withUsage = machine("noble-wren")
-        withUsage.usage = byID["noble-wren"]
-        let fact = try #require(CloudTreeMachineRowContent.inlineFact(withUsage, style: .compact))
-        #expect(fact.contains("$1.23"), "single-line rows carry the spend inline")
-        #expect(CloudTreeMachineRowContent.inlineFact(machine("noble-wren"), style: .compact) == nil)
+        let fact = CloudTreeMachineRowContent(machine: withUsage, style: .compact).inlineFact
+        #expect(fact == nil, "spend belongs in the tooltip, leaving row space for resources")
+        #expect(CloudTreeMachineRowContent(machine: withUsage).toolTip.contains(line), "spend stays available on hover")
     }
 
-    @Test("Two-line rows grow by one line for the spend readout")
-    func twoLineHeightGrows() {
-        let twoLine = CloudTreeStyle.presets.first { $0.machineRowLayout == .twoLine }
-        guard let twoLine else { return }
-        #expect(twoLine.machineRowHeight(hasStats: false, hasUsage: true) > twoLine.machineRowHeight(hasStats: false))
-        #expect(CloudTreeStyle.compact.machineRowHeight(hasStats: false, hasUsage: true) == CloudTreeStyle.compact.machineRowHeight(hasStats: false))
-    }
+
 }

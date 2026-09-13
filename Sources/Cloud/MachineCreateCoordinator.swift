@@ -91,6 +91,7 @@ final class MachineCreateCoordinator {
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private let notificationCenter: NotificationCenter
     @ObservationIgnored private var accessDidEndObserver: NSObjectProtocol?
+    @ObservationIgnored private var workspaceWaiters: [UUID: CheckedContinuation<UUID?, Never>] = [:]
 
     private struct CancelledCreate {
         let isBaseSetup: Bool
@@ -166,7 +167,15 @@ final class MachineCreateCoordinator {
     /// before invoking the launcher so synchronous completion remains safe.
     @discardableResult
     func start(_ request: MachineCreateRequest, cancellableLaunch: @escaping CancellableLaunch) -> Bool {
-        let operation = MachineCreateOperation(id: UUID(), request: request, startedAt: now())
+        start(request, cancellableLaunch: cancellableLaunch, operationID: UUID())
+    }
+
+    private func start(
+        _ request: MachineCreateRequest,
+        cancellableLaunch: @escaping CancellableLaunch,
+        operationID: UUID
+    ) -> Bool {
+        let operation = MachineCreateOperation(id: operationID, request: request, startedAt: now())
         operations.append(operation)
         cancellableLaunches[operation.id] = cancellableLaunch
         progressOutput[operation.id] = ""
@@ -191,6 +200,39 @@ final class MachineCreateCoordinator {
             cancellationHandles[operation.id] = cancellation
         }
         return true
+    }
+
+    /// Starts a create and awaits the local workspace receipt emitted by the launcher.
+    /// The existing coordinator remains the single pending-row mutation path.
+    func startAndAwaitWorkspaceID(
+        _ request: MachineCreateRequest,
+        cancellableLaunch: @escaping CancellableLaunch
+    ) async -> UUID? {
+        let operationID = UUID()
+        return await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { continuation in
+                workspaceWaiters[operationID] = continuation
+                let started = start(request, cancellableLaunch: { arguments, progress, completion in
+                    cancellableLaunch(arguments, progress) { result in
+                        completion(result)
+                        self.resumeWorkspaceWaiter(operationID, workspaceID: result.succeeded ? result.workspaceId : nil)
+                    }
+                }, operationID: operationID)
+                if !started {
+                    resumeWorkspaceWaiter(operationID, workspaceID: nil)
+                }
+            }
+        }, onCancel: {
+            Task { @MainActor [weak self] in
+                self?.cancel(operationID)
+                self?.resumeWorkspaceWaiter(operationID, workspaceID: nil)
+            }
+        })
+    }
+
+    private func resumeWorkspaceWaiter(_ operationID: UUID, workspaceID: UUID?) {
+        guard let continuation = workspaceWaiters.removeValue(forKey: operationID) else { return }
+        continuation.resume(returning: workspaceID)
     }
 
     /// Re-runs a failed create with its original arguments and launcher.
@@ -261,6 +303,7 @@ final class MachineCreateCoordinator {
             cleanupCancelledMachine(machineID)
         }
         cancelOperation(operation)
+        resumeWorkspaceWaiter(id, workspaceID: nil)
         postDidChange(finished: nil)
     }
 
@@ -300,6 +343,9 @@ final class MachineCreateCoordinator {
             }
         }
         for handle in handles { handle.cancel() }
+        for operationID in Array(workspaceWaiters.keys) {
+            resumeWorkspaceWaiter(operationID, workspaceID: nil)
+        }
         postDidChange(finished: nil)
     }
 

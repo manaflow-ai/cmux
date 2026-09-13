@@ -9,4 +9,6 @@ enum CloudTuiManualMirrorRequestKind: Equatable, Sendable {
     case attach
     case resize(CloudTuiManualIOGrid)
     case claim
+    /// The watchdog's liveness probe; any answer proves the stream is alive.
+    case ping
 }

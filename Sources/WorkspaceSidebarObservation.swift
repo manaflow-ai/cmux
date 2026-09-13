@@ -31,6 +31,7 @@ extension View {
         task(id: ids) { @MainActor in
             await withTaskGroup(of: Void.self) { group in
                 for (id, workspace) in zip(ids, workspaces) {
+                    let cloudChanges = workspace.cloudBindingState.changes()
                     let immediateChanges = workspace.sidebarImmediateObservationPublisher
                         .values
                     let debouncedChanges = workspace.sidebarObservationPublisher
@@ -43,6 +44,12 @@ extension View {
                         .debounce(for: debouncedInterval, scheduler: DispatchQueue.main)
                         .values
                     group.addTask { @MainActor in
+                        for await _ in cloudChanges {
+                            if Task.isCancelled { break }
+                            onChange(id)
+                        }
+                    }
+                    group.addTask { @MainActor in
                         for await _ in immediateChanges {
                             if Task.isCancelled { break }
                             onChange(id)
@@ -52,6 +59,27 @@ extension View {
                         for await _ in debouncedChanges {
                             if Task.isCancelled { break }
                             onChange(id)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Keeps extension sidebar projections current using the same Cloud invalidation source.
+    func sidebarCloudBindingObservations(
+        ids: [UUID],
+        models: [WorkspaceCloudBindingState],
+        onChange: @MainActor @escaping () -> Void
+    ) -> some View {
+        task(id: ids) { @MainActor in
+            await withTaskGroup(of: Void.self) { group in
+                for model in models {
+                    let changes = model.changes()
+                    group.addTask { @MainActor in
+                        for await _ in changes {
+                            if Task.isCancelled { break }
+                            onChange()
                         }
                     }
                 }
@@ -207,9 +235,10 @@ extension Workspace {
     // sustained churn so a row's title cannot stay stale until the agent
     // goes quiet. See https://github.com/manaflow-ai/cmux/issues/5570.
     static let sidebarImmediateObservationCoalesceInterval: DispatchQueue.SchedulerTimeType.Stride = .milliseconds(50)
+    /// Publishes synchronous row-affecting workspace changes for the shared sidebar refresh path.
     func makeSidebarImmediateObservationPublisher() -> AnyPublisher<Void, Never> {
         // Combine exposes up to four-way convenience publishers. Compose the
-        // fifth field explicitly so adding a row-affecting property does not
+        // extra fields explicitly so adding a row-affecting property does not
         // require a non-existent ``CombineLatest5`` specialization.
         let workspaceFields = Publishers.CombineLatest4(
             $customTitle,
