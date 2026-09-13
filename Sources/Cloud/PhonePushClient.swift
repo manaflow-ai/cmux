@@ -147,7 +147,6 @@ final class PhonePushClient {
     ) -> PhonePushConfiguration {
         PhonePushConfiguration(defaults: settingsDefaults ?? defaults)
     }
-
     /// Reconciles state after another owner removes stored overrides (Reset All).
     func reloadConfigurationFromDefaults() {
         let configuration = PhonePushConfiguration(defaults: defaults)
@@ -161,7 +160,6 @@ final class PhonePushClient {
         )
         publishStatusChanged()
     }
-
     /// Sole mutation path for Mac and phone callers. Validation happens before
     /// entry; all three privacy fields publish as one main-actor transaction.
     @discardableResult
@@ -204,7 +202,6 @@ final class PhonePushClient {
         publishStatusChanged()
         return configuration
     }
-
     nonisolated static func shouldForward(
         mode: PhoneForwardingMode,
         presence: MacPresenceMonitor.Decision
@@ -216,7 +213,6 @@ final class PhonePushClient {
             return !presence.isActive
         }
     }
-
     nonisolated static func admission(
         enabled: Bool,
         mode: PhoneForwardingMode,
@@ -227,7 +223,6 @@ final class PhonePushClient {
             ? .queued
             : .presenceSuppressed
     }
-
     func currentAdmission(
         defaults settingsDefaults: UserDefaults? = nil
     ) -> PhonePushAdmission {
@@ -242,7 +237,6 @@ final class PhonePushClient {
             ? .allowed
             : .suppressedMacActive
     }
-
     @discardableResult
     func forward(
         _ notification: TerminalNotification,
@@ -259,7 +253,6 @@ final class PhonePushClient {
         )
         return enqueue(payload)
     }
-
     /// Enqueues a user-requested diagnostic alert through the production path.
     /// The response confirms queue admission only; backend and APNs outcomes
     /// remain asynchronous and are correlated by the envelope UUID.
@@ -290,7 +283,6 @@ final class PhonePushClient {
         )
         return enqueue(payload)
     }
-
     private func forwardingAdmission() -> PhonePushForwardAdmission {
         let mode = PhoneForwardingMode.fromDefaults(defaults)
         let enabled = PhonePushConfiguration.forwardingEnabled(in: defaults)
@@ -303,7 +295,6 @@ final class PhonePushClient {
             presence: presenceCache.decision(from: presenceMonitor)
         )
     }
-
     private func enqueue(
         _ payload: PhonePushPayload
     ) -> PhonePushForwardAdmission {
@@ -343,21 +334,32 @@ final class PhonePushClient {
         }
         return .queued
     }
-    func forwardDismissed(ids: [String], badgeCount: Int) {
-        guard PhonePushConfiguration.forwardingEnabled(in: defaults),
-              !ids.isEmpty,
-              let identity = auth?.authenticatedSessionIdentity,
-              let targetBundleIdentifier = MobileIOSPairingTargetStore()
-                  .pushTargetNamespace?.bundleIdentifier else { return }
+    @discardableResult
+    func forwardDismissed(ids: [String], badgeCount: Int) -> PhonePushForwardAdmission {
+        guard PhonePushConfiguration.forwardingEnabled(in: defaults) else {
+            return .disabled
+        }
+        guard !ids.isEmpty else { return .queued }
+        guard let identity = auth?.authenticatedSessionIdentity else {
+            return .authenticationUnavailable
+        }
+        guard let targetBundleIdentifier = MobileIOSPairingTargetStore()
+            .pushTargetNamespace?.bundleIdentifier else {
+            return .encodingFailed
+        }
         guard let macDeviceID = identityPrewarm.deviceIDIfReady() else {
-            identityPrewarm.appendDismissals(ids: ids, badgeCount: badgeCount)
+            guard identityPrewarm.appendDismissals(ids: ids, badgeCount: badgeCount) else {
+                phonePushLog.error("dismissal prewarm buffer full; dropping batch")
+                return .queueFull
+            }
             startIdentityPrewarmIfNeeded()
-            return
+            return .queued
         }
         deliveryQueue.retainOnly(
             accountID: identity.accountID,
             generation: identity.generation
         )
+        var admission: PhonePushForwardAdmission = .queued
         for start in stride(
             from: 0,
             to: ids.count,
@@ -400,12 +402,14 @@ final class PhonePushClient {
                 continue
             }
             if !deliveryQueue.enqueuePrioritizingDismiss(envelope) {
+                admission = .queueFull
                 logQueueStage(
                     "dismiss_queue_overflow",
                     correlationID: envelope.correlationID
                 )
             }
         }
+        return admission
     }
     /// Cancels in-flight retries and atomically clears credential-free storage.
     func cancelPendingDeliveries() {
@@ -537,7 +541,6 @@ final class PhonePushClient {
             setQueuePersistenceStatus(.clearFailed)
         }
     }
-
     private func setQueuePersistenceStatus(
         _ status: PhonePushQueuePersistenceStatus
     ) {
@@ -548,14 +551,12 @@ final class PhonePushClient {
         )
         publishStatusChanged()
     }
-
     private func publishStatusChanged() {
         MobileHostService.emitEvent(
             topic: "phone_push.status.changed",
             payload: [:]
         )
     }
-
     private func deliver(
         _ envelope: PhonePushRequestEnvelope
     ) async -> PhonePushHTTPResult {
@@ -679,7 +680,6 @@ final class PhonePushClient {
         }
         return .retryExhausted
     }
-
     /// Explicit executor hop for URL loading. Queue ownership remains on the
     /// main actor, while request construction, I/O, and response decoding do
     /// not consume its executor.

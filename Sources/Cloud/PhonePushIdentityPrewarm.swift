@@ -4,7 +4,8 @@
 final class PhonePushIdentityPrewarm {
     typealias ReadyHandler = @MainActor @Sendable () -> Void
 
-    private static let maximumPendingIDs = 256
+    private static let maximumPendingIDs =
+        PhonePushSerialDeliveryQueue.defaultCapacity * 4
     private let identityProvider: any PhonePushIdentityProvider
     private var task: Task<Void, Never>?
     private var pendingIDs: [String] = []
@@ -23,6 +24,10 @@ final class PhonePushIdentityPrewarm {
 
     func start(onReady: @escaping ReadyHandler) {
         guard task == nil else { return }
+        // The provider's once-initialization is finite and cancellation cannot
+        // interrupt synchronous Foundation file operations. Keep this task
+        // alive until readiness so every accepted dismissal can be flushed;
+        // overflow is reported as queueFull rather than silently evicted.
         task = Task { @MainActor [weak self] in
             await self?.identityProvider.prewarm()
             guard let self, !Task.isCancelled else { return }
@@ -31,13 +36,14 @@ final class PhonePushIdentityPrewarm {
         }
     }
 
-    func appendDismissals(ids: [String], badgeCount: Int) {
-        pendingIDs.append(contentsOf: ids)
-        let overflow = pendingIDs.count - Self.maximumPendingIDs
-        if overflow > 0 {
-            pendingIDs.removeFirst(overflow)
+    @discardableResult
+    func appendDismissals(ids: [String], badgeCount: Int) -> Bool {
+        guard pendingIDs.count + ids.count <= Self.maximumPendingIDs else {
+            return false
         }
+        pendingIDs.append(contentsOf: ids)
         pendingBadgeCount = badgeCount
+        return true
     }
 
     func takePendingDismissals() -> (ids: [String], badgeCount: Int)? {

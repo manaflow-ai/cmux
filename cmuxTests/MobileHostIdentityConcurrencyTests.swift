@@ -23,14 +23,14 @@ struct MobileHostIdentityConcurrencyTests {
     @Test func pendingDismissalsStayBoundedWhileIdentityWarms() throws {
         let buffer = PhonePushIdentityPrewarm()
         buffer.appendDismissals(
-            ids: (0..<300).map(String.init),
+            ids: (0..<2_048).map(String.init),
             badgeCount: 7
         )
-
+        #expect(!buffer.appendDismissals(ids: ["overflow"], badgeCount: 7))
         let pending = try #require(buffer.takePendingDismissals())
-        #expect(pending.ids.count == 256)
-        #expect(pending.ids.first == "44")
-        #expect(pending.ids.last == "299")
+        #expect(pending.ids.count == 2_048)
+        #expect(pending.ids.first == "0")
+        #expect(pending.ids.last == "2047")
         #expect(pending.badgeCount == 7)
         #expect(buffer.takePendingDismissals() == nil)
     }
