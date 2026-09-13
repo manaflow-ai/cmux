@@ -74,6 +74,8 @@ final class CloudTuiManualMirrorSession {
     private let log = CloudTerminalAttachmentLog()
     private var attachAttempts = 0
     private var interruption: CloudTerminalAttachmentInterruption?
+    private var automaticReconnectSuppressed = false
+    var allowsAutomaticReconnect: Bool { !automaticReconnectSuppressed }
     var connectionPresentation: CloudTerminalReconnectOverlayPolicy.Presentation? {
         guard let state = CloudManualMirrorPresentation(
             phase: phase,
@@ -87,18 +89,29 @@ final class CloudTuiManualMirrorSession {
         presentation?.diagnosticReference = diagnosticReference
         return presentation
     }
-
     @discardableResult
-    func retryConnection() -> Bool {
+    func retryConnection(cancelOnly: Bool = false) -> Bool {
         guard phase != .stopped else { return false }
+        if cancelOnly {
+            guard phase == .connecting || phase == .attached else { return false }
+            automaticReconnectSuppressed = true
+        } else {
+            automaticReconnectSuppressed = false
+        }
         // Explicit recovery must pass through the provider's fresh resolution,
         // including when the current socket is still attached or connecting.
         fenceAttachment(error: CancellationError())
-        onNeedsReconnect()
+        if cancelOnly {
+            interruption = nil
+            transition(to: .idle)
+        } else {
+            onNeedsReconnect()
+        }
         return true
     }
+    @discardableResult
+    func cancelConnectionAttempt() -> Bool { retryConnection(cancelOnly: true) }
     private nonisolated static let leaseCapability = "view-attachment-lease-v1"
-
     init(
         machineID: String,
         terminalID: String,
@@ -128,12 +141,10 @@ final class CloudTuiManualMirrorSession {
             commandBuilder: commandBuilder
         )
     }
-
     /// Reports whether a lease-capable server omitted its token.
     nonisolated static func requiresLeaseToken(capabilities: [String], lease: String?) -> Bool {
         capabilities.contains(leaseCapability) && lease?.isEmpty != false
     }
-
     func bind(surface: TerminalSurface) {
         if let previous = self.surface, previous !== surface,
            previous.hostedView.cloudTerminalOverlay.session === self {
@@ -182,7 +193,6 @@ final class CloudTuiManualMirrorSession {
         surface.flushPendingManualSizeReportIfAttached()
         runtimeReady()
     }
-
     func visibilityChanged(_ visible: Bool) {
         guard phase != .stopped else { return }
         manualMirrorLogger.info("visibility terminal=\(self.terminalID, privacy: .private(mask: .hash)) visible=\(visible)")
@@ -210,12 +220,11 @@ final class CloudTuiManualMirrorSession {
             resizeScheduler.resetForReconnect()
             return
         }
-        if phase == .disconnected || phase == .idle { onNeedsReconnect() }
+        if phase == .disconnected { onNeedsReconnect() }
         runtimeReady()
         presentationReadiness.resumeDeadline()
         presentationReadiness.check()
     }
-
     func updateRemoteSurfaceID(_ surfaceID: UInt64) {
         guard surfaceID != remoteSurfaceID else { return }
         remoteSurfaceID = surfaceID
@@ -226,14 +235,12 @@ final class CloudTuiManualMirrorSession {
             fenceAttachment(error: CancellationError())
         }
     }
-
     func markSurfaceResolutionUnavailable(
         reason: CloudTerminalAttachmentInterruption = .unresolved("awaiting an authoritative resolution")
     ) {
         guard phase != .stopped else { return }
         fenceAttachment(error: CloudDiagnosticFailure.notFound, reason: reason)
     }
-
     private func tearDownConnection() {
         watchdog.cancel()
         if hasReceivedRemoteReplay {
@@ -258,7 +265,6 @@ final class CloudTuiManualMirrorSession {
         diagnosticReplayReceived = false
         presentationReadiness.rearm()
     }
-
     func runtimeReady() {
         runtimeSampleTask?.cancel()
         runtimeSampleTask = Task { @MainActor [weak self] in
@@ -270,7 +276,6 @@ final class CloudTuiManualMirrorSession {
             self?.sampleRuntimeSize()
         }
     }
-
     private func sampleRuntimeSize() {
         guard phase != .stopped,
               let surface,
@@ -280,7 +285,6 @@ final class CloudTuiManualMirrorSession {
         }
         apply(size: sample, validatePanePixels: true)
     }
-
     /// Starts or rebinds the byte attachment.
     func reconnect(socketPath: String) {
         guard phase != .stopped, remoteSurfaceID != 0 else { return }
@@ -354,7 +358,6 @@ final class CloudTuiManualMirrorSession {
             self.sendIdentify(on: connection)
         }
     }
-
     /// Records an applied local size and eventually reports it to the remote
     /// PTY. Samples from a bootstrap/placeholder window are rejected so the
     /// remote grid cannot be pinned to the default 99×35 surface.
@@ -377,7 +380,6 @@ final class CloudTuiManualMirrorSession {
             sendClaimIfNeeded()
         }
     }
-
     /// Re-asserts this pane as the geometry owner after a focus/input handoff.
     /// The first report is normally followed by an automatic claim; this method
     /// is also used by the composed explicit-input callback.
@@ -391,7 +393,6 @@ final class CloudTuiManualMirrorSession {
         claimUnsupported = false
         sendClaimIfNeeded()
     }
-
     /// Permanently tears down this view's attachment without closing the remote
     /// terminal. Closing the control socket is the cleanup fence for old
     /// servers; newer servers additionally retire the lease with the same close.
@@ -443,7 +444,6 @@ final class CloudTuiManualMirrorSession {
         diagnosticContext = nil
         Task { await context.recorder.finish(context, error: error) }
     }
-
     // MARK: - Transport events
 
     private func startEventTask(_ connection: CloudTuiManualIOConnection) {

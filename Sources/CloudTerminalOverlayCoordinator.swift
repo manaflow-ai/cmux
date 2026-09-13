@@ -58,7 +58,8 @@ final class CloudTerminalOverlayCoordinator {
         hostedView: GhosttySurfaceScrollView,
         contentFrame: CGRect,
         legacyPresentation: CloudTerminalReconnectOverlayPolicy.Presentation?,
-        onReconnect: @escaping () -> Void
+        onReconnect: @escaping () -> Void,
+        onCancel: (() -> Void)? = nil
     ) {
         let visible = anchor == nil ? hostedView.isVisibleInUI : anchorVisible
         let presented: Bool
@@ -73,6 +74,15 @@ final class CloudTerminalOverlayCoordinator {
         let presentation: CloudTerminalReconnectOverlayPolicy.Presentation?
         if let session {
             presentation = session.connectionPresentation
+        } else if let panel = hostedView.surfaceView.terminalSurface
+            .flatMap({ $0.owningWorkspace()?.panels[$0.id] as? TerminalPanel }),
+            panel.cloudStartupReadiness.isLoading {
+            presentation = CloudTerminalReconnectOverlayPolicy.presentation(
+                isManagedCloudWorkspace: true,
+                isRemoteTerminalSurface: true,
+                connectionState: .connecting,
+                detail: nil
+            )
         } else {
             presentation = legacyPresentation
         }
@@ -86,7 +96,8 @@ final class CloudTerminalOverlayCoordinator {
             in: destination,
             frame: presented ? contentFrame : destination.bounds,
             dismissalID: dismissalID,
-            onReconnect: onReconnect
+            onReconnect: onReconnect,
+            onCancel: onCancel
         )
         let next: Destination = overlay == nil ? .hidden : (presented ? .terminal : .anchor)
         if next != lastDestination, let session {
@@ -111,7 +122,8 @@ final class CloudTerminalOverlayCoordinator {
         in destination: NSView,
         frame: CGRect,
         dismissalID: String? = nil,
-        onReconnect: @escaping () -> Void
+        onReconnect: @escaping () -> Void,
+        onCancel: (() -> Void)? = nil
     ) {
         guard let presentation else {
             overlay?.removeFromSuperview()
@@ -131,8 +143,16 @@ final class CloudTerminalOverlayCoordinator {
         card.apply(presentation)
         card.onReconnect = onReconnect
         card.onDismiss = { [weak self, weak card] in
-            guard let self, let card, let dismissalID else { return }
-            self.dismissalStore.dismiss(id: dismissalID, signature: presentation.copyableError)
+            guard let self, let card else { return }
+            if presentation.showsProgress {
+                if let onCancel {
+                    onCancel()
+                } else {
+                    self.session?.cancelConnectionAttempt()
+                }
+            } else if let dismissalID {
+                self.dismissalStore.dismiss(id: dismissalID, signature: presentation.copyableError)
+            }
             if self.overlay === card {
                 card.removeFromSuperview()
                 self.overlay = nil

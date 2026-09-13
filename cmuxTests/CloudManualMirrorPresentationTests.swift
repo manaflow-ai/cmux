@@ -47,6 +47,44 @@ struct CloudManualMirrorPresentationTests {
     }
 
     @Test @MainActor
+    func cancellingAnActiveConnectionReturnsToIdleWithoutRetry() async throws {
+        let fixture = try CloudManualMirrorSocketFixture()
+        defer { fixture.close() }
+        var refreshes = 0
+        let session = CloudTuiManualMirrorSession(
+            machineID: "machine", terminalID: "term_cancel", remoteSurfaceID: 17,
+            onNeedsReconnect: { refreshes += 1 }
+        )
+        defer { session.stop() }
+
+        session.reconnect(socketPath: fixture.socketPath)
+        #expect(session.phase == .connecting)
+        #expect(session.connectionPresentation?.showsProgress == true)
+        #expect(session.retryConnection(cancelOnly: true))
+        #expect(session.phase == .idle)
+        #expect(session.connectionPresentation == nil)
+        #expect(refreshes == 0)
+        #expect(!session.cancelConnectionAttempt())
+    }
+
+    @Test @MainActor
+    func progressCardDismissalInvokesCancellationInsteadOfPersistingDismissal() throws {
+        let owner = CloudTerminalOverlayCoordinator()
+        let destination = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        let progress = CloudTerminalReconnectOverlayPolicy.Presentation(
+            title: "Connecting", detail: "Waiting", showsProgress: true, showsReconnectButton: false
+        )
+        var cancelled = 0
+        owner.apply(progress, in: destination, frame: destination.bounds, dismissalID: "cancel-test", onReconnect: {}, onCancel: {
+            cancelled += 1
+        })
+        let card = try #require(owner.overlay)
+        card.onDismiss?()
+        #expect(cancelled == 1)
+        #expect(owner.overlay == nil)
+    }
+
+    @Test @MainActor
     func replayAloneKeepsTheCardUntilAVisibleFrame() async throws {
         let fixture = try CloudManualMirrorSocketFixture()
         defer { fixture.close() }

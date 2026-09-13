@@ -212,7 +212,12 @@ extension Workspace {
     func reconnectCloudTerminalSurface(surfaceId: UUID) -> Bool {
         if let resource = cloudProjectedResource(forPanel: surfaceId),
            let machineID = resource.id.machine.cloudMachineID,
-           let session = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID)?.manualMirrorSessions[surfaceId] {
+           let provider = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID) {
+            guard let session = provider.manualMirrorSessions[surfaceId] else {
+                clearCloudMaterializationFailure(surfaceID: surfaceId)
+                provider.scheduleRefresh()
+                return true
+            }
             (panels[surfaceId] as? TerminalPanel)?.requestViewReattach()
             return session.retryConnection()
         }
