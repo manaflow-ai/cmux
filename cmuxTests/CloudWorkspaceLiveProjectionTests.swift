@@ -178,4 +178,52 @@ struct CloudWorkspaceLiveProjectionTests {
         await coordinator.waitForIdle()
         #expect(catalog.projections.count == 2, "a later authoritative restore can create the view again")
     }
+
+    @Test("A projection waiting for its Cloud resource remains in the next session snapshot")
+    func pendingProjectionPersistsAcrossAutosave() throws {
+        let catalog = SurfaceCatalog()
+        let panel = UUID()
+        let workspace = UUID()
+        let resource = SurfaceResourceID(machine: machine, kind: .terminal, key: "term_waiting")
+        let record = SurfaceProjectionRecord(
+            panelID: panel,
+            resource: resource,
+            remoteWorkspaceID: "a",
+            remoteTabID: "tab_waiting"
+        )
+
+        catalog.restore([record], workspaceID: workspace)
+        let saved = catalog.projectionRecords(forWorkspace: workspace)
+        #expect(saved == [record])
+        #expect(catalog.projectionRecords(forWorkspace: workspace) == saved)
+    }
+
+    @Test("A pending projection has one owner and cannot be resurrected after close or replacement")
+    func pendingProjectionOwnershipIsUnique() throws {
+        let catalog = SurfaceCatalog()
+        let firstWorkspace = UUID(), secondWorkspace = UUID(), panel = UUID()
+        let first = SurfaceProjectionRecord(
+            panelID: panel,
+            resource: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_first"),
+            remoteWorkspaceID: "a",
+            remoteTabID: "tab_first"
+        )
+        let replacement = SurfaceProjectionRecord(
+            panelID: panel,
+            resource: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_second"),
+            remoteWorkspaceID: "b",
+            remoteTabID: "tab_second"
+        )
+        catalog.restore([first], workspaceID: firstWorkspace)
+        catalog.restore([replacement], workspaceID: secondWorkspace)
+        #expect(catalog.projectionRecords(forWorkspace: firstWorkspace).isEmpty)
+        #expect(catalog.projectionRecords(forWorkspace: secondWorkspace) == [replacement])
+
+        catalog.moveProjections(panelID: panel, to: firstWorkspace)
+        catalog.endProjections(panelID: panel)
+        let provider = CloudPlacementTestProvider(machine: machine)
+        catalog.register(provider)
+        catalog.replaceResources([], on: machine, info: provider.info, from: provider)
+        #expect(catalog.projectionRecords(forWorkspace: firstWorkspace).isEmpty)
+    }
 }

@@ -103,6 +103,14 @@ extension ContentView {
             return .toggleSplitZoom
         case "palette.equalizeSplits":
             return .equalizeSplits
+        case "palette.resizePaneLeft":
+            return .resizePaneLeft
+        case "palette.resizePaneRight":
+            return .resizePaneRight
+        case "palette.resizePaneUp":
+            return .resizePaneUp
+        case "palette.resizePaneDown":
+            return .resizePaneDown
         case "palette.triggerFlash":
             return .triggerFlash
         default:
@@ -166,7 +174,8 @@ extension ContentView {
 
     static func commandPaletteRightSidebarToolPaneCommandDescriptors() -> [(mode: RightSidebarMode, commandId: String, title: String)] {
         RightSidebarMode.paneModes.compactMap { mode in
-            guard let commandId = commandPaletteRightSidebarToolPaneCommandID(mode),
+            guard mode.isAvailable(),
+                  let commandId = commandPaletteRightSidebarToolPaneCommandID(mode),
                   let title = commandPaletteRightSidebarToolPaneTitle(mode) else {
                 return nil
             }
@@ -182,7 +191,9 @@ extension ContentView {
             return "palette.openFindPane"
         case .sessions:
             return "palette.openVaultPane"
-        case .feed, .dock, .machines, .customSidebar:
+        case .machines:
+            return "palette.openCloudPane"
+        case .feed, .dock, .customSidebar:
             return nil
         }
     }
@@ -195,7 +206,9 @@ extension ContentView {
             return String(localized: "command.openFindPane.title", defaultValue: "Open Find as Pane")
         case .sessions:
             return String(localized: "command.openVaultPane.title", defaultValue: "Open Vault as Pane")
-        case .feed, .dock, .machines, .customSidebar:
+        case .machines:
+            return String(localized: "command.openCloudPane.title", defaultValue: "Open Cloud as Pane")
+        case .feed, .dock, .customSidebar:
             return nil
         }
     }

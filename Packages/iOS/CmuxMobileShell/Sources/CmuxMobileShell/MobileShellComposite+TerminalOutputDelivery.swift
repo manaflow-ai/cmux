@@ -265,17 +265,35 @@ extension MobileShellComposite {
         // Chain-link every delta (any anchor or screen) to the exact frame it
         // was diffed against: the revision base changes on every emitted
         // frame, so this also catches missed in-place repaints that leave the
-        // history count unchanged (silent stale rows). Replaceable whole-
-        // viewport patches repaint every row and need no base. Skipped while
-        // a replay barrier is active for the same reason as the history chain.
+        // history count unchanged (silent stale rows). Whole-viewport patches
+        // are deltas too: even when they repaint every row, accepting one
+        // without its exact base can mix dimensions or screen state with a
+        // newer local grid. Skipped while a replay barrier is active for the
+        // same reason as the history chain.
+        let deliveredRevisionContinuity =
+            terminalRenderGridRevisionContinuityBySurfaceID[renderGrid.surfaceID]
+        let replaceablePatchShapeMatches: Bool
+        if renderGrid.isReplaceableViewportPatchForMobileDelivery,
+           terminalReplayBarrierTokensBySurfaceID[renderGrid.surfaceID] == nil {
+            guard let deliveredRevisionContinuity,
+                  let deliveredColumns = deliveredRevisionContinuity.columns,
+                  let deliveredRows = deliveredRevisionContinuity.rows else {
+                terminalOutputNeedsReplay(surfaceID: renderGrid.surfaceID)
+                return
+            }
+            replaceablePatchShapeMatches = deliveredColumns == renderGrid.columns
+                && deliveredRows == renderGrid.rows
+        } else {
+            replaceablePatchShapeMatches = true
+        }
         if !renderGrid.full,
-           !renderGrid.isReplaceableViewportPatchForMobileDelivery,
            terminalReplayBarrierTokensBySurfaceID[renderGrid.surfaceID] == nil,
-           !MobileTerminalRenderGridRevisionContinuity.admits(
-               renderGrid,
-               delivered: terminalRenderGridRevisionContinuityBySurfaceID[renderGrid.surfaceID]
-           ) {
-            let delivered = terminalRenderGridRevisionContinuityBySurfaceID[renderGrid.surfaceID]
+           (!replaceablePatchShapeMatches
+                || !MobileTerminalRenderGridRevisionContinuity.admits(
+                    renderGrid,
+                    delivered: deliveredRevisionContinuity
+                )) {
+            let delivered = deliveredRevisionContinuity
             let baseText = renderGrid.deltaBaseRenderRevision.map(String.init) ?? "nil"
             let deliveredText: String
             if let delivered {
@@ -463,10 +481,10 @@ extension MobileShellComposite {
                     token: replayBarrierToken,
                     reason: "dropped_output_cap"
                 )
-                let isPartialVerifiedRenderGrid = terminalOutputTransport == .renderGrid
-                    && supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability)
-                    && delivery.sourceRenderGridFrame?.full == false
-                guard !isPartialVerifiedRenderGrid else { return false }
+                // Full replacements remain behind verified replay after a
+                // barrier failure. Streaming deltas stay on the direct queue
+                // so sustained output does not wait on a GPU fence.
+                guard !requiresVerifiedReplayApplication(for: delivery) else { return false }
                 return deliverTerminalOutput(delivery, surfaceID: surfaceID, bypassReplayBarrier: true)
             }
             if remoteClient != nil,
@@ -515,24 +533,38 @@ extension MobileShellComposite {
     }
 
     /// Whether a chunk must apply through the verified freeze/replay/verify/
-    /// reveal pipeline. Screen-anchored primary-screen deltas apply directly:
-    /// they are ordered by the same stateSeq floors, their scroll prologue
-    /// feeds local scrollback, and skipping the per-frame Metal fence keeps
-    /// streaming output from stalling a locally scrolling viewport. Fulls and
-    /// alternate-screen frames keep the verified pipeline.
+    /// reveal pipeline. Full render-grid replacements and alternate-screen
+    /// deltas use this path because they establish or patch a baseline that
+    /// cannot be recovered from primary-screen scrollback. Screen-anchored
+    /// primary deltas may use the direct queue when that capability is active,
+    /// so sustained output does not wait on a GPU fence.
     private func requiresVerifiedReplayApplication(for delivery: TerminalOutputDelivery) -> Bool {
         guard terminalOutputTransport == .renderGrid,
               supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability) else {
             return false
         }
-        if usesScreenAnchoredRenderGrid,
-           let frame = delivery.sourceRenderGridFrame,
-           !frame.full,
-           frame.anchor == .screen,
-           frame.activeScreen == .primary {
-            return false
+        // An unknown delivery cannot prove that it is a safe primary-screen
+        // delta, so keep it behind the verified path when recovering.
+        guard let frame = delivery.sourceRenderGridFrame else { return true }
+        guard !frame.full,
+              usesScreenAnchoredRenderGrid,
+              frame.anchor == .screen,
+              frame.activeScreen == .primary else { return true }
+        // The direct fallback is safe only when this delta still links to the
+        // delivered grid. A rejected resize, stale base, or missing baseline
+        // must remain behind verified replay instead of bypassing that gate.
+        guard MobileTerminalRenderGridRevisionContinuity.admits(
+            frame,
+            delivered: terminalRenderGridRevisionContinuityBySurfaceID[frame.surfaceID]
+        ) else { return true }
+        if frame.isReplaceableViewportPatchForMobileDelivery {
+            guard let delivered = terminalRenderGridRevisionContinuityBySurfaceID[frame.surfaceID],
+                  let deliveredColumns = delivered.columns,
+                  let deliveredRows = delivered.rows,
+                  deliveredColumns == frame.columns,
+                  deliveredRows == frame.rows else { return true }
         }
-        return true
+        return false
     }
 
     /// Mark the current yielded terminal-output chunk as applied by the iOS surface.

@@ -63,7 +63,10 @@ struct CloudMachineSurfacePresentation {
         }
         return CloudTreeNode(
             id: "machine:\(info.id.rawValue)/ports/status",
-            kind: .placeholder(machine: info.id, CloudTreePlaceholder(text: text, style: style, opensMachine: info.linkState == .asleep))
+            kind: .placeholder(machine: info.id, CloudTreePlaceholder(
+                text: text, style: style, opensMachine: info.linkState == .asleep,
+                isEmptyPorts: info.linkState == .connected || info.linkState == .notApplicable
+            ))
         )
     }
 }

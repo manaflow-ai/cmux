@@ -31,6 +31,33 @@ struct CloudTreeMachineMenuTests {
         #expect(!workspaceGroup.kind.refreshesOnExpansion)
     }
 
+    @Test("Ports warning context menu routes through the shared VPN setup action")
+    func portsWarningContextMenuOpensSetup() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-ports-menu-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        coordinator.showsCloudVPNWarning = true
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = container
+        defer { window.contentView = nil; withExtendedLifetime(window) {} }
+        coordinator.apply(nodes: [CloudTreeNode(
+            id: "machine:\(Self.machineID)/ports",
+            kind: .portsGroup(machine: .cloud(Self.machineID))
+        )])
+
+        let menu = try #require(coordinator.contextMenu(forRow: 0))
+        try Self.choose(Self.title("cloud.ports.vpnOff.setup", "Set Up Cloud VPN"), in: menu)
+        #expect(recorder.vpnSetupCount == 1)
+        #expect(recorder.vpnSetupWindow === window)
+    }
+
     @Test("A machine's menu exposes grow-only resource resize and wires its targets")
     func machineMenuOffersSupportedVerbs() throws {
         let recorder = CloudTreeMenuVerbRecorder()
@@ -53,6 +80,7 @@ struct CloudTreeMachineMenuTests {
         let menu = try #require(coordinator.contextMenu(forRow: 0))
         let titles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
         #expect(titles == [
+            Self.title("machines.menu.setDefaultMachine", "Set as Default Machine"),
             Self.title("machines.menu.openShell", "Open Shell"),
             Self.title("cloudTree.menu.newWorkspace", "New Workspace"),
             Self.title("cloudTree.menu.openFullClient", "Open Full cmux-tui Client"),

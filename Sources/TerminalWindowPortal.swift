@@ -660,20 +660,12 @@ final class WindowTerminalPortal: NSObject {
     /// evaluation site — when the AppKit sidebar branch mounts. The portal
     /// consumes a plain bool so the feature-flag lint's one-file rule holds.
     static var usesCoalescedAnchorFailsafe = false
-    /// Surface redraws requested by a sync that ran inside someone else's
-    /// layout/update pass (syncLayout == false). displayIfNeeded there reaches
-    /// ghostty's Metal drawFrame while the window's transaction is still open,
-    /// and waitUntilCompleted then waits on a present that only that
-    /// transaction can commit — the main thread wedges permanently. These
-    /// drain on the next main-queue turn instead.
+    /// Deferred redraws keyed by hosted view; drain after the current layout turn.
     private var pendingDeferredSurfaceRefreshes: [ObjectIdentifier: String] = [:]
+    private var lastDeferredSurfaceRefreshFrames: [ObjectIdentifier: NSRect] = [:]
     private var hasDeferredSurfaceRefreshScheduled = false
     private var hasExternalGeometrySyncScheduled = false
     private var pendingExternalGeometrySyncRequiresImmediate = false
-    /// True while some request since the last executed pass asked for the
-    /// non-immediate contract (one extra main-queue hop before the pass reads
-    /// geometry) and has not yet received it. Requests fold into whichever
-    /// pass is already scheduled, so this must be tracked across the fold:
     /// a non-immediate request folded into an immediately-scheduled pass
     /// (or flushed early by a folded immediate request) would otherwise lose
     /// its hop silently, leaving the portal parked at geometry read before a
@@ -1476,9 +1468,11 @@ final class WindowTerminalPortal: NSObject {
 
     func detachHostedView(withId hostedId: ObjectIdentifier) {
         guard let entry = entriesByHostedId.removeValue(forKey: hostedId) else {
+            lastDeferredSurfaceRefreshFrames.removeValue(forKey: hostedId)
             clearPresentationNotificationState(for: hostedId)
             return
         }
+        lastDeferredSurfaceRefreshFrames.removeValue(forKey: hostedId)
         clearPresentationNotificationState(for: hostedId)
 #if DEBUG
         lastPortalTargetByHostedId.removeValue(forKey: hostedId)
@@ -1885,6 +1879,12 @@ final class WindowTerminalPortal: NSObject {
     }
 
     private func deferSurfaceRefresh(forHostedId hostedId: ObjectIdentifier, reason: String) {
+        guard let entry = entriesByHostedId[hostedId], let hostedView = entry.hostedView else { return }
+        let frame = hostedView.frame
+        guard lastDeferredSurfaceRefreshFrames[hostedId].map({ !Self.rectApproximatelyEqual($0, frame) }) ?? true else {
+            return
+        }
+        lastDeferredSurfaceRefreshFrames[hostedId] = frame
         pendingDeferredSurfaceRefreshes[hostedId] = reason
         guard !hasDeferredSurfaceRefreshScheduled else { return }
         hasDeferredSurfaceRefreshScheduled = true
@@ -1894,6 +1894,7 @@ final class WindowTerminalPortal: NSObject {
             let pending = self.pendingDeferredSurfaceRefreshes
             self.pendingDeferredSurfaceRefreshes = [:]
             for (pendingId, pendingReason) in pending {
+                self.lastDeferredSurfaceRefreshFrames.removeValue(forKey: pendingId)
                 guard let entry = self.entriesByHostedId[pendingId],
                       entry.visibleInUI,
                       let hostedView = entry.hostedView,
@@ -2908,14 +2909,12 @@ enum TerminalWindowPortalRegistry {
             portal.hideEntries(forWorkspaceID: workspaceID)
         }
     }
-
     /// Permanently detach a hosted terminal view from the window-level portal.
     static func detach(hostedView: GhosttySurfaceScrollView) {
         let hostedId = ObjectIdentifier(hostedView)
         guard let windowId = hostedToWindowId.removeValue(forKey: hostedId) else { return }
         portalsByWindowId[windowId]?.detachHostedView(withId: hostedId)
     }
-
     /// Update visibleInUI on an existing portal entry without rebinding.
     @discardableResult
     static func updateEntryVisibility(for hostedView: GhosttySurfaceScrollView, visibleInUI: Bool) -> Bool {

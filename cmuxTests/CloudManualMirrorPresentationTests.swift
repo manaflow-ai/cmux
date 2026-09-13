@@ -16,25 +16,25 @@ struct CloudManualMirrorPresentationTests {
         gate.begin(baselineFrame: 10)
 
         // A replay may arrive before the native renderer is presented.
-        let beforePresentation = gate.check(attachmentReady: true, rendererPresented: false, frameSequence: 11)
-        #expect(!beforePresentation)
+        let replayBeforePresentation = gate.check(attachmentReady: true, rendererPresented: false, frameSequence: 11)
+        #expect(!replayBeforePresentation)
         #expect(gate.firstPresentedFrame == nil)
         // A frame from the old generation cannot dismiss the loader.
         let staleFrame = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 10)
         #expect(!staleFrame)
         #expect(gate.firstPresentedFrame == nil)
-        let firstFreshFrame = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 11)
-        #expect(firstFreshFrame)
+        let firstPresentedFrame = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 11)
+        #expect(firstPresentedFrame)
         #expect(gate.firstPresentedFrame == 11)
-        let extraFreshFrame = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 12)
-        #expect(!extraFreshFrame)
+        let laterFrame = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 12)
+        #expect(!laterFrame)
 
         // Reconnect establishes a new generation baseline and requires a new frame.
         gate.begin(baselineFrame: 20)
-        let staleReconnectFrame = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 20)
-        #expect(!staleReconnectFrame)
-        let freshReconnectFrame = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 21)
-        #expect(freshReconnectFrame)
+        let reconnectBaseline = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 20)
+        #expect(!reconnectBaseline)
+        let reconnectFrame = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 21)
+        #expect(reconnectFrame)
     }
 
     @Test
