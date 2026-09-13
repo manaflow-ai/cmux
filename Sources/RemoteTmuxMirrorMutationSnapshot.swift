@@ -7,6 +7,7 @@ import Foundation
 struct RemoteTmuxMirrorMutationSnapshot {
     let selectedTabs: [(paneId: PaneID, tabId: TabID)]
     let focusedPaneId: PaneID?
+    let focusedTabId: TabID?
     let tabManager: TabManager?
     let selectedWorkspaceId: UUID?
     let window: NSWindow?
@@ -20,6 +21,7 @@ struct RemoteTmuxMirrorMutationSnapshot {
             workspace.bonsplitController.selectedTab(inPane: paneId).map { (paneId, $0.id) }
         }
         focusedPaneId = workspace.bonsplitController.focusedPaneId
+        focusedTabId = focusedPaneId.flatMap { workspace.bonsplitController.selectedTab(inPane: $0)?.id }
         tabManager = workspace.owningTabManager
         selectedWorkspaceId = tabManager?.selectedTabId
         window = tabManager?.window
@@ -41,11 +43,14 @@ struct RemoteTmuxMirrorMutationSnapshot {
         where workspace.bonsplitController.tabs(inPane: selection.paneId).contains(where: { $0.id == selection.tabId }) {
             workspace.bonsplitController.selectTab(selection.tabId)
         }
-        let focusedTab = selectedTabs.first { $0.paneId == focusedPaneId }?.tabId
-        if let focusedTab, workspace.bonsplitController.tab(focusedTab) != nil {
+        if let focusedTabId,
+           let focusedPane = workspace.bonsplitController.allPaneIds.first(where: {
+               workspace.bonsplitController.tabs(inPane: $0).contains { $0.id == focusedTabId }
+           }) {
             // Topology may move the selected tab into a different pane. Preserve
             // that identity rather than focusing the old pane's replacement tab.
-            workspace.bonsplitController.selectTab(focusedTab)
+            workspace.bonsplitController.focusPane(focusedPane)
+            workspace.bonsplitController.selectTab(focusedTabId)
         } else if let focusedPaneId, workspace.bonsplitController.allPaneIds.contains(focusedPaneId) {
             workspace.bonsplitController.focusPane(focusedPaneId)
         }
