@@ -5,7 +5,7 @@ import CmuxAuthRuntime
 import CmuxIrohTransport
 import CryptoKit
 import Foundation
-import Synchronization
+import os
 import Testing
 
 @testable import cmuxFeature
@@ -381,21 +381,19 @@ private enum MobileIrohCooldownTestError: Error {
 }
 
 private final class MobileIrohCooldownTestClock: Sendable {
-    private let seconds: Atomic<Int64>
+    // lint:allow lock - the deterministic test clock is shared across actor boundaries.
+    private let seconds: OSAllocatedUnfairLock<Int64>
 
     init(_ date: Date) {
-        seconds = Atomic(Int64(date.timeIntervalSince1970))
+        seconds = OSAllocatedUnfairLock(initialState: Int64(date.timeIntervalSince1970))
     }
 
     func now() -> Date {
-        Date(timeIntervalSince1970: TimeInterval(seconds.load(ordering: .relaxed)))
+        Date(timeIntervalSince1970: seconds.withLock { TimeInterval($0) })
     }
 
     func advance(by interval: Int64) {
-        seconds.store(
-            seconds.load(ordering: .relaxed) + interval,
-            ordering: .relaxed
-        )
+        seconds.withLock { $0 += interval }
     }
 }
 

@@ -12,6 +12,11 @@ on:
         description: "UI test class or class/method, for example cmuxUITests/testSignInPairingAndWorkspaceShell"
         required: false
         default: ""
+      ios_version:
+        description: "Optional simulator OS version, for example 17.5, 18.5, or 26.3; empty keeps the default"
+        required: false
+        default: ""
+        type: string
       device_family:
         description: "Simulator family"
         required: false
@@ -29,6 +34,7 @@ on:
         options:
           - auto
           - blacksmith-6vcpu-macos-26
+          - macos-26
           - tart-ios
 
 permissions:
@@ -248,8 +254,27 @@ jobs:
 
       - name: Ensure iOS simulator runtime
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        env:
+          IOS_VERSION: ${{ inputs.ios_version }}
         run: |
           set -euo pipefail
+          if [ -n "$IOS_VERSION" ]; then
+            if xcrun simctl list runtimes available -j | python3 -c '
+          import json, os, re, sys
+          version = os.environ["IOS_VERSION"]
+          if not re.fullmatch(r"[0-9]+(?:\.[0-9]+){0,2}", version):
+              raise SystemExit("Invalid iOS version")
+          raise SystemExit(0 if any(
+              r.get("isAvailable", True)
+              and "iOS" in r.get("identifier", "")
+              and (r.get("version") == version or r.get("version", "").startswith(version + "."))
+              for r in json.load(sys.stdin)["runtimes"]
+          ) else 1)'; then
+              exit 0
+            fi
+            xcodebuild -downloadPlatform iOS -buildVersion "$IOS_VERSION"
+            exit 0
+          fi
           if xcrun simctl list runtimes available | grep -Eq '\biOS\b'; then
             exit 0
           fi
@@ -270,6 +295,7 @@ jobs:
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         env:
           DEVICE_FAMILY: ${{ matrix.family }}
+          IOS_VERSION: ${{ inputs.ios_version }}
         run: |
           set -euo pipefail
           SIMULATOR_ENV="${RUNNER_TEMP:-$PWD/.tmp}/simulator-${DEVICE_FAMILY}.env"
@@ -305,6 +331,10 @@ jobs:
           preferred = ["iPad Pro 13-inch (M4)", "iPad Air 13-inch (M3)"] if family == "ipad" else ["iPhone 17", "iPhone 16"]
           selected = next((d for name in preferred for d in devices if d.get("name") == name), None)
           selected = selected or next((d for d in devices if d.get("name", "").startswith(prefix)), None)
+          requested_version = os.environ.get("IOS_VERSION", "")
+          if requested_version:
+              # Explicit compatibility runs always get their own simulator.
+              selected = None
           if selected is None:
               runtimes = [
                   runtime
@@ -321,12 +351,21 @@ jobs:
                   for device_type in simctl_json("devicetypes").get("devicetypes", [])
                   if device_type.get("name", "").startswith(prefix)
               ]
+              if requested_version:
+                  runtimes = [r for r in runtimes if r.get("version") == requested_version
+                              or r.get("version", "").startswith(requested_version + ".")]
               runtime = max(runtimes, key=version_key, default=None)
+              if requested_version and runtime:
+                  supported = {d["identifier"] for d in runtime.get("supportedDeviceTypes", [])}
+                  if supported:
+                      device_types = [d for d in device_types if d["identifier"] in supported]
+                  # These devices also run on iOS 17; newer hardware may not.
+                  preferred = ["iPad Pro (11-inch) (4th generation)"] if family == "ipad" else ["iPhone 15", "iPhone 14"]
               device_type = next((d for name in preferred for d in device_types if d.get("name") == name), None)
               device_type = device_type or (device_types[-1] if device_types else None)
               if runtime is None or device_type is None:
                   raise SystemExit(f"No available {family} simulator or creatable iOS runtime/device type found")
-              created_name = f"cmux CI {device_type['name']}"
+              created_name = f"cmux CI {os.environ.get('GITHUB_RUN_ID', 'local')} {device_type['name']}"
               udid = subprocess.check_output([
                   "xcrun",
                   "simctl",
@@ -342,6 +381,8 @@ jobs:
               )
           print(f"SIMULATOR_ID={selected['udid']}")
           print(f"SIMULATOR_NAME={selected['name']}")
+          if requested_version:
+              print(f"IOS_TEST_RUNTIME={runtime['version']}")
           PY
           cat "$SIMULATOR_ENV"
           cat "$SIMULATOR_ENV" >> "$GITHUB_ENV"
@@ -438,6 +479,12 @@ jobs:
             ${{ env.IOS_DERIVED_DATA }}/Logs/Test/*.xcresult
             ${{ env.IOS_DERIVED_DATA }}/logs/*.log
           retention-days: 7
+
+      - name: Remove compatibility simulator
+        if: ${{ always() && inputs.ios_version != '' && env.SIMULATOR_ID != '' }}
+        run: |
+          xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
+          xcrun simctl delete "$SIMULATOR_ID"
 
   ios-tests:
     name: ios-tests

@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "CmuxIrohTransport",
     platforms: [
-        .iOS(.v18),
+        .iOS(.v17),
         .macOS(.v14),
     ],
     products: [
@@ -18,7 +18,7 @@ let package = Package(
         .package(path: "../CMUXMobileCore"),
         .package(
             url: "https://github.com/manaflow-ai/iroh-ffi.git",
-            exact: "1.0.2-cmux.7"
+            exact: "1.0.2-cmux.7.ios17.1"
         ),
     ],
     targets: [

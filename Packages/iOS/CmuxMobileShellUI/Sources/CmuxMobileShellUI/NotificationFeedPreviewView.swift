@@ -140,7 +140,7 @@ public struct NotificationFeedPreviewView: View {
                         defaultValue: "Workspace"
                     )
             )
-            .toolbarVisibility(.hidden, for: .tabBar)
+            .mobileToolbarVisibility(.hidden, for: .tabBar)
         }
     }
 

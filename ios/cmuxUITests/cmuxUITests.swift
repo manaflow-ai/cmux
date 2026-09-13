@@ -3714,6 +3714,51 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testPrimaryTabsPreserveWorkspaceNavigationAcrossSupportedOSVersions() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+        ])
+        defer { app.terminate() }
+
+        let workspaceRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+        XCTAssertTrue(workspaceRow.waitForExistence(timeout: 8))
+        let workspaces = app.tabBars.buttons["Workspaces"]
+        let notifications = app.tabBars.buttons["Notifications"]
+        XCTAssertTrue(workspaces.waitForExistence(timeout: 3))
+        XCTAssertTrue(notifications.waitForExistence(timeout: 3))
+
+        notifications.tap()
+        XCTAssertTrue(app.staticTexts["Notification feed fixture"].waitForExistence(timeout: 3))
+        XCTAssertTrue(notifications.isSelected)
+        workspaces.tap()
+        XCTAssertTrue(workspaceRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(workspaces.isSelected)
+
+        workspaceRow.tap()
+        let detail = app.descendants(matching: .any)["FixtureWorkspaceDetail"]
+        XCTAssertTrue(detail.waitForExistence(timeout: 3))
+        XCTAssertFalse(workspaces.isHittable, "Detail must hide the primary tab bar on every supported OS")
+        let detailScreenshot = XCTAttachment(screenshot: app.screenshot())
+        detailScreenshot.name = "primary-tabs-hidden-in-workspace"
+        detailScreenshot.lifetime = .keepAlways
+        add(detailScreenshot)
+
+        // iOS 17 can report an invalid navigation-bar ancestor frame even
+        // while Back is visible. The shared helper taps its measured frame;
+        // the assertions below still require a real pop and usable tabs.
+        tap(app.buttons["MobileWorkspaceBackButton"], in: app)
+        XCTAssertTrue(workspaceRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(waitForHittable(notifications, timeout: 3))
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "primary-tabs-os-compatibility"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    @MainActor
     func testSearchRemainsStableAcrossPrimaryRoots() throws {
         guard #available(iOS 26.0, *) else {
             throw XCTSkip("The detached workspace search control requires iOS 26.")

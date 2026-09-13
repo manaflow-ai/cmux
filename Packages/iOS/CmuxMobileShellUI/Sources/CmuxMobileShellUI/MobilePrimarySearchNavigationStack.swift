@@ -26,7 +26,7 @@ struct MobilePrimarySearchNavigationStack<Root: View, Destination: View>: View {
         .onSubmit(of: .search) {
             selection = searchCoordinator.commitSubmit()
         }
-        .toolbarVisibility(path.isEmpty ? .automatic : .hidden, for: .tabBar)
+        .mobileToolbarVisibility(path.isEmpty ? .automatic : .hidden, for: .tabBar)
     }
 
     private var searchPresentation: Binding<Bool> {
