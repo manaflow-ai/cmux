@@ -425,18 +425,12 @@ import Testing
         }
     }
 
-    /// Cloud projections must send Codex's accepted title to the exact daemon tab
-    /// behind the local panel. A local-only title leaves the Cloud sidebar stuck
-    /// on the process fallback (usually "terminal") and makes the next rename
-    /// target depend on stale display text.
     @Test func codexNativeTitleSyncRenamesCloudPlacementByStableTabID() async throws {
         try await withAutoNamingSettingAsync(false) {
             try await withManagerAsync { _, workspace in
                 let panelId = try #require(workspace.focusedPanelId)
-                let machine = SurfaceMachineID.cloud("codex-title-(UUID().uuidString)")
-                let remoteWorkspace = SurfaceRemoteWorkspace(
-                    id: "workspace-1", name: "Cloud workspace", index: 0, focused: true
-                )
+                let machine = SurfaceMachineID.cloud("codex-title-\(UUID().uuidString)")
+                let remoteWorkspace = SurfaceRemoteWorkspace(id: "workspace-1", name: "Cloud workspace", index: 0, focused: true)
                 let resource = SurfaceResource(
                     id: SurfaceResourceID(machine: machine, kind: .terminal, key: "terminal-1"),
                     title: "terminal", detail: "/workspace", lifecycle: .running, agent: nil,
@@ -448,13 +442,8 @@ import Testing
                 let provider = CloudPlacementTestProvider(machine: machine)
                 catalog.register(provider)
                 catalog.upsert(resource)
-                catalog.record(SurfaceProjection(
-                    resource: resource.id,
-                    workspaceID: workspace.id,
-                    panelID: panelId,
-                    remoteWorkspaceID: remoteWorkspace.id,
-                    remoteTabID: "tab-stable"
-                ))
+                catalog.record(SurfaceProjection(resource: resource.id, workspaceID: workspace.id, panelID: panelId,
+                                                remoteWorkspaceID: remoteWorkspace.id, remoteTabID: "tab-stable"))
                 defer {
                     catalog.endProjections(panelID: panelId, reason: .replaced)
                     catalog.unregister(machine: machine)
@@ -472,7 +461,8 @@ import Testing
                 #expect(workspace.panelCustomTitleSources[panelId] == .auto)
 
                 try await catalog.cloudRenameCoordinator.waitForPendingRenames(on: machine)
-                #expect(provider.renamedTabs == [("tab-stable", title)])
+                #expect(provider.renamedTabs.map(\.id) == ["tab-stable"])
+                #expect(provider.renamedTabs.map(\.name) == [title])
             }
         }
     }
