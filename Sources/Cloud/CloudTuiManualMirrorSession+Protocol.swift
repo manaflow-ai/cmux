@@ -59,12 +59,14 @@ extension CloudTuiManualMirrorSession {
             }
             attachResponseReceived = true
             remoteLease = lease
+            startupTrace?.mark("attach-ack", surfaceID: remoteSurfaceID, outcome: "accepted")
             transition(to: .attached)
             watchdog.armLiveness(
                 probe: { [weak self] in self?.sendPing() },
                 onExpiry: { [weak self] in self?.deadlineExpired(.livenessTimedOut, while: .attached) }
             )
             if let connection { inputRouter.setConnection(connection) }
+            startupTrace?.mark("input-ready", surfaceID: remoteSurfaceID)
             resumeSizingIfNeeded()
         case .ping:
             watchdog.noteProbeAnswered()

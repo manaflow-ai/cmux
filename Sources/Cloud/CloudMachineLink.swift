@@ -1,5 +1,4 @@
 import Foundation
-
 /// Bounded recovery for the event side channel. The command socket remains usable while the
 /// feed is repaired, but a broken child process must never create an infinite spawn loop.
 struct CloudMachineLinkEventsRecoveryPolicy: Sendable, Equatable {
@@ -298,6 +297,7 @@ actor CloudMachineLink {
                 self.processExit = nil
             }
             await releaseHubLeaseOnce()
+            if Task.isCancelled { throw CancellationError() }
             throw error
         }
         let connected = Connected(socketPath: socketPath, session: session)

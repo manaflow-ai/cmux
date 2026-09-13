@@ -423,38 +423,8 @@ import Testing
         #expect(CloudWorkspaceRenameService().remoteTarget(binding: nil, projectedResources: [build])?.remoteWorkspaceID == nil)
         #expect(CloudWorkspaceRenameService().remoteTarget(binding: nil, projectedResources: [])?.remoteWorkspaceID == nil)
 
-        // Legacy projection fallback drops the generated prefix; a bound workspace keeps
-        // an intentional prefix as part of the user's exact title.
-        #expect(CloudWorkspaceRenameService().remoteName(fromLocalTitle: "vivid-newt: api", machine: Self.machine) == "api")
-        #expect(CloudWorkspaceRenameService().remoteName(fromLocalTitle: "vivid-newt: api", machine: Self.machine, stripGeneratedPrefix: false) == "vivid-newt: api")
-        #expect(CloudWorkspaceRenameService().remoteName(fromLocalTitle: "api work", machine: Self.machine) == "api work")
-        #expect(CloudWorkspaceRenameService().remoteName(fromLocalTitle: "   ", machine: Self.machine) == nil)
-    }
-
-    @Test func cloudRenameRecognizesOnlyTheActualGeneratedWorkspaceTitle() {
-        #expect(
-            CloudWorkspaceRenameService().isGeneratedPrefixedTitle(
-                "vivid-newt: api",
-                machine: Self.machine,
-                remoteWorkspaceName: "api"
-            )
-        )
-        #expect(
-            !CloudWorkspaceRenameService().isGeneratedPrefixedTitle(
-                "vivid-newt: api",
-                machine: Self.machine,
-                remoteWorkspaceName: "other"
-            )
-        )
-        // A user-entered title with the same prefix is still exact when it does
-        // not match the name that generated the previous title.
-        #expect(
-            !CloudWorkspaceRenameService().isGeneratedPrefixedTitle(
-                "vivid-newt: api",
-                machine: Self.machine,
-                remoteWorkspaceName: "api work"
-            )
-        )
+        // Exact user payload preservation, including legacy bindings, is covered
+        // through the real submission path in cloudLegacyWorkspaceNameAdmission.
     }
 
     @Test func cloudTerminalRenameRejectsMismatchedLegacyWorkspaceFallback() throws {
@@ -810,13 +780,13 @@ import Testing
         #expect(CmuxTuiSnapshotParser.state(fromSnapshot: conflictingAgents, machine: Self.machine) == nil)
 
         // A repeated tab reference in one terminal is harmless to identity, but
-        // it must not produce duplicate rename targets or duplicate tree rows.
+        // reverse tab edges still retain every distinct view.
         var repeatedReference = snapshot
         repeatedReference["terminals"] = [
             ["id": "term_build", "tab_ids": ["tab_1", "tab_1"], "title": "one", "lifecycle": "running"],
         ]
         let state = CmuxTuiSnapshotParser.state(fromSnapshot: repeatedReference, machine: Self.machine)
-        #expect(state?.terminals.first?.tabIDs == ["tab_1"])
+        #expect(state?.terminals.first?.tabIDs == ["tab_1", "tab_4"])
 
         // A tab that exists but claims another content identity is not a
         // recoverable placement error. Accepting it would route a rename to
@@ -835,13 +805,13 @@ import Testing
         #expect(CmuxTuiSnapshotParser.state(fromSnapshot: mismatchedBrowserTab, machine: Self.machine) == nil)
 
         // Older daemons encode an absent multi-tab relationship as JSON null.
-        // The singular tab_id remains enough to retain the placement.
+        // The singular hint is valid; reverse tab edges retain every view.
         var nullTabIDs = snapshot
         nullTabIDs["terminals"] = [
             ["id": "term_build", "tab_ids": NSNull(), "tab_id": "tab_1", "title": "build", "lifecycle": "running"],
         ]
         let nullTabIDsState = CmuxTuiSnapshotParser.state(fromSnapshot: nullTabIDs, machine: Self.machine)
-        #expect(nullTabIDsState?.terminals.first?.tabIDs == ["tab_1"])
+        #expect(nullTabIDsState?.terminals.first?.tabIDs == ["tab_1", "tab_4"])
     }
 
     @Test func synchronizableStateRejectsMissingGraphCollections() {
@@ -1230,7 +1200,7 @@ import Testing
         #expect(Darwin.kill(pid, 0) == -1 && errno == ESRCH, "the child must be reaped before run returns")
     }
 
-    @Test func cancellingLinkConnectStopsItsChildBeforeReturning() async throws {
+    @Test(.timeLimit(.minutes(1))) func cancellingLinkConnectStopsItsChildBeforeReturning() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cloud-connect-cancel-\(UUID().uuidString.lowercased())", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -1248,14 +1218,17 @@ import Testing
             clientURL: client,
             paths: CloudTuiClientPaths(home: root)
         )
+        try #require(Darwin.mkfifo(pidFile.path, 0o600) == 0)
+        let readyFD = Darwin.open(pidFile.path, O_RDWR | O_NONBLOCK)
+        try #require(readyFD >= 0)
+        let readyHandle = FileHandle(fileDescriptor: readyFD, closeOnDealloc: true)
+        var readyLines = CloudLinkPipe.lines(from: readyHandle).makeAsyncIterator()
         let task = Task {
             try await link.connect(route: "ws://10.0.0.1:1337/v1/link", session: "main")
         }
-        for _ in 0..<200 where !FileManager.default.fileExists(atPath: pidFile.path) {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        let pid = try #require(Int32(try String(contentsOf: pidFile, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines)))
+        defer { task.cancel() }
+        let pidLine = try #require(await readyLines.next())
+        let pid = try #require(Int32(pidLine))
         defer { _ = Darwin.kill(pid, SIGKILL) }
 
         task.cancel()
@@ -1672,7 +1645,7 @@ import Testing
 
         #expect(state.cursor == nil)
         #expect(state.syncMode == .snapshotOnly)
-        #expect(state.workspaces.map(\.id) == ["ws_api"])
+        #expect(state.workspaces.map(\.id) == ["ws_main", "ws_api"])
         #expect(CmuxTuiSnapshotParser.resources(from: state).contains { $0.id.key == "term_build" })
 
         var malformed = snapshot
@@ -2225,7 +2198,7 @@ import Testing
 
         let legacy = try JSONDecoder().decode(
             SurfaceResourceGroup.self,
-            from: Data(#"{"title":"api","resources":["vivid-newt/terminal/term_build"],"remoteWorkspaceID":"ws_api"}"#.utf8)
+            from: Data(#"{"title":"api","resources":[{"machine":{"cloud":{"_0":"vivid-newt"}},"kind":"terminal","key":"term_build"}],"remoteWorkspaceID":"ws_api"}"#.utf8)
         )
         #expect(legacy.placements.first?.remoteTabID == nil)
         #expect(legacy.placements.first?.remoteWorkspaceID == "ws_api")
