@@ -99,8 +99,13 @@ extension Workspace {
             )
         }
         let project: CloudTerminalCreationCoordinator.Project = { [weak self, weak pendingPanel] resource in
-            if let pendingPanel {
-                guard let self, self.panels[pendingPanel.id] != nil else {
+            // A close can race the provider result. The temporary panel is the
+            // operation's cancellation fence, so never project a terminal after
+            // its pane has gone away.
+            if pendingPane != nil {
+                guard let pendingPanel,
+                      let self,
+                      self.panels[pendingPanel.id] != nil else {
                     throw CancellationError()
                 }
             }
