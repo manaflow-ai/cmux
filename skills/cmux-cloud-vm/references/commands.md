@@ -4,6 +4,8 @@ Every verb the cmux CLI exposes for cmux Cloud, as it exists on this branch. `cm
 
 ## Conventions
 
+- Socket method `vm.diagnostics` is available through `cmux vm diagnostics <id>` for collecting machine diagnostics.
+
 - **Requires** the cmux app running on the Mac, a signed-in account (`cmux auth status`), and the WireGuard tunnel up (`cmux vpn up`) — machines live on a private per-user network with no public ports, so attach/exec/port verbs need it. Every verb talks to the app over its Unix socket (`CMUX_SOCKET_PATH` when set; the app's default socket otherwise) — the app, not the CLI, holds the cloud credentials. The guest `cmux self` and `cmux vm self` commands are the exception: they run inside a machine through its edge-injected credential.
 - **`--json`** is a global flag: it may appear before or after the subcommand and prints the socket payload (or the CLI's own summary object, noted per verb) instead of text. Parse JSON, never the human tables.
 - **`--help` / `-h`** works offline (no app needed). `cmux vm --help` is the overview; `cmux vm run --help`, `route`, `agent`, `push`, `pull`, `wait`, `open`, `tree`, `workspace`, `terminal`, `tui`, `prompt`, `base`, and `domains` print that verb's own options (`cmux vm terminal --help` covers close, send, read, and wait). `resize` is documented in the overview because its compact validation usage is emitted inline. Anything after `--` is never treated as a help flag (`cmux vm exec <id> -- --help` runs `--help` on the machine).
