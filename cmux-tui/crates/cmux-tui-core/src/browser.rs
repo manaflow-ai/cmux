@@ -1246,6 +1246,16 @@ impl BrowserRuntime {
     }
 }
 
+impl Drop for BrowserRuntime {
+    fn drop(&mut self) {
+        if let Ok(downloads) = self.downloads.get_mut()
+            && let Some(directory) = downloads.directory.take()
+        {
+            let _ = fs::remove_dir_all(directory);
+        }
+    }
+}
+
 pub(crate) enum BrowserBootstrap {
     ExistingTarget { target_id: String, url: String },
     Provider { tab_id: crate::resource::TabPublicId, url: String },
