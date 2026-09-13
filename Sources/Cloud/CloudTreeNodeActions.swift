@@ -364,9 +364,10 @@ struct CloudTreeNodeActions {
             refresh: refresh
         )
         actions.refreshMachine = refreshMachine
+        let navigationRun: CloudTreeTerminalNavigationCoordinator.Run = { run($0, $1) }
         let navigation = CloudTreeTerminalNavigationCoordinator(
             machineName: machineName,
-            run: run,
+            run: navigationRun,
             operationController: operationController ?? AppDelegate.shared?.cloudWorkspaceOperationController
         )
         actions.openRemoteTerminal = { navigation.open(machine: $0, group: $1, resource: $2, view: $3, openIn: $4) }
@@ -405,17 +406,18 @@ struct CloudTreeNodeActions {
         name: String?,
         focus: Bool,
         openLocally: Bool = true,
-        existingWorkspace: SurfaceRemoteWorkspace? = nil
+        existingWorkspace: SurfaceRemoteWorkspace? = nil,
+        existingTerminal: SurfaceResource? = nil,
+        onReceipt: @MainActor (SurfaceRemoteWorkspace, SurfaceResource?) -> Void = { _, _ in }
     ) async throws -> (
         workspace: SurfaceRemoteWorkspace,
         terminal: SurfaceResource,
         opened: (workspaceID: UUID, projections: [SurfaceProjection])?
     ) {
-        let workspace: SurfaceRemoteWorkspace
-        if let existingWorkspace { workspace = existingWorkspace }
-        else { workspace = try await provider.createRemoteWorkspace(name: name) }
+        let workspace: SurfaceRemoteWorkspace = if let existingWorkspace { existingWorkspace } else { try await provider.createRemoteWorkspace(name: name) }
+        onReceipt(workspace, nil)
         await provider.refresh()
-        let existing = catalog.snapshot.resources(on: machine).first { resource in
+        let existing = existingTerminal ?? catalog.snapshot.resources(on: machine).first { resource in
             resource.id.kind == .terminal && resource.remoteWorkspaces.contains { $0.id == workspace.id }
         }
         let terminal: SurfaceResource
@@ -424,9 +426,7 @@ struct CloudTreeNodeActions {
         } else {
             terminal = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: workspace.id)
         }
-        // Headless staging (`cmux vm workspace new --no-open`): the machine workspace and
-        // its starter terminal are created, but nothing local is created or focused. A
-        // later layout apply may target this workspace only when it is still empty.
+        onReceipt(workspace, terminal)
         guard openLocally else { return (workspace, terminal, nil) }
         let placement = SurfaceResourcePlacement(
             resource: terminal.id,
@@ -450,6 +450,7 @@ struct CloudTreeNodeActions {
             remoteWorkspaceID: workspace.id,
             generatedTitle: localWorkspaceTitle(hostName: resolvedMachineName(machine, snapshot: catalog.snapshot), group: group)
         )
+        if focus, let first = opened.projections.first { SurfacePaneFactory.focus(panelID: first.panelID, in: first.workspaceID) }
         return (workspace, terminal, opened)
     }
 
