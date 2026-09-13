@@ -292,13 +292,27 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
 
 /// Additive migration: pre-authority labels remain user-owned.
 pub(super) fn migrate_tab_name_authority(connection: &Connection) -> anyhow::Result<()> {
-    let columns = connection.prepare("PRAGMA table_info(resource_tabs)")?
+    let columns = connection
+        .prepare("PRAGMA table_info(resource_tabs)")?
         .query_map([], |row| row.get::<_, String>(1))?
         .collect::<Result<Vec<_>, _>>()?;
     if !columns.iter().any(|column| column == "name_source") {
-        connection.execute_batch("ALTER TABLE resource_tabs ADD COLUMN name_source TEXT NOT NULL DEFAULT 'user';
-            ALTER TABLE resource_tabs ADD COLUMN name_revision INTEGER NOT NULL DEFAULT 0;")?;
+        connection.execute_batch(
+            "ALTER TABLE resource_tabs ADD COLUMN name_source TEXT NOT NULL DEFAULT 'user';
+            ALTER TABLE resource_tabs ADD COLUMN name_revision INTEGER NOT NULL DEFAULT 0;",
+        )?;
     }
+    // Older daemons omit the new columns. Their actual name edits must claim
+    // user ownership instead of inheriting a prior automatic writer's source.
+    connection.execute_batch(
+        "CREATE TRIGGER IF NOT EXISTS resource_tab_legacy_name_owner
+         AFTER UPDATE OF name ON resource_tabs
+         WHEN NEW.name IS NOT OLD.name AND NEW.name_revision = OLD.name_revision
+         BEGIN
+           UPDATE resource_tabs SET name_source = 'user', name_revision = NEW.updated_revision
+           WHERE public_id = NEW.public_id;
+         END;",
+    )?;
     Ok(())
 }
 
@@ -1486,7 +1500,8 @@ impl WorkspaceRegistry {
                         content_id,
                         name,
                         name_source: serde_json::from_value(json!(name_source))?,
-                        name_revision: u64::try_from(name_revision).context("negative name revision")?,
+                        name_revision: u64::try_from(name_revision)
+                            .context("negative name revision")?,
                         browser_url,
                         terminal_id,
                     })

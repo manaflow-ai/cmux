@@ -2688,12 +2688,18 @@ fn cloud_rename_authority_persists_across_registry_restart() {
         tab.name = Some(chosen.into());
         tab.name_source = crate::resource_name::NameSource::Auto;
         tab.name_revision = 2;
-        registry.commit_resource_patch(
-            &WorkspaceMutation::new("name", "test").unwrap(), "tab.rename",
-            &json!({"name":chosen}), None, Some(1),
-            &ResourcePatch { changes: vec![ResourceChange::UpsertTab(tab)] },
-            &json!({}), &json!([]),
-        ).unwrap();
+        registry
+            .commit_resource_patch(
+                &WorkspaceMutation::new("name", "test").unwrap(),
+                "tab.rename",
+                &json!({"name":chosen}),
+                None,
+                Some(1),
+                &ResourcePatch { changes: vec![ResourceChange::UpsertTab(tab)] },
+                &json!({}),
+                &json!([]),
+            )
+            .unwrap();
         registry.resource_topology_snapshot().unwrap()
     };
     let restored = WorkspaceRegistry::open(&root, "session").unwrap();
@@ -2703,6 +2709,14 @@ fn cloud_rename_authority_persists_across_registry_restart() {
     assert_eq!(after.tabs[0].name_source, crate::resource_name::NameSource::Auto);
     assert_eq!(after.tabs[0].name_revision, 2);
     assert_ne!(after.generation, before.generation);
+    // Simulate a pre-authority daemon's SQL update: it cannot write the new columns.
+    restored.connection.execute(
+        "UPDATE resource_tabs SET name = 'Legacy user name', updated_revision = 3 WHERE public_id = ?1",
+        [after.tabs[0].public_id.as_str()],
+    ).unwrap();
+    let legacy = restored.resource_topology_snapshot().unwrap();
+    assert_eq!(legacy.tabs[0].name_source, crate::resource_name::NameSource::User);
+    assert_eq!(legacy.tabs[0].name_revision, 3);
     drop(restored);
     fs::remove_dir_all(root).unwrap();
 }

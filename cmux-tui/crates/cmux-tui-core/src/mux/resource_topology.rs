@@ -893,7 +893,12 @@ impl Mux {
                 let tab_id = resolved.path.tab.context("tab selector has no public id")?;
                 let topology = registry.resource_topology_snapshot()?;
                 let mut durable = topology_tab(&topology, &tab_id)?.clone();
-                authority.apply(&mut durable, name.clone(), &topology.generation, topology.revision)?;
+                authority.apply(
+                    &mut durable,
+                    name.clone(),
+                    &topology.generation,
+                    topology.revision,
+                )?;
                 let value = tab_value(&durable, &topology)?;
                 let result = json!({"tab":tab_id});
                 let deltas = upserts([("tab", tab_id.as_str(), value)]);

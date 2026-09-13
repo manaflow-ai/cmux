@@ -211,6 +211,7 @@ extension CMUXCLI {
             lines: lines,
             lineCount: textFileGrowthMetric(path: transcriptPath, fallbackLineCount: lines.count),
             sessionStore: sessionStore,
+            cloudNameContext: probe["cloud_name_context"],
             client: client,
             missingOverride: resolution.missingOverride,
             telemetryKey: "codex-hook.auto-name",

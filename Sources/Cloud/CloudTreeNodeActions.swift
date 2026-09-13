@@ -337,7 +337,7 @@ struct CloudTreeNodeActions {
                     title: String(format: String(localized: "cloudTree.renameTerminal.title", defaultValue: "Rename \u{201C}%@\u{201D}"), current),
                     current: current,
                     allowsClear: true
-                ), name != current else { return }
+                ) else { return }
                 let operationLabel = name.isEmpty
                     ? String(format: String(localized: "cloudTree.operation.clearTerminal", defaultValue: "Clearing %@\u{2026}"), current)
                     : String(format: String(localized: "cloudTree.operation.renameTerminal", defaultValue: "Renaming %@\u{2026}"), current)

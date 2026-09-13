@@ -34,8 +34,8 @@ final class CloudNameAuthorityTestProvider: SurfaceAgentNaming {
             "workspaces": ["a", "b"].map { ["id": $0, "name": "Same workspace"] },
             "screens": ["a", "b"].map { ["id": "screen_" + $0, "workspace_id": $0] },
             "panes": ["a", "b"].map { ["id": "pane_" + $0, "screen_id": "screen_" + $0] },
-            "tabs": ["a", "b"].map { ["id": "tab_" + $0, "pane_id": "pane_" + $0,
-                "content_kind": "terminal", "content_id": "term_" + $0,
+            "tabs": ["b", "a"].map { ["id": "tab_" + $0, "pane_id": "pane_" + $0,
+                "content_kind": "terminal", "content_id": "term_a",
                 "name_source": "user", "name_revision": "0"] },
             "terminals": ["a", "b"].map { ["id": "term_" + $0, "title": "terminal", "lifecycle": "running"] },
             "browsers": [], "agents": []

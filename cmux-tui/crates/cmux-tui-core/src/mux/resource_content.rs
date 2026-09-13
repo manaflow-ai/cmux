@@ -874,7 +874,9 @@ impl Mux {
                         };
                         let tab = RegistryTab {
                             name_source: before_tab.map(|tab| tab.name_source).unwrap_or_default(),
-                            name_revision: before_tab.map(|tab| tab.name_revision).unwrap_or_default(),
+                            name_revision: before_tab
+                                .map(|tab| tab.name_revision)
+                                .unwrap_or_default(),
                             public_id: identity.tab_id.clone(),
                             pane_id: pane.public_id.clone(),
                             position,

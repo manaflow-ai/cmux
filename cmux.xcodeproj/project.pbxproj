@@ -776,6 +776,7 @@
 		A12481000000000000000001 /* CloudSidebarScaleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12481000000000000000002 /* CloudSidebarScaleTests.swift */; };
 		4DB42AF8827945DFADF7C4D4 /* CloudSidebarSurfaceRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3E5958FB85E4B97957D4F73 /* CloudSidebarSurfaceRegressionTests.swift */; };
 		E2B852A520D64882866D700C /* CloudTabNameAuthority.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD1C27A86AE4440C848A1B61 /* CloudTabNameAuthority.swift */; };
+		1B425E2EA8D5475B94ED1BC1 /* CloudTabNameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF9BB61CBFC4479997B23A3A /* CloudTabNameSource.swift */; };
 		CCBC23BCB453E9A38F16DB2D /* CloudTelemetryClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF35B9235AD817EE95281459 /* CloudTelemetryClient.swift */; };
 		A38052AB06B7E0B46A215689 /* CloudTelemetrySending.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EBCFB7E8CD8163F74525C53 /* CloudTelemetrySending.swift */; };
 		3C939B66FD8358A0E08156BD /* CloudTelemetrySpan.swift in Sources */ = {isa = PBXBuildFile; fileRef = D995157010FFC40EB0D7460B /* CloudTelemetrySpan.swift */; };
@@ -4511,6 +4512,7 @@
 		A12481000000000000000002 /* CloudSidebarScaleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudSidebarScaleTests.swift; sourceTree = "<group>"; };
 		F3E5958FB85E4B97957D4F73 /* CloudSidebarSurfaceRegressionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudSidebarSurfaceRegressionTests.swift; sourceTree = "<group>"; };
 		BD1C27A86AE4440C848A1B61 /* CloudTabNameAuthority.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTabNameAuthority.swift"; sourceTree = "<group>"; };
+		AF9BB61CBFC4479997B23A3A /* CloudTabNameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTabNameSource.swift"; sourceTree = "<group>"; };
 		FF35B9235AD817EE95281459 /* CloudTelemetryClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTelemetryClient.swift"; sourceTree = "<group>"; };
 		3EBCFB7E8CD8163F74525C53 /* CloudTelemetrySending.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTelemetrySending.swift"; sourceTree = "<group>"; };
 		D995157010FFC40EB0D7460B /* CloudTelemetrySpan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTelemetrySpan.swift"; sourceTree = "<group>"; };
@@ -7706,6 +7708,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				E3528E32A29B49E99C636F0B /* CmuxTuiSurfaceProvider+AgentNaming.swift */,
 				024F0948012A442588DAAB27 /* CloudVMTabState.swift */,
 				BD1C27A86AE4440C848A1B61 /* CloudTabNameAuthority.swift */,
+				AF9BB61CBFC4479997B23A3A /* CloudTabNameSource.swift */,
 				70C2D3786C88493F9C30B299 /* CloudAgentNameContext.swift */,
 				D12439060000000000000002 /* CloudWorkspaceBindingReconciliation.swift */,
 				1660E446B91349C08725BFFF /* CloudWorkspaceProjectionPlan.swift */,
@@ -12147,6 +12150,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				595EC249E2E015ACE304F0EE /* CloudRemoteOperationStep.swift in Sources */,
 				B12438020000000000000001 /* CloudRenameCoordinator.swift in Sources */,
 				E2B852A520D64882866D700C /* CloudTabNameAuthority.swift in Sources */,
+				1B425E2EA8D5475B94ED1BC1 /* CloudTabNameSource.swift in Sources */,
 				CCBC23BCB453E9A38F16DB2D /* CloudTelemetryClient.swift in Sources */,
 				A38052AB06B7E0B46A215689 /* CloudTelemetrySending.swift in Sources */,
 				3C939B66FD8358A0E08156BD /* CloudTelemetrySpan.swift in Sources */,

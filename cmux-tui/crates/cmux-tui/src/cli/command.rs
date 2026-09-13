@@ -914,6 +914,7 @@ fn parse_tab_strings(
         }
         [selector, "rename"] => {
             selectors.insert("tab", "tab", selector)?;
+            add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             request_with_required_name(ResourceOperation::TabRename, selectors, flags)
         }
         [selector, "move"] => {
@@ -2238,7 +2239,12 @@ fn request_with_required_name(
     if operation == ResourceOperation::TabRename {
         insert_optional_string(&mut params, flags, "source", "source");
         insert_optional_string(&mut params, flags, "expected-generation", "expected_generation");
-        insert_optional_string(&mut params, flags, "expected-name-revision", "expected_name_revision");
+        insert_optional_string(
+            &mut params,
+            flags,
+            "expected-name-revision",
+            "expected_name_revision",
+        );
     }
     request(operation, selectors, flags, params)
 }
@@ -4475,8 +4481,22 @@ mod tests {
                 ],
                 "tab.create_browser",
             ),
-            (vec!["tab", TAB, "rename", "--name", "logs", "--source", "auto",
-                "--expected-generation", "daemon", "--expected-name-revision", "0"], "tab.rename"),
+            (
+                vec![
+                    "tab",
+                    TAB,
+                    "rename",
+                    "--name",
+                    "logs",
+                    "--source",
+                    "auto",
+                    "--expected-generation",
+                    "daemon",
+                    "--expected-name-revision",
+                    "0",
+                ],
+                "tab.rename",
+            ),
             (
                 vec![
                     "tab",

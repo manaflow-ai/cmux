@@ -163,4 +163,16 @@ extension SetAutoTitleSocketTests {
         }
     }
 
+    @Test("A user confirming the same agent text claims the name")
+    func cloudSameTextClaimsUserOwnership() async throws {
+        try await withCloudNameFixture { fixture in
+            try await fixture.agentName("Keep this name")
+            #expect(fixture.workspace.setPanelCustomTitle(panelId: fixture.panelID, title: "Keep this name"))
+            try await fixture.settle()
+            #expect(fixture.provider.graph.lookupIndex.tab(id: "tab_a")?.nameAuthority?.source == .user)
+            #expect(fixture.catalog.cloudAgentNameContext(workspaceID: fixture.workspace.id, panelID: fixture.panelID) == nil)
+            try fixture.expectParity("Keep this name")
+        }
+    }
+
 }
