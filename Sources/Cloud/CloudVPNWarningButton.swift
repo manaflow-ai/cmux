@@ -32,6 +32,12 @@ final class CloudVPNWarningButton: NSButton {
         setup(window)
     }
 
+    override func accessibilityPerformPress() -> Bool {
+        guard isEnabled else { return false }
+        performClick(nil)
+        return true
+    }
+
     override func keyDown(with event: NSEvent) {
         if [UInt16(36), 76, 49].contains(event.keyCode) {
             performClick(nil)
