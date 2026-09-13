@@ -7537,12 +7537,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				278BEFB3583AED9627966DFF /* SurfaceSocketCommands.swift */,
 				47BBA1A8703756FDDFD53CF3 /* Workspace+SurfaceCatalog.swift */,
 				C5797FE9CD70513E4FFAC6EB /* Workspace+CloudPaneRouting.swift */,
-				0581DFBCDBEE482A8D4CDB6C /* CloudVMLoadingPanelView.swift */,
-				E8F65851AB2C41B7BE541DFE /* CloudTerminalPendingPanelView.swift */,
-				FD334809DDDD41EFAA9D90D0 /* CloudTerminalPendingPanel.swift */,
-				B4F7D1C29A6E43B8C5D0E2F1 /* CloudTerminalPendingState.swift */,
 				380FC55EF1BE4EBC8E8352FC /* Workspace+CloudTerminalCreation.swift */,
-				9720CD7F02C94F41A07E193D /* CloudTerminalCreationCoordinator.swift */,
 				1EDD243C7C87A2AB78B12BAD /* LocalSurfaceProvider.swift */,
 				A1B2C3D4E5F6071827364960 /* CmuxTuiSurfaceProviderRegistry.swift */,
 				63F5BDFB110A8A96C9CA0A75 /* CmuxTuiSurfaceProviders.swift */,
@@ -9614,6 +9609,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D0C2DEE58D119E3588D1DEBE /* TerminalNotificationOrigin.swift */,
 				719B6457B507938674F1E684 /* NSView+WindowPointHitTest.swift */,
 				B2EFC94293EC97FE78539D9E /* NotificationTextSanitizer.swift */,
+				0581DFBCDBEE482A8D4CDB6C /* CloudVMLoadingPanelView.swift */,
+				E8F65851AB2C41B7BE541DFE /* CloudTerminalPendingPanelView.swift */,
+				FD334809DDDD41EFAA9D90D0 /* CloudTerminalPendingPanel.swift */,
+				B4F7D1C29A6E43B8C5D0E2F1 /* CloudTerminalPendingState.swift */,
+				9720CD7F02C94F41A07E193D /* CloudTerminalCreationCoordinator.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
