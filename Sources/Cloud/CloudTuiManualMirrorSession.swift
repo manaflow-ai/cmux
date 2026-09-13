@@ -226,8 +226,7 @@ final class CloudTuiManualMirrorSession {
         // previous numeric surface, and `reconnect` intentionally fast-paths a
         // still-live connection with the same socket path.
         if phase != .idle, phase != .stopped {
-            tearDownConnection()
-            transition(to: .disconnected)
+            fenceAttachment(error: CancellationError())
         }
     }
 
@@ -468,13 +467,7 @@ final class CloudTuiManualMirrorSession {
             guard let self,
                   self.connection === connection,
                   self.phase != .stopped else { return }
-            if self.hasReceivedRemoteReplay {
-                self.replayNeedsReset = true
-            }
-            self.connection = nil
-            self.inputRouter.setConnection(nil)
-            self.transition(to: .disconnected, reason: .transportClosed)
-            self.onNeedsReconnect()
+            self.transitionToDisconnected(reason: .transportClosed)
         }
     }
 

@@ -51,21 +51,15 @@ enum CloudTerminalAttachmentInterruption: Equatable, Sendable {
                 localized: "cloudPane.attachment.reason.transportClosed",
                 defaultValue: "the connection closed"
             )
-        case let .rejected(reason):
+        case .rejected:
             return String(
-                format: String(
-                    localized: "cloudPane.attachment.reason.rejected",
-                    defaultValue: "the machine rejected the attachment (%@)"
-                ),
-                reason
+                localized: "cloudPane.attachment.reason.rejected",
+                defaultValue: "the machine could not attach the terminal"
             )
-        case let .unresolved(reason):
+        case .unresolved:
             return String(
-                format: String(
-                    localized: "cloudPane.attachment.reason.unresolved",
-                    defaultValue: "cmux-tui has not reported this terminal yet (%@)"
-                ),
-                reason
+                localized: "cloudPane.attachment.reason.unresolved",
+                defaultValue: "the terminal is not ready to attach"
             )
         }
     }

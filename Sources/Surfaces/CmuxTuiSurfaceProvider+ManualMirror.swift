@@ -97,6 +97,7 @@ extension CmuxTuiSurfaceProvider {
         let resolver = CloudTerminalAttachmentResolver(machineID: machineID, commandRunner: link, socketPath: socketPath)
         var failures = 0
         var lastReason = ""
+        var lastFailure = CloudTuiSurfaceIDResolution.Failure.notReady
         while true {
             try Task.checkCancellation()
             let resolution = await resolver.resolve(terminalID: terminalID)
@@ -120,13 +121,15 @@ extension CmuxTuiSurfaceProvider {
                     return (surfaceID, placement)
                 }
                 lastReason = "the projected view did not resolve"
-            case let .retryable(reason):
+                lastFailure = .notReady
+            case let .retryable(reason, failure):
                 lastReason = reason
+                lastFailure = failure
             }
             failures += 1
             guard let delay = CloudTerminalAttachmentRetryPolicy.materialize.boundedDelay(afterFailures: failures) else {
                 attachmentLog.giveUp(machineID: machineID, terminalID: terminalID, attempts: failures, reason: lastReason)
-                throw ProviderError.terminalAttachTimedOut(terminalID: terminalID, reason: lastReason)
+                throw ProviderError.terminalAttachTimedOut(terminalID: terminalID, failure: lastFailure)
             }
             try await attachmentClock.sleep(for: delay)
         }
@@ -172,7 +175,8 @@ extension CmuxTuiSurfaceProvider {
         link: CloudMachineLink
     ) async -> [String: CloudTuiSurfaceIDResolution] {
         let resolver = CloudTerminalAttachmentResolver(machineID: machineID, commandRunner: link, socketPath: socketPath)
-        var resolutions = await resolver.resolve(terminalIDs: Set(sessions.map(\.terminalID)))
+        let sessionsByTerminal = Dictionary(grouping: sessions, by: \.terminalID)
+        var resolutions = await resolver.resolve(terminalIDs: Set(sessionsByTerminal.keys))
         let terminalsWithoutPlacement: Set<String> = Set(
             sessions.compactMap { session in
                 guard resolutions[session.terminalID] == .noPlacement else { return nil }
@@ -181,7 +185,7 @@ extension CmuxTuiSurfaceProvider {
         )
         for terminalID in terminalsWithoutPlacement {
             guard !Task.isCancelled else { break }
-            for session in sessions where session.terminalID == terminalID {
+            for session in sessionsByTerminal[terminalID] ?? [] {
                 session.markSurfaceResolutionUnavailable()
             }
             await catalog.cloudPlacementCoordinator.repairPlacement(

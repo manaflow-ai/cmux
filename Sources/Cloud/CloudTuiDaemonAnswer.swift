@@ -55,13 +55,21 @@ enum CloudTuiDaemonAnswer: Equatable, Sendable {
         }
     }
 
-    /// One short reason for logs and the pane banner.
+    /// One short reason for private diagnostic logs.
     var reason: String {
         switch self {
         case let .rejected(code):
             return code
         case let .transportFailure(text), let .unrecognized(text):
             return text
+        }
+    }
+
+    var attachmentFailure: CloudTuiSurfaceIDResolution.Failure {
+        switch self {
+        case .transportFailure: return .transportUnavailable
+        case .rejected: return .rejected
+        case .unrecognized: return .invalidResponse
         }
     }
 
@@ -86,6 +94,9 @@ enum CloudTuiDaemonAnswer: Equatable, Sendable {
                 return .transportFailure((object["message"] as? String) ?? code ?? "transport failure")
             }
             if let detail = (object["details"] as? [String: Any])?["error"] as? String, !detail.isEmpty {
+                if detail == "transport.timeout" || detail == "transport.closed" {
+                    return .transportFailure(detail)
+                }
                 return .rejected(detail)
             }
             if let message = object["message"] as? String, !message.isEmpty {

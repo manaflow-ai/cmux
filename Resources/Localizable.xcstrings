@@ -1,6 +1,242 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cloudTree.attachmentFailure.transportUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the connection is unavailable"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "die Verbindung ist nicht verfügbar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la connexion est indisponible"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاتصال غير متاح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la conexión no está disponible"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線無法使用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接不可用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결을 사용할 수 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続を利用できません"
+          }
+        }
+      }
+    },
+    "cloudTree.attachmentFailure.invalidResponse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the machine returned an unusable response"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "der Rechner hat eine unbrauchbare Antwort zurückgegeben"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la machine a renvoyé une réponse inutilisable"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أعاد الجهاز استجابة غير قابلة للاستخدام"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la máquina devolvió una respuesta que no se puede utilizar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器傳回了無法使用的回應"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器返回了无法使用的响应"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컴퓨터가 사용할 수 없는 응답을 반환했습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンが使用できない応答を返しました"
+          }
+        }
+      }
+    },
+    "cloudTree.attachmentFailure.rejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the machine could not attach the terminal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "der Rechner konnte das Terminal nicht verbinden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la machine n’a pas pu connecter le terminal"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر على الجهاز توصيل الطرفية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la máquina no pudo conectar el terminal"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器無法連接終端機"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器无法连接终端"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컴퓨터가 터미널에 연결하지 못했습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンがターミナルに接続できませんでした"
+          }
+        }
+      }
+    },
+    "cloudTree.attachmentFailure.notReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the terminal is not ready to attach"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "das Terminal ist noch nicht verbindungsbereit"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "le terminal n’est pas prêt à être connecté"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الطرفية ليست جاهزة للاتصال"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "el terminal no está listo para conectarse"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機尚未準備好連線"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端尚未准备好连接"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널이 연결할 준비가 되지 않았습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルの接続準備ができていません"
+          }
+        }
+      }
+    },
     "cloud.portAccess.invalidURL": {
       "extractionState": "manual",
       "localizations": {
@@ -125246,6 +125482,48 @@
             "value": "Attaching to %@…"
           }
         },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung zu %@ wird hergestellt…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion à %@…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ الاتصال بـ %@…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectando con %@…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在連線至 %@…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在连接到 %@…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 연결 중…"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
@@ -125261,6 +125539,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "Attaching to %@… (attempt %lld)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung zu %@ wird hergestellt… (Versuch %lld)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion à %@… (tentative %lld)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ الاتصال بـ %@… (المحاولة %lld)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectando con %@… (intento %lld)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在連線至 %@…（第 %lld 次嘗試）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在连接到 %@…（第 %lld 次尝试）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 연결 중… (%lld번째 시도)"
           }
         },
         "ja": {
@@ -125280,6 +125600,48 @@
             "value": "Reconnecting to %@… (attempt %lld; %@)"
           }
         },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung zu %@ wird erneut hergestellt… (Versuch %lld; %@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnexion à %@… (tentative %lld ; %@)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ إعادة الاتصال بـ %@… (المحاولة %lld؛ %@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconectando con %@… (intento %lld; %@)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在重新連線至 %@…（第 %lld 次嘗試；%@）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在重新连接到 %@…（第 %lld 次尝试；%@）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 다시 연결 중… (%lld번째 시도; %@)"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
@@ -125295,6 +125657,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "the machine did not finish the attach handshake"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "der Rechner hat den Verbindungsaufbau nicht abgeschlossen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la machine n’a pas terminé l’établissement de la connexion"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يكمل الجهاز إنشاء الاتصال"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la máquina no completó el establecimiento de la conexión"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器未完成連線交握"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器未完成连接握手"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컴퓨터가 연결 설정을 완료하지 않았습니다"
           }
         },
         "ja": {
@@ -125314,6 +125718,48 @@
             "value": "the connection stopped answering"
           }
         },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "die Verbindung antwortet nicht mehr"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la connexion ne répond plus"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توقف الاتصال عن الاستجابة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la conexión dejó de responder"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線已停止回應"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接已停止响应"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결이 응답하지 않습니다"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
@@ -125331,6 +125777,48 @@
             "value": "the connection closed"
           }
         },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "die Verbindung wurde geschlossen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la connexion a été fermée"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إغلاق الاتصال"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la conexión se cerró"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線已關閉"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接已关闭"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결이 종료되었습니다"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
@@ -125345,13 +125833,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "the machine rejected the attachment (%@)"
+            "value": "the machine could not attach the terminal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "der Rechner konnte das Terminal nicht verbinden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la machine n’a pas pu connecter le terminal"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر على الجهاز توصيل الطرفية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la máquina no pudo conectar el terminal"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器無法連接終端機"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器无法连接终端"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컴퓨터가 터미널에 연결하지 못했습니다"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "マシンが接続を拒否しました（%@）"
+            "value": "マシンがターミナルに接続できませんでした"
           }
         }
       }
@@ -125362,13 +125892,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui has not reported this terminal yet (%@)"
+            "value": "the terminal is not ready to attach"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "das Terminal ist noch nicht verbindungsbereit"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "le terminal n’est pas prêt à être connecté"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الطرفية ليست جاهزة للاتصال"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "el terminal no está listo para conectarse"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機尚未準備好連線"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端尚未准备好连接"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널이 연결할 준비가 되지 않았습니다"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui がこのターミナルをまだ報告していません（%@）"
+            "value": "ターミナルの接続準備ができていません"
           }
         }
       }
@@ -125379,13 +125951,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui did not answer for %@ in time (%@). The terminal keeps running on the machine; open it again."
+            "value": "Could not attach %@ in time (%@). The terminal may still be running on the machine; try opening it again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ konnte nicht rechtzeitig verbunden werden (%@). Das Terminal läuft möglicherweise noch auf dem Rechner. Versuche, es erneut zu öffnen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de connecter %@ à temps (%@). Le terminal est peut-être encore actif sur la machine ; essayez de l’ouvrir à nouveau."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر توصيل %@ في الوقت المحدد (%@). قد تكون الطرفية لا تزال تعمل على الجهاز؛ حاول فتحها مجددًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo conectar %@ a tiempo (%@). Es posible que el terminal siga ejecutándose en la máquina; intenta abrirlo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法及時連接 %@（%@）。終端機可能仍在機器上執行，請嘗試重新開啟。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法及时连接 %@（%@）。终端可能仍在机器上运行，请尝试重新打开。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 제시간에 연결하지 못했습니다(%@). 터미널이 컴퓨터에서 계속 실행 중일 수 있습니다. 다시 열어 보세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui が %@ に時間内に応答しませんでした（%@）。ターミナルはマシン上で実行されたままです。もう一度開いてください。"
+            "value": "%@ に時間内に接続できませんでした（%@）。ターミナルはマシン上で実行中の可能性があります。もう一度開いてみてください。"
           }
         }
       }
@@ -125397,6 +126011,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ already exited on the machine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wurde auf dem Rechner bereits beendet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ s’est déjà terminé sur la machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهى تشغيل %@ على الجهاز بالفعل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ya finalizó en la máquina."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已在機器上結束。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已在机器上退出。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@이(가) 컴퓨터에서 이미 종료되었습니다."
           }
         },
         "ja": {

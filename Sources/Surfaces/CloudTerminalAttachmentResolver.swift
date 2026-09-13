@@ -48,23 +48,49 @@ struct CloudTerminalAttachmentResolver: Sendable {
         case cannotServeID
     }
 
-    func resolve(terminalID: String) async -> CloudTuiSurfaceIDResolution {
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated func resolve(terminalID: String) async -> CloudTuiSurfaceIDResolution {
         await resolve(terminalIDs: [terminalID])[terminalID] ?? .retryable("resolver produced no outcome")
     }
 
     /// Resolves a set of terminal ids with one modern request per id, at most
     /// one snapshot read, and at most one compatibility-tree fetch.
-    func resolve(terminalIDs: Set<String>) async -> [String: CloudTuiSurfaceIDResolution] {
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated func resolve(terminalIDs: Set<String>) async -> [String: CloudTuiSurfaceIDResolution] {
         guard !terminalIDs.isEmpty else { return [:] }
         var results: [String: CloudTuiSurfaceIDResolution] = [:]
         var unserved: Set<String> = []
-        for terminalID in terminalIDs {
-            switch await resolveModern(terminalID: terminalID) {
-            case let .decided(outcome):
-                results[terminalID] = outcome
-            case .cannotServeID:
-                unserved.insert(terminalID)
+        // Bound client-process and Control-lane pressure while allowing a slow
+        // terminal's request to overlap with the other panes' requests.
+        await withTaskGroup(of: (String, ModernOutcome).self) { group in
+            var remaining = terminalIDs.makeIterator()
+            for _ in 0..<min(4, terminalIDs.count) {
+                guard !Task.isCancelled, let terminalID = remaining.next() else { break }
+                group.addTask { (terminalID, await resolveModern(terminalID: terminalID)) }
             }
+            for await (terminalID, outcome) in group {
+                switch outcome {
+                case let .decided(resolution): results[terminalID] = resolution
+                case .cannotServeID: unserved.insert(terminalID)
+                }
+                if !Task.isCancelled, let nextID = remaining.next() {
+                    group.addTask { (nextID, await resolveModern(terminalID: nextID)) }
+                }
+            }
+        }
+        if Task.isCancelled {
+            for terminalID in terminalIDs where results[terminalID] == nil {
+                results[terminalID] = .retryable("cancelled", failure: .transportUnavailable)
+            }
+            return results
         }
         guard !unserved.isEmpty else { return results }
         let fromSnapshot = await resolveThroughSnapshot(terminalIDs: unserved)
@@ -73,11 +99,16 @@ struct CloudTerminalAttachmentResolver: Sendable {
     }
 
     /// Resolves the private command without a compatibility-tree traversal.
-    func resolveModern(terminalID: String) async -> ModernOutcome {
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated func resolveModern(terminalID: String) async -> ModernOutcome {
         guard let arguments = CloudTuiCommandLine.resolveTerminalArguments(
             socketPath: socketPath,
             terminalID: terminalID
-        ) else { return .decided(.retryable("terminal id is not a public term_ id")) }
+        ) else { return .decided(.retryable("terminal id is not a public term_ id", failure: .invalidResponse)) }
         do {
             let resolved = try await commandRunner.runTuiCommand(arguments: arguments, deadline: commandDeadline)
             switch CloudTuiLegacySnapshotParser().resolvedSurface(from: resolved) {
@@ -88,13 +119,13 @@ struct CloudTerminalAttachmentResolver: Sendable {
             case .exited:
                 return .decided(.exited)
             case .malformed:
-                return .decided(.retryable("malformed resolve-terminal answer"))
+                return .decided(.retryable("malformed resolve-terminal answer", failure: .invalidResponse))
             }
         } catch {
             let answer = CloudTuiDaemonAnswer(error: error)
             log.daemonAnswer(machineID: machineID, terminalID: terminalID, command: "resolve-terminal", answer: answer)
             if answer.cannotServeTerminalID { return .cannotServeID }
-            return .decided(.retryable(answer.reason))
+            return .decided(.retryable(answer.reason, failure: answer.attachmentFailure))
         }
     }
 
@@ -102,7 +133,12 @@ struct CloudTerminalAttachmentResolver: Sendable {
     /// lifecycle and views, whether or not the daemon can map its id. A
     /// terminal with a view is joined to its numeric surface through the
     /// compatibility tree, which lists tabs (not terminals) beside `surface`.
-    private func resolveThroughSnapshot(terminalIDs: Set<String>) async -> [String: CloudTuiSurfaceIDResolution] {
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    private nonisolated func resolveThroughSnapshot(terminalIDs: Set<String>) async -> [String: CloudTuiSurfaceIDResolution] {
         let snapshot: [String: Any]
         do {
             let data = try await commandRunner.runTuiCommand(
@@ -111,7 +147,7 @@ struct CloudTerminalAttachmentResolver: Sendable {
             )
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   CmuxTuiSnapshotParser.authoritativeGraphIsValid(object) else {
-                return Self.uniform(terminalIDs, .retryable("session snapshot was not an authoritative graph"))
+                return Self.uniform(terminalIDs, .retryable("session snapshot was not an authoritative graph", failure: .invalidResponse))
             }
             snapshot = object
         } catch {
@@ -119,12 +155,13 @@ struct CloudTerminalAttachmentResolver: Sendable {
             for terminalID in terminalIDs {
                 log.daemonAnswer(machineID: machineID, terminalID: terminalID, command: "session current snapshot", answer: answer)
             }
-            return Self.uniform(terminalIDs, .retryable("snapshot: \(answer.reason)"))
+            return Self.uniform(terminalIDs, .retryable("snapshot: \(answer.reason)", failure: answer.attachmentFailure))
         }
         var results: [String: CloudTuiSurfaceIDResolution] = [:]
         var placedTabs: [String: String] = [:]
+        let placements = Self.placements(in: snapshot)
         for terminalID in terminalIDs {
-            switch Self.placement(in: snapshot, terminalID: terminalID) {
+            switch placements[terminalID] ?? .absent {
             case .absent, .exited:
                 results[terminalID] = .exited
             case .detached:
@@ -150,7 +187,7 @@ struct CloudTerminalAttachmentResolver: Sendable {
             let answer = CloudTuiDaemonAnswer(error: error)
             for terminalID in placedTabs.keys {
                 log.daemonAnswer(machineID: machineID, terminalID: terminalID, command: "list-workspaces", answer: answer)
-                results[terminalID] = .retryable("compatibility tree: \(answer.reason)")
+                results[terminalID] = .retryable("compatibility tree: \(answer.reason)", failure: answer.attachmentFailure)
             }
         }
         return results
@@ -166,25 +203,33 @@ struct CloudTerminalAttachmentResolver: Sendable {
 
     /// Where the authoritative graph puts one terminal. Several views of one
     /// terminal are legal; any of them is attachable, so the first is used.
-    private static func placement(in snapshot: [String: Any], terminalID: String) -> SnapshotPlacement {
+    private static func placements(in snapshot: [String: Any]) -> [String: SnapshotPlacement] {
+        var firstTabs: [String: [String: Any]] = [:]
+        for tab in snapshot["tabs"] as? [[String: Any]] ?? [] {
+            guard tab["content_kind"] as? String == "terminal",
+                  let terminalID = tab["content_id"] as? String,
+                  firstTabs[terminalID] == nil else { continue }
+            firstTabs[terminalID] = tab
+        }
         let terminals = snapshot["terminals"] as? [[String: Any]] ?? []
-        guard let terminal = terminals.first(where: { $0["id"] as? String == terminalID }) else { return .absent }
-        let lifecycle = (terminal["lifecycle"] as? String) ?? "running"
-        switch lifecycle {
-        case "exited", "tombstoned":
-            return .exited
-        case "running":
-            break
-        default:
-            return .notReady(lifecycle)
+        var placements: [String: SnapshotPlacement] = [:]
+        for terminal in terminals {
+            guard let terminalID = terminal["id"] as? String, placements[terminalID] == nil else { continue }
+            let lifecycle = (terminal["lifecycle"] as? String) ?? "running"
+            switch lifecycle {
+            case "exited", "tombstoned":
+                placements[terminalID] = .exited
+            case "running":
+                if let tabID = firstTabs[terminalID]?["id"] as? String, !tabID.isEmpty {
+                    placements[terminalID] = .placed(tabID: tabID)
+                } else {
+                    placements[terminalID] = .detached
+                }
+            default:
+                placements[terminalID] = .notReady(lifecycle)
+            }
         }
-        let tabs = (snapshot["tabs"] as? [[String: Any]] ?? []).filter {
-            $0["content_kind"] as? String == "terminal" && $0["content_id"] as? String == terminalID
-        }
-        if let tabID = tabs.first?["id"] as? String, !tabID.isEmpty {
-            return .placed(tabID: tabID)
-        }
-        return .detached
+        return placements
     }
 
     private static func uniform(_ terminalIDs: Set<String>, _ outcome: CloudTuiSurfaceIDResolution) -> [String: CloudTuiSurfaceIDResolution] {

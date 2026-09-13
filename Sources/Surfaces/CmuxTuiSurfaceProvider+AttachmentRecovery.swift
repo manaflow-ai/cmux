@@ -57,7 +57,7 @@ extension CmuxTuiSurfaceProvider {
                     session.markSurfaceResolutionUnavailable(reason: .unresolved("the machine shows no view of this terminal"))
                     reconnectableSessionIDs.remove(ObjectIdentifier(session))
                     allSurfaceIDsResolved = false
-                case let .retryable(reason):
+                case let .retryable(reason, _):
                     session.markSurfaceResolutionUnavailable(reason: .unresolved(reason))
                     reconnectableSessionIDs.remove(ObjectIdentifier(session))
                     allSurfaceIDsResolved = false

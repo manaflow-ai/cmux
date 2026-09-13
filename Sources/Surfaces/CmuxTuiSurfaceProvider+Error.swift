@@ -11,7 +11,7 @@ extension CmuxTuiSurfaceProvider {
         case terminalExited(String)
         /// The daemon did not answer the resolver within the bounded retries.
         /// The terminal may still be running; this is never "not created".
-        case terminalAttachTimedOut(terminalID: String, reason: String)
+        case terminalAttachTimedOut(terminalID: String, failure: CloudTuiSurfaceIDResolution.Failure)
         case invalidSnapshot(String)
         case snapshotOnly(String)
         case stateUnavailable(String)
@@ -39,14 +39,14 @@ extension CmuxTuiSurfaceProvider {
                     ),
                     id
                 )
-            case let .terminalAttachTimedOut(terminalID, reason):
+            case let .terminalAttachTimedOut(terminalID, failure):
                 return String(
                     format: String(
                         localized: "cloudTree.error.terminalAttachTimedOut",
-                        defaultValue: "cmux-tui did not answer for %@ in time (%@). The terminal keeps running on the machine; open it again."
+                        defaultValue: "Could not attach %@ in time (%@). The terminal may still be running on the machine; try opening it again."
                     ),
                     terminalID,
-                    reason
+                    failure.localizedDescription
                 )
             case .invalidSnapshot(let id):
                 return "cmux-tui returned an unversioned or malformed session snapshot for \(id)."

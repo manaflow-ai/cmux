@@ -6,7 +6,7 @@ import os
 /// Every decision this path makes lands in the unified log in release builds
 /// (subsystem `com.cmuxterm.app`, category `CloudTerminalAttachment`), so a
 /// report can say which terminal, which phase, and what the daemon answered.
-/// Machine and terminal ids and daemon codes are public; free text that could
+/// Machine and terminal ids are public; daemon text that could
 /// carry a path or a command line stays private.
 struct CloudTerminalAttachmentLog: Sendable {
     private static let logger = Logger(subsystem: "com.cmuxterm.app", category: "CloudTerminalAttachment")
@@ -19,7 +19,7 @@ struct CloudTerminalAttachmentLog: Sendable {
             Self.logger.info("resolve machine=\(machineID, privacy: .public) terminal=\(terminalID, privacy: .public) attempt=\(attempt) outcome=needs-projection")
         case .exited:
             Self.logger.notice("resolve machine=\(machineID, privacy: .public) terminal=\(terminalID, privacy: .public) attempt=\(attempt) outcome=exited")
-        case let .retryable(reason):
+        case let .retryable(reason, _):
             Self.logger.error("resolve machine=\(machineID, privacy: .public) terminal=\(terminalID, privacy: .public) attempt=\(attempt) outcome=retryable reason=\(reason, privacy: .private)")
         }
     }
@@ -27,7 +27,7 @@ struct CloudTerminalAttachmentLog: Sendable {
     func daemonAnswer(machineID: String, terminalID: String, command: String, answer: CloudTuiDaemonAnswer) {
         switch answer {
         case let .rejected(code):
-            Self.logger.info("daemon machine=\(machineID, privacy: .public) terminal=\(terminalID, privacy: .public) command=\(command, privacy: .public) rejected=\(code, privacy: .public)")
+            Self.logger.info("daemon machine=\(machineID, privacy: .public) terminal=\(terminalID, privacy: .public) command=\(command, privacy: .public) rejected=\(code, privacy: .private)")
         case let .transportFailure(text):
             Self.logger.error("daemon machine=\(machineID, privacy: .public) terminal=\(terminalID, privacy: .public) command=\(command, privacy: .public) transport-failure=\(text, privacy: .private)")
         case let .unrecognized(text):

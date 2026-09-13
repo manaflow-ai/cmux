@@ -23,16 +23,12 @@ struct CloudTerminalAttachmentBanner: View {
             .background(.regularMaterial, in: Capsule())
             .padding(.top, 8)
             .opacity(visible ? 1 : 0)
+            .animation(.easeIn(duration: 0.15).delay(1), value: visible)
             .allowsHitTesting(false)
             .accessibilityIdentifier("cloud-attachment-banner")
-            .task(id: status.state) {
-                // A minimum quiet period before the pill shows: a fast attach
-                // must not flash it, a stalled one must show it promptly.
-                visible = false
-                try? await Task.sleep(for: .seconds(1))
-                guard !Task.isCancelled else { return }
-                visible = true
-            }
+            // Visual timing only; removing the banner cancels its presentation.
+            .onAppear { visible = true }
+            .onDisappear { visible = false }
         }
     }
 
