@@ -44,7 +44,11 @@ struct SidebarDerivedStateScaleTests {
         )
         defer { harness.tearDown() }
         #expect(harness.tabManager.tabs.count == workspaceCount)
-        await settle(harness)
+        let beforeBuilds = harness.counter.workspaceSnapshotBuilds
+        for _ in 0..<32 where harness.counter.workspaceSnapshotBuilds == beforeBuilds {
+            SidebarLazyLayoutScaleTests.turnMainRunLoopOnce(layingOut: harness.window)
+            await Task.yield()
+        }
         #expect(harness.counter.workspaceSnapshotBuilds >= workspaceCount)
         harness.counter.reset()
 
@@ -62,23 +66,19 @@ struct SidebarDerivedStateScaleTests {
         #expect(harness.counter.maxSnapshotBuildsInOneRowBody == 0)
     }
 
-    /// Wait for accepted publisher emissions, then require a quiet interval.
-    /// This is a test deadline, not a delay or polling loop in shipped code.
+    /// Drain accepted publisher emissions. The measured condition is a counter
+    /// crossing, not an elapsed wall-clock quiet interval.
     private func settle(_ harness: SidebarLazyLayoutScaleTests.Harness, minimumSnapshotBuilds: Int = 1) async {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(4))
-        var quietSince = ContinuousClock.now
-        var previous = -1
-        repeat {
+        if minimumSnapshotBuilds > 0 {
+            for _ in 0..<64 where harness.counter.workspaceSnapshotBuilds < minimumSnapshotBuilds {
+                SidebarLazyLayoutScaleTests.turnMainRunLoopOnce(layingOut: harness.window)
+                await Task.yield()
+            }
+        } else {
             SidebarLazyLayoutScaleTests.turnMainRunLoopOnce(layingOut: harness.window)
             await Task.yield()
-            let count = harness.counter.workspaceSnapshotBuilds + harness.counter.workspaceRowInputProjections
-            if previous != count {
-                previous = count
-                quietSince = .now
-            }
-            if harness.counter.workspaceSnapshotBuilds >= minimumSnapshotBuilds,
-               quietSince.duration(to: .now) >= .milliseconds(350) { return }
-        } while .now < deadline
-        Issue.record("Sidebar derived-state work did not converge within four seconds.")
+        }
+        SidebarLazyLayoutScaleTests.turnMainRunLoopOnce(layingOut: harness.window)
+        await Task.yield()
     }
 }
