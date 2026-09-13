@@ -105,6 +105,46 @@ struct WorkspaceGroupCycleShortcutTests {
         #expect(manager.selectedTabId == group.anchorWorkspaceId)
     }
 
+    @Test func groupingShortcutCreatesEmptyGroupWhenSidebarSelectionIsEmpty() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let windowId = appDelegate.createMainWindow()
+        defer { appDelegate.discardMainWindowWithoutClosedHistory(windowId: windowId) }
+
+        let context = try #require(appDelegate.mainWindowContexts.values.first { $0.windowId == windowId })
+        let window = try #require(context.window)
+        let manager = context.tabManager
+        let focusedWorkspace = try #require(manager.selectedWorkspace)
+        let focusedWorkspaceId = focusedWorkspace.id
+
+        // Reproduce issue #12498: the sidebar has no selected workspace while
+        // the active window still has a focused workspace to preserve.
+        manager.setSidebarSelectedWorkspaceIds([])
+        #expect(manager.sidebarSelectedWorkspaceIds.isEmpty)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        let groupingEvent = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .shift],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "g",
+            charactersIgnoringModifiers: "g",
+            isARepeat: false,
+            keyCode: 5
+        ))
+
+        #expect(appDelegate.debugHandleCustomShortcut(event: groupingEvent))
+
+        let group = try #require(manager.workspaceGroups.last)
+        #expect(group.isEmpty)
+        #expect(group.anchorWorkspaceProvenance == .generated)
+        #expect(manager.tabs.contains { $0.id == group.anchorWorkspaceId })
+        #expect(manager.selectedTabId == focusedWorkspaceId)
+    }
+
     private func keyEvent(
         key: String,
         keyCode: UInt16,
