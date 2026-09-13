@@ -204,6 +204,8 @@ struct CloudTreeNodeActions {
             newTerminal: { machine, remoteWorkspaceID in
                 run(startingLabel(machine)) { catalog in
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
+                    let token = catalog.cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: machine)
+                    defer { catalog.cloudWorkspaceProjectionCoordinator.endLocalMutation(token, on: machine, catalog: catalog) }
                     let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
                     let (projection, _) = try await catalog.project(
                         resource.id,
@@ -268,8 +270,6 @@ struct CloudTreeNodeActions {
                 } else {
                     run(openingLabel(machine)) { catalog in
                         let routedGroup = group.withRemoteWorkspaceID(remoteWorkspaceID)
-                        // Clicking a workspace row opens its layout: the machine screen's
-                        // splits, ratios and tabs, when the daemon reports them (nil → grid).
                         let layout: SurfaceProjectionLayout? = if let remoteWorkspaceID = routedGroup.remoteWorkspaceID {
                             await CloudWorkspaceLayoutTranslator.fetch(machine: machine, workspaceID: remoteWorkspaceID, catalog: catalog)
                         } else {
