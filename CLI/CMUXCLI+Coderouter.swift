@@ -386,7 +386,7 @@ extension CMUXCLI {
         guard FileManager.default.isExecutableFile(atPath: scriptPath) else {
             return nil
         }
-        FileHandle.standardError.write(Data("Running `claude setup-token`; finish the sign-in in your browser.\n".utf8))
+        cliWriteStderr("Running `claude setup-token`; finish the sign-in in your browser.\n")
 
         let outputPipe = Pipe()
         let process = Process()
@@ -436,7 +436,7 @@ extension CMUXCLI {
     }
 
     private func readHiddenTerminalLine(prompt: String) throws -> String {
-        FileHandle.standardError.write(Data(prompt.utf8))
+        cliWriteStderr(prompt)
         var original = termios()
         let hasTerminal = tcgetattr(STDIN_FILENO, &original) == 0
         if hasTerminal {
@@ -448,7 +448,7 @@ extension CMUXCLI {
             if hasTerminal {
                 _ = tcsetattr(STDIN_FILENO, TCSANOW, &original)
             }
-            FileHandle.standardError.write(Data("\n".utf8))
+            cliWriteStderr("\n")
         }
         guard let line = readLine(strippingNewline: true) else {
             throw CLIError(message: "No input received.")

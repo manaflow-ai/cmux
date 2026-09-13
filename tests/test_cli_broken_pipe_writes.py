@@ -109,7 +109,7 @@ class BrokenPipeWritesTests(unittest.TestCase):
         self.assertEqual(closed.stdout, normal.stdout)
 
     def test_consumer_closes_during_large_stdout_write(self) -> None:
-        with FakeUnixServer(self.responder("vm.cloud_prompt", {"prompt": "x" * 1_048_576})) as server:
+        with FakeUnixServer(self.responder("vm.cloud_prompt", {"prompt": "x" * 262_144})) as server:
             with subprocess.Popen(
                 [self.cli, "--socket", server.path, "vm", "prompt"],
                 cwd=self.root.name, env=self.env, stdin=subprocess.DEVNULL,

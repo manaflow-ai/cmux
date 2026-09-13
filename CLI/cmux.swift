@@ -3812,12 +3812,9 @@ final class SocketClient {
                     close()
                     throw CLIError(message: timeoutMessage)
                 }
-                let terminalEvents = Int16(POLLHUP | POLLERR | POLLNVAL)
-                if descriptor.revents & terminalEvents != 0 {
-                    close()
-                    throw CLIError(message: failureMessage)
-                }
-                guard descriptor.revents & Int16(POLLOUT) != 0 else {
+                // A closed peer wakes poll too. Let the SIGPIPE-protected write
+                // report its errno so telemetry can classify expected disconnects.
+                guard descriptor.revents & Int16(POLLOUT | POLLHUP | POLLERR | POLLNVAL) != 0 else {
                     continue
                 }
 
@@ -5838,7 +5835,7 @@ struct CMUXCLI {
                     print(prompt)
                 }
                 if let skillPath = response["skill_path"] as? String {
-                    FileHandle.standardError.write(Data("skill: \(skillPath)\n".utf8))
+                    cliWriteStderr("skill: \(skillPath)\n")
                 }
 
             case "stats", "top":
@@ -14205,7 +14202,7 @@ struct CMUXCLI {
                 ),
                 attempt
             )
-            FileHandle.standardError.write(Data("\r\n\(reconnectingLine)\r\n".utf8))
+            cliWriteStderr("\r\n\(reconnectingLine)\r\n")
             Thread.sleep(forTimeInterval: min(pow(2.0, Double(attempt - 1)), 15))
             do {
                 config = try mintVMPtyReconnectConfig(

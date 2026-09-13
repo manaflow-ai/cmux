@@ -147,7 +147,7 @@ extension CMUXCLI {
     }
 
     private func writeSudoError(_ message: String) {
-        try? FileHandle.standardError.write(contentsOf: Data((message + "\n").utf8))
+        cliWriteStderr(message + "\n")
     }
 
     private struct SudoCLIContext {
