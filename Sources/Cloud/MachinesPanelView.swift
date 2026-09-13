@@ -473,8 +473,7 @@ struct MachinesPanelView: View {
 
     /// The Finder-like tree over the surface catalog: This Mac, then every
     /// machine, with their workspaces, terminals, screens, browsers, and ports
-    /// underneath. Both closure bundles are bound here, above the outline; rows
-    /// never see the store.
+    /// underneath. Rows receive snapshot values and closure bundles only.
     private var machinesList: some View {
         var machineActions = MachineRowActions.bound(
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
@@ -503,7 +502,8 @@ struct MachinesPanelView: View {
             unreadTerminalIDs: viewModel.unreadTerminalIDs,
             machineActions: machineActions,
             nodeActions: nodeActions,
-            expansionStore: expansionStore,
+            expansionStore: expansionStore, organizationStore: SurfaceCatalog.shared.sidebarOrganization,
+            organizationState: SurfaceCatalog.shared.sidebarOrganization.state,
             style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
             onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) }
         )

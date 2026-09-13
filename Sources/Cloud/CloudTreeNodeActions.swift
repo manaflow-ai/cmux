@@ -45,14 +45,13 @@ struct CloudTreeNodeActions {
     /// caller selected the machine pool, so the explicit compatibility operation
     /// renames all views.
     let renameTerminal: @MainActor (_ resource: SurfaceResource, _ view: SurfaceRemoteView?) -> Void
-    /// Select a local workspace.
     let selectLocalWorkspace: @MainActor (_ workspaceID: UUID) -> Void
     let copyToPasteboard: @MainActor (_ text: String) -> Void
     /// Copy the machine port's private URL without changing network state.
-    /// Local forwarding addresses are copied explicitly from the Ports table.
     let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
     let refresh: @MainActor () -> Void
     var refreshMachine: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
+    var organize: @MainActor (CloudSidebarOrganizationAction, String, [CloudTreeNode]) -> Bool = { _, _, _ in false }
 
     @MainActor
     static func bound(
@@ -368,6 +367,7 @@ struct CloudTreeNodeActions {
             },
             refresh: refresh
         )
+        actions.organize = { catalog().sidebarOrganization.perform($0, id: $1, nodes: $2) }
         actions.refreshMachine = refreshMachine
         return actions
     }

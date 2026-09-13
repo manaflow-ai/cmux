@@ -101,11 +101,11 @@ extension TerminalController {
 
     // MARK: - vm.* wrappers (kept for existing callers; same catalog underneath)
 
-    /// `vm.tree {id?, refresh?}`: the catalog payload restricted to cloud machines.
     nonisolated func socketWorkerVMTreeResponse(id: Any?, params: [String: Any]) -> String {
         if ManagedDevicePolicy().isEnforced(.disableCloud) {
             return v2Error(id: id, code: "cloud_disabled", message: String(localized: "cloud.managed.disabled", defaultValue: "Cloud Machines are disabled by your administrator."))
         }
+        if Self.surfaceBool(params["sidebar"]) == true { return socketWorkerCloudSidebarResponse(id: id, params: params) }
         let vmId = Self.surfaceString(params["id"]) ?? Self.surfaceString(params["machine"])
         let refresh = Self.surfaceBool(params["refresh"]) ?? false
         return v2VmCall(id: id, timeoutSeconds: 120) {

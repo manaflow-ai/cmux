@@ -110,7 +110,7 @@ final class SurfaceCatalog {
         var machine: SurfaceMachineID { resource.machine }
     }
 
-    static let shared = SurfaceCatalog()
+    static let shared = SurfaceCatalog(sidebarOrganization: CloudSidebarOrganizationStore(defaults: .standard))
 
     /// A provider call with no remaining caller must not occupy a resource forever when the
     /// provider ignores task cancellation. The deadline starts only after the last caller
@@ -132,18 +132,16 @@ final class SurfaceCatalog {
     /// without sorting the full catalog snapshot on every refresh.
     private var resourceIDsByMachine: [SurfaceMachineID: Set<SurfaceResourceID>] = [:]
 
-    /// The last accepted, revisioned graph for each cloud machine. Resource rows
-    /// are derived from this state by the provider; keeping it here makes the
-    /// complete state available to socket and agent callers without another cache.
+    /// Accepted revisioned graphs shared by providers, socket, and agent callers.
     private(set) var cloudStates: [SurfaceMachineID: CloudVMState] = [:]
     /// Whether each retained graph was observed on a live link. This is separate
     /// from `CloudVMState` because freshness is local observation metadata, not
     /// part of the daemon document or its cursor.
     private(set) var cloudStateObservations: [SurfaceMachineID: CloudVMStateObservation] = [:]
     private var providers: [SurfaceMachineID: any SurfaceProvider] = [:]
-    /// The process-wide ordering owner for remote rename intents. A remote identity can
-    /// have projections in several local windows, so this cannot live in a TabManager.
+    /// Remote rename intents shared by all local windows.
     let cloudRenameCoordinator = CloudRenameCoordinator()
+    let sidebarOrganization: CloudSidebarOrganizationStore
     /// Resolves local workspace owners for cloud rename write-through. The app installs
     /// its live environment at the composition root; tests keep the no-op environment.
     private(set) var cloudWorkspaceRenameService: CloudWorkspaceRenameService
@@ -180,7 +178,8 @@ final class SurfaceCatalog {
         maximumTrackedMaterializations: Int = SurfaceCatalog.defaultMaximumTrackedMaterializations,
         materializationClock: any Clock<Duration> = ContinuousClock(),
         cloudWorkspaceRenameService: CloudWorkspaceRenameService = CloudWorkspaceRenameService(),
-        cloudPlacementCoordinator: CloudPlacementCoordinator? = nil
+        cloudPlacementCoordinator: CloudPlacementCoordinator? = nil,
+        sidebarOrganization: CloudSidebarOrganizationStore? = nil
     ) {
         precondition(abandonedMaterializationTimeout > .zero)
         precondition(retiredMaterializationRetention > .zero)
@@ -191,6 +190,7 @@ final class SurfaceCatalog {
         self.completedMaterializationRetention = completedMaterializationRetention
         self.maximumTrackedMaterializations = maximumTrackedMaterializations
         self.materializationClock = materializationClock
+        self.sidebarOrganization = sidebarOrganization ?? CloudSidebarOrganizationStore()
         self.cloudWorkspaceRenameService = cloudWorkspaceRenameService
         self.cloudPlacementCoordinator = cloudPlacementCoordinator ?? CloudPlacementCoordinator()
     }

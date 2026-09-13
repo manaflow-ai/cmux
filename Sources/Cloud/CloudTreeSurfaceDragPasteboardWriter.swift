@@ -22,7 +22,8 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
         registration: TabDragTransferRegistration,
         sourceView: NSOutlineView,
         coordinator: CloudTreeOutlineView.Coordinator,
-        provisionalToken: ProvisionalDragWriterOwnership.Token
+        provisionalToken: ProvisionalDragWriterOwnership.Token,
+        nodeID: String? = nil
     ) {
         self.dragID = dragID
         self.registration = registration
@@ -31,6 +32,7 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
         self.provisionalToken = provisionalToken
         super.init()
         materializeRegistrationPayload()
+        if let nodeID { setString(nodeID, forType: CloudSidebarDragItem.type) }
     }
 
     @available(*, unavailable)
@@ -43,10 +45,11 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
 
     override func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
         _ = pasteboard
-        return registration.pasteboardItem.types
+        return super.writableTypes(for: pasteboard)
     }
 
     override func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
+        if type == CloudSidebarDragItem.type { return string(forType: type) }
         // `TabDragTransferRegistration` stores its capability as a raw string
         // and the surface record as raw JSON bytes. `propertyList(forType:)`
         // only reads values written with `setPropertyList`, so proxy each

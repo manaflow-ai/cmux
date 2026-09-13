@@ -18,6 +18,7 @@ struct CloudSidebarOrderingTests {
         coordinator.apply(nodes: fixture.nodes())
         let outline = try #require(coordinator.outlineView)
         let folder = try #require(CloudTreeNodeBuilder.flattened(fixture.nodes()).first { $0.searchableTitle == "cmux2" })
+        try fixture.attachScreenshot(named: "cloud-sidebar-before-move")
         let menu = try #require(coordinator.contextMenu(forRow: outline.row(forItem: folder)))
         let up = try #require(menu.items.first { $0.title == String(localized: "contextMenu.moveUp", defaultValue: "Move Up") })
         let action = try #require(up.action)
@@ -25,8 +26,77 @@ struct CloudSidebarOrderingTests {
         #expect(NSApp.sendAction(action, to: up.target, from: up))
         let group = try #require(outline.parent(forItem: folder) as? CloudTreeNode)
         #expect(group.children.map(\.id) == [folder.id, fixture.folderID("ws_1")])
-        #expect(menu.items.contains { $0.title == String(localized: "workspaceGroup.contextMenu.pin", defaultValue: "Pin") })
+        try fixture.attachScreenshot(named: "cloud-sidebar-after-move")
+        #expect(menu.items.contains { $0.title == String(localized: "cloudTree.menu.pin", defaultValue: "Pin") })
     }
+    @Test("Pins and relative moves survive reconnect, restart, and renamed duplicate titles")
+    func preferencesSurviveFreshSnapshots() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let owner = fixture.catalog.sidebarOrganization
+        let nodes = fixture.nodes()
+        let first = fixture.folderID("ws_1"), second = fixture.folderID("ws_2")
+        #expect(owner.perform(.pin, id: second, nodes: nodes))
+        #expect(!owner.perform(.up, id: first, nodes: nodes)) // cannot cross the pin boundary
+        let restored = CloudSidebarOrganizationStore(defaults: fixture.defaults)
+        let reconnect = CloudSidebarOrganizationTree(nodes: fixture.nodes(titles: ["renamed", "renamed"])).arrange(using: restored.state)
+        let group = try #require(CloudSidebarOrganizationTree(nodes: reconnect).parent(of: first))
+        #expect(group.children.map(\.id) == [second, first])
+        #expect(group.children[0].isPinned)
+        #expect(group.children.map(\.searchableTitle) == ["renamed", "renamed"])
+        #expect(restored.perform(.unpin, id: second, nodes: reconnect))
+        #expect(restored.perform(.down, id: second, nodes: reconnect))
+        let restarted = CloudSidebarOrganizationStore(defaults: fixture.defaults)
+        let rows = CloudSidebarOrganizationTree(nodes: fixture.nodes()).arrange(using: restarted.state)
+        #expect(CloudSidebarOrganizationTree(nodes: rows).parent(of: first)?.children.map(\.id) == [first, second])
+        #expect(restarted.state.groups.values.allSatisfy { $0.pinned.isEmpty })
+    }
+
+    @Test("Repeated tab views retain independent pins, IDs, unread state, and drag destinations")
+    func terminalPlacementsKeepIdentity() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        var snapshot = fixture.snapshot()
+        var resource = snapshot.resources[0]
+        let original = try #require(resource.remoteViews?.first)
+        resource.remoteViews?.append(SurfaceRemoteView(tabID: "tab_second_view", workspace: original.workspace))
+        snapshot = SurfaceCatalogSnapshot(machines: snapshot.machines, resources: [resource, snapshot.resources[1]], projections: [])
+        let nodes = CloudTreeNodeBuilder.nodes(machines: [], snapshot: snapshot, localWorkspaces: [],
+            unreadTerminalIDs: [fixture.machine.rawValue: [resource.id.key]], includeLocalMachine: false)
+        let parent = try #require(CloudTreeNodeBuilder.flattened(nodes).first { $0.id == fixture.folderID("ws_1") })
+        #expect(parent.children.count == 2)
+        let ids = parent.children.map(\.id)
+        let groups = parent.children.map(\.dragGroup)
+        #expect(fixture.catalog.sidebarOrganization.perform(.pin, id: ids[1], nodes: nodes))
+        let arranged = CloudSidebarOrganizationTree(nodes: nodes).arrange(using: fixture.catalog.sidebarOrganization.state)
+        let moved = try #require(CloudSidebarOrganizationTree(nodes: arranged).parent(of: ids[0]))
+        #expect(moved.children.map(\.id) == Array(ids.reversed()))
+        #expect(moved.children.map(\.dragGroup) == Array(groups.reversed()))
+        #expect(moved.children.map(\.isPinned) == [true, false])
+        #expect(moved.children.allSatisfy { if case .terminal(let row) = $0.kind { return row.hasUnreadNotification }; return false })
+        #expect(Set(CloudTreeNodeBuilder.flattened(arranged).map(\.id)).count == CloudTreeNodeBuilder.flattened(arranged).count)
+    }
+
+    @Test("A stale move cannot cross parents or recreate a removed row")
+    func staleAndCrossParentMovesAreInert() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let nodes = fixture.nodes()
+        let folders = CloudTreeNodeBuilder.flattened(nodes).filter { if case .workspace = $0.kind { return true }; return false }
+        let first = try #require(folders.first?.children.first)
+        let second = try #require(folders.last?.children.first)
+        let owner = fixture.catalog.sidebarOrganization
+        #expect(!owner.perform(.before(second.id), id: first.id, nodes: nodes))
+        #expect(!owner.perform(.pin, id: "deleted-id", nodes: nodes))
+        #expect(owner.state.groups.isEmpty)
+        let writer = fixture.coordinator
+        writer.apply(nodes: nodes)
+        let outline = try #require(writer.outlineView)
+        let folder = try #require(folders.first)
+        let drag = try #require(writer.outlineView(outline, pasteboardWriterForItem: folder) as? NSPasteboardItem)
+        #expect(drag.string(forType: CloudSidebarDragItem.type) == folder.id)
+    }
+
 }
 
 /// An isolated catalog rendered by the production NSOutlineView, with no provider,
@@ -36,12 +106,14 @@ final class CloudSidebarOrderingFixture {
     let machine = SurfaceMachineID.cloud("ordering-fixture")
     let defaults: UserDefaults
     let defaultsName = "cloud-sidebar-ordering-\(UUID().uuidString)"
-    let catalog = SurfaceCatalog()
+    let catalog: SurfaceCatalog
     let coordinator: CloudTreeOutlineView.Coordinator
     let container: CloudTreeContainerView
+    let window: NSWindow
 
     init() {
         defaults = UserDefaults(suiteName: defaultsName)!
+        catalog = SurfaceCatalog(sidebarOrganization: CloudSidebarOrganizationStore(defaults: defaults))
         let catalog = catalog
         coordinator = CloudTreeOutlineView.Coordinator(
             machineActions: MachineRowActions(
@@ -54,19 +126,35 @@ final class CloudSidebarOrderingFixture {
                 selectLocalWorkspace: { _ in }, onWillMutate: { _ in },
                 onDidMutate: {}, onFailure: { _ in }, refresh: {}
             ),
-            expansionStore: CloudTreeExpansionStore(defaults: defaults),
+            expansionStore: CloudTreeExpansionStore(defaults: defaults), organization: catalog.sidebarOrganization,
             tabDragTransferRegistry: { nil }
         )
         container = CloudTreeContainerView(coordinator: coordinator)
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 380, height: 560), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = container
+        container.layoutSubtreeIfNeeded()
     }
 
-    func close() { defaults.removePersistentDomain(forName: defaultsName) }
+    func close() {
+        window.contentView = nil
+        defaults.removePersistentDomain(forName: defaultsName)
+    }
+
+    func attachScreenshot(named name: String) throws {
+        container.layoutSubtreeIfNeeded()
+        let bitmap = try #require(container.bitmapImageRepForCachingDisplay(in: container.bounds))
+        container.cacheDisplay(in: container.bounds, to: bitmap)
+        let png = try #require(bitmap.representation(using: .png, properties: [:]))
+        #if compiler(>=6.2)
+        Attachment.record(png, named: name + ".png")
+        #endif
+    }
 
     func folderID(_ id: String) -> String { CloudTreeNodeBuilder.nodeID(workspace: id, machine: machine) }
 
-    func snapshot() -> SurfaceCatalogSnapshot {
+    func snapshot(titles: [String] = ["cmux1", "cmux2"]) -> SurfaceCatalogSnapshot {
         let workspaces = (1...2).map {
-            SurfaceRemoteWorkspace(id: "ws_\($0)", name: "cmux\($0)", index: $0 - 1, focused: $0 == 1)
+            SurfaceRemoteWorkspace(id: "ws_\($0)", name: titles[$0 - 1], index: $0 - 1, focused: $0 == 1)
         }
         let resources = workspaces.map { workspace in
             var resource = SurfaceResource(
@@ -84,9 +172,9 @@ final class CloudSidebarOrderingFixture {
         )], resources: resources, projections: [])
     }
 
-    func nodes(unread: Set<String> = []) -> [CloudTreeNode] {
+    func nodes(unread: Set<String> = [], titles: [String] = ["cmux1", "cmux2"]) -> [CloudTreeNode] {
         CloudTreeNodeBuilder.nodes(
-            machines: [], snapshot: snapshot(), localWorkspaces: [],
+            machines: [], snapshot: snapshot(titles: titles), localWorkspaces: [],
             unreadTerminalIDs: [machine.rawValue: unread], includeLocalMachine: false
         )
     }

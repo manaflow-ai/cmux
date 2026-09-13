@@ -63,7 +63,8 @@ final class CloudTreeNode: NSObject {
 
     let id: String
     private(set) var kind: Kind
-    private(set) var children: [CloudTreeNode]
+    var children: [CloudTreeNode]
+    var isPinned = false
     /// For workspace rows: everything the workspace holds, in the order it opens.
     private var explicitDragGroup: SurfaceResourceGroup?
 
@@ -104,6 +105,7 @@ final class CloudTreeNode: NSObject {
     /// structure signature matched first.
     func adopt(from other: CloudTreeNode) {
         kind = other.kind
+        isPinned = other.isPinned
         explicitDragGroup = other.explicitDragGroup
         for (child, replacement) in zip(children, other.children) {
             child.adopt(from: replacement)
@@ -1166,18 +1168,4 @@ enum CloudTreeNodeBuilder {
 
     /// Depth-first flattening in display order (every node expanded); used by
     /// tests and by quick-search.
-    static func flattened(_ nodes: [CloudTreeNode]) -> [CloudTreeNode] {
-        nodes.flatMap { [$0] + flattened($0.children) }
-    }
-
-    /// Row identities, order and kinds — a change here needs `reloadData`.
-    static func structureSignature(_ nodes: [CloudTreeNode]) -> [String] {
-        flattened(nodes).map { "\($0.id)|\($0.structureTag)|\($0.children.count)" }
-    }
-
-    /// Everything a row displays — a change here with an equal structure signature is
-    /// applied to the existing rows in place.
-    static func contentSignature(_ nodes: [CloudTreeNode]) -> [String] {
-        flattened(nodes).map { "\($0.id)|\(String(describing: $0.kind))|\(String(describing: $0.dragGroup))" }
-    }
 }

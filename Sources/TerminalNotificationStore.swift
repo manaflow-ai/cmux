@@ -1648,8 +1648,7 @@ final class TerminalNotificationStore: ObservableObject {
 #endif
         if effects.reorderWorkspace,
            UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification) {
-            AppDelegate.shared?.tabManagerFor(tabId: notification.tabId)?
-                .moveTabToTopForNotification(notification.tabId)
+            reorderSidebars(for: notification)
         }
         if hasAnyNotificationEffect(effects) {
             commitCooldownReservation(cooldownReservation, at: now)
@@ -1696,8 +1695,7 @@ final class TerminalNotificationStore: ObservableObject {
 
         if effects.reorderWorkspace,
            UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification) {
-            AppDelegate.shared?.tabManagerFor(tabId: notification.tabId)?
-                .moveTabToTopForNotification(notification.tabId)
+            reorderSidebars(for: notification)
         }
 
         updated.insert(notification, at: 0)
