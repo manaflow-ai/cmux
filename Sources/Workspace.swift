@@ -2291,6 +2291,7 @@ extension Workspace {
         case .rightSidebarTool:
             guard let mode = snapshot.rightSidebarTool?.mode,
                   mode.canOpenAsPane,
+                  mode.isAvailable(),
                   let toolPanel = newRightSidebarToolSurface(
                     inPane: paneId,
                     mode: mode,
@@ -2347,7 +2348,6 @@ extension Workspace {
             return nil
         }
     }
-
     func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
         adoptPersistedStableSurfaceId(from: snapshot, panelId: panelId)
 
@@ -2583,8 +2583,6 @@ extension Workspace {
     }
 
 }
-
-
 /// Lifted to `CmuxBrowser.ClosedBrowserPanelRestoreSnapshot` (Workspace
 /// decomposition, Wave 3). This typealias keeps call sites byte-identical.
 typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRestoreSnapshot
@@ -3111,6 +3109,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             notifyPresentedCurrentDirectoryChanged(from: nil, force: true)
         }
     }
+    /// The workspace-owned state for the latest failed cloud terminal creation request.
+    @MainActor let cloudPaneCreationFailureStore = CloudPaneCreationFailureStore()
     @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
     @Published var remoteConnectionDetail: String?
     // Unsuppressed controller truth retained while live terminal liveness
@@ -10277,7 +10277,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         focus: Bool = true
     ) -> RightSidebarToolPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
-        guard mode.canOpenAsPane else { return nil }
+        guard mode.canOpenAsPane, mode.isAvailable() else { return nil }
         for (existingId, panel) in panels {
             guard let toolPanel = panel as? RightSidebarToolPanel,
                   toolPanel.mode == mode else {
@@ -10299,7 +10299,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         targetIndex: Int? = nil
     ) -> RightSidebarToolPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
-        guard mode.canOpenAsPane else { return nil }
+        guard mode.canOpenAsPane, mode.isAvailable() else { return nil }
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
@@ -13143,7 +13143,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 }
 
 // MARK: - BonsplitDelegate
-
 // MARK: - PaneTreeHosting (legacy @Published observer hooks)
 
 extension Workspace: PaneTreeHosting {

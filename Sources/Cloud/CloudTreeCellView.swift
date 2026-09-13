@@ -75,7 +75,8 @@ final class CloudTreeCellView: NSTableCellView {
         let showsHelp = showsCloudVPNWarning && node.isPortsGroup
         displayHost.isHidden = showsCallout
         displayHost.rootView = AnyView(
-            CloudTreeRowContentView(kind: node.kind, style: style)
+            CloudTreeRowContentView(kind: node.kind, style: style, showsCloudVPNWarning: showsCloudVPNWarning)
+                .modifier(CloudSidebarRowDecoration(isPinned: node.isPinned, showsAttentionSlot: node.showsAttentionSlot, hasUnreadNotification: node.hasUnreadAttention))
                 .frame(maxWidth: .infinity, alignment: .leading)
         )
         if showsCallout {

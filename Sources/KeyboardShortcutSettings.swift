@@ -168,6 +168,10 @@ enum KeyboardShortcutSettings {
         case decreaseWorkspaceTerminalFontSize
         case resetWorkspaceTerminalFontSize
         case equalizeSplits
+        case resizePaneLeft = "resize-pane-left"
+        case resizePaneRight = "resize-pane-right"
+        case resizePaneUp = "resize-pane-up"
+        case resizePaneDown = "resize-pane-down"
         case splitBrowserRight
         case splitBrowserDown
 
@@ -338,6 +342,10 @@ enum KeyboardShortcutSettings {
                     defaultValue: "Reset Font Size for Workspace Terminals"
                 )
             case .equalizeSplits: return String(localized: "shortcut.equalizeSplits.label", defaultValue: "Equalize Splits")
+            case .resizePaneLeft: return String(localized: "shortcut.resizePaneLeft.label", defaultValue: "Resize Pane Left")
+            case .resizePaneRight: return String(localized: "shortcut.resizePaneRight.label", defaultValue: "Resize Pane Right")
+            case .resizePaneUp: return String(localized: "shortcut.resizePaneUp.label", defaultValue: "Resize Pane Up")
+            case .resizePaneDown: return String(localized: "shortcut.resizePaneDown.label", defaultValue: "Resize Pane Down")
             case .splitBrowserRight: return String(localized: "shortcut.splitBrowserRight.label", defaultValue: "Split Browser Right")
             case .splitBrowserDown: return String(localized: "shortcut.splitBrowserDown.label", defaultValue: "Split Browser Down")
             case .toggleCanvasLayout: return String(localized: "shortcut.toggleCanvasLayout.label", defaultValue: "Toggle Canvas Layout")
@@ -556,6 +564,10 @@ enum KeyboardShortcutSettings {
             case .resetWorkspaceTerminalFontSize:
                 return StoredShortcut(key: "0", command: true, shift: false, option: false, control: true)
             case .equalizeSplits: return StoredShortcut(key: "=", command: true, shift: true, option: false, control: true)
+            case .resizePaneLeft: return StoredShortcut(key: "h", command: false, shift: true, option: false, control: true)
+            case .resizePaneRight: return StoredShortcut(key: "l", command: false, shift: true, option: false, control: true)
+            case .resizePaneUp: return StoredShortcut(key: "k", command: false, shift: true, option: false, control: true)
+            case .resizePaneDown: return StoredShortcut(key: "j", command: false, shift: true, option: false, control: true)
             case .splitBrowserRight:
                 return StoredShortcut(key: "d", command: true, shift: false, option: true, control: false)
             case .splitBrowserDown:
@@ -1105,51 +1117,6 @@ enum KeyboardShortcutSettings {
         )
     }
 
-    // MARK: - Backwards-Compatible API (call-sites can migrate gradually)
-
-    // Keys (used by debug socket command + UI tests)
-    static let focusLeftKey = Action.focusLeft.defaultsKey
-    static let focusRightKey = Action.focusRight.defaultsKey
-    static let focusUpKey = Action.focusUp.defaultsKey
-    static let focusDownKey = Action.focusDown.defaultsKey
-
-    // Defaults (used by settings reset + recorder button initial title)
-    static let showNotificationsDefault = Action.showNotifications.defaultShortcut
-    static let jumpToUnreadDefault = Action.jumpToUnread.defaultShortcut
-
-    static func showNotificationsShortcut() -> StoredShortcut { shortcut(for: .showNotifications) }
-    static func setShowNotificationsShortcut(_ shortcut: StoredShortcut) { setShortcut(shortcut, for: .showNotifications) }
-
-    static func jumpToUnreadShortcut() -> StoredShortcut { shortcut(for: .jumpToUnread) }
-    static func setJumpToUnreadShortcut(_ shortcut: StoredShortcut) { setShortcut(shortcut, for: .jumpToUnread) }
-
-    static func nextSidebarTabShortcut() -> StoredShortcut { shortcut(for: .nextSidebarTab) }
-    static func prevSidebarTabShortcut() -> StoredShortcut { shortcut(for: .prevSidebarTab) }
-    static func renameWorkspaceShortcut() -> StoredShortcut { shortcut(for: .renameWorkspace) }
-    static func closeWorkspaceShortcut() -> StoredShortcut { shortcut(for: .closeWorkspace) }
-
-    static func focusLeftShortcut() -> StoredShortcut { shortcut(for: .focusLeft) }
-    static func focusRightShortcut() -> StoredShortcut { shortcut(for: .focusRight) }
-    static func focusUpShortcut() -> StoredShortcut { shortcut(for: .focusUp) }
-    static func focusDownShortcut() -> StoredShortcut { shortcut(for: .focusDown) }
-
-    static func splitRightShortcut() -> StoredShortcut { shortcut(for: .splitRight) }
-    static func splitDownShortcut() -> StoredShortcut { shortcut(for: .splitDown) }
-    static func toggleSplitZoomShortcut() -> StoredShortcut { shortcut(for: .toggleSplitZoom) }
-    static func splitBrowserRightShortcut() -> StoredShortcut { shortcut(for: .splitBrowserRight) }
-    static func splitBrowserDownShortcut() -> StoredShortcut { shortcut(for: .splitBrowserDown) }
-
-    static func nextSurfaceShortcut() -> StoredShortcut { shortcut(for: .nextSurface) }
-    static func prevSurfaceShortcut() -> StoredShortcut { shortcut(for: .prevSurface) }
-    static func selectSurfaceByNumberShortcut() -> StoredShortcut { shortcut(for: .selectSurfaceByNumber) }
-    static func newSurfaceShortcut() -> StoredShortcut { shortcut(for: .newSurface) }
-    static func selectWorkspaceByNumberShortcut() -> StoredShortcut { shortcut(for: .selectWorkspaceByNumber) }
-    static func focusTextBoxInputShortcut() -> StoredShortcut { shortcut(for: .focusTextBoxInput) }
-    static func attachTextBoxFileShortcut() -> StoredShortcut { shortcut(for: .attachTextBoxFile) }
-
-    static func openBrowserShortcut() -> StoredShortcut { shortcut(for: .openBrowser) }
-    static func toggleBrowserDeveloperToolsShortcut() -> StoredShortcut { shortcut(for: .toggleBrowserDeveloperTools) }
-    static func showBrowserJavaScriptConsoleShortcut() -> StoredShortcut { shortcut(for: .showBrowserJavaScriptConsole) }
 }
 
 enum SystemWideHotkeySettings {

@@ -18,8 +18,7 @@ extension CloudWorkspaceRenameService {
         guard !state.workspaceIDs.contains(remoteID) else { return .keep }
         guard let target = inferredRemoteWorkspaceTarget(
             projections: projections,
-            resources: resources,
-            resourcesByID: resourcesByID
+            resources: resources
         ), target.machine == machine,
         state.workspaceIDs.contains(target.remoteWorkspaceID) else { return .clear }
         return .rebind(machine: target.machine, remoteWorkspaceID: target.remoteWorkspaceID)
@@ -72,6 +71,10 @@ extension CloudWorkspaceRenameService {
                 guard let currentBinding = workspace.cloudVMBinding,
                       let id = currentBinding.remoteWorkspaceID,
                       let remote = state.lookupIndex.workspace(id: id) else { continue }
+                let key = CloudRenameCoordinator.Key.workspace(machine: machine, id: id)
+                if let pending = catalog.pendingCloudRenameName(for: key), pending != remote.name { continue }
+                // Equal confirmations preserve user/agent provenance across refresh.
+                // A different accepted explicit rename belongs to the daemon.
                 if workspace.customTitle == remote.name, workspace.effectiveCustomTitleSource == .user { continue }
                 // Submission returns before local title setters run. Pending names
                 // are request metadata, not accepted UI values; both projections
@@ -98,6 +101,9 @@ extension CloudWorkspaceRenameService {
             }
             guard let tabID = remoteTabID(for: projection, resource: resource),
                   let tab = state.lookupIndex.tab(id: tabID) else { continue }
+            let key = CloudRenameCoordinator.Key.tab(machine: machine, id: tabID)
+            if let pending = catalog.pendingCloudRenameName(for: key), pending != (tab.name ?? "") { continue }
+            guard workspace.panelCustomTitles[projection.panelID] != tab.name else { continue }
             if workspace.panelCustomTitles[projection.panelID] == tab.name,
                workspace.panelCustomTitleSources[projection.panelID] == .user { continue }
             guard workspace.panelCustomTitles[projection.panelID] != tab.name
