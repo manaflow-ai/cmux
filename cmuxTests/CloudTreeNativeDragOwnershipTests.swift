@@ -260,6 +260,100 @@ struct CloudTreeNativeDragOwnershipTests {
         )
     }
 
+    @Test("Reveal selects the exact placement of a shared terminal and expands collapsed parents")
+    func revealSelectsExactPlacement() throws {
+        let defaultsName = "cloud-sidebar-reveal-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let expansion = CloudTreeExpansionStore(defaults: defaults)
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions,
+            nodeActions: Self.nodeActions,
+            expansionStore: expansion,
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 320), styleMask: [], backing: .buffered, defer: false)
+        window.contentView = container
+        defer { window.close() }
+        let outline = try #require(coordinator.outlineView)
+        let machine = SurfaceMachineID.cloud("cloud-tree-test")
+        let remoteWorkspace = SurfaceRemoteWorkspace(id: "ws-2", name: "Second", index: 1, focused: false)
+        let resource = try #require(Self.terminalNode().dragGroup?.resources.first)
+        let sharedResource = SurfaceResource(
+            id: resource, title: "Shell", detail: nil, lifecycle: .running, agent: nil,
+            remoteWorkspace: remoteWorkspace, port: nil, url: nil
+        )
+        let siblings = (1...30).map { "tab-\($0)" }.map { tabID in
+            CloudTreeNode(id: tabID, kind: .terminal(CloudTreeTerminalRow(
+                resource: sharedResource, isOpen: true, viewBadge: nil,
+                remoteView: SurfaceRemoteView(tabID: tabID, workspace: remoteWorkspace)
+            )))
+        }
+        let workspaceNode = CloudTreeNode(
+            id: "ws-2", kind: .workspace(machine: machine, remoteWorkspace, terminalCount: siblings.count, hiddenTabCount: 0, openIn: nil),
+            children: siblings
+        )
+        let root = CloudTreeNode(
+            id: "workspaces", kind: .workspacesGroup(machine: machine), children: [workspaceNode]
+        )
+        expansion.setExpanded(false, node: root)
+        expansion.setExpanded(false, node: workspaceNode)
+        coordinator.apply(nodes: [root])
+        #expect(outline.numberOfRows == 1)
+        let projection = SurfaceProjection(
+            resource: resource, workspaceID: UUID(), panelID: UUID(),
+            remoteWorkspaceID: "ws-2", remoteTabID: "tab-30"
+        )
+        let target = try #require(CloudSidebarRevealTarget(
+            projection: projection
+        ))
+        let request = CloudSidebarNavigationState.Request(target: target)
+        coordinator.reveal(request)
+        container.layoutSubtreeIfNeeded()
+        #expect((outline.item(atRow: outline.selectedRow) as? CloudTreeNode)?.id == "tab-30")
+        #expect(outline.isItemExpanded(root))
+        #expect(outline.isItemExpanded(workspaceNode))
+        #expect(expansion.isExpanded(root))
+        #expect(outline.visibleRect.intersects(outline.rect(ofRow: outline.selectedRow)))
+
+        // Catalog refreshes must not override a subsequent manual selection.
+        outline.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        coordinator.reveal(request)
+        #expect(outline.selectedRow == 0)
+        coordinator.reveal(CloudSidebarNavigationState.Request(target: target))
+        #expect((outline.item(atRow: outline.selectedRow) as? CloudTreeNode)?.id == "tab-30")
+        withExtendedLifetime(container) {}
+    }
+
+    @Test("A local pane has no Cloud sidebar target; a projected tab resolves its row")
+    func revealResolvesLocalAndBoundWorkspaces() throws {
+        #expect(CloudSidebarRevealTarget(projection: nil) == nil)
+        let projection = SurfaceProjection(
+            resource: SurfaceResourceID(machine: .cloud("test-machine"), kind: .terminal, key: "terminal"),
+            workspaceID: UUID(), panelID: UUID(), remoteWorkspaceID: "ws-1", remoteTabID: "tab-1"
+        )
+        let target = try #require(CloudSidebarRevealTarget(projection: projection))
+        let node = CloudTreeNode(
+            id: "ws-1",
+            kind: .workspace(
+                machine: .cloud("test-machine"),
+                SurfaceRemoteWorkspace(id: "ws-1", name: "First", index: 0, focused: false),
+                terminalCount: 0, hiddenTabCount: 0, openIn: nil
+            )
+        )
+        #expect(target.path(in: [node])?.last === node)
+        #expect(target.path(in: []) == nil)
+        #expect(target.machine == .cloud("test-machine"))
+        let navigation = CloudSidebarNavigationState()
+        navigation.reveal(target)
+        let request = try #require(navigation.pendingRequest)
+        navigation.complete(request.id)
+        #expect(navigation.pendingRequest == nil)
+        navigation.reveal(target)
+        #expect(navigation.pendingRequest?.id != request.id)
+    }
+
     private static let machineActions = MachineRowActions(
         setupVPN: { _ in },
         openShell: { _ in },

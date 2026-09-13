@@ -508,6 +508,7 @@ import Testing
         let resources = CmuxTuiSnapshotParser.terminals(fromSnapshot: Self.sessionSnapshot, machine: Self.machine)
         let shell = try #require(resources.first { $0.id.key == "term_shell" })
         let build = try #require(resources.first { $0.id.key == "term_build" })
+        let resourcesByID = Dictionary(resources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let workspaceID = UUID()
 
         let exact = SurfaceProjection(
@@ -520,7 +521,7 @@ import Testing
         #expect(
             CloudWorkspaceRenameService().inferredRemoteWorkspaceTarget(
                 projections: [exact],
-                resources: resources
+                resourcesByID: resourcesByID
             )?.remoteWorkspaceID == "ws_api"
         )
 
@@ -533,7 +534,7 @@ import Testing
         #expect(
             CloudWorkspaceRenameService().inferredRemoteWorkspaceTarget(
                 projections: [legacy],
-                resources: resources
+                resourcesByID: resourcesByID
             )?.remoteWorkspaceID == "ws_api"
         )
 
@@ -558,7 +559,7 @@ import Testing
         #expect(
             CloudWorkspaceRenameService().inferredRemoteWorkspaceTarget(
                 projections: [exact, localProjection],
-                resources: resources + [local]
+                resourcesByID: resourcesByID.merging([local.id: local]) { _, new in new }
             ) == nil
         )
         let multiView = SurfaceProjection(
@@ -571,7 +572,7 @@ import Testing
         #expect(
             CloudWorkspaceRenameService().inferredRemoteWorkspaceTarget(
                 projections: [exact, multiView],
-                resources: resources
+                resourcesByID: resourcesByID
             ) == nil
         )
     }

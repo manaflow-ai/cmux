@@ -521,11 +521,13 @@ struct RightSidebarPanelView: View {
                         defaultMachineStore: store,
                         tabManager: tabManager
                     )
+                    .cloudSidebarNavigation(fileExplorerState.cloudSidebarNavigation)
                 } else {
                     MachinesPanelView(
                         chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
                         tabManager: tabManager
                     )
+                    .cloudSidebarNavigation(fileExplorerState.cloudSidebarNavigation)
                 }
             case .customSidebar:
                 customSidebarPanel

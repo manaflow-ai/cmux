@@ -1,6 +1,65 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "contextMenu.focusInCloudSidebar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus in Cloud Sidebar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In der Cloud-Seitenleiste anzeigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher dans la barre latérale Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التركيز في الشريط الجانبي للسحابة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar en la barra lateral de Cloud"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在雲端側邊欄中顯示"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在云端侧边栏中显示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 사이드바에서 표시"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドサイドバーで表示"
+          }
+        }
+      }
+    },
     "cloudTree.attachmentFailure.transportUnavailable": {
       "extractionState": "manual",
       "localizations": {

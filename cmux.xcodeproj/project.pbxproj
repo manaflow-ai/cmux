@@ -769,6 +769,8 @@
 		595EC249E2E015ACE304F0EE /* CloudRemoteOperationStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64BF8B9B8328108560B40B7F /* CloudRemoteOperationStep.swift */; };
 		B12438020000000000000001 /* CloudRenameCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12438020000000000000002 /* CloudRenameCoordinator.swift */; };
 		D075FB64A68C4CA0A4042528 /* CloudSidebarConsistencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B27A4938294E4A109BC6D2B3 /* CloudSidebarConsistencyTests.swift */; };
+		7A30015917614A2FB90522B7 /* CloudSidebarNavigationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91493024BD6F407FAEA3059B /* CloudSidebarNavigationState.swift */; };
+		C095D14DA6044E578C052ED0 /* CloudSidebarRevealTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AD40A88F3FA484E86296447 /* CloudSidebarRevealTarget.swift */; };
 		A12481000000000000000001 /* CloudSidebarScaleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12481000000000000000002 /* CloudSidebarScaleTests.swift */; };
 		4DB42AF8827945DFADF7C4D4 /* CloudSidebarSurfaceRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3E5958FB85E4B97957D4F73 /* CloudSidebarSurfaceRegressionTests.swift */; };
 		CCBC23BCB453E9A38F16DB2D /* CloudTelemetryClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF35B9235AD817EE95281459 /* CloudTelemetryClient.swift */; };
@@ -1716,6 +1718,7 @@
 		D78971000000000000000001 /* GhosttyNotificationScrollRuntimeBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D78971000000000000000002 /* GhosttyNotificationScrollRuntimeBridge.swift */; };
 		B88357000000000000000001 /* GhosttyNSView+ClipboardActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000002 /* GhosttyNSView+ClipboardActions.swift */; };
 		B88357000000000000000003 /* GhosttyNSView+ClipboardInputSequencing.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000004 /* GhosttyNSView+ClipboardInputSequencing.swift */; };
+		ABF8D0C08070417CA1E3B050 /* GhosttyNSView+CloudSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC12306A368F43CA927081C7 /* GhosttyNSView+CloudSidebar.swift */; };
 		F0ACC0DE0000000000000001 /* GhosttyNSView+ForkConversationContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000002 /* GhosttyNSView+ForkConversationContextMenu.swift */; };
 		D3571000A1B2C3D4E5F60718 /* GhosttyNSView+IMEComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3571001A1B2C3D4E5F60718 /* GhosttyNSView+IMEComposition.swift */; };
 		D7AB00000000000000000005 /* GhosttyNSView+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000006 /* GhosttyNSView+MoveTabToNewWorkspace.swift */; };
@@ -3438,6 +3441,7 @@
 		C11323010000000000000001 /* Workspace+CloudManualMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11323020000000000000001 /* Workspace+CloudManualMirror.swift */; };
 		65221C81A129236D52702D99 /* Workspace+CloudPaneRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5797FE9CD70513E4FFAC6EB /* Workspace+CloudPaneRouting.swift */; };
 		74ED9CE6230A97ED8BBCAB0C /* Workspace+CloudPlacementFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B46AEF9309B83E909710517 /* Workspace+CloudPlacementFailure.swift */; };
+		A971A62D4E784282BC80A247 /* Workspace+CloudSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 072B5A63CFE447E89F2668D3 /* Workspace+CloudSidebar.swift */; };
 		F1C91A5607ED4F70923F8F91 /* Workspace+CloudTerminalCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 380FC55EF1BE4EBC8E8352FC /* Workspace+CloudTerminalCreation.swift */; };
 		7806088FC566EAEFDB186931 /* Workspace+CloudVPNSetupPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5748A8176DB3678214B1436 /* Workspace+CloudVPNSetupPane.swift */; };
 		C54860020000000000000001 /* Workspace+CmuxNavigationDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860020000000000000002 /* Workspace+CmuxNavigationDescriptor.swift */; };
@@ -4492,6 +4496,8 @@
 		64BF8B9B8328108560B40B7F /* CloudRemoteOperationStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudRemoteOperationStep.swift"; sourceTree = "<group>"; };
 		B12438020000000000000002 /* CloudRenameCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudRenameCoordinator.swift; sourceTree = "<group>"; };
 		B27A4938294E4A109BC6D2B3 /* CloudSidebarConsistencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSidebarConsistencyTests.swift; sourceTree = "<group>"; };
+		91493024BD6F407FAEA3059B /* CloudSidebarNavigationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSidebarNavigationState.swift"; sourceTree = "<group>"; };
+		3AD40A88F3FA484E86296447 /* CloudSidebarRevealTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSidebarRevealTarget.swift"; sourceTree = "<group>"; };
 		A12481000000000000000002 /* CloudSidebarScaleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudSidebarScaleTests.swift; sourceTree = "<group>"; };
 		F3E5958FB85E4B97957D4F73 /* CloudSidebarSurfaceRegressionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudSidebarSurfaceRegressionTests.swift; sourceTree = "<group>"; };
 		FF35B9235AD817EE95281459 /* CloudTelemetryClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTelemetryClient.swift"; sourceTree = "<group>"; };
@@ -5338,6 +5344,7 @@
 		D78971000000000000000002 /* GhosttyNotificationScrollRuntimeBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyNotificationScrollRuntimeBridge.swift; sourceTree = "<group>"; };
 		B88357000000000000000002 /* GhosttyNSView+ClipboardActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+ClipboardActions.swift"; sourceTree = "<group>"; };
 		B88357000000000000000004 /* GhosttyNSView+ClipboardInputSequencing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+ClipboardInputSequencing.swift"; sourceTree = "<group>"; };
+		EC12306A368F43CA927081C7 /* GhosttyNSView+CloudSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+CloudSidebar.swift"; sourceTree = "<group>"; };
 		F0ACC0DE0000000000000002 /* GhosttyNSView+ForkConversationContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+ForkConversationContextMenu.swift"; sourceTree = "<group>"; };
 		D3571001A1B2C3D4E5F60718 /* GhosttyNSView+IMEComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+IMEComposition.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000006 /* GhosttyNSView+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
@@ -7037,6 +7044,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		C11323020000000000000001 /* Workspace+CloudManualMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudManualMirror.swift"; sourceTree = "<group>"; };
 		C5797FE9CD70513E4FFAC6EB /* Workspace+CloudPaneRouting.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudPaneRouting.swift"; sourceTree = "<group>"; };
 		2B46AEF9309B83E909710517 /* Workspace+CloudPlacementFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudPlacementFailure.swift"; sourceTree = "<group>"; };
+		072B5A63CFE447E89F2668D3 /* Workspace+CloudSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudSidebar.swift"; sourceTree = "<group>"; };
 		380FC55EF1BE4EBC8E8352FC /* Workspace+CloudTerminalCreation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudTerminalCreation.swift"; sourceTree = "<group>"; };
 		E5748A8176DB3678214B1436 /* Workspace+CloudVPNSetupPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudVPNSetupPane.swift"; sourceTree = "<group>"; };
 		C54860020000000000000002 /* Workspace+CmuxNavigationDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CmuxNavigationDescriptor.swift"; sourceTree = "<group>"; };
@@ -7845,6 +7853,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				512A93AEF5E820E050D17EF1 /* IPNetworkPrefix.swift */,
 				8C4E59490776669AA7257527 /* CloudTuiClientPaths.swift */,
 				48A1307BCCDB493F49179E0B /* SurfaceResourceDragPayload.swift */,
+				3AD40A88F3FA484E86296447 /* CloudSidebarRevealTarget.swift */,
+				91493024BD6F407FAEA3059B /* CloudSidebarNavigationState.swift */,
 				1CACA5A7C96FFDF0B931E7AA /* CloudTreeOutlineView.swift */,
 				C986A0070000000000000001 /* CloudTreeActiveDrag.swift */,
 				C986A00A0000000000000001 /* CloudTreePendingDrag.swift */,
@@ -8503,6 +8513,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D7AB3605C10DEF0000000004 /* WorkspaceCloseTabsBatching.swift */,
 				F0ACC0DE000000000000000A /* Workspace+ForkAgentConversationAvailability.swift */,
 				F0ACC0DE000000000000000C /* WorkspaceForkAgentConversationAvailability.swift */,
+				072B5A63CFE447E89F2668D3 /* Workspace+CloudSidebar.swift */,
 				F0ACC0DE0000000000000004 /* Workspace+ForkConversationContextMenu.swift */,
 				11295000000000000000000F /* Workspace+ForkStartupInput.swift */,
 				A4D77F29235F487C9276ED6A /* TerminalController+SurfaceResumeBindings.swift */,
@@ -8714,6 +8725,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				F0ACC0DE0000000000000002 /* GhosttyNSView+ForkConversationContextMenu.swift */,
 				D7AB00000000000000000006 /* GhosttyNSView+MoveTabToNewWorkspace.swift */,
 				C7261F030000000000000002 /* GhosttyNSView+PointerFocusActivation.swift */,
+				EC12306A368F43CA927081C7 /* GhosttyNSView+CloudSidebar.swift */,
 				47895BD8BBB2418438E708F5 /* GhosttyNSView+RemoteReconnect.swift */,
 				C75100010000000000000002 /* GhosttyNSView+SelectionTranslation.swift */,
 				D0B1000BA1B2C3D4E5F60001 /* GhosttyTerminalViewSupport.swift */,
@@ -12109,6 +12121,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D1AC3F6282A94EAEB79D160B /* CloudProviderRefreshCoordinator.swift in Sources */,
 				595EC249E2E015ACE304F0EE /* CloudRemoteOperationStep.swift in Sources */,
 				B12438020000000000000001 /* CloudRenameCoordinator.swift in Sources */,
+				7A30015917614A2FB90522B7 /* CloudSidebarNavigationState.swift in Sources */,
+				C095D14DA6044E578C052ED0 /* CloudSidebarRevealTarget.swift in Sources */,
 				CCBC23BCB453E9A38F16DB2D /* CloudTelemetryClient.swift in Sources */,
 				A38052AB06B7E0B46A215689 /* CloudTelemetrySending.swift in Sources */,
 				3C939B66FD8358A0E08156BD /* CloudTelemetrySpan.swift in Sources */,
@@ -12598,6 +12612,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D78971000000000000000001 /* GhosttyNotificationScrollRuntimeBridge.swift in Sources */,
 				B88357000000000000000001 /* GhosttyNSView+ClipboardActions.swift in Sources */,
 				B88357000000000000000003 /* GhosttyNSView+ClipboardInputSequencing.swift in Sources */,
+				ABF8D0C08070417CA1E3B050 /* GhosttyNSView+CloudSidebar.swift in Sources */,
 				F0ACC0DE0000000000000001 /* GhosttyNSView+ForkConversationContextMenu.swift in Sources */,
 				D3571000A1B2C3D4E5F60718 /* GhosttyNSView+IMEComposition.swift in Sources */,
 				D7AB00000000000000000005 /* GhosttyNSView+MoveTabToNewWorkspace.swift in Sources */,
@@ -13797,6 +13812,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C11323010000000000000001 /* Workspace+CloudManualMirror.swift in Sources */,
 				65221C81A129236D52702D99 /* Workspace+CloudPaneRouting.swift in Sources */,
 				74ED9CE6230A97ED8BBCAB0C /* Workspace+CloudPlacementFailure.swift in Sources */,
+				A971A62D4E784282BC80A247 /* Workspace+CloudSidebar.swift in Sources */,
 				F1C91A5607ED4F70923F8F91 /* Workspace+CloudTerminalCreation.swift in Sources */,
 				7806088FC566EAEFDB186931 /* Workspace+CloudVPNSetupPane.swift in Sources */,
 				C54860020000000000000001 /* Workspace+CmuxNavigationDescriptor.swift in Sources */,

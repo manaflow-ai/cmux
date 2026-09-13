@@ -125,7 +125,7 @@ struct CloudWorkspaceBindingRegressionTests {
                 state: state,
                 observation: .current,
                 projections: [projection],
-                resources: [resource]
+                resourcesByID: [resource.id: resource]
             ) == .rebind(machine: Self.machine, remoteWorkspaceID: "ws_api")
         )
     }
@@ -163,7 +163,7 @@ struct CloudWorkspaceBindingRegressionTests {
                 state: state,
                 observation: .current,
                 projections: projections,
-                resources: [first, second]
+                resourcesByID: [first.id: first, second.id: second]
             ) == .clear
         )
         #expect(
@@ -173,7 +173,7 @@ struct CloudWorkspaceBindingRegressionTests {
                 state: state,
                 observation: .stale(reason: "offline"),
                 projections: projections,
-                resources: [first, second]
+                resourcesByID: [first.id: first, second.id: second]
         ) == .keep
         )
     }

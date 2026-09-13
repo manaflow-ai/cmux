@@ -28,6 +28,7 @@ struct MachinesPanelView: View {
     @State private var bannerDismissals = CloudBannerDismissalStore(defaults: .standard)
     let chromeBackgroundColor: NSColor
     var tabManager: TabManager? = nil
+    var navigation: CloudSidebarNavigationState? = nil
 
 
     init(chromeBackgroundColor: NSColor, defaultMachineStore: DefaultCloudMachineStore, tabManager: TabManager? = nil) {
@@ -38,6 +39,12 @@ struct MachinesPanelView: View {
 
     init(chromeBackgroundColor: NSColor, tabManager: TabManager? = nil) {
         self.init(chromeBackgroundColor: chromeBackgroundColor, defaultMachineStore: DefaultCloudMachineStore(defaults: .standard), tabManager: tabManager)
+    }
+
+    func cloudSidebarNavigation(_ navigation: CloudSidebarNavigationState) -> Self {
+        var view = self
+        view.navigation = navigation
+        return view
     }
 
     private var accountFlow: HostAccountFlow? {
@@ -510,6 +517,8 @@ struct MachinesPanelView: View {
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore,
+            revealRequest: navigation?.pendingRequest,
+            onRevealComplete: { [weak navigation] id in navigation?.complete(id) },
             style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
             onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) },
             showsCloudVPNWarning: CloudPortsVPNWarning.projection(tunnelState: tunnelStatus.status?.state) != nil
