@@ -13,7 +13,7 @@ enum CloudTreeRowGrid {
     /// Trailing accessories (open marker): gap after the text, a fixed slot, then padding.
     static let trailingGap: CGFloat = 10
     static let trailingSlot: CGFloat = 16
-    static let trailingPadding: CGFloat = 12
+    static let trailingPadding: CGFloat = CloudTreeLayoutMetrics().referenceInset
     static let machineLineSpacing: CGFloat = 1
 }
 
