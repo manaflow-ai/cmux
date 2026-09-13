@@ -62,12 +62,10 @@ CMUX_CRASH_REPORTING_ENABLED = YES
 // ==========================================
 // Platform Configuration
 // ==========================================
-// Keep >= 18.0: every cmux iOS Swift package declares .iOS(.v18), so a lower
-// app target fails the build. The ITMS-90208 rejections that motivated the
-// brief 18.0/17.5 lowering were caused by an embedded static-archive
-// Iroh.framework (stripped in ios/scripts/upload-testflight.sh), not by this
-// value.
-IPHONEOS_DEPLOYMENT_TARGET = 18.4
+// Keep the app and all iOS Swift packages on the same iOS 18 floor.
+// Embedded framework minimum versions are reconciled during the TestFlight
+// export in ios/scripts/upload-testflight.sh.
+IPHONEOS_DEPLOYMENT_TARGET = 18.0
 
 // (1 == iPhone, 2 == iPad)
 TARGETED_DEVICE_FAMILY = 1,2

@@ -541,3 +541,11 @@ export class ProviderError extends Error {
     this.name = "ProviderError";
   }
 }
+
+/** An unpublished runtime artifact; diagnostics stay server-side while routes localize the failure. */
+export class ProviderArtifactUnavailableError extends ProviderError {
+  constructor(provider: ProviderId, diagnostic: { readonly manifestUrl: string; readonly target: string }) {
+    super(provider, "vm_artifact_unavailable", diagnostic);
+    this.name = "ProviderArtifactUnavailableError";
+  }
+}

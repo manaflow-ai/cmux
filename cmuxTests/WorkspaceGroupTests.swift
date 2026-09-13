@@ -1228,12 +1228,6 @@ struct WorkspaceGroupTests {
         #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("   ") == "doc.text")
     }
 
-    // Regression for #5404: renaming a group must update the name shown in
-    // window chrome (the custom title bar / NSWindow title / toolbar label),
-    // not just the sidebar header. The chrome derives a grouped anchor's
-    // displayed name from `resolvedWorkspaceDisplayTitle(for:)`, which must
-    // track the group's `name` — the single source of truth — rather than the
-    // anchor's own (stale) title that was merely seeded at creation.
     @Test func renamingGroupUpdatesAnchorDisplayTitle() throws {
         let manager = makeTabManager()
         let groupId = try #require(
@@ -1242,14 +1236,18 @@ struct WorkspaceGroupTests {
         let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
         let anchor = try #require(manager.tabs.first { $0.id == group.anchorWorkspaceId })
 
-        // Sanity: the anchor's displayed title starts at the group name.
         #expect(manager.resolvedWorkspaceDisplayTitle(for: anchor) == "Group 1")
 
         manager.renameWorkspaceGroup(groupId: groupId, name: "AUSTIN GENERAL INTELLIGENCE")
 
-        // The chrome's source of truth must reflect the rename.
         #expect(manager.workspaceGroups.first { $0.id == groupId }?.name == "AUSTIN GENERAL INTELLIGENCE")
         #expect(manager.resolvedWorkspaceDisplayTitle(for: anchor) == "AUSTIN GENERAL INTELLIGENCE")
+        #expect(anchor.title == "AUSTIN GENERAL INTELLIGENCE")
+        let restored = makeTabManager()
+        restored.restoreSessionSnapshot(manager.sessionSnapshot(includeScrollback: false))
+        let restoredGroup = try #require(restored.workspaceGroups.first { $0.id == groupId })
+        let restoredAnchor = try #require(restored.tabs.first { $0.id == restoredGroup.anchorWorkspaceId })
+        #expect(restoredGroup.name == "AUSTIN GENERAL INTELLIGENCE" && restoredAnchor.title == "AUSTIN GENERAL INTELLIGENCE")
     }
 
     // A non-anchor workspace keeps its own title; only the anchor mirrors the
