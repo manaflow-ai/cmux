@@ -15,11 +15,18 @@ import Testing
 @Suite struct MobileWhatsNewChannelGateTests {
     private func makeCenter(
         buildType: MobileBuildType,
-        payload: String? = nil
+        payload: String? = nil,
+        acknowledgedEntryID: String? = nil
     ) -> MobileWhatsNewCenter {
         let suiteName = "MobileWhatsNewChannelGateTests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
+        if let acknowledgedEntryID {
+            defaults.set(
+                acknowledgedEntryID,
+                forKey: MobileWhatsNewCenter.markerKey
+            )
+        }
         return MobileWhatsNewCenter(
             apiBaseURL: "https://cmux.test",
             appVersion: "1.0.5",
@@ -40,6 +47,46 @@ import Testing
         #expect(center.visibleBinaryEntries.isEmpty)
         #expect(center.archivePages.isEmpty)
         #expect(center.unseenPages.isEmpty)
+    }
+
+    @Test func pairingOptInEntryReappearsAfterThePreviousPageWasAcknowledged() async {
+        let payload = #"""
+        {
+          "visibleEntryIds": ["pairing-opt-in.v1", "connections.v1"],
+          "announcements": []
+        }
+        """#
+        let center = makeCenter(
+            buildType: .beta,
+            payload: payload,
+            acknowledgedEntryID: "connections.v1"
+        )
+        await center.refresh()
+        #expect(center.unseenPages.map(\.id) == ["pairing-opt-in.v1"])
+    }
+
+    @Test func connectionsPageKeepsReleasedConnectionNotesSeparateFromPairingRequirement() throws {
+        guard case .features(let features) = MobileWhatsNewCatalog.connectionsUpdate.body else {
+            Issue.record("connections.v1 should render native feature rows")
+            return
+        }
+        let titles = features.map(\.title)
+        #expect(titles.contains("Tailscale, on your terms"))
+        #expect(!titles.contains("Required: Enable iOS pairing on Mac"))
+        #expect(features.last?.symbol == "qrcode.viewfinder")
+        #expect(features.last?.detail.contains("Choosing Tailscale Only") == true)
+        #expect(features.allSatisfy { !$0.detail.contains("Enable iOS pairing") })
+    }
+
+    @Test func pairingPageMakesMacSettingRequirementProminent() throws {
+        guard case .features(let features) = MobileWhatsNewCatalog.pairingOptInUpdate.body else {
+            Issue.record("pairing-opt-in.v1 should render native feature rows")
+            return
+        }
+        #expect(features.first?.title == "Required: Enable iOS pairing on Mac")
+        #expect(features.first?.detail.contains("Settings > Mobile") == true)
+        #expect(MobileWhatsNewCatalog.pairingOptInUpdate.footnote?.contains("Required before connecting") == true)
+        #expect(MobileWhatsNewCatalog.pairingOptInUpdate.footnote?.contains("Enable iOS pairing") == true)
     }
 
     @Test func neverFetchedTeamBuildsKeepTheFullCatalog() {

@@ -34,7 +34,7 @@ struct MobileWhatsNewPage: Identifiable {
     /// Remote announcements are visually marked to distinguish service news
     /// from binary release notes.
     let isAnnouncement: Bool
-/// Build channels this catalog entry may render on
+    /// Build channels this catalog entry may render on
     /// (``MobileBuildType/token`` values). `nil` (the norm) means the
     /// ``MobileWhatsNewChannelPolicy`` default: team lanes only, never the
     /// official App Store app. The remote list can override per entry
@@ -65,7 +65,7 @@ enum MobileWhatsNewCatalog {
     /// Newest first. The one-time sheet shows every visible entry newer than
     /// the acknowledgement marker.
     static var entries: [MobileWhatsNewPage] {
-        [connectionsUpdate]
+        [pairingOptInUpdate, connectionsUpdate]
     }
 
     static func entry(withID id: String) -> MobileWhatsNewPage? {
@@ -93,6 +93,38 @@ enum MobileWhatsNewCatalog {
     /// shift how other entries compare against the marker.
     static func index(ofID id: String) -> Int? {
         entries.firstIndex { $0.id == id }
+    }
+
+    static var pairingOptInUpdate: MobileWhatsNewPage {
+        MobileWhatsNewPage(
+            id: "pairing-opt-in.v1",
+            releaseLabel: L10n.string(
+                "mobile.pairingOptInUpdate.releaseLabel",
+                defaultValue: "1.0.4 · September 2026"
+            ),
+            title: L10n.string(
+                "mobile.connectionsUpdate.title",
+                defaultValue: "What's New in cmux"
+            ),
+            body: .features([
+                .init(
+                    symbol: "lock.shield",
+                    title: L10n.string(
+                        "mobile.pairingOptInUpdate.title",
+                        defaultValue: "Required: Enable iOS pairing on Mac"
+                    ),
+                    detail: L10n.string(
+                        "mobile.pairingOptInUpdate.detail",
+                        defaultValue: "Before this iPhone can find a cmux Mac, open Settings > Mobile on that Mac and turn on Enable iOS pairing. While it is off, the Mac stays hidden and starts no iOS pairing networking."
+                    )
+                ),
+            ]),
+            isAnnouncement: false,
+            footnote: L10n.string(
+                "mobile.pairingOptInUpdate.requirement",
+                defaultValue: "Required before connecting: On every cmux Mac you want to use with iPhone, open Settings > Mobile and turn on Enable iOS pairing."
+            )
+        )
     }
 
     static var connectionsUpdate: MobileWhatsNewPage {

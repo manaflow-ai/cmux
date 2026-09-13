@@ -119,41 +119,46 @@ struct OnboardingConnectionView: View {
 
     private var message: String {
         if phase == .ready {
-            return L10n.string(
+            let connectedCopy = L10n.string(
                 "mobile.onboarding.ready.body",
                 defaultValue: "Open any workspace and respond when an agent needs you."
             )
+            return "\(connectedCopy) \(MobilePairingCopy.enableOnMacShort)"
         }
         if connectionMethod == .tailscale {
             if let requiredMacVersion {
-                return String(
+                let connectionCopy = String(
                     format: L10n.string(
                         "mobile.onboarding.connect.tailscaleBodyWithMinVersionFormat",
                         defaultValue: "Requires cmux %1$@ or newer on your Mac. Install Tailscale on both devices and join the same network, then scan the pairing code once."
                     ),
                     requiredMacVersion
                 )
+                return "\(connectionCopy) \(MobilePairingCopy.enableOnMacShort)"
             }
             // Versionless fallback (below-tier app versions, previews): no
             // stale hardcoded floor; the policy-driven branch above names one.
-            return L10n.string(
+            let connectionCopy = L10n.string(
                 "mobile.onboarding.connect.tailscaleBody",
                 defaultValue: "Install Tailscale on both devices and join the same network, then scan the pairing code once."
             )
+            return "\(connectionCopy) \(MobilePairingCopy.enableOnMacShort)"
         }
         if let requiredMacVersion {
-            return String(
+            let connectionCopy = String(
                 format: L10n.string(
                     "mobile.onboarding.connect.bodyWithMinVersionFormat",
                     defaultValue: "Use the same cmux account on both devices. Requires cmux %1$@ or newer on your Mac."
                 ),
                 requiredMacVersion
             )
+            return "\(connectionCopy) \(MobilePairingCopy.enableOnMacShort)"
         }
-        return L10n.string(
+        let connectionCopy = L10n.string(
             "mobile.onboarding.connect.body",
             defaultValue: "Use the same cmux account on both devices. Your Mac connects automatically."
         )
+        return "\(connectionCopy) \(MobilePairingCopy.enableOnMacShort)"
     }
 
     /// The minimum stable-channel Mac version this app version accepts, from

@@ -175,6 +175,17 @@ struct MobilePairingConnectionTransitionTests {
         #expect(next == .signedOut)
     }
 
+    @Test("Pairing-disabled empty state is unaffected by connection-count changes")
+    func pairingDisabledIsUnaffected() throws {
+        let next = MobilePairingModel.statusTransition(
+            from: .pairingDisabled,
+            routes: try matchingRoutes(),
+            activeConnectionCount: 1,
+            baselineConnectionCount: 0
+        )
+        #expect(next == .pairingDisabled)
+    }
+
     @Test("Tailscale is the only Mac pairing QR when Iroh is also available")
     func tailscaleRouteWinsWhenIrohIsAvailable() throws {
         let plan = try #require(MobilePairingModel.PairingRoutePlan.make(routes: [

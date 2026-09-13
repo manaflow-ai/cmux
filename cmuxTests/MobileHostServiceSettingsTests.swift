@@ -11,32 +11,35 @@ import Testing
 #endif
 
 struct MobileHostServiceSettingsTests {
-    @Test func mobileHostListenerHonorsDevelopmentDefaultUntilIOSPairingIsOverridden() throws {
+    @Test func mobileHostPairingDefaultsOffUntilIOSPairingIsOverridden() throws {
         let suiteName = "MobileHostServiceSettingsTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        #expect(MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .dev))
+        #expect(!MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .dev))
 
         defaults.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
         #expect(MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .dev))
 
         defaults.set(false, forKey: MobileHostService.listeningEnabledDefaultsKey)
         #expect(!MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .dev))
+
+        defaults.set("true", forKey: MobileHostService.listeningEnabledDefaultsKey)
+        #expect(!MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .dev))
     }
 
-    @Test func signedInIrohStartsWithoutEnablingTheLegacyListener() {
+    @Test func pairingOptInControlsBothIrohAndTheLegacyListener() {
         let automatic = MobileHostService.startupPlan(
             remoteControlDisabledByPolicy: false,
-            legacyListenerEnabled: false,
+            pairingEnabled: false,
             legacyListenerRunning: false
         )
-        #expect(automatic.activatesIroh)
+        #expect(!automatic.activatesIroh)
         #expect(!automatic.startsLegacyListener)
 
         let tailscaleCompatible = MobileHostService.startupPlan(
             remoteControlDisabledByPolicy: false,
-            legacyListenerEnabled: true,
+            pairingEnabled: true,
             legacyListenerRunning: false
         )
         #expect(tailscaleCompatible.activatesIroh)
@@ -44,11 +47,19 @@ struct MobileHostServiceSettingsTests {
 
         let alreadyListening = MobileHostService.startupPlan(
             remoteControlDisabledByPolicy: false,
-            legacyListenerEnabled: true,
+            pairingEnabled: true,
             legacyListenerRunning: true
         )
         #expect(alreadyListening.activatesIroh)
         #expect(!alreadyListening.startsLegacyListener)
+
+        let staleListener = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: false,
+            pairingEnabled: false,
+            legacyListenerRunning: true
+        )
+        #expect(!staleListener.activatesIroh)
+        #expect(!staleListener.startsLegacyListener)
     }
 
     @Test func managedRemoteControlPolicyOverridesEveryTransport() {
@@ -56,11 +67,34 @@ struct MobileHostServiceSettingsTests {
         // transport while the MDM policy is enforced.
         let disabled = MobileHostService.startupPlan(
             remoteControlDisabledByPolicy: true,
-            legacyListenerEnabled: true,
+            pairingEnabled: true,
             legacyListenerRunning: false
         )
         #expect(!disabled.activatesIroh)
         #expect(!disabled.startsLegacyListener)
+    }
+
+    @Test func pairingOffPreventsCompositionRootRuntimeSetup() {
+        #expect(!MobileHostService.shouldConfigurePairingRuntime(
+            pairingEnabled: false,
+            remoteControlEnabled: true,
+            runtimeAlreadyConfigured: false
+        ))
+        #expect(MobileHostService.shouldConfigurePairingRuntime(
+            pairingEnabled: true,
+            remoteControlEnabled: true,
+            runtimeAlreadyConfigured: false
+        ))
+        #expect(!MobileHostService.shouldConfigurePairingRuntime(
+            pairingEnabled: true,
+            remoteControlEnabled: false,
+            runtimeAlreadyConfigured: false
+        ))
+        #expect(!MobileHostService.shouldConfigurePairingRuntime(
+            pairingEnabled: true,
+            remoteControlEnabled: true,
+            runtimeAlreadyConfigured: true
+        ))
     }
 
     @Test func mobileHostListenerPreservesHistoricalExplicitOptIn() throws {
@@ -75,12 +109,12 @@ struct MobileHostServiceSettingsTests {
         #expect(!MobileHostService.isListeningEnabled(defaults: defaults))
     }
 
-    @Test func nightlyPreservesLegacyListenerWhenNoSettingWasEverWritten() throws {
+    @Test func nightlyDefaultsToPairingOffWhenNoSettingWasEverWritten() throws {
         let suiteName = "MobileHostServiceSettingsTests.NightlyCompatibility.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        #expect(MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .nightly))
+        #expect(!MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .nightly))
     }
 
     @Test func explicitDisableWinsOverNightlyCompatibility() throws {
@@ -123,7 +157,7 @@ struct MobileHostServiceSettingsTests {
         )
         let plan = MobileHostService.startupPlan(
             remoteControlDisabledByPolicy: false,
-            legacyListenerEnabled: enabled,
+            pairingEnabled: enabled,
             legacyListenerRunning: false
         )
 
@@ -143,7 +177,7 @@ struct MobileHostServiceSettingsTests {
         )
         let plan = MobileHostService.startupPlan(
             remoteControlDisabledByPolicy: false,
-            legacyListenerEnabled: enabled,
+            pairingEnabled: enabled,
             legacyListenerRunning: false
         )
 

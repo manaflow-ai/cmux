@@ -276,6 +276,12 @@ struct CMUXMobileRootView: View {
         .animation(.snappy(duration: 0.18), value: store.phase)
         .onAppear {
             syncShellAuthentication(isAuthenticated)
+            #if os(iOS)
+            diagnosticLog?.recordAppEvent(
+                .dogfoodAttachEnvironmentObserved,
+                count: hasInjectedAttachLaunchRoute ? 1 : 0
+            )
+            #endif
             store.resumeForegroundRefresh()
             #if os(iOS)
             pushCoordinator.bind(store: store)
@@ -1105,6 +1111,10 @@ struct CMUXMobileRootView: View {
         #endif
         await authManager.awaitBootstrapped()
         guard !Task.isCancelled else { return }
+        diagnosticLog?.recordAppEvent(
+            .authBootstrapCompleted,
+            count: authManager.isAuthenticated ? 1 : 0
+        )
         if authManager.isAuthenticated {
             guard prepareResolvedAccountScope() != nil else { return }
         }
@@ -1420,6 +1430,7 @@ struct CMUXMobileRootView: View {
               let attachURL = UITestConfig.dogfoodAttachURL ?? UITestConfig.attachURL else {
             return false
         }
+        diagnosticLog?.recordAppEvent(.dogfoodAttachStarted)
         return startupConnectionCoordinator.startInjectedAttach(
             attachURL: attachURL,
             prepare: {

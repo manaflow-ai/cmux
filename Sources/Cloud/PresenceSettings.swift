@@ -26,16 +26,15 @@ enum PresenceSettings {
     /// See workers/presence/README.md.
     static let productionServiceURL = "https://presence.cmux.dev"
 
-    /// Whether the heartbeat gate is on. An explicitly written value always wins.
-    /// With no stored value, presence FOLLOWS the mobile feature: announcing the
-    /// Mac's presence only makes sense once the user has enabled iOS pairing/host
-    /// (``MobileHostService/isListeningEnabled``), and a user who turns mobile on
-    /// expects their phone to see the Mac online. Default (mobile off) => off, for
-    /// privacy — the Mac announces nothing until the user opts into mobile.
+    /// Whether the heartbeat gate is on. Pairing opt-in is the outer gate, so an
+    /// explicit presence value cannot publish a Mac that has iOS pairing off.
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard MobileHostService.isListeningEnabled(defaults: defaults) else {
+            return false
+        }
         if defaults.object(forKey: enabledKey) != nil {
             return defaults.bool(forKey: enabledKey)
         }
-        return MobileHostService.isListeningEnabled(defaults: defaults)
+        return true
     }
 }

@@ -43,7 +43,7 @@ struct SetupHelpGateContent {
                     Open Tailscale Pairing on the Mac and scan its QR here, or enter the Mac's \
                     numeric Tailscale IP and port.
                     """
-                ),
+                ) + " " + MobilePairingCopy.enableOnMac,
                 link: nil,
                 identifierSuffix: "signedInNeverPaired",
                 linkAccessibilityIdentifier: "MobileSetupHelpMacAppLink"

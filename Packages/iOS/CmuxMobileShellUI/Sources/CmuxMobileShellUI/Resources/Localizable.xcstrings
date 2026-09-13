@@ -12665,6 +12665,438 @@
           }
         }
       }
+    },
+    "mobile.pairing.enableOnMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before pairing, open cmux Settings > Mobile on the Mac and turn on Enable iOS pairing. This Mac stays hidden from iOS while it is off."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングする前に、Mac の cmux で「設定」>「Mobile」を開き、「iOS ペアリングを有効にする」をオンにしてください。オフの間、この Mac は iOS から非表示になります。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffnen Sie vor dem Koppeln auf dem Mac in cmux „Einstellungen“ > „Mobile“ und aktivieren Sie „iOS-Kopplung aktivieren“. Solange die Option deaktiviert ist, bleibt dieser Mac für iOS unsichtbar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avant le jumelage, ouvrez « Réglages » > « Mobile » dans cmux sur le Mac et activez « Activer le jumelage iOS ». Ce Mac reste masqué pour iOS tant que l’option est désactivée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قبل الاقتران، افتح في cmux على الـ Mac «الإعدادات» > «الهاتف المحمول» وفعّل «تمكين اقتران iOS». يظل هذا الـ Mac مخفيًا عن iOS أثناء إيقاف الخيار."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antes de enlazar, abre en cmux del Mac «Ajustes» > «Móvil» y activa «Activar el enlace con iOS». Este Mac permanece oculto para iOS mientras la opción esté desactivada."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配對前，請在 Mac 上的 cmux 開啟「設定」>「行動裝置」，並啟用「啟用 iOS 配對」。關閉此選項時，iOS 不會顯示這部 Mac。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对前，请在 Mac 上的 cmux 打开“设置”>“移动”，并启用“启用 iOS 配对”。关闭此选项时，iOS 不会显示这台 Mac。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링하기 전에 Mac의 cmux에서 “설정” > “모바일”을 열고 “iOS 페어링 활성화”를 켜세요. 이 옵션이 꺼져 있으면 이 Mac은 iOS에 표시되지 않습니다."
+          }
+        }
+      }
+    },
+    "mobile.pairing.enableOnMac.short": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Enable iOS pairing in cmux Settings > Mobile on your Mac."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Mac の cmux「設定」>「Mobile」で iOS ペアリングを有効にしてください。"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Aktivieren Sie auf dem Mac in cmux „Einstellungen“ > „Mobile“ die iOS-Kopplung."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Activez le jumelage iOS dans cmux, sous « Réglages » > « Mobile » sur le Mac."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "فعّل اقتران iOS في cmux على الـ Mac من «الإعدادات» > «الهاتف المحمول»."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Activa el enlace con iOS en cmux, en «Ajustes» > «Móvil» del Mac."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "請在 Mac 上的 cmux「設定」>「行動裝置」中啟用 iOS 配對。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "请在 Mac 上的 cmux“设置”>“移动”中启用 iOS 配对。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Mac의 cmux “설정” > “모바일”에서 iOS 페어링을 활성화하세요."}}
+      }
+    },
+    "mobile.onboarding.pairing.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable iOS pairing on your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac で iOS ペアリングを有効にする"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS-Kopplung auf Ihrem Mac aktivieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activez le jumelage iOS sur votre Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فعّل اقتران iOS على جهاز Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activa el enlace con iOS en tu Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Mac 上啟用 iOS 配對"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Mac 上启用 iOS 配对"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac에서 iOS 페어링 활성화"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.pairing.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This step is required before any Mac can appear on your iPhone. In cmux Settings > Mobile on your Mac, turn on Enable iOS pairing. Until you do, cmux keeps the Mac hidden and does not start iOS pairing networking."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この手順は、iPhone に Mac を表示するために必要です。Mac の cmux で「設定」>「Mobile」を開き、「iOS ペアリングを有効にする」をオンにしてください。オンにするまで Mac は非表示になり、iOS ペアリングのネットワーク通信は開始されません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Schritt ist erforderlich, damit Ihr Mac auf dem iPhone angezeigt wird. Aktivieren Sie auf dem Mac in cmux „Einstellungen“ > „Mobile“ die iOS-Kopplung. Bis dahin bleibt der Mac verborgen und cmux startet keine iOS-Kopplungsnetzwerke."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette étape est requise pour que votre Mac apparaisse sur l’iPhone. Dans cmux sur le Mac, ouvrez « Réglages » > « Mobile » et activez le jumelage iOS. Tant que vous ne l’avez pas fait, le Mac reste masqué et cmux ne démarre aucun réseau de jumelage iOS."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذه الخطوة مطلوبة ليظهر جهاز Mac على iPhone. في cmux على جهاز Mac، افتح «الإعدادات» > «الهاتف المحمول» وفعّل اقتران iOS. حتى تفعل ذلك، يظل جهاز Mac مخفيًا ولا يبدأ cmux أي شبكة لاقتران iOS."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este paso es necesario para que tu Mac aparezca en el iPhone. En cmux del Mac, abre «Ajustes» > «Móvil» y activa el enlace con iOS. Hasta entonces, el Mac permanece oculto y cmux no inicia ninguna red de enlace con iOS."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "若要讓 Mac 顯示在 iPhone 上，必須完成這個步驟。請在 Mac 上的 cmux 開啟「設定」>「行動裝置」，並啟用 iOS 配對。在啟用前，Mac 會保持隱藏，cmux 不會啟動 iOS 配對網路。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要让 Mac 显示在 iPhone 上，必须完成此步骤。请在 Mac 上的 cmux 打开“设置”>“移动”，并启用 iOS 配对。在启用之前，Mac 会保持隐藏，cmux 不会启动 iOS 配对网络。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone에 Mac을 표시하려면 이 단계가 필요합니다. Mac의 cmux에서 “설정” > “모바일”로 이동해 iOS 페어링을 켜세요. 켜기 전에는 Mac이 숨겨지고 cmux가 iOS 페어링 네트워크를 시작하지 않습니다."
+          }
+        }
+      }
+    },
+    "mobile.onboarding.pairing.primary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "I've enabled iOS pairing"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "iOS ペアリングを有効にしました"}},
+        "de": {"stringUnit": {"state": "translated", "value": "iOS-Kopplung ist aktiviert"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "J’ai activé le jumelage iOS"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "فعّلت اقتران iOS"}},
+        "es": {"stringUnit": {"state": "translated", "value": "He activado el enlace con iOS"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "我已啟用 iOS 配對"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "我已启用 iOS 配对"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "iOS 페어링을 활성화했습니다"}}
+      }
+    },
+    "mobile.onboarding.pairing.required": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Required for Mac discovery"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Mac の検出に必要"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Für die Mac-Erkennung erforderlich"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Requis pour détecter le Mac"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "مطلوب لاكتشاف جهاز Mac"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Necesario para detectar el Mac"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Mac 偵測所需"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Mac 检测所需"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Mac 검색에 필요"}}
+      }
+    },
+    "mobile.onboarding.pairing.macLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "On your Mac"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Mac で"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Auf dem Mac"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Sur votre Mac"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "على جهاز Mac"}},
+        "es": {"stringUnit": {"state": "translated", "value": "En tu Mac"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在 Mac 上"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在 Mac 上"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Mac에서"}}
+      }
+    },
+    "mobile.onboarding.pairing.macDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Settings > Mobile > Enable iOS pairing"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "設定 > Mobile > iOS ペアリングを有効にする"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Einstellungen > Mobile > iOS-Kopplung aktivieren"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Réglages > Mobile > Activer le jumelage iOS"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الإعدادات > الهاتف المحمول > تمكين اقتران iOS"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Ajustes > Móvil > Activar el enlace con iOS"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "設定 > 行動裝置 > 啟用 iOS 配對"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "设置 > 移动 > 启用 iOS 配对"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "설정 > 모바일 > iOS 페어링 활성화"}}
+      }
+    },
+    "mobile.onboarding.pairing.phoneLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "On this iPhone"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "この iPhone で"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Auf diesem iPhone"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Sur cet iPhone"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "على هذا الـ iPhone"}},
+        "es": {"stringUnit": {"state": "translated", "value": "En este iPhone"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在此 iPhone 上"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在此 iPhone 上"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 iPhone에서"}}
+      }
+    },
+    "mobile.onboarding.pairing.phoneDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Sign in to the same cmux account"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "同じ cmux アカウントでサインイン"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Mit demselben cmux-Konto anmelden"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Connectez-vous au même compte cmux"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "سجّل الدخول إلى حساب cmux نفسه"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Inicia sesión en la misma cuenta de cmux"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "登入相同的 cmux 帳戶"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "登录相同的 cmux 帐户"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "같은 cmux 계정으로 로그인"}}
+      }
+    },
+    "mobile.connectionsUpdate.tailscale.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Tailscale, on your terms"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Tailscaleは自分のペースで"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Tailscale, zu Ihren Bedingungen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Tailscale, selon vos conditions"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "Tailscale ، وفقًا لشروطك"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Tailscale, según tus condiciones"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Tailscale，依照您的條件"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Tailscale，按照您的条件"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Tailscale, 원하는 대로"}}
+      }
+    },
+    "mobile.connectionsUpdate.tailscale.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Choosing Tailscale Only shows exactly what's missing and offers the pairing-code scan right there. Nothing opens on its own."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "「Tailscaleのみ」を選ぶと、足りない設定とペアリングコードのスキャンをその場で案内します。勝手に画面が開くことはありません。"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Wenn Sie sich für „Nur Tailscale“ entscheiden, wird genau angezeigt, was fehlt, und der Pairing-Code-Scan wird direkt dort angeboten. Nichts öffnet sich von alleine."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Choisir Tailscale Only montre exactement ce qui manque et propose l'analyse du code d'appariement directement sur place. Rien ne s'ouvre tout seul."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يؤدي اختيار Tailscale فقط إلى عرض ما هو مفقود بالضبط ويوفر فحص رمز الاقتران هناك. لا شيء يفتح من تلقاء نفسه."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Elegir Tailscale Only muestra exactamente lo que falta y ofrece el escaneo del código de emparejamiento allí mismo. Nada se abre por sí solo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "選擇“Tailscale Only”會準確顯示缺少的內容，並在此處提供配對碼掃描。没有什么是可以自行打开的。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "选择“Tailscale Only”会准确显示缺少的内容，并在此处提供配对码扫描。没有什么是可以自行打开的。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Tailscale Only를 선택하면 누락된 내용이 정확히 표시되고 바로 페어링 코드 스캔이 제공됩니다. 저절로 열리는 것은 없습니다."}}
+      }
+    },
+    "mobile.pairingOptInUpdate.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Required: Enable iOS pairing on Mac"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "必須: Mac で iOS ペアリングを有効にする"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Erforderlich: iOS-Kopplung auf dem Mac aktivieren"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Requis : activez le jumelage iOS sur le Mac"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "مطلوب: فعّل اقتران iOS على Mac"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Obligatorio: activa el enlace con iOS en el Mac"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "必要：在 Mac 上開啟 iOS 配對"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "必需：在 Mac 上开启 iOS 配对"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "필수: Mac에서 iOS 페어링 켜기"}}
+      }
+    },
+    "mobile.pairingOptInUpdate.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Before this iPhone can find a cmux Mac, open Settings > Mobile on that Mac and turn on Enable iOS pairing. While it is off, the Mac stays hidden and starts no iOS pairing networking."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "この iPhone で cmux Mac を見つけるには、その Mac で「設定」>「Mobile」を開き、「iOS ペアリングを有効にする」をオンにしてください。オフの間、その Mac は非表示になり、iOS ペアリングのネットワーク通信を開始しません。"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Damit dieses iPhone einen cmux Mac findet, öffnen Sie auf dem Mac „Einstellungen“ > „Mobile“ und aktivieren Sie die iOS-Kopplung. Solange sie deaktiviert ist, bleibt der Mac verborgen und startet kein iOS-Kopplungsnetzwerk."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Pour que cet iPhone trouve un Mac cmux, ouvrez Réglages > Mobile sur ce Mac et activez le jumelage iOS. Tant qu’il est désactivé, le Mac reste masqué et ne démarre aucun réseau de jumelage iOS."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "لكي يعثر هذا الـ iPhone على Mac يعمل بتطبيق cmux، افتح الإعدادات > الهاتف المحمول على جهاز Mac هذا وفعّل اقتران iOS. أثناء إيقافه، سيبقى Mac مخفيًا ولن يبدأ أي اتصال شبكي لاقتران iOS."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Para que este iPhone encuentre un Mac con cmux, abre Ajustes > Móvil en ese Mac y activa el enlace con iOS. Mientras esté desactivado, el Mac permanece oculto y no inicia la red de enlace con iOS."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "若要讓此 iPhone 找到 cmux Mac，請在該 Mac 上開啟「設定」>「行動裝置」，然後開啟 iOS 配對。關閉時，該 Mac 會保持隱藏，且不會啟動 iOS 配對網路。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "要让此 iPhone 找到 cmux Mac，请在该 Mac 上打开“设置”>“移动”，然后开启 iOS 配对。关闭时，该 Mac 会保持隐藏，也不会启动 iOS 配对网络。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 iPhone에서 cmux Mac을 찾으려면 해당 Mac에서 설정 > 모바일을 열고 iOS 페어링을 켜세요. 꺼져 있는 동안 Mac은 숨겨지고 iOS 페어링 네트워크를 시작하지 않습니다."}}
+      }
+    },
+    "mobile.pairingOptInUpdate.requirement": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Required before connecting: On every cmux Mac you want to use with iPhone, open Settings > Mobile and turn on Enable iOS pairing."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "接続する前に必須: iPhone で使う各 cmux Mac で「設定」>「Mobile」を開き、「iOS ペアリングを有効にする」をオンにしてください。"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Vor dem Verbinden erforderlich: Öffnen Sie auf jedem cmux Mac, den Sie mit dem iPhone verwenden möchten, „Einstellungen“ > „Mobile“ und aktivieren Sie die iOS-Kopplung."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Requis avant la connexion : sur chaque Mac cmux que vous voulez utiliser avec l’iPhone, ouvrez Réglages > Mobile et activez le jumelage iOS."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "مطلوب قبل الاتصال: على كل Mac يعمل بتطبيق cmux وتريد استخدامه مع iPhone، افتح الإعدادات > الهاتف المحمول وفعّل اقتران iOS."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Obligatorio antes de conectar: en cada Mac con cmux que quieras usar con iPhone, abre Ajustes > Móvil y activa el enlace con iOS."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "連線前必須完成：在每個要搭配 iPhone 使用的 cmux Mac 上，開啟「設定」>「行動裝置」，然後開啟 iOS 配對。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "连接前必须完成：在每个要搭配 iPhone 使用的 cmux Mac 上，打开“设置”>“移动”，然后开启 iOS 配对。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "연결하기 전에 필수: iPhone과 함께 사용할 각 cmux Mac에서 설정 > 모바일을 열고 iOS 페어링을 켜세요."}}
+      }
+    },
+    "mobile.pairingOptInUpdate.releaseLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "1.0.4 · September 2026"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "1.0.4 · 2026年9月"}},
+        "de": {"stringUnit": {"state": "translated", "value": "1.0.4 · September 2026"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "1.0.4 · septembre 2026"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "1.0.4 · سبتمبر 2026"}},
+        "es": {"stringUnit": {"state": "translated", "value": "1.0.4 · septiembre de 2026"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "1.0.4 · 2026 年 9 月"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "1.0.4 · 2026 年 9 月"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "1.0.4 · 2026년 9월"}}
+      }
+    },
+    "mobile.workspaces.empty.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "No workspaces yet"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ワークスペースはまだありません"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Noch keine Arbeitsbereiche"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Aucun espace de travail pour le moment"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "لا توجد مساحات عمل بعد"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Aún no hay espacios de trabajo"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "目前沒有工作區"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "还没有工作区"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "아직 워크스페이스가 없습니다"}}
+      }
+    },
+    "mobile.workspaces.empty.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable iOS pairing in cmux Settings > Mobile on your Mac, sign in to the same cmux account on both devices, and keep cmux running. Your Mac and its workspaces will appear here after pairing is enabled."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac の cmux で「設定」>「Mobile」から iOS ペアリングを有効にし、両方のデバイスで同じ cmux アカウントにサインインして、cmux を起動したままにしてください。ペアリングを有効にすると、Mac とそのワークスペースがここに表示されます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivieren Sie auf dem Mac in cmux „Einstellungen“ > „Mobile“ die iOS-Kopplung, melden Sie sich auf beiden Geräten mit demselben cmux-Konto an und lassen Sie cmux geöffnet. Nach der Aktivierung werden der Mac und seine Arbeitsbereiche hier angezeigt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activez le jumelage iOS dans cmux, sous « Réglages » > « Mobile » sur le Mac, connectez-vous au même compte cmux sur les deux appareils et laissez cmux ouvert. Le Mac et ses espaces de travail apparaîtront ici une fois le jumelage activé."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فعّل اقتران iOS في cmux على الـ Mac من «الإعدادات» > «الهاتف المحمول»، وسجّل الدخول إلى حساب cmux نفسه على الجهازين، واترك cmux قيد التشغيل. سيظهر الـ Mac ومساحات العمل الخاصة به هنا بعد تفعيل الاقتران."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activa el enlace con iOS en cmux, en «Ajustes» > «Móvil» del Mac, inicia sesión con la misma cuenta de cmux en ambos dispositivos y deja cmux abierto. El Mac y sus espacios de trabajo aparecerán aquí cuando se active el enlace."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請在 Mac 上的 cmux「設定」>「行動裝置」中啟用 iOS 配對，並在兩部裝置上登入相同的 cmux 帳戶，讓 cmux 保持執行。啟用配對後，Mac 和其工作區會顯示在這裡。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在 Mac 上的 cmux“设置”>“移动”中启用 iOS 配对，并在两台设备上登录相同的 cmux 帐户，让 cmux 保持运行。启用配对后，Mac 及其工作区会显示在这里。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac의 cmux에서 “설정” > “모바일”로 이동해 iOS 페어링을 켜고, 두 기기에서 같은 cmux 계정으로 로그인한 뒤 cmux를 실행 상태로 두세요. 페어링을 켜면 Mac과 워크스페이스가 여기에 표시됩니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

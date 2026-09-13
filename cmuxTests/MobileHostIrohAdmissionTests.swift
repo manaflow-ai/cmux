@@ -382,7 +382,7 @@ struct IrohTailscaleVersionSkewMacGateTests {
         )
         let plan = MobileHostService.startupPlan(
             remoteControlDisabledByPolicy: false,
-            legacyListenerEnabled: enabled,
+            pairingEnabled: enabled,
             legacyListenerRunning: false
         )
 
@@ -402,7 +402,7 @@ struct IrohTailscaleVersionSkewMacGateTests {
         )
         let plan = MobileHostService.startupPlan(
             remoteControlDisabledByPolicy: false,
-            legacyListenerEnabled: enabled,
+            pairingEnabled: enabled,
             legacyListenerRunning: false
         )
 
