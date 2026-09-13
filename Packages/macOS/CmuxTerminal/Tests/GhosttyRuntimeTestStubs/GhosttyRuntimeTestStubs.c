@@ -569,7 +569,10 @@ bool ghostty_surface_set_render_failed_callback(
 }
 bool ghostty_surface_request_render_with_token(void *surface, uint64_t token) {
     GhosttyRuntimeTestRenderCallbacks* callbacks = cmux_test_render_callbacks_for(surface);
-    if (callbacks == NULL || callbacks->presented == NULL) return false;
+    // Most state-machine tests acknowledge the callback directly. Preserve
+    // their lightweight fake admission when no native callback is installed;
+    // the callback-boundary tests below exercise the registered path.
+    if (callbacks == NULL || callbacks->presented == NULL) return true;
     if (callbacks->has_pending_token) return false;
     callbacks->pending_token = token;
     callbacks->has_pending_token = true;
