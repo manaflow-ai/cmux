@@ -9544,7 +9544,6 @@ private final class TerminalViewportBorderOverlayView: NSView {
     var effectiveSize: CGSize? {
         didSet { needsDisplay = true }
     }
-
     var drawsVisibleAreaBorder = false {
         didSet { needsDisplay = true }
     }
@@ -9599,7 +9598,6 @@ private final class TerminalViewportBorderOverlayView: NSView {
         path.stroke()
     }
 }
-
 final class GhosttySurfaceScrollView: NSView {
     enum FlashStyle {
         case navigation
@@ -9622,7 +9620,6 @@ final class GhosttySurfaceScrollView: NSView {
             return WorkspaceAttentionCoordinator.flashStyle(for: .notificationArrival)
         }
     }
-
     private enum NotificationRingMetrics {
         static let inset = PanelOverlayRingMetrics.inset
         static let cornerRadius = PanelOverlayRingMetrics.cornerRadius
@@ -9655,7 +9652,6 @@ final class GhosttySurfaceScrollView: NSView {
         }
         return window
     }
-
     func forwardKeyDownToSurface(_ event: NSEvent) {
         surfaceView.keyDown(with: event)
     }
