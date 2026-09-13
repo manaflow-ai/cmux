@@ -194,6 +194,7 @@
 		A9E020000000000000000003 /* AgentSessionWebRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000003 /* AgentSessionWebRenderer.swift */; };
 		B6A700000000000000000005 /* AgentSessionWebRendererCoordinator+Context.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6A700000000000000000006 /* AgentSessionWebRendererCoordinator+Context.swift */; };
 		B6A700000000000000000003 /* AgentSessionWebRendererCoordinator+GuiMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6A700000000000000000004 /* AgentSessionWebRendererCoordinator+GuiMode.swift */; };
+		CA390005CA390005CA390000 /* AgentSessionWebRendererCoordinator+ShellURL.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA390004CA390004CA390004 /* AgentSessionWebRendererCoordinator+ShellURL.swift */; };
 		A9F200000000000000000013 /* AgentSessionWebRendererCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000013 /* AgentSessionWebRendererCoordinator.swift */; };
 		A9E02000000000000000000C /* AgentSessionWebRendererSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000C /* AgentSessionWebRendererSession.swift */; };
 		A9E050000000000000000002 /* AgentSessionWebRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E050000000000000000001 /* AgentSessionWebRendererTests.swift */; };
@@ -3975,6 +3976,7 @@
 		A9E010000000000000000003 /* AgentSessionWebRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionWebRenderer.swift; sourceTree = "<group>"; };
 		B6A700000000000000000006 /* AgentSessionWebRendererCoordinator+Context.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/AgentSessionWebRendererCoordinator+Context.swift"; sourceTree = "<group>"; };
 		B6A700000000000000000004 /* AgentSessionWebRendererCoordinator+GuiMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/AgentSessionWebRendererCoordinator+GuiMode.swift"; sourceTree = "<group>"; };
+		CA390004CA390004CA390004 /* AgentSessionWebRendererCoordinator+ShellURL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/AgentSessionWebRendererCoordinator+ShellURL.swift"; sourceTree = "<group>"; };
 		A9F100000000000000000013 /* AgentSessionWebRendererCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionWebRendererCoordinator.swift; sourceTree = "<group>"; };
 		A9E01000000000000000000C /* AgentSessionWebRendererSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionWebRendererSession.swift; sourceTree = "<group>"; };
 		A9E050000000000000000001 /* AgentSessionWebRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionWebRendererTests.swift; sourceTree = "<group>"; };
@@ -9457,6 +9459,7 @@
 				A9E01000000000000000000E /* CodexAppServerSession.swift */,
 				A9E010000000000000000003 /* AgentSessionWebRenderer.swift */,
 				B6A700000000000000000006 /* AgentSessionWebRendererCoordinator+Context.swift */,
+				CA390004CA390004CA390004 /* AgentSessionWebRendererCoordinator+ShellURL.swift */,
 				B6A700000000000000000004 /* AgentSessionWebRendererCoordinator+GuiMode.swift */,
 				A9E01000000000000000000B /* AgentSessionWebHostView.swift */,
 				A9E01000000000000000000C /* AgentSessionWebRendererSession.swift */,
@@ -11902,6 +11905,7 @@
 				A9E020000000000000000003 /* AgentSessionWebRenderer.swift in Sources */,
 				B6A700000000000000000005 /* AgentSessionWebRendererCoordinator+Context.swift in Sources */,
 				B6A700000000000000000003 /* AgentSessionWebRendererCoordinator+GuiMode.swift in Sources */,
+				CA390005CA390005CA390000 /* AgentSessionWebRendererCoordinator+ShellURL.swift in Sources */,
 				A9F200000000000000000013 /* AgentSessionWebRendererCoordinator.swift in Sources */,
 				A9E02000000000000000000C /* AgentSessionWebRendererSession.swift in Sources */,
 				A9E02000000000000000000D /* AgentSessionWebTheme.swift in Sources */,

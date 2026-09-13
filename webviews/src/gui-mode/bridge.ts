@@ -2,6 +2,7 @@ import { callNative } from "../agent-session/shared/bridge";
 
 export type GuiModeCopy = {
   cancel: string;
+  cancellationUnconfirmed: string;
   errorMessage: string;
   homeTitle: string;
   noProvidersFound: string;
@@ -41,7 +42,25 @@ export type GuiModeAppContext = {
   guiMode?: GuiModeContext;
 };
 
+export type GuiModeBootstrap = {
+  context: GuiModeContext;
+  loadingMessage: string;
+  errorMessage: string;
+};
+
+declare global {
+  interface Window {
+    cmuxGuiModeBootstrap?: GuiModeBootstrap;
+  }
+}
+
+export function readGuiModeBootstrap(): GuiModeBootstrap | undefined {
+  return typeof window === "undefined" ? undefined : window.cmuxGuiModeBootstrap;
+}
+
 export async function loadGuiModeContext(): Promise<GuiModeContext> {
+  const bootstrap = readGuiModeBootstrap();
+  if (bootstrap) return bootstrap.context;
   const context = await callNativeWithTimeout<GuiModeAppContext>("app.context", {}, 4000);
   if (!context.guiMode) {
     throw new Error("Missing GUI mode context.");

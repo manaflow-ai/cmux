@@ -1,7 +1,26 @@
 import Foundation
+import WebKit
 
 @MainActor
 extension AgentSessionWebRendererCoordinator {
+    /// Installs the same localized state as app.context before any page script runs.
+    static func guiModeBootstrapScript(state: GuiModePanelState) -> WKUserScript? {
+        let payload: [String: Any] = [
+            "context": guiModeContextPayload(
+                page: state.page, prompt: state.prompt, selectedProviderID: state.providerID
+            ),
+            "loadingMessage": String(localized: "agentSession.web.status.loading", defaultValue: "Loading"),
+            "errorMessage": String(localized: "agentSession.web.error.requestFailed", defaultValue: "Native bridge request failed.")
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let json = String(data: data, encoding: .utf8) else { return nil }
+        return WKUserScript(
+            source: "window.cmuxGuiModeBootstrap = \(json);",
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+    }
+
     static func guiModeContextPayload(
         page: GuiModePanelPage,
         prompt: String?,
@@ -26,6 +45,7 @@ extension AgentSessionWebRendererCoordinator {
             },
             "copy": [
                 "cancel": String(localized: "guiMode.web.cancel", defaultValue: "Cancel"),
+                "cancellationUnconfirmed": String(localized: "guiMode.web.cancellationUnconfirmed", defaultValue: "Could not confirm cancellation. Try Cancel again before submitting another task."),
                 "homeTitle": String(localized: "guiMode.web.home.title", defaultValue: "GUI Mode"),
                 "taskTitle": String(localized: "guiMode.web.task.title", defaultValue: "/task-worktree-pr"),
                 "noProvidersFound": String(localized: "guiMode.web.noProvidersFound", defaultValue: "No agents found"),

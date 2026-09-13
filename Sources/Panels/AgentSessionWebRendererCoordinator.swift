@@ -122,6 +122,11 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             "index=\(indexURL.path)"
         )
 #endif
+        // This configuration owns only the renderer's document bootstrap scripts.
+        webView.configuration.userContentController.removeAllUserScripts()
+        if rendererKind == .guiMode, let script = Self.guiModeBootstrapScript(state: guiModeState) {
+            webView.configuration.userContentController.addUserScript(script)
+        }
         webView.loadFileURL(indexURL, allowingReadAccessTo: Bundle.main.resourceURL ?? resourceDirectoryURL)
         loadedRendererKind = rendererKind
         hasFinishedNavigation = false
@@ -325,30 +330,6 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             return false
         }
         return Self.isTrustedShellURL(frameInfo.request.url, expected: trustedShellURL)
-    }
-
-    nonisolated static func shellURL(
-        rendererKind: AgentSessionRendererKind,
-        resourceDirectoryURL: URL
-    ) -> URL {
-        rendererKind.resourceHTMLPathComponents.reduce(resourceDirectoryURL) {
-            $0.appendingPathComponent($1, isDirectory: false)
-        }
-    }
-
-    nonisolated static func isTrustedShellURL(_ candidate: URL?, expected: URL?) -> Bool {
-        guard let candidate = normalizedTrustedFileURL(candidate),
-              let expected = normalizedTrustedFileURL(expected) else {
-            return false
-        }
-        return candidate == expected
-    }
-
-    nonisolated static func normalizedTrustedFileURL(_ url: URL?) -> URL? {
-        guard let url, url.isFileURL else {
-            return nil
-        }
-        return url.standardizedFileURL.resolvingSymlinksInPath()
     }
 
     private func handle(_ request: AgentSessionBridgeRequest) async throws -> Any {

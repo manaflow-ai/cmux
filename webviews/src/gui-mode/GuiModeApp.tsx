@@ -14,45 +14,26 @@ import {
 } from "../agent-session/react/proseMirrorPromptEditor";
 import {
   loadGuiModeContext,
+  readGuiModeBootstrap,
   cancelGuiModeSubmit,
   makeGuiModeRequestId,
   submitGuiModePrompt,
   type GuiModeContext,
   type GuiModeProvider,
 } from "./bridge";
-import { guiModeFallbackProviders } from "./providerCatalog";
 
 const h = React.createElement;
 
 type LoadState =
+  | { status: "loading" }
   | { status: "ready"; context: GuiModeContext }
   | { status: "error"; message: string };
 
-const defaultContext: GuiModeContext = {
-  copy: {
-    errorMessage: "Could not create the GUI workspace.",
-    cancel: "Cancel",
-    homeTitle: "GUI Mode",
-    noProvidersFound: "No agents found",
-    promptPlaceholder: "What should cmux build?",
-    providerLabel: "Agent",
-    providerSearchPlaceholder: "Search agents",
-    runtimeLabel: "Runtime",
-    setupCommandLabel: "Setup",
-    submit: "Submit",
-    submitting: "Submitting",
-    taskCommandLabel: "Launch",
-    taskPromptLabel: "Prompt",
-    taskTitle: "/task-worktree-pr",
-  },
-  page: "home",
-  prompt: "",
-  providers: guiModeFallbackProviders,
-  selectedProviderId: "codex",
-};
-
 export function GuiModeApp() {
-  const [loadState, setLoadState] = useState<LoadState>({ status: "ready", context: defaultContext });
+  const bootstrap = readGuiModeBootstrap();
+  const [loadState, setLoadState] = useState<LoadState>(() => bootstrap
+    ? { status: "ready", context: bootstrap.context }
+    : { status: "loading" });
   const didRequestContext = useRef(false);
   const loadHostRef = useCallback((node: HTMLElement | null) => {
     if (!node || didRequestContext.current) {
@@ -63,9 +44,8 @@ export function GuiModeApp() {
       .then((context) => {
         setLoadState({ status: "ready", context });
       })
-      .catch((error) => {
-        const message = error instanceof Error ? error.message : "Native bridge unavailable.";
-        setLoadState({ status: "error", message });
+      .catch(() => {
+        setLoadState({ status: "error", message: readGuiModeBootstrap()?.errorMessage ?? "" });
       });
   }, []);
 
@@ -86,9 +66,13 @@ export function GuiModeApp() {
   return h("main", {
     ref: loadHostRef,
     className: "gui-mode-root",
-    "data-gui-mode-page": "error",
+    "data-gui-mode-page": loadState.status,
+    "aria-busy": loadState.status === "loading",
   },
-    h("div", { className: "gui-mode-status", role: "alert" }, loadState.message),
+    h("div", { className: "gui-mode-status", role: loadState.status === "error" ? "alert" : "status" },
+      loadState.status === "error"
+        ? loadState.message
+        : h("progress", { "aria-label": bootstrap?.loadingMessage })),
   );
 }
 
@@ -123,7 +107,7 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
           // Keep the request locked when native cancellation cannot be delivered;
           // releasing it would permit a duplicate workspace mutation.
           blockedRequestIds.current.add(requestId);
-          throw new Error("GUI mode cancellation is still pending.");
+          setError(context.copy.cancellationUnconfirmed);
         }
       })
       .finally(() => {
@@ -135,7 +119,7 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
           setIsSubmitting(false);
         }
       });
-  }, [canSubmit, context.copy.errorMessage, selectedProvider.id, trimmedPrompt]);
+  }, [canSubmit, context.copy, selectedProvider.id, trimmedPrompt]);
   const cancel = useCallback(() => {
     const requestId = activeRequestId.current;
     if (!requestId) return;
@@ -146,9 +130,10 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
         cancelledRequestIds.current.delete(requestId);
         activeRequestId.current = null;
         setIsSubmitting(false);
+        setError("");
       }
-    }).catch(() => undefined);
-  }, []);
+    }).catch(() => setError(context.copy.cancellationUnconfirmed));
+  }, [context.copy.cancellationUnconfirmed]);
 
   return h("section", { className: "gui-mode-home", "aria-label": context.copy.homeTitle, style: accentStyle },
     h("div", { className: "gui-mode-chat-shell" },

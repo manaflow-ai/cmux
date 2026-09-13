@@ -12,7 +12,10 @@ final class GuiModeWorkspaceCoordinator {
             select: true,
             autoRefreshMetadata: false
         ) else { return nil }
-        _ = installGuiPanel(in: workspace, state: .home)
+        guard installGuiPanel(in: workspace, state: .home) != nil else {
+            tabManager.closeWorkspace(workspace, recordHistory: false)
+            return nil
+        }
         return workspace
     }
 

@@ -3052,7 +3052,18 @@
       "zh-Hant": "Provider brand name is intentionally unchanged; translated entry is still required.",
       "zh-Hans": "Provider brand name is intentionally unchanged; translated entry is still required.",
       "ko": "Provider brand name is intentionally unchanged; translated entry is still required.",
-      "ja": "Provider brand name is intentionally unchanged; translated entry is still required."
+      "ja": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "bs": "Provider brand name is invariant across locales.",
+      "da": "Provider brand name is invariant across locales.",
+      "it": "Provider brand name is invariant across locales.",
+      "km": "Provider brand name is invariant across locales.",
+      "nb": "Provider brand name is invariant across locales.",
+      "pl": "Provider brand name is invariant across locales.",
+      "pt-BR": "Provider brand name is invariant across locales.",
+      "ru": "Provider brand name is invariant across locales.",
+      "th": "Provider brand name is invariant across locales.",
+      "tr": "Provider brand name is invariant across locales.",
+      "uk": "Provider brand name is invariant across locales."
     }
   },
   "guiMode.provider.antigravity": {
@@ -3065,7 +3076,18 @@
       "zh-Hant": "Provider brand name is intentionally unchanged; translated entry is still required.",
       "zh-Hans": "Provider brand name is intentionally unchanged; translated entry is still required.",
       "ko": "Provider brand name is intentionally unchanged; translated entry is still required.",
-      "ja": "Provider brand name is intentionally unchanged; translated entry is still required."
+      "ja": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "bs": "Provider brand name is invariant across locales.",
+      "da": "Provider brand name is invariant across locales.",
+      "it": "Provider brand name is invariant across locales.",
+      "km": "Provider brand name is invariant across locales.",
+      "nb": "Provider brand name is invariant across locales.",
+      "pl": "Provider brand name is invariant across locales.",
+      "pt-BR": "Provider brand name is invariant across locales.",
+      "ru": "Provider brand name is invariant across locales.",
+      "th": "Provider brand name is invariant across locales.",
+      "tr": "Provider brand name is invariant across locales.",
+      "uk": "Provider brand name is invariant across locales."
     }
   },
   "guiMode.provider.omp": {
@@ -3078,7 +3100,18 @@
       "zh-Hant": "Provider brand name is intentionally unchanged; translated entry is still required.",
       "zh-Hans": "Provider brand name is intentionally unchanged; translated entry is still required.",
       "ko": "Provider brand name is intentionally unchanged; translated entry is still required.",
-      "ja": "Provider brand name is intentionally unchanged; translated entry is still required."
+      "ja": "Provider brand name is intentionally unchanged; translated entry is still required.",
+      "bs": "Provider brand name is invariant across locales.",
+      "da": "Provider brand name is invariant across locales.",
+      "it": "Provider brand name is invariant across locales.",
+      "km": "Provider brand name is invariant across locales.",
+      "nb": "Provider brand name is invariant across locales.",
+      "pl": "Provider brand name is invariant across locales.",
+      "pt-BR": "Provider brand name is invariant across locales.",
+      "ru": "Provider brand name is invariant across locales.",
+      "th": "Provider brand name is invariant across locales.",
+      "tr": "Provider brand name is invariant across locales.",
+      "uk": "Provider brand name is invariant across locales."
     }
   },
   "guiMode.provider.support.hooks": {
@@ -3136,14 +3169,7 @@
   "guiMode.web.providerLabel": {
     "source": "Agent",
     "identityLocales": {
-      "de": "Reviewed established French UI term; translated entry is still required.",
-      "fr": "Reviewed established French UI term; translated entry is still required.",
-      "ar": "Reviewed established French UI term; translated entry is still required.",
-      "es": "Reviewed established French UI term; translated entry is still required.",
-      "zh-Hant": "Reviewed established French UI term; translated entry is still required.",
-      "zh-Hans": "Reviewed established French UI term; translated entry is still required.",
-      "ko": "Reviewed established French UI term; translated entry is still required.",
-      "ja": "Reviewed established French UI term; translated entry is still required."
+      "fr": "Reviewed French term for an agent; translated entry remains required."
     }
   },
   "guiMode.workspace.task.format": {

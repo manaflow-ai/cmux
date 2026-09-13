@@ -4,7 +4,7 @@ import { cpSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { GuiModeContext } from "../src/gui-mode/bridge";
-import { guiModeFallbackProviders } from "../src/gui-mode/providerCatalog";
+import { guiModeFallbackProviders } from "./fixtures/guiModeProviders";
 
 const repoRoot = resolve(import.meta.dir, "../..");
 const context: GuiModeContext = {
@@ -19,6 +19,7 @@ const context: GuiModeContext = {
     submit: "Submit",
     submitting: "Submitting",
     cancel: "Cancel",
+    cancellationUnconfirmed: "Could not confirm cancellation. Try Cancel again before submitting another task.",
     providerLabel: "Agent",
     providerSearchPlaceholder: "Search agents",
     noProvidersFound: "No agents found",
