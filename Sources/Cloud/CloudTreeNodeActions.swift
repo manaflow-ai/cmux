@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+
 /// Closure bundle handed to Cloud outline rows for the nodes below a machine.
 struct CloudTreeNodeActions {
     /// Project a resource into the selected local workspace.
@@ -33,7 +34,6 @@ struct CloudTreeNodeActions {
     /// Close a workspace on its machine AND kill every terminal in it (austin,
     /// 2026-08-31: a closed workspace never leaves stray terminals behind in the
     /// pool). Confirms first when there is something to kill. The protocol's
-    /// keep-terminals close stays CLI-only (`cmux vm workspace close`).
     let closeWorkspace: @MainActor (_ machine: SurfaceMachineID, _ workspace: SurfaceRemoteWorkspace) -> Void
     /// Rename a remote workspace via a text prompt.
     let renameWorkspace: @MainActor (_ machine: SurfaceMachineID, _ workspace: SurfaceRemoteWorkspace) -> Void
@@ -41,13 +41,14 @@ struct CloudTreeNodeActions {
     /// caller selected the machine pool, so the explicit compatibility operation
     /// renames all views.
     let renameTerminal: @MainActor (_ resource: SurfaceResource, _ view: SurfaceRemoteView?) -> Void
+    /// Select a local workspace.
     let selectLocalWorkspace: @MainActor (_ workspaceID: UUID) -> Void
     let copyToPasteboard: @MainActor (_ text: String) -> Void
     /// Copy the machine port's private URL without changing network state.
+    /// Local forwarding addresses are copied explicitly from the Ports table.
     let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
     let refresh: @MainActor () -> Void
     var refreshMachine: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
-    var organize: @MainActor (CloudSidebarOrganizationAction, String, [CloudTreeNode]) -> Bool = { _, _, _ in false }
     /// Navigates a nested terminal through its owning Cloud workspace.
     var openRemoteTerminal: @MainActor (_ machine: SurfaceMachineID, _ group: SurfaceResourceGroup, _ resource: SurfaceResourceID, _ view: SurfaceRemoteView?, _ openIn: UUID?) -> Void = { _, _, _, _, _ in }
 
@@ -62,11 +63,10 @@ struct CloudTreeNodeActions {
         refresh: @escaping @MainActor () -> Void,
         refreshMachine: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in }, operationController: CloudWorkspaceOperationController? = nil
     ) -> CloudTreeNodeActions {
-        @MainActor @discardableResult
-        func run(
+        let run: @MainActor (
             _ label: String,
             _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void
-        ) -> Task<Void, Never> {
+        ) -> Task<Void, Never> = { label, operation in
             onWillMutate(label)
             return Task { @MainActor in
                 defer { onDidMutate() }
@@ -198,14 +198,7 @@ struct CloudTreeNodeActions {
                 }
             },
             newTerminal: { machine, remoteWorkspaceID in
-                // A cloud machine gets its pane at once; the sidebar shares the
-                // shortcut routes' optimistic path. The local machine and a missing
-                // workspace keep the awaited create below.
-                if !machine.isLocal, let workspaceID = selectedWorkspaceID(),
-                   let workspace = Workspace.liveWorkspace(id: workspaceID),
-                   workspace.openCloudTerminalOptimistically(on: machine, remoteWorkspaceID: remoteWorkspaceID) {
-                    return
-                }
+                guard let capturedDestination = try? Self.capturedTabDestination(selectedWorkspaceID()) else { onFailure(String(localized: "cloudTree.error.noSelectedWorkspace", defaultValue: "No selected workspace.")); return }
                 run(startingLabel(machine)) { catalog in
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                     let token = catalog.cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: machine)
@@ -213,7 +206,7 @@ struct CloudTreeNodeActions {
                     let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
                     let (projection, _) = try await catalog.project(
                         resource.id,
-                        into: try destination(.tab),
+                        into: capturedDestination,
                         focus: true,
                         reuseExisting: true,
                         remoteView: Self.uniqueRemoteView(resource)
@@ -223,17 +216,13 @@ struct CloudTreeNodeActions {
             },
             openGroup: { machine, group, placement, remoteWorkspaceID in
                 if group.isEmpty {
-                    if !machine.isLocal, let workspaceID = selectedWorkspaceID(),
-                       let workspace = Workspace.liveWorkspace(id: workspaceID),
-                       workspace.openCloudTerminalOptimistically(on: machine, remoteWorkspaceID: remoteWorkspaceID) {
-                        return
-                    }
+                    guard let capturedDestination = try? Self.capturedTabDestination(selectedWorkspaceID()) else { onFailure(String(localized: "cloudTree.error.noSelectedWorkspace", defaultValue: "No selected workspace.")); return }
                     run(startingLabel(machine)) { catalog in
                         guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                         let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
                         let (projection, _) = try await catalog.project(
                             resource.id,
-                            into: try destination(.tab),
+                            into: capturedDestination,
                             focus: true,
                             reuseExisting: true,
                             remoteView: Self.uniqueRemoteView(resource)
@@ -246,8 +235,7 @@ struct CloudTreeNodeActions {
                         _ = try await catalog.projectGroup(
                             routedGroup,
                             into: try destination(placement),
-                            focus: true,
-                            optimistic: .app
+                            focus: true
                         )
                     }
                 }
@@ -269,7 +257,7 @@ struct CloudTreeNodeActions {
                             ),
                             title: Self.localWorkspaceTitle(hostName: machineName(machine), group: group),
                             focus: true,
-                            host: .appOptimistic
+                            host: .app
                         )
                         catalog.bindCloudWorkspace(
                             localWorkspaceID: opened.workspaceID, machine: machine,
@@ -289,7 +277,7 @@ struct CloudTreeNodeActions {
                             routedGroup,
                             title: Self.localWorkspaceTitle(hostName: machineName(machine), group: group),
                             focus: true,
-                            host: .appOptimistic,
+                            host: .app,
                             layout: layout
                         )
                         catalog.bindCloudWorkspace(
@@ -378,9 +366,8 @@ struct CloudTreeNodeActions {
             },
             refresh: refresh
         )
-        actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }
         actions.refreshMachine = refreshMachine
-        let navigationRun: CloudTreeTerminalNavigationCoordinator.Run = run
+        let navigationRun: CloudTreeTerminalNavigationCoordinator.Run = { run($0, $1) }
         let navigation = CloudTreeTerminalNavigationCoordinator(
             machineName: machineName,
             run: navigationRun,
@@ -389,6 +376,7 @@ struct CloudTreeNodeActions {
         actions.openRemoteTerminal = { navigation.open(machine: $0, group: $1, resource: $2, view: $3, openIn: $4) }
         return actions
     }
+
     /// The local workspace's title: the remote workspace's own name — what a
     /// person actually named it, or typed into its terminal — never the
     /// machine's raw provider id. `hostName` (the machine's friendly label)
@@ -397,6 +385,7 @@ struct CloudTreeNodeActions {
         let name = group.title.trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? hostName : name
     }
+
     /// The machine's friendly label — `SurfaceMachineInfo.name` (the same
     /// preferred name its own sidebar row shows), never the raw provider VM
     /// id. Shared by every caller that needs a machine's name in
@@ -456,7 +445,7 @@ struct CloudTreeNodeActions {
             group,
             title: localWorkspaceTitle(hostName: resolvedMachineName(machine, snapshot: catalog.snapshot), group: group),
             focus: focus,
-            host: .appOptimistic
+            host: .app
         )
         catalog.bindCloudWorkspace(
             localWorkspaceID: opened.workspaceID,
@@ -467,7 +456,6 @@ struct CloudTreeNodeActions {
         if focus, let first = opened.projections.first { SurfacePaneFactory.focus(panelID: first.panelID, in: first.workspaceID) }
         return (workspace, terminal, opened)
     }
-
     /// The full close, shared by the sidebar's "Close Workspace…" (menu and hover ×) and
     /// the socket's `vm.workspace_delete`: kill every terminal viewed in the workspace,
     /// then close the workspace. Re-syncs and re-enumerates AT operation time — the
