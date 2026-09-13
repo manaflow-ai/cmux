@@ -94,9 +94,9 @@ final class TerminalPanel: Panel, ObservableObject {
     @Published var viewReattachToken: UInt64 = 0
 
     @Published var agentHibernationPhase: AgentHibernationPanelPhase = .live
-    /// A native cloud pane's live attachment state (nil for local terminals).
-    /// Written only by the owning cloud session; the view shows it.
+    /// A native cloud pane's live attachment state.
     var cloudAttachment: CloudTerminalAttachmentStatus?
+    let cloudStartupReadiness = CloudTerminalReadiness()
 
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
     var onRequestAgentHibernationResume: ((Bool) -> Bool)?
