@@ -34,14 +34,14 @@ impl ColorFixture {
     }
 
     fn attach(&self) -> BufReader<Box<dyn transport::Stream>> {
+        self.attach_surface(self.surface.id)
+    }
+
+    fn attach_surface(&self, surface: u64) -> BufReader<Box<dyn transport::Stream>> {
         let mut stream = transport::connect(&self.socket).unwrap();
         stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-        writeln!(
-            stream,
-            "{}",
-            json!({"id": 1, "cmd": "attach-surface", "surface": self.surface.id})
-        )
-        .unwrap();
+        writeln!(stream, "{}", json!({"id": 1, "cmd": "attach-surface", "surface": surface}))
+            .unwrap();
         BufReader::new(stream)
     }
 
@@ -129,6 +129,12 @@ fn color_ownership_same_valued_osc_survives_defaults_and_resets_per_terminal() {
     assert_eq!(changed["overrides"], authored);
     assert_eq!(changed["palette"], json!({"4": "#445566"}));
 
+    let peer = fixture.mux.new_workspace(None, Some((40, 8))).unwrap();
+    let peer_state = ColorFixture::event(&mut fixture.attach_surface(peer.id), "vt-state");
+    fixture.mux.close_surface(peer.id).unwrap();
+    assert_eq!(peer_state["colors"]["overrides"], json!({"fg": null, "bg": null, "cursor": null}));
+    assert_eq!(peer_state["colors"]["palette"], json!({}));
+
     // A foreground reset must not clear another dynamic color or ANSI entry.
     fixture.surface.try_with_terminal(|term| term.vt_write(b"\x1b]110\x07")).unwrap();
     fixture.defaults(false);
@@ -151,4 +157,17 @@ fn color_ownership_same_valued_osc_survives_defaults_and_resets_per_terminal() {
     // application overrides; this also exercises the terminal-host replay seam.
     let restored = ColorFixture::event(&mut fixture.attach(), "vt-state");
     assert_eq!(restored["colors"]["overrides"], reset["overrides"]);
+
+    for reset in [b"\x1b]104\x07".as_slice(), b"\x1bc".as_slice()] {
+        fixture
+            .surface
+            .try_with_terminal(|term| {
+                term.vt_write(b"\x1b]4;1;#112233\x07\x1b]4;4;#445566\x07");
+                term.vt_write(reset);
+            })
+            .unwrap();
+        let replay = ColorFixture::event(&mut fixture.attach(), "vt-state");
+        assert_eq!(replay["colors"]["palette"], json!({}));
+        assert_eq!(replay["colors"]["overrides"], json!({"fg": null, "bg": null, "cursor": null}));
+    }
 }

@@ -10297,6 +10297,11 @@ fn terminal_colors_json(colors: TerminalColors) -> Value {
         "fg": color_hex(colors.fg),
         "bg": color_hex(colors.bg),
         "cursor": color_hex(colors.cursor),
+        "overrides": {
+            "fg": color_hex(colors.fg_override),
+            "bg": color_hex(colors.bg_override),
+            "cursor": color_hex(colors.cursor_override),
+        },
         "selection_bg": color_hex(colors.selection_bg),
         "selection_fg": color_hex(colors.selection_fg),
         "palette": palette,

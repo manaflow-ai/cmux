@@ -739,6 +739,7 @@ fn control_socket_attach_vt_state_includes_effective_colors() {
             "fg": "#010203",
             "bg": "#131415",
             "cursor": "#204060",
+            "overrides": {"fg": null, "bg": null, "cursor": "#204060"},
             "selection_bg": null,
             "selection_fg": null,
             "palette": {"4": "#112233"},

@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 8ff10c20fef75f9aaa1498eaf5e1107f084bdcf3febdcf8806fb4e7fc1c90b86. */
+/* cmux-tui mux protocol 12, IR 513863e548c07139778aa74778175088bd58c3c1bfb0e1125f3184d7d63fd970. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "8ff10c20fef75f9aaa1498eaf5e1107f084bdcf3febdcf8806fb4e7fc1c90b86" as const;
+export const SDK_IR_SHA256 = "513863e548c07139778aa74778175088bd58c3c1bfb0e1125f3184d7d63fd970" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -5780,6 +5780,36 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "TerminalColorOverrides": {
+    "additional_properties": false,
+    "fields": {
+      "bg": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ColorHex"
+        }
+      },
+      "cursor": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ColorHex"
+        }
+      },
+      "fg": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ColorHex"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "TerminalColors": {
     "additional_properties": false,
     "fields": {
@@ -5824,6 +5854,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "ColorHex"
+        }
+      },
+      "overrides": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "TerminalColorOverrides"
         }
       },
       "palette": {
@@ -11540,6 +11579,15 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "ColorHex"
+        }
+      },
+      "overrides": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "TerminalColorOverrides"
         }
       },
       "palette": {
