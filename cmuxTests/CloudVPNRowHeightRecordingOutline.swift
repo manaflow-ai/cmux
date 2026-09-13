@@ -21,7 +21,7 @@ final class CloudVPNRowHeightRecordingOutline: NSOutlineView {
         return visibleNodes[row]
     }
 
-    override func row(forItem item: Any) -> Int {
+    override func row(forItem item: Any?) -> Int {
         guard let node = item as? CloudTreeNode else { return -1 }
         rowQueries.append(node)
         return visibleNodes.firstIndex { $0 === node } ?? -1
