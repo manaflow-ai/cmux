@@ -104,6 +104,7 @@
     "@opentelemetry/context-async-hooks": "^2.7.1",
     "@playwright/test": "1.62.1",
     "@tailwindcss/postcss": "^4",
+    "@types/bun": "^1.4.2",
     "@types/node": "^20",
     "@types/pg": "^8.20.0",
     "@types/react": "^19",
